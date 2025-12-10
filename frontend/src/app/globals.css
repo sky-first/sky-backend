@@ -148,6 +148,47 @@
   background: hsl(var(--muted-foreground) / 0.5);
 }
 
+/* Custom Scrollbar - Visible on hover */
+.custom-scrollbar-visible::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar-visible::-webkit-scrollbar-track {
+  background: hsl(var(--muted) / 0.3);
+  border-radius: 4px;
+  margin: 4px 0;
+}
+
+.custom-scrollbar-visible::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary) / 0.4);
+  border-radius: 4px;
+  border: 1px solid hsl(var(--border) / 0.5);
+  transition: background 0.2s ease;
+}
+
+.custom-scrollbar-visible::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.6);
+}
+
+/* Custom Scrollbar - Hidden by default */
+.custom-scrollbar-hidden::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar-hidden::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar-hidden::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.custom-scrollbar-hidden::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.3);
+}
+
 /* Smooth gradient animation */
 @keyframes gradient {
   0%, 100% {

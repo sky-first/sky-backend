@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Rnd } from "react-rnd"
+import { motion } from "framer-motion"
 import { useWidgetStore, Widget } from "@/store/widget-store"
 import { useCanvasStore } from "@/store/canvas-store"
 import { usePipelineStore } from "@/store/pipeline-store"
+import { useAIChatboxStore } from "@/store/ai-chatbox-store"
 import { useCanvasLockStore } from "@/store/canvas-lock-store"
 import { useToolbarStore } from "@/store/toolbar-store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,12 +23,20 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
     const { updateWidget, removeWidget, selectWidget, selectedWidgetId, selectedWidgetIds } = useWidgetStore()
     const { scale, snapPosition } = useCanvasStore()
     const { openForWidget } = usePipelineStore()
+    const { openForWidget: openAIChatbox } = useAIChatboxStore()
     const { isLocked } = useCanvasLockStore()
     const { activeTool } = useToolbarStore()
     const [isDragging, setIsDragging] = useState(false)
     const [isResizing, setIsResizing] = useState(false)
     const [localPosition, setLocalPosition] = useState({ x: widget.position.x, y: widget.position.y })
+    const [isNewWidget, setIsNewWidget] = useState(true)
     const isSelected = selectedWidgetId === widget.id || selectedWidgetIds.includes(widget.id)
+    
+    // Mark widget as not new after initial mount
+    useEffect(() => {
+        const timer = setTimeout(() => setIsNewWidget(false), 600)
+        return () => clearTimeout(timer)
+    }, [])
     
     // Handle keyboard delete
     useEffect(() => {
@@ -51,6 +61,18 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
     }, [widget.position.x, widget.position.y, isDragging])
 
     return (
+        <motion.div
+            initial={isNewWidget ? { scale: 0, opacity: 0 } : false}
+            animate={isNewWidget ? { scale: 1, opacity: 1 } : {}}
+            transition={isNewWidget ? {
+                duration: 0.4,
+                ease: "easeOut",
+                type: "spring",
+                stiffness: 200,
+                damping: 20
+            } : {}}
+            style={{ width: '100%', height: '100%' }}
+        >
         <Rnd
             size={{ width: widget.size.width, height: widget.size.height }}
             position={localPosition}
@@ -194,18 +216,14 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                 
                 e.stopPropagation()
                 
-                // Open pipeline overlay on double click
+                // Open AI chatbox on double click with widget information
                 const question = widget.data?.question ?? widget.title ?? ""
                 const answer = widget.data?.answer ?? 
                     (widget.type === 'kpi' ? widget.data?.value ?? "" :
                      widget.type === 'chart' ? "Chart visualization" :
                      widget.type === 'table' ? "Table data" : "")
                 
-                openForWidget({
-                    widgetId: widget.id,
-                    question,
-                    answer,
-                })
+                openAIChatbox(widget.id, question, answer)
             }}
         >
                 {widget.type === 'text' ? (
@@ -291,11 +309,7 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                                 (widget.type === 'kpi' ? widget.data?.value ?? "" :
                                  widget.type === 'chart' ? "Chart visualization" :
                                  widget.type === 'table' ? "Table data" : "")
-                            openForWidget({
-                                widgetId: widget.id,
-                                question,
-                                answer,
-                            })
+                            openAIChatbox(widget.id, question, answer)
                         }}
                     >
                         {widget.type === 'kpi' && (
@@ -307,7 +321,7 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                             </div>
                         )}
                             {widget.type === 'chart' && (
-                                <div className="w-full h-full">
+                                <div className="w-full h-full min-w-0 min-h-0 flex-shrink-0">
                                     <ChartWidget 
                                         chartType={widget.data?.type || 'bar'}
                                         data={widget.data?.data}
@@ -343,5 +357,6 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                 </Card>
             )}
         </Rnd>
+        </motion.div>
     )
 }

@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect, useRef } from "react"
 import { 
     ResponsiveContainer, 
     AreaChart, 
@@ -64,6 +65,40 @@ export function ChartWidget({
 }: ChartWidgetProps) {
     const { theme } = useTheme()
     const isDark = theme === 'dark'
+    const containerRef = useRef<HTMLDivElement>(null)
+    const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+    
+    // Force ResponsiveContainer to recalculate dimensions
+    useEffect(() => {
+        const updateDimensions = () => {
+            if (containerRef.current) {
+                const { width, height } = containerRef.current.getBoundingClientRect()
+                if (width > 0 && height > 0) {
+                    setDimensions({ width, height })
+                }
+            }
+        }
+        
+        updateDimensions()
+        
+        // Use ResizeObserver to detect size changes
+        const resizeObserver = new ResizeObserver(updateDimensions)
+        if (containerRef.current) {
+            resizeObserver.observe(containerRef.current)
+        }
+        
+        // Also update on window resize
+        window.addEventListener('resize', updateDimensions)
+        
+        // Small delay to ensure DOM is ready
+        const timeout = setTimeout(updateDimensions, 100)
+        
+        return () => {
+            resizeObserver.disconnect()
+            window.removeEventListener('resize', updateDimensions)
+            clearTimeout(timeout)
+        }
+    }, [chartType])
 
     // Use custom data if provided, otherwise use default
     const chartData = customData || data
@@ -174,8 +209,16 @@ export function ChartWidget({
     }
 
     return (
-        <ResponsiveContainer width="100%" height="100%">
-            {renderChart()}
-        </ResponsiveContainer>
+        <div ref={containerRef} className="w-full h-full min-w-0 min-h-0" style={{ minWidth: '200px', minHeight: '150px' }}>
+            {dimensions.width > 0 && dimensions.height > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                    {renderChart()}
+                </ResponsiveContainer>
+            ) : (
+                <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
+                    Loading chart...
+                </div>
+            )}
+        </div>
     )
 }
