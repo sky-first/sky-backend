@@ -16,6 +16,7 @@ interface CanvasState {
     resetView: () => void
     snapPosition: (x: number, y: number) => { x: number; y: number }
     getViewportCenter: () => { x: number; y: number }
+    loadSettings: (settings: { scale?: number; position?: { x: number; y: number }; snapToGrid?: boolean; gridSize?: number }) => void
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -52,5 +53,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         const canvasY = (viewportCenterY - position.y) / scale
         
         return { x: canvasX, y: canvasY }
+    },
+    loadSettings: (settings) => {
+        set({
+            scale: settings.scale ?? 1,
+            position: settings.position ?? { x: 0, y: 0 },
+            snapToGrid: settings.snapToGrid ?? false,
+            gridSize: settings.gridSize ?? 24,
+        })
     },
 }))

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Folder, Search, Plus, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -18,21 +18,44 @@ interface SpacesDropdownProps {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   onClose?: () => void
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
 }
 
-export function SpacesDropdown({ isOpen, onOpenChange, onClose }: SpacesDropdownProps) {
+export function SpacesDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, onMouseLeave }: SpacesDropdownProps) {
   const router = useRouter()
   const { spaces, currentSpace, fetchSpaces, setCurrentSpace, isLoading, createSpace } = useSpaceStore()
   const { addRecent } = useRecentsStore()
   const { toggleStar, isStarred } = useStarredStore()
   const [searchQuery, setSearchQuery] = useState("")
   const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     if (isOpen && spaces.length === 0) {
       fetchSpaces().catch(console.error)
     }
   }, [isOpen, spaces.length, fetchSpaces])
+
+  // Cancel timeout when dialog opens and prevent dropdown from closing
+  useEffect(() => {
+    if (showCreateDialog) {
+      // Cancel any pending timeout to keep dropdown open
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+      }
+    }
+  }, [showCreateDialog])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
+  }, [])
 
   const filteredSpaces = spaces.filter((space) =>
     space.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -111,90 +134,223 @@ export function SpacesDropdown({ isOpen, onOpenChange, onClose }: SpacesDropdown
           exit={{ opacity: 0, x: -10 }}
           transition={{ duration: 0.2 }}
           className={cn(
-            "absolute left-full top-0 ml-2 w-64",
+            "w-80 flex flex-col flex-shrink-0",
             "bg-white dark:bg-gray-900",
-            "rounded-xl shadow-xl",
-            "border border-gray-200 dark:border-gray-800",
-            "overflow-hidden z-[60]",
+            "border-l border-gray-200 dark:border-gray-800",
+            "overflow-hidden",
             "pointer-events-auto"
           )}
           onClick={(e) => e.stopPropagation()}
+          onMouseEnter={() => {
+            // Cancel any pending timeout
+            if (timeoutRef.current) {
+              clearTimeout(timeoutRef.current)
+              timeoutRef.current = null
+            }
+            // Call parent handler
+            onMouseEnter?.()
+          }}
+          onMouseLeave={() => {
+            // Don't close dropdown if dialog is open
+            if (showCreateDialog) {
+              return
+            }
+            // Store timeout in local ref so we can cancel it
+            timeoutRef.current = setTimeout(() => {
+              onOpenChange(false)
+            }, 200)
+            // Call parent handler
+            onMouseLeave?.()
+          }}
         >
-          <div className="p-3 space-y-1">
-            {filteredSpaces.slice(0, 5).map((space) => {
-              const starred = isStarred(space.id, 'space')
-              
-              return (
-                <button
-                  key={space.id}
-                  onClick={() => handleSpaceClick(space)}
-                  className={cn(
-                    "w-full text-left px-3 py-2 rounded-lg",
-                    "transition-all duration-200",
-                    "hover:bg-gray-100 dark:hover:bg-gray-800",
-                    "text-gray-700 dark:text-gray-300"
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm flex-1">{space.name}</span>
-                    <button
-                      onClick={(e) => handleStarClick(e, space)}
-                      className={cn(
-                        "p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700",
-                        starred && "text-yellow-500"
-                      )}
-                    >
-                      <Star
-                        className={cn(
-                          "w-3 h-3",
-                          starred ? "fill-yellow-500" : "text-gray-400"
-                        )}
-                      />
-                    </button>
-                  </div>
-                </button>
-              )
-            })}
+          {/* Header */}
+          <div className="p-5 border-b border-gray-200 dark:border-gray-800">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+              Spaces
+            </h2>
             
-            {/* New Space */}
-            <button
-              onClick={() => setShowCreateDialog(true)}
-              className={cn(
-                "w-full text-left px-3 py-2 rounded-lg",
-                "transition-all duration-200",
-                "hover:bg-gray-100 dark:hover:bg-gray-800",
-                "text-blue-600 dark:text-blue-400",
-                "font-medium"
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <Plus className="w-4 h-4" />
-                <span className="text-sm">New Space</span>
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Filter spaces..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={cn(
+                  "pl-9 h-9 w-full rounded-lg border-2 border-blue-500",
+                  "bg-white dark:bg-gray-800",
+                  "text-gray-900 dark:text-white",
+                  "placeholder:text-gray-400 dark:placeholder:text-gray-500",
+                  "focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                )}
+              />
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {/* SPACES Section */}
+            <div className="mb-6">
+              <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 px-2">
+                SPACES
               </div>
-            </button>
-            
-            {/* All Spaces */}
-            <button
-              onClick={handleViewAll}
-              className={cn(
-                "w-full text-left px-3 py-2 rounded-lg",
-                "transition-all duration-200",
-                "hover:bg-gray-100 dark:hover:bg-gray-800",
-                "text-gray-600 dark:text-gray-400",
-                "text-sm"
-              )}
-            >
-              All Spaces
-            </button>
+              <div className="space-y-1">
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                  </div>
+                ) : filteredSpaces.length === 0 ? (
+                  <div className="px-2 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                    No spaces found
+                  </div>
+                ) : (
+                  filteredSpaces.map((space) => {
+                    const starred = isStarred(space.id, 'space')
+                    
+                    return (
+                      <button
+                        key={space.id}
+                        onClick={() => handleSpaceClick(space)}
+                        className={cn(
+                          "w-full text-left px-3 py-2.5 rounded-lg",
+                          "transition-all duration-200",
+                          "hover:bg-gray-50 dark:hover:bg-gray-800",
+                          "flex items-center gap-3 group"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-8 h-8 rounded-full flex items-center justify-center",
+                          "text-white text-xs font-semibold",
+                          space.color === 'blue' && "bg-blue-500",
+                          space.color === 'purple' && "bg-purple-500",
+                          space.color === 'green' && "bg-green-500",
+                          space.color === 'orange' && "bg-orange-500",
+                          space.color === 'red' && "bg-red-500",
+                          space.color === 'pink' && "bg-pink-500",
+                          !space.color && "bg-gray-500"
+                        )}>
+                          {space.icon || space.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                            {space.name}
+                          </div>
+                          {space.description && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              {space.description}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={(e) => handleStarClick(e, space)}
+                          className={cn(
+                            "p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity",
+                            starred && "opacity-100 text-yellow-500"
+                          )}
+                        >
+                          <Star
+                            className={cn(
+                              "w-4 h-4",
+                              starred ? "fill-yellow-500 text-yellow-500" : "text-gray-400"
+                            )}
+                          />
+                        </button>
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="space-y-1 pt-4 border-t border-gray-200 dark:border-gray-800">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowCreateDialog(true)
+                }}
+                className={cn(
+                  "w-full text-left px-3 py-2 rounded-lg",
+                  "transition-all duration-200",
+                  "hover:bg-gray-50 dark:hover:bg-gray-800",
+                  "text-blue-600 dark:text-blue-400",
+                  "font-medium text-sm",
+                  "flex items-center gap-2"
+                )}
+              >
+                <Plus className="w-4 h-4" />
+                New Space
+              </button>
+              
+              <button
+                onClick={handleViewAll}
+                className={cn(
+                  "w-full text-left px-3 py-2 rounded-lg",
+                  "transition-all duration-200",
+                  "hover:bg-gray-50 dark:hover:bg-gray-800",
+                  "text-gray-600 dark:text-gray-400",
+                  "text-sm"
+                )}
+              >
+                View all spaces
+              </button>
+            </div>
           </div>
         </motion.div>
       )}
     </AnimatePresence>
     
     {/* Create Space Dialog */}
-    <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
+    <Dialog 
+      open={showCreateDialog} 
+      onOpenChange={(open) => {
+        setShowCreateDialog(open)
+        // When dialog closes, cancel any pending timeout
+        if (!open && timeoutRef.current) {
+          clearTimeout(timeoutRef.current)
+          timeoutRef.current = null
+        }
+      }}
+    >
+      <DialogContent 
+        className="max-w-md"
+        onInteractOutside={(e) => {
+          // Check if the click is actually outside the dialog content
+          const target = e.target as HTMLElement
+          const dialogContent = target.closest('[data-slot="dialog-content"]')
+          
+          // If clicking inside the dialog content, prevent closing
+          if (dialogContent) {
+            e.preventDefault()
+          }
+          // Otherwise, allow normal behavior (closing when clicking outside)
+        }}
+        onPointerDownOutside={(e) => {
+          // Check if the click is actually outside the dialog content
+          const target = e.target as HTMLElement
+          const dialogContent = target.closest('[data-slot="dialog-content"]')
+          
+          // If clicking inside the dialog content, prevent closing
+          if (dialogContent) {
+            e.preventDefault()
+          }
+          // Otherwise, allow normal behavior (closing when clicking outside)
+        }}
+        onClick={(e) => {
+          // Stop propagation to prevent any parent handlers from closing the dialog
+          // when clicking inside the dialog content
+          e.stopPropagation()
+        }}
+        onMouseDown={(e) => {
+          // Stop propagation on mouse down as well
+          e.stopPropagation()
+        }}
+      >
+        <DialogHeader
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <DialogTitle className="flex items-center gap-2">
             <Folder className="w-5 h-5 text-blue-500" />
             Create New Space
@@ -204,8 +360,19 @@ export function SpacesDropdown({ isOpen, onOpenChange, onClose }: SpacesDropdown
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleCreateSpaceSubmit} className="space-y-4">
-          <div className="space-y-2">
+        <form 
+          onSubmit={handleCreateSpaceSubmit} 
+          className="space-y-4"
+          onClick={(e) => {
+            // Stop propagation to prevent closing dialog when clicking inside form
+            e.stopPropagation()
+          }}
+        >
+          <div 
+            className="space-y-2"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <label htmlFor="space-name" className="text-sm font-medium">
               Name <span className="text-red-500">*</span>
             </label>
@@ -213,6 +380,8 @@ export function SpacesDropdown({ isOpen, onOpenChange, onClose }: SpacesDropdown
               id="space-name"
               value={spaceFormData.name}
               onChange={(e) => setSpaceFormData({ ...spaceFormData, name: e.target.value })}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
               placeholder="Ex: Marketing System"
               maxLength={255}
               required
@@ -221,7 +390,11 @@ export function SpacesDropdown({ isOpen, onOpenChange, onClose }: SpacesDropdown
             />
           </div>
 
-          <div className="space-y-2">
+          <div 
+            className="space-y-2"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <label htmlFor="space-description" className="text-sm font-medium">
               Description <span className="text-gray-400 text-xs">(optional)</span>
             </label>
@@ -229,6 +402,8 @@ export function SpacesDropdown({ isOpen, onOpenChange, onClose }: SpacesDropdown
               id="space-description"
               value={spaceFormData.description}
               onChange={(e) => setSpaceFormData({ ...spaceFormData, description: e.target.value })}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
               placeholder="Describe the purpose of this space..."
               rows={3}
               disabled={isLoading}
@@ -245,7 +420,8 @@ export function SpacesDropdown({ isOpen, onOpenChange, onClose }: SpacesDropdown
             <Button
               type="button"
               variant="outline"
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation()
                 setShowCreateDialog(false)
                 setSpaceFormData({ name: "", description: "" })
                 setSpaceError(null)
@@ -256,6 +432,7 @@ export function SpacesDropdown({ isOpen, onOpenChange, onClose }: SpacesDropdown
             </Button>
             <Button
               type="submit"
+              onClick={(e) => e.stopPropagation()}
               disabled={isLoading || !spaceFormData.name.trim()}
               className="gap-2"
             >

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type StarredType = 'planet' | 'space'
+export type StarredType = 'planet' | 'space' | 'crew'
 
 export interface StarredItem {
   id: string

@@ -5,6 +5,7 @@ import { useCanvasStore } from "@/store/canvas-store"
 import { useSidebarStore } from "@/store/sidebar-store"
 import { useWidgetStore, Widget } from "@/store/widget-store"
 import { useToolbarStore } from "@/store/toolbar-store"
+import { useDashboardStore } from "@/store/dashboard-store"
 import { Toolbar } from "@/components/dashboard/toolbar"
 import { CanvasControls } from "@/components/dashboard/canvas-controls"
 import { AISearchBar } from "@/components/dashboard/ai-search-bar"
@@ -20,22 +21,56 @@ export function Canvas({ children }: { children: React.ReactNode }) {
     const containerRef = useRef<HTMLDivElement>(null)
     const dragStartRef = useRef<{ x: number; y: number; startPosition: { x: number; y: number } } | null>(null)
     const [selectionBox, setSelectionBox] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null)
-    const { scale, position, setPosition, zoomIn, zoomOut, resetView, isDragging, setIsDragging, snapPosition, getViewportCenter } = useCanvasStore()
+    const { scale, position, setPosition, zoomIn, zoomOut, resetView, isDragging, setIsDragging, snapPosition, getViewportCenter, snapToGrid, gridSize } = useCanvasStore()
     const { isOpen: isSidebarOpen } = useSidebarStore()
     const { selectWidget, addWidget, widgets, selectWidgets, removeWidgets, selectedWidgetIds, connections } = useWidgetStore()
     const { activeTool, setActiveTool } = useToolbarStore()
     const { openForWidget } = usePipelineStore()
     const { setIsOpen: setAIHistoryOpen } = useAIHistoryStore()
+    const { currentDashboard, updateDashboard } = useDashboardStore()
     const { theme, resolvedTheme } = useTheme()
     const currentTheme = resolvedTheme || theme || 'light'
     const isSelectionMode = activeTool === 'mouse'
     const lastClickRef = useRef<number>(0)
+    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     
     // Ref para acesso atualizado aos widgets dentro dos event listeners
     const widgetsRef = useRef(widgets)
     useEffect(() => {
         widgetsRef.current = widgets
     }, [widgets])
+
+    // Save canvas settings to backend with debounce
+    useEffect(() => {
+        if (!currentDashboard?.id) return
+        
+        // Clear existing timeout
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current)
+        }
+        
+        // Set new timeout to save after 1 second of inactivity
+        saveTimeoutRef.current = setTimeout(async () => {
+            try {
+                await updateDashboard(currentDashboard.id, {
+                    canvas_settings: {
+                        scale,
+                        position,
+                        snapToGrid,
+                        gridSize,
+                    },
+                })
+            } catch (error) {
+                console.error('Error saving canvas settings:', error)
+            }
+        }, 1000)
+        
+        return () => {
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current)
+            }
+        }
+    }, [scale, position, snapToGrid, gridSize, currentDashboard?.id, updateDashboard])
 
     const handleWheel = (e: React.WheelEvent) => {
         if (e.ctrlKey || e.metaKey) {
@@ -125,7 +160,7 @@ export function Canvas({ children }: { children: React.ReactNode }) {
             onMouseDown={(e) => {
                 // Don't start pan if sidebar is open
                 if (isSidebarOpen) return
-                
+
                 const target = e.target as HTMLElement
                 const isAISearchBar = target.closest('form') || target.closest('input') || target.closest('button[type="submit"]')
                 const isControlButton = target.closest('button') && (target.closest('.absolute') || target.closest('[class*="z-50"]'))
@@ -135,7 +170,7 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                 const isWidgetActionButton = target.closest('.widget-action-button')
                 const isCard = target.closest('[data-slot="card"]') || target.closest('[class*="card"]')
                 const isWidgetContainer = target.closest('[class*="react-rnd"]') || target.closest('[data-widget-id]')
-                
+
                 // Handle Selection Mode
                 if (activeTool === 'mouse') {
                     // If clicking on interactive elements, let them handle it
@@ -149,49 +184,51 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                     const canvasElement = e.currentTarget as HTMLElement
                     const gridContainer = canvasElement.querySelector('.canvas-grid') as HTMLElement
                     if (!gridContainer) return
-                    
+
                     const gridRect = gridContainer.getBoundingClientRect()
                     // Calculate start position in canvas coordinates
                     const startX = (e.clientX - gridRect.left - position.x) / scale
                     const startY = (e.clientY - gridRect.top - position.y) / scale
                     const startPoint = { x: startX, y: startY }
-                    
+
                     // Start selection box UI
                     setSelectionBox({ start: startPoint, end: startPoint })
                     // Clear previous selection
                     selectWidget(null)
                     selectWidgets([])
-                    
+
                     // Define move handler directly attached to window to avoid stale closures
                     const handleSelectionMove = (moveEvent: MouseEvent) => {
                         moveEvent.preventDefault()
-                        
+
                         const currentX = (moveEvent.clientX - gridRect.left - position.x) / scale
                         const currentY = (moveEvent.clientY - gridRect.top - position.y) / scale
                         const endPoint = { x: currentX, y: currentY }
-                        
+
                         // Update box UI
                         setSelectionBox({ start: startPoint, end: endPoint })
-                        
+
                         // Calculate selection intersection
                         const left = Math.min(startPoint.x, endPoint.x)
                         const top = Math.min(startPoint.y, endPoint.y)
                         const right = Math.max(startPoint.x, endPoint.x)
                         const bottom = Math.max(startPoint.y, endPoint.y)
-                        
+
                         // Use widgetsRef to access current widgets state
-                        const selectedIds = widgetsRef.current.filter((widget) => {
-                            const widgetLeft = widget.position.x
-                            const widgetTop = widget.position.y
-                            const widgetRight = widget.position.x + widget.size.width
-                            const widgetBottom = widget.position.y + widget.size.height
-                            
-                            return widgetLeft < right && widgetRight > left && widgetTop < bottom && widgetBottom > top
-                        }).map((w) => w.id)
-                        
+                        const selectedIds = widgetsRef.current
+                            .filter((widget) => {
+                                const widgetLeft = widget.position.x
+                                const widgetTop = widget.position.y
+                                const widgetRight = widget.position.x + widget.size.width
+                                const widgetBottom = widget.position.y + widget.size.height
+
+                                return widgetLeft < right && widgetRight > left && widgetTop < bottom && widgetBottom > top
+                            })
+                            .map((w) => w.id)
+
                         selectWidgets(selectedIds)
                     }
-                    
+
                     // Define up handler to cleanup
                     const handleSelectionUp = () => {
                         window.removeEventListener('mousemove', handleSelectionMove)
@@ -199,54 +236,66 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                         // Clear box but keep selection
                         setSelectionBox(null)
                     }
-                    
+
                     // Attach listeners
                     window.addEventListener('mousemove', handleSelectionMove)
                     window.addEventListener('mouseup', handleSelectionUp)
-                    
+
                     return
                 }
-                
+
                 // If active tool is selected (creation mode), create widget at click position
-                if (activeTool && activeTool !== 'mouse' && !isAISearchBar && !isControlButton && !isTextWidget && !isRndWidget && !isToolbar && !isWidgetActionButton && !isCard && !isWidgetContainer) {
+                if (
+                    activeTool &&
+                    activeTool !== 'mouse' &&
+                    !isAISearchBar &&
+                    !isControlButton &&
+                    !isTextWidget &&
+                    !isRndWidget &&
+                    !isToolbar &&
+                    !isWidgetActionButton &&
+                    !isCard &&
+                    !isWidgetContainer
+                ) {
                     e.preventDefault()
                     e.stopPropagation()
-                    
+
                     const canvasElement = e.currentTarget as HTMLElement
                     const gridContainer = canvasElement.querySelector('.canvas-grid') as HTMLElement
                     if (!gridContainer) return
-                    
+
                     const gridRect = gridContainer.getBoundingClientRect()
                     // Calculate position in canvas coordinates (accounting for transform and scale)
                     const x = (e.clientX - gridRect.left - position.x) / scale
                     const y = (e.clientY - gridRect.top - position.y) / scale
                     const finalPosition = snapPosition(x, y)
-                    
+
                     if (activeTool === 'text') {
                         const newWidget = {
                             type: 'text' as const,
                             title: 'Text',
                             position: finalPosition,
                             size: { width: 300, height: 100 },
-                            data: { 
+                            data: {
                                 content: '',
                                 fontFamily: 'Noto Sans',
                                 fontSize: 16,
                                 fontWeight: 'normal',
                                 textAlign: 'left',
-                                textColor: currentTheme === 'dark' ? '#ffffff' : '#000000'
-                            }
+                                textColor: currentTheme === 'dark' ? '#ffffff' : '#000000',
+                            },
                         }
-                        addWidget(newWidget).then((widgetId) => {
-                            // Open pipeline overlay after widget is created
-                            setTimeout(() => {
-                                openForWidget({
-                                    widgetId: widgetId || '',
-                                    question: 'Text',
-                                    answer: ''
-                                })
-                            }, 100)
-                        }).catch(console.error)
+                        addWidget(newWidget)
+                            .then((widgetId) => {
+                                setTimeout(() => {
+                                    openForWidget({
+                                        widgetId: widgetId || '',
+                                        question: 'Text',
+                                        answer: '',
+                                    })
+                                }, 100)
+                            })
+                            .catch(console.error)
                         setActiveTool(null)
                     } else if (activeTool === 'kpi') {
                         const newWidget = {
@@ -254,20 +303,22 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                             title: 'KPI',
                             position: finalPosition,
                             size: { width: 300, height: 150 },
-                            data: { 
+                            data: {
                                 value: '0',
-                                change: '0%'
-                            }
+                                change: '0%',
+                            },
                         }
-                        addWidget(newWidget).then((widgetId) => {
-                            setTimeout(() => {
-                                openForWidget({
-                                    widgetId: widgetId || '',
-                                    question: 'KPI',
-                                    answer: '0'
-                                })
-                            }, 100)
-                        }).catch(console.error)
+                        addWidget(newWidget)
+                            .then((widgetId) => {
+                                setTimeout(() => {
+                                    openForWidget({
+                                        widgetId: widgetId || '',
+                                        question: 'KPI',
+                                        answer: '0',
+                                    })
+                                }, 100)
+                            })
+                            .catch(console.error)
                         setActiveTool(null)
                     } else if (activeTool === 'table') {
                         const newWidget = {
@@ -275,22 +326,24 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                             title: 'Table',
                             position: finalPosition,
                             size: { width: 500, height: 300 },
-                            data: { 
-                                value: '0', 
+                            data: {
+                                value: '0',
                                 change: '0%',
                                 columns: ['Column 1', 'Column 2', 'Column 3'],
-                                rows: []
-                            }
+                                rows: [],
+                            },
                         }
-                        addWidget(newWidget).then((widgetId) => {
-                            setTimeout(() => {
-                                openForWidget({
-                                    widgetId: widgetId || '',
-                                    question: 'Table',
-                                    answer: 'Table data'
-                                })
-                            }, 100)
-                        }).catch(console.error)
+                        addWidget(newWidget)
+                            .then((widgetId) => {
+                                setTimeout(() => {
+                                    openForWidget({
+                                        widgetId: widgetId || '',
+                                        question: 'Table',
+                                        answer: 'Table data',
+                                    })
+                                }, 100)
+                            })
+                            .catch(console.error)
                         setActiveTool(null)
                     } else if (activeTool.startsWith('chart-')) {
                         const chartType = activeTool.replace('chart-', '') as 'bar' | 'pie' | 'line' | 'scatter'
@@ -299,30 +352,41 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                             title: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart`,
                             position: finalPosition,
                             size: { width: 400, height: 300 },
-                            data: { 
+                            data: {
                                 type: chartType,
                                 series: [0, 0, 0, 0, 0],
-                                labels: ['A', 'B', 'C', 'D', 'E']
-                            }
+                                labels: ['A', 'B', 'C', 'D', 'E'],
+                            },
                         }
-                        addWidget(newWidget).then((widgetId) => {
-                            setTimeout(() => {
-                                openForWidget({
-                                    widgetId: widgetId || '',
-                                    question: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart`,
-                                    answer: 'Chart visualization'
-                                })
-                            }, 100)
-                        }).catch(console.error)
+                        addWidget(newWidget)
+                            .then((widgetId) => {
+                                setTimeout(() => {
+                                    openForWidget({
+                                        widgetId: widgetId || '',
+                                        question: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart`,
+                                        answer: 'Chart visualization',
+                                    })
+                                }, 100)
+                            })
+                            .catch(console.error)
                         setActiveTool(null)
                     }
                     return
                 }
-                
+
                 // Only allow canvas pan if clicking on empty space (not on widgets, cards, or interactive elements)
-                // Check if we're clicking directly on the canvas background, not on any widget
                 // Don't pan if in selection mode
-                if (!isSelectionMode && !isAISearchBar && !isControlButton && !isTextWidget && !isRndWidget && !isToolbar && !isWidgetActionButton && !isCard && !isWidgetContainer) {
+                if (
+                    !isSelectionMode &&
+                    !isAISearchBar &&
+                    !isControlButton &&
+                    !isTextWidget &&
+                    !isRndWidget &&
+                    !isToolbar &&
+                    !isWidgetActionButton &&
+                    !isCard &&
+                    !isWidgetContainer
+                ) {
                     // Handle double click to open sidebar
                     const now = Date.now()
                     if (now - lastClickRef.current < 300) {
@@ -332,14 +396,14 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                         return
                     }
                     lastClickRef.current = now
-                    
+
                     // Deselect widget when clicking on canvas
                     selectWidget(null)
-                    
+
                     dragStartRef.current = {
                         x: e.clientX,
                         y: e.clientY,
-                        startPosition: { ...position }
+                        startPosition: { ...position },
                     }
                     setIsDragging(true)
                 }
@@ -374,22 +438,14 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                 <div className="relative" style={{ width: '500%', height: '500%' }}>
                     {children}
                 </div>
-                
+
                 {/* Selection Box - Inside canvas transform */}
                 {selectionBox && (
-                    <SelectionBox
-                        start={selectionBox.start}
-                        end={selectionBox.end}
-                        visible={true}
-                    />
+                    <SelectionBox start={selectionBox.start} end={selectionBox.end} visible={true} />
                 )}
-                
+
                 {/* Connection Lines */}
-                <svg
-                    className="absolute inset-0 pointer-events-none z-20"
-                    style={{ width: '500%', height: '500%' }}
-                >
-                    {/* Permanent connections */}
+                <svg className="absolute inset-0 pointer-events-none z-20" style={{ width: '500%', height: '500%' }}>
                     {connections.map((connection) => {
                         const fromWidget = widgets.find((w) => w.id === connection.from)
                         const toWidget = widgets.find((w) => w.id === connection.to)
@@ -404,7 +460,6 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                             />
                         )
                     })}
-                    
                 </svg>
             </div>
         </div>

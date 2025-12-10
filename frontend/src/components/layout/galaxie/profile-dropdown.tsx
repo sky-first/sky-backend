@@ -1,7 +1,7 @@
 "use client"
 
 import { motion, AnimatePresence } from "framer-motion"
-import { User, Settings, Users, LogOut } from "lucide-react"
+import { User, LogOut } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useUserStore } from "@/store/user-store"
 import { cn } from "@/lib/utils"
@@ -14,7 +14,7 @@ interface ProfileDropdownProps {
 
 export function ProfileDropdown({ isOpen, onOpenChange, onClose }: ProfileDropdownProps) {
   const router = useRouter()
-  const { logout } = useUserStore()
+  const { logout, user } = useUserStore()
 
   const handleLogout = async () => {
     await logout()
@@ -23,16 +23,10 @@ export function ProfileDropdown({ isOpen, onOpenChange, onClose }: ProfileDropdo
     router.push("/login")
   }
 
-  const handleSettings = () => {
+  const handleProfile = () => {
     onOpenChange(false)
     onClose?.()
     router.push("/dashboard/settings")
-  }
-
-  const handleCrewsTeams = () => {
-    onOpenChange(false)
-    onClose?.()
-    router.push("/dashboard/settings?tab=crews")
   }
 
   if (!isOpen) return null
@@ -41,12 +35,12 @@ export function ProfileDropdown({ isOpen, onOpenChange, onClose }: ProfileDropdo
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -10 }}
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.2 }}
           className={cn(
-            "absolute left-full top-0 ml-2 w-64",
+            "absolute right-0 top-full mt-3 w-64",
             "bg-white dark:bg-gray-900",
             "rounded-xl shadow-xl",
             "border border-gray-200 dark:border-gray-800",
@@ -57,7 +51,7 @@ export function ProfileDropdown({ isOpen, onOpenChange, onClose }: ProfileDropdo
         >
           <div className="p-3 space-y-1">
             <button
-              onClick={handleSettings}
+              onClick={handleProfile}
               className={cn(
                 "w-full text-left px-3 py-2 rounded-lg",
                 "hover:bg-gray-100 dark:hover:bg-gray-800",
@@ -65,21 +59,8 @@ export function ProfileDropdown({ isOpen, onOpenChange, onClose }: ProfileDropdo
                 "flex items-center gap-2"
               )}
             >
-              <Settings className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Settings</span>
-            </button>
-            
-            <button
-              onClick={handleCrewsTeams}
-              className={cn(
-                "w-full text-left px-3 py-2 rounded-lg",
-                "hover:bg-gray-100 dark:hover:bg-gray-800",
-                "transition-all duration-200",
-                "flex items-center gap-2"
-              )}
-            >
-              <Users className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Crews & Teams</span>
+              <User className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              <span className="text-sm text-gray-700 dark:text-gray-300">Profile</span>
             </button>
             
             <div className="h-px my-1 bg-gray-200 dark:bg-gray-700" />

@@ -6,7 +6,7 @@ Use estas credenciais para fazer login no sistema:
 
 ```
 Email: test@example.com
-Password: test123
+Password: Test@2024!Secure
 ```
 
 **✅ Status:** Usuário criado e pronto para uso!
@@ -14,8 +14,8 @@ Password: test123
 ## 🌐 URLs de Acesso
 
 - **Frontend:** http://localhost:3000
-- **Backend API:** http://localhost:8000
-- **API Docs:** http://localhost:8000/docs
+- **Backend API:** http://localhost:8001
+- **API Docs:** http://localhost:8001/docs
 
 ## 📝 Como Fazer Login
 
@@ -23,7 +23,7 @@ Password: test123
 2. Você será redirecionado para a página de login
 3. Digite:
    - **Email:** `test@example.com`
-   - **Password:** `test123`
+   - **Password:** `Test@2024!Secure`
 4. Clique em "Login" ou pressione Enter
 
 ## ✅ Verificação
@@ -34,11 +34,12 @@ Após o login, você deve:
 - Poder criar workspaces, dashboards, etc.
 
 **✅ Status do Sistema:**
-- ✅ Backend rodando em http://localhost:8000
-- ✅ PostgreSQL rodando na porta 5433 (mapeada de 5432)
+- ✅ Backend rodando em http://localhost:8001
+- ✅ PostgreSQL rodando na porta 5433 (servidor remoto: 44.197.200.153)
 - ✅ Redis rodando na porta 6379
 - ✅ Login funcionando corretamente
 - ✅ Tokens JWT sendo gerados com sucesso
+- ✅ Senha atualizada para versão mais segura
 
 ## 🔧 Criar Novo Usuário
 
@@ -52,7 +53,7 @@ docker-compose exec backend python scripts/create-test-user.py
 Ou crie manualmente via API:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/register \
+curl -X POST http://localhost:8001/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "email": "novo@example.com",

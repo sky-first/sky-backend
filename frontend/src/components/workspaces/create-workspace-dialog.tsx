@@ -114,8 +114,44 @@ export function CreatePlanetDialog({ open, onOpenChange }: CreatePlanetDialogPro
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="max-w-md">
-                <DialogHeader>
+            <DialogContent 
+                className="max-w-md"
+                onInteractOutside={(e) => {
+                    // Check if the click is actually outside the dialog content
+                    const target = e.target as HTMLElement
+                    const dialogContent = target.closest('[data-slot="dialog-content"]')
+                    
+                    // If clicking inside the dialog content, prevent closing
+                    if (dialogContent) {
+                        e.preventDefault()
+                    }
+                    // Otherwise, allow normal behavior (closing when clicking outside)
+                }}
+                onPointerDownOutside={(e) => {
+                    // Check if the click is actually outside the dialog content
+                    const target = e.target as HTMLElement
+                    const dialogContent = target.closest('[data-slot="dialog-content"]')
+                    
+                    // If clicking inside the dialog content, prevent closing
+                    if (dialogContent) {
+                        e.preventDefault()
+                    }
+                    // Otherwise, allow normal behavior (closing when clicking outside)
+                }}
+                onClick={(e) => {
+                    // Stop propagation to prevent any parent handlers from closing the dialog
+                    // when clicking inside the dialog content
+                    e.stopPropagation()
+                }}
+                onMouseDown={(e) => {
+                    // Stop propagation on mouse down as well
+                    e.stopPropagation()
+                }}
+            >
+                <DialogHeader
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
                     <DialogTitle className="flex items-center gap-2">
                         <Sparkles className="w-5 h-5 text-blue-500" />
                         Criar Novo Planet
@@ -125,7 +161,14 @@ export function CreatePlanetDialog({ open, onOpenChange }: CreatePlanetDialogPro
                     </DialogDescription>
                 </DialogHeader>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form 
+                    onSubmit={handleSubmit} 
+                    className="space-y-4"
+                    onClick={(e) => {
+                        // Stop propagation to prevent closing dialog when clicking inside form
+                        e.stopPropagation()
+                    }}
+                >
                     {/* Nome */}
                     <div className="space-y-2">
                         <label htmlFor="name" className="text-sm font-medium">
@@ -135,6 +178,8 @@ export function CreatePlanetDialog({ open, onOpenChange }: CreatePlanetDialogPro
                             id="name"
                             value={name}
                             onChange={(e) => setName(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
                             placeholder="Ex: Meu Projeto"
                             maxLength={255}
                             required
@@ -152,6 +197,8 @@ export function CreatePlanetDialog({ open, onOpenChange }: CreatePlanetDialogPro
                             id="description"
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
                             placeholder="Descreva o propósito deste planet..."
                             rows={3}
                             disabled={isLoading}
@@ -159,12 +206,19 @@ export function CreatePlanetDialog({ open, onOpenChange }: CreatePlanetDialogPro
                     </div>
 
                     {/* Tipo */}
-                    <div className="space-y-2">
+                    <div 
+                        className="space-y-2"
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
                         <label className="text-sm font-medium">Tipo</label>
                         <div className="flex gap-3">
                             <button
                                 type="button"
-                                onClick={() => handleTypeChange('personal')}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleTypeChange('personal')
+                                }}
                                 className={cn(
                                     "flex-1 flex items-center gap-2 p-3 rounded-lg border-2 transition-all",
                                     type === 'personal'
@@ -196,7 +250,10 @@ export function CreatePlanetDialog({ open, onOpenChange }: CreatePlanetDialogPro
 
                             <button
                                 type="button"
-                                onClick={() => handleTypeChange('team')}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleTypeChange('team')
+                                }}
                                 className={cn(
                                     "flex-1 flex items-center gap-2 p-3 rounded-lg border-2 transition-all",
                                     type === 'team'
@@ -229,14 +286,23 @@ export function CreatePlanetDialog({ open, onOpenChange }: CreatePlanetDialogPro
                     </div>
 
                     {/* Cor */}
-                    <div className="space-y-3">
+                    <div 
+                        className="space-y-3"
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
                         <div className="flex items-center justify-between">
                             <label className="text-sm font-medium">Cor</label>
                             <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
                                 <input
                                     type="checkbox"
                                     checked={autoColor}
-                                    onChange={(e) => setAutoColor(e.target.checked)}
+                                    onChange={(e) => {
+                                        e.stopPropagation()
+                                        setAutoColor(e.target.checked)
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onMouseDown={(e) => e.stopPropagation()}
                                     disabled={isLoading}
                                     className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
                                 />
@@ -250,7 +316,10 @@ export function CreatePlanetDialog({ open, onOpenChange }: CreatePlanetDialogPro
                                     <button
                                         key={color.name}
                                         type="button"
-                                        onClick={() => setSelectedColor(color.name)}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            setSelectedColor(color.name)
+                                        }}
                                         disabled={isLoading}
                                         className={cn(
                                             "relative aspect-square rounded-lg border-2 transition-all",
@@ -298,13 +367,17 @@ export function CreatePlanetDialog({ open, onOpenChange }: CreatePlanetDialogPro
                         <Button
                             type="button"
                             variant="outline"
-                            onClick={() => handleOpenChange(false)}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                handleOpenChange(false)
+                            }}
                             disabled={isLoading}
                         >
                             Cancelar
                         </Button>
                         <Button
                             type="submit"
+                            onClick={(e) => e.stopPropagation()}
                             disabled={isLoading || !name.trim()}
                             className="gap-2"
                         >

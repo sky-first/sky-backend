@@ -66,13 +66,19 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Initialize database (create tables)."""
+    """
+    Initialize database.
+    For Postgres (and other non-SQLite), schema is managed by Alembic migrations,
+    so we skip create_all to avoid duplicate object/type errors.
+    For SQLite (dev/testing), we still create_all.
+    """
     # Invalidate any stale connections in the pool
-    # This ensures we use fresh connections after schema changes
     await engine.dispose()
-    
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+
+    # Only auto-create tables for SQLite; for Postgres use migrations
+    if "sqlite" in settings.DATABASE_URL.lower():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db() -> None:

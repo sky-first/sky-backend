@@ -84,12 +84,19 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
             content={"error": "API Error", "message": e.message},
         )
     except Exception as e:
-        logger.exception(f"Unhandled exception: {str(e)}")
+        # Log full exception details for debugging
+        import traceback
+        error_traceback = traceback.format_exc()
+        logger.exception(f"Unhandled exception: {str(e)}\n{error_traceback}")
+        # In development, return more details
+        from src.config.settings import settings
+        error_message = str(e) if settings.DEBUG else "An unexpected error occurred"
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": "Internal Server Error",
-                "message": "An unexpected error occurred",
+                "message": error_message,
+                "details": error_traceback if settings.DEBUG else None,
             },
         )
 

@@ -53,8 +53,29 @@ class DashboardService:
 
         Returns:
             DashboardResponse: Created dashboard
+
+        Raises:
+            NotFoundError: If planet not found
+            ForbiddenError: If user doesn't have access to planet
         """
-        # TODO: Check planet access
+        # Verify planet exists and user has access
+        from src.repositories.planet import PlanetRepository
+        planet_repo = PlanetRepository(self.db)
+        planet = await planet_repo.get_by_id(dashboard_data.planet_id)
+        
+        if not planet or planet.deleted_at:
+            raise NotFoundError(f"Planet with id {dashboard_data.planet_id} not found")
+        
+        # Check if user has access to this planet
+        if planet.owner_id != user.id:
+            from src.repositories.planet import PlanetMemberRepository
+            member_repo = PlanetMemberRepository(self.db)
+            member = await member_repo.get_by_planet_and_user(
+                dashboard_data.planet_id, user.id
+            )
+            if not member:
+                raise ForbiddenError("Access denied to this planet")
+        
         dashboard = await self.dashboard_repo.create(
             name=dashboard_data.name,
             description=dashboard_data.description,

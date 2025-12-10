@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type RecentType = 'planet' | 'space'
+export type RecentType = 'planet' | 'space' | 'crew'
 
 export interface RecentItem {
   id: string

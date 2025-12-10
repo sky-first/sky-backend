@@ -47,6 +47,11 @@ export const useDashboardStore = create<DashboardState>()(
             },
 
             fetchDashboard: async (dashboardId) => {
+                if (!dashboardId || dashboardId === 'null' || dashboardId === 'undefined') {
+                    const error = new Error('Invalid dashboard id')
+                    console.error(error)
+                    throw error
+                }
                 set({ isLoading: true, error: null })
                 try {
                     const dashboard = await dashboardsApi.getDashboard(dashboardId)

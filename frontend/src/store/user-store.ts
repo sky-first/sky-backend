@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { authApi, type UserResponse } from '@/lib/api/auth'
+import { SessionExpiredError } from '@/lib/api/client'
 
 interface UserState {
     isAuthenticated: boolean
@@ -89,7 +90,25 @@ export const useUserStore = create<UserState>()(
                         hasCompletedOnboarding: user.has_completed_onboarding || false,
                     })
                 } catch (error) {
-                    // Session invalid, clear state
+                    // Session invalid or not authenticated - this is expected behavior
+                    // Don't log as error since it's normal when user is not logged in
+                    const isSessionExpired = error instanceof SessionExpiredError;
+                    const isUnauthorized = error instanceof Error && 
+                        (error.message.includes('not authenticated') || 
+                         error.message.includes('Unauthorized') ||
+                         (error as any).response?.status === 401)
+                    
+                    if (isSessionExpired) {
+                        // Session expired - clear state silently (will redirect to login via layout)
+                        if (process.env.NODE_ENV === 'development') {
+                            console.log('ℹ️ Session expired, clearing state');
+                        }
+                    } else if (!isUnauthorized && process.env.NODE_ENV === 'development') {
+                        // Only log non-401 errors
+                        console.warn('Session check failed:', error)
+                    }
+                    
+                    // Clear state silently for 401 errors and session expired (expected)
                     set({ 
                         isAuthenticated: false, 
                         user: null,

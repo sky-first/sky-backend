@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { planetsApi, type Planet as ApiPlanet, type PlanetCreate } from '@/lib/api/planets'
 import { hexToColorName, colorNameToHex } from '@/lib/utils/planet-colors'
+import { SessionExpiredError } from '@/lib/api/client'
 
 export interface Planet {
     id: string
@@ -112,7 +113,21 @@ export const usePlanetStore = create<PlanetState>()(
                         isLoading: false 
                     })
                 } catch (error) {
-                    console.error('Error fetching planets:', error)
+                    // Don't log session expired errors - they're expected and handled by user-store
+                    if (error instanceof SessionExpiredError) {
+                        // Session expired - clear planets silently (user will be redirected to login)
+                        set({ 
+                            planets: [],
+                            currentPlanet: null,
+                            isLoading: false 
+                        })
+                        return
+                    }
+                    
+                    // Log other errors
+                    if (process.env.NODE_ENV === 'development') {
+                        console.error('Error fetching planets:', error)
+                    }
                     set({ 
                         error: error instanceof Error ? error.message : 'Failed to fetch planets',
                         isLoading: false 

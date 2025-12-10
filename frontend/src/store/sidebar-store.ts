@@ -10,7 +10,7 @@ interface SidebarState {
 export const useSidebarStore = create<SidebarState>()(
     persist(
         (set) => ({
-            isOpen: true, // Open by default on desktop
+            isOpen: false, // Closed by default - opens on hover/click
             setIsOpen: (isOpen) => set({ isOpen }),
             toggle: () => set((state) => ({ isOpen: !state.isOpen })),
         }),

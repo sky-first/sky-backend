@@ -49,14 +49,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Setup middleware (order matters!)
-app.middleware("http")(error_handler.error_handler_middleware)
-app.middleware("http")(logging_middleware.logging_middleware)
-app.middleware("http")(rate_limit.rate_limit_middleware)
-app.middleware("http")(auth.auth_middleware)
-
-# Setup CORS
+# Setup CORS FIRST (before other middlewares)
+# CORS uses add_middleware which executes in normal order (first added = first executed)
 cors.setup_cors(app)
+
+# Setup HTTP middlewares
+# IMPORTANT: In FastAPI, middleware added with app.middleware("http")() executes in REVERSE order
+# So we add them in REVERSE order of desired execution:
+# Desired execution order:
+# 1. auth (FIRST - sets request.state.user_id)
+# 2. rate_limit (needs user_id from auth)
+# 3. logging
+# 4. error_handler (LAST - catches exceptions)
+#
+# So we add them as: error_handler, logging, rate_limit, auth (reverse order)
+app.middleware("http")(error_handler.error_handler_middleware)  # Added 1st, executes LAST
+app.middleware("http")(logging_middleware.logging_middleware)    # Added 2nd, executes 3rd
+app.middleware("http")(rate_limit.rate_limit_middleware)         # Added 3rd, executes 2nd
+app.middleware("http")(auth.auth_middleware)                     # Added 4th (LAST), executes FIRST
 
 # Include API routers
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
@@ -113,6 +123,19 @@ async def ready():
 async def live():
     """Liveness check endpoint."""
     return {"status": "alive"}
+
+
+@app.get("/", tags=["Root"])
+async def root():
+    """Root endpoint - API information."""
+    return {
+        "name": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "status": "running",
+        "docs": "/docs",
+        "health": "/health",
+        "api_prefix": settings.API_V1_PREFIX,
+    }
 
 
 

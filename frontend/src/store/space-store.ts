@@ -2,6 +2,9 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { spacesApi, type Space, type SpaceCreate, type SpaceUpdate, type SpaceMember, type SpaceMemberCreate, type Crew, type SpaceConnection } from '@/lib/api/spaces'
 
+// Re-export Space type for convenience
+export type { Space, SpaceCreate, SpaceUpdate, SpaceMember, SpaceMemberCreate, Crew, SpaceConnection }
+
 export interface SpaceState {
     spaces: Space[]
     currentSpace: Space | null

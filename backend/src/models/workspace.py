@@ -37,7 +37,7 @@ class Workspace(Base):
     # Relationships
     owner = relationship("User", foreign_keys=[owner_id], back_populates="owned_workspaces")
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
-    dashboards = relationship("Dashboard", back_populates="workspace", cascade="all, delete-orphan")
+    # Note: Dashboards are related to Planets, not Workspaces directly
 
     __table_args__ = (
         Index("idx_workspaces_owner_id", "owner_id", postgresql_where=deleted_at.is_(None)),

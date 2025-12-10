@@ -6,8 +6,9 @@ import { useSidebarStore } from "@/store/sidebar-store"
 import { useRouter } from "next/navigation"
 import { LogOut } from "lucide-react"
 import { CreatePlanetDialog } from "@/components/workspaces/create-workspace-dialog"
+import { ProfileDropdown } from "@/components/layout/galaxie/profile-dropdown"
 import { useTheme } from "next-themes"
-import { FileText, ChevronDown, ChevronRight, Sun, Moon, Plus, Settings, Star, Bell, HelpCircle, Mail, Copy, Download, Move, Eye, Radio, Clock, Users, Link2, Globe, UserPlus, Code, Lock, ChevronUp, Search, Menu, Share2, BookOpen, Video, MessageCircle } from "lucide-react"
+import { FileText, ChevronDown, ChevronRight, Sun, Moon, Plus, Settings, Star, Bell, HelpCircle, Mail, Copy, Download, Move, Eye, Radio, Clock, Users, Link2, Globe, UserPlus, Code, Lock, ChevronUp, Search, Menu, Share2, BookOpen, Video, MessageCircle, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // Design tokens - consistent spacing and styling
@@ -26,7 +27,7 @@ const TOPBAR_CONFIG = {
 
 export function Topbar() {
     const { user, logout } = useUserStore()
-    const { setIsOpen } = useSidebarStore()
+    const { isOpen, setIsOpen } = useSidebarStore()
     const router = useRouter()
     const { theme, setTheme, resolvedTheme } = useTheme()
     const [mounted, setMounted] = useState(false)
@@ -36,6 +37,7 @@ export function Topbar() {
     const [showPlanetMenu, setShowPlanetMenu] = useState(false)
     const [showShareMenu, setShowShareMenu] = useState(false)
     const [shareTab, setShareTab] = useState<'invite' | 'embed' | 'publish'>('invite')
+    const [showProfileMenu, setShowProfileMenu] = useState(false)
     const [showNotifications, setShowNotifications] = useState(false)
     const [showSpacesMenu, setShowSpacesMenu] = useState(false)
     const [spacesFilter, setSpacesFilter] = useState("")
@@ -62,6 +64,7 @@ export function Topbar() {
             if (e.key === 'Escape') {
                 setShowPlanetMenu(false)
                 setShowShareMenu(false)
+                setShowProfileMenu(false)
                 setShowNotifications(false)
                 setShowHelpMenu(false)
                 setShowSpacesMenu(false)
@@ -154,7 +157,7 @@ export function Topbar() {
                 data-tour="topbar"
             >
                 <div className={cn("flex items-center", TOPBAR_CONFIG.spacing.gap, "pointer-events-auto")}>
-                    {/* GALAXIE Button - Opens Sidebar */}
+                    {/* GALAXIE Button - Opens Dropdown Menu */}
                     <div className="relative">
                         <button
                             className={cn(
@@ -165,11 +168,12 @@ export function Topbar() {
                                 "text-white font-semibold text-sm",
                                 "transition-all duration-200",
                                 "focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2",
-                                "dark:focus:ring-offset-gray-900"
+                                "dark:focus:ring-offset-gray-900",
+                                isOpen && "bg-blue-600 dark:bg-blue-700"
                             )}
                             onClick={(e) => {
                                 e.stopPropagation()
-                                setIsOpen(true)
+                                setIsOpen(!isOpen)
                             }}
                             aria-label="Open GALAXIE menu"
                         >
@@ -1260,6 +1264,306 @@ export function Topbar() {
                 data-tour="user-menu"
             >
                 <div className={cn("flex items-center", TOPBAR_CONFIG.spacing.gap, "pointer-events-auto relative")}>
+                    {/* Share Button - Moved to left */}
+                    <div className="relative">
+                        <button
+                            className={cn(
+                                "flex items-center justify-center",
+                                "h-8 px-3 rounded-lg",
+                                "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700",
+                                "text-white font-medium",
+                                "transition-all duration-200",
+                                "focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2",
+                                "dark:focus:ring-offset-gray-900",
+                                "shadow-sm hover:shadow-md"
+                            )}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setShowNotifications(false)
+                                setShowProfileMenu(false)
+                                setShowShareMenu(!showShareMenu)
+                            }}
+                            aria-label="Share"
+                            title="Share"
+                        >
+                            <span className="text-sm font-medium">
+                                Share
+                            </span>
+                        </button>
+
+                        {/* Share Menu Dropdown */}
+                        {showShareMenu && (
+                            <div 
+                                className={cn(
+                                    "absolute left-0 top-full mt-3 w-[480px]",
+                                    "bg-white dark:bg-gray-800",
+                                    "rounded-xl shadow-xl",
+                                    "border border-gray-200 dark:border-gray-700",
+                                    "overflow-hidden z-50",
+                                    "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2",
+                                    "duration-200"
+                                )}
+                                role="menu"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {/* Tabs */}
+                                <div className={cn(
+                                    "flex border-b border-gray-200 dark:border-gray-700"
+                                )}>
+                                    <button
+                                        onClick={() => setShareTab('invite')}
+                                        className={cn(
+                                            "flex-1 px-4 py-3 text-sm font-medium transition-colors",
+                                            "border-b-2",
+                                            shareTab === 'invite'
+                                                ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                                                : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                                        )}
+                                    >
+                                        Invite
+                                    </button>
+                                    <button
+                                        onClick={() => setShareTab('embed')}
+                                        className={cn(
+                                            "flex-1 px-4 py-3 text-sm font-medium transition-colors",
+                                            "border-b-2",
+                                            shareTab === 'embed'
+                                                ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                                                : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                                        )}
+                                    >
+                                        Embed
+                                    </button>
+                                    <button
+                                        onClick={() => setShareTab('publish')}
+                                        className={cn(
+                                            "flex-1 px-4 py-3 text-sm font-medium transition-colors",
+                                            "border-b-2",
+                                            shareTab === 'publish'
+                                                ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                                                : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                                        )}
+                                    >
+                                        Publish
+                                    </button>
+                                </div>
+
+                                {/* Content */}
+                                <div className="p-5 max-h-[600px] overflow-y-auto">
+                                    {shareTab === 'invite' && (
+                                        <div className="space-y-5">
+                                            {/* Email/Integration Invite */}
+                                            <div>
+                                                <div className="relative">
+                                                    <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Enter emails or invite from the team, Slack, Google or Microsoft"
+                                                        className={cn(
+                                                            "w-full pl-10 pr-3 py-3 rounded-lg border-2 border-blue-500",
+                                                            "bg-white dark:bg-gray-800",
+                                                            "text-gray-900 dark:text-white",
+                                                            "placeholder:text-gray-400 dark:placeholder:text-gray-500",
+                                                            "focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                        )}
+                                                    />
+                                                </div>
+                                                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                                    <span className="underline cursor-pointer">team</span>, <span className="underline cursor-pointer">Slack</span>, <span className="underline cursor-pointer">Google</span>, or <span className="underline cursor-pointer">Microsoft</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Shareable Link */}
+                                            <div>
+                                                <div className={cn(
+                                                    "flex items-center gap-3 p-3 rounded-lg",
+                                                    "bg-gray-50 dark:bg-gray-900/50",
+                                                    "border border-gray-200 dark:border-gray-700"
+                                                )}>
+                                                    <Link2 className="w-5 h-5 text-gray-400 shrink-0" />
+                                                    <span className="flex-1 text-sm text-gray-600 dark:text-gray-400 truncate">
+                                                        https://miro.com/welcomeonl...
+                                                    </span>
+                                                    <select className={cn(
+                                                        "text-xs px-2 py-1 rounded border",
+                                                        "bg-white dark:bg-gray-800",
+                                                        "border-gray-300 dark:border-gray-600",
+                                                        "text-gray-700 dark:text-gray-300"
+                                                    )}>
+                                                        <option>Can edit</option>
+                                                        <option>Can view</option>
+                                                        <option>No access</option>
+                                                    </select>
+                                                    <button className={cn(
+                                                        "px-3 py-1.5 rounded-lg text-sm font-medium",
+                                                        "bg-blue-500 text-white",
+                                                        "hover:bg-blue-600 transition-colors"
+                                                    )}>
+                                                        Copy team invite link
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Board Access */}
+                                            <div>
+                                                <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+                                                    BOARD ACCESS
+                                                </div>
+                                                <div className="space-y-3">
+                                                    {/* Team Access */}
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="flex -space-x-2">
+                                                                <div className="w-8 h-8 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
+                                                                    K
+                                                                </div>
+                                                                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
+                                                                    F
+                                                                </div>
+                                                                <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
+                                                                    L
+                                                                </div>
+                                                            </div>
+                                                            <span className="text-sm text-gray-900 dark:text-white">
+                                                                kaique team has access
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <ChevronUp className="w-4 h-4 text-gray-400" />
+                                                            <button className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400">
+                                                                Manage access
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Anyone with link */}
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3">
+                                                            <Globe className="w-5 h-5 text-gray-400" />
+                                                            <span className="text-sm text-gray-900 dark:text-white">
+                                                                Anyone with the link
+                                                            </span>
+                                                        </div>
+                                                        <select className={cn(
+                                                            "text-xs px-2 py-1 rounded border",
+                                                            "bg-white dark:bg-gray-800",
+                                                            "border-gray-300 dark:border-gray-600",
+                                                            "text-gray-700 dark:text-gray-300"
+                                                        )}>
+                                                            <option>No access</option>
+                                                            <option>Can view</option>
+                                                            <option>Can edit</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {shareTab === 'embed' && (
+                                        <div className="space-y-5">
+                                            {/* Info Banner */}
+                                            <div className={cn(
+                                                "flex items-start gap-3 p-3 rounded-lg",
+                                                "bg-blue-50 dark:bg-blue-900/20",
+                                                "border border-blue-200 dark:border-blue-800"
+                                            )}>
+                                                <Lock className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+                                                <div className="text-sm text-blue-700 dark:text-blue-300">
+                                                    This board is private. Only invited people who are signed in will see it. Change who can see it in the <button className="underline font-medium">invite section</button>.
+                                                </div>
+                                            </div>
+
+                                            {/* Start view */}
+                                            <div>
+                                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+                                                    Start view:
+                                                </label>
+                                                <select className={cn(
+                                                    "w-full px-3 py-2 rounded-lg border",
+                                                    "bg-white dark:bg-gray-800",
+                                                    "border-gray-300 dark:border-gray-600",
+                                                    "text-gray-900 dark:text-white"
+                                                )}>
+                                                    <option>Board</option>
+                                                    <option>Presentation</option>
+                                                </select>
+                                            </div>
+
+                                            {/* View only checkbox */}
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="checkbox"
+                                                    id="view-only"
+                                                    defaultChecked
+                                                    className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                                                />
+                                                <label htmlFor="view-only" className="text-sm text-gray-700 dark:text-gray-300">
+                                                    View only
+                                                </label>
+                                            </div>
+
+                                            {/* Preview */}
+                                            <div className={cn(
+                                                "w-full h-64 rounded-lg border-2 border-dashed",
+                                                "border-gray-300 dark:border-gray-600",
+                                                "bg-gray-50 dark:bg-gray-900/50",
+                                                "flex items-center justify-center"
+                                            )}>
+                                                <div className="text-sm text-gray-400 dark:text-gray-500">
+                                                    Board preview
+                                                </div>
+                                            </div>
+
+                                            {/* Embed code */}
+                                            <div>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                                        Embed code
+                                                    </span>
+                                                    <button className="text-blue-500 hover:text-blue-600">
+                                                        <Code className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button className={cn(
+                                                        "flex-1 px-4 py-2 rounded-lg text-sm font-medium",
+                                                        "bg-blue-500 text-white",
+                                                        "hover:bg-blue-600 transition-colors",
+                                                        "flex items-center justify-center gap-2"
+                                                    )}>
+                                                        <Code className="w-4 h-4" />
+                                                        Copy code
+                                                    </button>
+                                                    <button className={cn(
+                                                        "flex-1 px-4 py-2 rounded-lg text-sm font-medium",
+                                                        "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300",
+                                                        "border border-gray-300 dark:border-gray-600",
+                                                        "hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors",
+                                                        "flex items-center justify-center gap-2"
+                                                    )}>
+                                                        <Link2 className="w-4 h-4" />
+                                                        Copy link
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {shareTab === 'publish' && (
+                                        <div className="space-y-5">
+                                            <div className="text-center py-8">
+                                                <p className="text-sm text-gray-600 dark:text-gray-400">
+                                                    Publish content coming soon...
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     {/* Dark/Light Mode Toggle */}
                     <button
                         className={cn(
@@ -1492,14 +1796,14 @@ export function Topbar() {
                         )}
                                     </div>
 
-                    {/* Share Button */}
+                    {/* Profile Button - Replaced Share */}
                     <div className="relative">
-                                        <button
+                        <button
                             className={cn(
                                 "flex items-center justify-center",
-                                "h-8 px-3 rounded-lg",
+                                "h-8 w-8 rounded-full",
                                 "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700",
-                                "text-white font-medium",
+                                "text-white text-xs font-semibold",
                                 "transition-all duration-200",
                                 "focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2",
                                 "dark:focus:ring-offset-gray-900",
@@ -1508,298 +1812,32 @@ export function Topbar() {
                             onClick={(e) => {
                                 e.stopPropagation()
                                 setShowNotifications(false)
-                                setShowShareMenu(!showShareMenu)
-                                            }}
-                            aria-label="Share"
-                            title="Share"
+                                setShowShareMenu(false)
+                                setShowProfileMenu(!showProfileMenu)
+                            }}
+                            aria-label="Profile"
+                            title="Profile"
                         >
-                        <span className="text-sm font-medium">
-                            Share
-                        </span>
+                            {userInitials}
                         </button>
 
-                        {/* Share Menu Dropdown */}
-                        {showShareMenu && (
-                            <div 
-                                            className={cn(
-                                    "absolute right-0 top-full mt-3 w-[480px]",
-                                    "bg-white dark:bg-gray-800",
-                                    "rounded-xl shadow-xl",
-                                    "border border-gray-200 dark:border-gray-700",
-                                    "overflow-hidden z-50",
-                                    "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2",
-                                    "duration-200"
-                                )}
-                                role="menu"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                {/* Tabs */}
-                                <div className={cn(
-                                    "flex border-b border-gray-200 dark:border-gray-700"
-                                )}>
-                                    <button
-                                        onClick={() => setShareTab('invite')}
-                                        className={cn(
-                                            "flex-1 px-4 py-3 text-sm font-medium transition-colors",
-                                            "border-b-2",
-                                            shareTab === 'invite'
-                                                ? "border-blue-500 text-blue-600 dark:text-blue-400"
-                                                : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-                                        )}
-                                    >
-                                        Invite
-                                    </button>
-                                    <button
-                                        onClick={() => setShareTab('embed')}
-                                        className={cn(
-                                            "flex-1 px-4 py-3 text-sm font-medium transition-colors",
-                                            "border-b-2",
-                                            shareTab === 'embed'
-                                                ? "border-blue-500 text-blue-600 dark:text-blue-400"
-                                                : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-                                        )}
-                                    >
-                                        Embed
-                                    </button>
-                                    <button
-                                        onClick={() => setShareTab('publish')}
-                                        className={cn(
-                                            "flex-1 px-4 py-3 text-sm font-medium transition-colors",
-                                            "border-b-2",
-                                            shareTab === 'publish'
-                                                ? "border-blue-500 text-blue-600 dark:text-blue-400"
-                                                : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-                                        )}
-                                    >
-                                        Publish
-                                        </button>
-                                </div>
-
-                                {/* Content */}
-                                <div className="p-5 max-h-[600px] overflow-y-auto">
-                                    {shareTab === 'invite' && (
-                                        <div className="space-y-5">
-                                            {/* Email/Integration Invite */}
-                                            <div>
-                                                <div className="relative">
-                                                    <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Enter emails or invite from the team, Slack, Google or Microsoft"
-                                                        className={cn(
-                                                            "w-full pl-10 pr-3 py-3 rounded-lg border-2 border-blue-500",
-                                                            "bg-white dark:bg-gray-800",
-                                                            "text-gray-900 dark:text-white",
-                                                            "placeholder:text-gray-400 dark:placeholder:text-gray-500",
-                                                            "focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                                        )}
-                                                    />
-                                                </div>
-                                                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                                                    <span className="underline cursor-pointer">team</span>, <span className="underline cursor-pointer">Slack</span>, <span className="underline cursor-pointer">Google</span>, or <span className="underline cursor-pointer">Microsoft</span>
-                                                </div>
-                                            </div>
-
-                                            {/* Shareable Link */}
-                                            <div>
-                                                <div className={cn(
-                                                    "flex items-center gap-3 p-3 rounded-lg",
-                                                    "bg-gray-50 dark:bg-gray-900/50",
-                                                    "border border-gray-200 dark:border-gray-700"
-                                                )}>
-                                                    <Link2 className="w-5 h-5 text-gray-400 shrink-0" />
-                                                    <span className="flex-1 text-sm text-gray-600 dark:text-gray-400 truncate">
-                                                        https://miro.com/welcomeonl...
-                                                    </span>
-                                                    <select className={cn(
-                                                        "text-xs px-2 py-1 rounded border",
-                                                        "bg-white dark:bg-gray-800",
-                                                        "border-gray-300 dark:border-gray-600",
-                                                        "text-gray-700 dark:text-gray-300"
-                                                    )}>
-                                                        <option>Can edit</option>
-                                                        <option>Can view</option>
-                                                        <option>No access</option>
-                                                    </select>
-                                                    <button className={cn(
-                                                        "px-3 py-1.5 rounded-lg text-sm font-medium",
-                                                        "bg-blue-500 text-white",
-                                                        "hover:bg-blue-600 transition-colors"
-                                                    )}>
-                                                        Copy team invite link
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* Board Access */}
-                                            <div>
-                                                <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
-                                                    BOARD ACCESS
-                                                </div>
-                                                <div className="space-y-3">
-                                                    {/* Team Access */}
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="flex -space-x-2">
-                                                                <div className="w-8 h-8 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    K
-                                                                </div>
-                                                                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    F
-                                                                </div>
-                                                                <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    L
-                                                                </div>
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white">
-                                                                kaique team has access
-                                                            </span>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <ChevronUp className="w-4 h-4 text-gray-400" />
-                                                            <button className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400">
-                                                                Manage access
-                                                            </button>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Anyone with link */}
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex items-center gap-3">
-                                                            <Globe className="w-5 h-5 text-gray-400" />
-                                                            <span className="text-sm text-gray-900 dark:text-white">
-                                                                Anyone with the link
-                                                            </span>
-                                                        </div>
-                                                        <select className={cn(
-                                                            "text-xs px-2 py-1 rounded border",
-                                                            "bg-white dark:bg-gray-800",
-                                                            "border-gray-300 dark:border-gray-600",
-                                                            "text-gray-700 dark:text-gray-300"
-                                                        )}>
-                                                            <option>No access</option>
-                                                            <option>Can view</option>
-                                                            <option>Can edit</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                    </div>
-                        </div>
-                    )}
-
-                                    {shareTab === 'embed' && (
-                                        <div className="space-y-5">
-                                            {/* Info Banner */}
-                                            <div className={cn(
-                                                "flex items-start gap-3 p-3 rounded-lg",
-                                                "bg-blue-50 dark:bg-blue-900/20",
-                                                "border border-blue-200 dark:border-blue-800"
-                                            )}>
-                                                <Lock className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-                                                <div className="text-sm text-blue-700 dark:text-blue-300">
-                                                    This board is private. Only invited people who are signed in will see it. Change who can see it in the <button className="underline font-medium">invite section</button>.
-                                                </div>
-                                            </div>
-
-                                            {/* Start view */}
-                                            <div>
-                                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-                                                    Start view:
-                                                </label>
-                                                <select className={cn(
-                                                    "w-full px-3 py-2 rounded-lg border",
-                                                    "bg-white dark:bg-gray-800",
-                                                    "border-gray-300 dark:border-gray-600",
-                                                    "text-gray-900 dark:text-white"
-                                                )}>
-                                                    <option>Board</option>
-                                                    <option>Presentation</option>
-                                                </select>
-                                            </div>
-
-                                            {/* View only checkbox */}
-                                            <div className="flex items-center gap-2">
-                                                <input
-                                                    type="checkbox"
-                                                    id="view-only"
-                                                    defaultChecked
-                                                    className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
-                                                />
-                                                <label htmlFor="view-only" className="text-sm text-gray-700 dark:text-gray-300">
-                                                    View only
-                                                </label>
-                                            </div>
-
-                                            {/* Preview */}
-                                            <div className={cn(
-                                                "w-full h-64 rounded-lg border-2 border-dashed",
-                                                "border-gray-300 dark:border-gray-600",
-                                                "bg-gray-50 dark:bg-gray-900/50",
-                                                "flex items-center justify-center"
-                                            )}>
-                                                <div className="text-sm text-gray-400 dark:text-gray-500">
-                                                    Board preview
-                                                </div>
-                                            </div>
-
-                                            {/* Embed code */}
-                                            <div>
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                                        Embed code
-                                                    </span>
-                                                    <button className="text-blue-500 hover:text-blue-600">
-                                                        <Code className="w-4 h-4" />
-                                                    </button>
-                                                </div>
-                                                <div className="flex gap-2">
-                                                    <button className={cn(
-                                                        "flex-1 px-4 py-2 rounded-lg text-sm font-medium",
-                                                        "bg-blue-500 text-white",
-                                                        "hover:bg-blue-600 transition-colors",
-                                                        "flex items-center justify-center gap-2"
-                                                    )}>
-                                                        <Code className="w-4 h-4" />
-                                                        Copy code
-                                                    </button>
-                                                    <button className={cn(
-                                                        "flex-1 px-4 py-2 rounded-lg text-sm font-medium",
-                                                        "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300",
-                                                        "border border-gray-300 dark:border-gray-600",
-                                                        "hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors",
-                                                        "flex items-center justify-center gap-2"
-                                                    )}>
-                                                        <Link2 className="w-4 h-4" />
-                                                        Copy link
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {shareTab === 'publish' && (
-                                        <div className="space-y-5">
-                                            <div className="text-center py-8">
-                                                <p className="text-sm text-gray-600 dark:text-gray-400">
-                                                    Publish content coming soon...
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
+                        {/* Profile Dropdown */}
+                        <ProfileDropdown
+                            isOpen={showProfileMenu}
+                            onOpenChange={setShowProfileMenu}
+                        />
                     </div>
                 </div>
             </div>
 
             {/* Backdrop for closing menus */}
-            {(showPlanetMenu || showShareMenu || showNotifications || showHelpMenu) && !showSpacesMenu && !showStarredMenu && !showRecentMenu && !showCrewsMenu && (
+            {(showPlanetMenu || showShareMenu || showProfileMenu || showNotifications || showHelpMenu) && !showSpacesMenu && !showStarredMenu && !showRecentMenu && !showCrewsMenu && (
                 <div
                     className="fixed inset-0 z-40"
                     onClick={() => {
                         setShowPlanetMenu(false)
                         setShowShareMenu(false)
+                        setShowProfileMenu(false)
                         setShowNotifications(false)
                         setShowHelpMenu(false)
                         setShowSpacesMenu(false)
