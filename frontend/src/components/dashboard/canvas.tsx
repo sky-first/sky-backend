@@ -21,7 +21,7 @@ export function Canvas({ children }: { children: React.ReactNode }) {
     const containerRef = useRef<HTMLDivElement>(null)
     const dragStartRef = useRef<{ x: number; y: number; startPosition: { x: number; y: number } } | null>(null)
     const [selectionBox, setSelectionBox] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null)
-    const { scale, position, setPosition, zoomIn, zoomOut, resetView, isDragging, setIsDragging, snapPosition, getViewportCenter, snapToGrid, gridSize } = useCanvasStore()
+    const { scale, position, setPosition, zoomIn, zoomOut, resetView, isDragging, setIsDragging, snapPosition, getViewportCenter, findVisiblePositionInViewport, snapToGrid, gridSize } = useCanvasStore()
     const { isOpen: isSidebarOpen } = useSidebarStore()
     const { selectWidget, addWidget, widgets, selectWidgets, removeWidgets, selectedWidgetIds, connections } = useWidgetStore()
     const { activeTool, setActiveTool } = useToolbarStore()
@@ -266,16 +266,25 @@ export function Canvas({ children }: { children: React.ReactNode }) {
 
                     const gridRect = gridContainer.getBoundingClientRect()
                     // Calculate position in canvas coordinates (accounting for transform and scale)
-                    const x = (e.clientX - gridRect.left - position.x) / scale
-                    const y = (e.clientY - gridRect.top - position.y) / scale
-                    const finalPosition = snapPosition(x, y)
+                    const clickX = (e.clientX - gridRect.left - position.x) / scale
+                    const clickY = (e.clientY - gridRect.top - position.y) / scale
 
                     if (activeTool === 'text') {
+                        const widgetWidth = 250
+                        const widgetHeight = 80
+                        // Find visible position in viewport - always within visible area
+                        // Only use click position if it's fully visible, otherwise use sequential placement
+                        const finalPosition = findVisiblePositionInViewport(
+                            { width: widgetWidth, height: widgetHeight },
+                            { x: clickX, y: clickY }, // Will be ignored if not fully visible
+                            widgets.map(w => ({ position: w.position, size: w.size }))
+                        )
+                        
                         const newWidget = {
                             type: 'text' as const,
                             title: 'Text',
                             position: finalPosition,
-                            size: { width: 300, height: 100 },
+                            size: { width: widgetWidth, height: widgetHeight },
                             data: {
                                 content: '',
                                 fontFamily: 'Noto Sans',
@@ -286,46 +295,48 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                             },
                         }
                         addWidget(newWidget)
-                            .then((widgetId) => {
-                                setTimeout(() => {
-                                    openForWidget({
-                                        widgetId: widgetId || '',
-                                        question: 'Text',
-                                        answer: '',
-                                    })
-                                }, 100)
-                            })
                             .catch(console.error)
                         setActiveTool(null)
                     } else if (activeTool === 'kpi') {
+                        const widgetWidth = 250
+                        const widgetHeight = 120
+                        // Find visible position in viewport - always within visible area
+                        // Only use click position if it's fully visible, otherwise use sequential placement
+                        const finalPosition = findVisiblePositionInViewport(
+                            { width: widgetWidth, height: widgetHeight },
+                            { x: clickX, y: clickY }, // Will be ignored if not fully visible
+                            widgets.map(w => ({ position: w.position, size: w.size }))
+                        )
+                        
                         const newWidget = {
                             type: 'kpi' as const,
                             title: 'KPI',
                             position: finalPosition,
-                            size: { width: 300, height: 150 },
+                            size: { width: widgetWidth, height: widgetHeight },
                             data: {
                                 value: '0',
                                 change: '0%',
                             },
                         }
                         addWidget(newWidget)
-                            .then((widgetId) => {
-                                setTimeout(() => {
-                                    openForWidget({
-                                        widgetId: widgetId || '',
-                                        question: 'KPI',
-                                        answer: '0',
-                                    })
-                                }, 100)
-                            })
                             .catch(console.error)
                         setActiveTool(null)
                     } else if (activeTool === 'table') {
+                        const widgetWidth = 400
+                        const widgetHeight = 250
+                        // Find visible position in viewport - always within visible area
+                        // Only use click position if it's fully visible, otherwise use sequential placement
+                        const finalPosition = findVisiblePositionInViewport(
+                            { width: widgetWidth, height: widgetHeight },
+                            { x: clickX, y: clickY }, // Will be ignored if not fully visible
+                            widgets.map(w => ({ position: w.position, size: w.size }))
+                        )
+                        
                         const newWidget = {
                             type: 'table' as const,
                             title: 'Table',
                             position: finalPosition,
-                            size: { width: 500, height: 300 },
+                            size: { width: widgetWidth, height: widgetHeight },
                             data: {
                                 value: '0',
                                 change: '0%',
@@ -334,24 +345,25 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                             },
                         }
                         addWidget(newWidget)
-                            .then((widgetId) => {
-                                setTimeout(() => {
-                                    openForWidget({
-                                        widgetId: widgetId || '',
-                                        question: 'Table',
-                                        answer: 'Table data',
-                                    })
-                                }, 100)
-                            })
                             .catch(console.error)
                         setActiveTool(null)
                     } else if (activeTool.startsWith('chart-')) {
                         const chartType = activeTool.replace('chart-', '') as 'bar' | 'pie' | 'line' | 'scatter'
+                        const widgetWidth = 320
+                        const widgetHeight = 240
+                        // Find visible position in viewport - always within visible area
+                        // Only use click position if it's fully visible, otherwise use sequential placement
+                        const finalPosition = findVisiblePositionInViewport(
+                            { width: widgetWidth, height: widgetHeight },
+                            { x: clickX, y: clickY }, // Will be ignored if not fully visible
+                            widgets.map(w => ({ position: w.position, size: w.size }))
+                        )
+                        
                         const newWidget = {
                             type: 'chart' as const,
                             title: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart`,
                             position: finalPosition,
-                            size: { width: 400, height: 300 },
+                            size: { width: widgetWidth, height: widgetHeight },
                             data: {
                                 type: chartType,
                                 series: [0, 0, 0, 0, 0],
@@ -359,15 +371,6 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                             },
                         }
                         addWidget(newWidget)
-                            .then((widgetId) => {
-                                setTimeout(() => {
-                                    openForWidget({
-                                        widgetId: widgetId || '',
-                                        question: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart`,
-                                        answer: 'Chart visualization',
-                                    })
-                                }, 100)
-                            })
                             .catch(console.error)
                         setActiveTool(null)
                     }

@@ -32,7 +32,7 @@ export function Topbar() {
     const { theme, setTheme, resolvedTheme } = useTheme()
     const [mounted, setMounted] = useState(false)
     const [showCreatePlanetDialog, setShowCreatePlanetDialog] = useState(false)
-    const [boardName, setBoardName] = useState("My First Board")
+    const [boardName, setBoardName] = useState("My First Planet")
     const [isEditingProjectName, setIsEditingProjectName] = useState(false)
     const [showPlanetMenu, setShowPlanetMenu] = useState(false)
     const [showShareMenu, setShowShareMenu] = useState(false)
@@ -1605,6 +1605,7 @@ export function Topbar() {
                         onClick={(e) => {
                             e.stopPropagation()
                                 setShowShareMenu(false)
+                                setShowHelpMenu(false) // Close help menu when opening notifications
                                 setShowNotifications(!showNotifications)
                         }}
                             aria-label="Notifications"
@@ -1712,6 +1713,7 @@ export function Topbar() {
                             )}
                             onClick={(e) => {
                                 e.stopPropagation()
+                                setShowNotifications(false) // Close notifications menu when opening help
                                 setShowHelpMenu(!showHelpMenu)
                             }}
                             aria-label="Help"
