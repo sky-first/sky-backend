@@ -137,9 +137,9 @@ export function PipelineOverlay() {
     addChatMessage(chatInput)
     // Simular resposta da IA
     setTimeout(() => {
-      const mockResponse = `Esta é uma resposta gerada para: "${chatInput}"
+      const mockResponse = `This is a generated response for: "${chatInput}"
 
-Aqui está uma análise detalhada com insights relevantes e recomendações baseadas nos dados disponíveis.`
+Here is a detailed analysis with relevant insights and recommendations based on the available data.`
       addAIResponse(mockResponse)
     }, 1000)
 

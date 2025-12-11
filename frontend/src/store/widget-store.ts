@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { dashboardsApi } from '@/lib/api/dashboards'
 import { widgetsApi, type Widget as ApiWidget, type WidgetCreate } from '@/lib/api/widgets'
 import { useDashboardStore } from './dashboard-store'
+import { usePlanetStore } from './planet-store'
 
 export type WidgetType = 'chart' | 'kpi' | 'table' | 'ai-box' | 'text'
 
@@ -33,6 +34,7 @@ interface WidgetState {
     connectionDrag: { fromWidget: Widget; anchor: 'top' | 'right' | 'bottom' | 'left' } | null
     isLoading: boolean
     error: string | null
+    pendingWidgets: Array<{ position: { x: number; y: number }; size: { width: number; height: number } }> // Widgets em criação
     
     // Actions
     setWidgets: (widgets: Widget[]) => void
@@ -48,6 +50,9 @@ interface WidgetState {
     cancelConnection: () => void
     completeConnection: (toWidgetId: string, toAnchor: 'top' | 'right' | 'bottom' | 'left') => void
     removeConnection: (connectionId: string) => void
+    addPendingWidget: (position: { x: number; y: number }, size: { width: number; height: number }) => void
+    removePendingWidget: (position: { x: number; y: number }, size: { width: number; height: number }) => void
+    clearPendingWidgets: () => void
     
     // API methods
     duplicateWidget: (widgetId: string) => Promise<Widget>
@@ -92,6 +97,7 @@ export const useWidgetStore = create<WidgetState>()(
             connectionDrag: null,
             isLoading: false,
             error: null,
+            pendingWidgets: [],
 
             setWidgets: (widgets) => set({ widgets }),
 
@@ -100,7 +106,46 @@ export const useWidgetStore = create<WidgetState>()(
                 const targetDashboardId = dashboardId || currentDashboard?.id
                 
                 if (!targetDashboardId) {
-                    throw new Error('No dashboard selected. Cannot create widget.')
+                    // Try to get current planet and create a dashboard
+                    const { currentPlanet } = usePlanetStore.getState()
+                    if (currentPlanet) {
+                        try {
+                            const { createDashboard } = useDashboardStore.getState()
+                            const newDashboard = await createDashboard({
+                                name: 'My Dashboard',
+                                planet_id: currentPlanet.id,
+                            })
+                            // Use the newly created dashboard
+                            const finalDashboardId = newDashboard.id
+                            const apiData = storeToApiWidgetCreate(widget, finalDashboardId)
+                            const apiWidget = await dashboardsApi.createWidget(finalDashboardId, apiData)
+                            const storeWidget = apiToStoreWidget(apiWidget)
+                            
+                            // Use functional update to prevent race conditions
+                            set((state) => {
+                                // Check if widget already exists (prevent duplicates)
+                                if (state.widgets.some(w => w.id === storeWidget.id)) {
+                                    console.warn(`[WidgetStore] Widget ${storeWidget.id} already exists, skipping duplicate`)
+                                    return { ...state, isLoading: false }
+                                }
+                                
+                                const newWidgets = [...state.widgets, storeWidget]
+                                console.log(`[WidgetStore] ✅ Widget ${storeWidget.id} added. Total widgets: ${newWidgets.length}`)
+                                
+                                return {
+                                    widgets: newWidgets,
+                                    isLoading: false,
+                                }
+                            })
+                            
+                            return storeWidget.id
+                        } catch (error) {
+                            console.error('Error creating dashboard and widget:', error)
+                            throw new Error('Não foi possível criar um dashboard. Por favor, tente novamente.')
+                        }
+                    } else {
+                        throw new Error('Por favor, selecione ou crie um Planet primeiro antes de criar widgets.')
+                    }
                 }
 
                 set({ isLoading: true, error: null })
@@ -109,10 +154,22 @@ export const useWidgetStore = create<WidgetState>()(
                     const apiWidget = await dashboardsApi.createWidget(targetDashboardId, apiData)
                     const storeWidget = apiToStoreWidget(apiWidget)
                     
-                    set((state) => ({
-                        widgets: [...state.widgets, storeWidget],
-                        isLoading: false,
-                    }))
+                    // Use functional update to prevent race conditions
+                    set((state) => {
+                        // Check if widget already exists (prevent duplicates)
+                        if (state.widgets.some(w => w.id === storeWidget.id)) {
+                            console.warn(`[WidgetStore] Widget ${storeWidget.id} already exists, skipping duplicate`)
+                            return { ...state, isLoading: false }
+                        }
+                        
+                        const newWidgets = [...state.widgets, storeWidget]
+                        console.log(`[WidgetStore] ✅ Widget ${storeWidget.id} added. Total widgets: ${newWidgets.length}`)
+                        
+                        return {
+                            widgets: newWidgets,
+                            isLoading: false,
+                        }
+                    })
                     
                     return storeWidget.id
                 } catch (error) {
@@ -254,6 +311,19 @@ export const useWidgetStore = create<WidgetState>()(
             removeConnection: (connectionId) => set((state) => ({
                 connections: state.connections.filter((c) => c.id !== connectionId)
             })),
+            
+            addPendingWidget: (position, size) => set((state) => ({
+                pendingWidgets: [...state.pendingWidgets, { position, size }]
+            })),
+            
+            removePendingWidget: (position, size) => set((state) => ({
+                pendingWidgets: state.pendingWidgets.filter(
+                    (pw) => !(pw.position.x === position.x && pw.position.y === position.y && 
+                              pw.size.width === size.width && pw.size.height === size.height)
+                )
+            })),
+            
+            clearPendingWidgets: () => set({ pendingWidgets: [] }),
 
             // API methods
             duplicateWidget: async (widgetId) => {

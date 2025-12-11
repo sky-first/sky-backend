@@ -17,6 +17,7 @@ interface CanvasState {
     snapPosition: (x: number, y: number) => { x: number; y: number }
     getViewportCenter: () => { x: number; y: number }
     findVisiblePositionInViewport: (widgetSize: { width: number; height: number }, preferredPosition?: { x: number; y: number }, existingWidgets?: Array<{ position: { x: number; y: number }; size: { width: number; height: number } }>) => { x: number; y: number }
+    findNextGridPosition: (widgetSize: { width: number; height: number }, existingWidgets?: Array<{ position: { x: number; y: number }; size: { width: number; height: number } }>) => { x: number; y: number }
     loadSettings: (settings: { scale?: number; position?: { x: number; y: number }; snapToGrid?: boolean; gridSize?: number }) => void
 }
 
@@ -283,6 +284,155 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         const snapped = snapPosition(fallbackX, fallbackY)
         const clamped = clampToVisibleBounds(snapped.x, snapped.y)
         return clamped
+    },
+    findNextGridPosition: (widgetSize, existingWidgets = []) => {
+        const { position: canvasPosition, scale, snapPosition } = get()
+        
+        console.log(`[Grid] 🎯 Finding position for widget ${widgetSize.width}x${widgetSize.height}, existing widgets: ${existingWidgets.length}`)
+        
+        // Grid configuration
+        const CELL_SIZE_SCREEN = 4 // 4px cells in screen coordinates
+        const TOOLBAR_WIDTH = 60
+        const TOPBAR_HEIGHT = 66
+        const GRID_OFFSET_LEFT = TOOLBAR_WIDTH + 10
+        const GRID_OFFSET_TOP = TOPBAR_HEIGHT + 5
+        const WIDGET_MARGIN = 20 / scale // Margin between widgets in canvas coordinates
+        
+        // Grid origin in screen coordinates (fixed)
+        const gridOriginScreenX = GRID_OFFSET_LEFT
+        const gridOriginScreenY = GRID_OFFSET_TOP
+        
+        // Convert to canvas coordinates
+        const gridOriginX = (gridOriginScreenX - canvasPosition.x) / scale
+        const gridOriginY = (gridOriginScreenY - canvasPosition.y) / scale
+        
+        // Cell size in canvas coordinates
+        const cellSize = CELL_SIZE_SCREEN / scale
+        
+        // Viewport bounds in canvas coordinates
+        const viewportLeft = -canvasPosition.x / scale
+        const viewportTop = -canvasPosition.y / scale
+        const viewportRight = (window.innerWidth - canvasPosition.x) / scale
+        const chatboxHeight = 80
+        const chatboxBottomScreen = window.innerHeight - chatboxHeight
+        const viewportBottom = (chatboxBottomScreen - canvasPosition.y) / scale
+        
+        // Safe area (accounting for UI elements)
+        const safeLeft = Math.max(viewportLeft, gridOriginX)
+        const safeTop = Math.max(viewportTop, gridOriginY)
+        const safeRight = Math.min(viewportRight, viewportRight - 20 / scale)
+        const safeBottom = Math.min(viewportBottom, viewportBottom - 20 / scale)
+        
+        // Helper: Check if two rectangles overlap (with margin)
+        const checkOverlap = (x1: number, y1: number, w1: number, h1: number, 
+                             x2: number, y2: number, w2: number, h2: number): boolean => {
+            return !(x1 + w1 + WIDGET_MARGIN <= x2 || 
+                    x2 + w2 + WIDGET_MARGIN <= x1 || 
+                    y1 + h1 + WIDGET_MARGIN <= y2 || 
+                    y2 + h2 + WIDGET_MARGIN <= y1)
+        }
+        
+        // Helper: Check if position is valid (no overlap, within viewport)
+        const isValidPosition = (x: number, y: number): boolean => {
+            // Check bounds
+            if (x < safeLeft || y < safeTop || 
+                x + widgetSize.width > safeRight || 
+                y + widgetSize.height > safeBottom) {
+                return false
+            }
+            
+            // Check overlap with existing widgets
+            for (const widget of existingWidgets) {
+                if (checkOverlap(
+                    x, y, widgetSize.width, widgetSize.height,
+                    widget.position.x, widget.position.y, widget.size.width, widget.size.height
+                )) {
+                    return false
+                }
+            }
+            
+            return true
+        }
+        
+        // Helper: Snap position to grid
+        const snapToGrid = (x: number, y: number) => {
+            const snappedX = Math.round(x / cellSize) * cellSize
+            const snappedY = Math.round(y / cellSize) * cellSize
+            return { x: snappedX, y: snappedY }
+        }
+        
+        // Strategy 1: First widget - place at top-left of safe area
+        if (existingWidgets.length === 0) {
+            const position = snapToGrid(safeLeft, safeTop)
+            if (isValidPosition(position.x, position.y)) {
+                console.log(`[Grid] ✅ First widget at (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`)
+                return position
+            }
+        }
+        
+        // Strategy 2: Find rightmost widget and place next to it
+        if (existingWidgets.length > 0) {
+            // Find the widget with the highest right edge (X + width)
+            const rightmostWidget = existingWidgets.reduce((rightmost, widget) => {
+                const rightmostRight = rightmost.position.x + rightmost.size.width
+                const currentRight = widget.position.x + widget.size.width
+                return currentRight > rightmostRight ? widget : rightmost
+            })
+            
+            const rightmostRight = rightmostWidget.position.x + rightmostWidget.size.width
+            const rightmostY = rightmostWidget.position.y
+            const rightmostBottom = rightmostWidget.position.y + rightmostWidget.size.height
+            
+            // Try placing to the right of the rightmost widget
+            const tryX = rightmostRight + WIDGET_MARGIN
+            const tryY = rightmostY
+            const snapped = snapToGrid(tryX, tryY)
+            
+            if (isValidPosition(snapped.x, snapped.y)) {
+                console.log(`[Grid] ✅ Widget placed next to rightmost at (${snapped.x.toFixed(1)}, ${snapped.y.toFixed(1)})`)
+                return snapped
+            }
+            
+            // Strategy 3: If doesn't fit to the right, start new row below
+            // Find tallest widget in the current "row" (similar Y positions)
+            const rowTolerance = 50 / scale // Consider widgets within 50px as same row
+            const sameRowWidgets = existingWidgets.filter(w => 
+                Math.abs(w.position.y - rightmostY) < rowTolerance
+            )
+            
+            const tallestWidget = sameRowWidgets.reduce((tallest, widget) => 
+                widget.size.height > tallest.size.height ? widget : tallest
+            )
+            
+            const newRowY = tallestWidget.position.y + tallestWidget.size.height + WIDGET_MARGIN
+            const newRowX = safeLeft
+            const newRowSnapped = snapToGrid(newRowX, newRowY)
+            
+            if (isValidPosition(newRowSnapped.x, newRowSnapped.y)) {
+                console.log(`[Grid] ✅ Widget placed in new row at (${newRowSnapped.x.toFixed(1)}, ${newRowSnapped.y.toFixed(1)})`)
+                return newRowSnapped
+            }
+        }
+        
+        // Strategy 4: Fallback - scan from top-left, left to right, top to bottom
+        const stepX = Math.max(cellSize, widgetSize.width / 4)
+        const stepY = Math.max(cellSize, widgetSize.height / 4)
+        
+        for (let y = safeTop; y <= safeBottom - widgetSize.height; y += stepY) {
+            for (let x = safeLeft; x <= safeRight - widgetSize.width; x += stepX) {
+                const snapped = snapToGrid(x, y)
+                if (isValidPosition(snapped.x, snapped.y)) {
+                    console.log(`[Grid] ✅ Widget placed (fallback scan) at (${snapped.x.toFixed(1)}, ${snapped.y.toFixed(1)})`)
+                    return snapped
+                }
+            }
+        }
+        
+        // Final fallback: Use findVisiblePositionInViewport
+        console.log(`[Grid] ⚠️ Using findVisiblePositionInViewport as last resort`)
+        const fallback = get().findVisiblePositionInViewport(widgetSize, undefined, existingWidgets)
+        console.log(`[Grid] ✅ Final fallback position: (${fallback.x.toFixed(1)}, ${fallback.y.toFixed(1)})`)
+        return fallback
     },
     loadSettings: (settings) => {
         set({

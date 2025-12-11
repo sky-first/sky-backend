@@ -2,16 +2,31 @@
 
 import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Sparkles, Plus, Copy, Move, Download, ChevronRight, Search, Star } from "lucide-react"
+import { Sparkles, Plus, Copy, Move, Download, ChevronRight, Search, Star, MoreVertical, Edit2, Trash2, X } from "lucide-react"
 import { usePlanetStore, type Planet } from "@/store/planet-store"
 import { useRecentsStore } from "@/store/recents-store"
 import { useStarredStore } from "@/store/starred-store"
 import { useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { dashboardsApi } from "@/lib/api/dashboards"
 import { CreatePlanetDialog } from "@/components/workspaces/create-workspace-dialog"
 import { Loader2 } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface PlanetsDropdownProps {
   isOpen: boolean
@@ -23,11 +38,16 @@ interface PlanetsDropdownProps {
 
 export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, onMouseLeave }: PlanetsDropdownProps) {
   const router = useRouter()
-  const { planets, currentPlanet, fetchPlanets, switchPlanet, isLoading } = usePlanetStore()
+  const { planets, currentPlanet, fetchPlanets, switchPlanet, updatePlanet, deletePlanet, isLoading } = usePlanetStore()
   const { addRecent } = useRecentsStore()
   const { toggleStar, isStarred } = useStarredStore()
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [editingPlanet, setEditingPlanet] = useState<Planet | null>(null)
+  const [deletingPlanet, setDeletingPlanet] = useState<Planet | null>(null)
+  const [editName, setEditName] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showPlanetActions, setShowPlanetActions] = useState<Planet | null>(null)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
@@ -138,6 +158,65 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
     router.push("/dashboard")
   }
 
+  const handleMenuClick = (planet: Planet, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setShowPlanetActions(planet)
+  }
+
+  const handleRenameClick = () => {
+    if (!showPlanetActions) return
+    setEditingPlanet(showPlanetActions)
+    setEditName(showPlanetActions.name)
+    setShowPlanetActions(null)
+  }
+
+  const handleRenameSubmit = async () => {
+    if (!editingPlanet || !editName.trim()) return
+    
+    setIsSubmitting(true)
+    try {
+      await updatePlanet(editingPlanet.id, { name: editName.trim() })
+      await fetchPlanets()
+      setEditingPlanet(null)
+      setEditName("")
+    } catch (error) {
+      console.error('Error renaming planet:', error)
+      alert('Erro ao renomear planet. Por favor, tente novamente.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleDeleteClick = () => {
+    if (!showPlanetActions) return
+    setDeletingPlanet(showPlanetActions)
+    setShowPlanetActions(null)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingPlanet) return
+    
+    setIsSubmitting(true)
+    try {
+      await deletePlanet(deletingPlanet.id)
+      await fetchPlanets()
+      setDeletingPlanet(null)
+      // If deleted planet was current, switch to first available
+      if (currentPlanet?.id === deletingPlanet.id) {
+        const remainingPlanets = planets.filter(p => p.id !== deletingPlanet.id)
+        if (remainingPlanets.length > 0) {
+          await switchPlanet(remainingPlanets[0].id)
+          router.push("/dashboard")
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting planet:', error)
+      alert('Erro ao deletar planet. Por favor, tente novamente.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -191,8 +270,8 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
             onMouseEnter?.()
           }}
           onMouseLeave={() => {
-            // Don't close dropdown if dialog is open
-            if (showCreateDialog) {
+            // Don't close dropdown if any dialog or sidebar is open
+            if (showCreateDialog || editingPlanet || deletingPlanet || showPlanetActions) {
               return
             }
             // Store timeout in local ref so we can cancel it
@@ -251,7 +330,7 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
                     const avatarColor = getAvatarColor(planet.color)
                     
                     return (
-                      <div key={planet.id} className="group">
+                      <div key={planet.id} className="group relative">
                         <button
                           onClick={() => handlePlanetClick(planet)}
                           className={cn(
@@ -279,21 +358,102 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
                               </div>
                             )}
                           </div>
-                          <button
-                            onClick={(e) => handleStarClick(e, planet)}
-                            className={cn(
-                              "p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity",
-                              starred && "opacity-100 text-yellow-500"
-                            )}
-                          >
-                            <Star
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={(e) => handleStarClick(e, planet)}
                               className={cn(
-                                "w-4 h-4",
-                                starred ? "fill-yellow-500 text-yellow-500" : "text-gray-400"
+                                "p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity",
+                                starred && "opacity-100 text-yellow-500"
                               )}
-                            />
-                          </button>
+                            >
+                              <Star
+                                className={cn(
+                                  "w-4 h-4",
+                                  starred ? "fill-yellow-500 text-yellow-500" : "text-gray-400"
+                                )}
+                              />
+                            </button>
+                            <button
+                              onClick={(e) => handleMenuClick(planet, e)}
+                              className={cn(
+                                "p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity",
+                                "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300",
+                                showPlanetActions?.id === planet.id && "opacity-100"
+                              )}
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </div>
                         </button>
+                        
+                        {/* Planet Actions Sidetip - positioned below this item */}
+                        <AnimatePresence>
+                          {showPlanetActions?.id === planet.id && (
+                            <motion.div
+                              initial={{ opacity: 0, y: -5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -5 }}
+                              transition={{ duration: 0.15 }}
+                              className={cn(
+                                "absolute right-0 top-full mt-2",
+                                "w-40",
+                                "bg-white dark:bg-gray-800",
+                                "border border-gray-200 dark:border-gray-700",
+                                "rounded-lg shadow-lg",
+                                "overflow-hidden",
+                                "pointer-events-auto",
+                                "z-50"
+                              )}
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseEnter={() => {
+                                // Cancel any pending timeout
+                                if (timeoutRef.current) {
+                                  clearTimeout(timeoutRef.current)
+                                  timeoutRef.current = null
+                                }
+                              }}
+                              onMouseLeave={() => {
+                                // Close sidetip when mouse leaves
+                                setTimeout(() => {
+                                  setShowPlanetActions(null)
+                                }, 150)
+                              }}
+                            >
+                              {/* Actions */}
+                              <div className="py-1">
+                                <button
+                                  onClick={handleRenameClick}
+                                  className={cn(
+                                    "w-full text-left px-3 py-2",
+                                    "transition-colors duration-150",
+                                    "hover:bg-gray-50 dark:hover:bg-gray-700",
+                                    "text-gray-700 dark:text-gray-300",
+                                    "text-sm",
+                                    "flex items-center gap-2"
+                                  )}
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                  <span>Rename</span>
+                                </button>
+
+                                <button
+                                  onClick={handleDeleteClick}
+                                  className={cn(
+                                    "w-full text-left px-3 py-2",
+                                    "transition-colors duration-150",
+                                    "hover:bg-red-50 dark:hover:bg-red-900/20",
+                                    "text-red-600 dark:text-red-400",
+                                    "text-sm",
+                                    "flex items-center gap-2"
+                                  )}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Delete</span>
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
                     )
                   })
@@ -407,6 +567,87 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
         }
       }}
     />
+
+    {/* Rename Planet Dialog */}
+    <Dialog open={!!editingPlanet} onOpenChange={(open) => {
+      if (!open) {
+        setEditingPlanet(null)
+        setEditName("")
+      }
+    }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Rename Planet</DialogTitle>
+          <DialogDescription>
+            Enter a new name for this planet.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-4">
+          <Input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            placeholder="Planet name"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleRenameSubmit()
+              }
+            }}
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setEditingPlanet(null)
+              setEditName("")
+            }}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleRenameSubmit}
+            disabled={!editName.trim() || isSubmitting}
+          >
+            {isSubmitting ? "Saving..." : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Delete Planet Dialog */}
+    <Dialog open={!!deletingPlanet} onOpenChange={(open) => {
+      if (!open) {
+        setDeletingPlanet(null)
+      }
+    }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete Planet</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to delete "{deletingPlanet?.name}"? This action cannot be undone and will delete all dashboards and data associated with this planet.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setDeletingPlanet(null)}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleDeleteConfirm}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     </>
   )
 }

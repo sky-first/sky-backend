@@ -41,7 +41,7 @@ function DashboardContent() {
 
         const loadWidgets = async (dashboardId: string) => {
             try {
-                const apiWidgets = await dashboardsApi.getDashboardWidgets(dashboardId)
+                const apiWidgets = await dashboardsApi.getWidgets(dashboardId)
                 if (!isMounted) return
                 
                 // Convert API widgets to store format
@@ -255,6 +255,13 @@ function DashboardContent() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dashboardId, currentPlanet?.id])
 
+    // Log widgets rendering (must be before any conditional returns to maintain hook order)
+    useEffect(() => {
+        if (widgets.length > 0) {
+            console.log(`[DashboardPage] 📊 Rendering ${widgets.length} widgets:`, widgets.map(w => ({ id: w.id, type: w.type, position: w.position })))
+        }
+    }, [widgets.length, widgets.map(w => w.id).join(',')])
+
     // Show loading while dashboard is being loaded/created
     if (isLoading) {
         return (
@@ -303,13 +310,54 @@ function DashboardContent() {
 
     // Always render canvas and toolbar, even if dashboard is still loading
     // The canvas will work with empty widgets array
+    
+    // Validate all widgets before rendering
+    const validWidgets = widgets.filter(widget => {
+        const hasValidPosition = 
+            typeof widget.position?.x === 'number' && !isNaN(widget.position.x) &&
+            typeof widget.position?.y === 'number' && !isNaN(widget.position.y)
+        const hasValidSize = 
+            typeof widget.size?.width === 'number' && !isNaN(widget.size.width) && widget.size.width > 0 &&
+            typeof widget.size?.height === 'number' && !isNaN(widget.size.height) && widget.size.height > 0
+        
+        if (!hasValidPosition || !hasValidSize) {
+            console.error(`[DashboardPage] ❌ Widget ${widget.id} has invalid position or size:`, {
+                position: widget.position,
+                size: widget.size,
+                hasValidPosition,
+                hasValidSize
+            })
+            return false
+        }
+        return true
+    })
+    
+    // Log duplicate positions
+    const positionMap = new Map<string, string[]>()
+    validWidgets.forEach(widget => {
+        const posKey = `${Math.round(widget.position.x)},${Math.round(widget.position.y)}`
+        if (!positionMap.has(posKey)) {
+            positionMap.set(posKey, [])
+        }
+        positionMap.get(posKey)!.push(widget.id)
+    })
+    
+    positionMap.forEach((widgetIds, posKey) => {
+        if (widgetIds.length > 1) {
+            console.warn(`[DashboardPage] ⚠️ Multiple widgets at same position ${posKey}:`, widgetIds)
+        }
+    })
+    
     return (
         <div className="w-full h-full">
             <Toolbar />
             <Canvas>
-                {widgets.map((widget) => (
-                    <WidgetContainer key={widget.id} widget={widget} />
-                ))}
+                {validWidgets.map((widget, index) => {
+                    console.log(`[DashboardPage] 🎨 Rendering widget ${index + 1}/${validWidgets.length}: ${widget.id} at (${widget.position.x}, ${widget.position.y})`)
+                    return (
+                        <WidgetContainer key={widget.id} widget={widget} />
+                    )
+                })}
             </Canvas>
         </div>
     )

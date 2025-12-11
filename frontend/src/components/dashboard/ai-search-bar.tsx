@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { useWidgetStore } from "@/store/widget-store"
 import { useCanvasStore } from "@/store/canvas-store"
 import { useAIChatboxStore } from "@/store/ai-chatbox-store"
-import { Send, Mic, X, MessageSquare, Database, Settings, FileCode, Maximize2, Minimize2, Copy, ThumbsUp, ThumbsDown, Share2, RefreshCw, Sparkles, BarChart3, PieChart, TrendingUp, Table, Activity } from "lucide-react"
+import { Send, Mic, X, MessageSquare, Database, Settings, FileCode, Maximize2, Minimize2, Copy, ThumbsUp, ThumbsDown, Share2, RefreshCw, Sparkles, BarChart3, PieChart, TrendingUp, Table, Activity, Star } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -65,8 +65,8 @@ export function AISearchBar() {
     const expandedInputRef = useRef<HTMLInputElement>(null)
     const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
     
-    const { addWidget, widgets } = useWidgetStore()
-    const { getViewportCenter, snapPosition, findVisiblePositionInViewport } = useCanvasStore()
+    const { addWidget, widgets, updateWidget, addPendingWidget, removePendingWidget, pendingWidgets } = useWidgetStore()
+    const { getViewportCenter, snapPosition, findVisiblePositionInViewport, findNextGridPosition } = useCanvasStore()
     const { shouldOpen, widgetId, initialQuestion, initialAnswer, close } = useAIChatboxStore()
     const widget = currentWidgetId ? widgets.find((w) => w.id === currentWidgetId) : null
 
@@ -109,19 +109,55 @@ export function AISearchBar() {
             // Clear the store flag
             close()
             
-            // Focus input after expansion
+            // Scroll to bottom after messages are set and component is rendered
             setTimeout(() => {
+                if (chatEndRef.current) {
+                    chatEndRef.current.scrollIntoView({ behavior: "smooth" })
+                }
+                // Also try scrolling the container directly
+                if (chatContainerRef.current) {
+                    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
+                }
+                // Focus input after expansion
                 expandedInputRef.current?.focus()
-            }, 300)
+            }, 400)
         }
     }, [shouldOpen, widgetId, initialQuestion, initialAnswer, close])
 
-    // Auto-scroll chat to bottom
+    // Auto-scroll chat to bottom when messages change or chatbox expands
     useEffect(() => {
-        if (isExpanded && mainTab === "chat" && chatEndRef.current) {
-            chatEndRef.current.scrollIntoView({ behavior: "smooth" })
+        if (isExpanded && mainTab === "chat") {
+            // Use a small delay to ensure DOM is updated
+            const timeoutId = setTimeout(() => {
+                if (chatEndRef.current) {
+                    chatEndRef.current.scrollIntoView({ behavior: "smooth" })
+                }
+                // Also scroll container directly as fallback
+                if (chatContainerRef.current) {
+                    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
+                }
+            }, 150)
+            
+            return () => clearTimeout(timeoutId)
         }
     }, [chatMessages, isExpanded, mainTab])
+    
+    // Additional effect to scroll when chatbox is expanded (for direct clicks)
+    useEffect(() => {
+        if (isExpanded && mainTab === "chat" && chatMessages.length > 0) {
+            // Scroll to bottom when chatbox is expanded with existing messages
+            const timeoutId = setTimeout(() => {
+                if (chatEndRef.current) {
+                    chatEndRef.current.scrollIntoView({ behavior: "smooth" })
+                }
+                if (chatContainerRef.current) {
+                    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
+                }
+            }, 200)
+            
+            return () => clearTimeout(timeoutId)
+        }
+    }, [isExpanded])
 
     // Close widget menu when clicking outside
     useEffect(() => {
@@ -171,35 +207,80 @@ export function AISearchBar() {
 
         // If no widget exists, create one
         if (!currentWidgetId) {
-        const viewportCenter = getViewportCenter()
-        const finalPosition = snapPosition(viewportCenter.x, viewportCenter.y)
-        
-        try {
-            const widgetId = await addWidget({
-                type: 'kpi',
-                title: 'Analysis Result',
-                position: finalPosition,
-                size: { width: 250, height: 120 },
-                data: { 
-                    value: '0',
-                    change: '0%'
-                }
-            })
+            // Combine existing widgets with pending widgets
+            const allWidgets = [
+                ...widgets.map(w => ({ position: w.position, size: w.size })),
+                ...pendingWidgets
+            ]
+            // Use grid positioning for initial placement
+            const finalPosition = findNextGridPosition(
+                { width: 250, height: 120 },
+                allWidgets
+            )
+            
+            try {
+                const widgetId = await addWidget({
+                    type: 'kpi',
+                    title: 'Analysis Result',
+                    position: finalPosition,
+                    size: { width: 250, height: 120 },
+                    data: { 
+                        value: '0',
+                        change: '0%'
+                    }
+                })
                 setCurrentWidgetId(widgetId || null)
             } catch (error) {
                 console.error('Error creating widget:', error)
             }
         }
 
+        // Get current widget to check if it's a placeholder
+        const currentWidget = currentWidgetId ? widgets.find((w) => w.id === currentWidgetId) : null
+        const isPlaceholderWidget = currentWidget?.data?.isPlaceholder === true
+
         // Simulate AI response (you can replace this with actual API call)
         setTimeout(() => {
             const aiMessage: ChatMessage = {
                 id: `ai-${Date.now()}`,
                 type: "assistant",
-                content: `Esta é uma resposta gerada para: "${messageText}"\n\nAqui está uma análise detalhada com insights relevantes e recomendações baseadas nos dados disponíveis.`,
+                content: `This is a generated response for: "${messageText}"\n\nHere is a detailed analysis with relevant insights and recommendations based on the available data.`,
                 timestamp: new Date(),
             }
             setChatMessages(prev => [...prev, aiMessage])
+            
+            // If widget is a placeholder, update it with real data
+            if (isPlaceholderWidget && currentWidgetId && currentWidget) {
+                // Remove placeholder state and add real data
+                const updatedData: any = {
+                    ...currentWidget.data,
+                    isPlaceholder: false,
+                }
+                
+                // Update based on widget type
+                if (currentWidget.type === 'kpi') {
+                    // Extract numeric value from AI response (simplified - in real scenario, parse from AI response)
+                    const mockValue = "1,234"
+                    const mockChange = "+12.5%"
+                    updatedData.value = mockValue
+                    updatedData.change = mockChange
+                } else if (currentWidget.type === 'chart') {
+                    // Generate sample chart data in the format ChartWidget expects
+                    const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul']
+                    const series = [400, 300, 200, 278, 189, 239, 349]
+                    // Create data array in format { name: string, value: number }
+                    updatedData.data = labels.map((label, index) => ({
+                        name: label,
+                        value: series[index]
+                    }))
+                    updatedData.labels = labels
+                    updatedData.series = series
+                }
+                
+                updateWidget(currentWidgetId, {
+                    data: updatedData
+                }).catch(console.error)
+            }
         }, 1000)
     }
 
@@ -216,10 +297,18 @@ export function AISearchBar() {
 
     const handleCompactInputClick = () => {
         setIsExpanded(true)
-        // Focus on expanded input after expansion
+        // Focus on expanded input and scroll to bottom after expansion
         setTimeout(() => {
             expandedInputRef.current?.focus()
-        }, 100)
+            // Scroll to bottom to show last message
+            if (chatEndRef.current) {
+                chatEndRef.current.scrollIntoView({ behavior: "smooth" })
+            }
+            // Also scroll container directly as fallback
+            if (chatContainerRef.current) {
+                chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
+            }
+        }, 200)
     }
 
     const handleToggleMaximize = () => {
@@ -245,159 +334,28 @@ export function AISearchBar() {
             y: messageRect.top + 10
         }
 
-        // Get current canvas state for accurate conversion
+        // Get current canvas state for animation calculations
         const { position: canvasPosition, scale } = useCanvasStore.getState()
         
-        // Calculate visible viewport bounds in canvas coordinates
-        const viewportLeft = -canvasPosition.x / scale
-        const viewportTop = -canvasPosition.y / scale
-        const viewportRight = (window.innerWidth - canvasPosition.x) / scale
-        const viewportBottom = (window.innerHeight - canvasPosition.y) / scale
-        
-        // Account for topbar at top (fixed top-4 = 16px + ~50px height = ~66px total)
-        const topbarHeight = 66 / scale
-        const topbarTopMargin = topbarHeight + (20 / scale)
-        
-        // Account for topbar left section - fixed left-4, ~250px width
-        const topbarLeftWidth = 250 / scale
-        const topbarLeftMargin = topbarLeftWidth + (20 / scale)
-        
-        // Account for topbar right section - fixed right-4, ~200px width
-        const topbarRightWidth = 200 / scale
-        const topbarRightMargin = topbarRightWidth + (20 / scale)
-        
-        // Account for toolbar on left - fixed left-4, ~60px width
-        const toolbarWidth = 60 / scale
-        const toolbarLeftMargin = toolbarWidth + (20 / scale)
-        
-        // Account for chatbox at bottom
-        const chatboxHeight = 80 / scale
-        const usableBottom = viewportBottom - chatboxHeight
-        const padding = 20 / scale
-        
-        // Widget dimensions in canvas coordinates
+        // Widget dimensions
         const widgetSize = widgetData.size || { width: 250, height: 120 }
         const widgetWidth = widgetSize.width
         const widgetHeight = widgetSize.height
         
-        // Margin between widgets
-        const widgetMargin = 30 / scale
+        // Combine existing widgets with pending widgets for position calculation
+        const allWidgets = [
+            ...widgets.map(w => ({ position: w.position, size: w.size })),
+            ...pendingWidgets
+        ]
         
-        // Calculate safe area bounds (top of viewport, fully visible)
-        const safeTop = Math.max(viewportTop + topbarTopMargin, topbarTopMargin)
-        const safeBottom = Math.min(usableBottom - widgetHeight - padding, viewportBottom - widgetHeight - padding)
-        const safeLeft = Math.max(viewportLeft + Math.max(topbarLeftMargin, toolbarLeftMargin), Math.max(topbarLeftMargin, toolbarLeftMargin))
-        const safeRight = Math.min(viewportRight - topbarRightMargin - widgetWidth - padding, viewportRight - widgetWidth - padding)
+        // Use grid positioning for initial placement
+        const finalPosition = findNextGridPosition(
+            { width: widgetWidth, height: widgetHeight },
+            allWidgets
+        )
         
-        // Find empty position in the TOP row of visible viewport
-        // Priority: Always place in the top visible area
-        const existingWidgets = widgets.map(w => ({ position: w.position, size: w.size }))
-        
-        // Check for overlaps with existing widgets
-        const checkOverlap = (x: number, y: number) => {
-            return existingWidgets.some(widget => {
-                const wx = widget.position.x
-                const wy = widget.position.y
-                const ww = widget.size.width
-                const wh = widget.size.height
-                
-                const hasHorizontalOverlap = x + widgetWidth + widgetMargin > wx && x - widgetMargin < wx + ww
-                const hasVerticalOverlap = y + widgetHeight + widgetMargin > wy && y - widgetMargin < wy + wh
-                
-                return hasHorizontalOverlap && hasVerticalOverlap
-            })
-        }
-        
-        // Strategy: Always place widget in the TOP visible area of viewport
-        // Priority: Use safeTop (top of visible viewport) as the Y position
-        let finalPosition = { x: safeLeft, y: safeTop }
-        
-        if (existingWidgets.length > 0) {
-            // Find widgets in the top row (same Y position, with tolerance)
-            const topRowY = Math.min(...existingWidgets.map(w => w.position.y))
-            const rowTolerance = widgetMargin * 2
-            const topRowWidgets = existingWidgets.filter(w => 
-                Math.abs(w.position.y - topRowY) < rowTolerance
-            )
-            
-            // Check if top row is at or near safeTop (top of visible viewport)
-            const isTopRowAtSafeTop = topRowY <= safeTop + rowTolerance
-            
-            if (topRowWidgets.length > 0 && isTopRowAtSafeTop) {
-                // Top row is at the top of viewport - place next to rightmost widget
-                const rightmostWidget = topRowWidgets.reduce((rightmost, widget) => {
-                    const rightmostRight = rightmost.position.x + rightmost.size.width
-                    const widgetRight = widget.position.x + widget.size.width
-                    return widgetRight > rightmostRight ? widget : rightmost
-                })
-                
-                // Try to place next to the rightmost widget in the same row
-                const rightmostRight = rightmostWidget.position.x + rightmostWidget.size.width
-                const tryX = rightmostRight + widgetMargin
-                const tryY = safeTop // Always use safeTop to ensure top placement
-                
-                // Check if it fits horizontally in the current row
-                if (
-                    tryX >= safeLeft &&
-                    tryX + widgetWidth <= safeRight && 
-                    !checkOverlap(tryX, tryY)
-                ) {
-                    const snapped = snapPosition(tryX, tryY)
-                    if (
-                        snapped.x >= safeLeft &&
-                        snapped.x + widgetWidth <= safeRight &&
-                        snapped.y >= safeTop &&
-                        !checkOverlap(snapped.x, snapped.y)
-                    ) {
-                        finalPosition = snapped
-                    } else {
-                        // If snapped position doesn't work, use top-left
-                        finalPosition = snapPosition(safeLeft, safeTop)
-                    }
-                } else {
-                    // If doesn't fit, use top-left of safe area
-                    finalPosition = snapPosition(safeLeft, safeTop)
-                }
-            } else {
-                // Top row is not at safeTop, or no top row widgets - use top-left of safe area
-                // This ensures widget is always placed at the top visible area
-                finalPosition = snapPosition(safeLeft, safeTop)
-            }
-        } else {
-            // No existing widgets, use top-left of safe area
-            finalPosition = snapPosition(safeLeft, safeTop)
-        }
-        
-        // Ensure final position is within visible bounds and at top
-        // Clamp to ensure widget is fully visible in viewport
-        finalPosition.x = Math.max(safeLeft, Math.min(finalPosition.x, safeRight - widgetWidth))
-        finalPosition.y = Math.max(safeTop, Math.min(finalPosition.y, safeBottom - widgetHeight))
-        
-        // Final check: if position overlaps, try to find next available spot at top
-        if (checkOverlap(finalPosition.x, finalPosition.y)) {
-            // Try moving right in the top row
-            let foundPosition = false
-            for (let x = safeLeft; x <= safeRight - widgetWidth; x += widgetWidth / 2) {
-                const tryY = safeTop
-                if (!checkOverlap(x, tryY)) {
-                    const snapped = snapPosition(x, tryY)
-                    // Clamp snapped position to ensure visibility
-                    const clampedX = Math.max(safeLeft, Math.min(snapped.x, safeRight - widgetWidth))
-                    const clampedY = Math.max(safeTop, Math.min(snapped.y, safeBottom - widgetHeight))
-                    if (!checkOverlap(clampedX, clampedY)) {
-                        finalPosition = { x: clampedX, y: clampedY }
-                        foundPosition = true
-                        break
-                    }
-                }
-            }
-            // If still no position found, use top-left anyway (will be visible)
-            if (!foundPosition) {
-                const snapped = snapPosition(safeLeft, safeTop)
-                finalPosition.x = Math.max(safeLeft, Math.min(snapped.x, safeRight - widgetWidth))
-                finalPosition.y = Math.max(safeTop, Math.min(snapped.y, safeBottom - widgetHeight))
-            }
-        }
+        // Add this widget to pending widgets immediately
+        addPendingWidget(finalPosition, widgetSize)
         
         // Calculate widget center in canvas coordinates
         const widgetCenterX = finalPosition.x + widgetSize.width / 2
@@ -447,30 +405,33 @@ export function AISearchBar() {
                 movementAngle: currentMovementAngle
             })
 
-            // After comet reaches destination, show landing animation, then create widget
-            setTimeout(() => {
-                // Start landing animation (expansion)
-                setFlyingComet(prev => prev ? { ...prev, isLanding: true } : null)
-                
-                // After landing animation completes, clear comet and create widget
-                setTimeout(async () => {
-                    // Clear comet first
-                    setFlyingComet(null)
+            // After comet reaches destination, create widget immediately and show landing animation
+            setTimeout(async () => {
+                try {
+                    // Remove from pending widgets before creating
+                    removePendingWidget(finalPosition, widgetSize)
                     
-                    // Small delay before creating widget to allow comet to fade out
-                    setTimeout(async () => {
-                        try {
-                            await addWidget({
-                                type: widgetType,
-                                ...widgetData,
-                                position: finalPosition
-                            })
-        } catch (error) {
-            console.error('Error creating widget:', error)
-        }
-                    }, 100) // Small delay for smooth transition
-                }, 400) // Landing animation duration
-            }, 600) // Travel animation duration
+                    // Create widget immediately when comet arrives
+                    await addWidget({
+                        type: widgetType,
+                        ...widgetData,
+                        position: finalPosition
+                    })
+                    
+                    // Start landing animation (expansion) while widget appears
+                    setFlyingComet(prev => prev ? { ...prev, isLanding: true } : null)
+                    
+                    // Clear comet after a brief moment (widget is already visible)
+                    setTimeout(() => {
+                        setFlyingComet(null)
+                    }, 200) // Brief fade out
+                } catch (error) {
+                    console.error('Error creating widget:', error)
+                    // Remove from pending widgets even if creation fails
+                    removePendingWidget(finalPosition, widgetSize)
+                    setFlyingComet(null)
+                }
+            }, 550) // Travel animation duration - increased for better visibility
         }, 300) // Chatbox closing animation duration
     }
 
@@ -506,11 +467,11 @@ export function AISearchBar() {
                             opacity: 0
                         }}
                         transition={flyingComet.isLanding ? {
-                            duration: 0.4,
+                            duration: 0.2, // Reduced from 0.4s for faster fade out
                             ease: "easeOut",
                             times: [0, 0.5, 1]
                         } : {
-                            duration: 0.6,
+                            duration: 0.55, // Travel animation duration - increased for better visibility
                             ease: "easeInOut"
                         }}
                         className="fixed pointer-events-none z-[100]"
@@ -518,25 +479,25 @@ export function AISearchBar() {
                             transform: 'translate(-50%, -50%)'
                         }}
                     >
-                        {/* Comet visual: circle with tail */}
+                        {/* Star visual: circle with tail */}
                         <svg
                             width="48"
                             height="48"
                             viewBox="0 0 48 48"
                             className="drop-shadow-lg"
-                            style={{ filter: 'drop-shadow(0 0 12px rgba(59, 130, 246, 0.8))' }}
+                            style={{ filter: 'drop-shadow(0 0 12px rgba(234, 179, 8, 0.8))' }}
                         >
                             <defs>
                                 <linearGradient id={`cometTail-${flyingComet.messageId}`} x1="100%" y1="50%" x2="0%" y2="50%">
-                                    <stop offset="0%" stopColor="rgba(59, 130, 246, 0.9)" stopOpacity="0.9" />
-                                    <stop offset="30%" stopColor="rgba(59, 130, 246, 0.6)" stopOpacity="0.6" />
-                                    <stop offset="70%" stopColor="rgba(147, 197, 253, 0.3)" stopOpacity="0.3" />
-                                    <stop offset="100%" stopColor="rgba(147, 197, 253, 0)" stopOpacity="0" />
+                                    <stop offset="0%" stopColor="rgba(234, 179, 8, 0.9)" stopOpacity="0.9" />
+                                    <stop offset="30%" stopColor="rgba(250, 204, 21, 0.6)" stopOpacity="0.6" />
+                                    <stop offset="70%" stopColor="rgba(253, 224, 71, 0.3)" stopOpacity="0.3" />
+                                    <stop offset="100%" stopColor="rgba(253, 224, 71, 0)" stopOpacity="0" />
                                 </linearGradient>
                                 <radialGradient id={`cometGlow-${flyingComet.messageId}`} cx="50%" cy="50%">
-                                    <stop offset="0%" stopColor="rgb(147, 197, 253)" stopOpacity="1" />
-                                    <stop offset="70%" stopColor="rgb(59, 130, 246)" stopOpacity="0.8" />
-                                    <stop offset="100%" stopColor="rgb(59, 130, 246)" stopOpacity="0.4" />
+                                    <stop offset="0%" stopColor="rgb(253, 224, 71)" stopOpacity="1" />
+                                    <stop offset="70%" stopColor="rgb(250, 204, 21)" stopOpacity="0.8" />
+                                    <stop offset="100%" stopColor="rgb(234, 179, 8)" stopOpacity="0.4" />
                                 </radialGradient>
                             </defs>
                             {/* Long tail path - pointing backwards (opposite to movement direction) */}
@@ -557,7 +518,7 @@ export function AISearchBar() {
                                 strokeLinecap="round"
                                 opacity="0.5"
                             />
-                            {/* Circle (comet head) - positioned at center */}
+                            {/* Circle (star head) - positioned at center */}
                             <circle
                                 cx="24"
                                 cy="24"
@@ -569,7 +530,7 @@ export function AISearchBar() {
                                 cx="24"
                                 cy="24"
                                 r="4"
-                                fill="rgb(191, 219, 254)"
+                                fill="rgb(254, 240, 138)"
                             />
                             {/* Core highlight */}
                             <circle
@@ -762,7 +723,7 @@ export function AISearchBar() {
                                         </button>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom" className="text-xs">
-                                        {isMaximized ? "Minimizar" : "Expandir"}
+                                        {isMaximized ? "Minimize" : "Expand"}
                                     </TooltipContent>
                                 </Tooltip>
                                 <button
@@ -833,15 +794,23 @@ export function AISearchBar() {
                                                                         
                                                                         // If no widget exists, create one
                                                                         if (!currentWidgetId) {
-                                                                            const viewportCenter = getViewportCenter()
-                                                                            const finalPosition = snapPosition(viewportCenter.x, viewportCenter.y)
+                                                                            // Combine existing widgets with pending widgets
+                                                                            const allWidgets = [
+                                                                                ...widgets.map(w => ({ position: w.position, size: w.size })),
+                                                                                ...pendingWidgets
+                                                                            ]
+                                                                            // Use grid positioning for initial placement
+                                                                            const finalPosition = findNextGridPosition(
+                                                                                { width: 250, height: 120 },
+                                                                                allWidgets
+                                                                            )
                                                                             try {
                                                                                 const widgetId = await addWidget({
                                                                                     type: 'kpi',
                                                                                     title: 'Analysis Result',
                                                                                     position: finalPosition,
                                                                                     size: { width: 250, height: 120 },
-                                                                                    data: { 
+                                                                                    data: {
                                                                                         value: '0',
                                                                                         change: '0%'
                                                                                     }
@@ -852,15 +821,52 @@ export function AISearchBar() {
                                                                             }
                                                                         }
                                                                         
+                                                                        // Get current widget to check if it's a placeholder
+                                                                        const currentWidget = currentWidgetId ? widgets.find((w) => w.id === currentWidgetId) : null
+                                                                        const isPlaceholderWidget = currentWidget?.data?.isPlaceholder === true
+                                                                        
                                                                         // Simulate AI response
                                                                         setTimeout(() => {
                                                                             const aiMessage: ChatMessage = {
                                                                                 id: `ai-${Date.now()}`,
                                                                                 type: "assistant",
-                                                                                content: `Esta é uma resposta gerada para: "${suggestion}"\n\nAqui está uma análise detalhada com insights relevantes e recomendações baseadas nos dados disponíveis.`,
+                                                                                content: `This is a generated response for: "${suggestion}"\n\nHere is a detailed analysis with relevant insights and recommendations based on the available data.`,
                                                                                 timestamp: new Date(),
                                                                             }
                                                                             setChatMessages(prev => [...prev, aiMessage])
+                                                                            
+                                                                            // If widget is a placeholder, update it with real data
+                                                                            if (isPlaceholderWidget && currentWidgetId && currentWidget) {
+                                                                                // Remove placeholder state and add real data
+                                                                                const updatedData: any = {
+                                                                                    ...currentWidget.data,
+                                                                                    isPlaceholder: false,
+                                                                                }
+                                                                                
+                                                                                // Update based on widget type
+                                                                                if (currentWidget.type === 'kpi') {
+                                                                                    // Extract numeric value from AI response (simplified - in real scenario, parse from AI response)
+                                                                                    const mockValue = "1,234"
+                                                                                    const mockChange = "+12.5%"
+                                                                                    updatedData.value = mockValue
+                                                                                    updatedData.change = mockChange
+                                                                                } else if (currentWidget.type === 'chart') {
+                                                                                    // Generate sample chart data in the format ChartWidget expects
+                                                                                    const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul']
+                                                                                    const series = [400, 300, 200, 278, 189, 239, 349]
+                                                                                    // Create data array in format { name: string, value: number }
+                                                                                    updatedData.data = labels.map((label, index) => ({
+                                                                                        name: label,
+                                                                                        value: series[index]
+                                                                                    }))
+                                                                                    updatedData.labels = labels
+                                                                                    updatedData.series = series
+                                                                                }
+                                                                                
+                                                                                updateWidget(currentWidgetId, {
+                                                                                    data: updatedData
+                                                                                }).catch(console.error)
+                                                                            }
                                                                         }, 1000)
                                                                     }}
                                                                     className={cn(
@@ -931,9 +937,9 @@ export function AISearchBar() {
                                                                 ? "bg-primary text-primary-foreground"
                                                                 : "bg-muted/40 border border-border/50"
                                                         )}>
-                                                            {/* Comet icon for assistant messages */}
+                                                            {/* Star icon for assistant messages */}
                                                             {msg.type === "assistant" && !isAnimating && (
-                                                                <div className="absolute top-2 right-2 z-10">
+                                                                <div className="absolute top-2 right-2 z-[50]">
                                                                     <Tooltip>
                                                                         <TooltipTrigger asChild>
                                                                             <button
@@ -942,20 +948,14 @@ export function AISearchBar() {
                                                                                     e.stopPropagation()
                                                                                     setOpenWidgetMenu(openWidgetMenu === msg.id ? null : msg.id)
                                                                                 }}
-                                                                                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                                                                                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors group"
                                                                                 aria-label="Visualize as widget"
                                                                             >
-                                                                                <img
-                                                                                    src="https://img.icons8.com/external-flaticons-flat-flat-icons/64/external-comet-astrology-flaticons-flat-flat-icons.png"
-                                                                                    alt="comet"
-                                                                                    width="27"
-                                                                                    height="27"
-                                                                                    className="h-7 w-7"
-                                                                                />
+                                                                                <Star className="h-5 w-5 text-yellow-500 fill-yellow-500 group-hover:scale-110 transition-transform duration-200" />
                                                                             </button>
                                                                         </TooltipTrigger>
-                                                                        <TooltipContent side="top" className="text-[10px] px-1.5 py-0.5">
-                                                                            Widget comet
+                                                                        <TooltipContent side="top" className="text-[10px] px-1.5 py-0.5 z-[60]">
+                                                                            Create widget
                                                                         </TooltipContent>
                                                                     </Tooltip>
                                                                     
@@ -967,7 +967,7 @@ export function AISearchBar() {
                                                                                 animate={{ opacity: 1, scale: 1, x: 0 }}
                                                                                 exit={{ opacity: 0, scale: 0.95, x: -10 }}
                                                                                 transition={{ duration: 0.15 }}
-                                                                                className="absolute top-0 left-full ml-1.5 bg-background/95 backdrop-blur-sm border border-border/50 rounded-md shadow-md z-30 w-[110px]"
+                                                                                className="absolute top-0 left-full ml-1.5 bg-background/95 backdrop-blur-sm border border-border/50 rounded-md shadow-md z-[60] w-[110px]"
                                                                                 data-widget-menu
                                                                             >
                                                                             <div className="py-0.5">

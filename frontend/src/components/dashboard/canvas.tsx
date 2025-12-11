@@ -6,6 +6,7 @@ import { useSidebarStore } from "@/store/sidebar-store"
 import { useWidgetStore, Widget } from "@/store/widget-store"
 import { useToolbarStore } from "@/store/toolbar-store"
 import { useDashboardStore } from "@/store/dashboard-store"
+import { usePlanetStore } from "@/store/planet-store"
 import { Toolbar } from "@/components/dashboard/toolbar"
 import { CanvasControls } from "@/components/dashboard/canvas-controls"
 import { AISearchBar } from "@/components/dashboard/ai-search-bar"
@@ -21,13 +22,14 @@ export function Canvas({ children }: { children: React.ReactNode }) {
     const containerRef = useRef<HTMLDivElement>(null)
     const dragStartRef = useRef<{ x: number; y: number; startPosition: { x: number; y: number } } | null>(null)
     const [selectionBox, setSelectionBox] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null)
-    const { scale, position, setPosition, zoomIn, zoomOut, resetView, isDragging, setIsDragging, snapPosition, getViewportCenter, findVisiblePositionInViewport, snapToGrid, gridSize } = useCanvasStore()
+    const { scale, position, setPosition, zoomIn, zoomOut, resetView, isDragging, setIsDragging, snapPosition, getViewportCenter, findVisiblePositionInViewport, findNextGridPosition, snapToGrid, gridSize } = useCanvasStore()
     const { isOpen: isSidebarOpen } = useSidebarStore()
-    const { selectWidget, addWidget, widgets, selectWidgets, removeWidgets, selectedWidgetIds, connections } = useWidgetStore()
+    const { selectWidget, addWidget, widgets, selectWidgets, removeWidgets, selectedWidgetIds, connections, pendingWidgets } = useWidgetStore()
     const { activeTool, setActiveTool } = useToolbarStore()
     const { openForWidget } = usePipelineStore()
     const { setIsOpen: setAIHistoryOpen } = useAIHistoryStore()
-    const { currentDashboard, updateDashboard } = useDashboardStore()
+    const { currentDashboard, updateDashboard, createDashboard } = useDashboardStore()
+    const { currentPlanet } = usePlanetStore()
     const { theme, resolvedTheme } = useTheme()
     const currentTheme = resolvedTheme || theme || 'light'
     const isSelectionMode = activeTool === 'mouse'
@@ -260,120 +262,177 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                     e.preventDefault()
                     e.stopPropagation()
 
-                    const canvasElement = e.currentTarget as HTMLElement
-                    const gridContainer = canvasElement.querySelector('.canvas-grid') as HTMLElement
-                    if (!gridContainer) return
+                    // Handle widget creation asynchronously
+                    ;(async () => {
+                        try {
+                            // Ensure we have a dashboard before creating widgets
+                            let dashboard = useDashboardStore.getState().currentDashboard
+                            if (!dashboard) {
+                                // Try to create a dashboard if we have a planet
+                                if (currentPlanet) {
+                                    console.log('[Canvas] Creating dashboard for planet:', currentPlanet.id)
+                                    dashboard = await createDashboard({
+                                        name: 'My Dashboard',
+                                        planet_id: currentPlanet.id,
+                                    })
+                                    console.log('[Canvas] Dashboard created:', dashboard.id)
+                                    // Wait a bit for the store to update
+                                    await new Promise(resolve => setTimeout(resolve, 200))
+                                    // Verify dashboard is set
+                                    dashboard = useDashboardStore.getState().currentDashboard
+                                    if (!dashboard) {
+                                        console.error('[Canvas] Dashboard not set after creation')
+                                        alert('Não foi possível criar um dashboard. Por favor, tente novamente.')
+                                        setActiveTool(null)
+                                        return
+                                    }
+                                } else {
+                                    alert('Por favor, selecione ou crie um Planet primeiro.')
+                                    setActiveTool(null)
+                                    return
+                                }
+                            }
 
-                    const gridRect = gridContainer.getBoundingClientRect()
-                    // Calculate position in canvas coordinates (accounting for transform and scale)
-                    const clickX = (e.clientX - gridRect.left - position.x) / scale
-                    const clickY = (e.clientY - gridRect.top - position.y) / scale
+                            console.log('[Canvas] Creating widget with dashboard:', dashboard.id)
 
-                    if (activeTool === 'text') {
-                        const widgetWidth = 250
-                        const widgetHeight = 80
-                        // Find visible position in viewport - always within visible area
-                        // Only use click position if it's fully visible, otherwise use sequential placement
-                        const finalPosition = findVisiblePositionInViewport(
-                            { width: widgetWidth, height: widgetHeight },
-                            { x: clickX, y: clickY }, // Will be ignored if not fully visible
-                            widgets.map(w => ({ position: w.position, size: w.size }))
-                        )
-                        
-                        const newWidget = {
-                            type: 'text' as const,
-                            title: 'Text',
-                            position: finalPosition,
-                            size: { width: widgetWidth, height: widgetHeight },
-                            data: {
-                                content: '',
-                                fontFamily: 'Noto Sans',
-                                fontSize: 16,
-                                fontWeight: 'normal',
-                                textAlign: 'left',
-                                textColor: currentTheme === 'dark' ? '#ffffff' : '#000000',
-                            },
+                            const canvasElement = e.currentTarget as HTMLElement
+                            const gridContainer = canvasElement.querySelector('.canvas-grid') as HTMLElement
+                            if (!gridContainer) {
+                                console.error('[Canvas] Grid container not found')
+                                return
+                            }
+
+                            const gridRect = gridContainer.getBoundingClientRect()
+                            // Calculate position in canvas coordinates (accounting for transform and scale)
+                            const clickX = (e.clientX - gridRect.left - position.x) / scale
+                            const clickY = (e.clientY - gridRect.top - position.y) / scale
+
+                            if (activeTool === 'text') {
+                                const widgetWidth = 250
+                                const widgetHeight = 80
+                                // Combine existing widgets with pending widgets
+                                const allWidgets = [
+                                    ...widgets.map(w => ({ position: w.position, size: w.size })),
+                                    ...pendingWidgets
+                                ]
+                                // Use grid positioning for initial placement
+                                const finalPosition = findNextGridPosition(
+                                    { width: widgetWidth, height: widgetHeight },
+                                    allWidgets
+                                )
+                                
+                                const newWidget = {
+                                    type: 'text' as const,
+                                    title: 'Text',
+                                    position: finalPosition,
+                                    size: { width: widgetWidth, height: widgetHeight },
+                                    data: {
+                                        content: '',
+                                        fontFamily: 'Noto Sans',
+                                        fontSize: 16,
+                                        fontWeight: 'normal',
+                                        textAlign: 'left',
+                                        textColor: currentTheme === 'dark' ? '#ffffff' : '#000000',
+                                    },
+                                }
+                                const widgetId = await addWidget(newWidget)
+                                console.log('[Canvas] Text widget created:', widgetId)
+                                setActiveTool(null)
+                            } else if (activeTool === 'kpi') {
+                            const widgetWidth = 250
+                            const widgetHeight = 120
+                            // Combine existing widgets with pending widgets
+                            const allWidgets = [
+                                ...widgets.map(w => ({ position: w.position, size: w.size })),
+                                ...pendingWidgets
+                            ]
+                            // Use grid positioning for initial placement
+                            const finalPosition = findNextGridPosition(
+                                { width: widgetWidth, height: widgetHeight },
+                                allWidgets
+                            )
+                            
+                                const newWidget = {
+                                    type: 'kpi' as const,
+                                    title: 'KPI',
+                                    position: finalPosition,
+                                    size: { width: widgetWidth, height: widgetHeight },
+                                    data: {
+                                        value: '0',
+                                        change: '0%',
+                                        isPlaceholder: true,
+                                    },
+                                }
+                                const widgetId = await addWidget(newWidget)
+                                console.log('[Canvas] KPI widget created:', widgetId)
+                                setActiveTool(null)
+                            } else if (activeTool === 'table') {
+                            const widgetWidth = 400
+                            const widgetHeight = 250
+                            // Combine existing widgets with pending widgets
+                            const allWidgets = [
+                                ...widgets.map(w => ({ position: w.position, size: w.size })),
+                                ...pendingWidgets
+                            ]
+                            // Use grid positioning for initial placement
+                            const finalPosition = findNextGridPosition(
+                                { width: widgetWidth, height: widgetHeight },
+                                allWidgets
+                            )
+                            
+                                const newWidget = {
+                                    type: 'table' as const,
+                                    title: 'Table',
+                                    position: finalPosition,
+                                    size: { width: widgetWidth, height: widgetHeight },
+                                    data: {
+                                        value: '0',
+                                        change: '0%',
+                                        columns: ['Column 1', 'Column 2', 'Column 3'],
+                                        rows: [],
+                                    },
+                                }
+                                const widgetId = await addWidget(newWidget)
+                                console.log('[Canvas] Table widget created:', widgetId)
+                                setActiveTool(null)
+                            } else if (activeTool.startsWith('chart-')) {
+                                const chartType = activeTool.replace('chart-', '') as 'bar' | 'pie' | 'line' | 'scatter'
+                                const widgetWidth = 320
+                                const widgetHeight = 240
+                                // Combine existing widgets with pending widgets
+                                const allWidgets = [
+                                    ...widgets.map(w => ({ position: w.position, size: w.size })),
+                                    ...pendingWidgets
+                                ]
+                                // Use grid positioning for initial placement
+                                const finalPosition = findNextGridPosition(
+                                    { width: widgetWidth, height: widgetHeight },
+                                    allWidgets
+                                )
+                                
+                                const newWidget = {
+                                    type: 'chart' as const,
+                                    title: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart`,
+                                    position: finalPosition,
+                                    size: { width: widgetWidth, height: widgetHeight },
+                                    data: {
+                                        type: chartType,
+                                        series: [0, 0, 0, 0, 0],
+                                        labels: ['A', 'B', 'C', 'D', 'E'],
+                                        isPlaceholder: true,
+                                    },
+                                }
+                                console.log('[Canvas] Creating chart widget:', newWidget)
+                                const widgetId = await addWidget(newWidget)
+                                console.log('[Canvas] Chart widget created successfully:', widgetId)
+                                setActiveTool(null)
+                            }
+                        } catch (err) {
+                            console.error('[Canvas] Error in widget creation flow:', err)
+                            alert(`Erro ao criar widget: ${err instanceof Error ? err.message : 'Erro desconhecido'}`)
+                            setActiveTool(null)
                         }
-                        addWidget(newWidget)
-                            .catch(console.error)
-                        setActiveTool(null)
-                    } else if (activeTool === 'kpi') {
-                        const widgetWidth = 250
-                        const widgetHeight = 120
-                        // Find visible position in viewport - always within visible area
-                        // Only use click position if it's fully visible, otherwise use sequential placement
-                        const finalPosition = findVisiblePositionInViewport(
-                            { width: widgetWidth, height: widgetHeight },
-                            { x: clickX, y: clickY }, // Will be ignored if not fully visible
-                            widgets.map(w => ({ position: w.position, size: w.size }))
-                        )
-                        
-                        const newWidget = {
-                            type: 'kpi' as const,
-                            title: 'KPI',
-                            position: finalPosition,
-                            size: { width: widgetWidth, height: widgetHeight },
-                            data: {
-                                value: '0',
-                                change: '0%',
-                            },
-                        }
-                        addWidget(newWidget)
-                            .catch(console.error)
-                        setActiveTool(null)
-                    } else if (activeTool === 'table') {
-                        const widgetWidth = 400
-                        const widgetHeight = 250
-                        // Find visible position in viewport - always within visible area
-                        // Only use click position if it's fully visible, otherwise use sequential placement
-                        const finalPosition = findVisiblePositionInViewport(
-                            { width: widgetWidth, height: widgetHeight },
-                            { x: clickX, y: clickY }, // Will be ignored if not fully visible
-                            widgets.map(w => ({ position: w.position, size: w.size }))
-                        )
-                        
-                        const newWidget = {
-                            type: 'table' as const,
-                            title: 'Table',
-                            position: finalPosition,
-                            size: { width: widgetWidth, height: widgetHeight },
-                            data: {
-                                value: '0',
-                                change: '0%',
-                                columns: ['Column 1', 'Column 2', 'Column 3'],
-                                rows: [],
-                            },
-                        }
-                        addWidget(newWidget)
-                            .catch(console.error)
-                        setActiveTool(null)
-                    } else if (activeTool.startsWith('chart-')) {
-                        const chartType = activeTool.replace('chart-', '') as 'bar' | 'pie' | 'line' | 'scatter'
-                        const widgetWidth = 320
-                        const widgetHeight = 240
-                        // Find visible position in viewport - always within visible area
-                        // Only use click position if it's fully visible, otherwise use sequential placement
-                        const finalPosition = findVisiblePositionInViewport(
-                            { width: widgetWidth, height: widgetHeight },
-                            { x: clickX, y: clickY }, // Will be ignored if not fully visible
-                            widgets.map(w => ({ position: w.position, size: w.size }))
-                        )
-                        
-                        const newWidget = {
-                            type: 'chart' as const,
-                            title: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart`,
-                            position: finalPosition,
-                            size: { width: widgetWidth, height: widgetHeight },
-                            data: {
-                                type: chartType,
-                                series: [0, 0, 0, 0, 0],
-                                labels: ['A', 'B', 'C', 'D', 'E'],
-                            },
-                        }
-                        addWidget(newWidget)
-                            .catch(console.error)
-                        setActiveTool(null)
-                    }
+                    })()
                     return
                 }
 
@@ -438,7 +497,16 @@ export function Canvas({ children }: { children: React.ReactNode }) {
                 />
 
                 {/* Widgets Layer - Extended container for infinite canvas */}
-                <div className="relative" style={{ width: '500%', height: '500%' }}>
+                <div 
+                    className="relative" 
+                    style={{ 
+                        width: '500%', 
+                        height: '500%',
+                        overflow: 'visible', // Ensure widgets are not clipped
+                        position: 'relative',
+                        zIndex: 1
+                    }}
+                >
                     {children}
                 </div>
 

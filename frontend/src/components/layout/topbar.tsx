@@ -157,27 +157,66 @@ export function Topbar() {
                 data-tour="topbar"
             >
                 <div className={cn("flex items-center", TOPBAR_CONFIG.spacing.gap, "pointer-events-auto")}>
-                    {/* GALAXIE Button - Opens Dropdown Menu */}
+                    {/* Sky Button - Opens Dropdown Menu */}
                     <div className="relative">
                         <button
                             className={cn(
                                 "flex items-center justify-center",
-                                itemHoverClass,
                                 "h-8 px-3 rounded-lg",
-                                "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700",
                                 "text-white font-semibold text-sm",
                                 "transition-all duration-200",
-                                "focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2",
+                                "focus:outline-none focus:ring-2 focus:ring-yellow-400/30 focus:ring-offset-2",
                                 "dark:focus:ring-offset-gray-900",
-                                isOpen && "bg-blue-600 dark:bg-blue-700"
+                                "relative overflow-hidden",
+                                isOpen && "ring-2 ring-yellow-400/30"
                             )}
+                            style={{
+                                background: `
+                                    linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 50%, #1a2f4f 100%),
+                                    radial-gradient(2px 2px at 20% 30%, rgba(255, 255, 0, 0.4), transparent),
+                                    radial-gradient(1.5px 1.5px at 60% 70%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1px 1px at 50% 50%, rgba(255, 255, 0, 0.35), transparent),
+                                    radial-gradient(1.5px 1.5px at 80% 10%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(2px 2px at 90% 40%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 33% 55%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 15% 80%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 70% 20%, rgba(255, 255, 0, 0.3), transparent)
+                                `,
+                                backgroundColor: '#1e3a5f'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = `
+                                    linear-gradient(135deg, #2a4a6f 0%, #3d5a7f 50%, #2a3f5f 100%),
+                                    radial-gradient(2px 2px at 20% 30%, rgba(255, 255, 0, 0.4), transparent),
+                                    radial-gradient(1.5px 1.5px at 60% 70%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1px 1px at 50% 50%, rgba(255, 255, 0, 0.35), transparent),
+                                    radial-gradient(1.5px 1.5px at 80% 10%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(2px 2px at 90% 40%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 33% 55%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 15% 80%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 70% 20%, rgba(255, 255, 0, 0.3), transparent)
+                                `
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = `
+                                    linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 50%, #1a2f4f 100%),
+                                    radial-gradient(2px 2px at 20% 30%, rgba(255, 255, 0, 0.4), transparent),
+                                    radial-gradient(1.5px 1.5px at 60% 70%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1px 1px at 50% 50%, rgba(255, 255, 0, 0.35), transparent),
+                                    radial-gradient(1.5px 1.5px at 80% 10%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(2px 2px at 90% 40%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 33% 55%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 15% 80%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 70% 20%, rgba(255, 255, 0, 0.3), transparent)
+                                `
+                            }}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 setIsOpen(!isOpen)
                             }}
-                            aria-label="Open GALAXIE menu"
+                            aria-label="Open Sky menu"
                         >
-                            GALAXIE
+                            Sky
                         </button>
                         
                         {/* Planet Menu Dropdown */}
@@ -1270,17 +1309,61 @@ export function Topbar() {
                             className={cn(
                                 "flex items-center justify-center",
                                 "h-8 px-3 rounded-lg",
-                                "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700",
                                 "text-white font-medium",
                                 "transition-all duration-200",
-                                "focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2",
+                                "focus:outline-none focus:ring-2 focus:ring-yellow-400/30 focus:ring-offset-2",
                                 "dark:focus:ring-offset-gray-900",
-                                "shadow-sm hover:shadow-md"
+                                "shadow-sm hover:shadow-md",
+                                "relative overflow-hidden",
+                                showShareMenu && "ring-2 ring-yellow-400/30"
                             )}
+                            style={{
+                                background: `
+                                    linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 50%, #1a2f4f 100%),
+                                    radial-gradient(2px 2px at 20% 30%, rgba(255, 255, 0, 0.4), transparent),
+                                    radial-gradient(1.5px 1.5px at 60% 70%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1px 1px at 50% 50%, rgba(255, 255, 0, 0.35), transparent),
+                                    radial-gradient(1.5px 1.5px at 80% 10%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(2px 2px at 90% 40%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 33% 55%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 15% 80%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 70% 20%, rgba(255, 255, 0, 0.3), transparent)
+                                `,
+                                backgroundColor: '#1e3a5f'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = `
+                                    linear-gradient(135deg, #2a4a6f 0%, #3d5a7f 50%, #2a3f5f 100%),
+                                    radial-gradient(2px 2px at 20% 30%, rgba(255, 255, 0, 0.4), transparent),
+                                    radial-gradient(1.5px 1.5px at 60% 70%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1px 1px at 50% 50%, rgba(255, 255, 0, 0.35), transparent),
+                                    radial-gradient(1.5px 1.5px at 80% 10%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(2px 2px at 90% 40%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 33% 55%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 15% 80%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 70% 20%, rgba(255, 255, 0, 0.3), transparent)
+                                `
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = `
+                                    linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 50%, #1a2f4f 100%),
+                                    radial-gradient(2px 2px at 20% 30%, rgba(255, 255, 0, 0.4), transparent),
+                                    radial-gradient(1.5px 1.5px at 60% 70%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1px 1px at 50% 50%, rgba(255, 255, 0, 0.35), transparent),
+                                    radial-gradient(1.5px 1.5px at 80% 10%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(2px 2px at 90% 40%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 33% 55%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 15% 80%, rgba(255, 255, 0, 0.25), transparent),
+                                    radial-gradient(1px 1px at 70% 20%, rgba(255, 255, 0, 0.3), transparent)
+                                `
+                            }}
                             onClick={(e) => {
                                 e.stopPropagation()
+                                // Close all other menus when opening share menu
                                 setShowNotifications(false)
                                 setShowProfileMenu(false)
+                                setShowHelpMenu(false)
+                                setShowPlanetMenu(false)
                                 setShowShareMenu(!showShareMenu)
                             }}
                             aria-label="Share"
@@ -1605,7 +1688,11 @@ export function Topbar() {
                         onClick={(e) => {
                             e.stopPropagation()
                                 setShowShareMenu(false)
-                                setShowHelpMenu(false) // Close help menu when opening notifications
+                                // Close all other menus when opening notifications
+                                setShowHelpMenu(false)
+                                setShowProfileMenu(false)
+                                setShowShareMenu(false)
+                                setShowPlanetMenu(false)
                                 setShowNotifications(!showNotifications)
                         }}
                             aria-label="Notifications"
@@ -1713,7 +1800,11 @@ export function Topbar() {
                             )}
                             onClick={(e) => {
                                 e.stopPropagation()
-                                setShowNotifications(false) // Close notifications menu when opening help
+                                // Close all other menus when opening help menu
+                                setShowNotifications(false)
+                                setShowProfileMenu(false)
+                                setShowShareMenu(false)
+                                setShowPlanetMenu(false)
                                 setShowHelpMenu(!showHelpMenu)
                             }}
                             aria-label="Help"
@@ -1804,17 +1895,52 @@ export function Topbar() {
                             className={cn(
                                 "flex items-center justify-center",
                                 "h-8 w-8 rounded-full",
-                                "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700",
                                 "text-white text-xs font-semibold",
                                 "transition-all duration-200",
-                                "focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2",
+                                "focus:outline-none focus:ring-2 focus:ring-yellow-400/30 focus:ring-offset-2",
                                 "dark:focus:ring-offset-gray-900",
-                                "shadow-sm hover:shadow-md"
+                                "shadow-sm hover:shadow-md",
+                                "relative overflow-hidden",
+                                showProfileMenu && "ring-2 ring-yellow-400/30"
                             )}
+                            style={{
+                                background: `
+                                    linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 50%, #1a2f4f 100%),
+                                    radial-gradient(1.5px 1.5px at 30% 40%, rgba(255, 255, 0, 0.4), transparent),
+                                    radial-gradient(1px 1px at 70% 60%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 50% 20%, rgba(255, 255, 0, 0.35), transparent),
+                                    radial-gradient(1px 1px at 20% 80%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 80% 30%, rgba(255, 255, 0, 0.25), transparent)
+                                `,
+                                backgroundColor: '#1e3a5f'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = `
+                                    linear-gradient(135deg, #2a4a6f 0%, #3d5a7f 50%, #2a3f5f 100%),
+                                    radial-gradient(1.5px 1.5px at 30% 40%, rgba(255, 255, 0, 0.4), transparent),
+                                    radial-gradient(1px 1px at 70% 60%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 50% 20%, rgba(255, 255, 0, 0.35), transparent),
+                                    radial-gradient(1px 1px at 20% 80%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 80% 30%, rgba(255, 255, 0, 0.25), transparent)
+                                `
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = `
+                                    linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 50%, #1a2f4f 100%),
+                                    radial-gradient(1.5px 1.5px at 30% 40%, rgba(255, 255, 0, 0.4), transparent),
+                                    radial-gradient(1px 1px at 70% 60%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 50% 20%, rgba(255, 255, 0, 0.35), transparent),
+                                    radial-gradient(1px 1px at 20% 80%, rgba(255, 255, 0, 0.3), transparent),
+                                    radial-gradient(1.5px 1.5px at 80% 30%, rgba(255, 255, 0, 0.25), transparent)
+                                `
+                            }}
                             onClick={(e) => {
                                 e.stopPropagation()
+                                // Close all other menus when opening profile menu
                                 setShowNotifications(false)
                                 setShowShareMenu(false)
+                                setShowHelpMenu(false)
+                                setShowPlanetMenu(false)
                                 setShowProfileMenu(!showProfileMenu)
                             }}
                             aria-label="Profile"
