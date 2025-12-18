@@ -3,10 +3,6 @@ import { persist } from 'zustand/middleware'
 import { 
   templatesApi, 
   type Template, 
-  type TemplateCreate, 
-  type TemplateUpdate,
-  type TemplateApplyRequest,
-  type TemplateApplyResponse,
 } from '@/lib/api/templates'
 
 export interface TemplateStoreState {
@@ -41,10 +37,10 @@ export interface TemplateStoreState {
   }) => Promise<Template[]>
   fetchTemplate: (templateId: string) => Promise<Template>
   fetchCategories: () => Promise<void>
-  createTemplate: (data: TemplateCreate) => Promise<Template>
-  updateTemplate: (templateId: string, updates: TemplateUpdate) => Promise<Template>
+  createTemplate: (data: Partial<Template>) => Promise<Template>
+  updateTemplate: (templateId: string, updates: Partial<Template>) => Promise<Template>
   deleteTemplate: (templateId: string) => Promise<void>
-  applyTemplate: (templateId: string, data: TemplateApplyRequest) => Promise<TemplateApplyResponse>
+  applyTemplate: (templateId: string, dashboardId: string) => Promise<any>
   setCurrentTemplate: (template: Template | null) => void
 }
 
@@ -211,10 +207,10 @@ export const useTemplatesStore = create<TemplateStoreState>()(
         }
       },
       
-      applyTemplate: async (templateId, data) => {
+      applyTemplate: async (templateId, dashboardId) => {
         set({ isLoading: true, error: null })
         try {
-          const result = await templatesApi.applyTemplate(templateId, data)
+          const result = await templatesApi.applyTemplate(templateId, dashboardId)
           set({ isLoading: false })
           return result
         } catch (error) {

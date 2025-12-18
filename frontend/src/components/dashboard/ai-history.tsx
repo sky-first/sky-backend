@@ -63,7 +63,7 @@ export function AIHistory() {
             filtered = filtered.filter(item => 
                 item.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 item.preview.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+                (item.tags && item.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase())))
             )
         }
 
@@ -321,6 +321,7 @@ export function AIHistory() {
                                                 </p>
 
                                                 {/* Tags */}
+                                                {item.tags && item.tags.length > 0 && (
                                                 <div className="flex flex-wrap gap-1.5">
                                                     {item.tags.map(tag => (
                                                         <Badge 
@@ -332,6 +333,7 @@ export function AIHistory() {
                                                         </Badge>
                                                     ))}
                                                 </div>
+                                                )}
                                             </div>
                                         </motion.div>
                                     )

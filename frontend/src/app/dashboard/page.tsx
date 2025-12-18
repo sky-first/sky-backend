@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, Suspense } from "react"
+import { useEffect, useState, Suspense, useCallback, useMemo } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Canvas } from "@/components/dashboard/canvas"
 import { WidgetContainer } from "@/components/dashboard/widget-container"
@@ -12,18 +12,43 @@ import { useCanvasStore } from "@/store/canvas-store"
 import { dashboardsApi } from "@/lib/api/dashboards"
 import { Loader2 } from "lucide-react"
 
+// Helper function to convert API widgets to store format (optimized with loop)
+const convertApiWidgetsToStore = (apiWidgets: any[]): any[] => {
+    if (!apiWidgets || apiWidgets.length === 0) return []
+    const storeWidgets = new Array(apiWidgets.length)
+    for (let i = 0; i < apiWidgets.length; i++) {
+        const w = apiWidgets[i]
+        storeWidgets[i] = {
+            id: w.id,
+            type: (w.type as 'chart' | 'kpi' | 'table' | 'ai-box' | 'text') || 'text',
+            title: w.title || '',
+            position: w.position || { x: 0, y: 0 },
+            size: w.size || { width: 400, height: 300 },
+            data: w.data || w.config || {},
+        }
+    }
+    return storeWidgets
+}
+
 function DashboardContent() {
     const searchParams = useSearchParams()
     const router = useRouter()
     // Normalize dashboardId param so values like "null"/"undefined"/empty don't trigger invalid requests
     const rawDashboardId = searchParams.get('id')
-    const normalizedDashboardId = rawDashboardId?.trim()
-    const dashboardId = normalizedDashboardId && normalizedDashboardId !== 'null' && normalizedDashboardId !== 'undefined' ? normalizedDashboardId : null
+    const dashboardId = useMemo(() => {
+        const normalized = rawDashboardId?.trim()
+        return normalized && normalized !== 'null' && normalized !== 'undefined' ? normalized : null
+    }, [rawDashboardId])
     
-    const { widgets, setWidgets } = useWidgetStore()
-    const { currentDashboard, fetchDashboard, setCurrentDashboard, updateDashboard } = useDashboardStore()
-    const { currentPlanet } = usePlanetStore()
-    const { loadSettings } = useCanvasStore()
+    // Use Zustand selectors to avoid unnecessary re-renders
+    const widgets = useWidgetStore(state => state.widgets)
+    const setWidgets = useWidgetStore(state => state.setWidgets)
+    const currentDashboard = useDashboardStore(state => state.currentDashboard)
+    const fetchDashboard = useDashboardStore(state => state.fetchDashboard)
+    const setCurrentDashboard = useDashboardStore(state => state.setCurrentDashboard)
+    const updateDashboard = useDashboardStore(state => state.updateDashboard)
+    const currentPlanet = usePlanetStore(state => state.currentPlanet)
+    const loadSettings = useCanvasStore(state => state.loadSettings)
     
     const [isLoading, setIsLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -35,30 +60,31 @@ function DashboardContent() {
         }
     }, [rawDashboardId, dashboardId, router])
 
-    // Load dashboard and widgets
-    useEffect(() => {
-        let isMounted = true
-
-        const loadWidgets = async (dashboardId: string) => {
+    // Memoize loadWidgets function (kept for backward compatibility but optimized to use parallel loading)
+    const loadWidgets = useCallback(async (dashboardId: string, isMounted: boolean) => {
             try {
+                if (!isMounted) return
                 const apiWidgets = await dashboardsApi.getWidgets(dashboardId)
                 if (!isMounted) return
                 
-                // Convert API widgets to store format
-                const storeWidgets = apiWidgets.map((w) => ({
-                    id: w.id,
-                    type: w.type as 'chart' | 'kpi' | 'table' | 'ai-box' | 'text',
-                    title: w.title,
-                    position: w.position,
-                    size: w.size,
-                    data: w.data || {},
-                }))
-                setWidgets(storeWidgets)
+                // Convert API widgets to store format (optimized)
+                const storeWidgets = convertApiWidgetsToStore(apiWidgets)
+                if (isMounted) {
+                    setWidgets(storeWidgets)
+                }
             } catch (err) {
                 console.error('Error loading widgets:', err)
                 // Don't set error here, just log it - widgets might be empty
+                // Set empty widgets array to prevent UI issues
+                if (isMounted) {
+                    setWidgets([])
+                }
             }
-        }
+    }, [setWidgets])
+
+    // Load dashboard and widgets
+    useEffect(() => {
+        let isMounted = true
 
         const loadDashboardForPlanet = async (planetId: string) => {
             try {
@@ -71,45 +97,90 @@ function DashboardContent() {
                     throw new Error('Invalid planet ID')
                 }
                 
-                console.log('[Dashboard] Loading dashboards for planet:', planetId)
-                const dashboards = await dashboardsApi.listDashboards({ 
+                if (process.env.NODE_ENV === 'development') {
+                    console.log('[Dashboard] Loading dashboards for planet:', planetId)
+                }
+                let dashboards
+                try {
+                    dashboards = await dashboardsApi.listDashboards({ 
                     planet_id: planetId,
                     limit: 1 
                 })
+                } catch (err) {
+                    console.error('[Dashboard] Error loading dashboards:', err)
+                    if (isMounted) {
+                        setError(err instanceof Error ? err.message : 'Failed to load dashboards')
+                        setIsLoading(false)
+                    }
+                    return
+                }
                 
                 if (!isMounted) return
-                console.log('[Dashboard] Found dashboards:', dashboards.length)
+                if (process.env.NODE_ENV === 'development') {
+                    console.log('[Dashboard] Found dashboards:', dashboards.length)
+                }
                 
                 if (dashboards.length > 0) {
-                    const dashboard = await fetchDashboard(dashboards[0].id)
+                    const dashboardId = dashboards[0].id
+                    // Check if we already have this dashboard loaded
+                    const cachedDashboard = currentDashboard?.id === dashboardId ? currentDashboard : null
+                    
+                    // Load dashboard and widgets in parallel for better performance
+                    const [dashboard, apiWidgets] = await Promise.all([
+                        cachedDashboard ? Promise.resolve(cachedDashboard) : fetchDashboard(dashboardId),
+                        dashboardsApi.getWidgets(dashboardId).catch(() => []) // Don't fail if widgets fail
+                    ])
+                    
                     if (!isMounted) return
-                    console.log('[Dashboard] Dashboard loaded:', dashboard.id)
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('[Dashboard] Dashboard loaded:', dashboard.id)
+                    }
+                    
                     // Update URL with the loaded dashboard ID
                     router.replace(`/dashboard?id=${dashboard.id}`)
+                    
                     // Load canvas settings if available
                     if (dashboard.canvas_settings) {
                         loadSettings(dashboard.canvas_settings)
                     }
-                    await loadWidgets(dashboard.id)
+                    
+                    // Convert and set widgets if we got them (optimized conversion)
+                    if (apiWidgets && apiWidgets.length >= 0) {
+                        const storeWidgets = convertApiWidgetsToStore(apiWidgets)
+                        if (isMounted) {
+                            setWidgets(storeWidgets)
+                        }
+                    }
                 } else {
                     // No dashboards, create a default one
-                    console.log('[Dashboard] No dashboards found, creating new one for planet:', planetId)
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('[Dashboard] No dashboards found, creating new one for planet:', planetId)
+                    }
                     try {
                         const newDashboard = await dashboardsApi.createDashboard({
                             name: 'My Dashboard',
                             planet_id: planetId,
                         })
                         if (!isMounted) return
-                        console.log('[Dashboard] New dashboard created:', newDashboard.id)
-                        const loadedDashboard = await fetchDashboard(newDashboard.id)
-                        if (!isMounted) return
+                        if (process.env.NODE_ENV === 'development') {
+                            console.log('[Dashboard] New dashboard created:', newDashboard.id)
+                        }
+                        
+                        // Dashboard is already in store from createDashboard, use it directly
+                        const loadedDashboard = newDashboard
+                        
                         // Update URL with the new dashboard ID
                         router.replace(`/dashboard?id=${loadedDashboard.id}`)
+                        
                         // Load canvas settings if available
                         if (loadedDashboard.canvas_settings) {
                             loadSettings(loadedDashboard.canvas_settings)
                         }
-                        await loadWidgets(newDashboard.id)
+                        
+                        // New dashboard has no widgets, so set empty array
+                        if (isMounted) {
+                            setWidgets([])
+                        }
                     } catch (createErr) {
                         console.error('[Dashboard] Error creating dashboard:', createErr)
                         // If dashboard creation fails, show error but don't break the UI
@@ -168,7 +239,9 @@ function DashboardContent() {
                     await loadDashboardForPlanet(currentPlanet.id)
                 } else {
                     // No planet yet, keep loading and wait for it
-                    console.log('[Dashboard] No planet yet, waiting...')
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('[Dashboard] No planet yet, waiting...')
+                    }
                     // Don't set isLoading to false here - let the checkPlanet interval handle it
                     return
                 }
@@ -181,12 +254,22 @@ function DashboardContent() {
                 setIsLoading(true)
                 setError(null)
                 
-                const dashboard = await fetchDashboard(dashboardId)
+                // Check if we already have this dashboard loaded
+                const cachedDashboard = currentDashboard?.id === dashboardId ? currentDashboard : null
+                
+                // Load dashboard and widgets in parallel for better performance
+                const [dashboard, apiWidgets] = await Promise.all([
+                    cachedDashboard ? Promise.resolve(cachedDashboard) : fetchDashboard(dashboardId),
+                    dashboardsApi.getWidgets(dashboardId).catch(() => []) // Don't fail if widgets fail
+                ])
+                
                 if (!isMounted) return
                 
                 // Validate dashboard belongs to current planet
                 if (currentPlanet && dashboard.planet_id !== currentPlanet.id) {
-                    console.log('[Dashboard] Dashboard does not belong to current planet, loading planet dashboard instead')
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('[Dashboard] Dashboard does not belong to current planet, loading planet dashboard instead')
+                    }
                     // Clean URL and load dashboard for current planet
                     router.replace('/dashboard')
                     await loadDashboardForPlanet(currentPlanet.id)
@@ -197,13 +280,22 @@ function DashboardContent() {
                 if (dashboard.canvas_settings) {
                     loadSettings(dashboard.canvas_settings)
                 }
-                await loadWidgets(dashboardId)
+                
+                // Convert and set widgets if we got them (optimized conversion)
+                if (apiWidgets && apiWidgets.length >= 0) {
+                    const storeWidgets = convertApiWidgetsToStore(apiWidgets)
+                    if (isMounted) {
+                        setWidgets(storeWidgets)
+                    }
+                }
             } catch (err) {
                 console.error('Error loading dashboard:', err)
                 
                 // Fallback: if dashboardId é inválido, tente usar o primeiro dashboard do planeta ou criar um novo
                 if (isMounted && currentPlanet) {
-                    console.log('[Dashboard] Fallback: loading dashboard for planet')
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('[Dashboard] Fallback: loading dashboard for planet')
+                    }
                     await loadDashboardForPlanet(currentPlanet.id)
                     return
                 }
@@ -224,7 +316,9 @@ function DashboardContent() {
         } else {
             // If no planet, wait for it to be loaded by the layout
             // The layout fetches planets on mount, so we wait a bit
-            console.log('[Dashboard] No planet or dashboardId, starting planet check interval')
+            if (process.env.NODE_ENV === 'development') {
+                console.log('[Dashboard] No planet or dashboardId, starting planet check interval')
+            }
             const checkPlanet = setInterval(() => {
                 if (!isMounted) {
                     clearInterval(checkPlanet)
@@ -232,21 +326,23 @@ function DashboardContent() {
                 }
                 const planet = usePlanetStore.getState().currentPlanet
                 if (planet) {
-                    console.log('[Dashboard] Planet found:', planet.id)
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('[Dashboard] Planet found:', planet.id)
+                    }
                     clearInterval(checkPlanet)
                     // Reload with the new planet
                     loadDashboardForPlanet(planet.id)
                 }
-            }, 100)
+            }, 500) // Reduced from 100ms to 500ms for better performance
             
-            // Stop checking after 10 seconds
+            // Stop checking after 5 seconds (reduced from 10)
             setTimeout(() => {
                 clearInterval(checkPlanet)
                 if (isMounted) {
                     // If still no planet after timeout, show canvas anyway (it will work empty)
                     setIsLoading(false)
                 }
-            }, 10000)
+            }, 5000)
         }
 
         return () => {
@@ -255,12 +351,33 @@ function DashboardContent() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dashboardId, currentPlanet?.id])
 
-    // Log widgets rendering (must be before any conditional returns to maintain hook order)
+    // Log widgets rendering (only in development, must be before any conditional returns to maintain hook order)
     useEffect(() => {
-        if (widgets.length > 0) {
-            console.log(`[DashboardPage] 📊 Rendering ${widgets.length} widgets:`, widgets.map(w => ({ id: w.id, type: w.type, position: w.position })))
+        if (process.env.NODE_ENV === 'development' && widgets.length > 0) {
+            console.log(`[DashboardPage] 📊 Rendering ${widgets.length} widgets`)
         }
     }, [widgets.length, widgets.map(w => w.id).join(',')])
+
+    // Validate all widgets before rendering (memoized for performance)
+    const validWidgets = useMemo(() => {
+        const valid: typeof widgets = []
+        for (let i = 0; i < widgets.length; i++) {
+            const widget = widgets[i]
+            const hasValidPosition = 
+                typeof widget.position?.x === 'number' && !isNaN(widget.position.x) &&
+                typeof widget.position?.y === 'number' && !isNaN(widget.position.y)
+            const hasValidSize = 
+                typeof widget.size?.width === 'number' && !isNaN(widget.size.width) && widget.size.width > 0 &&
+                typeof widget.size?.height === 'number' && !isNaN(widget.size.height) && widget.size.height > 0
+            
+            if (hasValidPosition && hasValidSize) {
+                valid.push(widget)
+            } else if (process.env.NODE_ENV === 'development') {
+                console.error(`[DashboardPage] ❌ Widget ${widget.id} has invalid position or size`)
+            }
+        }
+        return valid
+    }, [widgets])
 
     // Show loading while dashboard is being loaded/created
     if (isLoading) {
@@ -311,53 +428,13 @@ function DashboardContent() {
     // Always render canvas and toolbar, even if dashboard is still loading
     // The canvas will work with empty widgets array
     
-    // Validate all widgets before rendering
-    const validWidgets = widgets.filter(widget => {
-        const hasValidPosition = 
-            typeof widget.position?.x === 'number' && !isNaN(widget.position.x) &&
-            typeof widget.position?.y === 'number' && !isNaN(widget.position.y)
-        const hasValidSize = 
-            typeof widget.size?.width === 'number' && !isNaN(widget.size.width) && widget.size.width > 0 &&
-            typeof widget.size?.height === 'number' && !isNaN(widget.size.height) && widget.size.height > 0
-        
-        if (!hasValidPosition || !hasValidSize) {
-            console.error(`[DashboardPage] ❌ Widget ${widget.id} has invalid position or size:`, {
-                position: widget.position,
-                size: widget.size,
-                hasValidPosition,
-                hasValidSize
-            })
-            return false
-        }
-        return true
-    })
-    
-    // Log duplicate positions
-    const positionMap = new Map<string, string[]>()
-    validWidgets.forEach(widget => {
-        const posKey = `${Math.round(widget.position.x)},${Math.round(widget.position.y)}`
-        if (!positionMap.has(posKey)) {
-            positionMap.set(posKey, [])
-        }
-        positionMap.get(posKey)!.push(widget.id)
-    })
-    
-    positionMap.forEach((widgetIds, posKey) => {
-        if (widgetIds.length > 1) {
-            console.warn(`[DashboardPage] ⚠️ Multiple widgets at same position ${posKey}:`, widgetIds)
-        }
-    })
-    
     return (
         <div className="w-full h-full">
             <Toolbar />
             <Canvas>
-                {validWidgets.map((widget, index) => {
-                    console.log(`[DashboardPage] 🎨 Rendering widget ${index + 1}/${validWidgets.length}: ${widget.id} at (${widget.position.x}, ${widget.position.y})`)
-                    return (
-                        <WidgetContainer key={widget.id} widget={widget} />
-                    )
-                })}
+                {validWidgets.map((widget) => (
+                    <WidgetContainer key={widget.id} widget={widget} />
+                ))}
             </Canvas>
         </div>
     )

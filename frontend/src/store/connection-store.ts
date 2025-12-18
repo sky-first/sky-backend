@@ -5,12 +5,6 @@ import {
   type Connection, 
   type ConnectionCreate, 
   type ConnectionUpdate,
-  type ConnectionTestResponse,
-  type ConnectionSyncResponse,
-  type ConnectionMetadataResponse,
-  type ConnectionStatusResponse,
-  type ConnectionValidateResponse,
-  type TableMetadata,
 } from '@/lib/api/connections'
 
 export interface ConnectionState {
@@ -33,13 +27,13 @@ export interface ConnectionState {
   setCurrentConnection: (connection: Connection | null) => void
   
   // Connection operations
-  testConnection: (connectionId: string) => Promise<ConnectionTestResponse>
-  syncConnection: (connectionId: string) => Promise<ConnectionSyncResponse>
-  getConnectionMetadata: (connectionId: string) => Promise<ConnectionMetadataResponse>
-  getConnectionTables: (connectionId: string) => Promise<TableMetadata[]>
+  testConnection: (connectionId: string) => Promise<{ success: boolean; message: string; latency?: number }>
+  syncConnection: (connectionId: string) => Promise<{ success: boolean; last_sync?: string; next_sync?: string; message?: string }>
+  getConnectionMetadata: (connectionId: string) => Promise<{ tables: Array<{ name: string; schema?: string; row_count?: number; columns?: Array<{ name: string; type: string; nullable?: boolean }> }>; schemas: string[]; last_metadata_update?: string }>
+  getConnectionTables: (connectionId: string) => Promise<string[]>
   getConnectionSchemas: (connectionId: string) => Promise<string[]>
-  getConnectionStatus: (connectionId: string) => Promise<ConnectionStatusResponse>
-  validateConnection: (connectionId: string) => Promise<ConnectionValidateResponse>
+  getConnectionStatus: (connectionId: string) => Promise<{ status: string }>
+  validateConnection: (connectionId: string) => Promise<any>
 }
 
 export const useConnectionStore = create<ConnectionState>()(

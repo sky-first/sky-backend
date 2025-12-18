@@ -34,6 +34,9 @@ interface Template extends Omit<ApiTemplate, 'icon' | 'created_at' | 'updated_at
     updated_at?: string // Optional for hardcoded templates
     popular?: boolean // Optional for hardcoded templates
     enterprise?: boolean // Optional for hardcoded templates
+    question?: string // Optional question for hardcoded templates
+    color?: string // Optional color for hardcoded templates
+    widgets?: any[] // Optional widgets for hardcoded templates
 }
 
 // Templates Empresariais Premium - Melhorados com Best Practices de BI
@@ -41,7 +44,6 @@ const TEMPLATES: Template[] = [
     {
         id: '1',
         name: 'Executive Performance Dashboard',
-        creator: 'Enterprise Analytics',
         category: 'all',
         description: 'Comprehensive monthly business performance with trend analysis and key metrics',
         question: 'Como está o desempenho mensal da empresa?',
@@ -113,7 +115,6 @@ const TEMPLATES: Template[] = [
     {
         id: '2',
         name: 'Product Profitability Analysis',
-        creator: 'Enterprise Analytics',
         category: 'all',
         description: 'Deep dive into product performance, margins, and revenue contribution',
         question: 'Quais produtos estão gerando mais lucro?',
@@ -195,7 +196,6 @@ const TEMPLATES: Template[] = [
     {
         id: '3',
         name: 'Regional Growth Analysis',
-        creator: 'Enterprise Analytics',
         category: 'strategy',
         description: 'Geographic performance analysis with market penetration and growth opportunities',
         question: 'Quais regiões têm maior potencial de crescimento?',
@@ -285,7 +285,6 @@ const TEMPLATES: Template[] = [
     {
         id: '4',
         name: 'Customer Acquisition Metrics',
-        creator: 'Enterprise Analytics',
         category: 'all',
         description: 'Comprehensive CAC analysis with channel optimization and LTV insights',
         question: 'Qual é o nosso custo de aquisição de clientes?',
@@ -367,7 +366,6 @@ const TEMPLATES: Template[] = [
     {
         id: '5',
         name: 'Marketing ROI Dashboard',
-        creator: 'Enterprise Analytics',
         category: 'all',
         description: 'Comprehensive campaign ROI analysis with channel attribution and optimization',
         question: 'Qual é o ROI das campanhas?',
@@ -451,7 +449,6 @@ const TEMPLATES: Template[] = [
     {
         id: '6',
         name: 'Financial Health Monitor',
-        creator: 'Enterprise Analytics',
         category: 'strategy',
         description: 'Comprehensive financial health indicators with cash flow and profitability analysis',
         question: 'Como está a saúde financeira geral?',
@@ -542,7 +539,6 @@ const TEMPLATES: Template[] = [
     {
         id: '7',
         name: 'Customer Retention Analytics',
-        creator: 'Enterprise Analytics',
         category: 'all',
         description: 'Advanced churn analysis with cohort retention and lifetime value insights',
         question: 'Qual é a análise de churn?',
@@ -625,7 +621,6 @@ const TEMPLATES: Template[] = [
     {
         id: '8',
         name: 'Multi-Channel Sales Performance',
-        creator: 'Enterprise Analytics',
         category: 'all',
         description: 'Comprehensive sales channel analysis with performance comparison and growth trends',
         question: 'Como está a evolução de vendas por canal?',
@@ -717,7 +712,6 @@ const TEMPLATES: Template[] = [
     {
         id: '9',
         name: 'Competitive Benchmark Analysis',
-        creator: 'Enterprise Analytics',
         category: 'strategy',
         description: 'Market position analysis with industry benchmarks and competitive intelligence',
         question: 'Como estamos comparados aos benchmarks de mercado?',
@@ -788,7 +782,6 @@ const TEMPLATES: Template[] = [
     {
         id: '10',
         name: 'Business Health Alert System',
-        creator: 'Enterprise Analytics',
         category: 'all',
         description: 'Real-time monitoring of critical business indicators with alert prioritization',
         question: 'Quais indicadores precisam de atenção imediata?',
@@ -873,7 +866,6 @@ const TEMPLATES: Template[] = [
     {
         id: '11',
         name: 'AI Business Intelligence Hub',
-        creator: 'Enterprise Analytics',
         category: 'all',
         description: 'Advanced AI-powered analytics with predictive insights and automated recommendations',
         question: 'What are the key AI-driven insights?',
@@ -1063,7 +1055,7 @@ const TemplatesIcon = ({ className, color = "currentColor" }: { className?: stri
 const convertApiTemplateToUITemplate = (apiTemplate: ApiTemplate): Template => {
     // Map icon string to React component if needed
     let iconComponent: React.ElementType | undefined = undefined
-    if (apiTemplate.icon) {
+    if ('icon' in apiTemplate && apiTemplate.icon) {
         // If icon is already a component (from hardcoded), use it
         // Otherwise, try to map icon string to component
         const iconMap: Record<string, React.ElementType> = {
@@ -1085,9 +1077,11 @@ const convertApiTemplateToUITemplate = (apiTemplate: ApiTemplate): Template => {
             'award': Award,
             'alert': AlertCircle,
         }
-        iconComponent = typeof apiTemplate.icon === 'function' 
-            ? apiTemplate.icon 
-            : iconMap[apiTemplate.icon.toLowerCase()] || Layout
+        if (typeof apiTemplate.icon === 'function') {
+            iconComponent = apiTemplate.icon as React.ElementType
+        } else if (typeof apiTemplate.icon === 'string') {
+            iconComponent = iconMap[apiTemplate.icon.toLowerCase()] || Layout
+        }
     }
     
     return {
@@ -1186,7 +1180,6 @@ export function TemplatesDialog() {
             filtered = filtered.filter(
                 (t) =>
                     t.name.toLowerCase().includes(query) ||
-                    t.creator.toLowerCase().includes(query) ||
                     t.description?.toLowerCase().includes(query) ||
                     t.question?.toLowerCase().includes(query)
             )
@@ -1207,16 +1200,10 @@ export function TemplatesDialog() {
             // Use applyTemplate API endpoint if available, otherwise fallback to manual widget creation
             if (template.id && template.id !== '1' && template.id !== '2' && template.id !== '3') {
                 // Real template from backend - use applyTemplate API
-                const result = await applyTemplate(template.id, {
-                    dashboard_id: currentDashboard.id,
-                    position: {
-                        x: viewportCenter.x - 600,
-                        y: viewportCenter.y - 400,
-                    }
-                })
+                const result = await applyTemplate(template.id, currentDashboard.id)
                 // Widgets are created by the backend, just close the dialog
                 close()
-            } else {
+            } else if (template.widgets) {
                 // Fallback for hardcoded templates (temporary)
                 await Promise.all(template.widgets.map((widget) => 
                     addWidget({
@@ -1228,9 +1215,14 @@ export function TemplatesDialog() {
                     })
                 ))
                 close()
+            } else {
+                // No widgets to create
+                close()
             }
         } catch (error) {
             console.error('Error applying template:', error)
+            // Could add toast notification here for better UX
+            alert(`Failed to apply template: ${error instanceof Error ? error.message : 'Unknown error'}`)
         }
     }
 
@@ -1504,7 +1496,7 @@ export function TemplatesDialog() {
                                                             "text-[9px] mt-0.5",
                                                             isDark ? "text-white/45" : "text-gray-500"
                                                         )}>
-                                                            {template.creator}
+                                                            {template.category || 'Template'}
                                                         </p>
                                                     </div>
                                                     

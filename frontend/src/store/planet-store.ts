@@ -47,7 +47,7 @@ const apiToStorePlanet = (api: ApiPlanet): Planet => ({
     icon: api.icon,
     owner_id: api.owner_id,
     isActive: api.is_active,
-    lastAccessed: api.last_accessed ? new Date(api.last_accessed) : undefined,
+    lastAccessed: (api as any).last_accessed ? new Date((api as any).last_accessed) : undefined,
     created_at: api.created_at,
     updated_at: api.updated_at,
 })
@@ -172,6 +172,7 @@ export const usePlanetStore = create<PlanetState>()(
                     if (updates.description !== undefined) apiUpdates.description = updates.description
                     if (updates.color !== undefined) apiUpdates.color = colorNameToHex(updates.color) // Convert color name to hex
                     if (updates.icon !== undefined) apiUpdates.icon = updates.icon
+                    if (updates.type !== undefined) apiUpdates.type = updates.type // Include type if provided
                     
                     const apiPlanet = await planetsApi.updatePlanet(id, apiUpdates)
                     const updatedPlanet = apiToStorePlanet(apiPlanet)

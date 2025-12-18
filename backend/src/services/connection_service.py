@@ -102,24 +102,24 @@ class ConnectionService:
         self, user: User, connection_data: ConnectionCreate
     ) -> ConnectionResponse:
         """
-        Create a new connection.
-
+        Create a new connection and automatically sync metadata.
+ 
         Args:
             user: Current user
             connection_data: Connection creation data
-
+ 
         Returns:
-            ConnectionResponse: Created connection
-
+            ConnectionResponse: Created connection (possibly already synced)
+ 
         Raises:
             BadRequestError: If connector_id is invalid
         """
         # Validate connector exists
         try:
-            connector = get_connector(connection_data.connector_id)
+            get_connector(connection_data.connector_id)
         except Exception:
             raise BadRequestError(f"Invalid connector_id: {connection_data.connector_id}")
-
+ 
         # TODO: Encrypt config before storing
         connection = await self.connection_repo.create(
             name=connection_data.name,
@@ -130,10 +130,20 @@ class ConnectionService:
             status="inactive",
             created_by=user.id,
         )
-
+ 
         await self.db.commit()
         await self.db.refresh(connection)
-
+ 
+        # Automatically sync metadata after creating the connection.
+        # If sync fails, we keep the connection created and just return it as-is.
+        try:
+            await self.sync_connection(connection.id, user)
+            # Reload connection to include updated status/last_sync fields
+            connection = await self.connection_repo.get_by_id(connection.id) or connection
+        except Exception:
+            # Swallow sync errors here; detailed error handling happens inside sync_connection
+            pass
+ 
         return ConnectionResponse.model_validate(connection)
 
     async def update_connection(

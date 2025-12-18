@@ -10,17 +10,20 @@ import {
     Unlock,
     MousePointer2,
     Hash as HashIcon,
+    Loader2,
 } from "lucide-react"
 import { useWidgetStore } from "@/store/widget-store"
 import { useCanvasStore } from "@/store/canvas-store"
 import { useTemplatesStore } from "@/store/templates-store"
 import { useCanvasLockStore } from "@/store/canvas-lock-store"
 import { useToolbarStore } from "@/store/toolbar-store"
+import { useDashboardStore } from "@/store/dashboard-store"
 import { useTheme } from "next-themes"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { ToolbarChartsMenu } from "./toolbar-charts-menu"
 import { ToolbarUploadButton } from "./toolbar-upload-button"
+import { filesApi } from "@/lib/api/files"
 
 export function Toolbar() {
     const { addWidget } = useWidgetStore()
@@ -28,9 +31,11 @@ export function Toolbar() {
     const { open: openTemplates } = useTemplatesStore()
     const { isLocked, toggleLock } = useCanvasLockStore()
     const { activeTool, setActiveTool } = useToolbarStore()
+    const { currentDashboard } = useDashboardStore()
     const { theme, resolvedTheme } = useTheme()
     const [mounted, setMounted] = useState(false)
     const [chartsMenuOpen, setChartsMenuOpen] = useState(false)
+    const [isUploading, setIsUploading] = useState(false)
     const chartsButtonRef = useRef<HTMLButtonElement>(null)
 
     useEffect(() => {
@@ -62,15 +67,168 @@ export function Toolbar() {
     }
 
 
-    const handleUpload = (files: FileList) => {
-        // Handle file uploads
-        Array.from(files).forEach((file) => {
-            console.log('Uploaded file:', file.name, file.type)
-            // TODO: Implement file upload logic
-            // - CSV/Excel: Parse and create table widget
-            // - Images: Create image widget
-            // - PDF: Handle PDF display
-        })
+    const handleUpload = async (files: FileList) => {
+        if (!currentDashboard) {
+            alert("Please select a dashboard first")
+            return
+        }
+
+        setIsUploading(true)
+        const fileArray = Array.from(files)
+        
+        try {
+            for (const file of fileArray) {
+                const fileType = file.type.toLowerCase()
+                const fileName = file.name.toLowerCase()
+                
+                // Determine file type and upload accordingly
+                if (fileName.endsWith('.csv')) {
+                    // Upload CSV and create table widget
+                    try {
+                        const response = await filesApi.uploadCSV(file, (progress) => {
+                            // Could show progress toast here
+                        })
+                        
+                        // Create table widget with CSV data
+                        const center = getViewportCenter()
+                        await addWidget({
+                            type: 'table',
+                            title: file.name.replace('.csv', ''),
+                            position: snapPosition(center.x, center.y),
+                            size: { width: 600, height: 400 },
+                            data: {
+                                source: 'upload',
+                                file_id: response.file_id,
+                                columns: response.columns,
+                                preview: response.preview,
+                                data: response.data,
+                            },
+                        }, currentDashboard.id)
+                        
+                        console.log(`CSV "${file.name}" uploaded successfully`)
+                    } catch (error) {
+                        console.error('Error uploading CSV:', error)
+                        alert(`Failed to upload CSV "${file.name}": ${error instanceof Error ? error.message : 'Unknown error'}`)
+                    }
+                } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                    // Upload Excel and create table widget
+                    try {
+                        const response = await filesApi.uploadExcel(file, (progress) => {
+                            // Could show progress toast here
+                        })
+                        
+                        // Create table widget with Excel data (use first sheet)
+                        const firstSheet = response.sheets[0]
+                        const center = getViewportCenter()
+                        await addWidget({
+                            type: 'table',
+                            title: file.name.replace(/\.(xlsx|xls)$/i, ''),
+                            position: snapPosition(center.x, center.y),
+                            size: { width: 600, height: 400 },
+                            data: {
+                                source: 'upload',
+                                file_id: response.file_id,
+                                columns: response.columns[firstSheet] || [],
+                                preview: response.preview[firstSheet] || [],
+                                data: response.data[firstSheet] || [],
+                                sheets: response.sheets,
+                            },
+                        }, currentDashboard.id)
+                        
+                        console.log(`Excel "${file.name}" uploaded successfully`)
+                    } catch (error) {
+                        console.error('Error uploading Excel:', error)
+                        alert(`Failed to upload Excel "${file.name}": ${error instanceof Error ? error.message : 'Unknown error'}`)
+                    }
+                } else if (fileType.startsWith('image/')) {
+                    // Upload image and create image widget
+                    try {
+                        const response = await filesApi.uploadImage(file, undefined, (progress) => {
+                            // Could show progress toast here
+                        })
+                        
+                        // Create image widget
+                        const center = getViewportCenter()
+                        await addWidget({
+                            type: 'text', // Using text widget for images for now
+                            title: file.name,
+                            position: snapPosition(center.x, center.y),
+                            size: { width: 400, height: 300 },
+                            data: {
+                                source: 'upload',
+                                file_id: response.file_id,
+                                url: response.url,
+                                type: 'image',
+                                filename: response.filename,
+                            },
+                        }, currentDashboard.id)
+                        
+                        console.log(`Image "${file.name}" uploaded successfully`)
+                    } catch (error) {
+                        console.error('Error uploading image:', error)
+                        alert(`Failed to upload image "${file.name}": ${error instanceof Error ? error.message : 'Unknown error'}`)
+                    }
+                } else if (fileName.endsWith('.pdf')) {
+                    // Upload PDF
+                    try {
+                        const response = await filesApi.uploadPDF(file, undefined, (progress) => {
+                            // Could show progress toast here
+                        })
+                        
+                        // Create text widget with PDF link/info
+                        const center = getViewportCenter()
+                        await addWidget({
+                            type: 'text',
+                            title: file.name.replace('.pdf', ''),
+                            position: snapPosition(center.x, center.y),
+                            size: { width: 500, height: 300 },
+                            data: {
+                                source: 'upload',
+                                file_id: response.file_id,
+                                url: response.url,
+                                type: 'pdf',
+                                filename: response.filename,
+                            },
+                        }, currentDashboard.id)
+                        
+                        console.log(`PDF "${file.name}" uploaded successfully`)
+                    } catch (error) {
+                        console.error('Error uploading PDF:', error)
+                        alert(`Failed to upload PDF "${file.name}": ${error instanceof Error ? error.message : 'Unknown error'}`)
+                    }
+                } else {
+                    // Generic file upload
+                    try {
+                        const response = await filesApi.uploadFile(file, undefined, (progress) => {
+                            // Could show progress toast here
+                        })
+                        
+                        // Create text widget with file info
+                        const center = getViewportCenter()
+                        await addWidget({
+                            type: 'text',
+                            title: file.name,
+                            position: snapPosition(center.x, center.y),
+                            size: { width: 400, height: 200 },
+                            data: {
+                                source: 'upload',
+                                file_id: response.file_id,
+                                url: response.url,
+                                type: response.type,
+                                filename: response.filename,
+                            },
+                        }, currentDashboard.id)
+                        
+                        console.log(`File "${file.name}" uploaded successfully`)
+                    } catch (error) {
+                        console.error('Error uploading file:', error)
+                        alert(`Failed to upload "${file.name}": ${error instanceof Error ? error.message : 'Unknown error'}`)
+                    }
+                }
+            }
+        } finally {
+            setIsUploading(false)
+        }
     }
 
     if (!mounted) return null
@@ -182,7 +340,7 @@ export function Toolbar() {
                                 )}
                                 aria-label="Add KPI"
                             >
-                                <span className="text-xs font-bold">123</span>
+                                <span className="text-sm font-bold leading-none">123</span>
                             </button>
                         </TooltipTrigger>
                         <TooltipContent side="right" className="text-xs">
@@ -249,12 +407,25 @@ export function Toolbar() {
                     {/* Upload */}
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <div data-tour="upload-tool">
-                                <ToolbarUploadButton onUpload={handleUpload} />
+                            <div data-tour="upload-tool" className="relative">
+                                <ToolbarUploadButton 
+                                    onUpload={handleUpload} 
+                                    disabled={isUploading || !currentDashboard}
+                                />
+                                {isUploading && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-background/50 rounded-lg">
+                                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                                    </div>
+                                )}
                             </div>
                         </TooltipTrigger>
                         <TooltipContent side="right" className="text-xs">
                             <div className="font-medium">Upload</div>
+                            {!currentDashboard && (
+                                <div className="text-muted-foreground text-[10px] mt-1">
+                                    Select a dashboard first
+                                </div>
+                            )}
                         </TooltipContent>
                     </Tooltip>
 

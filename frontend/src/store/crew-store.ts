@@ -23,7 +23,7 @@ export interface CrewState {
     fetchCrewMembers: (crewId: string) => Promise<void>
     addCrewMember: (crewId: string, data: CrewMemberCreate) => Promise<CrewMember>
     removeCrewMember: (crewId: string, userId: string) => Promise<void>
-    updateCrewMemberRole: (crewId: string, userId: string, role: CrewMemberUpdate) => Promise<CrewMember>
+    updateCrewMemberRole: (crewId: string, userId: string, role: string) => Promise<CrewMember>
 }
 
 export const useCrewStore = create<CrewState>()(
@@ -38,7 +38,7 @@ export const useCrewStore = create<CrewState>()(
             fetchCrews: async (params) => {
                 set({ isLoading: true, error: null })
                 try {
-                    const crews = await crewsApi.listCrews(params)
+                    const crews = await crewsApi.listCrews()
                     set({ 
                         crews,
                         isLoading: false 
@@ -215,7 +215,8 @@ export const useCrewStore = create<CrewState>()(
             updateCrewMemberRole: async (crewId, userId, role) => {
                 set({ isLoading: true, error: null })
                 try {
-                    const member = await crewsApi.updateCrewMemberRole(crewId, userId, role)
+                    const roleString = typeof role === 'string' ? role : (role as any).role || 'explorer'
+                    const member = await crewsApi.updateCrewMemberRole(crewId, userId, roleString)
                     set((state) => ({
                         crewMembers: {
                             ...state.crewMembers,

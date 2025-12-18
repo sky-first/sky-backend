@@ -18,6 +18,7 @@ from src.core.security import (
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
 from src.schemas.user import LoginResponse, RefreshTokenResponse, UserCreate, UserResponse
+from src.services.onboarding_service import ensure_default_planet_and_space
 
 
 def user_to_response_dict(user: User) -> dict:
@@ -90,6 +91,9 @@ class AuthenticationService:
         await self.db.commit()
         await self.db.refresh(user)  # Refresh to ensure all fields are loaded
 
+        # Ensure default planet/space for new users
+        await ensure_default_planet_and_space(self.db, user)
+
         return UserResponse.model_validate(user_to_response_dict(user))
 
     async def login(self, email: str, password: str) -> LoginResponse:
@@ -120,13 +124,16 @@ class AuthenticationService:
         await self.db.commit()
         await self.db.refresh(user)  # Refresh to ensure all fields are loaded
 
+        # Ensure default planet/space exists (fallback for legacy users)
+        await ensure_default_planet_and_space(self.db, user)
+
         # Create tokens
         token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data)
 
-        # Save refresh token
-        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+        # Save refresh token (set to 100 years in the future - effectively infinite)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,
@@ -138,7 +145,7 @@ class AuthenticationService:
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
             user=UserResponse.model_validate(user_to_response_dict(user)),
         )
 
@@ -193,8 +200,8 @@ class AuthenticationService:
         new_access_token = create_access_token(token_data)
         new_refresh_token = create_refresh_token(token_data)
 
-        # Save new refresh token
-        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+        # Save new refresh token (set to 100 years in the future - effectively infinite)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)
         new_token_model = RefreshToken(
             user_id=user.id,
             token=new_refresh_token,
@@ -206,7 +213,7 @@ class AuthenticationService:
         return RefreshTokenResponse(
             access_token=new_access_token,
             refresh_token=new_refresh_token,
-            expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
         )
 
     async def logout(self, refresh_token: str) -> None:

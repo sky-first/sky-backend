@@ -1,14 +1,14 @@
 import { create } from 'zustand'
 import {
   filesApi,
-  type File,
+  type FileUpload,
   type FileUploadResponse,
   type CSVUploadResponse,
   type ExcelUploadResponse,
 } from '@/lib/api/files'
 
 export interface FilesState {
-  files: File[]
+  files: FileUpload[]
   isLoading: boolean
   error: string | null
   uploadProgress: Record<string, number> // file name -> progress percentage
@@ -37,7 +37,7 @@ export interface FilesState {
     widgetId?: string,
     onProgress?: (progress: number) => void
   ) => Promise<FileUploadResponse>
-  fetchFile: (fileId: string) => Promise<File>
+  fetchFile: (fileId: string) => Promise<FileUpload>
   deleteFile: (fileId: string) => Promise<void>
   getFileDownloadUrl: (fileId: string) => Promise<string>
   clearError: () => void

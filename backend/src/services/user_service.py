@@ -12,6 +12,7 @@ from src.models.user import User
 from src.repositories.user import UserRepository
 from src.schemas.user import UserCreate, UserResponse, UserUpdate
 from src.services.auth_service import user_to_response_dict
+from src.services.onboarding_service import ensure_default_planet_and_space
 
 
 class UserService:
@@ -109,6 +110,9 @@ class UserService:
 
         await self.db.commit()
         await self.db.refresh(user)
+
+        # Ensure default planet/space for new users created by admins
+        await ensure_default_planet_and_space(self.db, user)
 
         return UserResponse.model_validate(user_to_response_dict(user))
 

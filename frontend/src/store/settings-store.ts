@@ -3,18 +3,6 @@ import { persist } from 'zustand/middleware'
 import {
   settingsApi,
   type Settings,
-  type SettingsUpdate,
-  type DataCatalogSettings,
-  type SpacesSettings,
-  type CrewsSettings,
-  type UsersSettings,
-  type PermissionsSettings,
-  type APIKey,
-  type APIKeyCreate,
-  type APIKeyCreateResponse,
-  type Integration,
-  type IntegrationCreate,
-  type IntegrationUpdate,
 } from '@/lib/api/settings'
 
 // UI State (for settings dialog)
@@ -36,32 +24,32 @@ interface SettingsDataState {
   error: string | null
 
   // Configuration settings (cached)
-  dataCatalogSettings: DataCatalogSettings | null
-  spacesSettings: SpacesSettings | null
-  crewsSettings: CrewsSettings | null
-  usersSettings: UsersSettings | null
-  permissionsSettings: PermissionsSettings | null
+  dataCatalogSettings: any | null
+  spacesSettings: any | null
+  crewsSettings: any | null
+  usersSettings: any | null
+  permissionsSettings: any | null
 
   // API Keys
-  apiKeys: APIKey[]
+  apiKeys: any[]
 
   // Integrations
-  integrations: Integration[]
+  integrations: any[]
 
   // Actions
   fetchSettings: () => Promise<void>
-  updateSettings: (data: SettingsUpdate) => Promise<Settings>
+  updateSettings: (data: Partial<Settings>) => Promise<Settings>
   fetchDataCatalogSettings: () => Promise<void>
   fetchSpacesSettings: () => Promise<void>
   fetchCrewsSettings: () => Promise<void>
   fetchUsersSettings: () => Promise<void>
   fetchPermissionsSettings: () => Promise<void>
   fetchAPIKeys: () => Promise<void>
-  createAPIKey: (data: APIKeyCreate) => Promise<APIKeyCreateResponse>
+  createAPIKey: (data: any) => Promise<any>
   deleteAPIKey: (apiKeyId: string) => Promise<void>
   fetchIntegrations: () => Promise<void>
-  createIntegration: (data: IntegrationCreate) => Promise<Integration>
-  updateIntegration: (integrationId: string, data: IntegrationUpdate) => Promise<Integration>
+  createIntegration: (data: any) => Promise<any>
+  updateIntegration: (integrationId: string, data: any) => Promise<any>
   deleteIntegration: (integrationId: string) => Promise<void>
 }
 

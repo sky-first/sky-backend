@@ -87,8 +87,6 @@ export const useSpaceStore = create<SpaceState>()(
                             type: 'space',
                             name: space.name,
                             description: space.description,
-                            icon: space.icon,
-                            color: space.color,
                         })
                     }).catch(() => {
                         // Silently fail if recents store is not available
@@ -191,8 +189,6 @@ export const useSpaceStore = create<SpaceState>()(
                             type: 'space',
                             name: space.name,
                             description: space.description,
-                            icon: space.icon,
-                            color: space.color,
                         })
                     }).catch(() => {
                         // Silently fail if recents store is not available
@@ -268,7 +264,9 @@ export const useSpaceStore = create<SpaceState>()(
             fetchSpaceCrews: async (spaceId) => {
                 set({ isLoading: true, error: null })
                 try {
+                    console.log(`[SpaceStore] Fetching crews for space ${spaceId}`)
                     const crews = await spacesApi.getSpaceCrews(spaceId)
+                    console.log(`[SpaceStore] Received ${crews?.length || 0} crews for space ${spaceId}:`, crews)
                     set((state) => ({
                         spaceCrews: {
                             ...state.spaceCrews,
@@ -276,8 +274,9 @@ export const useSpaceStore = create<SpaceState>()(
                         },
                         isLoading: false,
                     }))
+                    console.log(`[SpaceStore] Updated spaceCrews for ${spaceId}`)
                 } catch (error) {
-                    console.error('Error fetching space crews:', error)
+                    console.error(`[SpaceStore] Error fetching space crews for ${spaceId}:`, error)
                     set({ 
                         error: error instanceof Error ? error.message : 'Failed to fetch space crews',
                         isLoading: false 

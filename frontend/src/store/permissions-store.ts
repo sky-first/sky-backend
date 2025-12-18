@@ -1,11 +1,9 @@
 import { create } from 'zustand'
 import {
   permissionsApi,
-  type Permission,
+  type ConnectionPermission as Permission,
   type ConnectionPermissionCreate,
-  type PermissionUpdate,
-  type PermissionValidateRequest,
-  type PermissionValidateResponse,
+  type ConnectionPermissionUpdate,
 } from '@/lib/api/permissions'
 
 export interface PermissionsState {
@@ -28,11 +26,10 @@ export interface PermissionsState {
     connectionId: string,
     data: ConnectionPermissionCreate
   ) => Promise<Permission>
-  updatePermission: (permissionId: string, updates: PermissionUpdate) => Promise<Permission>
+  updatePermission: (permissionId: string, updates: ConnectionPermissionUpdate) => Promise<Permission>
   deletePermission: (permissionId: string) => Promise<void>
   fetchSpacePermissions: (spaceId: string) => Promise<void>
   fetchCrewPermissions: (crewId: string) => Promise<void>
-  validatePermission: (data: PermissionValidateRequest) => Promise<PermissionValidateResponse>
 }
 
 export const usePermissionsStore = create<PermissionsState>()((set, get) => ({
@@ -270,20 +267,5 @@ export const usePermissionsStore = create<PermissionsState>()((set, get) => ({
     }
   },
 
-  validatePermission: async (data) => {
-    set({ isLoading: true, error: null })
-    try {
-      const result = await permissionsApi.validatePermission(data)
-      set({ isLoading: false })
-      return result
-    } catch (error) {
-      console.error('Error validating permission:', error)
-      set({
-        error: error instanceof Error ? error.message : 'Failed to validate permission',
-        isLoading: false,
-      })
-      throw error
-    }
-  },
 }))
 

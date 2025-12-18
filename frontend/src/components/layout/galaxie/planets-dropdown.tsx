@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Sparkles, Plus, Copy, Move, Download, ChevronRight, Search, Star, MoreVertical, Edit2, Trash2, X } from "lucide-react"
+import { Sparkles, Plus, Copy, Move, Download, ChevronRight, Search, Star, MoreVertical, Edit2, Trash2, X, CheckCircle2 } from "lucide-react"
 import { usePlanetStore, type Planet } from "@/store/planet-store"
 import { useRecentsStore } from "@/store/recents-store"
 import { useStarredStore } from "@/store/starred-store"
@@ -34,9 +34,10 @@ interface PlanetsDropdownProps {
   onClose?: () => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
+  onCloseSidebar?: () => void
 }
 
-export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, onMouseLeave }: PlanetsDropdownProps) {
+export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, onMouseLeave, onCloseSidebar }: PlanetsDropdownProps) {
   const router = useRouter()
   const { planets, currentPlanet, fetchPlanets, switchPlanet, updatePlanet, deletePlanet, isLoading } = usePlanetStore()
   const { addRecent } = useRecentsStore()
@@ -48,11 +49,17 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
   const [editName, setEditName] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPlanetActions, setShowPlanetActions] = useState<Planet | null>(null)
+  const [showMoveToDialog, setShowMoveToDialog] = useState(false)
+  const [selectedTargetPlanet, setSelectedTargetPlanet] = useState<Planet | null>(null)
+  const [isMoving, setIsMoving] = useState(false)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     if (isOpen && planets.length === 0) {
-      fetchPlanets().catch(console.error)
+      fetchPlanets().catch((error) => {
+        console.error('Error fetching planets:', error)
+        // Error is handled in the store, but we log it here for debugging
+      })
     }
   }, [isOpen, planets.length, fetchPlanets])
 
@@ -128,8 +135,49 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
 
   const handleMoveTo = () => {
     if (!currentPlanet) return
-    // TODO: Implement move to functionality
-    console.log("Move to:", currentPlanet.name)
+    setShowMoveToDialog(true)
+    setShowPlanetActions(null)
+  }
+
+  const handleMoveToConfirm = async () => {
+    if (!currentPlanet || !selectedTargetPlanet) return
+    
+    setIsMoving(true)
+    try {
+      // Get current dashboard for this planet
+      const dashboards = await dashboardsApi.listDashboards({ planet_id: currentPlanet.id })
+      
+      if (dashboards.length === 0) {
+        alert('No dashboard found for this planet')
+        return
+      }
+
+      // Move all dashboards to the target planet
+      const movePromises = dashboards.map(dashboard => 
+        dashboardsApi.updateDashboard(dashboard.id, { planet_id: selectedTargetPlanet.id })
+      )
+      
+      await Promise.all(movePromises)
+      
+      // Switch to target planet
+      await switchPlanet(selectedTargetPlanet.id)
+      
+      // Refresh planets list
+      await fetchPlanets()
+      
+      setShowMoveToDialog(false)
+      setSelectedTargetPlanet(null)
+      onOpenChange(false)
+      onClose?.()
+      
+      // Navigate to dashboard
+      router.push("/dashboard")
+    } catch (error) {
+      console.error('Error moving planet:', error)
+      alert(`Failed to move: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsMoving(false)
+    }
   }
 
   const handleExport = async () => {
@@ -331,13 +379,14 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
                     
                     return (
                       <div key={planet.id} className="group relative">
-                        <button
+                        <div
                           onClick={() => handlePlanetClick(planet)}
                           className={cn(
                             "w-full text-left px-3 py-2.5 rounded-lg",
                             "transition-all duration-200",
                             "hover:bg-gray-50 dark:hover:bg-gray-800",
                             "flex items-center gap-3",
+                            "cursor-pointer",
                             currentPlanet?.id === planet.id && "bg-blue-50 dark:bg-blue-900/20"
                           )}
                         >
@@ -360,7 +409,11 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
                           </div>
                           <div className="flex items-center gap-1">
                             <button
-                              onClick={(e) => handleStarClick(e, planet)}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleStarClick(e, planet)
+                              }}
                               className={cn(
                                 "p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity",
                                 starred && "opacity-100 text-yellow-500"
@@ -374,7 +427,11 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
                               />
                             </button>
                             <button
-                              onClick={(e) => handleMenuClick(planet, e)}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleMenuClick(planet, e)
+                              }}
                               className={cn(
                                 "p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity",
                                 "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300",
@@ -384,7 +441,7 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
                               <MoreVertical className="w-4 h-4" />
                             </button>
                           </div>
-                        </button>
+                        </div>
                         
                         {/* Planet Actions Sidetip - positioned below this item */}
                         <AnimatePresence>
@@ -522,6 +579,8 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
                 onClick={(e) => {
                   e.stopPropagation()
                   setShowCreateDialog(true)
+                  // Don't close sidebar immediately - let it stay open while dialog is open
+                  // The sidebar will close automatically when mouse leaves if no dialog is open
                 }}
                 className={cn(
                   "w-full text-left px-3 py-2 rounded-lg",
@@ -643,6 +702,84 @@ export function PlanetsDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
             disabled={isSubmitting}
           >
             {isSubmitting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Move To Dialog */}
+    <Dialog open={showMoveToDialog} onOpenChange={setShowMoveToDialog}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Move to Planet</DialogTitle>
+          <DialogDescription>
+            Select a planet to move "{currentPlanet?.name}" dashboards to.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-4">
+          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+            {planets
+              .filter(p => p.id !== currentPlanet?.id)
+              .map((planet) => (
+                <button
+                  key={planet.id}
+                  onClick={() => setSelectedTargetPlanet(planet)}
+                  className={cn(
+                    "w-full text-left px-4 py-3 rounded-lg border transition-all",
+                    selectedTargetPlanet?.id === planet.id
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:bg-accent"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold"
+                      style={{ backgroundColor: planet.color }}
+                    >
+                      {planet.icon || planet.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-medium">{planet.name}</div>
+                      {planet.description && (
+                        <div className="text-sm text-muted-foreground">{planet.description}</div>
+                      )}
+                    </div>
+                    {selectedTargetPlanet?.id === planet.id && (
+                      <CheckCircle2 className="w-5 h-5 text-primary" />
+                    )}
+                  </div>
+                </button>
+              ))}
+            {planets.filter(p => p.id !== currentPlanet?.id).length === 0 && (
+              <div className="text-center py-8 text-muted-foreground">
+                No other planets available
+              </div>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowMoveToDialog(false)
+              setSelectedTargetPlanet(null)
+            }}
+            disabled={isMoving}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleMoveToConfirm}
+            disabled={!selectedTargetPlanet || isMoving}
+          >
+            {isMoving ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Moving...
+              </>
+            ) : (
+              "Move"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

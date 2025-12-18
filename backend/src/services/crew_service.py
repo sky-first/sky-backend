@@ -141,12 +141,21 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
+        # Check access via current space
+        current_space = await self.space_repo.get_by_id(crew.space_id)
+        if not current_space or current_space.created_by != user.id:
             raise ForbiddenError("Access denied to this crew")
 
         update_data = crew_data.model_dump(exclude_unset=True)
+
+        # If moving crew to another space, validate target space ownership
+        if "space_id" in update_data and update_data["space_id"] != crew.space_id:
+            target_space = await self.space_repo.get_by_id(update_data["space_id"])
+            if not target_space:
+                raise NotFoundError("Target space not found")
+            if target_space.created_by != user.id:
+                raise ForbiddenError("Access denied to target space")
+
         crew = await self.crew_repo.update(crew_id, **update_data)
         await self.db.commit()
         await self.db.refresh(crew)
@@ -204,7 +213,25 @@ class CrewService:
             raise ForbiddenError("Access denied to this crew")
 
         members = await self.member_repo.get_by_crew(crew_id)
-        return [CrewMemberResponse.model_validate(m) for m in members]
+        # Refresh user relationships to ensure they're loaded
+        for member in members:
+            await self.db.refresh(member, ["user"])
+        
+        # Convert to response format with user info
+        result = []
+        for member in members:
+            member_data_dict = {
+                "id": member.id,
+                "crew_id": member.crew_id,
+                "user_id": member.user_id,
+                "role": member.role,
+                "joined_at": member.joined_at,
+                "created_at": member.created_at,
+                "user": user_to_response_dict(member.user) if member.user else None,
+            }
+            result.append(CrewMemberResponse.model_validate(member_data_dict))
+        
+        return result
 
     async def add_crew_member(
         self, crew_id: UUID, user: User, member_data: CrewMemberCreate
@@ -327,7 +354,20 @@ class CrewService:
 
         member = await self.member_repo.update(member.id, role=role_data.role)
         await self.db.commit()
-        await self.db.refresh(member)
-
-        return CrewMemberResponse.model_validate(member)
+        
+        # Reload member with user relationship
+        await self.db.refresh(member, ["user"])
+        
+        # Build response dict similar to get_crew_members
+        member_data_dict = {
+            "id": member.id,
+            "crew_id": member.crew_id,
+            "user_id": member.user_id,
+            "role": member.role,
+            "joined_at": member.joined_at,
+            "created_at": member.created_at,
+            "user": user_to_response_dict(member.user) if member.user else None,
+        }
+        
+        return CrewMemberResponse.model_validate(member_data_dict)
 

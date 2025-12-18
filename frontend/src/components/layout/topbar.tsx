@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useUserStore } from "@/store/user-store"
 import { useSidebarStore } from "@/store/sidebar-store"
 import { useRouter } from "next/navigation"
@@ -10,6 +10,7 @@ import { ProfileDropdown } from "@/components/layout/galaxie/profile-dropdown"
 import { useTheme } from "next-themes"
 import { FileText, ChevronDown, ChevronRight, Sun, Moon, Plus, Settings, Star, Bell, HelpCircle, Mail, Copy, Download, Move, Eye, Radio, Clock, Users, Link2, Globe, UserPlus, Code, Lock, ChevronUp, Search, Menu, Share2, BookOpen, Video, MessageCircle, User } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { usePlanetStore } from "@/store/planet-store"
 
 // Design tokens - consistent spacing and styling
 const TOPBAR_CONFIG = {
@@ -32,9 +33,8 @@ export function Topbar() {
     const { theme, setTheme, resolvedTheme } = useTheme()
     const [mounted, setMounted] = useState(false)
     const [showCreatePlanetDialog, setShowCreatePlanetDialog] = useState(false)
-    const [boardName, setBoardName] = useState("My First Planet")
-    const [isEditingProjectName, setIsEditingProjectName] = useState(false)
-    const [showPlanetMenu, setShowPlanetMenu] = useState(false)
+    const { currentPlanet } = usePlanetStore()
+
     const [showShareMenu, setShowShareMenu] = useState(false)
     const [shareTab, setShareTab] = useState<'invite' | 'embed' | 'publish'>('invite')
     const [showProfileMenu, setShowProfileMenu] = useState(false)
@@ -62,7 +62,6 @@ export function Topbar() {
     useEffect(() => {
         const handleEscape = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
-                setShowPlanetMenu(false)
                 setShowShareMenu(false)
                 setShowProfileMenu(false)
                 setShowNotifications(false)
@@ -132,17 +131,6 @@ export function Topbar() {
             : "hover:bg-black/5 active:bg-black/10"
     )
 
-    const handleBoardNameSubmit = useCallback(() => {
-        setIsEditingProjectName(false)
-    }, [])
-
-    const handleBoardNameKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') {
-            handleBoardNameSubmit()
-        } else if (e.key === 'Escape') {
-            setIsEditingProjectName(false)
-        }
-    }, [handleBoardNameSubmit])
 
     if (!mounted) return null
 
@@ -157,7 +145,7 @@ export function Topbar() {
                 data-tour="topbar"
             >
                 <div className={cn("flex items-center", TOPBAR_CONFIG.spacing.gap, "pointer-events-auto")}>
-                    {/* Sky Button - Opens Dropdown Menu */}
+                    {/* Sky Button */}
                     <div className="relative">
                         <button
                             className={cn(
@@ -214,1043 +202,14 @@ export function Topbar() {
                                 e.stopPropagation()
                                 setIsOpen(!isOpen)
                             }}
-                            aria-label="Open Sky menu"
+                            aria-label="Sky"
                         >
                             Sky
                         </button>
-                        
-                        {/* Planet Menu Dropdown */}
-                        {showPlanetMenu && (
-                            <div 
-                                className={cn(
-                                    "absolute -left-4 top-full mt-3 w-56",
-                                    "bg-white dark:bg-gray-800",
-                                    "rounded-xl shadow-xl",
-                                    "border border-gray-200 dark:border-gray-700",
-                                    "overflow-visible z-50",
-                                    "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2",
-                                    "duration-200",
-                                    "py-1"
-                                )}
-                                role="menu"
-                                aria-orientation="vertical"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                    {/* Signals */}
-                                    <button
-                                        onClick={() => {
-                                            console.log("Signals")
-                                        setShowPlanetMenu(false)
-                                        }}
-                                        className={cn(
-                                        "w-full text-left flex items-center gap-2",
-                                            "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                            "transition-all duration-200 rounded-md",
-                                            "text-gray-900 dark:text-white px-4 py-2.5"
-                                        )}
-                                        role="menuitem"
-                                    >
-                                        <Radio className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" />
-                                        <span className="text-sm">Signals</span>
-                                    </button>
-
-                                    {/* Recent */}
-                                <div 
-                                    className="relative"
-                                    onMouseEnter={() => {
-                                        // Close all other menus immediately
-                                        if (spacesMenuTimeoutRef.current) {
-                                            clearTimeout(spacesMenuTimeoutRef.current)
-                                            spacesMenuTimeoutRef.current = null
-                                        }
-                                        if (starredMenuTimeoutRef.current) {
-                                            clearTimeout(starredMenuTimeoutRef.current)
-                                            starredMenuTimeoutRef.current = null
-                                        }
-                                        if (crewsMenuTimeoutRef.current) {
-                                            clearTimeout(crewsMenuTimeoutRef.current)
-                                            crewsMenuTimeoutRef.current = null
-                                        }
-                                        setShowSpacesMenu(false)
-                                        setShowStarredMenu(false)
-                                        setShowCrewsMenu(false)
-                                        
-                                        if (recentMenuTimeoutRef.current) {
-                                            clearTimeout(recentMenuTimeoutRef.current)
-                                            recentMenuTimeoutRef.current = null
-                                        }
-                                        setShowRecentMenu(true)
-                                    }}
-                                    onMouseLeave={() => {
-                                        recentMenuTimeoutRef.current = setTimeout(() => {
-                                            setShowRecentMenu(false)
-                                        }, 150)
-                                    }}
-                                >
-                                    <button
-                                        onClick={() => {
-                                            setShowRecentMenu(!showRecentMenu)
-                                        }}
-                                        className={cn(
-                                            "w-full text-left flex items-center gap-2",
-                                            "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                            "transition-all duration-200 rounded-md",
-                                            "text-gray-900 dark:text-white px-4 py-2.5",
-                                            showRecentMenu && "bg-blue-50 dark:bg-blue-900/20"
-                                        )}
-                                        role="menuitem"
-                                    >
-                                        <Clock className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" />
-                                        <span className="text-sm">Recent</span>
-                                        <ChevronRight className={cn(
-                                            "w-3 h-3 ml-auto transition-transform duration-200",
-                                            showRecentMenu && "translate-x-0.5"
-                                        )} />
-                                    </button>
-                                    
-                                    {/* Recent Submenu */}
-                                    {showRecentMenu && (
-                                        <div 
-                                            data-recent-submenu
-                                            className={cn(
-                                                "absolute left-full top-0 ml-1 w-64",
-                                                "bg-white dark:bg-gray-800",
-                                                "rounded-xl shadow-xl",
-                                                "border border-gray-200 dark:border-gray-700",
-                                                "overflow-hidden z-[60]",
-                                                "pointer-events-auto"
-                                            )}
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                            }}
-                                            onMouseEnter={() => {
-                                                if (recentMenuTimeoutRef.current) {
-                                                    clearTimeout(recentMenuTimeoutRef.current)
-                                                    recentMenuTimeoutRef.current = null
-                                                }
-                                                setShowRecentMenu(true)
-                                            }}
-                                            onMouseLeave={() => {
-                                                recentMenuTimeoutRef.current = setTimeout(() => {
-                                                    setShowRecentMenu(false)
-                                                }, 150)
-                                            }}
-                                        >
-                                            {/* Header */}
-                                            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                                                <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-3">
-                                                    Recent
-                                                </h3>
-                                                {/* Filter Input */}
-                                                <div className="relative">
-                                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Filter recent items"
-                                                        value={recentFilter}
-                                                        onChange={(e) => setRecentFilter(e.target.value)}
-                                                        className={cn(
-                                                            "w-full pl-9 pr-3 py-2 text-sm rounded-lg border",
-                                                            "bg-white dark:bg-gray-800",
-                                                            "border-blue-500 dark:border-blue-400",
-                                                            "text-gray-900 dark:text-white",
-                                                            "placeholder:text-gray-400 dark:placeholder:text-gray-500",
-                                                            "focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                                        )}
-                                                    />
-                                                </div>
                                             </div>
 
-                                            {/* Content */}
-                                            <div className="max-h-[400px] overflow-y-auto">
-                                                {/* Recent Items */}
-                                                <div className="p-3">
-                                                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 px-2">
-                                                        Recently Viewed
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("Project Alpha")
-                                                                setShowPlanetMenu(false)
-                                                                setShowRecentMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors"
-                                                            )}
-                                                        >
-                                                            <div className="w-6 h-6 rounded-lg bg-blue-500 flex items-center justify-center text-white text-xs font-semibold">
-                                                                PA
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                Project Alpha
-                                                            </span>
-                                                            <Clock className="w-4 h-4 text-gray-400" />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("Dashboard Q4")
-                                                                setShowPlanetMenu(false)
-                                                                setShowRecentMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors"
-                                                            )}
-                                                        >
-                                                            <div className="w-6 h-6 rounded-lg bg-green-500 flex items-center justify-center text-white text-xs font-semibold">
-                                                                DQ
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                Dashboard Q4
-                                                            </span>
-                                                            <Clock className="w-4 h-4 text-gray-400" />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("Marketing Plan")
-                                                                setShowPlanetMenu(false)
-                                                                setShowRecentMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors"
-                                                            )}
-                                                        >
-                                                            <div className="w-6 h-6 rounded-lg bg-purple-500 flex items-center justify-center text-white text-xs font-semibold">
-                                                                MP
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                Marketing Plan
-                                                            </span>
-                                                            <Clock className="w-4 h-4 text-gray-400" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                {/* Actions */}
-                                                <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-1">
-                                                    <button
-                                                        onClick={() => {
-                                                            console.log("View all recent")
-                                                            setShowPlanetMenu(false)
-                                                            setShowRecentMenu(false)
-                                                        }}
-                                                        className={cn(
-                                                            "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                            "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                            "transition-colors text-sm text-gray-900 dark:text-white"
-                                                        )}
-                                                    >
-                                                        <Menu className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                                                        <span>View all</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                    {/* Starred */}
-                                <div 
-                                    className="relative"
-                                    onMouseEnter={() => {
-                                        // Close all other menus immediately
-                                        if (spacesMenuTimeoutRef.current) {
-                                            clearTimeout(spacesMenuTimeoutRef.current)
-                                            spacesMenuTimeoutRef.current = null
-                                        }
-                                        if (recentMenuTimeoutRef.current) {
-                                            clearTimeout(recentMenuTimeoutRef.current)
-                                            recentMenuTimeoutRef.current = null
-                                        }
-                                        if (crewsMenuTimeoutRef.current) {
-                                            clearTimeout(crewsMenuTimeoutRef.current)
-                                            crewsMenuTimeoutRef.current = null
-                                        }
-                                        setShowSpacesMenu(false)
-                                        setShowRecentMenu(false)
-                                        setShowCrewsMenu(false)
-                                        
-                                        if (starredMenuTimeoutRef.current) {
-                                            clearTimeout(starredMenuTimeoutRef.current)
-                                            starredMenuTimeoutRef.current = null
-                                        }
-                                        setShowStarredMenu(true)
-                                    }}
-                                    onMouseLeave={() => {
-                                        starredMenuTimeoutRef.current = setTimeout(() => {
-                                            setShowStarredMenu(false)
-                                        }, 150)
-                                    }}
-                                >
-                                    <button
-                                        onClick={() => {
-                                            setShowStarredMenu(!showStarredMenu)
-                                        }}
-                                        className={cn(
-                                            "w-full text-left flex items-center gap-2",
-                                            "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                            "transition-all duration-200 rounded-md",
-                                            "text-gray-900 dark:text-white px-4 py-2.5",
-                                            showStarredMenu && "bg-blue-50 dark:bg-blue-900/20"
-                                        )}
-                                        role="menuitem"
-                                    >
-                                        <Star className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" />
-                                        <span className="text-sm">Starred</span>
-                                        <ChevronRight className={cn(
-                                            "w-3 h-3 ml-auto transition-transform duration-200",
-                                            showStarredMenu && "translate-x-0.5"
-                                        )} />
-                                    </button>
-
-                                    {/* Starred Submenu */}
-                                    {showStarredMenu && (
-                                        <div 
-                                            data-starred-submenu
-                                            className={cn(
-                                                "absolute left-full top-0 ml-1 w-64",
-                                                "bg-white dark:bg-gray-800",
-                                                "rounded-xl shadow-xl",
-                                                "border border-gray-200 dark:border-gray-700",
-                                                "overflow-hidden z-[60]",
-                                                "pointer-events-auto"
-                                            )}
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                            }}
-                                            onMouseEnter={() => {
-                                                if (starredMenuTimeoutRef.current) {
-                                                    clearTimeout(starredMenuTimeoutRef.current)
-                                                    starredMenuTimeoutRef.current = null
-                                                }
-                                                setShowStarredMenu(true)
-                                            }}
-                                            onMouseLeave={() => {
-                                                starredMenuTimeoutRef.current = setTimeout(() => {
-                                                    setShowStarredMenu(false)
-                                                }, 150)
-                                            }}
-                                        >
-                                            {/* Header */}
-                                            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                                                <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-3">
-                                                    Starred
-                                                </h3>
-                                                {/* Filter Input */}
-                                    <div className="relative">
-                                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Filter starred items"
-                                                        value={starredFilter}
-                                                        onChange={(e) => setStarredFilter(e.target.value)}
-                                                        className={cn(
-                                                            "w-full pl-9 pr-3 py-2 text-sm rounded-lg border",
-                                                            "bg-white dark:bg-gray-800",
-                                                            "border-blue-500 dark:border-blue-400",
-                                                            "text-gray-900 dark:text-white",
-                                                            "placeholder:text-gray-400 dark:placeholder:text-gray-500",
-                                                            "focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                                        )}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Content */}
-                                            <div className="max-h-[400px] overflow-y-auto">
-                                                {/* Starred Items */}
-                                                <div className="p-3">
-                                                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 px-2">
-                                                        Favorites
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("Important Board")
-                                                                setShowPlanetMenu(false)
-                                                                setShowStarredMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors"
-                                                            )}
-                                                        >
-                                                            <div className="w-6 h-6 rounded-lg bg-orange-500 flex items-center justify-center text-white text-xs font-semibold">
-                                                                IB
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                Important Board
-                                                            </span>
-                                                            <Star className="w-4 h-4 text-orange-500 fill-orange-500" />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("Team Planet")
-                                                                setShowPlanetMenu(false)
-                                                                setShowStarredMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors"
-                                                            )}
-                                                        >
-                                                            <div className="w-6 h-6 rounded-lg bg-indigo-500 flex items-center justify-center text-white text-xs font-semibold">
-                                                                TW
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                Team Planet
-                                                            </span>
-                                                            <Star className="w-4 h-4 text-orange-500 fill-orange-500" />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("Personal Notes")
-                                                                setShowPlanetMenu(false)
-                                                                setShowStarredMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors"
-                                                            )}
-                                                        >
-                                                            <div className="w-6 h-6 rounded-lg bg-pink-500 flex items-center justify-center text-white text-xs font-semibold">
-                                                                PN
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                Personal Notes
-                                                            </span>
-                                                            <Star className="w-4 h-4 text-orange-500 fill-orange-500" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                {/* Actions */}
-                                                <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-1">
-                                                    <button
-                                                        onClick={() => {
-                                                            console.log("View all starred")
-                                                            setShowPlanetMenu(false)
-                                                            setShowStarredMenu(false)
-                                                        }}
-                                                        className={cn(
-                                                            "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                            "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                            "transition-colors text-sm text-gray-900 dark:text-white"
-                                                        )}
-                                                    >
-                                                        <Menu className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                                                        <span>View all</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Spaces */}
-                                <div 
-                                    className="relative"
-                                    onMouseEnter={() => {
-                                        // Close all other menus immediately
-                                        if (recentMenuTimeoutRef.current) {
-                                            clearTimeout(recentMenuTimeoutRef.current)
-                                            recentMenuTimeoutRef.current = null
-                                        }
-                                        if (starredMenuTimeoutRef.current) {
-                                            clearTimeout(starredMenuTimeoutRef.current)
-                                            starredMenuTimeoutRef.current = null
-                                        }
-                                        if (crewsMenuTimeoutRef.current) {
-                                            clearTimeout(crewsMenuTimeoutRef.current)
-                                            crewsMenuTimeoutRef.current = null
-                                        }
-                                        setShowRecentMenu(false)
-                                        setShowStarredMenu(false)
-                                        setShowCrewsMenu(false)
-                                        
-                                        if (spacesMenuTimeoutRef.current) {
-                                            clearTimeout(spacesMenuTimeoutRef.current)
-                                            spacesMenuTimeoutRef.current = null
-                                        }
-                                        setShowSpacesMenu(true)
-                                    }}
-                                    onMouseLeave={() => {
-                                        // Add a small delay before closing to allow mouse to move to submenu
-                                        spacesMenuTimeoutRef.current = setTimeout(() => {
-                                            setShowSpacesMenu(false)
-                                        }, 150)
-                                    }}
-                                >
-                                        <button
-                                            onClick={() => {
-                                                setShowSpacesMenu(!showSpacesMenu)
-                                            }}
-                                            className={cn(
-                                            "w-full text-left flex items-center gap-2",
-                                                "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                                "transition-all duration-200 rounded-md",
-                                                "text-gray-900 dark:text-white px-4 py-2.5",
-                                                showSpacesMenu && "bg-blue-50 dark:bg-blue-900/20"
-                                            )}
-                                            role="menuitem"
-                                        >
-                                            <svg 
-                                            className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" 
-                                                viewBox="0 0 24 24" 
-                                                fill="none" 
-                                                stroke="currentColor" 
-                                                strokeWidth="1.5"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            >
-                                                <ellipse cx="12" cy="12" rx="7" ry="2" />
-                                                <circle cx="12" cy="12" r="4.5" />
-                                            </svg>
-                                            <span className="text-sm">Spaces</span>
-                                        <ChevronRight className={cn(
-                                                "w-3 h-3 ml-auto transition-transform duration-200",
-                                            showSpacesMenu && "translate-x-0.5"
-                                            )} />
-                                        </button>
-                                    
-                                    {/* Spaces Submenu */}
-                                        {showSpacesMenu && (
-                                            <div 
-                                            data-spaces-submenu
-                                                className={cn(
-                                                "absolute left-full top-0 ml-1 w-64",
-                                                    "bg-white dark:bg-gray-800",
-                                                    "rounded-xl shadow-xl",
-                                                    "border border-gray-200 dark:border-gray-700",
-                                                "overflow-hidden z-[60]",
-                                                "pointer-events-auto"
-                                                )}
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                            }}
-                                            onMouseEnter={() => {
-                                                if (spacesMenuTimeoutRef.current) {
-                                                    clearTimeout(spacesMenuTimeoutRef.current)
-                                                    spacesMenuTimeoutRef.current = null
-                                                }
-                                                setShowSpacesMenu(true)
-                                            }}
-                                            onMouseLeave={() => {
-                                                spacesMenuTimeoutRef.current = setTimeout(() => {
-                                                    setShowSpacesMenu(false)
-                                                }, 150)
-                                            }}
-                                            >
-                                                {/* Header */}
-                                                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                                                    <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-3">
-                                                        Spaces
-                                                    </h3>
-                                                    {/* Filter Input */}
-                                                    <div className="relative">
-                                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Filter spaces"
-                                                            value={spacesFilter}
-                                                            onChange={(e) => setSpacesFilter(e.target.value)}
-                                                            className={cn(
-                                                                "w-full pl-9 pr-3 py-2 text-sm rounded-lg border",
-                                                                "bg-white dark:bg-gray-800",
-                                                                "border-blue-500 dark:border-blue-400",
-                                                                "text-gray-900 dark:text-white",
-                                                                "placeholder:text-gray-400 dark:placeholder:text-gray-500",
-                                                                "focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                                            )}
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                {/* Content */}
-                                                <div className="max-h-[400px] overflow-y-auto">
-                                                    {/* Current Section */}
-                                                    <div className="p-3">
-                                                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 px-2">
-                                                            Current
-                                                        </div>
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("kaique.mendonca")
-                                                            setShowPlanetMenu(false)
-                                                            setShowSpacesMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors"
-                                                            )}
-                                                        >
-                                                            <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-semibold">
-                                                                K
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                kaique.mendonca
-                                                            </span>
-                                                            <Star className="w-4 h-4 text-orange-500 fill-orange-500" />
-                                                        </button>
-                                                    </div>
-
-                                                    {/* Starred Section */}
-                                                    <div className="p-3 border-t border-gray-200 dark:border-gray-700">
-                                                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 px-2">
-                                                            Starred
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <button
-                                                                onClick={() => {
-                                                                    console.log("kaique.mendonca starred")
-                                                                setShowPlanetMenu(false)
-                                                                setShowSpacesMenu(false)
-                                                                }}
-                                                                className={cn(
-                                                                    "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                    "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                    "transition-colors"
-                                                                )}
-                                                            >
-                                                                <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-semibold">
-                                                                    K
-                                                                </div>
-                                                                <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                    kaique.mendonca
-                                                                </span>
-                                                                <Star className="w-4 h-4 text-orange-500 fill-orange-500" />
-                                                            </button>
-                                                            <button
-                                                                onClick={() => {
-                                                                    console.log("Other or Personal")
-                                                                setShowPlanetMenu(false)
-                                                                setShowSpacesMenu(false)
-                                                                }}
-                                                                className={cn(
-                                                                    "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                    "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                    "transition-colors"
-                                                                )}
-                                                            >
-                                                                <div className="w-6 h-6 rounded-lg bg-purple-500 flex items-center justify-center text-white text-xs">
-                                                                ☁
-                                                                </div>
-                                                                <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                    Other or Personal
-                                                                </span>
-                                                                <Star className="w-4 h-4 text-orange-500 fill-orange-500" />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Actions */}
-                                                    <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-1">
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("View all spaces")
-                                                            setShowPlanetMenu(false)
-                                                            setShowSpacesMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors text-sm text-gray-900 dark:text-white"
-                                                            )}
-                                                        >
-                                                            <Menu className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                                                            <span>View all spaces</span>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("Create a space")
-                                                            setShowPlanetMenu(false)
-                                                            setShowSpacesMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors text-sm text-gray-900 dark:text-white"
-                                                            )}
-                                                        >
-                                                            <Plus className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                                                            <span>Create a space</span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                {/* Crews */}
-                                <div 
-                                    className="relative"
-                                    onMouseEnter={() => {
-                                        // Close all other menus immediately
-                                        if (spacesMenuTimeoutRef.current) {
-                                            clearTimeout(spacesMenuTimeoutRef.current)
-                                            spacesMenuTimeoutRef.current = null
-                                        }
-                                        if (recentMenuTimeoutRef.current) {
-                                            clearTimeout(recentMenuTimeoutRef.current)
-                                            recentMenuTimeoutRef.current = null
-                                        }
-                                        if (starredMenuTimeoutRef.current) {
-                                            clearTimeout(starredMenuTimeoutRef.current)
-                                            starredMenuTimeoutRef.current = null
-                                        }
-                                        setShowSpacesMenu(false)
-                                        setShowRecentMenu(false)
-                                        setShowStarredMenu(false)
-                                        
-                                        if (crewsMenuTimeoutRef.current) {
-                                            clearTimeout(crewsMenuTimeoutRef.current)
-                                            crewsMenuTimeoutRef.current = null
-                                        }
-                                        setShowCrewsMenu(true)
-                                    }}
-                                    onMouseLeave={() => {
-                                        crewsMenuTimeoutRef.current = setTimeout(() => {
-                                            setShowCrewsMenu(false)
-                                        }, 150)
-                                    }}
-                                >
-                                    <button
-                                        onClick={() => {
-                                            setShowCrewsMenu(!showCrewsMenu)
-                                        }}
-                                        className={cn(
-                                            "w-full text-left flex items-center gap-2",
-                                            "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                            "transition-all duration-200 rounded-md",
-                                            "text-gray-900 dark:text-white px-4 py-2.5",
-                                            showCrewsMenu && "bg-blue-50 dark:bg-blue-900/20"
-                                        )}
-                                        role="menuitem"
-                                    >
-                                        <Users className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" />
-                                        <span className="text-sm">Crews</span>
-                                        <ChevronRight className={cn(
-                                            "w-3 h-3 ml-auto transition-transform duration-200",
-                                            showCrewsMenu && "translate-x-0.5"
-                                        )} />
-                                    </button>
-                                    
-                                    {/* Crews Submenu */}
-                                    {showCrewsMenu && (
-                                        <div 
-                                            data-crews-submenu
-                                            className={cn(
-                                                "absolute left-full top-0 ml-1 w-64",
-                                                "bg-white dark:bg-gray-800",
-                                                "rounded-xl shadow-xl",
-                                                "border border-gray-200 dark:border-gray-700",
-                                                "overflow-hidden z-[60]",
-                                                "pointer-events-auto"
-                                            )}
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                            }}
-                                            onMouseEnter={() => {
-                                                if (crewsMenuTimeoutRef.current) {
-                                                    clearTimeout(crewsMenuTimeoutRef.current)
-                                                    crewsMenuTimeoutRef.current = null
-                                                }
-                                                setShowCrewsMenu(true)
-                                            }}
-                                            onMouseLeave={() => {
-                                                crewsMenuTimeoutRef.current = setTimeout(() => {
-                                                    setShowCrewsMenu(false)
-                                                }, 150)
-                                            }}
-                                        >
-                                            {/* Header */}
-                                            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                                                <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-3">
-                                                    Crews
-                                                </h3>
-                                                {/* Filter Input */}
-                                                <div className="relative">
-                                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Filter crews"
-                                                        value={crewsFilter}
-                                                        onChange={(e) => setCrewsFilter(e.target.value)}
-                                                        className={cn(
-                                                            "w-full pl-9 pr-3 py-2 text-sm rounded-lg border",
-                                                            "bg-white dark:bg-gray-800",
-                                                            "border-blue-500 dark:border-blue-400",
-                                                            "text-gray-900 dark:text-white",
-                                                            "placeholder:text-gray-400 dark:placeholder:text-gray-500",
-                                                            "focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                                        )}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Content */}
-                                            <div className="max-h-[400px] overflow-y-auto">
-                                                {/* Teams Section */}
-                                                <div className="p-3">
-                                                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 px-2">
-                                                        Teams
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("Development Team")
-                                                                setShowPlanetMenu(false)
-                                                                setShowCrewsMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors"
-                                                            )}
-                                                        >
-                                                            <div className="flex -space-x-2">
-                                                                <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    DT
-                                                                </div>
-                                                                <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    JS
-                                                                </div>
-                                                                <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    AM
-                                                                </div>
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                Development Team
-                                                            </span>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("Design Team")
-                                                                setShowPlanetMenu(false)
-                                                                setShowCrewsMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors"
-                                                            )}
-                                                        >
-                                                            <div className="flex -space-x-2">
-                                                                <div className="w-6 h-6 rounded-full bg-pink-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    DT
-                                                                </div>
-                                                                <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    SM
-                                                                </div>
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                Design Team
-                                                            </span>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                console.log("Marketing Team")
-                                                                setShowPlanetMenu(false)
-                                                                setShowCrewsMenu(false)
-                                                            }}
-                                                            className={cn(
-                                                                "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                                "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                                "transition-colors"
-                                                            )}
-                                                        >
-                                                            <div className="flex -space-x-2">
-                                                                <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    MT
-                                                                </div>
-                                                                <div className="w-6 h-6 rounded-full bg-yellow-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    LR
-                                                                </div>
-                                                                <div className="w-6 h-6 rounded-full bg-teal-500 flex items-center justify-center text-white text-xs font-semibold border-2 border-white dark:border-gray-800">
-                                                                    KC
-                                                                </div>
-                                                            </div>
-                                                            <span className="text-sm text-gray-900 dark:text-white flex-1 text-left">
-                                                                Marketing Team
-                                                            </span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                {/* Actions */}
-                                                <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-1">
-                                                    <button
-                                                        onClick={() => {
-                                                            console.log("View all crews")
-                                                            setShowPlanetMenu(false)
-                                                            setShowCrewsMenu(false)
-                                                        }}
-                                                        className={cn(
-                                                            "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                            "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                            "transition-colors text-sm text-gray-900 dark:text-white"
-                                                        )}
-                                                    >
-                                                        <Menu className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                                                        <span>View all crews</span>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => {
-                                                            console.log("Create a crew")
-                                                            setShowPlanetMenu(false)
-                                                            setShowCrewsMenu(false)
-                                                        }}
-                                                        className={cn(
-                                                            "w-full flex items-center gap-2 px-2 py-2 rounded-lg",
-                                                            "hover:bg-gray-50 dark:hover:bg-gray-700",
-                                                            "transition-colors text-sm text-gray-900 dark:text-white"
-                                                        )}
-                                                    >
-                                                        <Plus className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                                                        <span>Create a crew</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Separator */}
-                                <div className={cn(
-                                    "h-px my-1",
-                                    "bg-gray-200 dark:bg-gray-700"
-                                )} />
-                                
-                                {/* New Planet */}
-                                    <button
-                                        onClick={() => {
-                                            setShowPlanetMenu(false)
-                                            setShowCreatePlanetDialog(true)
-                                        }}
-                                        className={cn(
-                                        "w-full text-left flex items-center gap-2",
-                                            "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                            "transition-all duration-200 rounded-md",
-                                            "text-gray-900 dark:text-white px-4 py-2.5"
-                                        )}
-                                        role="menuitem"
-                                    >
-                                    <Plus className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" />
-                                    <span className="text-sm">New Planet</span>
-                                    </button>
-
-                                {/* Duplicate */}
-                                    <button
-                                        onClick={() => {
-                                        console.log("Duplicate")
-                                        setShowPlanetMenu(false)
-                                        }}
-                                        className={cn(
-                                        "w-full text-left flex items-center gap-2",
-                                            "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                            "transition-all duration-200 rounded-md",
-                                            "text-gray-900 dark:text-white px-4 py-2.5"
-                                        )}
-                                        role="menuitem"
-                                    >
-                                    <Copy className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" />
-                                    <span className="text-sm">Duplicate</span>
-                                </button>
-
-                                {/* Export */}
-                                <button
-                                    onClick={() => {
-                                        console.log("Export")
-                                        setShowPlanetMenu(false)
-                                    }}
-                                    className={cn(
-                                        "w-full text-left flex items-center gap-2",
-                                        "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                        "transition-all duration-200 rounded-md",
-                                        "text-gray-900 dark:text-white px-4 py-2.5"
-                                    )}
-                                    role="menuitem"
-                                >
-                                    <Download className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" />
-                                    <span className="text-sm">Export</span>
-                                </button>
-
-                                {/* Move To… */}
-                                <button
-                                    onClick={() => {
-                                        console.log("Move To…")
-                                        setShowPlanetMenu(false)
-                                    }}
-                                    className={cn(
-                                        "w-full text-left flex items-center gap-2",
-                                        "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                        "transition-all duration-200 rounded-md",
-                                        "text-gray-900 dark:text-white px-4 py-2.5"
-                                    )}
-                                    role="menuitem"
-                                >
-                                    <Move className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" />
-                                    <span className="text-sm">Move To…</span>
-                                </button>
-
-                                {/* Star This Planet */}
-                                <button
-                                    onClick={() => {
-                                        console.log("Star This Planet")
-                                        setShowPlanetMenu(false)
-                                    }}
-                                    className={cn(
-                                        "w-full text-left flex items-center gap-2",
-                                        "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                        "transition-all duration-200 rounded-md",
-                                        "text-gray-900 dark:text-white px-4 py-2.5"
-                                    )}
-                                    role="menuitem"
-                                >
-                                    <Star className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" />
-                                    <span className="text-sm">Star This Planet</span>
-                                </button>
-
-                                {/* Separator */}
-                                <div className={cn(
-                                    "h-px my-1",
-                                    "bg-gray-200 dark:bg-gray-700"
-                                )} />
-
-                                {/* Logout */}
-                                <button
-                                    onClick={async () => {
-                                        await logout()
-                                        setShowPlanetMenu(false)
-                                        router.push("/login")
-                                    }}
-                                    className={cn(
-                                        "w-full text-left flex items-center gap-2",
-                                        "hover:bg-red-50 dark:hover:bg-red-900/20",
-                                        "transition-all duration-200 rounded-md",
-                                        "text-red-600 dark:text-red-400 px-4 py-2.5"
-                                    )}
-                                    role="menuitem"
-                                >
-                                    <LogOut className="w-4 h-4 shrink-0" />
-                                    <span className="text-sm">Logout</span>
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Board Name - Editable */}
-                    <div className={cn("flex items-center", TOPBAR_CONFIG.spacing.gap, itemHoverClass, TOPBAR_CONFIG.spacing.itemPadding)} data-tour="board-name">
+                    {/* Planet Name */}
+                    <div className={cn("flex items-center", TOPBAR_CONFIG.spacing.gap, itemHoverClass, TOPBAR_CONFIG.spacing.itemPadding)} data-tour="planet-name">
                         <FileText 
                             className={cn(
                                 "w-4 h-4 shrink-0",
@@ -1258,36 +217,18 @@ export function Topbar() {
                             )} 
                             aria-hidden="true"
                         />
-                        {isEditingProjectName ? (
-                            <input
-                                type="text"
-                                value={boardName}
-                                onChange={(e) => setBoardName(e.target.value)}
-                                onBlur={handleBoardNameSubmit}
-                                onKeyDown={handleBoardNameKeyDown}
-                                className={cn(
-                                    "text-sm font-medium bg-transparent border-b-2 border-blue-500 outline-none px-1 min-w-[120px] max-w-[160px]",
-                                    isDark ? "text-white border-blue-400" : "text-gray-900"
-                                )}
-                                autoFocus
-                                aria-label="Edit board name"
-                            />
-                        ) : (
-                            <button
-                                onClick={() => setIsEditingProjectName(true)}
+                        <span
                                 className={cn(
                                     "text-sm font-medium text-left",
-                                    TOPBAR_CONFIG.style.transition,
                                     isDark 
-                                        ? "text-white/90 hover:text-white" 
-                                        : "text-gray-900 hover:text-gray-700"
+                                    ? "text-white/90" 
+                                    : "text-gray-900"
                                 )}
-                                title="Click to edit board name"
-                                aria-label={`Board name: ${boardName}. Click to edit`}
+                            title="Current planet"
+                            aria-label={`Current planet: ${currentPlanet?.name || "No planet selected"}`}
                             >
-                                {boardName}
-                            </button>
-                        )}
+                            {currentPlanet?.name || "No planet selected"}
+                        </span>
                     </div>
 
                 </div>
@@ -1363,7 +304,6 @@ export function Topbar() {
                                 setShowNotifications(false)
                                 setShowProfileMenu(false)
                                 setShowHelpMenu(false)
-                                setShowPlanetMenu(false)
                                 setShowShareMenu(!showShareMenu)
                             }}
                             aria-label="Share"
@@ -1376,19 +316,25 @@ export function Topbar() {
 
                         {/* Share Menu Dropdown */}
                         {showShareMenu && (
-                            <div 
-                                className={cn(
-                                    "absolute left-0 top-full mt-3 w-[480px]",
-                                    "bg-white dark:bg-gray-800",
-                                    "rounded-xl shadow-xl",
-                                    "border border-gray-200 dark:border-gray-700",
-                                    "overflow-hidden z-50",
-                                    "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2",
-                                    "duration-200"
-                                )}
-                                role="menu"
-                                onClick={(e) => e.stopPropagation()}
-                            >
+                            <>
+                                {/* Overlay to close on outside click */}
+                                <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={() => setShowShareMenu(false)}
+                                />
+                                <div 
+                                    className={cn(
+                                        "absolute right-0 top-full mt-3 w-[480px] max-w-[calc(100vw-24px)]",
+                                        "bg-white dark:bg-gray-800",
+                                        "rounded-xl shadow-xl",
+                                        "border border-gray-200 dark:border-gray-700",
+                                        "overflow-hidden z-50",
+                                        "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2",
+                                        "duration-200"
+                                    )}
+                                    role="menu"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
                                 {/* Tabs */}
                                 <div className={cn(
                                     "flex border-b border-gray-200 dark:border-gray-700"
@@ -1479,8 +425,8 @@ export function Topbar() {
                                                     </select>
                                                     <button className={cn(
                                                         "px-3 py-1.5 rounded-lg text-sm font-medium",
-                                                        "bg-blue-500 text-white",
-                                                        "hover:bg-blue-600 transition-colors"
+                                                        "bg-primary text-primary-foreground",
+                                                        "hover:bg-primary/90 transition-colors"
                                                     )}>
                                                         Copy team invite link
                                                     </button>
@@ -1611,8 +557,8 @@ export function Topbar() {
                                                 <div className="flex gap-2">
                                                     <button className={cn(
                                                         "flex-1 px-4 py-2 rounded-lg text-sm font-medium",
-                                                        "bg-blue-500 text-white",
-                                                        "hover:bg-blue-600 transition-colors",
+                                                        "bg-primary text-primary-foreground",
+                                                        "hover:bg-primary/90 transition-colors",
                                                         "flex items-center justify-center gap-2"
                                                     )}>
                                                         <Code className="w-4 h-4" />
@@ -1643,7 +589,8 @@ export function Topbar() {
                                         </div>
                                     )}
                                 </div>
-                            </div>
+                                </div>
+                            </>
                         )}
                     </div>
 
@@ -1692,7 +639,6 @@ export function Topbar() {
                                 setShowHelpMenu(false)
                                 setShowProfileMenu(false)
                                 setShowShareMenu(false)
-                                setShowPlanetMenu(false)
                                 setShowNotifications(!showNotifications)
                         }}
                             aria-label="Notifications"
@@ -1804,7 +750,6 @@ export function Topbar() {
                                 setShowNotifications(false)
                                 setShowProfileMenu(false)
                                 setShowShareMenu(false)
-                                setShowPlanetMenu(false)
                                 setShowHelpMenu(!showHelpMenu)
                             }}
                             aria-label="Help"
@@ -1940,7 +885,6 @@ export function Topbar() {
                                 setShowNotifications(false)
                                 setShowShareMenu(false)
                                 setShowHelpMenu(false)
-                                setShowPlanetMenu(false)
                                 setShowProfileMenu(!showProfileMenu)
                             }}
                             aria-label="Profile"
@@ -1959,11 +903,10 @@ export function Topbar() {
             </div>
 
             {/* Backdrop for closing menus */}
-            {(showPlanetMenu || showShareMenu || showProfileMenu || showNotifications || showHelpMenu) && !showSpacesMenu && !showStarredMenu && !showRecentMenu && !showCrewsMenu && (
+            {(showShareMenu || showProfileMenu || showNotifications || showHelpMenu) && !showSpacesMenu && !showStarredMenu && !showRecentMenu && !showCrewsMenu && (
                 <div
                     className="fixed inset-0 z-40"
                     onClick={() => {
-                        setShowPlanetMenu(false)
                         setShowShareMenu(false)
                         setShowProfileMenu(false)
                         setShowNotifications(false)

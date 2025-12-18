@@ -63,23 +63,21 @@ interface WidgetState {
 // Helper to convert API widget to store widget
 const apiToStoreWidget = (apiWidget: ApiWidget): Widget => ({
     id: apiWidget.id,
-    type: apiWidget.type,
-    title: apiWidget.title,
-    position: apiWidget.position,
-    size: apiWidget.size,
-    data: apiWidget.data || {},
+    type: (apiWidget.type as WidgetType) || 'text', // Convert string to WidgetType with fallback
+    title: apiWidget.title || '',
+    position: apiWidget.position || { x: 0, y: 0 },
+    size: apiWidget.size || { width: 400, height: 300 },
+    data: apiWidget.config || {},
     dashboard_id: apiWidget.dashboard_id,
 })
 
 // Helper to convert store widget to API widget create
 const storeToApiWidgetCreate = (storeWidget: Omit<Widget, 'id'>, dashboardId: string): WidgetCreate => ({
-    dashboard_id: dashboardId,
     type: storeWidget.type,
     title: storeWidget.title,
     position: storeWidget.position,
     size: storeWidget.size,
-    data: storeWidget.data,
-    config: undefined, // Can be added later if needed
+    config: storeWidget.data, // Map data to config
 })
 
 // Debounce helper for update operations
@@ -134,7 +132,7 @@ export const useWidgetStore = create<WidgetState>()(
                                 
                                 return {
                                     widgets: newWidgets,
-                                    isLoading: false,
+                                isLoading: false,
                                 }
                             })
                             
@@ -167,7 +165,7 @@ export const useWidgetStore = create<WidgetState>()(
                         
                         return {
                             widgets: newWidgets,
-                            isLoading: false,
+                        isLoading: false,
                         }
                     })
                     
@@ -349,10 +347,11 @@ export const useWidgetStore = create<WidgetState>()(
             refreshWidgetData: async (widgetId) => {
                 set({ isLoading: true, error: null })
                 try {
-                    const data = await widgetsApi.refreshWidgetData(widgetId)
+                    await widgetsApi.refreshWidget(widgetId)
+                    const data = await widgetsApi.getWidgetData(widgetId)
                     set((state) => ({
                         widgets: state.widgets.map((w) => 
-                            w.id === widgetId ? { ...w, data: data.data } : w
+                            w.id === widgetId ? { ...w, data: data || w.data } : w
                         ),
                         isLoading: false,
                     }))

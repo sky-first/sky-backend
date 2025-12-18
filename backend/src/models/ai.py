@@ -31,6 +31,8 @@ class AIQuery(Base):
     )
     question = Column(Text, nullable=False)
     answer = Column(Text, nullable=True)
+    data_sample = Column(JSON, nullable=True)  # Sample data from query (max 15 rows)
+    sql = Column(Text, nullable=True)  # Generated SQL query
     status = Column(
         String(50), nullable=False, default="processing", server_default="processing"
     )  # processing, completed, error

@@ -175,12 +175,12 @@ export const useUsersStore = create<UsersState>()(
                         ...state.userPermissions,
                         [userId]: permissions,
                     },
-                    // Also update the user's role in the users list
+                    // Also update the user's role in the users list (if permissions contain role info)
                     users: state.users.map(u =>
-                        u.id === userId ? { ...u, role: permissions.role as 'admin' | 'user' | 'viewer' } : u
+                        u.id === userId ? { ...u } : u
                     ),
                     currentUser: state.currentUser?.id === userId
-                        ? { ...state.currentUser, role: permissions.role as 'admin' | 'user' | 'viewer' }
+                        ? { ...state.currentUser }
                         : state.currentUser,
                     isLoading: false,
                 }))
@@ -198,7 +198,7 @@ export const useUsersStore = create<UsersState>()(
         inviteUser: async (userId, data) => {
             set({ isLoading: true, error: null })
             try {
-                await usersApi.inviteUser(userId, data)
+                await usersApi.inviteUser(data)
                 set({ isLoading: false })
             } catch (error) {
                 console.error('Error inviting user:', error)

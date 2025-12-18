@@ -100,8 +100,8 @@ class Settings(BaseSettings):
                         self.DATABASE_URL = f"{scheme}://{username}:{encoded_password}@{host}{port_part}/{database}"
         
         return self
-    DATABASE_POOL_SIZE: int = 20
-    DATABASE_MAX_OVERFLOW: int = 10
+    DATABASE_POOL_SIZE: int = 3  # Reduzido para 3 conexões por processo (recomendado para evitar "too many clients")
+    DATABASE_MAX_OVERFLOW: int = 5  # Máximo de 5 conexões adicionais (total máximo: 8 conexões por processo)
     DATABASE_POOL_PRE_PING: bool = True
 
     # Redis
@@ -130,7 +130,7 @@ class Settings(BaseSettings):
         description="JWT secret key",
     )
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Password
@@ -165,7 +165,13 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = True
 
     # AI Service
-    AI_SERVICE_TYPE: str = "mock"  # mock, openai, anthropic
+    AI_SERVICE_TYPE: str = Field(
+        default="mock", description="AI service type: mock, real"
+    )  # mock, real
+    AI_SERVICE_URL: str = Field(
+        default="http://localhost:8001",
+        description="URL of the AI service (ia-do-projeto)",
+    )
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4"
     ANTHROPIC_API_KEY: str = ""

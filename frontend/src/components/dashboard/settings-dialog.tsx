@@ -188,9 +188,12 @@ export function SettingsDialog() {
                         </div>
 
                         {/* Content Area */}
-                        <div className="flex-1 overflow-y-auto">
+                        <div className={cn(
+                            "flex-1",
+                            selectedCategory === 'data-catalog' ? "overflow-hidden" : "overflow-y-auto"
+                        )}>
                             {/* Settings Content */}
-                            <div>
+                            <div className={selectedCategory === 'data-catalog' ? "h-full" : ""}>
                                 {selectedCategory === 'data-catalog' && <DataCatalogSection isDark={isDark} />}
                                 {selectedCategory === 'spaces' && <SpacesSection isDark={isDark} />}
                                 {selectedCategory === 'crews' && <CrewsSection isDark={isDark} />}

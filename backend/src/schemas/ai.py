@@ -27,6 +27,9 @@ class AIQueryRequest(BaseModel):
     widget_id: Optional[UUID] = None
     knowledge: Optional[List[str]] = None
     configure_data: Optional[ConfigureData] = None
+    space_id: Optional[str] = Field(
+        None, description="Space ID for the query context"
+    )
 
 
 class AIQueryResponse(BaseModel):
@@ -35,8 +38,18 @@ class AIQueryResponse(BaseModel):
     id: UUID
     question: str
     answer: Optional[str] = None
+    data_sample: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Sample data from query execution (max 15 rows)"
+    )
+    sql: Optional[str] = Field(default=None, description="Generated SQL query")
     status: str  # processing, completed, error
     pipeline_id: Optional[UUID] = None
+    chosen_table: Optional[str] = Field(
+        default=None, description="Table chosen by AI to answer the question"
+    )
+    chosen_datasets: Optional[List[str]] = Field(
+        default=None, description="Datasets chosen by AI to answer the question"
+    )
     created_at: datetime
     updated_at: datetime
 

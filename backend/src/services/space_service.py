@@ -10,8 +10,9 @@ from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.crew import Crew
 from src.models.space import Space, SpaceConnection, SpaceMember
 from src.models.user import User
-from src.repositories.connection import ConnectionRepository
+from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.space import SpaceMemberRepository, SpaceRepository
+from src.schemas.connection import TableMetadataSchema
 from src.schemas.space import (
     SpaceCreate,
     SpaceMemberCreate,
@@ -35,6 +36,7 @@ class SpaceService:
         self.space_repo = SpaceRepository(db)
         self.connection_repo = ConnectionRepository(db)
         self.member_repo = SpaceMemberRepository(db)
+        self.metadata_repo = ConnectionMetadataRepository(db)
 
     async def list_spaces(
         self, user: User, skip: int = 0, limit: int = 100
@@ -50,8 +52,56 @@ class SpaceService:
         Returns:
             List[SpaceResponse]: List of spaces
         """
-        spaces = await self.space_repo.get_by_user(user.id, skip=skip, limit=limit)
-        return [SpaceResponse.model_validate(s) for s in spaces]
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            spaces = await self.space_repo.get_by_user(user.id, skip=skip, limit=limit)
+            result = []
+            for space in spaces:
+                try:
+                    # Normalize color field - ensure it's either None or a valid hex color
+                    normalized_color = None
+                    if space.color:
+                        # Check if it's a valid hex color
+                        if isinstance(space.color, str) and space.color.startswith("#") and len(space.color) == 7:
+                            try:
+                                int(space.color[1:], 16)  # Validate hex
+                                normalized_color = space.color
+                            except ValueError:
+                                # Invalid hex, set to None
+                                normalized_color = None
+                        # If it's not a valid hex format, set to None
+                    
+                    # Create response using model_validate with from_attributes
+                    # Temporarily set color to normalized value
+                    original_color = space.color
+                    space.color = normalized_color
+                    try:
+                        response = SpaceResponse.model_validate(space)
+                        result.append(response)
+                    finally:
+                        # Restore original color value
+                        space.color = original_color
+                except Exception as e:
+                    logger.error(f"Error validating space {space.id}: {str(e)}", exc_info=True)
+                    # Try with color as None if validation fails
+                    try:
+                        original_color = space.color
+                        space.color = None
+                        try:
+                            response = SpaceResponse.model_validate(space)
+                            result.append(response)
+                        finally:
+                            space.color = original_color
+                    except Exception as e2:
+                        logger.error(f"Error validating space {space.id} with color=None: {str(e2)}", exc_info=True)
+                        # Skip this space if it still fails
+                        continue
+            return result
+        except Exception as e:
+            logger.error(f"Error listing spaces for user {user.id}: {str(e)}", exc_info=True)
+            raise
 
     async def get_space(self, space_id: UUID, user: User) -> SpaceResponse:
         """
@@ -313,4 +363,76 @@ class SpaceService:
 
         await self.member_repo.delete(member.id)
         await self.db.commit()
+
+    async def get_space_tables(
+        self, space_id: UUID, user: User
+    ) -> List[dict]:
+        """
+        Get all tables from connections in a space.
+
+        Args:
+            space_id: Space ID
+            user: Current user
+
+        Returns:
+            List[dict]: List of tables with connection info
+                Format: [
+                    {
+                        "connection_id": str,
+                        "connection_name": str,
+                        "table_name": str,
+                        "schema": str | None,
+                        "row_count": int | None
+                    },
+                    ...
+                ]
+
+        Raises:
+            NotFoundError: If space not found
+            ForbiddenError: If user doesn't have access
+        """
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+
+        if space.created_by != user.id:
+            raise ForbiddenError("Access denied to this space")
+
+        # Get space connections
+        space_connections = await self.space_repo.get_space_connections(space_id)
+        
+        # Get tables from each connection
+        tables = []
+        for space_conn in space_connections:
+            connection = await self.connection_repo.get_by_id(space_conn.connection_id)
+            if not connection:
+                continue
+            
+            metadata = await self.metadata_repo.get_by_connection_id(space_conn.connection_id)
+            if not metadata or not metadata.tables:
+                continue
+            
+            # Extract table information
+            for table_data in metadata.tables:
+                if isinstance(table_data, dict):
+                    tables.append({
+                        "connection_id": str(space_conn.connection_id),
+                        "connection_name": connection.name,
+                        "connection_type": getattr(connection, "connector_id", None),
+                        "table_name": table_data.get("name", ""),
+                        "schema": table_data.get("schema"),
+                        "row_count": table_data.get("row_count"),
+                    })
+                else:
+                    # If it's already a TableMetadata object
+                    tables.append({
+                        "connection_id": str(space_conn.connection_id),
+                        "connection_name": connection.name,
+                        "connection_type": getattr(connection, "connector_id", None),
+                        "table_name": getattr(table_data, "name", ""),
+                        "schema": getattr(table_data, "schema", None),
+                        "row_count": getattr(table_data, "row_count", None),
+                    })
+        
+        return tables
 

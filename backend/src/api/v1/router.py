@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from src.api.v1 import ai, auth, connections, connectors, crews, dashboards, files, permissions, planets, settings, spaces, templates, users, widgets, workspaces
+from src.api.v1 import ai, auth, connections, connectors, crews, dashboards, datasets, files, permissions, planets, settings, spaces, templates, users, widgets, workspaces
 
 api_router = APIRouter()
 
@@ -44,6 +44,9 @@ api_router.include_router(settings.router, prefix="/settings", tags=["Settings"]
 
 # File upload endpoints
 api_router.include_router(files.router, prefix="/files", tags=["Files"])
+
+# Dataset management endpoints
+api_router.include_router(datasets.router, prefix="/datasets", tags=["Datasets"])
 
 # Connector registry endpoints
 api_router.include_router(connectors.router, prefix="/connectors", tags=["Connectors"])

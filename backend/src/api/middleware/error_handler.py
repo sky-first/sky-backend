@@ -91,7 +91,7 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
         # In development, return more details
         from src.config.settings import settings
         error_message = str(e) if settings.DEBUG else "An unexpected error occurred"
-        return JSONResponse(
+        response = JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": "Internal Server Error",
@@ -99,4 +99,12 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
                 "details": error_traceback if settings.DEBUG else None,
             },
         )
+        # Ensure CORS headers are added even for 500 errors
+        # Use the same CORS configuration as the CORS middleware
+        from src.config.settings import settings as app_settings
+        origin = request.headers.get("Origin")
+        if origin and origin in app_settings.cors_origins_list:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
 

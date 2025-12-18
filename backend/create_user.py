@@ -27,16 +27,26 @@ async def create_test_user():
         )
         existing_user = result.scalar_one_or_none()
         
+        # New secure password: Test@2024!Secure
+        new_password = "Test@2024!Secure"
+        
         if existing_user:
-            print("✅ Test user already exists:")
+            # Update password if user exists
+            existing_user.password_hash = get_password_hash(new_password)
+            existing_user.name = "Test User"
+            existing_user.role = "user"
+            existing_user.email_verified = True
+            existing_user.has_completed_onboarding = True
+            await session.commit()
+            print("✅ Test user updated successfully:")
             print(f"   Email: {existing_user.email}")
-            print(f"   Password: test123")
+            print(f"   Password: {new_password}")
             return
         
         # Create test user
         test_user = User(
             email="test@example.com",
-            password_hash=get_password_hash("test123"),
+            password_hash=get_password_hash(new_password),
             name="Test User",
             role="user",
             email_verified=True,
@@ -48,7 +58,7 @@ async def create_test_user():
         
         print("✅ Test user created successfully!")
         print(f"   Email: test@example.com")
-        print(f"   Password: test123")
+        print(f"   Password: {new_password}")
         print(f"   Database: {settings.DATABASE_URL.split('@')[1] if '@' in settings.DATABASE_URL else 'N/A'}")
     
     await engine.dispose()

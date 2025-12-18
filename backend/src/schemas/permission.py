@@ -55,3 +55,34 @@ class PermissionValidateResponse(BaseModel):
     allowed: bool
     reason: Optional[str] = None
 
+
+class TableMemberPermissionCreate(BaseModel):
+    """Table member permission creation schema."""
+
+    connection_id: UUID
+    table_name: str
+    crew_id: UUID
+    member_id: UUID
+    has_access: str = Field(default="true", pattern="^(true|false)$")
+
+
+class TableMemberPermissionUpdate(BaseModel):
+    """Table member permission update schema."""
+
+    has_access: str = Field(..., pattern="^(true|false)$")
+
+
+class TableMemberPermissionResponse(BaseModel):
+    """Table member permission response schema."""
+
+    id: UUID
+    connection_id: UUID
+    table_name: str
+    crew_id: UUID
+    member_id: UUID
+    has_access: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+

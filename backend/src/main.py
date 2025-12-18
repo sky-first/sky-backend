@@ -3,13 +3,20 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.middleware import auth, cors, error_handler, logging as logging_middleware, rate_limit
 from src.api.v1.router import api_router
 from src.config import settings
-from src.config.database import close_db, init_db
+from src.config.database import (
+    close_db,
+    init_db,
+    get_connection_pool_stats,
+    get_database_connections,
+    get_db,
+    log_connection_stats,
+)
 from src.config.redis import close_redis, init_redis
 
 # Configure logging
@@ -27,6 +34,8 @@ async def lifespan(app: FastAPI):
     logger.info("Starting application...")
     await init_db()
     await init_redis()
+    # Log initial connection stats
+    await log_connection_stats()
     logger.info("Application started successfully")
 
     yield
@@ -123,6 +132,86 @@ async def ready():
 async def live():
     """Liveness check endpoint."""
     return {"status": "alive"}
+
+
+@app.get("/api/v1/monitoring/connections", tags=["Monitoring"])
+async def monitoring_connections(db=Depends(get_db)):
+    """
+    Monitor database connections.
+    Returns pool statistics and PostgreSQL connection information.
+    """
+    pool_stats = await get_connection_pool_stats()
+    db_connections = await get_database_connections(db)
+    
+    return {
+        "pool_stats": pool_stats,
+        "database_connections": db_connections,
+        "recommendations": _get_connection_recommendations(pool_stats, db_connections),
+    }
+
+
+def _get_connection_recommendations(
+    pool_stats: dict, db_connections: dict
+) -> list:
+    """Generate recommendations based on connection statistics."""
+    recommendations = []
+    
+    if "error" in db_connections:
+        return recommendations
+    
+    # Check pool usage
+    pool_usage_percent = (
+        pool_stats["total_connections"] / pool_stats["pool_max_size"] * 100
+        if pool_stats["pool_max_size"] > 0
+        else 0
+    )
+    
+    if pool_usage_percent > 80:
+        recommendations.append(
+            {
+                "level": "warning",
+                "message": f"Pool usage is {pool_usage_percent:.1f}% - consider increasing pool_size or max_overflow",
+            }
+        )
+    
+    # Check database connection usage
+    db_usage_percent = db_connections.get("connection_usage_percent", 0)
+    if db_usage_percent > 80:
+        recommendations.append(
+            {
+                "level": "critical",
+                "message": f"Database connection usage is {db_usage_percent:.1f}% - close idle connections or increase max_connections",
+            }
+        )
+    
+    # Check for idle in transaction
+    idle_in_transaction = db_connections.get("idle_in_transaction", 0)
+    if idle_in_transaction > 0:
+        recommendations.append(
+            {
+                "level": "warning",
+                "message": f"{idle_in_transaction} connections are idle in transaction - these may indicate connection leaks",
+            }
+        )
+    
+    # Check overflow usage
+    if pool_stats["overflow"] > 0:
+        recommendations.append(
+            {
+                "level": "info",
+                "message": f"{pool_stats['overflow']} connections in overflow - pool is being used beyond base size",
+            }
+        )
+    
+    if not recommendations:
+        recommendations.append(
+            {
+                "level": "success",
+                "message": "Connection pool is healthy",
+            }
+        )
+    
+    return recommendations
 
 
 @app.get("/", tags=["Root"])

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react"
 import { Rnd } from "react-rnd"
 import { motion } from "framer-motion"
 import { Sparkles } from "lucide-react"
@@ -27,22 +27,50 @@ const validatePosition = (pos: { x: number; y: number }) => {
     return { x, y }
 }
 
-export function WidgetContainer({ widget }: WidgetContainerProps) {
-    const { updateWidget, removeWidget, selectWidget, selectedWidgetId, selectedWidgetIds, widgets } = useWidgetStore()
-    const { scale, snapPosition } = useCanvasStore()
-    const { openForWidget } = usePipelineStore()
-    const { openForWidget: openAIChatbox } = useAIChatboxStore()
-    const { isLocked } = useCanvasLockStore()
-    const { activeTool } = useToolbarStore()
+function WidgetContainerComponent({ widget }: WidgetContainerProps) {
+    // Use Zustand selectors to avoid unnecessary re-renders
+    const updateWidget = useWidgetStore(state => state.updateWidget)
+    const removeWidget = useWidgetStore(state => state.removeWidget)
+    const selectWidget = useWidgetStore(state => state.selectWidget)
+    const selectedWidgetId = useWidgetStore(state => state.selectedWidgetId)
+    const selectedWidgetIds = useWidgetStore(state => state.selectedWidgetIds)
+    const widgets = useWidgetStore(state => state.widgets)
+    const scale = useCanvasStore(state => state.scale)
+    const snapPosition = useCanvasStore(state => state.snapPosition)
+    const openForWidget = usePipelineStore(state => state.openForWidget)
+    const openAIChatbox = useAIChatboxStore(state => state.openForWidget)
+    const isLocked = useCanvasLockStore(state => state.isLocked)
+    const activeTool = useToolbarStore(state => state.activeTool)
     const [isDragging, setIsDragging] = useState(false)
     const [isResizing, setIsResizing] = useState(false)
     
-    // Validate and sanitize widget position
-    const validWidgetPosition = validatePosition(widget.position || { x: 0, y: 0 })
+    // Validate and sanitize widget position - memoize
+    const validWidgetPosition = useMemo(() => 
+        validatePosition(widget.position || { x: 0, y: 0 }),
+        [widget.position?.x, widget.position?.y]
+    )
     const [localPosition, setLocalPosition] = useState(validWidgetPosition)
     const [isNewWidget, setIsNewWidget] = useState(true)
-    const isSelected = selectedWidgetId === widget.id || selectedWidgetIds.includes(widget.id)
-    const isPlaceholder = widget.data?.isPlaceholder === true
+    
+    // Memoize derived values
+    const isSelected = useMemo(() => 
+        selectedWidgetId === widget.id || selectedWidgetIds.includes(widget.id),
+        [selectedWidgetId, widget.id, selectedWidgetIds]
+    )
+    const isPlaceholder = useMemo(() => 
+        widget.data?.isPlaceholder === true,
+        [widget.data?.isPlaceholder]
+    )
+    
+    // Memoize widget index and z-index
+    const widgetIndex = useMemo(() => 
+        widgets.findIndex(w => w.id === widget.id),
+        [widgets, widget.id]
+    )
+    const zIndex = useMemo(() => 
+        widgetIndex >= 0 ? 100 + widgetIndex : 100,
+        [widgetIndex]
+    )
     
     // Log position validation
     useEffect(() => {
@@ -112,13 +140,13 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
         return () => clearTimeout(validateTimer)
     }, [widget.id, widget.position.x, widget.position.y, widget.size.width, widget.size.height, widgets])
     
-    // Handler to open AI chatbox for placeholder widgets
-    const handleOpenAI = (e?: React.MouseEvent) => {
+    // Handler to open AI chatbox for placeholder widgets - memoized
+    const handleOpenAI = useCallback((e?: React.MouseEvent) => {
         if (e) {
             e.stopPropagation()
         }
         openAIChatbox(widget.id, "", "")
-    }
+    }, [widget.id, openAIChatbox])
     
     // Handle keyboard delete
     useEffect(() => {
@@ -144,10 +172,7 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
         }
     }, [widget.position?.x, widget.position?.y, isDragging, widget.id])
 
-    // Calculate z-index based on widget creation order (newer widgets on top)
-    // Use widget index in the array to determine z-index
-    const widgetIndex = widgets.findIndex(w => w.id === widget.id)
-    const zIndex = widgetIndex >= 0 ? 10 + widgetIndex : 10
+    // Widget index and z-index are already memoized above
     
     // Log widget rendering with position info
     useEffect(() => {
@@ -159,20 +184,27 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
             localPosition: localPosition
         })
     }, [widget.id, widgetIndex, zIndex, validWidgetPosition.x, validWidgetPosition.y, widget.size.width, widget.size.height, localPosition.x, localPosition.y])
-    
+
     return (
         <motion.div
             initial={isNewWidget ? { opacity: 0 } : false}
-            animate={isNewWidget ? { opacity: 1 } : {}}
+            animate={isNewWidget ? { opacity: 1 } : { opacity: 1 }}
             transition={isNewWidget ? {
                 duration: 0.4, // Professional fade in duration
                 ease: [0.4, 0, 0.2, 1], // Smooth ease-in-out curve
                 type: "tween"
             } : {}}
+            onAnimationComplete={() => {
+                setIsNewWidget(false)
+            }}
             style={{ 
-                width: '100%', 
-                height: '100%',
-                position: 'relative' // Removed z-index from here - will be on Rnd
+                // Prevent the wrapper from taking space and pushing other widgets
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: 0,
+                height: 0,
+                overflow: 'visible'
             }}
         >
         <Rnd
@@ -188,7 +220,16 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
             dragHandleClassName={undefined}
             style={{
                 zIndex: zIndex,
-                position: 'absolute' // Ensure Rnd uses absolute positioning
+                position: 'absolute', // Ensure Rnd uses absolute positioning
+                opacity: 1,
+                visibility: 'visible',
+                display: 'block',
+                cursor: isDragging ? 'grabbing' : 'grab',
+                // Optimize for drag performance
+                willChange: isDragging ? 'transform' : 'auto',
+                // Improve drag smoothness
+                transform: 'translateZ(0)',
+                backfaceVisibility: 'hidden',
             }}
             onMouseDown={(e) => {
                 // In selection mode, allow overlay to handle it
@@ -208,7 +249,7 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                 bottomLeft: true,
                 topLeft: true,
             }}
-            onDragStart={(e) => {
+            onDragStart={useCallback((e: any) => {
                 // Prevent drag if canvas is locked
                 if (isLocked) {
                     return false
@@ -238,13 +279,13 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                 setIsDragging(true)
                 setLocalPosition({ x: widget.position.x, y: widget.position.y })
                 selectWidget(widget.id)
-            }}
-            onDrag={(e, d) => {
+            }, [isLocked, activeTool, widget.type, widget.position.x, widget.position.y, widget.id, selectWidget])}
+            onDrag={useCallback((e: any, d: { x: number; y: number }) => {
                 // Update local position only during drag for maximum fluidity
                 // Don't update store until drag stops - this prevents store updates on every frame
                 setLocalPosition({ x: d.x, y: d.y })
-            }}
-            onDragStop={(e, d) => {
+            }, [])}
+            onDragStop={useCallback((e: any, d: { x: number; y: number }) => {
                 setIsDragging(false)
                 // Apply snap and update store only when drag ends
                 const snapped = snapPosition(d.x, d.y)
@@ -252,19 +293,19 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                 setLocalPosition(validated)
                 console.log(`[WidgetContainer] 🎯 Widget ${widget.id} drag stopped, position:`, validated)
                 updateWidget(widget.id, { position: validated }, true) // Sync to backend
-            }}
-            onResizeStart={() => {
+            }, [widget.id, snapPosition, updateWidget])}
+            onResizeStart={useCallback(() => {
                 setIsResizing(true)
                 selectWidget(widget.id)
-            }}
-            onResize={(e, direction, ref, delta, position) => {
+            }, [widget.id, selectWidget])}
+            onResize={useCallback((e: any, direction: any, ref: HTMLElement, delta: any, position: { x: number; y: number }) => {
                 // Update size in real-time for smooth resizing (no backend sync during resize)
                 updateWidget(widget.id, {
                     size: { width: parseInt(ref.style.width), height: parseInt(ref.style.height) },
                     position: { x: position.x, y: position.y }
                 }, false) // Don't sync to backend during resize
-            }}
-            onResizeStop={(e, direction, ref, delta, position) => {
+            }, [widget.id, updateWidget])}
+            onResizeStop={useCallback((e: any, direction: any, ref: HTMLElement, delta: any, position: { x: number; y: number }) => {
                 setIsResizing(false)
                 const validatedPos = validatePosition({ x: position.x, y: position.y })
                 const width = parseInt(ref.style.width) || widget.size.width
@@ -275,7 +316,7 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                     size: { width, height },
                     position: validatedPos
                 }, true) // Sync to backend when resize stops
-            }}
+            }, [widget.id, widget.size.width, widget.size.height, updateWidget])}
             scale={scale}
             // Allow free movement - no bounds restriction
             // Allow dragging from anywhere in the card
@@ -288,15 +329,7 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                 isDragging && "shadow-2xl",
                 isResizing && "shadow-xl"
             )}
-            style={{
-                cursor: isDragging ? 'grabbing' : 'grab',
-                // Optimize for drag performance
-                willChange: isDragging ? 'transform' : 'auto',
-                // Improve drag smoothness
-                transform: 'translateZ(0)',
-                backfaceVisibility: 'hidden',
-            }}
-            onClick={(e: React.MouseEvent) => {
+            onClick={useCallback((e: React.MouseEvent) => {
                 // Don't interfere with drag operations
                 if (isDragging) {
                     return
@@ -325,8 +358,8 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                 
                 e.stopPropagation()
                 selectWidget(widget.id)
-            }}
-            onDoubleClick={(e: React.MouseEvent) => {
+            }, [isDragging, widget.type, widget.id, selectWidget])}
+            onDoubleClick={useCallback((e: React.MouseEvent) => {
                 // Don't interfere with drag operations
                 if (isDragging) {
                     return
@@ -342,7 +375,7 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
                      widget.type === 'table' ? "Table data" : "")
                 
                 openAIChatbox(widget.id, question, answer)
-            }}
+            }, [isDragging, widget.id, widget.data?.question, widget.data?.answer, widget.title, widget.type, widget.data?.value, openAIChatbox])}
         >
                 {widget.type === 'text' ? (
                     // Text widgets have a simpler layout without Card wrapper
@@ -514,3 +547,18 @@ export function WidgetContainer({ widget }: WidgetContainerProps) {
         </motion.div>
     )
 }
+
+// Memoize the component to prevent unnecessary re-renders
+export const WidgetContainer = memo(WidgetContainerComponent, (prevProps, nextProps) => {
+    // Custom comparison function for better performance
+    return (
+        prevProps.widget.id === nextProps.widget.id &&
+        prevProps.widget.position?.x === nextProps.widget.position?.x &&
+        prevProps.widget.position?.y === nextProps.widget.position?.y &&
+        prevProps.widget.size?.width === nextProps.widget.size?.width &&
+        prevProps.widget.size?.height === nextProps.widget.size?.height &&
+        prevProps.widget.type === nextProps.widget.type &&
+        prevProps.widget.title === nextProps.widget.title &&
+        JSON.stringify(prevProps.widget.data) === JSON.stringify(nextProps.widget.data)
+    )
+})

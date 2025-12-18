@@ -391,8 +391,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             if (isValidPosition(snapped.x, snapped.y)) {
                 console.log(`[Grid] ✅ Widget placed next to rightmost at (${snapped.x.toFixed(1)}, ${snapped.y.toFixed(1)})`)
                 return snapped
-            }
-            
+        }
+        
             // Strategy 3: If doesn't fit to the right, start new row below
             // Find tallest widget in the current "row" (similar Y positions)
             const rowTolerance = 50 / scale // Consider widgets within 50px as same row

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useUserStore } from "@/store/user-store"
+import { authApi } from "@/lib/api/auth"
 
 type Star = { id: number; top: number; left: number; opacity: number; size: number; delay: number; duration: number }
 type Comet = { id: number; left: number; delay: number; duration: number; topOffset: number }
@@ -46,8 +47,19 @@ export default function LoginPage() {
         setIsLoading(true)
         
         try {
-            const { authApi } = await import("@/lib/api/auth")
+            console.log("[Login] Attempting login for:", email)
+            console.log("[Login] API URL:", process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1")
             const response = await authApi.login({ email, password })
+            console.log("[Login] Login successful:", { userId: response.user.id, email: response.user.email })
+            
+            // Verify response structure
+            if (!response.access_token || !response.refresh_token) {
+                throw new Error("Invalid response from server: missing tokens")
+            }
+            
+            if (!response.user || !response.user.id) {
+                throw new Error("Invalid response from server: missing user data")
+            }
             
             // Update user store with real data
             useUserStore.getState().login(
@@ -62,10 +74,29 @@ export default function LoginPage() {
                 response.user.has_completed_onboarding || false
             )
             
+            console.log("[Login] User store updated, redirecting to dashboard")
             router.push("/dashboard")
         } catch (error) {
             console.error("Login error:", error)
-            alert(error instanceof Error ? error.message : "Login failed. Please try again.")
+            let errorMessage = "Login failed. Please try again."
+            
+            if (error instanceof Error) {
+                errorMessage = error.message
+                // Try to extract a cleaner error message
+                if (errorMessage.includes("401") || errorMessage.includes("Unauthorized") || errorMessage.includes("Invalid email or password")) {
+                    errorMessage = "Invalid email or password. Please check your credentials."
+                } else if (errorMessage.includes("Network") || errorMessage.includes("fetch") || errorMessage.includes("Failed to fetch") || errorMessage.includes("Unable to connect")) {
+                    errorMessage = "Unable to connect to the server. Please check if the backend is running on port 8001."
+                } else if (errorMessage.includes("CORS")) {
+                    errorMessage = "CORS error. Please check backend configuration."
+                } else if (errorMessage.includes("404")) {
+                    errorMessage = "API endpoint not found. Please check if the backend is running and the API URL is correct."
+                } else if (errorMessage.includes("Load failed")) {
+                    errorMessage = "Failed to load data. Please check if the backend is running on port 8001 and accessible."
+                }
+            }
+            
+            alert(errorMessage)
         } finally {
             setIsLoading(false)
         }

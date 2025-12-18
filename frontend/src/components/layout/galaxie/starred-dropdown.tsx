@@ -168,7 +168,7 @@ export function StarredDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
                     const avatarColor = getAvatarColor(item.name, item.color)
                     
                     return (
-                      <button
+                      <div
                         key={`${item.type}-${item.id}`}
                         onClick={() => {
                           if (item.type === 'planet') {
@@ -181,7 +181,8 @@ export function StarredDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
                           "w-full text-left px-3 py-2.5 rounded-lg",
                           "transition-all duration-200",
                           "hover:bg-gray-50 dark:hover:bg-gray-800",
-                          "flex items-center gap-3 group"
+                          "flex items-center gap-3 group",
+                          "cursor-pointer"
                         )}
                       >
                         <div className={cn(
@@ -197,12 +198,16 @@ export function StarredDropdown({ isOpen, onOpenChange, onClose, onMouseEnter, o
                           </div>
                         </div>
                         <button
-                          onClick={(e) => handleUnstar(e, item.id, item.type, item)}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleUnstar(e, item.id, item.type, item)
+                          }}
                           className="p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity text-yellow-500"
                         >
                           <Star className="w-4 h-4 fill-yellow-500 text-yellow-500" />
                         </button>
-                      </button>
+                      </div>
                     )
                   })}
                 </div>

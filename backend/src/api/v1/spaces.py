@@ -315,3 +315,31 @@ async def remove_space_member(
     await space_service.remove_space_member(space_id, user_id, current_user)
     return SuccessResponse(message="Member removed successfully")
 
+
+@router.get(
+    "/{space_id}/tables",
+    response_model=List[dict],
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get space tables",
+    description="Get all tables from connections in a space",
+)
+async def get_space_tables(
+    space_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[dict]:
+    """
+    Get all tables from connections in a space.
+
+    Args:
+        space_id: Space ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        List[dict]: List of tables with connection info
+    """
+    space_service = SpaceService(db)
+    return await space_service.get_space_tables(space_id, current_user)
+

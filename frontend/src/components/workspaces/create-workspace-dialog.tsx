@@ -80,17 +80,15 @@ export function CreatePlanetDialog({ open, onOpenChange }: CreatePlanetDialogPro
         }
 
         try {
-            // Determine color - getDefaultColor returns hex, so we need to convert
-            const defaultColorHex = getDefaultColor(type)
-            const selectedColorHex = COLOR_MAP[selectedColor] || COLOR_MAP.blue
-            const finalColor = autoColor ? defaultColorHex : selectedColorHex
+            // Determine color - pass color name (not hex) since createPlanet will convert it
+            const finalColorName = autoColor ? 'blue' : selectedColor
 
-            // Create planet - color must be in hex format for API
+            // Create planet - colorNameToHex will handle the conversion
             await createPlanet({
                 name: name.trim(),
                 description: description.trim() || undefined,
                 type,
-                color: finalColor, // Already in hex format
+                color: finalColorName,
             })
 
             // Refresh planets list

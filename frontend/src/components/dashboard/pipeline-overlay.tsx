@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { X, Send, Plus, Mic, ThumbsUp, ThumbsDown, RefreshCw, Share2, Copy, MoreVertical, Database, FileCode, MessageSquare, CheckCircle2, ArrowRight, AlertCircle, FileText, Clock, Info } from "lucide-react"
+import { X, Send, Plus, Mic, ThumbsUp, ThumbsDown, RefreshCw, Share2, Copy, MoreVertical, Database, FileCode, MessageSquare, CheckCircle2, ArrowRight, AlertCircle, FileText, Clock, Info, Loader2 } from "lucide-react"
 import { usePipelineStore } from "@/store/pipeline-store"
 import { useWidgetStore } from "@/store/widget-store"
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { aiApi } from "@/lib/api/ai"
+import { useSpaceStore } from "@/store/space-store"
 
 type MainTab = "chat" | "data" | "configure" | "pipeline"
 
@@ -45,8 +47,11 @@ export function PipelineOverlay() {
     answer: { hasError: false },
   })
   const [selectedErrorStep, setSelectedErrorStep] = useState<string | null>(null)
+  const [isProcessingMessage, setIsProcessingMessage] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
+  const { currentSpace } = useSpaceStore()
 
   const widget = widgets.find((w) => w.id === currentWidgetId)
 
@@ -131,19 +136,50 @@ export function PipelineOverlay() {
     }
   }, [configureData.knowledge, configureData.sqlInstructions])
 
-  const handleSendMessage = () => {
-    if (!chatInput.trim()) return
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || isProcessingMessage) return
 
-    addChatMessage(chatInput)
-    // Simular resposta da IA
-    setTimeout(() => {
-      const mockResponse = `This is a generated response for: "${chatInput}"
-
-Here is a detailed analysis with relevant insights and recommendations based on the available data.`
-      addAIResponse(mockResponse)
-    }, 1000)
-
+    const messageText = chatInput.trim()
+    addChatMessage(messageText)
     setChatInput("")
+    setIsProcessingMessage(true)
+    setErrorMessage(null)
+
+    try {
+      // Use aiApi.chat() for chat messages or aiApi.query() for queries
+      // Based on the context, we'll use chat for this pipeline overlay
+      const response = await aiApi.chat({
+        message: messageText,
+        widget_id: currentWidgetId || undefined,
+        context: {
+          configure_data: configureData,
+          knowledge: configureData.knowledge,
+        },
+      })
+
+      // Add AI response
+      addAIResponse(response.content || "No response generated")
+      
+      // Update configure data with question if it's the first message
+      if (chatMessages.length === 0) {
+        updateConfigureData({ question: messageText })
+      }
+    } catch (error) {
+      console.error("Error sending chat message:", error)
+      const errorMsg = error instanceof Error ? error.message : "Failed to send message. Please try again."
+      setErrorMessage(errorMsg)
+      
+      // Add error response to chat
+      addAIResponse(`Error: ${errorMsg}`)
+      
+      // Update pipeline errors
+      setPipelineErrors(prev => ({
+        ...prev,
+        answer: { hasError: true, logs: errorMsg }
+      }))
+    } finally {
+      setIsProcessingMessage(false)
+    }
   }
 
   // Salvar automaticamente quando houver mudanças
@@ -250,6 +286,16 @@ Here is a detailed analysis with relevant insights and recommendations based on 
                       </div>
                     )}
 
+                    {/* Error message */}
+                    {errorMessage && (
+                      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-4">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                          <p className="text-sm text-red-900 dark:text-red-100">{errorMessage}</p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Mensagens do chat - estilo Gemini */}
                     {chatMessages.map((msg, msgIndex) => {
                       // Encontrar respostas relacionadas a esta mensagem
@@ -269,6 +315,18 @@ Here is a detailed analysis with relevant insights and recommendations based on 
                               </div>
                             </div>
                           </div>
+                          
+                          {/* Loading indicator */}
+                          {msgIndex === chatMessages.length - 1 && isProcessingMessage && (
+                            <div className="flex justify-start">
+                              <div className="max-w-[85%] sm:max-w-[75%]">
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  <span className="text-sm">Processing...</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Respostas da IA - estilo Gemini (sem bubble, texto direto) */}
                           {relatedResponses.length > 0 && (
@@ -408,16 +466,20 @@ Here is a detailed analysis with relevant insights and recommendations based on 
                           </Button>
                           <Button
                             onClick={handleSendMessage}
-                            disabled={!chatInput.trim()}
+                            disabled={!chatInput.trim() || isProcessingMessage}
                             size="icon"
                             className={cn(
                               "h-8 w-8 rounded-full transition-all",
-                              chatInput.trim()
+                              chatInput.trim() && !isProcessingMessage
                                 ? "bg-primary text-primary-foreground hover:bg-primary/90"
                                 : "bg-muted text-muted-foreground cursor-not-allowed"
                             )}
                           >
+                            {isProcessingMessage ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
                             <Send className="w-4 h-4" />
+                            )}
                           </Button>
                         </div>
                       </div>

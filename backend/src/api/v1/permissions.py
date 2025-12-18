@@ -15,6 +15,9 @@ from src.schemas.permission import (
     PermissionUpdate,
     PermissionValidateRequest,
     PermissionValidateResponse,
+    TableMemberPermissionCreate,
+    TableMemberPermissionResponse,
+    TableMemberPermissionUpdate,
 )
 from src.services.permission_service import PermissionService
 
@@ -75,10 +78,16 @@ async def create_connection_permission(
     Returns:
         PermissionResponse: Created permission
     """
-    permission_service = PermissionService(db)
-    return await permission_service.create_connection_permission(
-        connection_id, current_user, permission_data
-    )
+    try:
+        permission_service = PermissionService(db)
+        return await permission_service.create_connection_permission(
+            connection_id, current_user, permission_data
+        )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error creating connection permission: {e}", exc_info=True)
+        raise
 
 
 @router.put(
@@ -222,4 +231,129 @@ async def validate_permission(
     """
     permission_service = PermissionService(db)
     return await permission_service.validate_permission(current_user, validate_data)
+
+
+@router.get(
+    "/table-members/{connection_id}/{table_name}",
+    response_model=List[TableMemberPermissionResponse],
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get table member permissions",
+    description="Get all member permissions for a specific table",
+)
+async def get_table_member_permissions(
+    connection_id: UUID,
+    table_name: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[TableMemberPermissionResponse]:
+    """
+    Get table member permissions.
+
+    Args:
+        connection_id: Connection ID
+        table_name: Table name
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        List[TableMemberPermissionResponse]: List of permissions
+    """
+    try:
+        permission_service = PermissionService(db)
+        return await permission_service.get_table_member_permissions(connection_id, table_name, current_user)
+    except Exception as e:
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error getting table member permissions: {e}", exc_info=True)
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
+
+
+@router.post(
+    "/table-members",
+    response_model=TableMemberPermissionResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    summary="Create table member permission",
+    description="Create a new permission for a table and crew member",
+)
+async def create_table_member_permission(
+    permission_data: TableMemberPermissionCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> TableMemberPermissionResponse:
+    """
+    Create table member permission.
+
+    Args:
+        permission_data: Permission creation data
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        TableMemberPermissionResponse: Created permission
+    """
+    permission_service = PermissionService(db)
+    return await permission_service.create_table_member_permission(current_user, permission_data)
+
+
+@router.put(
+    "/table-members/{permission_id}",
+    response_model=TableMemberPermissionResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Update table member permission",
+    description="Update table member permission",
+)
+async def update_table_member_permission(
+    permission_id: UUID,
+    permission_data: TableMemberPermissionUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> TableMemberPermissionResponse:
+    """
+    Update table member permission.
+
+    Args:
+        permission_id: Permission ID
+        permission_data: Permission update data
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        TableMemberPermissionResponse: Updated permission
+    """
+    permission_service = PermissionService(db)
+    return await permission_service.update_table_member_permission(permission_id, current_user, permission_data)
+
+
+@router.delete(
+    "/table-members/{permission_id}",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Delete table member permission",
+    description="Delete table member permission",
+)
+async def delete_table_member_permission(
+    permission_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Delete table member permission.
+
+    Args:
+        permission_id: Permission ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    permission_service = PermissionService(db)
+    await permission_service.delete_table_member_permission(permission_id, current_user)
+    return SuccessResponse(message="Table member permission deleted successfully")
 

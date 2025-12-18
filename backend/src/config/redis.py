@@ -40,23 +40,38 @@ async def init_redis() -> None:
         if redis_url.startswith("redis://"):
             url_part = redis_url[8:]  # Remove "redis://"
             
-            # Check if password is present
+            # Check if password is present (look for @ which indicates auth)
+            # Only parse manually if there's actually authentication info
             if "@" in url_part:
                 auth_part, host_part = url_part.split("@", 1)
                 
                 # Extract password (may be after : or just password)
                 # Format: redis://:password@host or redis://user:password@host
+                has_password = False
                 if auth_part.startswith(":"):
                     # Format: redis://:password@host (password only, no username)
                     username = None
                     password = auth_part[1:] if len(auth_part) > 1 else None
+                    has_password = bool(password)
                 elif ":" in auth_part:
                     # Format: redis://user:password@host
                     username, password = auth_part.split(":", 1)
+                    has_password = bool(password)
                 else:
-                    # No password, just username
+                    # No password, just username or empty
                     username = auth_part if auth_part else None
                     password = None
+                    has_password = False
+                
+                # If no actual password, use from_url instead (simpler)
+                if not has_password:
+                    _redis = await aioredis.from_url(
+                        redis_url,
+                        encoding="utf-8",
+                        decode_responses=True,
+                        max_connections=50,
+                    )
+                    return
                 
                 # Extract host and port
                 if ":" in host_part:
@@ -74,17 +89,25 @@ async def init_redis() -> None:
                         db = "0"
                     port = "6379"
                 
+                # Only pass password/username if they are actually provided (not empty strings)
+                connection_kwargs = {
+                    "host": host,
+                    "port": int(port),
+                    "db": int(db) if db else 0,
+                    "encoding": "utf-8",
+                    "decode_responses": True,
+                    "max_connections": 50,
+                }
+                
+                # Only add password if it's not None and not empty
+                if password:
+                    connection_kwargs["password"] = password
+                # Only add username if it's not None and not empty
+                if username:
+                    connection_kwargs["username"] = username
+                
                 # Create connection using Redis constructor directly
-                _redis = Redis(
-                    host=host,
-                    port=int(port),
-                    db=int(db) if db else 0,
-                    password=password if password else None,
-                    username=username if username else None,
-                    encoding="utf-8",
-                    decode_responses=True,
-                    max_connections=50,
-                )
+                _redis = Redis(**connection_kwargs)
             else:
                 # No password, use from_url
                 _redis = await aioredis.from_url(

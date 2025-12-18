@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { useWidgetStore } from "@/store/widget-store"
 import { useCanvasStore } from "@/store/canvas-store"
 import { useAIChatboxStore } from "@/store/ai-chatbox-store"
-import { Send, Mic, X, MessageSquare, Database, Settings, FileCode, Maximize2, Minimize2, Copy, ThumbsUp, ThumbsDown, Share2, RefreshCw, Sparkles, BarChart3, PieChart, TrendingUp, Table, Activity, Star } from "lucide-react"
+import { Send, Mic, X, MessageSquare, Database, Settings, FileCode, Maximize2, Minimize2, Copy, ThumbsUp, ThumbsDown, Share2, RefreshCw, Sparkles, BarChart3, PieChart, TrendingUp, Table, Activity, Star, FileText, File, FileJson, ChevronDown, Loader2, Trash2, Users, LayoutGrid } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -20,6 +20,27 @@ import {
 } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Badge } from "@/components/ui/badge"
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import { useFilesStore } from "@/store/files-store"
+import { datasetsApi } from "@/lib/api/datasets"
+import { aiApi, AIQueryResponse } from "@/lib/api/ai"
+import { useSpaceStore } from "@/store/space-store"
+import { connectionsApi } from "@/lib/api/connections"
 
 interface ChatMessage {
     id: string
@@ -60,15 +81,101 @@ export function AISearchBar() {
         sqlInstructions: "",
     })
     const [finalSQL, setFinalSQL] = useState("-- Select datasets to generate SQL")
+    const [uploadingFile, setUploadingFile] = useState<string | null>(null)
+    const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
+    const [uploadedFiles, setUploadedFiles] = useState<Array<{id: string, name: string, type: 'csv' | 'excel' | 'json'}>>([])
+    const [removedItems, setRemovedItems] = useState<Set<string>>(new Set())
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+    const [itemToDelete, setItemToDelete] = useState<{id: string, name: string, type: 'table' | 'file'} | null>(null)
+    
+    // Real connection tables data
+    const [connectionTables, setConnectionTables] = useState<Array<{
+        id: string
+        connectionId: string
+        connectionName: string
+        name: string
+        schema?: string
+        fullName: string
+        type: 'table' | 'view'
+    }>>([])
+    const [isLoadingTables, setIsLoadingTables] = useState(false)
+    
+    // Dataset metadata - will be populated from real API calls
+    const datasetMetadata: Record<string, { spaces: string[]; crews: string[] }> = {}
+
+    // Helper function to render origin info as clean text with tooltips (minimalist style)
+    const renderOriginBadges = (datasetId: string) => {
+        const metadata = datasetMetadata[datasetId]
+        if (!metadata || (metadata.spaces.length === 0 && metadata.crews.length === 0)) {
+            return null
+        }
+
+        return (
+            <div className="flex items-center gap-1.5">
+                {metadata.spaces.length > 0 && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="text-[10px] text-blue-600/70 dark:text-blue-400/70 hover:text-blue-600 dark:hover:text-blue-400 cursor-help transition-colors">
+                                Spaces: {metadata.spaces.length}
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs max-w-xs">
+                            <div className="space-y-1.5">
+                                <div className="font-semibold text-blue-700 dark:text-blue-300">Spaces:</div>
+                                <ul className="list-none space-y-0.5">
+                                    {metadata.spaces.map((space, idx) => (
+                                        <li key={idx} className="text-muted-foreground">{space}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </TooltipContent>
+                    </Tooltip>
+                )}
+                {metadata.crews.length > 0 && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="text-[10px] text-purple-600/70 dark:text-purple-400/70 hover:text-purple-600 dark:hover:text-purple-400 cursor-help transition-colors">
+                                Crews: {metadata.crews.length}
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs max-w-xs">
+                            <div className="space-y-1.5">
+                                <div className="font-semibold text-purple-700 dark:text-purple-300">Crews:</div>
+                                <ul className="list-none space-y-0.5">
+                                    {metadata.crews.map((crew, idx) => (
+                                        <li key={idx} className="text-muted-foreground">{crew}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </TooltipContent>
+                    </Tooltip>
+                )}
+            </div>
+        )
+    }
     const chatEndRef = useRef<HTMLDivElement>(null)
     const chatContainerRef = useRef<HTMLDivElement>(null)
     const expandedInputRef = useRef<HTMLInputElement>(null)
+    const compactInputRef = useRef<HTMLInputElement>(null)
     const messageRefs = useRef<Record<string, HTMLDivElement | null>>({})
+    const csvInputRef = useRef<HTMLInputElement>(null)
+    const excelInputRef = useRef<HTMLInputElement>(null)
+    const jsonInputRef = useRef<HTMLInputElement>(null)
+    
+    const { uploadCSV, uploadExcel, uploadFile, error: uploadError } = useFilesStore()
     
     const { addWidget, widgets, updateWidget, addPendingWidget, removePendingWidget, pendingWidgets } = useWidgetStore()
     const { getViewportCenter, snapPosition, findVisiblePositionInViewport, findNextGridPosition } = useCanvasStore()
     const { shouldOpen, widgetId, initialQuestion, initialAnswer, close } = useAIChatboxStore()
+    const { currentSpace } = useSpaceStore()
     const widget = currentWidgetId ? widgets.find((w) => w.id === currentWidgetId) : null
+    const [isProcessingQuery, setIsProcessingQuery] = useState(false)
+    const loadingMessages = [
+        "Analyzing your request",
+        "Reviewing connected data sources",
+        "Preparing your insights",
+    ] as const
+    const [loadingStepIndex, setLoadingStepIndex] = useState(0)
 
     // React to store changes - open chatbox with widget information
     useEffect(() => {
@@ -124,6 +231,24 @@ export function AISearchBar() {
         }
     }, [shouldOpen, widgetId, initialQuestion, initialAnswer, close])
 
+    // Rotate loading messages while AI is processing
+    useEffect(() => {
+        if (!isProcessingQuery) {
+            setLoadingStepIndex(0)
+            return
+        }
+
+        let currentIndex = 0
+        setLoadingStepIndex(0)
+
+        const interval = setInterval(() => {
+            currentIndex = (currentIndex + 1) % loadingMessages.length
+            setLoadingStepIndex(currentIndex)
+        }, 2200)
+
+        return () => clearInterval(interval)
+    }, [isProcessingQuery, loadingMessages.length])
+
     // Auto-scroll chat to bottom when messages change or chatbox expands
     useEffect(() => {
         if (isExpanded && mainTab === "chat") {
@@ -170,6 +295,88 @@ export function AISearchBar() {
         return () => document.removeEventListener('mousedown', handleClickOutside)
     }, [openWidgetMenu])
 
+    // Load table details for tables used by AI (only when needed)
+    useEffect(() => {
+        const loadTableDetails = async () => {
+            // Get all tables used by AI from chat messages
+            const aiUsedTables = Array.from(new Set(
+                chatMessages
+                    .filter(msg => msg.type === "assistant")
+                    .flatMap(msg => {
+                        const datasets = (msg as any).responseData?.chosen_datasets || [];
+                        const table = (msg as any).responseData?.chosen_table;
+                        return datasets.length > 0 ? datasets : (table ? [table] : []);
+                    })
+            ))
+            
+            if (aiUsedTables.length === 0) {
+                setConnectionTables([])
+                return
+            }
+            
+            // Only load details if we don't have them yet
+            const needsLoading = aiUsedTables.some(tableName => 
+                !connectionTables.some(t => t.name === tableName || t.fullName === tableName)
+            )
+            
+            if (!needsLoading) return
+            
+            setIsLoadingTables(true)
+            try {
+                // Get all active connections
+                const connections = await connectionsApi.listConnections({ status: "active" })
+                
+                // Load metadata only for tables used by AI
+                const foundTables: Array<{
+                    id: string
+                    connectionId: string
+                    connectionName: string
+                    name: string
+                    schema?: string
+                    fullName: string
+                    type: 'table' | 'view'
+                }> = []
+                
+                for (const conn of connections) {
+                    try {
+                        const metadata = await connectionsApi.getConnectionMetadata(conn.id)
+                        if (metadata.tables && metadata.tables.length > 0) {
+                            metadata.tables.forEach((table: any) => {
+                                const schemaName = table.schema || table.schema_name || ''
+                                const fullName = schemaName ? `${schemaName}.${table.name}` : table.name
+                                
+                                // Only include if this table was used by AI
+                                if (aiUsedTables.includes(table.name) || aiUsedTables.includes(fullName)) {
+                                    foundTables.push({
+                                        id: `${conn.id}-${table.name}`,
+                                        connectionId: conn.id,
+                                        connectionName: conn.name,
+                                        name: table.name,
+                                        schema: schemaName,
+                                        fullName: fullName,
+                                        type: (table.name.toLowerCase().includes('view') || fullName.toLowerCase().includes('view')) ? 'view' : 'table'
+                                    })
+                                }
+                            })
+                        }
+                    } catch (err) {
+                        console.warn(`Failed to load metadata for connection ${conn.id}:`, err)
+                    }
+                }
+                
+                setConnectionTables(foundTables)
+            } catch (error) {
+                console.error('Error loading table details:', error)
+            } finally {
+                setIsLoadingTables(false)
+            }
+        }
+        
+        if (mainTab === "data") {
+            loadTableDetails()
+        }
+    }, [mainTab, chatMessages, connectionTables.length])
+
     // Update SQL when knowledge changes
     useEffect(() => {
         if (configureData.knowledge.length > 0 && configureData.sqlInstructions) {
@@ -183,8 +390,170 @@ export function AISearchBar() {
         }
     }, [configureData.knowledge, configureData.sqlInstructions])
 
+    // Handle item deletion
+    const handleDeleteClick = (id: string, name: string, type: 'table' | 'file') => {
+        setItemToDelete({ id, name, type })
+        setDeleteDialogOpen(true)
+    }
+
+    const handleConfirmDelete = async () => {
+        if (!itemToDelete) return
+
+        const { id, type } = itemToDelete
+
+        try {
+            // Call backend API to delete the dataset
+            await datasetsApi.deleteDataset(id)
+
+            // Add to removed items
+            setRemovedItems(prev => new Set(prev).add(id))
+
+            // Remove from knowledge
+            setConfigureData({
+                ...configureData,
+                knowledge: configureData.knowledge.filter((k) => k !== id)
+            })
+
+            // If it's a file, also remove from uploadedFiles
+            if (type === 'file') {
+                setUploadedFiles(prev => prev.filter(f => f.id !== id))
+            }
+
+            // Close dialog and reset
+            setDeleteDialogOpen(false)
+            setItemToDelete(null)
+        } catch (error) {
+            console.error('Error deleting dataset:', error)
+            alert(`Error deleting dataset: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+    }
+
+    // Handle file uploads
+    const handleCSVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        setUploadingFile(file.name)
+        try {
+            const response = await uploadCSV(file, (progress) => {
+                setUploadProgress(prev => ({ ...prev, [file.name]: progress }))
+            })
+            
+            // Add file to uploaded files list
+            const fileIdentifier = `file_${response.file_id}`
+            setUploadedFiles(prev => [...prev, {
+                id: fileIdentifier,
+                name: file.name,
+                type: 'csv'
+            }])
+            
+            // Add file to knowledge list using file_id as identifier
+            if (!configureData.knowledge.includes(fileIdentifier)) {
+                setConfigureData({
+                    ...configureData,
+                    knowledge: [...configureData.knowledge, fileIdentifier]
+                })
+            }
+        } catch (error) {
+            console.error('Error uploading CSV:', error)
+            alert(`Error uploading CSV: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        } finally {
+            setUploadingFile(null)
+            setUploadProgress(prev => {
+                const newProgress = { ...prev }
+                delete newProgress[file.name]
+                return newProgress
+            })
+            if (csvInputRef.current) {
+                csvInputRef.current.value = ''
+            }
+        }
+    }
+
+    const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        setUploadingFile(file.name)
+        try {
+            const response = await uploadExcel(file, (progress) => {
+                setUploadProgress(prev => ({ ...prev, [file.name]: progress }))
+            })
+            
+            // Add file to uploaded files list
+            const fileIdentifier = `file_${response.file_id}`
+            setUploadedFiles(prev => [...prev, {
+                id: fileIdentifier,
+                name: file.name,
+                type: 'excel'
+            }])
+            
+            // Add file to knowledge list using file_id as identifier
+            if (!configureData.knowledge.includes(fileIdentifier)) {
+                setConfigureData({
+                    ...configureData,
+                    knowledge: [...configureData.knowledge, fileIdentifier]
+                })
+            }
+        } catch (error) {
+            console.error('Error uploading Excel:', error)
+            alert(`Error uploading Excel: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        } finally {
+            setUploadingFile(null)
+            setUploadProgress(prev => {
+                const newProgress = { ...prev }
+                delete newProgress[file.name]
+                return newProgress
+            })
+            if (excelInputRef.current) {
+                excelInputRef.current.value = ''
+            }
+        }
+    }
+
+    const handleJSONUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        setUploadingFile(file.name)
+        try {
+            const response = await uploadFile(file, undefined, (progress) => {
+                setUploadProgress(prev => ({ ...prev, [file.name]: progress }))
+            })
+            
+            // Add file to uploaded files list
+            const fileIdentifier = `file_${response.file_id}`
+            setUploadedFiles(prev => [...prev, {
+                id: fileIdentifier,
+                name: file.name,
+                type: 'json'
+            }])
+            
+            // Add file to knowledge list using file_id as identifier
+            if (!configureData.knowledge.includes(fileIdentifier)) {
+                setConfigureData({
+                    ...configureData,
+                    knowledge: [...configureData.knowledge, fileIdentifier]
+                })
+            }
+        } catch (error) {
+            console.error('Error uploading JSON:', error)
+            alert(`Error uploading JSON: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        } finally {
+            setUploadingFile(null)
+            setUploadProgress(prev => {
+                const newProgress = { ...prev }
+                delete newProgress[file.name]
+                return newProgress
+            })
+            if (jsonInputRef.current) {
+                jsonInputRef.current.value = ''
+            }
+        }
+    }
+
     const handleSendMessage = async () => {
-        if (!question.trim()) return
+        if (!question.trim() || isProcessingQuery) return
 
         const userMessage: ChatMessage = {
             id: `msg-${Date.now()}`,
@@ -204,84 +573,76 @@ export function AISearchBar() {
         
         // Mark that we have messages (for auto-expansion)
         setHasMessages(true)
+        setIsProcessingQuery(true)
 
-        // If no widget exists, create one
-        if (!currentWidgetId) {
-            // Combine existing widgets with pending widgets
-            const allWidgets = [
-                ...widgets.map(w => ({ position: w.position, size: w.size })),
-                ...pendingWidgets
-            ]
-            // Use grid positioning for initial placement
-            const finalPosition = findNextGridPosition(
-                { width: 250, height: 120 },
-                allWidgets
-            )
-            
-            try {
-                const widgetId = await addWidget({
-                    type: 'kpi',
-                    title: 'Analysis Result',
-                    position: finalPosition,
-                    size: { width: 250, height: 120 },
-                    data: { 
-                        value: '0',
-                        change: '0%'
-                    }
-                })
-                setCurrentWidgetId(widgetId || null)
-            } catch (error) {
-                console.error('Error creating widget:', error)
-            }
-        }
+        try {
+            // Call real AI API
+            const response: AIQueryResponse = await aiApi.query({
+                question: messageText,
+                widget_id: currentWidgetId || undefined,
+                configure_data: {
+                    question: messageText,
+                    knowledge: configureData.knowledge,
+                    // Force textual answer format for chat responses
+                    response_format: "text",
+                    creativity: configureData.creativity,
+                    length: configureData.length,
+                    sql_instructions: configureData.sqlInstructions,
+                },
+                space_id: currentSpace?.id,
+            })
 
-        // Get current widget to check if it's a placeholder
-        const currentWidget = currentWidgetId ? widgets.find((w) => w.id === currentWidgetId) : null
-        const isPlaceholderWidget = currentWidget?.data?.isPlaceholder === true
-
-        // Simulate AI response (you can replace this with actual API call)
-        setTimeout(() => {
+            // Create AI message with real response
             const aiMessage: ChatMessage = {
                 id: `ai-${Date.now()}`,
                 type: "assistant",
-                content: `This is a generated response for: "${messageText}"\n\nHere is a detailed analysis with relevant insights and recommendations based on the available data.`,
+                content: response.answer || "No answer generated",
                 timestamp: new Date(),
             }
-            setChatMessages(prev => [...prev, aiMessage])
             
-            // If widget is a placeholder, update it with real data
-            if (isPlaceholderWidget && currentWidgetId && currentWidget) {
-                // Remove placeholder state and add real data
-                const updatedData: any = {
-                    ...currentWidget.data,
-                    isPlaceholder: false,
-                }
-                
-                // Update based on widget type
-                if (currentWidget.type === 'kpi') {
-                    // Extract numeric value from AI response (simplified - in real scenario, parse from AI response)
-                    const mockValue = "1,234"
-                    const mockChange = "+12.5%"
-                    updatedData.value = mockValue
-                    updatedData.change = mockChange
-                } else if (currentWidget.type === 'chart') {
-                    // Generate sample chart data in the format ChartWidget expects
-                    const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul']
-                    const series = [400, 300, 200, 278, 189, 239, 349]
-                    // Create data array in format { name: string, value: number }
-                    updatedData.data = labels.map((label, index) => ({
-                        name: label,
-                        value: series[index]
-                    }))
-                    updatedData.labels = labels
-                    updatedData.series = series
-                }
-                
-                updateWidget(currentWidgetId, {
-                    data: updatedData
-                }).catch(console.error)
+            // Store response data for widget creation
+            const chosenDatasets = response.chosen_datasets || (response.chosen_table ? [response.chosen_table] : [])
+            
+            console.log("AI Response data:", {
+                chosen_table: response.chosen_table,
+                chosen_datasets: response.chosen_datasets,
+                final_chosen_datasets: chosenDatasets,
+                answer_length: response.answer?.length
+            })
+            
+            ;(aiMessage as any).responseData = {
+                data_sample: response.data_sample,
+                sql: response.sql,
+                chosen_table: response.chosen_table,
+                chosen_datasets: chosenDatasets,
             }
-        }, 1000)
+
+            // Update knowledge with datasets chosen by AI
+            if (response.chosen_datasets && response.chosen_datasets.length > 0) {
+                setConfigureData(prev => ({
+                    ...prev,
+                    knowledge: [...new Set([...prev.knowledge, ...response.chosen_datasets!])],
+                }))
+            } else if (response.chosen_table) {
+                setConfigureData(prev => ({
+                    ...prev,
+                    knowledge: [...new Set([...prev.knowledge, response.chosen_table!])],
+                }))
+            }
+
+            setChatMessages(prev => [...prev, aiMessage])
+        } catch (error) {
+            console.error("Error calling AI API:", error)
+            const errorMessage: ChatMessage = {
+                id: `ai-error-${Date.now()}`,
+                type: "assistant",
+                content: `Error: ${error instanceof Error ? error.message : "Failed to get AI response"}`,
+                timestamp: new Date(),
+            }
+            setChatMessages(prev => [...prev, errorMessage])
+        } finally {
+            setIsProcessingQuery(false)
+        }
     }
 
     const handleSubmitQuestion = async (e: React.FormEvent) => {
@@ -296,8 +657,11 @@ export function AISearchBar() {
     }
 
     const handleCompactInputClick = () => {
+        // Focus on compact input immediately when clicked
+        compactInputRef.current?.focus()
+        
         setIsExpanded(true)
-        // Focus on expanded input and scroll to bottom after expansion
+        // Focus on expanded input after expansion animation completes
         setTimeout(() => {
             expandedInputRef.current?.focus()
             // Scroll to bottom to show last message
@@ -308,7 +672,7 @@ export function AISearchBar() {
             if (chatContainerRef.current) {
                 chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
             }
-        }, 200)
+        }, 300)
     }
 
     const handleToggleMaximize = () => {
@@ -406,17 +770,17 @@ export function AISearchBar() {
             })
 
             // After comet reaches destination, create widget immediately and show landing animation
-            setTimeout(async () => {
-                try {
+                    setTimeout(async () => {
+                        try {
                     // Remove from pending widgets before creating
                     removePendingWidget(finalPosition, widgetSize)
                     
                     // Create widget immediately when comet arrives
-                    await addWidget({
-                        type: widgetType,
-                        ...widgetData,
-                        position: finalPosition
-                    })
+                            await addWidget({
+                                type: widgetType,
+                                ...widgetData,
+                                position: finalPosition
+                            })
                     
                     // Start landing animation (expansion) while widget appears
                     setFlyingComet(prev => prev ? { ...prev, isLanding: true } : null)
@@ -425,12 +789,12 @@ export function AISearchBar() {
                     setTimeout(() => {
                         setFlyingComet(null)
                     }, 200) // Brief fade out
-                } catch (error) {
-                    console.error('Error creating widget:', error)
+        } catch (error) {
+            console.error('Error creating widget:', error)
                     // Remove from pending widgets even if creation fails
                     removePendingWidget(finalPosition, widgetSize)
                     setFlyingComet(null)
-                }
+        }
             }, 550) // Travel animation duration - increased for better visibility
         }, 300) // Chatbox closing animation duration
     }
@@ -567,6 +931,7 @@ export function AISearchBar() {
                             className="rounded-full px-6 py-3 flex items-center gap-3 min-w-[500px] max-w-[600px] border-2 border-border bg-background/95 backdrop-blur-xl shadow-lg cursor-text"
             >
                 <input
+                    ref={compactInputRef}
                     type="text"
                     placeholder="What you want to analyse today?"
                     value={question}
@@ -580,6 +945,12 @@ export function AISearchBar() {
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     handleCompactInputClick()
+                                }}
+                                onFocus={() => {
+                                    // When input gets focus, expand if not already expanded
+                                    if (!isExpanded) {
+                                        handleCompactInputClick()
+                                    }
                                 }}
                                 className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none text-sm font-medium cursor-text"
                 />
@@ -645,7 +1016,7 @@ export function AISearchBar() {
                                             <MessageSquare className="h-4 w-4" />
                                         </button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="text-xs">
+                                    <TooltipContent side="bottom" className="text-xs bg-primary text-primary-foreground">
                                         Chat
                                     </TooltipContent>
                                 </Tooltip>
@@ -664,7 +1035,7 @@ export function AISearchBar() {
                                             <Database className="h-4 w-4" />
                                         </button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="text-xs">
+                                    <TooltipContent side="bottom" className="text-xs bg-primary text-primary-foreground">
                                         Data
                                     </TooltipContent>
                                 </Tooltip>
@@ -683,7 +1054,7 @@ export function AISearchBar() {
                                             <Settings className="h-4 w-4" />
                                         </button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="text-xs">
+                                    <TooltipContent side="bottom" className="text-xs bg-primary text-primary-foreground">
                                         Configure
                                     </TooltipContent>
                                 </Tooltip>
@@ -702,7 +1073,7 @@ export function AISearchBar() {
                                             <FileCode className="h-4 w-4" />
                                         </button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="text-xs">
+                                    <TooltipContent side="bottom" className="text-xs bg-primary text-primary-foreground">
                                         Pipeline
                                     </TooltipContent>
                                 </Tooltip>
@@ -722,7 +1093,7 @@ export function AISearchBar() {
                                             )}
                                         </button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="text-xs">
+                                    <TooltipContent side="bottom" className="text-xs bg-primary text-primary-foreground">
                                         {isMaximized ? "Minimize" : "Expand"}
                                     </TooltipContent>
                                 </Tooltip>
@@ -792,39 +1163,6 @@ export function AISearchBar() {
                                                                         setQuestion("")
                                                                         setHasMessages(true)
                                                                         
-                                                                        // If no widget exists, create one
-                                                                        if (!currentWidgetId) {
-                                                                            // Combine existing widgets with pending widgets
-                                                                            const allWidgets = [
-                                                                                ...widgets.map(w => ({ position: w.position, size: w.size })),
-                                                                                ...pendingWidgets
-                                                                            ]
-                                                                            // Use grid positioning for initial placement
-                                                                            const finalPosition = findNextGridPosition(
-                                                                                { width: 250, height: 120 },
-                                                                                allWidgets
-                                                                            )
-                                                                            try {
-                                                                                const widgetId = await addWidget({
-                                                                                    type: 'kpi',
-                                                                                    title: 'Analysis Result',
-                                                                                    position: finalPosition,
-                                                                                    size: { width: 250, height: 120 },
-                                                                                    data: {
-                                                                                        value: '0',
-                                                                                        change: '0%'
-                                                                                    }
-                                                                                })
-                                                                                setCurrentWidgetId(widgetId || null)
-                                                                            } catch (error) {
-                                                                                console.error('Error creating widget:', error)
-                                                                            }
-                                                                        }
-                                                                        
-                                                                        // Get current widget to check if it's a placeholder
-                                                                        const currentWidget = currentWidgetId ? widgets.find((w) => w.id === currentWidgetId) : null
-                                                                        const isPlaceholderWidget = currentWidget?.data?.isPlaceholder === true
-                                                                        
                                                                         // Simulate AI response
                                                                         setTimeout(() => {
                                                                             const aiMessage: ChatMessage = {
@@ -834,39 +1172,6 @@ export function AISearchBar() {
                                                                                 timestamp: new Date(),
                                                                             }
                                                                             setChatMessages(prev => [...prev, aiMessage])
-                                                                            
-                                                                            // If widget is a placeholder, update it with real data
-                                                                            if (isPlaceholderWidget && currentWidgetId && currentWidget) {
-                                                                                // Remove placeholder state and add real data
-                                                                                const updatedData: any = {
-                                                                                    ...currentWidget.data,
-                                                                                    isPlaceholder: false,
-                                                                                }
-                                                                                
-                                                                                // Update based on widget type
-                                                                                if (currentWidget.type === 'kpi') {
-                                                                                    // Extract numeric value from AI response (simplified - in real scenario, parse from AI response)
-                                                                                    const mockValue = "1,234"
-                                                                                    const mockChange = "+12.5%"
-                                                                                    updatedData.value = mockValue
-                                                                                    updatedData.change = mockChange
-                                                                                } else if (currentWidget.type === 'chart') {
-                                                                                    // Generate sample chart data in the format ChartWidget expects
-                                                                                    const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul']
-                                                                                    const series = [400, 300, 200, 278, 189, 239, 349]
-                                                                                    // Create data array in format { name: string, value: number }
-                                                                                    updatedData.data = labels.map((label, index) => ({
-                                                                                        name: label,
-                                                                                        value: series[index]
-                                                                                    }))
-                                                                                    updatedData.labels = labels
-                                                                                    updatedData.series = series
-                                                                                }
-                                                                                
-                                                                                updateWidget(currentWidgetId, {
-                                                                                    data: updatedData
-                                                                                }).catch(console.error)
-                                                                            }
                                                                         }, 1000)
                                                                     }}
                                                                     className={cn(
@@ -1041,21 +1346,40 @@ export function AISearchBar() {
                                                                                     onClick={() => {
                                                                                         const messageElement = messageRefs.current[msg.id]
                                                                                         if (messageElement) {
+                                                                                            // Get real data from message if available
+                                                                                            const responseData = (msg as any).responseData
+                                                                                            let widgetData: any = {
+                                                                                                title: 'AI Response Table',
+                                                                                                size: { width: 400, height: 250 },
+                                                                                                data: {
+                                                                                                    columns: [],
+                                                                                                    rows: []
+                                                                                                }
+                                                                                            }
+
+                                                                                            // Use real data if available
+                                                                                            if (responseData?.data_sample && responseData.data_sample.length > 0) {
+                                                                                                const columns = Object.keys(responseData.data_sample[0])
+                                                                                                const rows = responseData.data_sample.map((row: Record<string, any>) => 
+                                                                                                    columns.map(col => row[col] ?? '')
+                                                                                                )
+                                                                                                widgetData.data = {
+                                                                                                    columns,
+                                                                                                    rows
+                                                                                                }
+                                                                                            } else {
+                                                                                                // Fallback to empty table
+                                                                                                widgetData.data = {
+                                                                                                    columns: ['No data'],
+                                                                                                    rows: [['No data available']]
+                                                                                                }
+                                                                                            }
+
                                                                                             handleCreateWidgetWithAnimation(
                                                                                                 msg.id,
                                                                                                 messageElement,
                                                                                                 'table',
-                                                                                                {
-                                                                                                    title: 'AI Response Table',
-                                                                                                    size: { width: 400, height: 250 },
-                                                                                                    data: {
-                                                                                                        columns: ['Column 1', 'Column 2', 'Column 3'],
-                                                                                                        rows: [
-                                                                                                            ['Data 1', 'Data 2', 'Data 3'],
-                                                                                                            ['Data 4', 'Data 5', 'Data 6']
-                                                                                                        ]
-                                                                                                    }
-                                                                                                }
+                                                                                                widgetData
                                                                                             )
                                                                                         }
                                                                                     }}
@@ -1068,6 +1392,35 @@ export function AISearchBar() {
                                                                             </motion.div>
                                                                         )}
                                                                     </AnimatePresence>
+                                                                </div>
+                                                            )}
+                                                            {/* Show chosen datasets/tables if available */}
+                                                            {msg.type === "assistant" && (
+                                                                ((msg as any).responseData?.chosen_datasets && (msg as any).responseData.chosen_datasets.length > 0) ||
+                                                                (msg as any).responseData?.chosen_table
+                                                            ) && (
+                                                                <div className="mb-3 pb-2 border-b border-border/30">
+                                                                    <div className="flex items-center gap-2 mb-1.5">
+                                                                        <Database className="h-3.5 w-3.5 text-muted-foreground" />
+                                                                        <span className="text-[11px] text-muted-foreground font-semibold">Tabelas utilizadas pela IA:</span>
+                                                                    </div>
+                                                                    <div className="flex flex-wrap gap-1.5">
+                                                                        {((msg as any).responseData?.chosen_datasets && (msg as any).responseData.chosen_datasets.length > 0
+                                                                            ? (msg as any).responseData.chosen_datasets
+                                                                            : (msg as any).responseData?.chosen_table
+                                                                                ? [(msg as any).responseData.chosen_table]
+                                                                                : []
+                                                                        ).map((table: string, idx: number) => (
+                                                                            <Badge 
+                                                                                key={idx}
+                                                                                variant="secondary"
+                                                                                className="text-[10px] px-2 py-1 h-auto font-medium bg-primary/10 text-primary border-primary/20"
+                                                                            >
+                                                                                <Table className="h-2.5 w-2.5 mr-1" />
+                                                                                {table}
+                                                                            </Badge>
+                                                                        ))}
+                                                                    </div>
                                                                 </div>
                                                             )}
                                                             <p className="text-sm whitespace-pre-wrap leading-relaxed pr-8">
@@ -1176,73 +1529,279 @@ export function AISearchBar() {
                             {/* DATA TAB */}
                             {mainTab === "data" && (
                                 <div className="px-4 py-3 space-y-4">
+                                    {/* Show tables used by AI in recent responses */}
+                                    {(() => {
+                                        // Get all tables used by AI from all assistant messages
+                                        const aiUsedTables = Array.from(new Set(
+                                            chatMessages
+                                                .filter(msg => msg.type === "assistant")
+                                                .flatMap(msg => {
+                                                    const responseData = (msg as any).responseData;
+                                                    const datasets = responseData?.chosen_datasets || [];
+                                                    const table = responseData?.chosen_table;
+                                                    
+                                                    // Debug log
+                                                    if (msg.type === "assistant") {
+                                                        console.log("Message responseData:", {
+                                                            id: msg.id,
+                                                            hasResponseData: !!responseData,
+                                                            chosen_datasets: datasets,
+                                                            chosen_table: table,
+                                                            allKeys: responseData ? Object.keys(responseData) : []
+                                                        })
+                                                    }
+                                                    
+                                                    // Return datasets if available, otherwise fallback to table
+                                                    if (datasets && datasets.length > 0) {
+                                                        return datasets.filter((d: string) => d); // Filter out empty strings
+                                                    }
+                                                    if (table) {
+                                                        return [table];
+                                                    }
+                                                    return [];
+                                                })
+                                        ))
+                                        
+                                        console.log("AI Used Tables:", aiUsedTables)
+                                        
+                                        if (aiUsedTables.length === 0) {
+                                            return (
+                                                <div className="mb-4 p-4 bg-muted/30 border border-border rounded-lg text-center">
+                                                    <Database className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                                                    <p className="text-sm text-muted-foreground">
+                                                        Nenhuma tabela foi utilizada ainda.
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                        Faça uma pergunta para ver quais tabelas a IA escolhe para responder.
+                                                    </p>
+                                                </div>
+                                            )
+                                        }
+                                        
+                                        return (
+                                            <div className="mb-4 space-y-3">
+                                                <div className="flex items-center gap-2">
+                                                    <Sparkles className="h-4 w-4 text-primary" />
+                                                    <Label className="text-sm font-semibold text-primary">Tabelas utilizadas pela IA</Label>
+                                                </div>
+                                                <p className="text-xs text-muted-foreground">
+                                                    Tabelas que a IA escolheu para responder suas perguntas:
+                                                </p>
+                                                <div className="border rounded-lg divide-y divide-border overflow-hidden">
+                                                    {aiUsedTables.map((tableName: string, idx: number) => {
+                                                        // Try to find table details from connectionTables
+                                                        const tableDetails = connectionTables.find(t => 
+                                                            t.name === tableName || t.fullName === tableName
+                                                        )
+                                                        
+                                                        return (
+                                                            <div 
+                                                                key={idx}
+                                                                className="px-3 py-2.5 flex items-center justify-between text-xs hover:bg-muted/30 transition-colors"
+                                                            >
+                                                                <div className="flex flex-col flex-1 min-w-0">
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <Table className="h-3.5 w-3.5 text-primary" />
+                                                                        <span className="font-semibold">{tableName}</span>
+                                                                        {tableDetails?.type === 'view' && (
+                                                                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
+                                                                                View
+                                                                            </Badge>
+                                                                        )}
+                                                                    </div>
+                                                                    {tableDetails && (
+                                                                        <div className="flex items-center gap-2 mt-1">
+                                                                            <span className="text-xs text-muted-foreground">
+                                                                                {tableDetails.fullName} ({tableDetails.type === 'view' ? 'View' : 'Table'})
+                                                                            </span>
+                                                                            <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4">
+                                                                                {tableDetails.connectionName}
+                                                                            </Badge>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                // Add to knowledge if not already there
+                                                                                if (!configureData.knowledge.includes(tableName)) {
+                                                                                    setConfigureData(prev => ({
+                                                                                        ...prev,
+                                                                                        knowledge: [...prev.knowledge, tableName]
+                                                                                    }))
+                                                                                }
+                                                                            }}
+                                                                            className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                                                                            aria-label="Add to knowledge"
+                                                                        >
+                                                                            <Database className="w-4 h-4" />
+                                                                        </button>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent side="left" className="text-xs">
+                                                                        Adicionar ao knowledge
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )
+                                    })()}
+                                    {/* Knowledge section - always show add button */}
                                     <div className="space-y-3">
-                                        <Label className="text-sm font-semibold">Knowledge (Datasets)</Label>
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-sm font-semibold">Knowledge (Selecionados manualmente)</Label>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button 
+                                                        variant="outline" 
+                                                        size="sm" 
+                                                        className="h-7 px-2.5 rounded-lg text-xs font-medium shadow-sm hover:shadow transition-all duration-200 hover:bg-accent/50 border-border/60"
+                                                        disabled={!!uploadingFile}
+                                                    >
+                                                        {uploadingFile ? (
+                                                            <>
+                                                                <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                                                                Uploading...
+                                                            </>
+                                                        ) : (
+                                                            <>+ Add Dataset</>
+                                                        )}
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end" className="w-48">
+                                                    <DropdownMenuItem
+                                                        onClick={() => csvInputRef.current?.click()}
+                                                        disabled={!!uploadingFile}
+                                                        className="cursor-pointer"
+                                                    >
+                                                        <FileText className="w-4 h-4 mr-2" />
+                                                        <span>Upload CSV</span>
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem
+                                                        onClick={() => excelInputRef.current?.click()}
+                                                        disabled={!!uploadingFile}
+                                                        className="cursor-pointer"
+                                                    >
+                                                        <Table className="w-4 h-4 mr-2" />
+                                                        <span>Upload Excel</span>
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem
+                                                        onClick={() => jsonInputRef.current?.click()}
+                                                        disabled={!!uploadingFile}
+                                                        className="cursor-pointer"
+                                                    >
+                                                        <FileJson className="w-4 h-4 mr-2" />
+                                                        <span>Upload JSON</span>
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </div>
                                         <p className="text-xs text-muted-foreground">
-                                            Select tables, files, or data sources to use for this query.
+                                            Arquivos e datasets selecionados manualmente para esta query.
                                         </p>
                                         <div className="border rounded-lg divide-y divide-border overflow-hidden">
-                                            <div className="px-3 py-2 flex items-center justify-between text-xs hover:bg-muted/30 transition-colors">
-                                                <div className="flex flex-col">
-                                                    <span className="font-medium">revenue_ledger</span>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        analytics.revenue_ledger (Table)
-                                                    </span>
+                                            {/* Show manually selected items from knowledge */}
+                                            {configureData.knowledge.length === 0 ? (
+                                                <div className="px-3 py-4 text-xs text-muted-foreground text-center">
+                                                    Nenhum dataset selecionado. A IA escolherá automaticamente as tabelas necessárias.
                                                 </div>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={configureData.knowledge.includes("revenue_ledger")}
-                                                    onChange={(e) => {
-                                                        const knowledge = e.target.checked
-                                                            ? [...configureData.knowledge, "revenue_ledger"]
-                                                            : configureData.knowledge.filter((k) => k !== "revenue_ledger")
-                                                        setConfigureData({ ...configureData, knowledge })
-                                                    }}
-                                                    className="w-4 h-4 rounded cursor-pointer"
-                                                />
-                                            </div>
-                                            <div className="px-3 py-2 flex items-center justify-between text-xs hover:bg-muted/30 transition-colors">
-                                                <div className="flex flex-col">
-                                                    <span className="font-medium">billing_invoice</span>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        teambIue_finance.silver.billing_invoice
-                                                    </span>
-                                                </div>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={configureData.knowledge.includes("billing_invoice")}
-                                                    onChange={(e) => {
-                                                        const knowledge = e.target.checked
-                                                            ? [...configureData.knowledge, "billing_invoice"]
-                                                            : configureData.knowledge.filter((k) => k !== "billing_invoice")
-                                                        setConfigureData({ ...configureData, knowledge })
-                                                    }}
-                                                    className="w-4 h-4 rounded cursor-pointer"
-                                                />
-                                            </div>
-                                            <div className="px-3 py-2 flex items-center justify-between text-xs hover:bg-muted/30 transition-colors">
-                                                <div className="flex flex-col">
-                                                    <span className="font-medium">customers_dim</span>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        analytics.customers_dim (View)
-                                                    </span>
-                                                </div>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={configureData.knowledge.includes("customers_dim")}
-                                                    onChange={(e) => {
-                                                        const knowledge = e.target.checked
-                                                            ? [...configureData.knowledge, "customers_dim"]
-                                                            : configureData.knowledge.filter((k) => k !== "customers_dim")
-                                                        setConfigureData({ ...configureData, knowledge })
-                                                    }}
-                                                    className="w-4 h-4 rounded cursor-pointer"
-                                                />
-                                            </div>
+                                            ) : (
+                                                <>
+                                                    {configureData.knowledge
+                                                        .filter(item => !removedItems.has(item))
+                                                        .map((item) => {
+                                                            // Check if it's a file
+                                                            const isFile = uploadedFiles.some(f => f.id === item || f.name === item)
+                                                            const fileInfo = uploadedFiles.find(f => f.id === item || f.name === item)
+                                                            
+                                                            // Check if it's a table from connections
+                                                            const tableInfo = connectionTables.find(t => t.name === item || t.fullName === item)
+                                                            
+                                                            return (
+                                                                <div 
+                                                                    key={item}
+                                                                    className="px-3 py-2 flex items-center justify-between text-xs hover:bg-muted/30 transition-colors"
+                                                                >
+                                                                    <div className="flex flex-col flex-1 min-w-0">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            {isFile ? (
+                                                                                <>
+                                                                                    {fileInfo?.type === 'csv' && <FileText className="h-3 w-3 text-muted-foreground" />}
+                                                                                    {fileInfo?.type === 'excel' && <Table className="h-3 w-3 text-muted-foreground" />}
+                                                                                    {fileInfo?.type === 'json' && <FileJson className="h-3 w-3 text-muted-foreground" />}
+                                                                                </>
+                                                                            ) : (
+                                                                                <Table className="h-3 w-3 text-muted-foreground" />
+                                                                            )}
+                                                                            <span className="font-medium">{item}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 mt-0.5">
+                                                                            <span className="text-xs text-muted-foreground">
+                                                                                {isFile 
+                                                                                    ? `${fileInfo?.type.toUpperCase()} File`
+                                                                                    : tableInfo 
+                                                                                        ? `${tableInfo.fullName} (${tableInfo.type === 'view' ? 'View' : 'Table'})`
+                                                                                        : 'Dataset'
+                                                                                }
+                                                                            </span>
+                                                                            {tableInfo && (
+                                                                                <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4">
+                                                                                    {tableInfo.connectionName}
+                                                                                </Badge>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                    <Tooltip>
+                                                                        <TooltipTrigger asChild>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setConfigureData(prev => ({
+                                                                                        ...prev,
+                                                                                        knowledge: prev.knowledge.filter(k => k !== item)
+                                                                                    }))
+                                                                                    setRemovedItems(prev => new Set(prev).add(item))
+                                                                                }}
+                                                                                className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                                                                aria-label="Remove dataset"
+                                                                            >
+                                                                                <Trash2 className="w-4 h-4" />
+                                                                            </button>
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent side="left" className="text-xs">
+                                                                            Remove dataset
+                                                                        </TooltipContent>
+                                                                    </Tooltip>
+                                                                </div>
+                                                            )
+                                                        })}
+                                                </>
+                                            )}
                                         </div>
-                                        <Button variant="outline" size="sm" className="w-full rounded-lg text-xs">
-                                            + Add Data Source
-                                        </Button>
+                                        {/* Hidden file inputs */}
+                                        <input
+                                            ref={csvInputRef}
+                                            type="file"
+                                            accept=".csv"
+                                            onChange={handleCSVUpload}
+                                            className="hidden"
+                                        />
+                                        <input
+                                            ref={excelInputRef}
+                                            type="file"
+                                            accept=".xlsx,.xls"
+                                            onChange={handleExcelUpload}
+                                            className="hidden"
+                                        />
+                                        <input
+                                            ref={jsonInputRef}
+                                            type="file"
+                                            accept=".json"
+                                            onChange={handleJSONUpload}
+                                            className="hidden"
+                                        />
                                     </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="sqlInstructions" className="text-sm font-semibold">
@@ -1413,7 +1972,7 @@ export function AISearchBar() {
                                         </div>
                                         <div className="border rounded-lg p-3 bg-background">
                                             <div className="flex items-center gap-2 mb-2">
-                                                <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center">
+                                                <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
                                                     <FileCode className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                                                 </div>
                                                 <h4 className="font-semibold text-sm">SQL</h4>
@@ -1442,6 +2001,25 @@ export function AISearchBar() {
 
                         {/* Input area - sempre na parte inferior */}
                         <div className="px-4 py-3 border-t border-border/50 flex-shrink-0">
+                            {/* AI processing indicator - above input, left aligned */}
+                            <AnimatePresence mode="wait">
+                                {isProcessingQuery && (
+                                    <motion.div
+                                        key={loadingMessages[loadingStepIndex]}
+                                        initial={{ opacity: 0, y: 4 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -4 }}
+                                        transition={{ duration: 0.25 }}
+                                        className="mb-2 flex items-center gap-2 text-xs text-muted-foreground"
+                                    >
+                                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                                        <span>
+                                            {loadingMessages[loadingStepIndex]}
+                                        </span>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                            
                             <form
                                 onSubmit={handleSubmitQuestion}
                                 className="flex items-center gap-2"
@@ -1459,7 +2037,7 @@ export function AISearchBar() {
                                                 handleSubmitQuestion(e as any)
                                             }
                                         }}
-                                        className="w-full px-4 py-2.5 pr-20 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
+                                        className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
                                     />
                                 </div>
                                 <button 
@@ -1471,10 +2049,10 @@ export function AISearchBar() {
                                 </button>
                                 <button 
                                     type="submit" 
-                                    disabled={!question.trim()}
+                                    disabled={!question.trim() || isProcessingQuery}
                                     className={cn(
                                         "p-2 rounded-full transition-colors",
-                                        question.trim()
+                                        question.trim() && !isProcessingQuery
                                             ? "bg-primary text-primary-foreground hover:bg-primary/90"
                                             : "bg-muted text-muted-foreground cursor-not-allowed"
                                     )}
@@ -1488,6 +2066,36 @@ export function AISearchBar() {
                 )}
             </AnimatePresence>
         </div>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                    <DialogTitle>Remove Dataset</DialogTitle>
+                    <DialogDescription>
+                        Are you sure you want to remove <strong>{itemToDelete?.name}</strong> from the datasets list?
+                        {itemToDelete?.type === 'file' && ' This will also remove it from your uploaded files.'}
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            setDeleteDialogOpen(false)
+                            setItemToDelete(null)
+                        }}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="destructive"
+                        onClick={handleConfirmDelete}
+                    >
+                        Remove
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
         </>
     )
 }

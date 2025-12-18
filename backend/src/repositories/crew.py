@@ -71,8 +71,11 @@ class CrewMemberRepository(BaseRepository[CrewMember]):
         Returns:
             List[CrewMember]: List of crew members
         """
+        from sqlalchemy.orm import selectinload
         result = await self.db.execute(
-            select(CrewMember).where(CrewMember.crew_id == crew_id)
+            select(CrewMember)
+            .where(CrewMember.crew_id == crew_id)
+            .options(selectinload(CrewMember.user))
         )
         return list(result.scalars().all())
 
@@ -95,4 +98,29 @@ class CrewMemberRepository(BaseRepository[CrewMember]):
             )
         )
         return result.scalar_one_or_none()
+
+    async def get_crew_ids_by_user_and_space(
+        self, user_id: UUID, space_id: UUID
+    ) -> List[UUID]:
+        """
+        Get crew IDs where user is a member and crew belongs to the specified space.
+
+        Args:
+            user_id: User ID
+            space_id: Space ID
+
+        Returns:
+            List[UUID]: List of crew IDs
+        """
+        result = await self.db.execute(
+            select(CrewMember.crew_id)
+            .join(Crew, CrewMember.crew_id == Crew.id)
+            .where(
+                CrewMember.user_id == user_id,
+                Crew.space_id == space_id,
+                Crew.deleted_at.is_(None),
+            )
+            .distinct()
+        )
+        return [row[0] for row in result.all()]
 

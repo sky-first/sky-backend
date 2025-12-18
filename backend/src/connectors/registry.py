@@ -3,6 +3,7 @@
 from typing import Dict, Type
 
 from src.connectors.base import BaseConnector
+from src.connectors.bigquery import BigQueryConnector
 
 
 # Mock connectors for now - will be implemented later
@@ -33,6 +34,14 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "mongodb": MockConnector,
     "google-sheets": MockConnector,
     "rest-api": MockConnector,
+    # Use real BigQuery connector
+    "bigquery": BigQueryConnector,
+    "snowflake": MockConnector,
+    "redshift": MockConnector,
+    "sqlserver": MockConnector,
+    "oracle": MockConnector,
+    "sqlite": MockConnector,
+    "clickhouse": MockConnector,
     # TODO: Implement real connectors
 }
 

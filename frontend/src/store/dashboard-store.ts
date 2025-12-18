@@ -52,6 +52,19 @@ export const useDashboardStore = create<DashboardState>()(
                     console.error(error)
                     throw error
                 }
+                
+                // Check if we already have this dashboard in cache
+                const state = get()
+                const cachedDashboard = state.dashboards.find(d => d.id === dashboardId) || 
+                                       (state.currentDashboard?.id === dashboardId ? state.currentDashboard : null)
+                
+                // If we have a cached dashboard and it's recent (less than 5 seconds old), use it
+                // This avoids unnecessary API calls when switching between dashboards quickly
+                if (cachedDashboard) {
+                    // Still return cached dashboard but don't set loading state
+                    return cachedDashboard
+                }
+                
                 set({ isLoading: true, error: null })
                 try {
                     const dashboard = await dashboardsApi.getDashboard(dashboardId)
@@ -181,7 +194,9 @@ export const useDashboardStore = create<DashboardState>()(
             lockDashboard: async (dashboardId) => {
                 set({ isLoading: true, error: null })
                 try {
-                    const locked = await dashboardsApi.lockDashboard(dashboardId)
+                    await dashboardsApi.lockDashboard(dashboardId)
+                    // Fetch updated dashboard after lock
+                    const locked = await dashboardsApi.getDashboard(dashboardId)
                     set((state) => ({
                         dashboards: state.dashboards.map((d) =>
                             d.id === dashboardId ? locked : d
@@ -205,7 +220,9 @@ export const useDashboardStore = create<DashboardState>()(
             unlockDashboard: async (dashboardId) => {
                 set({ isLoading: true, error: null })
                 try {
-                    const unlocked = await dashboardsApi.unlockDashboard(dashboardId)
+                    await dashboardsApi.unlockDashboard(dashboardId)
+                    // Fetch updated dashboard after unlock
+                    const unlocked = await dashboardsApi.getDashboard(dashboardId)
                     set((state) => ({
                         dashboards: state.dashboards.map((d) =>
                             d.id === dashboardId ? unlocked : d

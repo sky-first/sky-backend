@@ -47,6 +47,9 @@ export function GalaxieSidebar() {
   const [showStarredDropdown, setShowStarredDropdown] = useState(false)
   const [showSignalsDropdown, setShowSignalsDropdown] = useState(false)
   
+  // Track if any dialog is open
+  const [hasOpenDialog, setHasOpenDialog] = useState(false)
+  
   // Timeout refs for hover behavior
   const spacesTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const crewsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -54,6 +57,7 @@ export function GalaxieSidebar() {
   const recentsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const starredTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const signalsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const sidebarCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   
   // Close on escape key or click outside
   useEffect(() => {
@@ -65,6 +69,10 @@ export function GalaxieSidebar() {
     
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement
+      // Don't close if clicking on dialog content or overlay
+      if (target.closest('[data-slot="dialog-content"]') || target.closest('[data-slot="dialog-overlay"]')) {
+        return
+      }
       // Close if clicking outside the dropdown and not on the GALAXIE button
       if (isOpen && !target.closest('[data-galaxie-dropdown]') && !target.closest('button[aria-label="Open GALAXIE menu"]')) {
         setIsOpen(false)
@@ -79,9 +87,24 @@ export function GalaxieSidebar() {
     }
   }, [isOpen, setIsOpen])
   
+  // Monitor for open dialogs
+  useEffect(() => {
+    const checkDialogs = () => {
+      const dialogOpen = !!(document.querySelector('[data-slot="dialog-content"][data-state="open"]') || 
+                           document.querySelector('[data-slot="dialog-overlay"][data-state="open"]'))
+      setHasOpenDialog(dialogOpen)
+    }
+    
+    checkDialogs()
+    const interval = setInterval(checkDialogs, 100)
+    return () => clearInterval(interval)
+  }, [])
+  
   // Close all dropdowns when sidebar closes
   useEffect(() => {
     if (!isOpen) {
+      if (!hasOpenDialog) {
+        // Only close dropdowns if no dialog is open
       setShowSpacesDropdown(false)
       setShowCrewsDropdown(false)
       setShowPlanetsDropdown(false)
@@ -89,15 +112,31 @@ export function GalaxieSidebar() {
       setShowStarredDropdown(false)
       setShowSignalsDropdown(false)
     }
-  }, [isOpen])
+      // Clear sidebar close timeout when sidebar closes
+      if (sidebarCloseTimeoutRef.current) {
+        clearTimeout(sidebarCloseTimeoutRef.current)
+        sidebarCloseTimeoutRef.current = null
+      }
+    }
+    // Cleanup timeout on unmount
+    return () => {
+      if (sidebarCloseTimeoutRef.current) {
+        clearTimeout(sidebarCloseTimeoutRef.current)
+        sidebarCloseTimeoutRef.current = null
+      }
+    }
+  }, [isOpen, hasOpenDialog])
   
   const closeAllDropdowns = () => {
+    // Only close dropdowns if no dialog is open
+    if (!hasOpenDialog) {
     setShowSpacesDropdown(false)
     setShowCrewsDropdown(false)
     setShowPlanetsDropdown(false)
     setShowRecentsDropdown(false)
     setShowStarredDropdown(false)
     setShowSignalsDropdown(false)
+    }
   }
   
   const handleStarPlanet = () => {
@@ -154,9 +193,14 @@ export function GalaxieSidebar() {
         setShowSpacesDropdown(true)
       },
       onMouseLeave: () => {
+        // Allow cursor travel into dropdown before closing
+        if (spacesTimeoutRef.current) {
+          clearTimeout(spacesTimeoutRef.current)
+        }
         spacesTimeoutRef.current = setTimeout(() => {
           setShowSpacesDropdown(false)
-        }, 200)
+          spacesTimeoutRef.current = null
+        }, 150)
       },
     },
     {
@@ -200,9 +244,14 @@ export function GalaxieSidebar() {
         setShowCrewsDropdown(true)
       },
       onMouseLeave: () => {
+        // Allow cursor travel into dropdown before closing
+        if (crewsTimeoutRef.current) {
+          clearTimeout(crewsTimeoutRef.current)
+        }
         crewsTimeoutRef.current = setTimeout(() => {
           setShowCrewsDropdown(false)
-        }, 200)
+          crewsTimeoutRef.current = null
+        }, 150)
       },
     },
     {
@@ -246,8 +295,13 @@ export function GalaxieSidebar() {
         setShowPlanetsDropdown(true)
       },
       onMouseLeave: () => {
+        // Allow cursor travel into dropdown before closing
+        if (planetsTimeoutRef.current) {
+          clearTimeout(planetsTimeoutRef.current)
+        }
         planetsTimeoutRef.current = setTimeout(() => {
           setShowPlanetsDropdown(false)
+          planetsTimeoutRef.current = null
         }, 150)
       },
     },
@@ -292,8 +346,13 @@ export function GalaxieSidebar() {
         setShowRecentsDropdown(true)
       },
       onMouseLeave: () => {
+        // Allow cursor travel into dropdown before closing
+        if (recentsTimeoutRef.current) {
+          clearTimeout(recentsTimeoutRef.current)
+        }
         recentsTimeoutRef.current = setTimeout(() => {
           setShowRecentsDropdown(false)
+          recentsTimeoutRef.current = null
         }, 150)
       },
     },
@@ -338,8 +397,13 @@ export function GalaxieSidebar() {
         setShowStarredDropdown(true)
       },
       onMouseLeave: () => {
+        // Allow cursor travel into dropdown before closing
+        if (starredTimeoutRef.current) {
+          clearTimeout(starredTimeoutRef.current)
+        }
         starredTimeoutRef.current = setTimeout(() => {
           setShowStarredDropdown(false)
+          starredTimeoutRef.current = null
         }, 150)
       },
     },
@@ -384,8 +448,13 @@ export function GalaxieSidebar() {
         setShowSignalsDropdown(true)
       },
       onMouseLeave: () => {
+        // Allow cursor travel into dropdown before closing
+        if (signalsTimeoutRef.current) {
+          clearTimeout(signalsTimeoutRef.current)
+        }
         signalsTimeoutRef.current = setTimeout(() => {
           setShowSignalsDropdown(false)
+          signalsTimeoutRef.current = null
         }, 150)
       },
     },
@@ -438,13 +507,41 @@ export function GalaxieSidebar() {
               "md:left-4 md:top-16"
             )}
             onClick={(e) => e.stopPropagation()}
+            onMouseEnter={() => {
+              // Cancel timeout if mouse re-enters the sidebar
+              if (sidebarCloseTimeoutRef.current) {
+                clearTimeout(sidebarCloseTimeoutRef.current)
+                sidebarCloseTimeoutRef.current = null
+              }
+            }}
+            onMouseLeave={() => {
+              // Close all dropdowns when mouse leaves the entire sidebar
+              closeAllDropdowns()
+              // Use a small timeout before closing to allow movement between elements
+              if (sidebarCloseTimeoutRef.current) {
+                clearTimeout(sidebarCloseTimeoutRef.current)
+              }
+              sidebarCloseTimeoutRef.current = setTimeout(() => {
+                setIsOpen(false)
+                sidebarCloseTimeoutRef.current = null
+              }, 100)
+            }}
           >
             {/* Left Panel - Main Navigation */}
-            <div className={cn(
+            <div 
+              className={cn(
               "w-64 flex flex-col flex-shrink-0",
               "bg-gray-50 dark:bg-gray-900/50",
               "border-r border-gray-200 dark:border-gray-800"
-            )}>
+              )}
+              onMouseEnter={() => {
+                // Cancel sidebar close timeout when mouse enters left panel
+                if (sidebarCloseTimeoutRef.current) {
+                  clearTimeout(sidebarCloseTimeoutRef.current)
+                  sidebarCloseTimeoutRef.current = null
+                }
+              }}
+            >
               <div className="py-2 px-2 overflow-y-auto overflow-x-hidden">
                 <div className="space-y-1">
                   {navItems.map((item) => {
@@ -507,18 +604,25 @@ export function GalaxieSidebar() {
                   isOpen={showSpacesDropdown}
                   onOpenChange={setShowSpacesDropdown}
                   onClose={closeAllDropdowns}
+                  onCloseSidebar={() => setIsOpen(false)}
                   onMouseEnter={() => {
                     // Cancel timeout from menu item
                     if (spacesTimeoutRef.current) {
                       clearTimeout(spacesTimeoutRef.current)
                       spacesTimeoutRef.current = null
                     }
+                    // Cancel sidebar close timeout
+                    if (sidebarCloseTimeoutRef.current) {
+                      clearTimeout(sidebarCloseTimeoutRef.current)
+                      sidebarCloseTimeoutRef.current = null
+                    }
                   }}
                   onMouseLeave={() => {
-                    // Start timeout to close dropdown when mouse leaves
-                    spacesTimeoutRef.current = setTimeout(() => {
+                    if (spacesTimeoutRef.current) {
+                      clearTimeout(spacesTimeoutRef.current)
+                      spacesTimeoutRef.current = null
+                    }
                       setShowSpacesDropdown(false)
-                    }, 200)
                   }}
                 />
               )}
@@ -527,18 +631,25 @@ export function GalaxieSidebar() {
                   isOpen={showCrewsDropdown}
                   onOpenChange={setShowCrewsDropdown}
                   onClose={closeAllDropdowns}
+                  onCloseSidebar={() => setIsOpen(false)}
                   onMouseEnter={() => {
                     // Cancel timeout from menu item
                     if (crewsTimeoutRef.current) {
                       clearTimeout(crewsTimeoutRef.current)
                       crewsTimeoutRef.current = null
                     }
+                    // Cancel sidebar close timeout
+                    if (sidebarCloseTimeoutRef.current) {
+                      clearTimeout(sidebarCloseTimeoutRef.current)
+                      sidebarCloseTimeoutRef.current = null
+                    }
                   }}
                   onMouseLeave={() => {
-                    // Start timeout to close dropdown when mouse leaves
-                    crewsTimeoutRef.current = setTimeout(() => {
+                    if (crewsTimeoutRef.current) {
+                      clearTimeout(crewsTimeoutRef.current)
+                      crewsTimeoutRef.current = null
+                    }
                       setShowCrewsDropdown(false)
-                    }, 200)
                   }}
                 />
               )}
@@ -547,18 +658,25 @@ export function GalaxieSidebar() {
                   isOpen={showPlanetsDropdown}
                   onOpenChange={setShowPlanetsDropdown}
                   onClose={closeAllDropdowns}
+                  onCloseSidebar={() => setIsOpen(false)}
                   onMouseEnter={() => {
                     // Cancel timeout from menu item
                     if (planetsTimeoutRef.current) {
                       clearTimeout(planetsTimeoutRef.current)
                       planetsTimeoutRef.current = null
                     }
+                    // Cancel sidebar close timeout
+                    if (sidebarCloseTimeoutRef.current) {
+                      clearTimeout(sidebarCloseTimeoutRef.current)
+                      sidebarCloseTimeoutRef.current = null
+                    }
                   }}
                   onMouseLeave={() => {
-                    // Start timeout to close dropdown when mouse leaves
-                    planetsTimeoutRef.current = setTimeout(() => {
+                    if (planetsTimeoutRef.current) {
+                      clearTimeout(planetsTimeoutRef.current)
+                      planetsTimeoutRef.current = null
+                    }
                       setShowPlanetsDropdown(false)
-                    }, 200)
                   }}
                 />
               )}
@@ -573,12 +691,18 @@ export function GalaxieSidebar() {
                       clearTimeout(recentsTimeoutRef.current)
                       recentsTimeoutRef.current = null
                     }
+                    // Cancel sidebar close timeout
+                    if (sidebarCloseTimeoutRef.current) {
+                      clearTimeout(sidebarCloseTimeoutRef.current)
+                      sidebarCloseTimeoutRef.current = null
+                    }
                   }}
                   onMouseLeave={() => {
-                    // Start timeout to close dropdown when mouse leaves
-                    recentsTimeoutRef.current = setTimeout(() => {
+                    if (recentsTimeoutRef.current) {
+                      clearTimeout(recentsTimeoutRef.current)
+                      recentsTimeoutRef.current = null
+                    }
                       setShowRecentsDropdown(false)
-                    }, 200)
                   }}
                 />
               )}
@@ -593,12 +717,18 @@ export function GalaxieSidebar() {
                       clearTimeout(starredTimeoutRef.current)
                       starredTimeoutRef.current = null
                     }
+                    // Cancel sidebar close timeout
+                    if (sidebarCloseTimeoutRef.current) {
+                      clearTimeout(sidebarCloseTimeoutRef.current)
+                      sidebarCloseTimeoutRef.current = null
+                    }
                   }}
                   onMouseLeave={() => {
-                    // Start timeout to close dropdown when mouse leaves
-                    starredTimeoutRef.current = setTimeout(() => {
+                    if (starredTimeoutRef.current) {
+                      clearTimeout(starredTimeoutRef.current)
+                      starredTimeoutRef.current = null
+                    }
                       setShowStarredDropdown(false)
-                    }, 200)
                   }}
                 />
               )}
@@ -613,12 +743,18 @@ export function GalaxieSidebar() {
                       clearTimeout(signalsTimeoutRef.current)
                       signalsTimeoutRef.current = null
                     }
+                    // Cancel sidebar close timeout
+                    if (sidebarCloseTimeoutRef.current) {
+                      clearTimeout(sidebarCloseTimeoutRef.current)
+                      sidebarCloseTimeoutRef.current = null
+                    }
                   }}
                   onMouseLeave={() => {
-                    // Start timeout to close dropdown when mouse leaves
-                    signalsTimeoutRef.current = setTimeout(() => {
+                    if (signalsTimeoutRef.current) {
+                      clearTimeout(signalsTimeoutRef.current)
+                      signalsTimeoutRef.current = null
+                    }
                       setShowSignalsDropdown(false)
-                    }, 200)
                   }}
                 />
               )}
@@ -632,6 +768,42 @@ export function GalaxieSidebar() {
         open={showCreatePlanetDialog}
         onOpenChange={setShowCreatePlanetDialog}
       />
+      
+      {/* Render dropdowns outside sidebar when they have open dialogs and sidebar is closed */}
+      {!isOpen && hasOpenDialog && (
+        <>
+          {showSpacesDropdown && (
+            <div style={{ position: 'absolute', left: '-9999px', visibility: 'hidden', pointerEvents: 'none' }}>
+              <SpacesDropdown
+                isOpen={showSpacesDropdown}
+                onOpenChange={setShowSpacesDropdown}
+                onClose={() => {}}
+                onCloseSidebar={() => setIsOpen(false)}
+              />
+            </div>
+          )}
+          {showCrewsDropdown && (
+            <div style={{ position: 'absolute', left: '-9999px', visibility: 'hidden', pointerEvents: 'none' }}>
+              <CrewsDropdown
+                isOpen={showCrewsDropdown}
+                onOpenChange={setShowCrewsDropdown}
+                onClose={() => {}}
+                onCloseSidebar={() => setIsOpen(false)}
+              />
+            </div>
+          )}
+          {showPlanetsDropdown && (
+            <div style={{ position: 'absolute', left: '-9999px', visibility: 'hidden', pointerEvents: 'none' }}>
+              <PlanetsDropdown
+                isOpen={showPlanetsDropdown}
+                onOpenChange={setShowPlanetsDropdown}
+                onClose={() => {}}
+                onCloseSidebar={() => setIsOpen(false)}
+              />
+            </div>
+          )}
+        </>
+      )}
     </>
   )
 }

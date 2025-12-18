@@ -15,7 +15,7 @@ interface DynamicFormFieldProps {
 
 export function DynamicFormField({ field, value, onChange, isDark, showConditional = true }: DynamicFormFieldProps) {
   // Check if field should be shown based on conditional logic
-  if (field.conditional && !showConditional) {
+  if (field.conditional !== undefined && field.conditional && !showConditional) {
     return null
   }
 
@@ -126,19 +126,40 @@ export function DynamicFormField({ field, value, onChange, isDark, showCondition
       
       case 'json':
         return (
-          <textarea
-            value={value || ''}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={field.placeholder || 'Paste your JSON here'}
-            required={field.required}
-            rows={6}
-            className={cn(
-              "w-full rounded-lg text-xs p-2.5 resize-none font-mono",
-              isDark 
-                ? "bg-white/4 border-white/8 focus:border-white/15 focus:bg-white/6" 
-                : "bg-white border-black/8 focus:border-black/15 focus:bg-white"
-            )}
-          />
+          <div className="space-y-2">
+            <textarea
+              value={value || ''}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={field.placeholder || 'Paste your JSON here'}
+              required={field.required}
+              rows={8}
+              className={cn(
+                "w-full rounded-lg text-xs p-3 resize-y font-mono",
+                "border",
+                isDark 
+                  ? "bg-white/4 border-white/8 focus:border-white/15 focus:bg-white/6 text-foreground" 
+                  : "bg-white border-black/8 focus:border-black/15 focus:bg-white text-foreground"
+              )}
+            />
+            {value && (() => {
+              try {
+                JSON.parse(value)
+                return (
+                  <p className="text-[10px] text-green-600 dark:text-green-400 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                    Valid JSON
+                  </p>
+                )
+              } catch {
+                return (
+                  <p className="text-[10px] text-red-600 dark:text-red-400 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                    Invalid JSON format
+                  </p>
+                )
+              }
+            })()}
+          </div>
         )
       
       default:

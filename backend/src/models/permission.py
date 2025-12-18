@@ -65,6 +65,59 @@ class ConnectionPermission(Base):
         return f"<ConnectionPermission(connection_id={self.connection_id}, access_level={self.access_level})>"
 
 
+class TableMemberPermission(Base):
+    """Table member permission model - granular permissions per table and crew member."""
+
+    __tablename__ = "table_member_permissions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    connection_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("data_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    table_name = Column(String(255), nullable=False)  # Table name (e.g., "users", "orders")
+    crew_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("crews.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    member_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("crew_members.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    has_access = Column(String(10), nullable=False, default="true", server_default="true")  # "true" or "false"
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default="now()",
+        onupdate=datetime.utcnow,
+    )
+
+    # Relationships
+    connection = relationship("DataConnection")
+    crew = relationship("Crew")
+    member = relationship("CrewMember")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id", "table_name", "member_id", name="uq_table_member_permissions"
+        ),
+        Index("idx_table_member_permissions_connection_id", "connection_id"),
+        Index("idx_table_member_permissions_table_name", "table_name"),
+        Index("idx_table_member_permissions_crew_id", "crew_id"),
+        Index("idx_table_member_permissions_member_id", "member_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<TableMemberPermission(connection_id={self.connection_id}, table_name={self.table_name}, member_id={self.member_id}, has_access={self.has_access})>"
+
+
 class APIKey(Base):
     """API key model."""
 

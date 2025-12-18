@@ -97,10 +97,10 @@ interface PipelineState {
 const apiStepsToStoreSteps = (apiSteps: PipelineStepResponse[]): PipelineStep[] => {
   return apiSteps.map(step => ({
     id: step.id,
-    name: step.name,
-    kind: step.kind,
+    name: (step as any).kind || 'unknown', // Use kind as name if name doesn't exist
+    kind: (step as any).kind || 'question' as PipelineStepKind,
     status: step.status as PipelineStepStatus,
-    content: step.content,
+    content: (step.result ? JSON.stringify(step.result) : '') || '',
   }))
 }
 
@@ -133,10 +133,9 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       // Process query to get initial response
-      const queryResponse = await aiApi.processQuery({
+      const queryResponse = await aiApi.query({
         question,
         widget_id: widgetId,
-        knowledge: get().configureData.knowledge,
         configure_data: {
           question: get().configureData.question || question,
           description: get().configureData.description,
@@ -168,7 +167,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       if (queryResponse.pipeline_id) {
         try {
           const pipeline = await aiApi.getPipelineStatus(queryResponse.pipeline_id)
-          steps = apiStepsToStoreSteps(pipeline.steps)
+          steps = apiStepsToStoreSteps(pipeline.steps || [])
         } catch (err) {
           console.error('Error fetching pipeline status:', err)
           // Continue with empty steps
@@ -289,10 +288,9 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   processQuery: async (question, widgetId) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await aiApi.processQuery({
+      const response = await aiApi.query({
         question,
         widget_id: widgetId,
-        knowledge: get().configureData.knowledge,
         configure_data: {
           question: get().configureData.question || question,
           description: get().configureData.description,
@@ -331,22 +329,16 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       const response = await aiApi.executePipeline({
-        question: state.question || state.configureData.question,
-        knowledge: state.configureData.knowledge,
-        configure_data: {
-          question: state.configureData.question,
-          description: state.configureData.description,
-          instructions: state.configureData.instructions,
-          response_format: state.configureData.responseFormat,
-          creativity: state.configureData.creativity,
-          length: state.configureData.length,
-          knowledge: state.configureData.knowledge,
-          sql_instructions: state.configureData.sqlInstructions,
-        },
+        steps: state.steps.map((step) => ({
+          id: step.id,
+          kind: step.kind,
+          status: step.status,
+          content: step.content,
+        })),
       })
 
       set({
-        pipelineId: response.pipeline_id,
+        pipelineId: response.id,
         isLoading: false,
       })
 
@@ -368,7 +360,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
 
     try {
       const pipeline = await aiApi.getPipelineStatus(state.pipelineId)
-      const steps = apiStepsToStoreSteps(pipeline.steps)
+      const steps = apiStepsToStoreSteps(pipeline.steps || [])
 
       set({
         steps,
@@ -385,9 +377,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     try {
       const response = await aiApi.generateSQL({
         question,
-        knowledge,
-        sql_instructions: get().configureData.sqlInstructions,
-        creativity: get().configureData.creativity,
       })
       set({ isLoading: false })
       return response.sql
@@ -406,7 +395,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     try {
       const response = await aiApi.generateAnswer({
         question,
-        knowledge: knowledge || get().configureData.knowledge,
         context: get().configureData,
       })
       set({ isLoading: false })
@@ -424,9 +412,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   analyzeQuestion: async (question, knowledge) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await aiApi.analyzeQuestion({
+      const response =       await aiApi.analyzeQuestion({
         question,
-        knowledge: knowledge || get().configureData.knowledge,
       })
       set({
         configureData: {
