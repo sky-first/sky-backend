@@ -205,3 +205,49 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Logs
+logs/
+*.log
+
+# Backups
+backups/
+
+# Environment overrides
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker
+.docker/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# SSH keys (except public)
+*.pem
+*.key
+!*.pub
+keys/**/id_rsa
+keys/**/id_ed25519
+keys/**/*_key
+keys/**/*.pem
+!keys/**/*.pub
