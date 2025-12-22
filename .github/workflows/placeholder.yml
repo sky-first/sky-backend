@@ -18,6 +18,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import glob, yaml
+          from pathlib import Path
 
           class IgnoreTagsLoader(yaml.SafeLoader):
               pass
@@ -27,7 +28,14 @@ jobs:
 
           IgnoreTagsLoader.add_multi_constructor('', any_tag)
 
-          files = glob.glob('.github/**/*.yml', recursive=True) + glob.glob('.github/**/*.yaml', recursive=True)
+          files = []
+          for pattern in ['.github/**/*.yml', '.github/**/*.yaml']:
+              for f in glob.glob(pattern, recursive=True):
+                  # Skip workflow templates to avoid custom recursive tags
+                  if Path(f).parts[:3] == ('.github', 'templates', 'backend'):
+                      continue
+                  files.append(f)
+
           for f in files:
               with open(f, 'r') as fh:
                   yaml.load(fh, Loader=IgnoreTagsLoader)
