@@ -1,0 +1,23 @@
+name: CI Placeholder
+
+on:
+  push:
+    branches: [staging, main]
+  pull_request:
+    branches: [staging, main]
+
+jobs:
+  sanity:
+    name: Sanity / YAML lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint YAML
+        run: |
+          python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('.github/**/*.yml', recursive=True)+glob.glob('.github/**/*.yaml', recursive=True)]"
+
+      - name: Hello
+        run: echo "CI placeholder OK"
+
