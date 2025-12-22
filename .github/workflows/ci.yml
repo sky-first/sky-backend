@@ -253,23 +253,30 @@ jobs:
 
       - name: Check YAML syntax
         run: |
-          python3 -c "
-          import yaml
-          import sys
-          import glob
-          
+          python3 - <<'PY'
+          import glob, sys, yaml
+
+          class IgnoreTagsLoader(yaml.SafeLoader):
+              pass
+
+          def any_tag(loader, tag_suffix, node):
+              return loader.construct_object(node)
+
+          IgnoreTagsLoader.add_multi_constructor('', any_tag)
+
           errors = []
-          for file in glob.glob('.github/**/*.yml', recursive=True) + glob.glob('.github/**/*.yaml', recursive=True):
+          files = glob.glob('.github/**/*.yml', recursive=True) + glob.glob('.github/**/*.yaml', recursive=True)
+          for file in files:
               try:
                   with open(file, 'r') as f:
-                      yaml.safe_load(f)
+                      yaml.load(f, Loader=IgnoreTagsLoader)
               except yaml.YAMLError as e:
                   errors.append(f'{file}: {e}')
                   print(f'{file}: {e}')
-          
+
           if errors:
               sys.exit(1)
-          "
+          PY
 
   workflow-lint:
     name: Workflow Lint

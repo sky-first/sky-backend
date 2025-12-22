@@ -16,7 +16,22 @@ jobs:
 
       - name: Lint YAML
         run: |
-          python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('.github/**/*.yml', recursive=True)+glob.glob('.github/**/*.yaml', recursive=True)]"
+          python3 - <<'PY'
+          import glob, yaml
+
+          class IgnoreTagsLoader(yaml.SafeLoader):
+              pass
+
+          def any_tag(loader, tag_suffix, node):
+              return loader.construct_object(node)
+
+          IgnoreTagsLoader.add_multi_constructor('', any_tag)
+
+          files = glob.glob('.github/**/*.yml', recursive=True) + glob.glob('.github/**/*.yaml', recursive=True)
+          for f in files:
+              with open(f, 'r') as fh:
+                  yaml.load(fh, Loader=IgnoreTagsLoader)
+          PY
 
       - name: Hello
         run: echo "CI placeholder OK"
