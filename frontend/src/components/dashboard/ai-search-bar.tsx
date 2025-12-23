@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { useWidgetStore } from "@/store/widget-store"
 import { useCanvasStore } from "@/store/canvas-store"
 import { useAIChatboxStore } from "@/store/ai-chatbox-store"
@@ -38,9 +39,11 @@ import {
 } from "@/components/ui/dialog"
 import { useFilesStore } from "@/store/files-store"
 import { datasetsApi } from "@/lib/api/datasets"
-import { aiApi, AIQueryResponse } from "@/lib/api/ai"
+import { aiApi, AIQueryResponse, type ChatBootstrapResponse, type ChatBootstrapSuggestion } from "@/lib/api/ai"
+import { dashboardsApi, type DashboardAIPlanResponse } from "@/lib/api/dashboards"
 import { useSpaceStore } from "@/store/space-store"
 import { connectionsApi } from "@/lib/api/connections"
+import { usePlanetStore } from "@/store/planet-store"
 
 interface ChatMessage {
     id: string
@@ -52,6 +55,7 @@ interface ChatMessage {
 type MainTab = "chat" | "data" | "configure" | "pipeline"
 
 export function AISearchBar() {
+    const router = useRouter()
     const [question, setQuestion] = useState("")
     const [isExpanded, setIsExpanded] = useState(false)
     const [isMaximized, setIsMaximized] = useState(false)
@@ -69,6 +73,20 @@ export function AISearchBar() {
         movementAngle?: number
     } | null>(null)
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+    const [chatBootstrap, setChatBootstrap] = useState<ChatBootstrapResponse | null>(null)
+    const [isLoadingBootstrap, setIsLoadingBootstrap] = useState(false)
+    const [bootstrapError, setBootstrapError] = useState<string | null>(null)
+    const [dashboardGoal, setDashboardGoal] = useState("Billing overview")
+    const [isBuildingDashboard, setIsBuildingDashboard] = useState(false)
+    const [dashboardBuildProgress, setDashboardBuildProgress] = useState<{ done: number; total: number } | null>(null)
+    const [dashboardAiError, setDashboardAiError] = useState<string | null>(null)
+    const DASHBOARD_MAX_WIDGETS = 8
+
+    const getErrorMessage = (err: unknown): string => {
+        if (err instanceof Error) return err.message
+        if (typeof err === "string") return err
+        return "Something went wrong."
+    }
     const [currentWidgetId, setCurrentWidgetId] = useState<string | null>(null)
     const [configureData, setConfigureData] = useState({
         question: "",
@@ -168,8 +186,135 @@ export function AISearchBar() {
     const { getViewportCenter, snapPosition, findVisiblePositionInViewport, findNextGridPosition } = useCanvasStore()
     const { shouldOpen, widgetId, initialQuestion, initialAnswer, close } = useAIChatboxStore()
     const { currentSpace } = useSpaceStore()
+    const { currentPlanet } = usePlanetStore()
     const widget = currentWidgetId ? widgets.find((w) => w.id === currentWidgetId) : null
     const [isProcessingQuery, setIsProcessingQuery] = useState(false)
+    const isPersonalMode = currentPlanet?.type === "personal"
+
+    const extractSourcesFromSql = (sql?: string): string[] => {
+        if (!sql || typeof sql !== "string") return []
+        // Capture identifiers after FROM/JOIN. Covers BQ (dataset.table) and quoted/backticked identifiers.
+        const re = /\b(from|join)\s+([`"[\]]?)([a-zA-Z0-9_.-]+)\2/gi
+        const out: string[] = []
+        let m: RegExpExecArray | null
+        while ((m = re.exec(sql))) {
+            const ident = (m[3] || "").trim()
+            if (ident) out.push(ident)
+        }
+        return Array.from(new Set(out))
+    }
+
+    const physicalToLogicalTable = (name: string): string => {
+        const raw = String(name || "").trim()
+        const last = raw.split(".").pop() || raw
+        // common BQ naming in this project
+        let s = last
+        s = s.replace(/^silver_/, "")
+        s = s.replace(/_enriquecido$/i, "")
+        s = s.replace(/_enriched$/i, "")
+        return s
+    }
+
+    const usedTablesForWidget: string[] = (() => {
+        const d: any = widget?.data || {}
+        const sqlLogicalTables = extractSourcesFromSql(d?.sql).map(physicalToLogicalTable).filter(Boolean)
+        const sqlLogicalSet = new Set(sqlLogicalTables)
+
+        const sanitize = (arr: string[]): string[] => {
+            const cleaned = arr.map(String).map((s) => s.trim()).filter(Boolean)
+            const uniq = Array.from(new Set(cleaned))
+            // If we have table names from SQL, keep only those (prevents showing columns like customer_id).
+            if (sqlLogicalSet.size > 0) {
+                const filtered = uniq.filter((t) => sqlLogicalSet.has(t))
+                if (filtered.length > 0) return filtered
+            }
+            return uniq
+        }
+
+        // Prefer explicit used_tables (logical) when available.
+        if (Array.isArray(d?.used_tables) && d.used_tables.length > 0) {
+            return sanitize(d.used_tables)
+        }
+        const chosen = d?.chosen_datasets
+        if (Array.isArray(chosen) && chosen.length > 0) return sanitize(chosen)
+        if (typeof d?.chosen_table === "string" && d.chosen_table) return sanitize([String(d.chosen_table)])
+        // Next best: parse logical table names from the question (backticked identifiers).
+        if (typeof d?.question === "string" && d.question.includes("`")) {
+            const matches = Array.from(d.question.matchAll(/`([^`]+)`/g)).map((m: any) => String(m?.[1] || "").trim()).filter(Boolean)
+            if (matches.length > 0) return sanitize(matches)
+        }
+        // Fallback: infer logical names from SQL sources (last segment after '.')
+        return sanitize(sqlLogicalTables)
+    })()
+
+    const usedDatasetsFromSql: string[] = (() => {
+        const d: any = widget?.data || {}
+        return extractSourcesFromSql(d?.sql)
+    })()
+
+    const usedColumnsForWidget: string[] = (() => {
+        const d: any = widget?.data || {}
+        const rows =
+            (Array.isArray(d?.data) ? d.data : null) ??
+            (Array.isArray(d?.data_sample) ? d.data_sample : null) ??
+            []
+        if (Array.isArray(rows) && rows.length > 0 && rows[0] && typeof rows[0] === "object") {
+            return Object.keys(rows[0] as Record<string, unknown>)
+        }
+        // Fallback for some chart widgets where we keep mapping keys.
+        if (d?.mapping && typeof d.mapping === "object") {
+            const maybe = Object.values(d.mapping).flatMap((v: any) =>
+                typeof v === "string" ? [v] : Array.isArray(v) ? v : []
+            )
+            return Array.from(new Set(maybe.map(String).map((s) => s.trim()).filter(Boolean)))
+        }
+        return []
+    })()
+
+    // Fetch greeting + suggestions when opening a new chat session (Personal mode only).
+    useEffect(() => {
+        const shouldFetch =
+            isExpanded &&
+            mainTab === "chat" &&
+            isPersonalMode &&
+            chatMessages.length === 0
+
+        if (!shouldFetch) return
+        if (isLoadingBootstrap) return
+        if (chatBootstrap) return
+
+        let cancelled = false
+        ;(async () => {
+            try {
+                setBootstrapError(null)
+                setIsLoadingBootstrap(true)
+                const resp = await aiApi.chatBootstrap({
+                    // Personal mode shouldn't require an explicit space selection.
+                    // Backend will resolve a suitable space context when omitted.
+                    space_id: currentSpace?.id,
+                    // Keep chat bootstrap in English for now.
+                    language: "en",
+                    max_suggestions: 4,
+                })
+                if (cancelled) return
+                setChatBootstrap(resp)
+            } catch (e) {
+                if (cancelled) return
+                setBootstrapError(e instanceof Error ? e.message : "Failed to load suggestions")
+                setChatBootstrap(null)
+            } finally {
+                // Always clear the loading flag. Even if the effect is "cancelled" due to
+                // a dependency change/unmount, leaving this true will stick the UI in
+                // "Loading suggestions...".
+                setIsLoadingBootstrap(false)
+            }
+        })()
+
+        return () => {
+            cancelled = true
+        }
+    }, [isExpanded, mainTab, isPersonalMode, chatMessages.length, currentSpace?.id])
+
     const loadingMessages = [
         "Analyzing your request",
         "Reviewing connected data sources",
@@ -213,6 +358,13 @@ export function AISearchBar() {
                 setChatMessages(messages)
             }
             
+            // If this widget already has a generated SQL, reflect it in the Pipeline tab UI.
+            const w = widgets.find((ww) => ww.id === widgetId)
+            const existingSql = (w as any)?.data?.sql
+            if (typeof existingSql === "string" && existingSql.trim()) {
+                setFinalSQL(existingSql)
+            }
+
             // Clear the store flag
             close()
             
@@ -229,7 +381,7 @@ export function AISearchBar() {
                 expandedInputRef.current?.focus()
             }, 400)
         }
-    }, [shouldOpen, widgetId, initialQuestion, initialAnswer, close])
+    }, [shouldOpen, widgetId, initialQuestion, initialAnswer, close, widgets])
 
     // Rotate loading messages while AI is processing
     useEffect(() => {
@@ -552,18 +704,26 @@ export function AISearchBar() {
         }
     }
 
-    const handleSendMessage = async () => {
-        if (!question.trim() || isProcessingQuery) return
+    const handleSendMessage = async (overrideText?: string) => {
+        let text = (overrideText ?? question).trim()
+        // Fallback for environments where programmatic typing doesn't update React state:
+        // read the value directly from the input refs.
+        if (!overrideText && !text) {
+            const fromExpanded = expandedInputRef.current?.value ?? ""
+            const fromCompact = compactInputRef.current?.value ?? ""
+            text = (fromExpanded || fromCompact).trim()
+        }
+        if (!text || isProcessingQuery) return
 
         const userMessage: ChatMessage = {
             id: `msg-${Date.now()}`,
             type: "user",
-            content: question,
+            content: text,
             timestamp: new Date(),
         }
 
         setChatMessages(prev => [...prev, userMessage])
-        const messageText = question
+        const messageText = text
         setQuestion("")
 
         // Expand if not already expanded
@@ -590,6 +750,7 @@ export function AISearchBar() {
                     sql_instructions: configureData.sqlInstructions,
                 },
                 space_id: currentSpace?.id,
+                is_personal: isPersonalMode,
             })
 
             // Create AI message with real response
@@ -654,6 +815,10 @@ export function AISearchBar() {
         setIsExpanded(false)
         setIsMaximized(false)
         setHasMessages(false)
+        // Treat close as "new chat" next time it opens.
+        setChatMessages([])
+        setChatBootstrap(null)
+        setBootstrapError(null)
     }
 
     const handleCompactInputClick = () => {
@@ -775,12 +940,28 @@ export function AISearchBar() {
                     // Remove from pending widgets before creating
                     removePendingWidget(finalPosition, widgetSize)
                     
+                    // Ensure all required fields are present with defaults
+                    const widgetToCreate = {
+                        type: widgetType,
+                        title: widgetData.title || 'AI Response',
+                        size: widgetData.size || widgetSize,
+                        position: finalPosition,
+                        data: widgetData.data || {}
+                    }
+                    
+                    // Validate required fields before creating
+                    if (!widgetToCreate.title || widgetToCreate.title.trim() === '') {
+                        throw new Error('Widget title is required')
+                    }
+                    if (!widgetToCreate.size || !widgetToCreate.size.width || !widgetToCreate.size.height) {
+                        throw new Error('Widget size is required')
+                    }
+                    if (!widgetToCreate.position || typeof widgetToCreate.position.x !== 'number' || typeof widgetToCreate.position.y !== 'number') {
+                        throw new Error('Widget position is required')
+                    }
+                    
                     // Create widget immediately when comet arrives
-                            await addWidget({
-                                type: widgetType,
-                                ...widgetData,
-                                position: finalPosition
-                            })
+                            await addWidget(widgetToCreate)
                     
                     // Start landing animation (expansion) while widget appears
                     setFlyingComet(prev => prev ? { ...prev, isLanding: true } : null)
@@ -1142,73 +1323,121 @@ export function AISearchBar() {
                                             
                                             {/* Suggestion Cards Grid 2x2 */}
                                             <div className="grid grid-cols-2 gap-3 max-w-[40%] mx-auto mb-8">
-                                                {[
-                                                    "How much orders yesterday?",
-                                                    "When is the release 5 of...",
-                                                    "Give me a chart where I see...",
-                                                    "How many meetings this week?"
-                                                ].map((suggestion, idx) => {
-                                                    return (
-                                                        <Tooltip key={idx}>
-                                                            <TooltipTrigger asChild>
-                                                                <button
-                                                                    onClick={async () => {
-                                                                        const userMessage: ChatMessage = {
-                                                                            id: `msg-${Date.now()}`,
-                                                                            type: "user",
-                                                                            content: suggestion,
-                                                                            timestamp: new Date(),
-                                                                        }
-                                                                        setChatMessages(prev => [...prev, userMessage])
-                                                                        setQuestion("")
-                                                                        setHasMessages(true)
-                                                                        
-                                                                        // Simulate AI response
-                                                                        setTimeout(() => {
-                                                                            const aiMessage: ChatMessage = {
-                                                                                id: `ai-${Date.now()}`,
-                                                                                type: "assistant",
-                                                                                content: `This is a generated response for: "${suggestion}"\n\nHere is a detailed analysis with relevant insights and recommendations based on the available data.`,
-                                                                                timestamp: new Date(),
+                                                {(() => {
+                                                    const fallback: ChatBootstrapSuggestion[] = [
+                                                        { title: "Available data", kind: "question", question: "What data do I have access to?" },
+                                                        { title: "Tables", kind: "question", question: "Which tables are available in my catalog?" },
+                                                        { title: "Columns", kind: "question", question: "What columns are inside the customers table?" },
+                                                        { title: "Examples", kind: "question", question: "Give me examples of questions I can ask about my data." },
+                                                    ]
+                                                    const cards =
+                                                        chatBootstrap?.suggestions?.length ? chatBootstrap.suggestions : fallback
+
+                                                    return cards.map((suggestion, idx) => {
+                                                        const kind = suggestion?.kind || "question"
+                                                        const label =
+                                                            kind === "action"
+                                                                ? (suggestion?.title || "Action")
+                                                                : (suggestion?.question || "")
+                                                        return (
+                                                            <Tooltip key={idx}>
+                                                                <TooltipTrigger asChild>
+                                                                    <button
+                                                                        onClick={async () => {
+                                                                            if (kind === "action") {
+                                                                                if (isBuildingDashboard) return
+                                                                                try {
+                                                                                    setDashboardAiError(null)
+                                                                                    setIsBuildingDashboard(true)
+                                                                                    setDashboardBuildProgress(null)
+                                                                                    const started = await dashboardsApi.aiBuildDashboardAsync({
+                                                                                        space_id: currentSpace?.id,
+                                                                                        goal: dashboardGoal,
+                                                                                        language: "en",
+                                                                                        max_widgets: DASHBOARD_MAX_WIDGETS,
+                                                                                    })
+                                                                                    const jobId = started.job_id
+                                                                                    const pollStart = Date.now()
+                                                                                    const poll = async () => {
+                                                                                        // Poll until we have dashboard_id or error
+                                                                                        while (Date.now() - pollStart < 10 * 60 * 1000) { // 10m safety
+                                                                                            const st = await dashboardsApi.getDashboardBuildJob(jobId)
+                                                                                            setDashboardBuildProgress({
+                                                                                                done: st.completed_widgets || 0,
+                                                                                                total: st.total_widgets || DASHBOARD_MAX_WIDGETS,
+                                                                                            })
+                                                                                            if (st.dashboard_id) {
+                                                                                                router.push(`/dashboard?id=${st.dashboard_id}&job_id=${jobId}`)
+                                                                                                return
+                                                                                            }
+                                                                                            if (st.status === "failed" || st.status === "cancelled") {
+                                                                                                throw new Error(st.error || "Dashboard build failed.")
+                                                                                            }
+                                                                                            await new Promise((r) => setTimeout(r, 1200))
+                                                                                        }
+                                                                                        throw new Error("Dashboard build timed out.")
+                                                                                    }
+                                                                                    await poll()
+                                                                                } catch (e: unknown) {
+                                                                                    setDashboardAiError(getErrorMessage(e) || "Failed to build the dashboard.")
+                                                                                } finally {
+                                                                                    setIsBuildingDashboard(false)
+                                                                                    setDashboardBuildProgress(null)
+                                                                                }
+                                                                                return
                                                                             }
-                                                                            setChatMessages(prev => [...prev, aiMessage])
-                                                                        }, 1000)
-                                                                    }}
-                                                                    className={cn(
-                                                                        "group relative p-3 rounded-3xl",
-                                                                        "bg-gradient-to-br from-slate-50 to-gray-50 dark:from-slate-800 dark:to-gray-900",
-                                                                        "border border-slate-200/60 dark:border-slate-700/60",
-                                                                        "shadow-sm hover:shadow-lg hover:shadow-slate-200/50 dark:hover:shadow-slate-900/50",
-                                                                        "hover:scale-[1.02] active:scale-[0.98]",
-                                                                        "hover:border-slate-300 dark:hover:border-slate-600",
-                                                                        "transition-all duration-200 ease-out",
-                                                                        "flex items-center justify-center",
-                                                                        "min-h-[70px]",
-                                                                        "overflow-hidden"
-                                                                    )}
-                                                                >
-                                                                    {/* Subtle gradient overlay on hover */}
-                                                                    <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-blue-50/0 to-purple-50/0 group-hover:from-blue-50/30 group-hover:to-purple-50/20 dark:group-hover:from-blue-950/20 dark:group-hover:to-purple-950/10 transition-all duration-200" />
-                                                                    
-                                                                    {/* Content */}
-                                                                    <p className="text-xs font-medium text-slate-700 dark:text-slate-200 text-center leading-relaxed px-2 break-words line-clamp-3 relative z-10">
-                                                                        {suggestion}
-                                                                    </p>
-                                                                </button>
-                                                            </TooltipTrigger>
-                                                            {/* Tooltip - show full text on hover */}
-                                                            <TooltipContent side="top" className="text-xs max-w-[200px]">
-                                                                {suggestion}
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    )
-                                                })}
+                                                                            await handleSendMessage(String(suggestion?.question || ""))
+                                                                        }}
+                                                                        className={cn(
+                                                                            "group relative p-3 rounded-3xl",
+                                                                            "bg-gradient-to-br from-slate-50 to-gray-50 dark:from-slate-800 dark:to-gray-900",
+                                                                            "border border-slate-200/60 dark:border-slate-700/60",
+                                                                            "shadow-sm hover:shadow-lg hover:shadow-slate-200/50 dark:hover:shadow-slate-900/50",
+                                                                            "hover:scale-[1.02] active:scale-[0.98]",
+                                                                            "hover:border-slate-300 dark:hover:border-slate-600",
+                                                                            "transition-all duration-200 ease-out",
+                                                                            "flex items-center justify-center",
+                                                                            "min-h-[70px]",
+                                                                            "overflow-hidden"
+                                                                        )}
+                                                                    >
+                                                                        {/* Subtle gradient overlay on hover */}
+                                                                        <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-blue-50/0 to-purple-50/0 group-hover:from-blue-50/30 group-hover:to-purple-50/20 dark:group-hover:from-blue-950/20 dark:group-hover:to-purple-950/10 transition-all duration-200" />
+
+                                                                        {/* Content */}
+                                                                        <p className="text-xs font-medium text-slate-700 dark:text-slate-200 text-center leading-relaxed px-2 break-words line-clamp-3 relative z-10">
+                                                                            {isBuildingDashboard && kind === "action"
+                                                                                ? (dashboardBuildProgress
+                                                                                    ? `Creating dashboard (${dashboardBuildProgress.done}/${dashboardBuildProgress.total})...`
+                                                                                    : "Creating dashboard...")
+                                                                                : label}
+                                                                        </p>
+                                                                    </button>
+                                                                </TooltipTrigger>
+                                                                {/* Tooltip - show full text on hover */}
+                                                                <TooltipContent side="top" className="text-xs max-w-[200px]">
+                                                                    {label}
+                                                                </TooltipContent>
+                                                            </Tooltip>
+                                                        )
+                                                    })
+                                                })()}
                                             </div>
                                             
                                             {/* Question text below cards - styled as AI message */}
                                             <div className="flex justify-start">
                                                 <div className="relative max-w-[85%] rounded-2xl px-4 py-3 bg-muted/40 border border-border/50">
-                                                    <p className="text-sm text-foreground">How can I help you?</p>
+                                                    <p
+                                                        role="status"
+                                                        aria-live="polite"
+                                                        className="text-sm text-foreground"
+                                                    >
+                                                        {isLoadingBootstrap
+                                                            ? "Loading suggestions..."
+                                                            : (chatBootstrap?.greeting)
+                                                                ? chatBootstrap.greeting
+                                                                : "How can I help you?"}
+                                                    </p>
                                                 </div>
                                             </div>
                                         </div>
@@ -1316,6 +1545,44 @@ export function AISearchBar() {
                                                                                             onClick={() => {
                                                                                                 const messageElement = messageRefs.current[msg.id]
                                                                                                 if (messageElement) {
+                                                                                                    // Get real data from message if available
+                                                                                                    const responseData = (msg as any).responseData
+                                                                                                    let chartData: any = {
+                                                                                                        type: chart.type,
+                                                                                                        series: [0, 0, 0, 0, 0],
+                                                                                                        labels: ['A', 'B', 'C', 'D', 'E'],
+                                                                                                    }
+                                                                                                    
+                                                                                                    // Use real data if available
+                                                                                                    if (responseData?.data_sample && Array.isArray(responseData.data_sample) && responseData.data_sample.length > 0) {
+                                                                                                        const sample = responseData.data_sample
+                                                                                                        const firstRow = sample[0]
+                                                                                                        
+                                                                                                        if (firstRow && typeof firstRow === 'object') {
+                                                                                                            const keys = Object.keys(firstRow)
+                                                                                                            
+                                                                                                            // Find first string/categorical column for labels
+                                                                                                            const labelKey = keys.find(k => {
+                                                                                                                const val = firstRow[k]
+                                                                                                                return typeof val === 'string' || (val != null && !isFinite(Number(val)))
+                                                                                                            }) || keys[0]
+                                                                                                            
+                                                                                                            // Find first numeric column for values
+                                                                                                            const valueKey = keys.find(k => {
+                                                                                                                const val = firstRow[k]
+                                                                                                                return typeof val === 'number' || (val != null && isFinite(Number(val)))
+                                                                                                            }) || keys[1] || keys[0]
+                                                                                                            
+                                                                                                            if (labelKey && valueKey) {
+                                                                                                                chartData.labels = sample.map((row: any) => String(row[labelKey] ?? ''))
+                                                                                                                chartData.series = sample.map((row: any) => {
+                                                                                                                    const val = row[valueKey]
+                                                                                                                    return typeof val === 'number' ? val : (isFinite(Number(val)) ? Number(val) : 0)
+                                                                                                                })
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }
+                                                                                                    
                                                                                                     handleCreateWidgetWithAnimation(
                                                                                                         msg.id,
                                                                                                         messageElement,
@@ -1323,11 +1590,7 @@ export function AISearchBar() {
                                                                                                         {
                                                                                                             title: `${chart.label} Chart`,
                                                                                                             size: { width: 320, height: 240 },
-                                                                                                            data: {
-                                                                                                                type: chart.type,
-                                                                                                                series: [0, 0, 0, 0, 0],
-                                                                                                                labels: ['A', 'B', 'C', 'D', 'E'],
-                                                                                                            }
+                                                                                                            data: chartData
                                                                                                         }
                                                                                                     )
                                                                                                 }
@@ -1402,7 +1665,7 @@ export function AISearchBar() {
                                                                 <div className="mb-3 pb-2 border-b border-border/30">
                                                                     <div className="flex items-center gap-2 mb-1.5">
                                                                         <Database className="h-3.5 w-3.5 text-muted-foreground" />
-                                                                        <span className="text-[11px] text-muted-foreground font-semibold">Tabelas utilizadas pela IA:</span>
+                                                                        <span className="text-[11px] text-muted-foreground font-semibold">Tables used by AI:</span>
                                                                     </div>
                                                                     <div className="flex flex-wrap gap-1.5">
                                                                         {((msg as any).responseData?.chosen_datasets && (msg as any).responseData.chosen_datasets.length > 0
@@ -1531,6 +1794,50 @@ export function AISearchBar() {
                                 <div className="px-4 py-3 space-y-4">
                                     {/* Show tables used by AI in recent responses */}
                                     {(() => {
+                                        // If we are inspecting a specific widget, show its tables here (first card).
+                                        if (currentWidgetId && usedTablesForWidget.length > 0) {
+                                            const aiUsedTables = usedTablesForWidget
+                                            return (
+                                                <div className="mb-4 space-y-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <Sparkles className="h-4 w-4 text-primary" />
+                                                        <Label className="text-sm font-semibold text-primary">
+                                                            Tables used by AI
+                                                        </Label>
+                                                        <Badge variant="secondary" className="text-[10px] px-2 py-0.5 ml-auto">
+                                                            {aiUsedTables.length}
+                                                        </Badge>
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Tables used to generate this widget response:
+                                                    </p>
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {aiUsedTables.map((t: string) => (
+                                                            <Badge key={t} variant="outline" className="text-[10px]">
+                                                                {t}
+                                                            </Badge>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )
+                                        }
+
+                                        // If a widget is selected but we don't have table info yet, show the empty state
+                                        // for this widget (instead of aggregating from the whole chat).
+                                        if (currentWidgetId && usedTablesForWidget.length === 0) {
+                                            return (
+                                                <div className="mb-4 p-4 bg-muted/30 border border-border rounded-lg text-center">
+                                                    <Database className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                                                    <p className="text-sm text-muted-foreground">
+                                                        No tables have been used yet.
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                        Ask a question to see which tables the AI picks to answer.
+                                                    </p>
+                                                </div>
+                                            )
+                                        }
+
                                         // Get all tables used by AI from all assistant messages
                                         const aiUsedTables = Array.from(new Set(
                                             chatMessages
@@ -1569,10 +1876,10 @@ export function AISearchBar() {
                                                 <div className="mb-4 p-4 bg-muted/30 border border-border rounded-lg text-center">
                                                     <Database className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                                                     <p className="text-sm text-muted-foreground">
-                                                        Nenhuma tabela foi utilizada ainda.
+                                                        No tables have been used yet.
                                                     </p>
                                                     <p className="text-xs text-muted-foreground mt-1">
-                                                        Faça uma pergunta para ver quais tabelas a IA escolhe para responder.
+                                                        Ask a question to see which tables the AI picks to answer.
                                                     </p>
                                                 </div>
                                             )
@@ -1582,10 +1889,10 @@ export function AISearchBar() {
                                             <div className="mb-4 space-y-3">
                                                 <div className="flex items-center gap-2">
                                                     <Sparkles className="h-4 w-4 text-primary" />
-                                                    <Label className="text-sm font-semibold text-primary">Tabelas utilizadas pela IA</Label>
+                                                    <Label className="text-sm font-semibold text-primary">Tables used by AI</Label>
                                                 </div>
                                                 <p className="text-xs text-muted-foreground">
-                                                    Tabelas que a IA escolheu para responder suas perguntas:
+                                                    Tables the AI picked to answer your questions:
                                                 </p>
                                                 <div className="border rounded-lg divide-y divide-border overflow-hidden">
                                                     {aiUsedTables.map((tableName: string, idx: number) => {
@@ -1639,7 +1946,7 @@ export function AISearchBar() {
                                                                         </button>
                                                                     </TooltipTrigger>
                                                                     <TooltipContent side="left" className="text-xs">
-                                                                        Adicionar ao knowledge
+                                                                        Add to knowledge
                                                                     </TooltipContent>
                                                                 </Tooltip>
                                                             </div>
@@ -1649,10 +1956,47 @@ export function AISearchBar() {
                                             </div>
                                         )
                                     })()}
-                                    {/* Knowledge section - always show add button */}
+
+                                    {/* Second item: datasets (columns/fields) */}
+                                    <div className="mb-4 space-y-3">
+                                        <div className="flex items-center gap-2">
+                                            <Database className="h-4 w-4 text-primary" />
+                                            <Label className="text-sm font-semibold text-primary">Datasets</Label>
+                                            {currentWidgetId ? (
+                                                <Badge variant="secondary" className="text-[10px] px-2 py-0.5 ml-auto">
+                                                    {usedColumnsForWidget.length}
+                                                </Badge>
+                                            ) : null}
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            {currentWidgetId
+                                                ? "Columns/fields returned for this widget:"
+                                                : "Select a widget to see its columns/fields."}
+                                        </p>
+                                        {currentWidgetId ? (
+                                            usedColumnsForWidget.length > 0 ? (
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {usedColumnsForWidget.map((c) => (
+                                                        <Badge key={c} variant="outline" className="text-[10px]">
+                                                            {c}
+                                                        </Badge>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="p-3 bg-muted/20 border border-border rounded-lg text-center">
+                                                    <p className="text-xs text-muted-foreground">
+                                                        No columns/fields were returned yet.
+                                                    </p>
+                                                </div>
+                                            )
+                                        ) : null}
+                                    </div>
+                                    {/* Knowledge section */}
                                     <div className="space-y-3">
+                                        {/* Tables used moved to the top of the Data tab */}
+
                                         <div className="flex items-center justify-between">
-                                            <Label className="text-sm font-semibold">Knowledge (Selecionados manualmente)</Label>
+                                            <Label className="text-sm font-semibold">Knowledge (manually selected)</Label>
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
                                                     <Button 
@@ -1700,13 +2044,13 @@ export function AISearchBar() {
                                             </DropdownMenu>
                                         </div>
                                         <p className="text-xs text-muted-foreground">
-                                            Arquivos e datasets selecionados manualmente para esta query.
+                                            Files and datasets manually selected for this query.
                                         </p>
                                         <div className="border rounded-lg divide-y divide-border overflow-hidden">
                                             {/* Show manually selected items from knowledge */}
                                             {configureData.knowledge.length === 0 ? (
                                                 <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-                                                    Nenhum dataset selecionado. A IA escolherá automaticamente as tabelas necessárias.
+                                                    No datasets selected. AI will choose the necessary tables automatically.
                                                 </div>
                                             ) : (
                                                 <>
@@ -1962,12 +2306,16 @@ export function AISearchBar() {
                                                 <div className="w-6 h-6 rounded-full bg-purple-500/20 flex items-center justify-center">
                                                     <Database className="w-3 h-3 text-purple-600 dark:text-purple-400" />
                                                 </div>
-                                                <h4 className="font-semibold text-sm">Database</h4>
+                                                <h4 className="font-semibold text-sm">Datasets</h4>
                                             </div>
                                             <p className="text-xs text-muted-foreground ml-8">
-                                                {configureData.knowledge.length > 0 
-                                                    ? configureData.knowledge.join(", ")
-                                                    : "No datasets selected"}
+                                                {currentWidgetId
+                                                    ? (usedDatasetsFromSql.length > 0
+                                                        ? usedDatasetsFromSql.join(", ")
+                                                        : (usedTablesForWidget.length > 0 ? usedTablesForWidget.join(", ") : "—"))
+                                                    : (configureData.knowledge.length > 0
+                                                        ? configureData.knowledge.join(", ")
+                                                        : "No datasets selected")}
                                             </p>
                                         </div>
                                         <div className="border rounded-lg p-3 bg-background">
@@ -1977,9 +2325,15 @@ export function AISearchBar() {
                                                 </div>
                                                 <h4 className="font-semibold text-sm">SQL</h4>
                                             </div>
-                                            <p className="text-xs text-muted-foreground ml-8 font-mono">
-                                                {finalSQL || "-- Not executed"}
-                                            </p>
+                                            <Textarea
+                                                value={
+                                                    currentWidgetId && (widget as any)?.data?.sql
+                                                        ? String((widget as any).data.sql)
+                                                        : (finalSQL || "-- Not executed")
+                                                }
+                                                readOnly
+                                                className="mt-1 min-h-[140px] font-mono text-[11px] rounded-lg bg-muted/30"
+                                            />
                                         </div>
                                         <div className="border rounded-lg p-3 bg-background">
                                             <div className="flex items-center gap-2 mb-2">

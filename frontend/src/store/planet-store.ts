@@ -106,10 +106,17 @@ export const usePlanetStore = create<PlanetState>()(
                     
                     // Set active planet if not set
                     const activePlanet = planets.find(w => w.isActive) || planets[0] || null
+                    const currentPlanet = get().currentPlanet
+                    const resolvedCurrentPlanet =
+                        currentPlanet && planets.some(p => p.id === currentPlanet.id)
+                            ? currentPlanet
+                            : activePlanet
                     
                     set({ 
                         planets,
-                        currentPlanet: get().currentPlanet || activePlanet,
+                        // If a persisted currentPlanet no longer exists on the backend,
+                        // fall back to the active (or first) planet to avoid using stale IDs.
+                        currentPlanet: resolvedCurrentPlanet,
                         isLoading: false 
                     })
                 } catch (error) {

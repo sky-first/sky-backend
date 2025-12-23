@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react"
 import { Rnd } from "react-rnd"
 import { motion } from "framer-motion"
-import { Sparkles } from "lucide-react"
+import { Sparkles, ScanSearch, MessageSquareText, Copy, Code2, Table2 } from "lucide-react"
 import { useWidgetStore, Widget } from "@/store/widget-store"
 import { useCanvasStore } from "@/store/canvas-store"
 import { usePipelineStore } from "@/store/pipeline-store"
@@ -12,6 +12,9 @@ import { useCanvasLockStore } from "@/store/canvas-lock-store"
 import { useToolbarStore } from "@/store/toolbar-store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { ChartWidget } from "@/components/widgets/chart-widget"
 import { TextWidget } from "@/components/dashboard/text-widget"
@@ -43,6 +46,7 @@ function WidgetContainerComponent({ widget }: WidgetContainerProps) {
     const activeTool = useToolbarStore(state => state.activeTool)
     const [isDragging, setIsDragging] = useState(false)
     const [isResizing, setIsResizing] = useState(false)
+    const [isInspectOpen, setIsInspectOpen] = useState(false)
     
     // Validate and sanitize widget position - memoize
     const validWidgetPosition = useMemo(() => 
@@ -61,6 +65,94 @@ function WidgetContainerComponent({ widget }: WidgetContainerProps) {
         widget.data?.isPlaceholder === true,
         [widget.data?.isPlaceholder]
     )
+
+    const widgetKindLabel = useMemo(() => {
+        switch (widget.type) {
+            case "kpi":
+                return "KPI"
+            case "chart":
+                return "Chart"
+            case "table":
+                return "Table"
+            case "text":
+                return "Text"
+            default:
+                return "Widget"
+        }
+    }, [widget.type])
+
+    const accent = useMemo(() => {
+        // Accent per widget type (matches Tremor-like soft cards)
+        if (widget.type === "kpi") return { bar: "bg-blue-500", bg: "" }
+        if (widget.type === "chart") {
+            const t = String(widget.data?.type || "bar")
+            if (t === "pie") return { bar: "bg-blue-500", bg: "" }
+            if (t === "scatter") return { bar: "bg-blue-500", bg: "" }
+            if (t === "line" || t === "area") return { bar: "bg-blue-500", bg: "" }
+            return { bar: "bg-blue-500", bg: "" }
+        }
+        if (widget.type === "table") return { bar: "bg-blue-500", bg: "" }
+        if (widget.type === "text") return { bar: "bg-blue-500", bg: "" }
+        return { bar: "bg-blue-500", bg: "" }
+    }, [widget.type, widget.data?.type])
+
+    const deltaBadge = useMemo(() => {
+        const raw = widget.data?.change
+        if (raw == null) return null
+        const text = String(raw)
+        const isNeg = text.includes("-")
+        return {
+            text,
+            className: isNeg
+                ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+        }
+    }, [widget.data?.change])
+
+    const kpiValue = useMemo(() => {
+        // Prefer existing value (used by some widget generators)
+        const direct = widget.data?.value
+        if (direct !== undefined && direct !== null && String(direct).trim() !== "") {
+            return String(direct)
+        }
+
+        // AI-built KPI widgets currently store query output in { answer, data, sql }
+        const data = widget.data?.data
+        if (Array.isArray(data) && data.length > 0 && data[0] && typeof data[0] === "object") {
+            const firstRow = data[0] as Record<string, any>
+            const keys = Object.keys(firstRow)
+            // pick first numeric-looking field
+            for (const k of keys) {
+                const v = firstRow[k]
+                if (typeof v === "number" && isFinite(v)) return v.toLocaleString()
+                if (typeof v === "string" && v.trim() && !isNaN(Number(v))) return Number(v).toLocaleString()
+            }
+            if (keys.length > 0 && firstRow[keys[0]] != null) return String(firstRow[keys[0]])
+        }
+
+        const answer = widget.data?.answer
+        if (typeof answer === "string" && answer.trim()) return answer.trim()
+        return "—"
+    }, [widget.data?.value, widget.data?.data, widget.data?.answer])
+
+    const tableModel = useMemo(() => {
+        const data = widget.data?.data
+        if (!Array.isArray(data) || data.length === 0) return { columns: [], rows: [] as any[] }
+        const first = data.find((r) => r && typeof r === "object") as Record<string, any> | undefined
+        if (!first) return { columns: [], rows: [] as any[] }
+        const columns = Object.keys(first).slice(0, 8)
+        const rows = data.slice(0, 15)
+        return { columns, rows }
+    }, [widget.data?.data])
+
+    const handleCopyToClipboard = useCallback(async (text: string) => {
+        try {
+            if (!text) return
+            await navigator.clipboard.writeText(text)
+        } catch {
+            // ignore
+        }
+    }, [])
     
     // Memoize widget index and z-index
     const widgetIndex = useMemo(() => 
@@ -438,8 +530,15 @@ function WidgetContainerComponent({ widget }: WidgetContainerProps) {
                     />
                 </div>
             ) : (
+                <>
                 <Card className={cn(
-                    "w-full h-full flex flex-col overflow-hidden shadow-sm hover:shadow-md group cursor-grab active:cursor-grabbing",
+                    // Card shell (clean + modern; works well on light/dark)
+                    "w-full h-full flex flex-col overflow-hidden group cursor-grab active:cursor-grabbing",
+                    "rounded-2xl",
+                    // Tremor demo style: pure white surface + soft shadow
+                    "bg-white",
+                    "border border-slate-100 shadow-[0_6px_24px_rgba(15,23,42,0.06)]",
+                    "hover:shadow-[0_10px_32px_rgba(15,23,42,0.10)] hover:border-slate-200",
                     // Disable transitions during drag for better performance
                     !isDragging && "transition-all",
                     isSelected ? "ring-2 ring-blue-600 dark:ring-blue-400 shadow-xl" : "",
@@ -447,16 +546,75 @@ function WidgetContainerComponent({ widget }: WidgetContainerProps) {
                     isPlaceholder && "opacity-60 grayscale",
                     "py-0 gap-0 relative"
                 )}>
-                    {!isPlaceholder && (
-                        <CardHeader className="px-2 pt-0.5 pb-1 flex flex-row items-center justify-center gap-0 relative">
-                            <CardTitle className="text-sm font-semibold truncate leading-tight text-center text-foreground">
-                                {widget.title}
-                            </CardTitle>
+                    <CardHeader className={cn(
+                        "px-4 pt-3 pb-3 flex flex-row items-center justify-between gap-2 border-b border-slate-100",
+                        isPlaceholder && "opacity-80"
+                    )}>
+                            <div className="min-w-0 flex-1">
+                                <CardTitle className="text-sm font-semibold leading-tight text-primary break-words whitespace-normal line-clamp-2">
+                                    {widget.title}
+                                </CardTitle>
+                            </div>
+                            {!isPlaceholder ? (
+                                <div className="flex items-center gap-2">
+                                    {deltaBadge ? (
+                                        <span className={cn("shrink-0 text-[10px] font-semibold border rounded-full px-2 py-0.5", deltaBadge.className)}>
+                                            {deltaBadge.text}
+                                        </span>
+                                    ) : null}
+                                    <TooltipProvider delayDuration={150}>
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 w-7 p-0"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            setIsInspectOpen(true)
+                                                        }}
+                                                        aria-label="Overview"
+                                                    >
+                                                        <ScanSearch className="h-4 w-4" />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="bottom" className="text-xs">
+                                                    Overview
+                                                </TooltipContent>
+                                            </Tooltip>
+
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 w-7 p-0"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            const question = String(widget.data?.question ?? widget.title ?? "")
+                                                            const answer = String(widget.data?.answer ?? "")
+                                                            openAIChatbox(widget.id, question, answer)
+                                                        }}
+                                                        aria-label="Open AI chat"
+                                                    >
+                                                        <MessageSquareText className="h-4 w-4" />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="bottom" className="text-xs">
+                                                    Open AI chat
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </div>
+                                    </TooltipProvider>
+                                </div>
+                            ) : null}
                         </CardHeader>
-                    )}
                     <CardContent 
                         className={cn(
-                            "flex-1 p-4 overflow-auto widget-content relative",
+                            // Give charts/tables more room; keep KPI readable
+                            "flex-1 overflow-auto widget-content relative",
+                            widget.type === "kpi" ? "p-5" : "p-4",
                             isPlaceholder && "cursor-pointer"
                         )}
                         onDoubleClick={(e) => {
@@ -485,13 +643,29 @@ function WidgetContainerComponent({ widget }: WidgetContainerProps) {
                                     <div className="flex flex-col items-center justify-center gap-3 px-4 py-6">
                                         <Sparkles className="w-8 h-8 text-muted-foreground/40" />
                                         <p className="text-sm text-muted-foreground/70 leading-relaxed max-w-[200px] text-center">
-                                            This widget comes to life with your data — ask AI to configure. <span className="font-medium">Double click.</span>
+                                            {widget.data?.placeholderMode === "auto"
+                                                ? "Generating this widget…"
+                                                : <>This widget comes to life with your data — ask AI to configure. <span className="font-medium">Double click.</span></>}
                                         </p>
                                     </div>
                                 ) : (
-                                    <div>
-                                        <div className="text-3xl font-bold text-foreground">{widget.data.value}</div>
-                                        <div className="text-green-500 text-xs font-medium">{widget.data.change}</div>
+                                    <div className="flex flex-col items-center justify-center gap-1">
+                                        {/* Subtle blue glow behind the KPI value */}
+                                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                            <div className="h-28 w-28 rounded-full bg-[#1e3a5f]/10 blur-2xl" />
+                                        </div>
+
+                                        <div className="relative">
+                                            {/* KPI "hero" number: single-tone night-blue, crisp + premium */}
+                                            <div className="text-[44px] leading-[1.0] font-semibold tracking-tight tabular-nums text-[#1e3a5f] drop-shadow-[0_10px_22px_rgba(30,58,95,0.10)]">
+                                                {kpiValue}
+                                            </div>
+                                        </div>
+                                        {widget.data?.question ? (
+                                            <div className="mt-2 text-[11px] text-slate-500/90 line-clamp-2 max-w-[260px]">
+                                                {String(widget.data.question)}
+                                            </div>
+                                        ) : null}
                                     </div>
                                 )}
                             </div>
@@ -503,7 +677,9 @@ function WidgetContainerComponent({ widget }: WidgetContainerProps) {
                                             <div className="flex flex-col items-center justify-center gap-3">
                                                 <Sparkles className="w-8 h-8 text-muted-foreground/40" />
                                                 <p className="text-sm text-muted-foreground/70 leading-relaxed max-w-[240px] text-center">
-                                                    This widget comes to life with your data — ask AI to configure. <span className="font-medium">Double click.</span>
+                                                    {widget.data?.placeholderMode === "auto"
+                                                        ? "Generating this widget…"
+                                                        : <>This widget comes to life with your data — ask AI to configure. <span className="font-medium">Double click.</span></>}
                                                 </p>
                                             </div>
                                         </div>
@@ -513,13 +689,65 @@ function WidgetContainerComponent({ widget }: WidgetContainerProps) {
                                             data={widget.data?.data}
                                             labels={widget.data?.labels}
                                             series={widget.data?.series}
+                                            mapping={widget.data?.mapping}
                                         />
                                     )}
                                 </div>
                             )}
                         {widget.type === 'table' && (
-                            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                                Table Placeholder
+                            <div className="w-full h-full flex flex-col">
+                                {isPlaceholder ? (
+                                    <div className="w-full h-full flex items-center justify-center px-4 py-6">
+                                        <div className="flex flex-col items-center justify-center gap-3">
+                                            <Sparkles className="w-8 h-8 text-muted-foreground/40" />
+                                            <p className="text-sm text-muted-foreground/70 leading-relaxed max-w-[260px] text-center">
+                                                {widget.data?.placeholderMode === "auto"
+                                                    ? "Generating this widget…"
+                                                    : <>This widget comes to life with your data — ask AI to configure. <span className="font-medium">Double click.</span></>}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : tableModel.columns.length === 0 ? (
+                                    <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
+                                        No rows yet.
+                                    </div>
+                                ) : (
+                                    <div className="w-full h-full overflow-auto rounded-md border border-slate-200">
+                                        <table className="min-w-full text-xs">
+                                            <thead className="sticky top-0 bg-primary text-primary-foreground border-b border-primary/20 shadow-sm">
+                                                <tr>
+                                                    {tableModel.columns.map((c) => (
+                                                        <th
+                                                            key={c}
+                                                            className="text-left font-semibold px-3 py-2 whitespace-nowrap tracking-wide"
+                                                        >
+                                                            {c}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {tableModel.rows.map((row, idx) => (
+                                                    <tr
+                                                        key={idx}
+                                                        className={cn(
+                                                            "border-b border-slate-100",
+                                                            // subtle blue zebra rows (readable + premium)
+                                                            idx % 2 === 0 ? "bg-blue-50/60" : "bg-sky-50/30",
+                                                            "hover:bg-blue-100/45 transition-colors"
+                                                        )}
+                                                    >
+                                                        {tableModel.columns.map((c) => (
+                                                            <td key={c} className="px-3 py-2 text-slate-900 whitespace-nowrap">
+                                                                {row?.[c] == null ? "—" : String(row[c])}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
                             </div>
                         )}
                         {widget.type === 'ai-box' && (
@@ -542,6 +770,106 @@ function WidgetContainerComponent({ widget }: WidgetContainerProps) {
                         )}
                     </CardContent>
                 </Card>
+
+                <Dialog open={isInspectOpen} onOpenChange={setIsInspectOpen}>
+                    <DialogContent className="max-w-4xl">
+                        <DialogHeader>
+                            <DialogTitle className="truncate text-primary">{widget.title}</DialogTitle>
+                            <DialogDescription>
+                                Inspect data, SQL and details. You can also copy and reuse the query.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <Tabs defaultValue="summary">
+                            <TabsList>
+                                <TabsTrigger value="summary">Summary</TabsTrigger>
+                                <TabsTrigger value="data">Data</TabsTrigger>
+                                <TabsTrigger value="sql">SQL</TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="summary" className="pt-3">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="rounded-lg border p-3">
+                                        <div className="text-xs text-muted-foreground mb-1">Question</div>
+                                        <div className="text-sm">{String(widget.data?.question ?? "—")}</div>
+                                    </div>
+                                </div>
+                                <div className="mt-4 flex gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handleCopyToClipboard(String(widget.data?.question ?? ""))}
+                                    >
+                                        <Copy className="h-4 w-4 mr-2" /> Copy question
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => openAIChatbox(widget.id, String(widget.data?.question ?? ""), String(widget.data?.answer ?? ""))}
+                                    >
+                                        <MessageSquareText className="h-4 w-4 mr-2" /> Ask about this
+                                    </Button>
+                                </div>
+                            </TabsContent>
+
+                            <TabsContent value="data" className="pt-3">
+                                {Array.isArray(widget.data?.data) && widget.data.data.length > 0 ? (
+                                    <div className="rounded-lg border border-slate-200 overflow-auto max-h-[420px]">
+                                        <table className="min-w-full text-xs">
+                                            <thead className="sticky top-0 bg-primary text-primary-foreground border-b border-primary/20 shadow-sm">
+                                                <tr>
+                                                    {(Object.keys(widget.data.data[0] || {}) as string[]).slice(0, 12).map((c) => (
+                                                        <th key={c} className="text-left font-semibold px-3 py-2 whitespace-nowrap tracking-wide">
+                                                            {c}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {widget.data.data.slice(0, 50).map((row: any, idx: number) => (
+                                                    <tr
+                                                        key={idx}
+                                                        className={cn(
+                                                            "border-b border-slate-100",
+                                                            idx % 2 === 0 ? "bg-blue-50/60" : "bg-sky-50/30",
+                                                            "hover:bg-blue-100/45 transition-colors"
+                                                        )}
+                                                    >
+                                                        {(Object.keys(widget.data.data[0] || {}) as string[]).slice(0, 12).map((c) => (
+                                                            <td key={c} className="px-3 py-2 text-slate-900 whitespace-nowrap">
+                                                                {row?.[c] == null ? "—" : String(row[c])}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <div className="rounded-lg border p-6 text-sm text-muted-foreground flex items-center gap-2">
+                                        <Table2 className="h-4 w-4" /> No rows available for this widget yet.
+                                    </div>
+                                )}
+                            </TabsContent>
+
+                            <TabsContent value="sql" className="pt-3">
+                                <div className="flex gap-2 mb-3">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handleCopyToClipboard(String(widget.data?.sql ?? ""))}
+                                    >
+                                        <Copy className="h-4 w-4 mr-2" /> Copy SQL
+                                    </Button>
+                                </div>
+                                <pre className="rounded-lg border bg-muted/20 p-3 text-xs overflow-auto max-h-[420px]">
+                                    <code>{String(widget.data?.sql ?? "—")}</code>
+                                </pre>
+                            </TabsContent>
+                        </Tabs>
+                    </DialogContent>
+                </Dialog>
+                </>
             )}
         </Rnd>
         </motion.div>

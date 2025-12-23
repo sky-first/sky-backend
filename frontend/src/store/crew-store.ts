@@ -38,7 +38,7 @@ export const useCrewStore = create<CrewState>()(
             fetchCrews: async (params) => {
                 set({ isLoading: true, error: null })
                 try {
-                    const crews = await crewsApi.listCrews()
+                    const crews = await crewsApi.listCrews(params)
                     set({ 
                         crews,
                         isLoading: false 

@@ -186,7 +186,8 @@ export function ContextBreadcrumb() {
                 <div className="relative">
                     <div className={cn(
                         "flex items-center rounded-md overflow-hidden",
-                        "h-6",
+                        // Match Sky/Share button height (h-8)
+                        "h-8",
                         "border",
                         isDark 
                             ? "border-white/10 bg-gray-800/30" 
@@ -198,7 +199,7 @@ export function ContextBreadcrumb() {
                             onClick={() => handleModeToggle('personal')}
                             disabled={!currentPlanet || isUpdatingMode}
                             className={cn(
-                                "relative px-2.5 py-0.5 text-sm font-semibold transition-all duration-200",
+                                "relative px-3 py-1 text-sm font-semibold transition-all duration-200",
                                 "h-full flex items-center justify-center text-white",
                                 isPersonal
                                     ? ""
@@ -234,7 +235,7 @@ export function ContextBreadcrumb() {
                         
                         {/* Divider */}
                         <div className={cn(
-                            "w-px h-3",
+                            "w-px h-4",
                             isDark ? "bg-white/8" : "bg-gray-300/60"
                         )} />
                         
@@ -243,7 +244,7 @@ export function ContextBreadcrumb() {
                             onClick={() => handleModeToggle('team')}
                             disabled={!currentPlanet || isUpdatingMode}
                             className={cn(
-                                "relative px-2.5 py-0.5 text-sm font-semibold transition-all duration-200",
+                                "relative px-3 py-1 text-sm font-semibold transition-all duration-200",
                                 "h-full flex items-center justify-center text-white",
                                 isCollaborative
                                     ? ""

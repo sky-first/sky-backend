@@ -35,6 +35,7 @@ function DashboardContent() {
     const router = useRouter()
     // Normalize dashboardId param so values like "null"/"undefined"/empty don't trigger invalid requests
     const rawDashboardId = searchParams.get('id')
+    const buildJobId = searchParams.get('job_id')
     const dashboardId = useMemo(() => {
         const normalized = rawDashboardId?.trim()
         return normalized && normalized !== 'null' && normalized !== 'undefined' ? normalized : null
@@ -350,6 +351,42 @@ function DashboardContent() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dashboardId, currentPlanet?.id])
+
+    // If we navigated here from an async build job, poll status and refresh widgets progressively.
+    useEffect(() => {
+        if (!dashboardId || !buildJobId) return
+        let cancelled = false
+        const tick = async () => {
+            try {
+                const st = await dashboardsApi.getDashboardBuildJob(buildJobId)
+                if (cancelled) return
+                if (st.status === "failed" || st.status === "cancelled") {
+                    setError(st.error || "Dashboard build failed.")
+                    cancelled = true
+                    return
+                }
+                if (st.status === "queued" || st.status === "running") {
+                    await loadWidgets(dashboardId, true)
+                } else {
+                    // Final refresh
+                    await loadWidgets(dashboardId, true)
+                    // Clean URL (remove job_id) to stop polling
+                    router.replace(`/dashboard?id=${dashboardId}`)
+                    cancelled = true
+                }
+            } catch (e) {
+                // Stop polling on error; keep dashboard visible.
+                setError(e instanceof Error ? e.message : "Failed to fetch dashboard build status.")
+                cancelled = true
+            }
+        }
+        const id = setInterval(() => void tick(), 1500)
+        void tick()
+        return () => {
+            cancelled = true
+            clearInterval(id)
+        }
+    }, [dashboardId, buildJobId, loadWidgets, router])
 
     // Log widgets rendering (only in development, must be before any conditional returns to maintain hook order)
     useEffect(() => {

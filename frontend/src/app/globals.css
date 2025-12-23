@@ -3,6 +3,33 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Tailwind v4 does NOT scan node_modules by default.
+   Tremor generates Tailwind class names inside its dist bundle (e.g. fill-blue-500).
+   We must explicitly include Tremor as a source so those utility classes are generated. */
+@source "../../node_modules/@tremor/react/dist";
+/* Some Tremor color class names are constructed dynamically (e.g. `fill-${color}-500`),
+   so the scanner may not see the exact strings. We safelist the palette we use. */
+@source inline("fill-blue-500 fill-blue-400 stroke-blue-500 stroke-blue-400 fill-cyan-500 stroke-cyan-500 fill-violet-500 stroke-violet-500 fill-emerald-500 stroke-emerald-500 fill-amber-500 stroke-amber-500 fill-rose-500 stroke-rose-500");
+
+/* Dashboard chart theme: match the light gray + blue style in the reference. */
+.tremor-blue-theme :where(.recharts-cartesian-axis-tick-value) {
+  fill: rgb(100 116 139) !important; /* slate-500 */
+  font-size: 10px !important;
+  font-weight: 500 !important;
+}
+.tremor-blue-theme :where(.recharts-cartesian-axis line) {
+  stroke: rgba(148, 163, 184, 0.35) !important; /* slate-400/35 */
+}
+.tremor-blue-theme :where(.recharts-cartesian-grid line) {
+  stroke: rgba(148, 163, 184, 0.25) !important;
+}
+.tremor-blue-theme :where(.recharts-legend-item-text) {
+  fill: rgb(100 116 139) !important;
+}
+.tremor-blue-theme :where(.recharts-label) {
+  fill: rgb(100 116 139) !important;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

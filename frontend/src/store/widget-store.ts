@@ -67,18 +67,56 @@ const apiToStoreWidget = (apiWidget: ApiWidget): Widget => ({
     title: apiWidget.title || '',
     position: apiWidget.position || { x: 0, y: 0 },
     size: apiWidget.size || { width: 400, height: 300 },
-    data: apiWidget.config || {},
+    // Backend stores runtime results in `data` and visualization/styling in `config`.
+    // The UI expects a single `widget.data` object, so we merge both.
+    data: { ...(apiWidget.data || {}), ...(apiWidget.config || {}) },
     dashboard_id: apiWidget.dashboard_id,
 })
 
 // Helper to convert store widget to API widget create
-const storeToApiWidgetCreate = (storeWidget: Omit<Widget, 'id'>, dashboardId: string): WidgetCreate => ({
-    type: storeWidget.type,
-    title: storeWidget.title,
-    position: storeWidget.position,
-    size: storeWidget.size,
-    config: storeWidget.data, // Map data to config
-})
+const storeToApiWidgetCreate = (storeWidget: Omit<Widget, 'id'>, dashboardId: string): WidgetCreate => {
+    // Validate required fields
+    if (!storeWidget.type) {
+        throw new Error('Widget type is required')
+    }
+    if (!storeWidget.title || storeWidget.title.trim() === '') {
+        throw new Error('Widget title is required and cannot be empty')
+    }
+    if (!storeWidget.position || typeof storeWidget.position.x !== 'number' || typeof storeWidget.position.y !== 'number') {
+        throw new Error('Widget position is required and must have x and y coordinates')
+    }
+    if (!storeWidget.size || typeof storeWidget.size.width !== 'number' || typeof storeWidget.size.height !== 'number') {
+        throw new Error('Widget size is required and must have width and height')
+    }
+    
+    // Ensure position and size are numbers (convert to float if needed)
+    const position = {
+        x: Number(storeWidget.position.x),
+        y: Number(storeWidget.position.y)
+    }
+    
+    const size = {
+        width: Number(storeWidget.size.width),
+        height: Number(storeWidget.size.height)
+    }
+    
+    // Validate that conversion was successful
+    if (isNaN(position.x) || isNaN(position.y)) {
+        throw new Error('Widget position must be valid numbers')
+    }
+    if (isNaN(size.width) || isNaN(size.height)) {
+        throw new Error('Widget size must be valid numbers')
+    }
+    
+    return {
+        type: storeWidget.type,
+        title: storeWidget.title.trim(),
+        position: position,
+        size: size,
+        config: storeWidget.data, // Map data to config
+        dashboard_id: dashboardId, // Required by backend schema
+    }
+}
 
 // Debounce helper for update operations
 let updateTimeout: NodeJS.Timeout | null = null
@@ -148,7 +186,25 @@ export const useWidgetStore = create<WidgetState>()(
 
                 set({ isLoading: true, error: null })
                 try {
+                    // Log widget data for debugging
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('[WidgetStore] Creating widget with data:', {
+                            type: widget.type,
+                            title: widget.title,
+                            hasPosition: !!widget.position,
+                            hasSize: !!widget.size,
+                            position: widget.position,
+                            size: widget.size
+                        })
+                    }
+                    
                     const apiData = storeToApiWidgetCreate(widget, targetDashboardId)
+                    
+                    // Log API data for debugging
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('[WidgetStore] Sending to API:', apiData)
+                    }
+                    
                     const apiWidget = await dashboardsApi.createWidget(targetDashboardId, apiData)
                     const storeWidget = apiToStoreWidget(apiWidget)
                     

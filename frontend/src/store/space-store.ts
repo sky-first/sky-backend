@@ -55,9 +55,16 @@ export const useSpaceStore = create<SpaceState>()(
                 set({ isLoading: true, error: null })
                 try {
                     const spaces = await spacesApi.listSpaces(params)
-                    set({ 
+                    const currentSpace = get().currentSpace
+                    const resolvedCurrentSpace =
+                        currentSpace && spaces.some(s => s.id === currentSpace.id)
+                            ? currentSpace
+                            : (spaces[0] || null)
+
+                    set({
                         spaces,
-                        isLoading: false 
+                        currentSpace: resolvedCurrentSpace,
+                        isLoading: false,
                     })
                 } catch (error) {
                     console.error('Error fetching spaces:', error)

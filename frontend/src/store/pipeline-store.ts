@@ -1,5 +1,7 @@
 import { create } from "zustand"
 import { aiApi, type PipelineResponse, type PipelineStepResponse, type ChatMessageResponse } from '@/lib/api/ai'
+import { usePlanetStore } from "@/store/planet-store"
+import { useSpaceStore } from "@/store/space-store"
 
 export type PipelineStepStatus = "COMPLETED" | "PROCESSING" | "PENDING" | "ERROR"
 
@@ -132,6 +134,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   openForWidget: async ({ widgetId, question, answer }) => {
     set({ isLoading: true, error: null })
     try {
+      const isPersonal = usePlanetStore.getState().currentPlanet?.type === "personal"
+      const spaceId = useSpaceStore.getState().currentSpace?.id
       // Process query to get initial response
       const queryResponse = await aiApi.query({
         question,
@@ -146,6 +150,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           knowledge: get().configureData.knowledge,
           sql_instructions: get().configureData.sqlInstructions,
         },
+        space_id: spaceId,
+        is_personal: isPersonal,
       })
 
       const initialMessage: ChatMessage = {
@@ -288,6 +294,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   processQuery: async (question, widgetId) => {
     set({ isLoading: true, error: null })
     try {
+      const isPersonal = usePlanetStore.getState().currentPlanet?.type === "personal"
+      const spaceId = useSpaceStore.getState().currentSpace?.id
       const response = await aiApi.query({
         question,
         widget_id: widgetId,
@@ -301,6 +309,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           knowledge: get().configureData.knowledge,
           sql_instructions: get().configureData.sqlInstructions,
         },
+        space_id: spaceId,
+        is_personal: isPersonal,
       })
 
       set({

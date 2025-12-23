@@ -47,9 +47,20 @@ export default function LoginPage() {
         setIsLoading(true)
         
         try {
-            console.log("[Login] Attempting login for:", email)
+            // In some environments (e.g. hydration quirks / automation), the controlled state
+            // can fail to reflect the latest input value. Fallback to reading from the form.
+            const form = e.target as HTMLFormElement
+            const emailFromDom =
+                (form?.querySelector?.('input#email') as HTMLInputElement | null)?.value ?? ""
+            const passwordFromDom =
+                (form?.querySelector?.('input#password') as HTMLInputElement | null)?.value ?? ""
+
+            const effectiveEmail = email || emailFromDom
+            const effectivePassword = password || passwordFromDom
+
+            console.log("[Login] Attempting login for:", effectiveEmail)
             console.log("[Login] API URL:", process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1")
-            const response = await authApi.login({ email, password })
+            const response = await authApi.login({ email: effectiveEmail, password: effectivePassword })
             console.log("[Login] Login successful:", { userId: response.user.id, email: response.user.email })
             
             // Verify response structure

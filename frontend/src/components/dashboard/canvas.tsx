@@ -153,7 +153,8 @@ export function Canvas({ children }: { children: React.ReactNode }) {
         <div
             data-tour="canvas"
             className={cn(
-                "w-full h-full overflow-hidden bg-secondary/20 relative cursor-grab active:cursor-grabbing transition-all duration-300",
+                // Dashboard canvas should be fully white (Tremor demo style)
+                "w-full h-full overflow-hidden bg-white relative cursor-grab active:cursor-grabbing",
                 isSidebarOpen && "pointer-events-none"
             )}
             onWheel={handleWheel}

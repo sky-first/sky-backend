@@ -1,0 +1,18 @@
+'Log files:
+/Users/thedatafirst/skyfirst/poc-02/frontend/.npm-cache/_logs/2025-12-22T10_54_12_920Z-debug-0.log
+
+# npm resolution error report
+
+While resolving: ai-saas-dashboard@0.1.0
+Found: react@19.2.0
+node_modules/react
+  react@"19.2.0" from the root project
+
+Could not resolve dependency:
+peer react@"^18.0.0" from @tremor/react@3.18.7
+node_modules/@tremor/react
+  @tremor/react@"*" from the root project
+
+Fix the upstream dependency conflict, or retry
+this command with --force or --legacy-peer-deps
+to accept an incorrect (and potentially broken) dependency resolution.

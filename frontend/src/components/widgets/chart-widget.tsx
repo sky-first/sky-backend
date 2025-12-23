@@ -1,224 +1,325 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { 
-    ResponsiveContainer, 
-    AreaChart, 
-    Area, 
-    BarChart,
-    Bar,
-    LineChart,
-    Line,
-    PieChart,
-    Pie,
+import { useMemo } from "react"
+import { AreaChart, BarChart, DonutChart, LineChart, ScatterChart } from "@tremor/react"
+import {
+    ResponsiveContainer,
+    BarChart as RBarChart,
+    Bar as RBar,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip as RTooltip,
     Cell,
-    ScatterChart,
-    Scatter,
-    XAxis, 
-    YAxis, 
-    CartesianGrid, 
-    Tooltip,
-    Legend
 } from "recharts"
-import { useTheme } from "next-themes"
-
-const data = [
-    { name: 'Jan', value: 4000 },
-    { name: 'Feb', value: 3000 },
-    { name: 'Mar', value: 2000 },
-    { name: 'Apr', value: 2780 },
-    { name: 'May', value: 1890 },
-    { name: 'Jun', value: 2390 },
-    { name: 'Jul', value: 3490 },
-]
-
-const pieData = [
-    { name: 'Category A', value: 400 },
-    { name: 'Category B', value: 300 },
-    { name: 'Category C', value: 300 },
-    { name: 'Category D', value: 200 },
-]
-
-const scatterData = [
-    { x: 100, y: 200 },
-    { x: 120, y: 100 },
-    { x: 170, y: 300 },
-    { x: 140, y: 250 },
-    { x: 150, y: 400 },
-    { x: 110, y: 280 },
-]
-
-const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00ff00', '#ff00ff']
+import { ChartTooltip } from "@/components/widgets/chart-tooltip"
 
 interface ChartWidgetProps {
-    chartType?: 'bar' | 'pie' | 'line' | 'scatter' | 'area'
+    chartType?: 'bar' | 'column' | 'pie' | 'line' | 'scatter' | 'area'
     data?: any[]
     labels?: string[]
     series?: number[]
+    mapping?: { x?: string; y?: string }
 }
 
 export function ChartWidget({ 
     chartType = 'bar',
     data: customData,
     labels,
-    series
+    series,
+    mapping,
 }: ChartWidgetProps) {
-    const { theme } = useTheme()
-    const isDark = theme === 'dark'
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
-    
-    // Force ResponsiveContainer to recalculate dimensions
-    useEffect(() => {
-        const updateDimensions = () => {
-            if (containerRef.current) {
-                const { width, height } = containerRef.current.getBoundingClientRect()
-                if (width > 0 && height > 0) {
-                    setDimensions({ width, height })
-                }
-            }
-        }
-        
-        updateDimensions()
-        
-        // Use ResizeObserver to detect size changes
-        const resizeObserver = new ResizeObserver(updateDimensions)
-        if (containerRef.current) {
-            resizeObserver.observe(containerRef.current)
-        }
-        
-        // Also update on window resize
-        window.addEventListener('resize', updateDimensions)
-        
-        // Small delay to ensure DOM is ready
-        const timeout = setTimeout(updateDimensions, 100)
-        
-        return () => {
-            resizeObserver.disconnect()
-            window.removeEventListener('resize', updateDimensions)
-            clearTimeout(timeout)
-        }
-    }, [chartType])
+    const colors = useMemo(
+        () => ["blue", "cyan", "violet", "emerald", "amber", "rose"],
+        []
+    )
 
-    // Use custom data if provided, otherwise use default
-    const chartData = customData || data
-    const chartLabels = labels || chartData.map((d: any) => d.name || d.x)
+    // Blue gradient palette (light -> deep), matching the reference style.
+    const blueShades = useMemo(
+        () => ["#93c5fd", "#60a5fa", "#3b82f6", "#2563eb", "#1d4ed8", "#1e40af"],
+        []
+    )
 
-    const tooltipStyle = {
-        backgroundColor: isDark ? "#1f2937" : "#fff",
-        border: "none",
-        borderRadius: "8px",
-        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)"
+    const hexToRgb = (hex: string) => {
+        const raw = hex.replace("#", "").trim()
+        const h = raw.length === 3 ? raw.split("").map((c) => c + c).join("") : raw
+        const n = parseInt(h, 16)
+        const r = (n >> 16) & 255
+        const g = (n >> 8) & 255
+        const b = n & 255
+        return { r, g, b }
     }
 
-    const axisStyle = {
-        stroke: isDark ? "#888" : "#666",
-        fontSize: 12,
-        tickLine: false,
-        axisLine: false,
+    const rgba = (hex: string, a: number) => {
+        const { r, g, b } = hexToRgb(hex)
+        return `rgba(${r}, ${g}, ${b}, ${a})`
     }
 
-    const renderChart = () => {
-        switch (chartType) {
-            case 'bar':
-                return (
-                    <BarChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#333" : "#eee"} vertical={false} />
-                        <XAxis dataKey="name" {...axisStyle} />
-                        <YAxis {...axisStyle} />
-                        <Tooltip contentStyle={tooltipStyle} />
-                        <Bar dataKey="value" fill="#8884d8" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                )
+    const formatNumber = (n: number) => {
+        // Compact-ish formatting without being too aggressive
+        if (!isFinite(n)) return String(n)
+        const abs = Math.abs(n)
+        if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
+        if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+        if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+        // preserve small decimals
+        if (Math.abs(n) > 0 && Math.abs(n) < 1) return n.toFixed(3)
+        return n.toLocaleString()
+    }
 
-            case 'line':
-                return (
-                    <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#333" : "#eee"} vertical={false} />
-                        <XAxis dataKey="name" {...axisStyle} />
-                        <YAxis {...axisStyle} />
-                        <Tooltip contentStyle={tooltipStyle} />
-                        <Line 
-                            type="monotone" 
-                            dataKey="value" 
-                            stroke="#8884d8" 
-                            strokeWidth={2}
-                            dot={{ fill: "#8884d8", r: 4 }}
-                            activeDot={{ r: 6 }}
-                        />
-                    </LineChart>
-                )
+    const valueFormatter = (value: any) => {
+        if (typeof value === "number") return formatNumber(value)
+        if (typeof value === "string" && value.trim() && !isNaN(Number(value))) {
+            return formatNumber(Number(value))
+        }
+        return String(value ?? "")
+    }
 
-            case 'pie':
-                return (
-                    <PieChart>
-                        <Pie
-                            data={pieData}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(0)}%`}
-                            outerRadius={80}
-                            fill="#8884d8"
-                            dataKey="value"
-                        >
-                            {pieData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                            ))}
-                        </Pie>
-                        <Tooltip contentStyle={tooltipStyle} />
-                        <Legend />
-                    </PieChart>
-                )
+    const chartData = useMemo(() => {
+        // If customData is provided and is an array, use it
+        if (Array.isArray(customData) && customData.length) return customData
+        
+        // If labels and series are provided, convert them to chart data format
+        if (labels && series && Array.isArray(labels) && Array.isArray(series) && labels.length > 0 && series.length > 0) {
+            const maxLength = Math.min(labels.length, series.length)
+            return labels.slice(0, maxLength).map((label, index) => ({
+                name: String(label),
+                value: typeof series[index] === 'number' ? series[index] : Number(series[index]) || 0
+            }))
+        }
+        
+        return []
+    }, [customData, labels, series])
 
-            case 'scatter':
-                return (
-                    <ScatterChart margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#333" : "#eee"} />
-                        <XAxis type="number" dataKey="x" name="X" {...axisStyle} />
-                        <YAxis type="number" dataKey="y" name="Y" {...axisStyle} />
-                        <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={tooltipStyle} />
-                        <Scatter name="Data" data={scatterData} fill="#8884d8" />
-                    </ScatterChart>
-                )
+    const inferred = useMemo(() => {
+        const first = chartData?.[0]
+        const keys = first && typeof first === "object" ? Object.keys(first) : []
 
-            case 'area':
-            default:
-                return (
-                    <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+        const xKey =
+            mapping?.x ||
+            (keys.includes("name") ? "name" : keys.includes("x") ? "x" : keys[0])
+        const yKey =
+            mapping?.y ||
+            (keys.includes("value") ? "value" : keys.includes("y") ? "y" : keys[1])
+
+        // ScatterChart requires a "category" field for coloring/legend.
+        // Prefer an existing categorical column; otherwise fall back to xKey.
+        const categoryKey =
+            keys.includes("category")
+                ? "category"
+                : keys.includes("group")
+                    ? "group"
+                    : keys.includes("type")
+                        ? "type"
+                        : (() => {
+                              const candidates = keys.filter((k) => k !== xKey && k !== yKey)
+                              const firstStringish = candidates.find((k) => {
+                                  const v = (first as any)?.[k]
+                                  return typeof v === "string"
+                              })
+                              return firstStringish || xKey || "category"
+                          })()
+
+        return {
+            xKey: xKey || "name",
+            yKey: yKey || "value",
+            categoryKey,
+        }
+    }, [chartData, mapping?.x, mapping?.y])
+
+    if (!chartData.length) {
+        return (
+            <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
+                No data yet.
+            </div>
+        )
+    }
+
+    const index = inferred.xKey
+    const category = inferred.yKey
+    const scatterCategory = inferred.categoryKey
+
+    // Normalize type names coming from the AI planner/backend.
+    const normalizedType = (chartType === "column" ? "bar" : chartType)
+
+    if (chartType === "pie") {
+        return (
+            <div className="w-full h-full min-h-[180px] min-w-0 tremor-blue-theme">
+                <DonutChart
+                    data={chartData}
+                    category={category}
+                    index={index}
+                    // Per-slice blue gradient palette (each slice a different blue).
+                    colors={blueShades}
+                    valueFormatter={valueFormatter}
+                    showAnimation
+                    showTooltip
+                    customTooltip={(props: any) => (
+                        <ChartTooltip {...props} valueFormatter={valueFormatter} />
+                    )}
+                    className="h-full min-h-[180px]"
+                />
+            </div>
+        )
+    }
+
+    if (normalizedType === "scatter") {
+        return (
+            <div className="w-full h-full min-h-[180px] min-w-0 tremor-blue-theme">
+                <ScatterChart
+                    data={chartData}
+                    x={index}
+                    y={category}
+                    category={scatterCategory}
+                    colors={["blue"]}
+                    valueFormatter={{
+                        x: valueFormatter,
+                        y: valueFormatter,
+                    }}
+                    showAnimation
+                    showTooltip
+                    customTooltip={(props: any) => (
+                        <ChartTooltip {...props} valueFormatter={valueFormatter} />
+                    )}
+                    showLegend={false}
+                    showGridLines={false}
+                    yAxisWidth={72}
+                    className="h-full min-h-[180px]"
+                />
+            </div>
+        )
+    }
+
+    if (normalizedType === "line") {
+        return (
+            <div className="w-full h-full min-h-[180px] min-w-0 tremor-blue-theme">
+                <LineChart
+                    data={chartData}
+                    index={index}
+                    categories={[category]}
+                    colors={["blue"]}
+                    valueFormatter={valueFormatter}
+                    showLegend={false}
+                    showAnimation
+                    showGridLines={false}
+                    showTooltip
+                    customTooltip={(props: any) => (
+                        <ChartTooltip {...props} valueFormatter={valueFormatter} />
+                    )}
+                    curveType="monotone"
+                    yAxisWidth={56}
+                    padding={{ left: 0, right: 8 }}
+                    tickGap={8}
+                    className="h-full min-h-[180px]"
+                />
+            </div>
+        )
+    }
+
+    if (normalizedType === "area") {
+        return (
+            <div className="w-full h-full min-h-[180px] min-w-0 tremor-blue-theme">
+                <AreaChart
+                    data={chartData}
+                    index={index}
+                    categories={[category]}
+                    colors={["blue"]}
+                    valueFormatter={valueFormatter}
+                    showLegend={false}
+                    showAnimation
+                    showGradient
+                    showGridLines={false}
+                    showTooltip
+                    customTooltip={(props: any) => (
+                        <ChartTooltip {...props} valueFormatter={valueFormatter} />
+                    )}
+                    curveType="monotone"
+                    yAxisWidth={56}
+                    padding={{ left: 0, right: 8 }}
+                    tickGap={8}
+                    className="h-full min-h-[180px]"
+                />
+            </div>
+        )
+    }
+
+    // Column/Bar: per-bar blue shades (and subtle vertical gradient inside each bar)
+    if (normalizedType === "bar") {
+        const gradientIds = chartData.map((_, i) => `bar-blue-grad-${i}`)
+        return (
+            <div className="w-full h-full min-h-[180px] min-w-0 tremor-blue-theme">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                    <RBarChart data={chartData} margin={{ top: 8, right: 10, left: 0, bottom: 8 }}>
                         <defs>
-                            <linearGradient id="colorUv" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8} />
-                                <stop offset="95%" stopColor="#8884d8" stopOpacity={0} />
-                            </linearGradient>
+                            {chartData.map((_, i) => {
+                                const base = blueShades[i % blueShades.length]
+                                return (
+                                    <linearGradient key={gradientIds[i]} id={gradientIds[i]} x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor={rgba(base, 0.95)} />
+                                        <stop offset="100%" stopColor={rgba(base, 0.65)} />
+                                    </linearGradient>
+                                )
+                            })}
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#333" : "#eee"} vertical={false} />
-                        <XAxis dataKey="name" {...axisStyle} />
-                        <YAxis {...axisStyle} />
-                        <Tooltip contentStyle={tooltipStyle} />
-                        <Area
-                            type="monotone"
-                            dataKey="value"
-                            stroke="#8884d8"
-                            fillOpacity={1}
-                            fill="url(#colorUv)"
+
+                        <CartesianGrid vertical={false} stroke="rgba(148,163,184,0.25)" />
+                        <XAxis
+                            dataKey={index}
+                            tick={{ fill: "rgb(100 116 139)", fontSize: 10 }}
+                            axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
+                            tickLine={false}
+                            interval="preserveStartEnd"
+                            minTickGap={16}
                         />
-                    </AreaChart>
-                )
-        }
+                        <YAxis
+                            width={56}
+                            tick={{ fill: "rgb(100 116 139)", fontSize: 10 }}
+                            axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
+                            tickLine={false}
+                        />
+                        <RTooltip
+                            cursor={{ fill: "rgba(148,163,184,0.08)" }}
+                            content={(props: any) => (
+                                <ChartTooltip {...props} valueFormatter={valueFormatter} />
+                            )}
+                        />
+
+                        <RBar
+                            dataKey={category}
+                            radius={[10, 10, 6, 6]}
+                            maxBarSize={40}
+                            isAnimationActive
+                        >
+                            {chartData.map((_, i) => (
+                                <Cell key={`cell-${i}`} fill={`url(#${gradientIds[i]})`} />
+                            ))}
+                        </RBar>
+                    </RBarChart>
+                </ResponsiveContainer>
+            </div>
+        )
     }
 
     return (
-        <div ref={containerRef} className="w-full h-full min-w-0 min-h-0" style={{ minWidth: '200px', minHeight: '150px' }}>
-            {dimensions.width > 0 && dimensions.height > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                    {renderChart()}
-                </ResponsiveContainer>
-            ) : (
-                <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
-                    Loading chart...
-                </div>
-            )}
+        <div className="w-full h-full tremor-blue-theme">
+            <BarChart
+                data={chartData}
+                index={index}
+                categories={[category]}
+                colors={["blue"]}
+                valueFormatter={valueFormatter}
+                showLegend={false}
+                showAnimation
+                showGridLines={false}
+                showTooltip
+                customTooltip={(props: any) => (
+                    <ChartTooltip {...props} valueFormatter={valueFormatter} />
+                )}
+                yAxisWidth={56}
+                padding={{ left: 0, right: 8 }}
+                tickGap={8}
+                className="h-full"
+            />
         </div>
     )
 }

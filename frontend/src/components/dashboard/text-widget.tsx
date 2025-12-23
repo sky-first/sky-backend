@@ -144,7 +144,7 @@ export function TextWidget({ widget, isSelected, onUpdate, onSelect, onResize }:
         width: isEditing ? 'auto' : 'fit-content',
         minWidth: isEditing ? '100px' : 'auto',
         minHeight: 'auto',
-        padding: '4px 12px 4px 12px',
+        padding: '8px 12px',
         margin: 0,
         outline: 'none',
         border: 'none',
@@ -168,6 +168,8 @@ export function TextWidget({ widget, isSelected, onUpdate, onSelect, onResize }:
             data-text-widget
             className={cn(
                 "w-full h-full flex items-start",
+                "rounded-lg border border-transparent",
+                "hover:border-border/40",
                 isSelected && "ring-0"
             )}
             onDoubleClick={handleDoubleClick}
@@ -216,7 +218,11 @@ export function TextWidget({ widget, isSelected, onUpdate, onSelect, onResize }:
                     onKeyDown={handleKeyDown}
                     onMouseDown={(e) => e.stopPropagation()}
                     style={textStyle}
-                    className="resize-none text-widget-editable"
+                    className={cn(
+                        "resize-none text-widget-editable",
+                        "rounded-md",
+                        "outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    )}
                     placeholder=""
                 />
             ) : (
@@ -228,7 +234,7 @@ export function TextWidget({ widget, isSelected, onUpdate, onSelect, onResize }:
                     )}
                     onDoubleClick={handleDoubleClick}
                 >
-                    {content || "Clique para editar"}
+                    {content || "Double click to edit"}
                 </div>
             )}
         </div>
