@@ -1,0 +1,21 @@
+# env / secrets
+.env
+.env.*
+*.env
+*.env.*
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# venv
+venv/
+.venv/
+
+# mac
+.DS_Store
+
+# uploads (normalmente não versiona)
+uploads/
