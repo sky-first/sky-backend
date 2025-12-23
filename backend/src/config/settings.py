@@ -172,6 +172,10 @@ class Settings(BaseSettings):
         default="http://localhost:8001",
         description="URL of the AI service (ia-do-projeto)",
     )
+    AI_METADATA_TTL_SECONDS: int = Field(
+        default=21600,
+        description="TTL (seconds) for AI table metadata before re-discover is triggered. 0 disables staleness checks.",
+    )
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4"
     ANTHROPIC_API_KEY: str = ""
@@ -180,6 +184,29 @@ class Settings(BaseSettings):
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_PER_HOUR: int = 1000
+
+    @model_validator(mode="after")
+    def apply_environment_defaults(self):
+        """
+        Apply safer defaults for large-app development without impacting production.
+
+        - In production: default to 60/min and 1000/hour unless explicitly set via env vars.
+        - In development: keep rate limit enabled, but raise limits to avoid dev/HMR/test storms.
+        """
+        import os
+
+        is_prod = self.ENVIRONMENT == "production"
+
+        # Only apply defaults when the env var is not explicitly set.
+        if os.getenv("RATE_LIMIT_PER_MINUTE") is None:
+            self.RATE_LIMIT_PER_MINUTE = 60 if is_prod else 600
+        if os.getenv("RATE_LIMIT_PER_HOUR") is None:
+            self.RATE_LIMIT_PER_HOUR = 1000 if is_prod else 10000
+        if os.getenv("RATE_LIMIT_ENABLED") is None:
+            # Keep enabled by default; can be disabled explicitly in env.
+            self.RATE_LIMIT_ENABLED = True
+
+        return self
 
     # Logging
     LOG_LEVEL: str = "INFO"

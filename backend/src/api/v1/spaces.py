@@ -1,5 +1,6 @@
 """Space endpoints."""
 
+import logging
 from typing import List
 from uuid import UUID
 
@@ -22,6 +23,7 @@ from src.schemas.space import (
 from src.services.space_service import SpaceService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get(
@@ -107,7 +109,20 @@ async def create_space(
         SpaceResponse: Created space
     """
     space_service = SpaceService(db)
-    return await space_service.create_space(current_user, space_data)
+    logger.info(
+        "[spaces:create] request user_id=%s name=%r description=%r",
+        str(current_user.id),
+        space_data.name,
+        getattr(space_data, "description", None),
+    )
+    space = await space_service.create_space(current_user, space_data)
+    logger.info(
+        "[spaces:create] created user_id=%s space_id=%s name=%r",
+        str(current_user.id),
+        str(space.id),
+        space.name,
+    )
+    return space
 
 
 @router.put(
@@ -137,7 +152,20 @@ async def update_space(
         SpaceResponse: Updated space
     """
     space_service = SpaceService(db)
-    return await space_service.update_space(space_id, current_user, space_data)
+    logger.info(
+        "[spaces:update] request user_id=%s space_id=%s updates=%s",
+        str(current_user.id),
+        str(space_id),
+        space_data.model_dump(exclude_unset=True),
+    )
+    space = await space_service.update_space(space_id, current_user, space_data)
+    logger.info(
+        "[spaces:update] updated user_id=%s space_id=%s name=%r",
+        str(current_user.id),
+        str(space.id),
+        space.name,
+    )
+    return space
 
 
 @router.delete(
@@ -165,7 +193,17 @@ async def delete_space(
         SuccessResponse: Success message
     """
     space_service = SpaceService(db)
+    logger.info(
+        "[spaces:delete] request user_id=%s space_id=%s",
+        str(current_user.id),
+        str(space_id),
+    )
     await space_service.delete_space(space_id, current_user)
+    logger.info(
+        "[spaces:delete] deleted user_id=%s space_id=%s",
+        str(current_user.id),
+        str(space_id),
+    )
     return SuccessResponse(message="Space deleted successfully")
 
 

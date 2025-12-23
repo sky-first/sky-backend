@@ -26,6 +26,10 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
     if not settings.RATE_LIMIT_ENABLED:
         return await call_next(request)
 
+    # Skip rate limiting for CORS preflight requests
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     # Skip rate limiting for health checks
     if request.url.path in ["/health", "/ready", "/live", "/metrics"]:
         return await call_next(request)
@@ -49,7 +53,7 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
             await redis.expire(minute_key, 60)
         if minute_count > settings.RATE_LIMIT_PER_MINUTE:
             logger.warning(f"Rate limit exceeded (minute): {identifier}")
-            return JSONResponse(
+            response = JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
                     "error": "Too Many Requests",
@@ -57,6 +61,12 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
                 },
                 headers={"Retry-After": "60"},
             )
+            origin = request.headers.get("Origin")
+            if origin and origin in settings.cors_origins_list:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers.add_vary_header("Origin")
+            return response
 
         # Per-hour limit
         hour_key = f"rate_limit:hour:{identifier}"
@@ -65,7 +75,7 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
             await redis.expire(hour_key, 3600)
         if hour_count > settings.RATE_LIMIT_PER_HOUR:
             logger.warning(f"Rate limit exceeded (hour): {identifier}")
-            return JSONResponse(
+            response = JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
                     "error": "Too Many Requests",
@@ -73,6 +83,12 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
                 },
                 headers={"Retry-After": "3600"},
             )
+            origin = request.headers.get("Origin")
+            if origin and origin in settings.cors_origins_list:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers.add_vary_header("Origin")
+            return response
 
         response = await call_next(request)
 

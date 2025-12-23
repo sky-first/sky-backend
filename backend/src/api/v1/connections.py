@@ -1,13 +1,15 @@
 """Connection endpoints."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
+from src.ai.http_client import AIServiceHTTPClient
 from src.models.user import User
+from src.repositories.crew import CrewMemberRepository
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.connection import (
     ConnectionCreate,
@@ -23,6 +25,15 @@ from src.schemas.connection import (
 from src.services.connection_service import ConnectionService
 
 router = APIRouter()
+
+async def _resolve_user_crew_ids(db: AsyncSession, user_id: UUID, space_id: UUID) -> List[str]:
+    """
+    Resolve crew_ids for the current user in a given space.
+    Mirrors the logic used by AIService.process_query to keep permissions consistent.
+    """
+    repo = CrewMemberRepository(db)
+    crew_ids = await repo.get_crew_ids_by_user_and_space(user_id=user_id, space_id=space_id)
+    return [str(cid) for cid in crew_ids]
 
 
 @router.get(
@@ -371,4 +382,109 @@ async def validate_connection(
     """
     connection_service = ConnectionService(db)
     return await connection_service.validate_connection(connection_id, current_user)
+
+
+@router.get(
+    "/{connection_id}/ai/catalog/status",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get AI catalog status",
+    description="Proxy to AI Engine metadata-status for this connection",
+)
+async def get_ai_catalog_status(
+    connection_id: UUID,
+    space_id: str = Query(..., description="Space ID used by AI Engine"),
+    ttl_seconds: Optional[int] = Query(
+        None, ge=0, description="Override TTL (seconds) for AI metadata freshness check"
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    # Ensure user has access to this connection
+    connection_service = ConnectionService(db)
+    await connection_service.get_connection(connection_id, current_user)
+
+    client = AIServiceHTTPClient()
+    return await client.metadata_status(
+        connection_id=str(connection_id),
+        space_id=space_id,
+        ttl_seconds=ttl_seconds,
+    )
+
+
+@router.post(
+    "/{connection_id}/ai/catalog/refresh",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Refresh AI catalog",
+    description="Proxy to AI Engine discover for this connection",
+)
+async def refresh_ai_catalog(
+    connection_id: UUID,
+    space_id: str = Query(..., description="Space ID used by AI Engine"),
+    run_in_background: bool = Query(
+        True, description="If true, triggers discovery in background on AI Engine"
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    # Ensure user has access to this connection
+    connection_service = ConnectionService(db)
+    await connection_service.get_connection(connection_id, current_user)
+
+    client = AIServiceHTTPClient()
+    return await client.discover_connection(
+        connection_id=str(connection_id),
+        space_id=space_id,
+        run_in_background=run_in_background,
+    )
+
+
+@router.get(
+    "/{connection_id}/ai/catalog/tables",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="List AI catalog tables",
+    description="Proxy to AI Engine tables catalog for this connection",
+)
+async def list_ai_catalog_tables(
+    connection_id: UUID,
+    space_id: str = Query(..., description="Space ID used by AI Engine"),
+    is_personal: bool = Query(
+        False,
+        description="If true, AI Engine returns tables across all crews the user belongs to (personal mode)",
+    ),
+    crew_ids: Optional[List[str]] = Query(
+        None,
+        description="Optional explicit crew_ids filter. If omitted, backend resolves crews from membership.",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    # Ensure user has access to this connection
+    connection_service = ConnectionService(db)
+    await connection_service.get_connection(connection_id, current_user)
+
+    resolved_crew_ids = crew_ids
+    if resolved_crew_ids is None and not is_personal:
+        # In collaborative mode, default to user's crews in this space.
+        from uuid import UUID as UUIDType
+
+        resolved_crew_ids = await _resolve_user_crew_ids(
+            db=db,
+            user_id=current_user.id,
+            space_id=UUIDType(space_id),
+        )
+
+    client = AIServiceHTTPClient()
+    return await client.list_tables(
+        connection_id=str(connection_id),
+        space_id=space_id,
+        user_id=str(current_user.id),
+        crew_ids=resolved_crew_ids,
+        is_personal=is_personal,
+    )
 

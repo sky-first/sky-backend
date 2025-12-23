@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.models.crew import Crew
+from src.models.connection import DataConnection
 from src.models.space import Space, SpaceConnection, SpaceMember
 from src.repositories.base import BaseRepository
 
@@ -83,7 +84,13 @@ class SpaceRepository(BaseRepository[Space]):
             List[SpaceConnection]: List of space connections
         """
         result = await self.db.execute(
-            select(SpaceConnection).where(SpaceConnection.space_id == space_id)
+            # Filter out stale references (space_connections pointing to deleted/missing connections)
+            select(SpaceConnection)
+            .join(DataConnection, SpaceConnection.connection_id == DataConnection.id)
+            .where(
+                SpaceConnection.space_id == space_id,
+                DataConnection.deleted_at.is_(None),
+            )
         )
         return list(result.scalars().all())
 

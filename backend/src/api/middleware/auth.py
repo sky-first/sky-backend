@@ -7,6 +7,7 @@ from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from jose import JWTError
 
+from src.config.settings import settings
 from src.core.exceptions import UnauthorizedError
 from src.core.security import verify_token
 
@@ -26,10 +27,14 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     """
     # Log that middleware is executing
     logger.info(f"🚀 AUTH MIDDLEWARE START - Path: {request.url.path}, Method: {request.method}")
+
+    # Always allow CORS preflight requests through so CORSMiddleware can respond with 200.
+    # Browsers send OPTIONS without Authorization; blocking it causes "preflight not OK" errors.
+    if request.method == "OPTIONS":
+        return await call_next(request)
     
     # Skip auth for public endpoints
     public_paths = [
-        "/",
         "/health",
         "/ready",
         "/live",
@@ -45,6 +50,11 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/v1/auth/reset-password",
         "/api/v1/auth/verify-email",
     ]
+
+    # Root only (avoid "/" matching every path)
+    if request.url.path == "/":
+        logger.debug(f"⏭️ Skipping auth for root path: {request.url.path}")
+        return await call_next(request)
 
     if any(request.url.path.startswith(path) for path in public_paths):
         logger.debug(f"⏭️ Skipping auth for public path: {request.url.path}")
@@ -70,10 +80,17 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     
     if not authorization:
         logger.warning(f"⚠️ No authorization header for path: {request.url.path}")
-        return JSONResponse(
+        response = JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={"error": "Unauthorized", "message": "Missing authorization header"},
         )
+        # Ensure CORS headers are present even when we short-circuit before CORSMiddleware runs
+        origin = request.headers.get("Origin")
+        if origin and origin in settings.cors_origins_list:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers.add_vary_header("Origin")
+        return response
     
     logger.info(f"🔑 Authorization header found for path: {request.url.path}, value: {authorization[:50]}...")
 
@@ -82,10 +99,16 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         if scheme.lower() != "bearer":
             raise ValueError("Invalid authorization scheme")
     except ValueError:
-        return JSONResponse(
+        response = JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={"error": "Unauthorized", "message": "Invalid authorization header format"},
         )
+        origin = request.headers.get("Origin")
+        if origin and origin in settings.cors_origins_list:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers.add_vary_header("Origin")
+        return response
 
     try:
         # Check if user_id already set by dependency (get_current_user validates token first)

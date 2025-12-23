@@ -30,6 +30,10 @@ class AIQueryRequest(BaseModel):
     space_id: Optional[str] = Field(
         None, description="Space ID for the query context"
     )
+    is_personal: Optional[bool] = Field(
+        default=False,
+        description="Whether the query is in personal mode (access across all crews/spaces).",
+    )
 
 
 class AIQueryResponse(BaseModel):
@@ -182,4 +186,27 @@ class AnalyzeQuestionResponse(BaseModel):
     entities: List[str] = Field(default_factory=list)
     category: Optional[str] = None
     confidence: float = Field(ge=0.0, le=1.0)
+
+
+class ChatBootstrapSuggestion(BaseModel):
+    """Suggestion card shown when opening a new chat.
+
+    A suggestion can be either:
+    - a normal question card (kind='question'), which sends `question` to chat
+    - an action card (kind='action'), which triggers an in-app action (e.g. create dashboard)
+    """
+
+    title: str
+    kind: str = Field(default="question", pattern="^(question|action)$")
+    question: Optional[str] = None
+    action_id: Optional[str] = None
+    payload: Optional[Dict[str, Any]] = None
+
+
+class ChatBootstrapResponse(BaseModel):
+    """Greeting + suggestions for a new chat session."""
+
+    greeting: str
+    suggestions: List[ChatBootstrapSuggestion]
+    meta: Optional[Dict[str, Any]] = None
 

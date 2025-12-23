@@ -29,6 +29,8 @@ class RealAIService:
         space_id: str,
         crew_ids: Optional[List[str]] = None,
         thread_id: Optional[str] = None,
+        is_personal: Optional[bool] = None,
+        selected_datasets: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Process a query using the real AI service.
@@ -48,24 +50,58 @@ class RealAIService:
             Exception: If AI service call fails
         """
         try:
-            # Ensure metadata is available in the AI service before querying
+            # Avoid running discover on every query:
+            # 1) Ask AI service if metadata exists / is stale
+            # 2) Only trigger discover when needed
             try:
-                await self.http_client.discover_connection(
+                ttl = settings.AI_METADATA_TTL_SECONDS
+                status = await self.http_client.metadata_status(
                     connection_id=connection_id,
                     space_id=space_id,
+                    ttl_seconds=ttl,
                 )
+                should_discover = bool(status.get("should_discover"))
                 logger.info(
-                    "Triggered metadata discovery for connection %s in AI service",
+                    "AI metadata status: connection_id=%s space_id=%s should_discover=%s tables=%s rows=%s last_update=%s",
                     connection_id,
+                    space_id,
+                    should_discover,
+                    status.get("tables_discovered"),
+                    status.get("metadata_rows"),
+                    status.get("last_metadata_update"),
                 )
-            except Exception as discover_error:
-                # Discovery failure should not completely block the query;
-                # the AI service will still return a clear error if metadata is missing.
+
+                if should_discover:
+                    await self.http_client.discover_connection(
+                        connection_id=connection_id,
+                        space_id=space_id,
+                    )
+                    logger.info(
+                        "Triggered metadata discovery for connection %s in AI service (should_discover=True)",
+                        connection_id,
+                    )
+            except Exception as meta_check_error:
+                # If status endpoint fails, fall back to previous behavior (best-effort discover)
                 logger.warning(
-                    "Metadata discovery failed for connection %s: %s",
+                    "AI metadata status check failed for connection %s: %s. Falling back to best-effort discover.",
                     connection_id,
-                    str(discover_error),
+                    str(meta_check_error),
                 )
+                try:
+                    await self.http_client.discover_connection(
+                        connection_id=connection_id,
+                        space_id=space_id,
+                    )
+                    logger.info(
+                        "Triggered metadata discovery for connection %s in AI service (fallback)",
+                        connection_id,
+                    )
+                except Exception as discover_error:
+                    logger.warning(
+                        "Metadata discovery failed for connection %s: %s",
+                        connection_id,
+                        str(discover_error),
+                    )
 
             response = await self.http_client.query_connection(
                 connection_id=connection_id,
@@ -74,6 +110,8 @@ class RealAIService:
                 space_id=space_id,
                 crew_ids=crew_ids,
                 thread_id=thread_id,
+                is_personal=is_personal,
+                selected_datasets=selected_datasets,
             )
 
             # Map response from AI service to our format

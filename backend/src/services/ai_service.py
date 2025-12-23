@@ -74,6 +74,44 @@ class AIService:
             logger.error(f"Error getting first active connection: {str(e)}", exc_info=True)
             return None
 
+    async def _get_first_active_connection_for_space(
+        self, user_id: UUID, space_id: str
+    ) -> Optional[str]:
+        """
+        Prefer the first active connection that is linked to the given space.
+        Falls back to the general first active connection when none is linked.
+        """
+        try:
+            from uuid import UUID as UUIDType
+            from src.repositories.space import SpaceRepository
+
+            space_uuid = UUIDType(space_id)
+            space_repo = SpaceRepository(self.db)
+            space_links = await space_repo.get_space_connections(space_uuid)
+            allowed_ids = {str(link.connection_id) for link in space_links}
+
+            if not allowed_ids:
+                return await self._get_first_active_connection(user_id)
+
+            # get active connections for user and pick the first that is linked to the space
+            active = await self.connection_repo.get_by_user(
+                user_id, filters={"status": "active"}, limit=100
+            )
+            for c in active:
+                if str(c.id) in allowed_ids:
+                    logger.info(
+                        f"Using first active connection in space {space_id}: {c.id} ({c.name})"
+                    )
+                    return str(c.id)
+
+            return await self._get_first_active_connection(user_id)
+        except Exception as e:
+            logger.error(
+                f"Error getting first active connection for space {space_id}: {str(e)}",
+                exc_info=True,
+            )
+            return await self._get_first_active_connection(user_id)
+
     async def _resolve_connection_id_from_tables(
         self, table_names: List[str], user_id: UUID
     ) -> Optional[str]:
@@ -126,7 +164,13 @@ class AIService:
             logger.error(f"Error resolving connection_id from tables: {str(e)}", exc_info=True)
             return None
 
-    async def _get_user_crew_ids(self, user_id: UUID, space_id: Optional[str] = None) -> List[str]:
+    async def _get_user_crew_ids(
+        self,
+        user_id: UUID,
+        space_id: Optional[str] = None,
+        *,
+        all_spaces: bool = False,
+    ) -> List[str]:
         """
         Get crew IDs for a user in a specific space.
         
@@ -138,22 +182,27 @@ class AIService:
             List[str]: List of crew IDs as strings
         """
         try:
-            if not space_id:
-                # If no space_id provided, return empty list
-                # (user will only see global data, crew_id IS NULL)
-                return []
-            
             from uuid import UUID as UUIDType
-            space_uuid = UUIDType(space_id) if isinstance(space_id, str) else space_id
-            crew_ids = await self.crew_member_repo.get_crew_ids_by_user_and_space(
-                user_id, space_uuid
-            )
+
+            if all_spaces:
+                crew_ids = await self.crew_member_repo.get_crew_ids_by_user(user_id)
+            else:
+                if not space_id:
+                    # If no space_id provided, return empty list
+                    # (user will only see global data, crew_id IS NULL)
+                    return []
+
+                space_uuid = UUIDType(space_id) if isinstance(space_id, str) else space_id
+                crew_ids = await self.crew_member_repo.get_crew_ids_by_user_and_space(
+                    user_id, space_uuid
+                )
             
             # Convert UUIDs to strings for API
             crew_ids_str = [str(crew_id) for crew_id in crew_ids]
             
+            context_label = "(all spaces)" if all_spaces else f"in space {space_id}"
             logger.info(
-                f"User {user_id} has access to {len(crew_ids_str)} crews in space {space_id}: {crew_ids_str}"
+                f"User {user_id} has access to {len(crew_ids_str)} crews {context_label}: {crew_ids_str}"
             )
             
             return crew_ids_str
@@ -164,6 +213,39 @@ class AIService:
             )
             # Return empty list on error - user will only see global data
             return []
+
+    async def _resolve_space_id_for_connection(self, user_id: UUID, connection_id: str) -> Optional[str]:
+        """
+        Resolve a space_id context for a given connection_id.
+
+        In Personal mode, the frontend may not send a space_id. However, the AI engine
+        expects a space_id to scope metadata/permissions. This tries to find a space where:
+        - the user is a member, and
+        - the connection is linked to that space (space_connections).
+        """
+        try:
+            from uuid import UUID as UUIDType
+            from sqlalchemy import or_, select
+            from src.models.space import Space, SpaceConnection, SpaceMember
+
+            conn_uuid = UUIDType(connection_id)
+
+            stmt = (
+                select(SpaceConnection.space_id)
+                .join(Space, Space.id == SpaceConnection.space_id)
+                .outerjoin(SpaceMember, SpaceMember.space_id == SpaceConnection.space_id)
+                .where(SpaceConnection.connection_id == conn_uuid)
+                .where(or_(Space.created_by == user_id, SpaceMember.user_id == user_id))
+                .limit(1)
+            )
+            space_uuid = await self.db.scalar(stmt)
+            return str(space_uuid) if space_uuid else None
+        except Exception as e:
+            logger.error(
+                f"Error resolving space_id for connection {connection_id}: {str(e)}",
+                exc_info=True,
+            )
+            return None
 
     async def process_query(
         self, user_id: UUID, query_data: AIQueryRequest
@@ -226,19 +308,45 @@ class AIService:
                 
                 # If still no connection_id, try to get first active connection
                 if not connection_id:
-                    connection_id = await self._get_first_active_connection(user_id)
+                    space_id = getattr(query_data, "space_id", None)
+                    if space_id:
+                        connection_id = await self._get_first_active_connection_for_space(
+                            user_id, space_id
+                        )
+                    else:
+                        connection_id = await self._get_first_active_connection(user_id)
                     if connection_id:
                         logger.info(
                             f"No connection_id in knowledge, using first active connection: {connection_id}"
                         )
 
                 if connection_id:
-                    # Get space_id from query_data
-                    space_id = getattr(query_data, 'space_id', None)
+                    # Get space_id from query_data (may be missing in Personal mode)
+                    space_id = getattr(query_data, "space_id", None)
+                    if not space_id:
+                        space_id = await self._resolve_space_id_for_connection(user_id, connection_id)
                     
                     if space_id:
-                        # Get crew_ids for this user in this space
-                        crew_ids = await self._get_user_crew_ids(user_id, space_id)
+                        # Get crew_ids for this user (Personal mode => all crews across spaces)
+                        is_personal = bool(getattr(query_data, "is_personal", False))
+                        crew_ids = await self._get_user_crew_ids(
+                            user_id,
+                            space_id,
+                            all_spaces=is_personal,
+                        )
+                        # Forward user-selected datasets/tables to AI engine when present.
+                        # Frontend stores manual table selection in configure_data.knowledge.
+                        selected_datasets: Optional[List[str]] = None
+                        try:
+                            if configure_data.knowledge:
+                                table_names: List[str] = []
+                                for item in configure_data.knowledge:
+                                    # keep only non-UUIDs (UUIDs represent connection_id)
+                                    if isinstance(item, str) and not (len(item) == 36 and item.count("-") == 4):
+                                        table_names.append(item)
+                                selected_datasets = table_names or None
+                        except Exception:
+                            selected_datasets = None
                         
                         logger.info(
                             f"Calling real AI service with connection_id={connection_id}, "
@@ -251,6 +359,8 @@ class AIService:
                             space_id=space_id,
                             crew_ids=crew_ids if crew_ids else None,
                             thread_id=str(query.id),
+                            is_personal=is_personal,
+                            selected_datasets=selected_datasets,
                         )
 
                         # Update query with real AI results

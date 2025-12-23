@@ -124,3 +124,21 @@ class CrewMemberRepository(BaseRepository[CrewMember]):
         )
         return [row[0] for row in result.all()]
 
+    async def get_crew_ids_by_user(self, user_id: UUID) -> List[UUID]:
+        """
+        Get all crew IDs where user is a member (across all spaces).
+
+        This is especially useful for Personal mode, where the user can access
+        all crews they're associated with, regardless of the currently selected space.
+        """
+        result = await self.db.execute(
+            select(CrewMember.crew_id)
+            .join(Crew, CrewMember.crew_id == Crew.id)
+            .where(
+                CrewMember.user_id == user_id,
+                Crew.deleted_at.is_(None),
+            )
+            .distinct()
+        )
+        return [row[0] for row in result.all()]
+

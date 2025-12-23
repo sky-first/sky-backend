@@ -9,6 +9,7 @@ from src.models.connection import (
 )
 from src.models.crew import Crew, CrewMember
 from src.models.dashboard import Connection, Dashboard, Widget
+from src.models.dashboard_build_job import DashboardBuildJob
 from src.models.dataset import UserDataset
 from src.models.file import FileUpload
 from src.models.permission import APIKey, ConnectionPermission, Integration
@@ -25,6 +26,7 @@ __all__ = [
     "Dashboard",
     "Widget",
     "Connection",
+    "DashboardBuildJob",
     "DataConnection",
     "ConnectionMetadata",
     "TableMetadata",
