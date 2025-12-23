@@ -6,7 +6,8 @@
 
 # python
 __pycache__/
-*.pyc
+*.py[codz]
+*$py.class
 *.pyo
 *.pyd
 
@@ -17,5 +18,9 @@ venv/
 # mac
 .DS_Store
 
-# uploads (normalmente não versiona)
+# uploads (não versionar)
 uploads/
+
+# Cursor
+.cursorignore
+.cursorindexingignore
