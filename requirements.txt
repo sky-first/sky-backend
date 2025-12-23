@@ -1,0 +1,73 @@
+# FastAPI and server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Database
+# 2.0.25 breaks on Python 3.13 (typing AssertionError); bump to 2.0.31+
+sqlalchemy[asyncio]==2.0.36
+alembic==1.13.1
+asyncpg>=0.30.0
+psycopg2-binary
+aiosqlite==0.19.0
+
+# Redis
+redis==5.0.1
+hiredis==2.2.3
+
+# Queue
+celery==5.3.4
+flower==2.0.1
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+cryptography==42.0.2
+
+# Validation
+pydantic>=2.7.0
+pydantic-settings==2.1.0
+email-validator==2.1.0
+
+# HTTP Client
+httpx==0.26.0
+aiohttp==3.9.1
+
+# Storage
+boto3==1.34.28
+google-cloud-storage>=2.14.0
+
+# Database Connectors
+pymongo==4.6.1
+mysql-connector-python==8.3.0
+pymysql==1.1.0
+gspread==5.12.4
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+
+# Monitoring & Observability
+prometheus-client==0.19.0
+sentry-sdk==1.40.0
+structlog==24.1.0
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2024.1
+python-dotenv==1.0.0
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+httpx==0.26.0
+faker==22.0.0
+
+# Development
+black==24.1.1
+isort==5.13.2
+flake8==7.0.0
+mypy==1.8.0
+
+google-cloud-bigquery==3.25.0
