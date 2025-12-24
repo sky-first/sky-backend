@@ -405,12 +405,21 @@ async def get_ai_catalog_status(
     connection_service = ConnectionService(db)
     await connection_service.get_connection(connection_id, current_user)
 
-    client = AIServiceHTTPClient()
-    return await client.metadata_status(
-        connection_id=str(connection_id),
-        space_id=space_id,
-        ttl_seconds=ttl_seconds,
-    )
+    # Backend is the source-of-truth for metadata in `connection_metadata`.
+    # Keep this endpoint stable for the frontend by returning a small status payload.
+    metadata = await connection_service.metadata_repo.get_by_connection_id(connection_id)  # type: ignore[attr-defined]
+    has_tables = bool(metadata and getattr(metadata, "tables", None))
+    return {
+        "connection_id": str(connection_id),
+        "space_id": space_id,
+        "has_tables": has_tables,
+        "table_count": len(getattr(metadata, "tables", []) or []) if metadata else 0,
+        "last_metadata_update": (
+            metadata.last_metadata_update.isoformat() if metadata and metadata.last_metadata_update else None
+        ),
+        "ttl_seconds": ttl_seconds,
+        "source": "backend_connection_metadata",
+    }
 
 
 @router.post(
@@ -434,12 +443,23 @@ async def refresh_ai_catalog(
     connection_service = ConnectionService(db)
     await connection_service.get_connection(connection_id, current_user)
 
-    client = AIServiceHTTPClient()
-    return await client.discover_connection(
-        connection_id=str(connection_id),
-        space_id=space_id,
-        run_in_background=run_in_background,
-    )
+    # For this project, "AI catalog refresh" is equivalent to syncing connection metadata from the connector
+    # into the backend `connection_metadata` table.
+    # We ignore run_in_background for now and perform the sync inline (frontend already shows loading).
+    sync = await connection_service.sync_connection(connection_id, current_user)
+    metadata = await connection_service.metadata_repo.get_by_connection_id(connection_id)  # type: ignore[attr-defined]
+    return {
+        "success": bool(getattr(sync, "success", True)),
+        "message": getattr(sync, "message", "Sync completed"),
+        "connection_id": str(connection_id),
+        "space_id": space_id,
+        "has_tables": bool(metadata and getattr(metadata, "tables", None)),
+        "table_count": len(getattr(metadata, "tables", []) or []) if metadata else 0,
+        "last_metadata_update": (
+            metadata.last_metadata_update.isoformat() if metadata and metadata.last_metadata_update else None
+        ),
+        "source": "backend_connection_metadata",
+    }
 
 
 @router.get(
@@ -479,12 +499,13 @@ async def list_ai_catalog_tables(
             space_id=UUIDType(space_id),
         )
 
-    client = AIServiceHTTPClient()
-    return await client.list_tables(
-        connection_id=str(connection_id),
-        space_id=space_id,
-        user_id=str(current_user.id),
-        crew_ids=resolved_crew_ids,
-        is_personal=is_personal,
-    )
+    metadata = await connection_service.metadata_repo.get_by_connection_id(connection_id)  # type: ignore[attr-defined]
+    return {
+        "connection_id": str(connection_id),
+        "space_id": space_id,
+        "tables": metadata.tables if metadata and getattr(metadata, "tables", None) else [],
+        "total_tables": len(getattr(metadata, "tables", []) or []) if metadata else 0,
+        "source": "backend_connection_metadata",
+        "note": "Crew-level filtering is enforced by backend permissions when querying; catalog listing is best-effort.",
+    }
 

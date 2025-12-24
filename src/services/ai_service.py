@@ -72,6 +72,11 @@ class AIService:
             return None
         except Exception as e:
             logger.error(f"Error getting first active connection: {str(e)}", exc_info=True)
+            # Ensure the session isn't left in a broken transaction state
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
             return None
 
     async def _get_first_active_connection_for_space(
@@ -110,6 +115,11 @@ class AIService:
                 f"Error getting first active connection for space {space_id}: {str(e)}",
                 exc_info=True,
             )
+            # Ensure the session isn't left in a broken transaction state
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
             return await self._get_first_active_connection(user_id)
 
     async def _resolve_connection_id_from_tables(
