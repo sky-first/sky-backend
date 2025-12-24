@@ -135,6 +135,7 @@ class PermissionService:
                     )
                     self.db.add(space_connection)
                     await self.db.commit()
+
             except Exception as e:
                 # Log error but don't fail the permission creation
                 # The permission is more important than the connection association

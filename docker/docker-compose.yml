@@ -17,6 +17,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - backend_network
 
   redis:
     image: redis:7-alpine
@@ -30,6 +32,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - backend_network
 
   backend:
     build:
@@ -44,6 +48,9 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-in-production}
       DEBUG: ${DEBUG:-false}
+      # AI service runs on host (macOS). From inside Docker, use host.docker.internal.
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8001}
+      AI_SERVICE_TYPE: ${AI_SERVICE_TYPE:-real}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -53,6 +60,8 @@ services:
         condition: service_healthy
     volumes:
       - ../src:/app/src
+      - ../migrations:/app/migrations
+      - ../alembic.ini:/app/alembic.ini
     restart: unless-stopped
     networks:
       - backend_network
@@ -70,6 +79,8 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-in-production}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8001}
+      AI_SERVICE_TYPE: ${AI_SERVICE_TYPE:-real}
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +88,10 @@ services:
         condition: service_healthy
     volumes:
       - ../src:/app/src
+      - ../migrations:/app/migrations
+      - ../alembic.ini:/app/alembic.ini
+    networks:
+      - backend_network
 
   beat:
     build:
@@ -88,6 +103,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8001}
+      AI_SERVICE_TYPE: ${AI_SERVICE_TYPE:-real}
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,7 +112,11 @@ services:
         condition: service_healthy
     volumes:
       - ../src:/app/src
+      - ../migrations:/app/migrations
+      - ../alembic.ini:/app/alembic.ini
     command: celery -A src.workers.celery_app beat --loglevel=info
+    networks:
+      - backend_network
 
 volumes:
   postgres_data:

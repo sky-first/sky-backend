@@ -219,6 +219,8 @@ class AIServiceHTTPClient:
         crew_ids: Optional[List[str]] = None,
         language: Optional[str] = "en",
         max_widgets: int = 6,
+        logical_tables_override: Optional[List[str]] = None,
+        schema_summary_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Generate a dashboard plan ("Davinci") for a given connection.
@@ -236,6 +238,10 @@ class AIServiceHTTPClient:
         }
         if crew_ids:
             payload["crew_ids"] = crew_ids
+        if logical_tables_override:
+            payload["logical_tables_override"] = logical_tables_override
+        if schema_summary_override:
+            payload["schema_summary_override"] = schema_summary_override
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(

@@ -195,7 +195,8 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        if connection.created_by != user.id:
+        # Allow admin to delete any connection; otherwise only the owner can delete
+        if user.role != "admin" and connection.created_by != user.id:
             raise ForbiddenError("Access denied to this connection")
 
         await self.connection_repo.delete(connection_id)

@@ -33,8 +33,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       azure_secrets_ready: ${{ steps.check.outputs.azure_secrets_ready }}
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
     steps:
       - id: check
+        shell: bash
         run: |
           missing=()
           for var in ARM_SUBSCRIPTION_ID ARM_TENANT_ID ARM_CLIENT_ID ARM_CLIENT_SECRET; do
@@ -45,10 +51,12 @@ jobs:
 
           if [ ${#missing[@]} -eq 0 ]; then
             echo "azure_secrets_ready=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Azure secrets OK" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
           echo "azure_secrets_ready=false" >> "$GITHUB_OUTPUT"
+          echo "⚠️ Skipping deploy: missing secrets -> ${missing[*]}" >> "$GITHUB_STEP_SUMMARY"
           echo "Skipping deploy: missing secrets -> ${missing[*]}"
 
   detect-environment:
