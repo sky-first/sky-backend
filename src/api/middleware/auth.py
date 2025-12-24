@@ -141,12 +141,32 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
 
         response = await call_next(request)
         return response
-    except UnauthorizedError:
-        # Re-raise UnauthorizedError to be handled by error_handler
-        raise
+    except UnauthorizedError as e:
+        # Return 401 response directly instead of raising
+        logger.warning(f"Unauthorized: {e.message}")
+        response = JSONResponse(
+            status_code=e.status_code,
+            content={"error": "Unauthorized", "message": e.message},
+        )
+        origin = request.headers.get("Origin")
+        if origin and origin in settings.cors_origins_list:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers.add_vary_header("Origin")
+        return response
     except JWTError as e:
         logger.warning(f"JWT verification failed: {str(e)}")
-        raise UnauthorizedError("Invalid or expired token")
+        # Return 401 response directly instead of raising
+        response = JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"error": "Unauthorized", "message": "Invalid or expired token"},
+        )
+        origin = request.headers.get("Origin")
+        if origin and origin in settings.cors_origins_list:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers.add_vary_header("Origin")
+        return response
     except Exception as e:
         logger.error(f"Auth middleware error: {str(e)}")
         raise

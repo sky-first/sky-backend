@@ -7,6 +7,13 @@ from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from jose import JWTError
 
+# ExceptionGroup is available in Python 3.11+
+try:
+    from builtins import ExceptionGroup
+except ImportError:
+    # For Python < 3.11, ExceptionGroup doesn't exist
+    ExceptionGroup = type(None)  # Will never match
+
 from src.core.exceptions import (
     BadRequestError,
     BaseAPIException,
@@ -121,6 +128,35 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
         )
         _apply_cors_headers(request, response)
         return response
+    except ExceptionGroup as eg:
+        # Handle ExceptionGroup (Python 3.11+) - extract the first exception
+        logger.warning(f"ExceptionGroup caught: {len(eg.exceptions)} exceptions")
+        # Try to find UnauthorizedError in the group
+        for exc in eg.exceptions:
+            logger.debug(f"Exception in group: {type(exc).__name__}: {exc}")
+            if isinstance(exc, UnauthorizedError):
+                logger.warning(f"Unauthorized: {exc.message}")
+                response = JSONResponse(
+                    status_code=exc.status_code,
+                    content={"error": "Unauthorized", "message": exc.message},
+                )
+                _apply_cors_headers(request, response)
+                return response
+            elif isinstance(exc, BaseAPIException):
+                logger.error(f"API exception from group: {exc.message}")
+                response = JSONResponse(
+                    status_code=exc.status_code,
+                    content={"error": "API Error", "message": exc.message},
+                )
+                _apply_cors_headers(request, response)
+                return response
+        # If no known exception found, try to extract and re-raise the first one
+        # This allows FastAPI exception handlers to catch it
+        if eg.exceptions:
+            first_exc = eg.exceptions[0]
+            logger.warning(f"Re-raising first exception from group: {type(first_exc).__name__}")
+            raise first_exc from eg
+        raise
     except Exception as e:
         # Log full exception details for debugging
         import traceback

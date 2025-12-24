@@ -33,21 +33,35 @@ async def logging_middleware(request: Request, call_next: Callable) -> Response:
     )
 
     # Process request
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
 
-    # Calculate duration
-    duration = time.time() - start_time
+        # Calculate duration
+        duration = time.time() - start_time
 
-    # Log response
-    logger.info(
-        f"Response: {request.method} {request.url.path} - {response.status_code} - {duration:.3f}s",
-        extra={
-            "method": request.method,
-            "path": request.url.path,
-            "status_code": response.status_code,
-            "duration": duration,
-        },
-    )
+        # Log response
+        logger.info(
+            f"Response: {request.method} {request.url.path} - {response.status_code} - {duration:.3f}s",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration": duration,
+            },
+        )
 
-    return response
+        return response
+    except Exception:
+        # Calculate duration even on error
+        duration = time.time() - start_time
+        logger.warning(
+            f"Error: {request.method} {request.url.path} - {duration:.3f}s",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "duration": duration,
+            },
+        )
+        # Re-raise to let error_handler_middleware handle it
+        raise
 

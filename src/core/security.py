@@ -42,7 +42,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
 
     Args:
         data: Data to encode in token
-        expires_delta: Optional expiration delta (if None, token never expires)
+        expires_delta: Optional expiration delta (if None, uses default from settings)
 
     Returns:
         str: Encoded JWT token
@@ -51,8 +51,8 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        # Set expiration to 100 years in the future (effectively infinite)
-        expire = datetime.now(timezone.utc) + timedelta(days=365 * 100)
+        # Use default expiration from settings
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(
         to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
@@ -73,8 +73,8 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
     from uuid import uuid4
     
     to_encode = data.copy()
-    # Set expiration to 100 years in the future (effectively infinite)
-    expire = datetime.now(timezone.utc) + timedelta(days=365 * 100)
+    # Use default expiration from settings
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     # Add jti (JWT ID) to ensure uniqueness even when created at the same time
     to_encode.update({
         "exp": expire, 

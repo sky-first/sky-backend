@@ -77,6 +77,108 @@ app.middleware("http")(logging_middleware.logging_middleware)    # Added 2nd, ex
 app.middleware("http")(rate_limit.rate_limit_middleware)         # Added 3rd, executes 2nd
 app.middleware("http")(auth.auth_middleware)                     # Added 4th (LAST), executes FIRST
 
+# Add exception handlers BEFORE routers (these catch exceptions from middleware and routes)
+from src.api.middleware import error_handler as error_handler_module
+from src.core.exceptions import (
+    BadRequestError,
+    BaseAPIException,
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    UnauthorizedError,
+    ValidationError,
+)
+from fastapi.responses import JSONResponse
+from jose import JWTError
+
+@app.exception_handler(UnauthorizedError)
+async def unauthorized_exception_handler(request, exc: UnauthorizedError):
+    """Handle UnauthorizedError exceptions."""
+    error_handler_module.logger.warning(f"Unauthorized handler: {exc.message}")
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"error": "Unauthorized", "message": exc.message},
+    )
+    error_handler_module._apply_cors_headers(request, response)
+    return response
+
+@app.exception_handler(JWTError)
+async def jwt_exception_handler(request, exc: JWTError):
+    """Handle JWTError exceptions."""
+    error_handler_module.logger.warning(f"JWT error handler: {str(exc)}")
+    response = JSONResponse(
+        status_code=401,
+        content={"error": "Unauthorized", "message": "Invalid token"},
+    )
+    error_handler_module._apply_cors_headers(request, response)
+    return response
+
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request, exc: ValidationError):
+    """Handle ValidationError exceptions."""
+    error_handler_module.logger.warning(f"Validation error handler: {exc.message}")
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"error": "Validation Error", "message": exc.message},
+    )
+    error_handler_module._apply_cors_headers(request, response)
+    return response
+
+@app.exception_handler(ForbiddenError)
+async def forbidden_exception_handler(request, exc: ForbiddenError):
+    """Handle ForbiddenError exceptions."""
+    error_handler_module.logger.warning(f"Forbidden handler: {exc.message}")
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"error": "Forbidden", "message": exc.message},
+    )
+    error_handler_module._apply_cors_headers(request, response)
+    return response
+
+@app.exception_handler(NotFoundError)
+async def not_found_exception_handler(request, exc: NotFoundError):
+    """Handle NotFoundError exceptions."""
+    error_handler_module.logger.warning(f"Not found handler: {exc.message}")
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"error": "Not Found", "message": exc.message},
+    )
+    error_handler_module._apply_cors_headers(request, response)
+    return response
+
+@app.exception_handler(BadRequestError)
+async def bad_request_exception_handler(request, exc: BadRequestError):
+    """Handle BadRequestError exceptions."""
+    error_handler_module.logger.warning(f"Bad request handler: {exc.message}")
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"error": "Bad Request", "message": exc.message},
+    )
+    error_handler_module._apply_cors_headers(request, response)
+    return response
+
+@app.exception_handler(ConflictError)
+async def conflict_exception_handler(request, exc: ConflictError):
+    """Handle ConflictError exceptions."""
+    error_handler_module.logger.warning(f"Conflict handler: {exc.message}")
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"error": "Conflict", "message": exc.message},
+    )
+    error_handler_module._apply_cors_headers(request, response)
+    return response
+
+@app.exception_handler(BaseAPIException)
+async def base_api_exception_handler(request, exc: BaseAPIException):
+    """Handle other BaseAPIException exceptions."""
+    error_handler_module.logger.error(f"API exception handler: {exc.message}")
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"error": "API Error", "message": exc.message},
+    )
+    error_handler_module._apply_cors_headers(request, response)
+    return response
+
 # Include API routers
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 

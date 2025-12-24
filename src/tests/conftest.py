@@ -64,7 +64,8 @@ def client(db_session):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_db_session] = override_get_db_session
-    with TestClient(app) as test_client:
+    # raise_server_exceptions=False allows middleware to handle exceptions
+    with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
     app.dependency_overrides.clear()
 
