@@ -2,7 +2,7 @@
 Comprehensive tests for all API endpoints.
 
 This file tests all endpoints across all modules:
-- Planets (11 endpoints)
+- Planets (13 endpoints - includes star/unstar)
 - Dashboards (12 endpoints)
 - Widgets (6 endpoints)
 - Connections (12 endpoints)
@@ -15,8 +15,9 @@ This file tests all endpoints across all modules:
 - Settings (14 endpoints)
 - Files (7 endpoints)
 - Connectors (3 endpoints)
+- Starred (2 endpoints)
 
-Total: 128 endpoints tested
+Total: 132 endpoints tested
 """
 
 import pytest
@@ -1761,4 +1762,187 @@ class TestConnectorsEndpoints:
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get("/api/v1/connectors/nonexistent", headers=headers)
         assert response.status_code == 404
+
+
+# ============================================================================
+# MODULE 14: STARRED ITEMS
+# ============================================================================
+
+class TestStarredEndpoints:
+    """Tests for /api/v1/starred endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_list_starred_items_success(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test GET /api/v1/starred - list starred items."""
+        user = test_user_with_tokens["user"]
+        planet = await create_test_planet(db_session, user)
+        
+        # Star the planet first
+        from src.services.starred_service import StarredItemService
+        starred_service = StarredItemService(db_session)
+        await starred_service.star_item(user, planet.id, "planet")
+        await db_session.commit()
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        response = client.get("/api/v1/starred", headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) > 0
+        assert any(item["item_id"] == str(planet.id) and item["item_type"] == "planet" for item in data)
+
+    @pytest.mark.asyncio
+    async def test_list_starred_items_with_filter(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test GET /api/v1/starred?item_type=planet."""
+        user = test_user_with_tokens["user"]
+        planet = await create_test_planet(db_session, user)
+        
+        # Star the planet
+        from src.services.starred_service import StarredItemService
+        starred_service = StarredItemService(db_session)
+        await starred_service.star_item(user, planet.id, "planet")
+        await db_session.commit()
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        response = client.get("/api/v1/starred?item_type=planet", headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert all(item["item_type"] == "planet" for item in data)
+
+    def test_list_starred_items_no_auth(self, client: TestClient):
+        """Test GET /api/v1/starred without authentication."""
+        response = client.get("/api/v1/starred")
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_check_starred_item_true(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test GET /api/v1/starred/check/{item_id} - item is starred."""
+        user = test_user_with_tokens["user"]
+        planet = await create_test_planet(db_session, user)
+        
+        # Star the planet
+        from src.services.starred_service import StarredItemService
+        starred_service = StarredItemService(db_session)
+        await starred_service.star_item(user, planet.id, "planet")
+        await db_session.commit()
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        response = client.get(
+            f"/api/v1/starred/check/{planet.id}?item_type=planet",
+            headers=headers
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_starred"] is True
+        assert data["item_id"] == str(planet.id)
+        assert data["item_type"] == "planet"
+
+    @pytest.mark.asyncio
+    async def test_check_starred_item_false(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test GET /api/v1/starred/check/{item_id} - item is not starred."""
+        user = test_user_with_tokens["user"]
+        planet = await create_test_planet(db_session, user)
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        response = client.get(
+            f"/api/v1/starred/check/{planet.id}?item_type=planet",
+            headers=headers
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_starred"] is False
+        assert data["item_id"] == str(planet.id)
+        assert data["item_type"] == "planet"
+
+    def test_check_starred_item_invalid_type(self, client: TestClient, test_user_with_tokens: dict):
+        """Test GET /api/v1/starred/check/{item_id} with invalid item_type."""
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        fake_id = str(uuid4())
+        response = client.get(
+            f"/api/v1/starred/check/{fake_id}?item_type=invalid",
+            headers=headers
+        )
+        assert response.status_code == 422
+
+
+# ============================================================================
+# MODULE 15: PLANET STAR/UNSTAR
+# ============================================================================
+
+class TestPlanetsStarEndpoints:
+    """Tests for planet star/unstar endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_star_planet_success(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/planets/{planet_id}/star."""
+        user = test_user_with_tokens["user"]
+        planet = await create_test_planet(db_session, user)
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        response = client.post(f"/api/v1/planets/{planet.id}/star", headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data
+        assert "starred" in data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_star_planet_not_found(
+        self, client: TestClient, test_user_with_tokens: dict
+    ):
+        """Test POST /api/v1/planets/{planet_id}/star with non-existent planet."""
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        fake_id = str(uuid4())
+        response = client.post(f"/api/v1/planets/{fake_id}/star", headers=headers)
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_unstar_planet_success(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test DELETE /api/v1/planets/{planet_id}/star."""
+        user = test_user_with_tokens["user"]
+        planet = await create_test_planet(db_session, user)
+        
+        # Star first
+        from src.services.starred_service import StarredItemService
+        starred_service = StarredItemService(db_session)
+        await starred_service.star_item(user, planet.id, "planet")
+        await db_session.commit()
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        response = client.delete(f"/api/v1/planets/{planet.id}/star", headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data
+        assert "unstarred" in data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_unstar_planet_idempotent(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test DELETE /api/v1/planets/{planet_id}/star when not starred (idempotent)."""
+        user = test_user_with_tokens["user"]
+        planet = await create_test_planet(db_session, user)
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        response = client.delete(f"/api/v1/planets/{planet.id}/star", headers=headers)
+        # Should succeed even if not starred (idempotent)
+        assert response.status_code == 200
+
+    def test_star_planet_no_auth(self, client: TestClient):
+        """Test POST /api/v1/planets/{planet_id}/star without authentication."""
+        fake_id = str(uuid4())
+        response = client.post(f"/api/v1/planets/{fake_id}/star")
+        assert response.status_code == 401
 

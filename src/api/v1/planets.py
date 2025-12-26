@@ -20,6 +20,7 @@ from src.schemas.planet import (
 )
 from src.services.dashboard_service import DashboardService
 from src.services.planet_service import PlanetService
+from src.services.starred_service import StarredItemService
 
 router = APIRouter()
 
@@ -366,4 +367,70 @@ async def switch_planet(
     """
     planet_service = PlanetService(db)
     return await planet_service.switch_planet(planet_id, current_user)
+
+
+@router.post(
+    "/{planet_id}/star",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
+    summary="Star planet",
+    description="Star a planet for the current user",
+)
+async def star_planet(
+    planet_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Star a planet for the current user.
+
+    Args:
+        planet_id: Planet ID to star
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    # Verify planet exists and user has access
+    planet_service = PlanetService(db)
+    await planet_service.get_planet(planet_id, current_user)
+    
+    # Star the planet
+    starred_service = StarredItemService(db)
+    await starred_service.star_item(current_user, planet_id, "planet")
+    
+    return SuccessResponse(message="Planet starred successfully")
+
+
+@router.delete(
+    "/{planet_id}/star",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}},
+    summary="Unstar planet",
+    description="Unstar a planet for the current user",
+)
+async def unstar_planet(
+    planet_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Unstar a planet for the current user.
+
+    Args:
+        planet_id: Planet ID to unstar
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    # Unstar the planet (idempotent - won't error if not starred)
+    starred_service = StarredItemService(db)
+    await starred_service.unstar_item(current_user, planet_id, "planet")
+    
+    return SuccessResponse(message="Planet unstarred successfully")
 

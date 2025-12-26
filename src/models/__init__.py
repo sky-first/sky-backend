@@ -17,12 +17,14 @@ from src.models.space import Space, SpaceMember
 from src.models.template import Template
 from src.models.user import RefreshToken, User
 from src.models.planet import Planet, PlanetMember
+from src.models.starred import StarredItem
 
 __all__ = [
     "User",
     "RefreshToken",
     "Planet",
     "PlanetMember",
+    "StarredItem",
     "Dashboard",
     "Widget",
     "Connection",

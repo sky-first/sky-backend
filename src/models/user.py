@@ -54,6 +54,7 @@ class User(Base):
         "Workspace", back_populates="owner", foreign_keys="Workspace.owner_id"
     )
     workspace_memberships = relationship("WorkspaceMember", back_populates="user")
+    starred_items = relationship("StarredItem", back_populates="user", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_users_email", "email", postgresql_where=deleted_at.is_(None)),
