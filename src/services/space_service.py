@@ -196,15 +196,30 @@ class SpaceService:
             NotFoundError: If space not found
             ForbiddenError: If user doesn't have access
         """
+        from src.config.settings import get_settings
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
         space = await self.space_repo.get_by_id(space_id)
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
-            raise ForbiddenError("Access denied to this space")
+        settings = get_settings()
+        
+        # In development, allow any user to delete any space
+        # In production, only admin or owner can delete
+        if settings.is_development:
+            # Development mode: allow any authenticated user to delete
+            logger.info(f"🔴 [DELETE SPACE SERVICE] Development mode: Allowing user {user.id} to delete space {space_id} (created by {space.created_by})")
+        else:
+            # Production mode: only admin or owner can delete
+            if user.role != "admin" and space.created_by != user.id:
+                raise ForbiddenError("Access denied to this space")
 
         await self.space_repo.delete(space_id)
         await self.db.commit()
+        logger.info(f"🔴 [DELETE SPACE SERVICE] Space {space_id} deleted successfully")
 
     async def get_space_crews(self, space_id: UUID, user: User) -> List[Crew]:
         """

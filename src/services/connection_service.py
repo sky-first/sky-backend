@@ -25,6 +25,7 @@ from src.schemas.connection import (
     TableMetadataSchema,
 )
 from src.connectors.registry import get_connector
+from src.config.settings import get_settings
 
 
 class ConnectionService:
@@ -195,12 +196,28 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        # Allow admin to delete any connection; otherwise only the owner can delete
-        if user.role != "admin" and connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+        settings = get_settings()
+        
+        # In development, allow any user to delete any connection
+        # In production, only admin or owner can delete
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🔴 [DELETE SERVICE] Checking permissions: connection_id={connection_id}, user_id={user.id}, environment={settings.ENVIRONMENT}, is_development={settings.is_development}")
+        
+        if settings.is_development:
+            # Development mode: allow any authenticated user to delete
+            logger.info(f"🔴 [DELETE SERVICE] Development mode: Allowing user {user.id} to delete connection {connection_id} (created by {connection.created_by})")
+        else:
+            # Production mode: only admin or owner can delete
+            logger.info(f"🔴 [DELETE SERVICE] Production mode: Checking if user {user.id} is admin or owner")
+            if user.role != "admin" and connection.created_by != user.id:
+                logger.warning(f"🔴 [DELETE SERVICE] Access denied: user {user.id} is not admin and not owner (created_by={connection.created_by})")
+                raise ForbiddenError("Access denied to this connection")
 
+        logger.info(f"🔴 [DELETE SERVICE] Deleting connection {connection_id} from database...")
         await self.connection_repo.delete(connection_id)
         await self.db.commit()
+        logger.info(f"🔴 [DELETE SERVICE] Connection {connection_id} deleted successfully")
 
     async def test_connection(self, connection_id: UUID, user: User) -> ConnectionTestResponse:
         """

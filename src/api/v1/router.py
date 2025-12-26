@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from src.api.v1 import ai, auth, connections, connectors, crews, dashboards, datasets, files, permissions, planets, settings, spaces, templates, users, widgets, workspaces
+from src.api.v1 import ai, auth, connections, connectors, crews, dashboards, datasets, files, permissions, planets, settings, spaces, starred, templates, users, widgets, workspaces
 
 api_router = APIRouter()
 
@@ -53,6 +53,9 @@ api_router.include_router(connectors.router, prefix="/connectors", tags=["Connec
 
 # Workspace endpoints
 api_router.include_router(workspaces.router, prefix="/workspaces", tags=["Workspaces"])
+
+# Starred items endpoints
+api_router.include_router(starred.router, prefix="/starred", tags=["Starred"])
 
 # TODO: Add more routers here as we implement them step by step
 # Following the BACKEND_IMPLEMENTATION_MASTER_PLAN.md

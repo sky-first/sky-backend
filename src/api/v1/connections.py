@@ -26,6 +26,11 @@ from src.services.connection_service import ConnectionService
 
 router = APIRouter()
 
+# Log when module is loaded to verify DELETE endpoint is registered
+import logging
+_logger = logging.getLogger(__name__)
+_logger.info("🔴 [CONNECTIONS ROUTER] Module loaded, DELETE endpoint will be registered")
+
 async def _resolve_user_crew_ids(db: AsyncSession, user_id: UUID, space_id: UUID) -> List[str]:
     """
     Resolve crew_ids for the current user in a given space.
@@ -128,6 +133,44 @@ async def create_connection(
     return await connection_service.create_connection(current_user, connection_data)
 
 
+@router.delete(
+    "/{connection_id}",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Delete connection",
+    description="Delete connection",
+)
+async def delete_connection(
+    connection_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Delete connection.
+
+    Args:
+        connection_id: Connection ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"🔴 [DELETE API] Delete connection endpoint called: connection_id={connection_id}, user_id={current_user.id}")
+    
+    try:
+        connection_service = ConnectionService(db)
+        await connection_service.delete_connection(connection_id, current_user)
+        logger.info(f"🔴 [DELETE API] Connection {connection_id} deleted successfully by user {current_user.id}")
+        return SuccessResponse(message="Connection deleted successfully")
+    except Exception as e:
+        logger.error(f"🔴 [DELETE API] Error deleting connection {connection_id}: {str(e)}", exc_info=True)
+        raise
+
+
 @router.put(
     "/{connection_id}",
     response_model=ConnectionResponse,
@@ -156,35 +199,6 @@ async def update_connection(
     """
     connection_service = ConnectionService(db)
     return await connection_service.update_connection(connection_id, current_user, connection_data)
-
-
-@router.delete(
-    "/{connection_id}",
-    response_model=SuccessResponse,
-    status_code=status.HTTP_200_OK,
-    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Delete connection",
-    description="Delete connection (soft delete)",
-)
-async def delete_connection(
-    connection_id: UUID,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
-) -> SuccessResponse:
-    """
-    Delete connection.
-
-    Args:
-        connection_id: Connection ID
-        current_user: Current authenticated user
-        db: Database session
-
-    Returns:
-        SuccessResponse: Success message
-    """
-    connection_service = ConnectionService(db)
-    await connection_service.delete_connection(connection_id, current_user)
-    return SuccessResponse(message="Connection deleted successfully")
 
 
 @router.post(

@@ -53,6 +53,62 @@ class CrewRepository(BaseRepository[Crew]):
             select(self.model).where(self.model.id == id, self.model.deleted_at.is_(None))
         )
         return result.scalar_one_or_none()
+    
+    async def get_by_id_including_deleted(self, id: UUID) -> Optional[Crew]:
+        """
+        Get entity by ID including deleted ones.
+        Used for delete operations where we need to find the entity even if it's soft-deleted.
+
+        Args:
+            id: Entity ID
+
+        Returns:
+            Optional[Crew]: Entity or None
+        """
+        result = await self.db.execute(
+            select(self.model).where(self.model.id == id)
+        )
+        return result.scalar_one_or_none()
+    
+    async def get_all(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        filters: Optional[dict] = None,
+        order_by: Optional[str] = None,
+    ) -> List[Crew]:
+        """
+        Get all crews with pagination, excluding soft-deleted ones.
+
+        Args:
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+            filters: Optional filters (dict of column: value)
+            order_by: Optional column name to order by
+
+        Returns:
+            List[Crew]: List of crews (excluding deleted)
+        """
+        query = select(self.model).where(self.model.deleted_at.is_(None))
+
+        # Apply filters
+        if filters:
+            for key, value in filters.items():
+                if hasattr(self.model, key):
+                    query = query.where(getattr(self.model, key) == value)
+
+        # Apply ordering
+        if order_by and hasattr(self.model, order_by):
+            query = query.order_by(getattr(self.model, order_by))
+        else:
+            # Default ordering by created_at desc
+            query = query.order_by(self.model.created_at.desc())
+
+        # Apply pagination
+        query = query.offset(skip).limit(limit)
+
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
 
 
 class CrewMemberRepository(BaseRepository[CrewMember]):
