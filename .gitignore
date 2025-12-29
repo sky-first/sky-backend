@@ -28,3 +28,10 @@ uploads/
 # Cursor
 .cursorignore
 .cursorindexingignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
