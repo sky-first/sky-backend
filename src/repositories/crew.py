@@ -53,7 +53,7 @@ class CrewRepository(BaseRepository[Crew]):
             select(self.model).where(self.model.id == id, self.model.deleted_at.is_(None))
         )
         return result.scalar_one_or_none()
-    
+
     async def get_by_id_including_deleted(self, id: UUID) -> Optional[Crew]:
         """
         Get entity by ID including deleted ones.

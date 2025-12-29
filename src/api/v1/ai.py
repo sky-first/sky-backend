@@ -95,6 +95,7 @@ async def chat_bootstrap(
         # active planet in DB isn't synced yet.
         planet_repo = PlanetRepository(db)
         active_planet = await planet_repo.get_active_planet(current_user.id)
+        is_personal = getattr(active_planet, "type", None) == "personal"
 
         # 2) Ensure we have a space_id (fallback: first space owned by user)
         resolved_space_id = space_id
@@ -155,6 +156,7 @@ async def chat_bootstrap(
             crew_ids=crew_ids if crew_ids else None,
             language=language,
             max_suggestions=max_suggestions,
+            is_personal=is_personal,
         )
 
         # 6) Return as schema

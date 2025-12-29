@@ -185,7 +185,7 @@ class CrewService:
         if not crew:
             logger.error(f"🔴 [DELETE SERVICE] Crew {crew_id} not found in database")
             raise NotFoundError("Crew not found")
-        
+
         # Check if crew is already deleted
         if crew.deleted_at is not None:
             logger.warning(f"🔴 [DELETE SERVICE] Crew {crew_id} is already deleted (deleted_at: {crew.deleted_at})")
