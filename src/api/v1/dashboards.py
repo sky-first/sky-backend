@@ -21,6 +21,7 @@ from src.schemas.dashboard import (
     DashboardUpdate,
     WidgetCreate,
     WidgetResponse,
+    WidgetUpdate,
 )
 from src.schemas.dashboard_ai import (
     DashboardAIBuildRequest,
@@ -250,6 +251,75 @@ async def create_widget(
     # Ensure widget is created for the correct dashboard
     widget_data.dashboard_id = dashboard_id
     return await dashboard_service.create_widget(current_user, widget_data)
+
+
+@router.put(
+    "/{dashboard_id}/widgets/{widget_id}",
+    response_model=WidgetResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Update widget",
+    description="Update a widget in a dashboard",
+)
+async def update_widget(
+    dashboard_id: UUID,
+    widget_id: UUID,
+    widget_data: WidgetUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> WidgetResponse:
+    """
+    Update a widget in a dashboard.
+
+    Args:
+        dashboard_id: Dashboard ID
+        widget_id: Widget ID
+        widget_data: Widget update data
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        WidgetResponse: Updated widget
+    """
+    dashboard_service = DashboardService(db)
+    # Verify dashboard exists and user has access
+    await dashboard_service.get_dashboard(dashboard_id, current_user)
+    # Update widget
+    return await dashboard_service.update_widget(widget_id, current_user, widget_data)
+
+
+@router.delete(
+    "/{dashboard_id}/widgets/{widget_id}",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Delete widget",
+    description="Delete a widget from a dashboard",
+)
+async def delete_widget(
+    dashboard_id: UUID,
+    widget_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Delete a widget from a dashboard.
+
+    Args:
+        dashboard_id: Dashboard ID
+        widget_id: Widget ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    dashboard_service = DashboardService(db)
+    # Verify dashboard exists and user has access
+    await dashboard_service.get_dashboard(dashboard_id, current_user)
+    # Delete widget
+    await dashboard_service.delete_widget(widget_id, current_user)
+    return SuccessResponse(message="Widget deleted successfully")
 
 
 @router.get(

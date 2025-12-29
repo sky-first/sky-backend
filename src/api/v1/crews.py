@@ -164,8 +164,13 @@ async def delete_crew(
     Returns:
         SuccessResponse: Success message
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"🔴 [DELETE API] Delete crew endpoint called: crew_id={crew_id}, user_id={current_user.id}")
     crew_service = CrewService(db)
     await crew_service.delete_crew(crew_id, current_user)
+    logger.info(f"🔴 [DELETE API] Crew {crew_id} deleted successfully by user {current_user.id}")
     return SuccessResponse(message="Crew deleted successfully")
 
 

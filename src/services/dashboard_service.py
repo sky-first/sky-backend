@@ -275,10 +275,14 @@ class DashboardService:
 
         Raises:
             NotFoundError: If widget not found
+            ForbiddenError: If user doesn't have access to the dashboard
         """
         widget = await self.widget_repo.get_by_id(widget_id)
         if not widget:
             raise NotFoundError("Widget not found")
+
+        # Verify user has access to the dashboard
+        await self.get_dashboard(widget.dashboard_id, user)
 
         update_data = widget_data.model_dump(exclude_unset=True)
         widget = await self.widget_repo.update(widget_id, **update_data)

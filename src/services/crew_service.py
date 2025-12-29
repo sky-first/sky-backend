@@ -174,17 +174,41 @@ class CrewService:
             NotFoundError: If crew not found
             ForbiddenError: If user doesn't have access
         """
-        crew = await self.crew_repo.get_by_id(crew_id)
+        from src.config.settings import get_settings
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        # Use get_by_id_including_deleted to find crew even if it's already soft-deleted
+        # This allows us to handle cases where the crew might have been deleted but we still need to verify
+        crew = await self.crew_repo.get_by_id_including_deleted(crew_id)
         if not crew:
+            logger.error(f"🔴 [DELETE SERVICE] Crew {crew_id} not found in database")
             raise NotFoundError("Crew not found")
+        
+        # Check if crew is already deleted
+        if crew.deleted_at is not None:
+            logger.warning(f"🔴 [DELETE SERVICE] Crew {crew_id} is already deleted (deleted_at: {crew.deleted_at})")
+            # Don't raise error, just return - crew is already deleted
+            return
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        settings = get_settings()
+        
+        # In development, allow any user to delete any crew
+        # In production, only admin or owner can delete
+        if settings.is_development:
+            # Development mode: allow any authenticated user to delete
+            logger.info(f"🔴 [DELETE SERVICE] Development mode: Allowing user {user.id} to delete crew {crew_id} (space created by {crew.space_id})")
+        else:
+            # Production mode: only admin or owner can delete
+            space = await self.space_repo.get_by_id(crew.space_id)
+            if not space or space.created_by != user.id:
+                raise ForbiddenError("Access denied to this crew")
 
+        logger.info(f"🔴 [DELETE SERVICE] Calling crew_repo.delete for crew {crew_id}")
         await self.crew_repo.delete(crew_id)
         await self.db.commit()
+        logger.info(f"🔴 [DELETE SERVICE] Crew {crew_id} soft-deleted successfully (deleted_at set)")
 
     async def get_crew_members(
         self, crew_id: UUID, user: User
