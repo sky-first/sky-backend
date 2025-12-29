@@ -4,12 +4,14 @@
 *.env
 *.env.*
 
-# python
+# Python
 __pycache__/
-*.py[codz]
+*.py[cod]
 *$py.class
 *.pyo
 *.pyd
+*.so
+.Python
 
 # venv
 venv/
@@ -28,10 +30,3 @@ uploads/
 # Cursor
 .cursorignore
 .cursorindexingignore
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
