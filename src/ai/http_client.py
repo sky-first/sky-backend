@@ -181,6 +181,7 @@ class AIServiceHTTPClient:
         crew_ids: Optional[List[str]] = None,
         language: Optional[str] = None,
         max_suggestions: int = 4,
+        is_personal: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
         Generate greeting + suggestion cards for a new chat session.
@@ -198,6 +199,8 @@ class AIServiceHTTPClient:
             payload["crew_ids"] = crew_ids
         if language:
             payload["language"] = language
+        if is_personal is not None:
+            payload["is_personal"] = bool(is_personal)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(

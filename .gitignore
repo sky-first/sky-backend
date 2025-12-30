@@ -27,4 +27,4 @@ uploads/
 
 # Cursor
 .cursorignore
-.cursorindexingignore
+.cursorindexingignore__pycache__/
