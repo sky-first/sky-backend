@@ -17,7 +17,7 @@ from src.core.security import (
 )
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
-from src.schemas.user import LoginResponse, RefreshTokenResponse, UserCreate, UserResponse
+from src.schemas.user import LoginResponse, RefreshTokenResponse, RegisterRequest, UserCreate, UserResponse
 from src.services.onboarding_service import ensure_default_planet_and_space
 
 
@@ -95,6 +95,65 @@ class AuthenticationService:
         await ensure_default_planet_and_space(self.db, user)
 
         return UserResponse.model_validate(user_to_response_dict(user))
+
+    async def register_with_tokens(self, register_data: RegisterRequest) -> LoginResponse:
+        """
+        Register a new user and return tokens (auto-login after registration).
+
+        Args:
+            register_data: Registration data
+
+        Returns:
+            LoginResponse: Access token, refresh token, and user data
+
+        Raises:
+            BadRequestError: If email already exists
+        """
+        # Derive name from email if not provided
+        name = register_data.name
+        if not name:
+            # Extract name from email (part before @)
+            email_part = register_data.email.split("@")[0]
+            # Capitalize first letter and replace dots/underscores with spaces
+            name = email_part.replace(".", " ").replace("_", " ").title()
+
+        # Create UserCreate from RegisterRequest
+        user_data = UserCreate(
+            email=register_data.email,
+            password=register_data.password,
+            name=name,
+            role="user",  # Default role for self-registration
+        )
+
+        # Register user (this will check for existing email and create user)
+        user_response = await self.register(user_data)
+
+        # Get the created user from database
+        user = await self.user_repo.get_by_email(register_data.email)
+        if not user:
+            raise BadRequestError("Failed to create user")
+
+        # Create tokens (same logic as login)
+        token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token(token_data)
+
+        # Save refresh token (set to 100 years in the future - effectively infinite)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)
+        refresh_token_model = RefreshToken(
+            user_id=user.id,
+            token=refresh_token,
+            expires_at=expires_at,
+        )
+        self.db.add(refresh_token_model)
+        await self.db.commit()
+
+        return LoginResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
+            user=user_response,
+        )
 
     async def login(self, email: str, password: str) -> LoginResponse:
         """
