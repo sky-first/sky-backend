@@ -257,3 +257,54 @@ class AIServiceHTTPClient:
             response.raise_for_status()
             return response.json()
 
+    async def validate_sql(
+        self,
+        connection_id: str,
+        sql: str,
+        user_id: str,
+        space_id: str,
+        crew_ids: Optional[List[str]] = None,
+        is_personal: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """
+        Validate SQL by executing a test query (LIMIT 5).
+
+        Endpoint (ia-do-projeto):
+          POST /connections/{connection_id}/validate-sql
+
+        Args:
+            connection_id: Connection ID
+            sql: SQL to validate
+            user_id: User ID
+            space_id: Space ID
+            crew_ids: Optional list of crew IDs
+            is_personal: Optional personal mode flag
+
+        Returns:
+            Dict with validation result (is_valid, error, preview_data, etc.)
+
+        Raises:
+            httpx.HTTPError: If request fails
+        """
+        url = f"{self.base_url}/connections/{connection_id}/validate-sql"
+        payload: Dict[str, Any] = {
+            "user_id": user_id,
+            "space_id": space_id,
+            "sql": sql,
+        }
+        if crew_ids:
+            payload["crew_ids"] = crew_ids
+        if is_personal is not None:
+            payload["is_personal"] = bool(is_personal)
+
+        async with httpx.AsyncClient(timeout=30.0) as client:  # Timeout menor para validação
+            logger.info(
+                "Calling AI validate SQL: %s connection_id=%s space_id=%s",
+                url,
+                connection_id,
+                space_id,
+            )
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            return response.json()
+
