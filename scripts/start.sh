@@ -43,11 +43,13 @@ export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 export CELERY_BROKER_URL="${CELERY_BROKER_URL:-redis://localhost:6379/1}"
 export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/2}"
 export AI_SERVICE_URL="${AI_SERVICE_URL:-http://localhost:8001}"
+export AI_SERVICE_TYPE="${AI_SERVICE_TYPE:-real}"
 
 echo "✅ Variáveis de ambiente configuradas"
 echo "   DATABASE_URL: $DATABASE_URL"
 echo "   REDIS_URL: $REDIS_URL"
 echo "   AI_SERVICE_URL: $AI_SERVICE_URL"
+echo "   AI_SERVICE_TYPE: $AI_SERVICE_TYPE"
 echo ""
 
 # Verifica se infraestrutura está rodando

@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.permission import ConnectionPermission, TableMemberPermission
+from src.models.permission import ConnectionPermission, RolePermission, TableMemberPermission
 from src.repositories.base import BaseRepository
 
 
@@ -163,4 +163,36 @@ class TableMemberPermissionRepository(BaseRepository[TableMemberPermission]):
             )
         )
         return result.scalar_one_or_none()
+
+
+class RolePermissionRepository(BaseRepository[RolePermission]):
+    """Role permission repository."""
+
+    def __init__(self, db: AsyncSession):
+        super().__init__(db, RolePermission)
+
+    async def get_by_role(self, role: str) -> Optional[RolePermission]:
+        """
+        Get role permission by role name.
+
+        Args:
+            role: Role name (commander, navigator, explorer, guest)
+
+        Returns:
+            Optional[RolePermission]: Role permission or None
+        """
+        result = await self.db.execute(
+            select(RolePermission).where(RolePermission.role == role)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_all(self) -> List[RolePermission]:
+        """
+        Get all role permissions.
+
+        Returns:
+            List[RolePermission]: List of all role permissions
+        """
+        result = await self.db.execute(select(RolePermission))
+        return list(result.scalars().all())
 

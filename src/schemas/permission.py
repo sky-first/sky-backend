@@ -1,7 +1,7 @@
 """Permission schemas."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -81,6 +81,24 @@ class TableMemberPermissionResponse(BaseModel):
     crew_id: UUID
     member_id: UUID
     has_access: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RolePermissionUpdate(BaseModel):
+    """Role permission update schema."""
+
+    permissions: Dict[str, bool] = Field(..., description="Dictionary of permission keys and boolean values")
+
+
+class RolePermissionResponse(BaseModel):
+    """Role permission response schema."""
+
+    id: UUID
+    role: str
+    permissions: Dict[str, bool]
     created_at: datetime
     updated_at: datetime
 

@@ -48,11 +48,11 @@ if [ ! -f ".deps-installed" ]; then
     touch .deps-installed
 fi
 
-# Iniciar dependências com Docker (se não estiverem rodando)
-if ! docker ps | grep -q ai_saas_postgres; then
-    echo -e "${YELLOW}🐳 Starting PostgreSQL and Redis with Docker...${NC}"
-    docker-compose -f docker/docker-compose.yml up -d postgres redis
-    sleep 5
+# Verificar se infraestrutura está rodando
+if ! docker ps | grep -q sky_poc_postgres; then
+    echo -e "${YELLOW}🐳 Infraestrutura não está rodando.${NC}"
+    echo -e "${YELLOW}   Execute: cd ../deploy && ./start.sh${NC}"
+    echo -e "${YELLOW}   Continuando sem verificar infraestrutura...${NC}"
 fi
 
 # Executar migrations

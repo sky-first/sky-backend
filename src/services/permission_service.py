@@ -11,7 +11,7 @@ from src.models.space import SpaceConnection
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
 from src.repositories.crew import CrewMemberRepository, CrewRepository
-from src.repositories.permission import PermissionRepository, TableMemberPermissionRepository
+from src.repositories.permission import PermissionRepository, RolePermissionRepository, TableMemberPermissionRepository
 from src.repositories.space import SpaceRepository
 from src.schemas.permission import (
     ConnectionPermissionCreate,
@@ -19,6 +19,8 @@ from src.schemas.permission import (
     PermissionUpdate,
     PermissionValidateRequest,
     PermissionValidateResponse,
+    RolePermissionResponse,
+    RolePermissionUpdate,
     TableMemberPermissionCreate,
     TableMemberPermissionResponse,
     TableMemberPermissionUpdate,
@@ -39,6 +41,7 @@ class PermissionService:
         self.permission_repo = PermissionRepository(db)
         self.connection_repo = ConnectionRepository(db)
         self.table_member_permission_repo = TableMemberPermissionRepository(db)
+        self.role_permission_repo = RolePermissionRepository(db)
         self.crew_repo = CrewRepository(db)
         self.crew_member_repo = CrewMemberRepository(db)
         self.space_repo = SpaceRepository(db)
@@ -455,4 +458,69 @@ class PermissionService:
 
         await self.table_member_permission_repo.delete(permission_id)
         await self.db.commit()
+
+    async def get_all_role_permissions(self, user: User) -> List[RolePermissionResponse]:
+        """
+        Get all role permissions.
+
+        Args:
+            user: Current user
+
+        Returns:
+            List[RolePermissionResponse]: List of all role permissions
+
+        Raises:
+            ForbiddenError: If user doesn't have permission (admin only)
+        """
+        # Only admins can view role permissions
+        if user.role != "admin":
+            raise ForbiddenError("Only admins can view role permissions")
+
+        role_permissions = await self.role_permission_repo.get_all()
+        return [RolePermissionResponse.model_validate(rp) for rp in role_permissions]
+
+    async def update_role_permission(
+        self, role: str, user: User, permission_data: RolePermissionUpdate
+    ) -> RolePermissionResponse:
+        """
+        Update role permission.
+
+        Args:
+            role: Role name (commander, navigator, explorer, guest)
+            user: Current user
+            permission_data: Permission update data
+
+        Returns:
+            RolePermissionResponse: Updated role permission
+
+        Raises:
+            ForbiddenError: If user doesn't have permission (admin only)
+            BadRequestError: If role is invalid
+        """
+        # Only admins can update role permissions
+        if user.role != "admin":
+            raise ForbiddenError("Only admins can update role permissions")
+
+        valid_roles = ["commander", "navigator", "explorer", "guest"]
+        if role not in valid_roles:
+            raise BadRequestError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+
+        # Get existing role permission or create new one
+        role_permission = await self.role_permission_repo.get_by_role(role)
+        
+        if role_permission:
+            # Update existing
+            role_permission.permissions = permission_data.permissions
+            await self.db.commit()
+            await self.db.refresh(role_permission)
+        else:
+            # Create new
+            role_permission = await self.role_permission_repo.create(
+                role=role,
+                permissions=permission_data.permissions
+            )
+            await self.db.commit()
+            await self.db.refresh(role_permission)
+
+        return RolePermissionResponse.model_validate(role_permission)
 

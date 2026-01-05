@@ -11,6 +11,7 @@ from src.ai.real_service import RealAIService
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
 from src.models.ai import AIHistory, AIQuery, Pipeline
+from src.models.user import User
 from src.repositories.base import BaseRepository
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.crew import CrewMemberRepository

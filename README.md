@@ -29,7 +29,6 @@ backend/
 │   └── core/              # Core utilities
 ├── tests/                 # Testes
 ├── migrations/            # Alembic migrations
-├── docker/               # Docker configs
 └── scripts/              # Utility scripts
 ```
 
@@ -38,9 +37,8 @@ backend/
 ### Pré-requisitos
 
 - Python 3.11+
-- PostgreSQL 14+
-- Redis 7+
-- Docker & Docker Compose (opcional)
+- PostgreSQL 14+ (ou use a infraestrutura em `../deploy/`)
+- Redis 7+ (ou use a infraestrutura em `../deploy/`)
 
 ### Instalação
 
@@ -82,26 +80,23 @@ createdb ai_saas_db
 alembic upgrade head
 ```
 
-6. **Inicie o servidor:**
+6. **Inicie a infraestrutura (Postgres + Redis):**
 
 ```bash
+# Na pasta deploy (raiz dos repositórios)
+cd ../deploy
+./start.sh
+```
+
+7. **Inicie o servidor:**
+
+```bash
+# Volte para a pasta backend
+cd ../sky-poc-backend
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Docker Compose
-
-Para desenvolvimento com Docker:
-
-```bash
-cd docker
-docker-compose up -d
-```
-
-Isso iniciará:
-- PostgreSQL na porta 5432
-- Redis na porta 6379
-- Backend API na porta 8000
-- Celery worker
+**Nota:** A infraestrutura (Postgres e Redis) está centralizada em `../deploy/` e serve tanto o Backend quanto o AI Service.
 
 ## Desenvolvimento
 
