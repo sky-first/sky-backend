@@ -11,6 +11,7 @@ from src.ai.real_service import RealAIService
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
 from src.models.ai import AIHistory, AIQuery, Pipeline
+from src.models.user import User
 from src.repositories.base import BaseRepository
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.crew import CrewMemberRepository
@@ -21,11 +22,15 @@ from src.schemas.ai import (
     ChatMessageRequest,
     ChatMessageResponse,
     ConfigureData,
+    CreateHistoryRequest,
+    FeedbackRequest,
     GenerateSQLRequest,
     GenerateSQLResponse,
     PipelineExecuteRequest,
     PipelineExecuteResponse,
     PipelineResponse,
+    ValidateSQLRequest,
+    ValidateSQLResponse,
 )
 import logging
 
@@ -533,16 +538,147 @@ class AIService:
             content=message_data.message,
         )
 
-        # Generate AI response
-        answer = await self.mock_ai.generate_answer(
-            message_data.message, [], message_data.context or {}
-        )
+        await self.db.commit()
+        await self.db.refresh(user_message)
+
+        # Extract context and knowledge
+        context = message_data.context or {}
+        configure_data_dict = context.get("configure_data", {}) or context
+        knowledge = configure_data_dict.get("knowledge", []) or []
+        
+        # Try to use real AI service if configured
+        answer = None
+        try:
+            if self.real_ai:
+                # Use real AI service - need connection_id
+                # Strategy (same as process_query):
+                # 1. Try to get connection_id from knowledge (UUIDs or table names)
+                # 2. If not found, use first active connection
+                # 3. If still not found, fall back to mock
+                connection_id = None
+                table_names = []
+                
+                # First, try to detect UUIDs (connection_ids) in knowledge
+                if knowledge:
+                    for item in knowledge:
+                        # Check if it looks like a UUID (connection_id)
+                        if isinstance(item, str) and len(item) == 36 and item.count("-") == 4:
+                            connection_id = item
+                            break
+                        elif isinstance(item, str):
+                            # Assume it's a table name
+                            table_names.append(item)
+                    
+                    # If no UUID found, try to resolve table names to connection_id
+                    if not connection_id and table_names:
+                        resolved_connection_id = await self._resolve_connection_id_from_tables(
+                            table_names, user_id
+                        )
+                        if resolved_connection_id:
+                            connection_id = resolved_connection_id
+                
+                # If still no connection_id, try to get first active connection
+                if not connection_id:
+                    # Try to get space_id from context
+                    space_id = context.get("space_id") or configure_data_dict.get("space_id")
+                    if space_id:
+                        connection_id = await self._get_first_active_connection_for_space(
+                            user_id, space_id
+                        )
+                    else:
+                        connection_id = await self._get_first_active_connection(user_id)
+                    if connection_id:
+                        logger.info(
+                            f"[send_chat_message] No connection_id in knowledge, using first active connection: {connection_id}"
+                        )
+
+                if connection_id:
+                    # Get space_id from context or resolve from connection
+                    space_id = context.get("space_id") or configure_data_dict.get("space_id")
+                    if not space_id:
+                        space_id = await self._resolve_space_id_for_connection(user_id, connection_id)
+                    
+                    if space_id:
+                        # Get crew_ids for this user
+                        is_personal = bool(context.get("is_personal", False))
+                        crew_ids = await self._get_user_crew_ids(
+                            user_id,
+                            space_id,
+                            all_spaces=is_personal,
+                        )
+                        
+                        # Forward user-selected datasets/tables to AI engine when present
+                        selected_datasets: Optional[List[str]] = None
+                        try:
+                            if knowledge:
+                                table_names_list: List[str] = []
+                                for item in knowledge:
+                                    # keep only non-UUIDs (UUIDs represent connection_id)
+                                    if isinstance(item, str) and not (len(item) == 36 and item.count("-") == 4):
+                                        table_names_list.append(item)
+                                selected_datasets = table_names_list or None
+                        except Exception:
+                            selected_datasets = None
+                        
+                        logger.info(
+                            f"[send_chat_message] Calling real AI service with connection_id={connection_id}, "
+                            f"space_id={space_id}, crew_ids={crew_ids}, question='{message_data.message[:50]}...'"
+                        )
+                        
+                        result = await self.real_ai.process_query(
+                            connection_id=connection_id,
+                            question=message_data.message,
+                            user_id=str(user_id),
+                            space_id=space_id,
+                            crew_ids=crew_ids if crew_ids else None,
+                            thread_id=str(user_message.id),
+                            is_personal=is_personal,
+                            selected_datasets=selected_datasets,
+                        )
+                        
+                        answer = result.get("answer", "")
+                        logger.info(
+                            f"[send_chat_message] Real AI service returned answer (length: {len(answer)})"
+                        )
+                    else:
+                        # Fallback to mock if no space_id
+                        logger.warning(
+                            f"[send_chat_message] space_id not provided, falling back to mock AI service. "
+                            f"connection_id={connection_id}"
+                        )
+                        answer = await self.mock_ai.generate_answer(
+                            message_data.message, knowledge, context
+                        )
+                else:
+                    # No connection_id found, use mock
+                    logger.info(
+                        f"[send_chat_message] No connection_id found in knowledge {knowledge}, "
+                        f"using mock AI service"
+                    )
+                    answer = await self.mock_ai.generate_answer(
+                        message_data.message, knowledge, context
+                    )
+            else:
+                # Use mock AI service (not configured)
+                logger.debug("[send_chat_message] Real AI service not configured (AI_SERVICE_TYPE != 'real'), using mock")
+                answer = await self.mock_ai.generate_answer(
+                    message_data.message, knowledge, context
+                )
+        except Exception as e:
+            logger.error(
+                f"[send_chat_message] Error calling real AI service: {str(e)}",
+                exc_info=True
+            )
+            # Fallback to mock on error
+            answer = await self.mock_ai.generate_answer(
+                message_data.message, knowledge, context
+            )
 
         # Save AI response
         ai_message = await BaseRepository(self.db, ChatMessage).create(
             widget_id=message_data.widget_id,
             type="assistant",
-            content=answer,
+            content=answer or "No answer generated",
         )
 
         await self.db.commit()
@@ -796,6 +932,57 @@ class AIService:
 
         return output.getvalue()
 
+    async def create_history(
+        self, user_id: UUID, history_data: CreateHistoryRequest
+    ) -> AIHistoryItem:
+        """
+        Create AI history entry.
+
+        Args:
+            user_id: User ID
+            history_data: History data
+
+        Returns:
+            AIHistoryItem: Created history item
+        """
+        # Criar preview (primeiros 200 chars da resposta)
+        preview = (
+            history_data.answer[:200] + "..."
+            if len(history_data.answer) > 200
+            else history_data.answer
+        )
+
+        history = await self.history_repo.create(
+            user_id=user_id,
+            query=history_data.query,
+            preview=preview,
+            answer=history_data.answer,
+            category=history_data.category,
+            tags=history_data.tags or [],
+            date=datetime.now(timezone.utc),
+        )
+
+        await self.db.commit()
+        await self.db.refresh(history)
+
+        return AIHistoryItem.model_validate(history)
+
+    async def submit_feedback(
+        self, user_id: UUID, feedback_data: FeedbackRequest
+    ) -> None:
+        """
+        Submit feedback for AI response.
+
+        Args:
+            user_id: User ID
+            feedback_data: Feedback data
+        """
+        # TODO: Implementar armazenamento de feedback
+        # Pode criar uma tabela ai_feedback ou adicionar campo em chat_messages
+        logger.info(
+            f"User {user_id} submitted {feedback_data.feedback} feedback for message {feedback_data.message_id}"
+        )
+
     async def get_pipeline_logs(self, pipeline_id: UUID, user_id: UUID) -> str:
         """
         Get pipeline logs.
@@ -859,4 +1046,70 @@ class AIService:
             "category": "general",
             "confidence": 0.85,
         }
+
+    async def validate_sql(
+        self, request: ValidateSQLRequest, user: User
+    ) -> ValidateSQLResponse:
+        """
+        Validate SQL by calling AI Engine.
+
+        Args:
+            request: Validate SQL request
+            user: Current user
+
+        Returns:
+            ValidateSQLResponse: Validation result
+
+        Raises:
+            HTTPException: If AI service is not available or call fails
+        """
+        from fastapi import HTTPException
+        import httpx
+
+        if not self.real_ai:
+            raise HTTPException(
+                status_code=503,
+                detail="AI service is not available (not configured as 'real')"
+            )
+
+        try:
+            # Resolve space_id if not provided
+            space_id = request.space_id
+            if not space_id and request.connection_id:
+                space_id = await self._resolve_space_id_for_connection(
+                    user.id, request.connection_id
+                )
+            
+            # If still no space_id, raise error (space_id is required for AI Engine)
+            if not space_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="space_id is required for SQL validation"
+                )
+
+            # Chama AI Engine via HTTP client
+            result = await self.real_ai.http_client.validate_sql(
+                connection_id=request.connection_id,
+                sql=request.sql,
+                user_id=str(user.id),
+                space_id=space_id,
+                crew_ids=request.crew_ids,
+                is_personal=request.is_personal,
+            )
+
+            return ValidateSQLResponse(**result)
+        except HTTPException:
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(f"AI service HTTP error: {e.response.status_code} - {e.response.text}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"AI service error: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"Error validating SQL: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error validating SQL: {str(e)}"
+            )
 

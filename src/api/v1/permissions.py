@@ -15,6 +15,8 @@ from src.schemas.permission import (
     PermissionUpdate,
     PermissionValidateRequest,
     PermissionValidateResponse,
+    RolePermissionResponse,
+    RolePermissionUpdate,
     TableMemberPermissionCreate,
     TableMemberPermissionResponse,
     TableMemberPermissionUpdate,
@@ -356,4 +358,60 @@ async def delete_table_member_permission(
     permission_service = PermissionService(db)
     await permission_service.delete_table_member_permission(permission_id, current_user)
     return SuccessResponse(message="Table member permission deleted successfully")
+
+
+@router.get(
+    "/roles",
+    response_model=List[RolePermissionResponse],
+    status_code=status.HTTP_200_OK,
+    responses={403: {"model": ErrorResponse}},
+    summary="Get all role permissions",
+    description="Get all role permissions (admin only)",
+)
+async def get_all_role_permissions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[RolePermissionResponse]:
+    """
+    Get all role permissions.
+
+    Args:
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        List[RolePermissionResponse]: List of all role permissions
+    """
+    permission_service = PermissionService(db)
+    return await permission_service.get_all_role_permissions(current_user)
+
+
+@router.put(
+    "/roles/{role}",
+    response_model=RolePermissionResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Update role permission",
+    description="Update permissions for a role (admin only)",
+)
+async def update_role_permission(
+    role: str,
+    permission_data: RolePermissionUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> RolePermissionResponse:
+    """
+    Update role permission.
+
+    Args:
+        role: Role name (commander, navigator, explorer, guest)
+        permission_data: Permission update data
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        RolePermissionResponse: Updated role permission
+    """
+    permission_service = PermissionService(db)
+    return await permission_service.update_role_permission(role, current_user, permission_data)
 

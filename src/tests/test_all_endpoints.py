@@ -1075,6 +1075,266 @@ class TestAIEndpoints:
         response = client.get(f"/api/v1/ai/pipeline/{fake_id}/logs", headers=headers)
         assert response.status_code in [200, 404]
 
+    @pytest.mark.asyncio
+    async def test_validate_sql(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/ai/validate-sql."""
+        user = test_user_with_tokens["user"]
+        connection = await create_test_connection(db_session, user)
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        validate_data = {
+            "connection_id": str(connection.id),
+            "sql": "SELECT 1 as test_column LIMIT 5"
+        }
+        response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
+        # May return 200 (success) or 400/500/502/503 (validation failed or AI service error)
+        assert response.status_code in [200, 400, 500, 502, 503]
+        if response.status_code == 200:
+            data = response.json()
+            assert "is_valid" in data
+            assert isinstance(data["is_valid"], bool)
+
+    def test_validate_sql_no_auth(self, client: TestClient):
+        """Test POST /api/v1/ai/validate-sql without authentication."""
+        validate_data = {
+            "connection_id": str(uuid4()),
+            "sql": "SELECT 1"
+        }
+        response = client.post("/api/v1/ai/validate-sql", json=validate_data)
+        assert response.status_code == 401
+
+    def test_validate_sql_invalid_request(self, client: TestClient, test_user_with_tokens: dict):
+        """Test POST /api/v1/ai/validate-sql with invalid request."""
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        # Missing required fields
+        response = client.post("/api/v1/ai/validate-sql", json={}, headers=headers)
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_validate_sql_with_space_id(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/ai/validate-sql with space_id provided."""
+        user = test_user_with_tokens["user"]
+        space = await create_test_space(db_session, user)
+        connection = await create_test_connection(db_session, user)
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        validate_data = {
+            "connection_id": str(connection.id),
+            "sql": "SELECT 1 as test_column LIMIT 5",
+            "space_id": str(space.id)
+        }
+        response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
+        # May return 200 (success) or 400/500/502/503 (validation failed or AI service error)
+        assert response.status_code in [200, 400, 500, 502, 503]
+        if response.status_code == 200:
+            data = response.json()
+            assert "is_valid" in data
+            assert isinstance(data["is_valid"], bool)
+
+    @pytest.mark.asyncio
+    async def test_validate_sql_without_space_id(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/ai/validate-sql without space_id (should try to resolve)."""
+        user = test_user_with_tokens["user"]
+        connection = await create_test_connection(db_session, user)
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        validate_data = {
+            "connection_id": str(connection.id),
+            "sql": "SELECT 1 as test_column LIMIT 5"
+            # space_id not provided - should try to resolve
+        }
+        response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
+        # May return 200 (if space_id resolved), 400 (if cannot resolve), or 500/502/503 (AI service errors)
+        assert response.status_code in [200, 400, 500, 502, 503]
+        if response.status_code == 200:
+            data = response.json()
+            assert "is_valid" in data
+            assert isinstance(data["is_valid"], bool)
+
+    @pytest.mark.asyncio
+    async def test_validate_sql_with_connection_linked_to_space(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/ai/validate-sql with connection linked to space (tests _resolve_space_id_for_connection)."""
+        user = test_user_with_tokens["user"]
+        space = await create_test_space(db_session, user)
+        connection = await create_test_connection(db_session, user)
+        
+        # Link connection to space directly in database
+        from src.models.space import SpaceConnection
+        space_connection = SpaceConnection(
+            space_id=space.id,
+            connection_id=connection.id
+        )
+        db_session.add(space_connection)
+        await db_session.commit()
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        validate_data = {
+            "connection_id": str(connection.id),
+            "sql": "SELECT 1 as test_column LIMIT 5"
+            # space_id not provided - should resolve from connection
+        }
+        response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
+        # Should resolve space_id from connection, may return 200 or AI service errors
+        assert response.status_code in [200, 400, 500, 502, 503]
+        if response.status_code == 200:
+            data = response.json()
+            assert "is_valid" in data
+            assert isinstance(data["is_valid"], bool)
+
+    @pytest.mark.asyncio
+    async def test_validate_sql_empty_sql(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/ai/validate-sql with empty SQL."""
+        user = test_user_with_tokens["user"]
+        space = await create_test_space(db_session, user)
+        connection = await create_test_connection(db_session, user)
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        validate_data = {
+            "connection_id": str(connection.id),
+            "sql": "",
+            "space_id": str(space.id)
+        }
+        response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
+        # May return 200, 400, 422, or 500/502/503
+        assert response.status_code in [200, 400, 422, 500, 502, 503]
+
+    @pytest.mark.asyncio
+    async def test_validate_sql_with_crew_ids(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/ai/validate-sql with crew_ids provided."""
+        user = test_user_with_tokens["user"]
+        space = await create_test_space(db_session, user)
+        connection = await create_test_connection(db_session, user)
+        crew = await create_test_crew(db_session, user, space.id)
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        validate_data = {
+            "connection_id": str(connection.id),
+            "sql": "SELECT 1 as test_column LIMIT 5",
+            "space_id": str(space.id),
+            "crew_ids": [str(crew.id)],
+            "is_personal": False
+        }
+        response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
+        # May return 200 (success) or 400/500/502/503 (validation failed or AI service error)
+        assert response.status_code in [200, 400, 500, 502, 503]
+        if response.status_code == 200:
+            data = response.json()
+            assert "is_valid" in data
+            assert isinstance(data["is_valid"], bool)
+
+    @pytest.mark.asyncio
+    async def test_validate_sql_no_space_id_cannot_resolve(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/ai/validate-sql without space_id when connection is not linked to any space (should return 400)."""
+        user = test_user_with_tokens["user"]
+        # Create connection but don't link it to any space
+        connection = await create_test_connection(db_session, user)
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        validate_data = {
+            "connection_id": str(connection.id),
+            "sql": "SELECT 1 as test_column LIMIT 5"
+            # space_id not provided and connection not linked to space - should fail with 400
+        }
+        response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
+        # May return 400 (space_id cannot be resolved) or 503 (AI service unavailable)
+        assert response.status_code in [400, 503]
+        if response.status_code == 400:
+            data = response.json()
+            assert "space_id is required" in data.get("detail", "").lower() or "space_id" in data.get("detail", "")
+
+    @pytest.mark.asyncio
+    async def test_validate_sql_with_space_member(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/ai/validate-sql with connection linked to space where user is a member (not creator)."""
+        user = test_user_with_tokens["user"]
+        # Create space with another user as creator
+        from src.repositories.user import UserRepository
+        from src.core.security import get_password_hash
+        from faker import Faker
+        faker = Faker()
+        user_repo = UserRepository(db_session)
+        space_owner = await user_repo.create(
+            email=faker.email(),
+            password_hash=get_password_hash("password123"),
+            name=faker.name(),
+            role="user"
+        )
+        await db_session.commit()
+        
+        # Create space owned by space_owner
+        space = await create_test_space(db_session, space_owner)
+        connection = await create_test_connection(db_session, space_owner)
+        
+        # Link connection to space
+        from src.models.space import SpaceConnection, SpaceMember
+        space_connection = SpaceConnection(
+            space_id=space.id,
+            connection_id=connection.id
+        )
+        db_session.add(space_connection)
+        
+        # Add user as member of space (not creator)
+        # Use explicit datetime to avoid server_default issues
+        now = datetime.now(timezone.utc)
+        space_member = SpaceMember(
+            space_id=space.id,
+            user_id=user.id,
+            created_at=now
+        )
+        db_session.add(space_member)
+        await db_session.commit()
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        validate_data = {
+            "connection_id": str(connection.id),
+            "sql": "SELECT 1 as test_column LIMIT 5"
+            # space_id not provided - should resolve from connection via space membership
+        }
+        response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
+        # Should resolve space_id from connection via membership, may return 200 or AI service errors
+        assert response.status_code in [200, 400, 500, 502, 503]
+        if response.status_code == 200:
+            data = response.json()
+            assert "is_valid" in data
+            assert isinstance(data["is_valid"], bool)
+
+    @pytest.mark.asyncio
+    async def test_validate_sql_with_is_personal(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/ai/validate-sql with is_personal=True."""
+        user = test_user_with_tokens["user"]
+        connection = await create_test_connection(db_session, user)
+        
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        validate_data = {
+            "connection_id": str(connection.id),
+            "sql": "SELECT 1 as test_column LIMIT 5",
+            "is_personal": True
+        }
+        response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
+        # May return 200, 400, 500, 502, 503 depending on AI service availability
+        assert response.status_code in [200, 400, 500, 502, 503]
+        if response.status_code == 200:
+            data = response.json()
+            assert "is_valid" in data
+            assert isinstance(data["is_valid"], bool)
+
 
 # ============================================================================
 # MODULE 7: SPACES

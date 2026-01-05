@@ -96,6 +96,22 @@ class AIHistoryItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CreateHistoryRequest(BaseModel):
+    """Create history request schema."""
+
+    query: str = Field(..., min_length=1)
+    answer: str = Field(..., min_length=1)
+    category: Optional[str] = None
+    tags: Optional[List[str]] = Field(default_factory=list)
+
+
+class FeedbackRequest(BaseModel):
+    """Feedback request schema."""
+
+    message_id: str = Field(..., min_length=1)
+    feedback: str = Field(..., pattern="^(good|bad)$")
+
+
 class GenerateSQLRequest(BaseModel):
     """Generate SQL request schema."""
 
@@ -209,4 +225,26 @@ class ChatBootstrapResponse(BaseModel):
     greeting: str
     suggestions: List[ChatBootstrapSuggestion]
     meta: Optional[Dict[str, Any]] = None
+
+
+class ValidateSQLRequest(BaseModel):
+    """Request para validar SQL."""
+
+    connection_id: str = Field(..., description="ID da conexão.")
+    sql: str = Field(..., description="SQL a ser validado.")
+    user_id: Optional[str] = Field(None, description="ID do usuário.")
+    space_id: Optional[str] = Field(None, description="Space atual.")
+    crew_ids: Optional[List[str]] = Field(None, description="Crew IDs.")
+    is_personal: Optional[bool] = Field(False, description="Modo personal.")
+
+
+class ValidateSQLResponse(BaseModel):
+    """Response da validação de SQL."""
+
+    is_valid: bool = Field(..., description="Se o SQL é válido.")
+    error: Optional[str] = Field(None, description="Mensagem de erro.")
+    preview_data: Optional[List[Dict[str, Any]]] = Field(None, description="Preview dos dados.")
+    num_rows: Optional[int] = Field(None, description="Número de linhas.")
+    execution_time_ms: Optional[float] = Field(None, description="Tempo de execução.")
+    columns: Optional[List[str]] = Field(None, description="Colunas retornadas.")
 

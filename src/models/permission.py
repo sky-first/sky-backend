@@ -193,3 +193,27 @@ class Integration(Base):
     def __repr__(self) -> str:
         return f"<Integration(id={self.id}, name={self.name}, type={self.type}, user_id={self.user_id})>"
 
+
+class RolePermission(Base):
+    """Role permission model - stores permissions for custom roles (Commander, Navigator, Explorer, Guest)."""
+
+    __tablename__ = "role_permissions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    role = Column(String(50), nullable=False, unique=True, index=True)  # commander, navigator, explorer, guest
+    permissions = Column(JSON, nullable=False)  # Dictionary of permission keys and boolean values
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default="now()",
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        Index("idx_role_permissions_role", "role"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<RolePermission(role={self.role}, permissions={self.permissions})>"
+

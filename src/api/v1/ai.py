@@ -22,6 +22,8 @@ from src.schemas.ai import (
     ChatBootstrapResponse,
     ChatMessageRequest,
     ChatMessageResponse,
+    CreateHistoryRequest,
+    FeedbackRequest,
     GenerateAnswerRequest,
     GenerateAnswerResponse,
     GenerateSQLRequest,
@@ -29,6 +31,8 @@ from src.schemas.ai import (
     PipelineExecuteRequest,
     PipelineExecuteResponse,
     PipelineResponse,
+    ValidateSQLRequest,
+    ValidateSQLResponse,
 )
 from src.schemas.common import ErrorResponse, PaginatedResponse, SuccessResponse
 
@@ -252,6 +256,34 @@ async def get_history(
         skip=skip,
         limit=limit,
     )
+
+
+@router.post(
+    "/history",
+    response_model=AIHistoryItem,
+    status_code=status.HTTP_201_CREATED,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    summary="Create AI history entry",
+    description="Create a new AI history entry",
+)
+async def create_history(
+    history_data: CreateHistoryRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> AIHistoryItem:
+    """
+    Create AI history entry.
+
+    Args:
+        history_data: History data (query, answer, category, tags)
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        AIHistoryItem: Created history item
+    """
+    ai_service = AIService(db)
+    return await ai_service.create_history(current_user.id, history_data)
 
 
 @router.get(
@@ -583,4 +615,61 @@ async def analyze_question(
     ai_service = AIService(db)
     analysis = await ai_service.analyze_question(request.question, request.knowledge)
     return AnalyzeQuestionResponse(**analysis)
+
+
+@router.post(
+    "/feedback",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    summary="Submit feedback",
+    description="Submit feedback for an AI response",
+)
+async def submit_feedback(
+    feedback_data: FeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Submit feedback.
+
+    Args:
+        feedback_data: Feedback data
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    ai_service = AIService(db)
+    await ai_service.submit_feedback(current_user.id, feedback_data)
+    return SuccessResponse(message="Feedback submitted successfully")
+
+
+@router.post(
+    "/validate-sql",
+    response_model=ValidateSQLResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    summary="Validate SQL",
+    description="Validate SQL by executing a test query (LIMIT 5)",
+)
+async def validate_sql(
+    request: ValidateSQLRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ValidateSQLResponse:
+    """
+    Validate SQL by calling AI Engine.
+
+    Args:
+        request: Validate SQL request
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        ValidateSQLResponse: Validation result
+    """
+    ai_service = AIService(db)
+    return await ai_service.validate_sql(request, current_user)
 

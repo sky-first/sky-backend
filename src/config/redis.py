@@ -1,6 +1,7 @@
 """Redis configuration and connection management."""
 
 import logging
+from typing import Optional
 import redis.asyncio as aioredis
 from redis.asyncio import Redis
 
@@ -9,7 +10,7 @@ from src.config.settings import settings
 logger = logging.getLogger(__name__)
 
 # Global Redis connection pool
-_redis: Redis | None = None
+_redis: Optional[Redis] = None
 
 
 async def get_redis() -> Redis:
