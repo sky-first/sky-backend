@@ -22,6 +22,15 @@ class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=100)
 
 
+class RegisterRequest(BaseModel):
+    """User registration request schema."""
+
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=100)
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    token: Optional[str] = Field(None, description="Invitation token (optional)")
+
+
 class UserUpdate(BaseModel):
     """User update schema."""
 

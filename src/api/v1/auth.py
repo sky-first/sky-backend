@@ -11,6 +11,7 @@ from src.schemas.user import (
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
+    RegisterRequest,
     RefreshTokenRequest,
     RefreshTokenResponse,
     ResetPasswordRequest,
@@ -20,6 +21,35 @@ from src.schemas.user import (
 from src.services.auth_service import AuthenticationService, user_to_response_dict
 
 router = APIRouter()
+
+
+@router.post(
+    "/register",
+    response_model=LoginResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={400: {"model": ErrorResponse}},
+    summary="User registration",
+    description="Register a new user and return access and refresh tokens",
+)
+async def register(
+    register_data: RegisterRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> LoginResponse:
+    """
+    Register endpoint.
+
+    Args:
+        register_data: Registration data (email, password, optional name and token)
+        db: Database session
+
+    Returns:
+        LoginResponse: Access token, refresh token, and user data
+
+    Raises:
+        BadRequestError: If email already exists or validation fails
+    """
+    auth_service = AuthenticationService(db)
+    return await auth_service.register_with_tokens(register_data)
 
 
 @router.post(
