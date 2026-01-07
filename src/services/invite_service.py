@@ -137,8 +137,12 @@ class InviteService:
         if not user:
             raise BadRequestError("Invalid invite token")
 
-        # Check if token is expired
-        if user.invite_expires_at and user.invite_expires_at < datetime.now(timezone.utc):
+        # Check if token is expired.
+        # SQLite can return naive datetimes; normalize to UTC-aware before comparing.
+        expires_at = user.invite_expires_at
+        if expires_at is not None and getattr(expires_at, "tzinfo", None) is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at and expires_at < datetime.now(timezone.utc):
             raise BadRequestError("Invite token has expired")
 
         # Get inviter information
@@ -151,7 +155,7 @@ class InviteService:
         logger.debug(f"✅ Validated invite token for {user.email}")
         return {
             "email": user.email,
-            "expires_at": user.invite_expires_at.isoformat() if user.invite_expires_at else None,
+            "expires_at": expires_at.isoformat() if expires_at else None,
             "invited_by_name": inviter_name,
             "name": user.name,
         }

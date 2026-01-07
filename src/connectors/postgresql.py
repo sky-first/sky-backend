@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import asyncpg
 
-from src.repositories.base import BaseConnector
+from src.connectors.base import BaseConnector
 
 
 class PostgreSQLConnector(BaseConnector):

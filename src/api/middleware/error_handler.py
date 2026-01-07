@@ -7,12 +7,12 @@ from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from jose import JWTError
 
-# ExceptionGroup is available in Python 3.11+
-try:
-    from builtins import ExceptionGroup
-except ImportError:
-    # For Python < 3.11, ExceptionGroup doesn't exist
-    ExceptionGroup = type(None)  # Will never match
+# ExceptionGroup is available in Python 3.11+. We avoid having an invalid
+# `except ExceptionGroup:` clause on Python < 3.11 (it raises TypeError at runtime).
+try:  # pragma: no cover
+    from builtins import ExceptionGroup as _BuiltinsExceptionGroup  # type: ignore
+except Exception:  # pragma: no cover
+    _BuiltinsExceptionGroup = None
 
 from src.core.exceptions import (
     BadRequestError,
@@ -128,35 +128,6 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
         )
         _apply_cors_headers(request, response)
         return response
-    except ExceptionGroup as eg:
-        # Handle ExceptionGroup (Python 3.11+) - extract the first exception
-        logger.warning(f"ExceptionGroup caught: {len(eg.exceptions)} exceptions")
-        # Try to find UnauthorizedError in the group
-        for exc in eg.exceptions:
-            logger.debug(f"Exception in group: {type(exc).__name__}: {exc}")
-            if isinstance(exc, UnauthorizedError):
-                logger.warning(f"Unauthorized: {exc.message}")
-                response = JSONResponse(
-                    status_code=exc.status_code,
-                    content={"error": "Unauthorized", "message": exc.message},
-                )
-                _apply_cors_headers(request, response)
-                return response
-            elif isinstance(exc, BaseAPIException):
-                logger.error(f"API exception from group: {exc.message}")
-                response = JSONResponse(
-                    status_code=exc.status_code,
-                    content={"error": "API Error", "message": exc.message},
-                )
-                _apply_cors_headers(request, response)
-                return response
-        # If no known exception found, try to extract and re-raise the first one
-        # This allows FastAPI exception handlers to catch it
-        if eg.exceptions:
-            first_exc = eg.exceptions[0]
-            logger.warning(f"Re-raising first exception from group: {type(first_exc).__name__}")
-            raise first_exc from eg
-        raise
     except Exception as e:
         # Log full exception details for debugging
         import traceback
@@ -175,4 +146,32 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
         )
         _apply_cors_headers(request, response)
         return response
+    except BaseException as e:  # pragma: no cover
+        # Python 3.11+ ExceptionGroup is a BaseException, so it bypasses `except Exception`.
+        # We handle it here without breaking Python < 3.11.
+        if _BuiltinsExceptionGroup is not None and isinstance(e, _BuiltinsExceptionGroup):
+            eg = e  # type: ignore[assignment]
+            logger.warning(f"ExceptionGroup caught: {len(getattr(eg, 'exceptions', []))} exceptions")
+            for exc in getattr(eg, "exceptions", []):
+                if isinstance(exc, UnauthorizedError):
+                    response = JSONResponse(
+                        status_code=exc.status_code,
+                        content={"error": "Unauthorized", "message": exc.message},
+                    )
+                    _apply_cors_headers(request, response)
+                    return response
+                if isinstance(exc, BaseAPIException):
+                    response = JSONResponse(
+                        status_code=exc.status_code,
+                        content={"error": "API Error", "message": exc.message},
+                    )
+                    _apply_cors_headers(request, response)
+                    return response
+            # Re-raise the first exception to preserve behavior
+            first = getattr(eg, "exceptions", [None])[0]
+            if first:
+                raise first from eg
+            raise
+        # Not an ExceptionGroup; re-raise (don't swallow KeyboardInterrupt/SystemExit)
+        raise
 

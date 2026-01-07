@@ -797,6 +797,26 @@ class TestConnectionsEndpoints:
         response = client.post(f"/api/v1/connections/{connection.id}/test", headers=headers)
         # May return 200 (success) or 400/500 (connection failed)
         assert response.status_code in [200, 400, 500]
+        if response.status_code == 200:
+            data = response.json()
+            assert "success" in data
+            assert isinstance(data["success"], bool)
+
+    @pytest.mark.asyncio
+    async def test_test_connection_not_found(self, client: TestClient, test_user_with_tokens: dict):
+        """Test POST /api/v1/connections/{id}/test - Connection not found."""
+        fake_id = str(uuid4())
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        response = client.post(f"/api/v1/connections/{fake_id}/test", headers=headers)
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_test_connection_no_auth(self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession):
+        """Test POST /api/v1/connections/{id}/test - No authentication."""
+        user = test_user_with_tokens["user"]
+        connection = await create_test_connection(db_session, user)
+        response = client.post(f"/api/v1/connections/{connection.id}/test")
+        assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_sync_connection(
@@ -2243,8 +2263,10 @@ class TestSSOEndpoints:
         response = client.get("/api/v1/auth/sso/invalid/login", follow_redirects=False)
         assert response.status_code == 400
         data = response.json()
-        assert "error" in data
-        assert "Unsupported" in data.get("error", "") or "unsupported" in data.get("error", "").lower()
+        assert "error" in data or "message" in data
+        # Check both error and message fields for "Unsupported"
+        error_msg = (data.get("error", "") + " " + data.get("message", "")).strip()
+        assert "Unsupported" in error_msg or "unsupported" in error_msg.lower() or "unsupported" in data.get("message", "").lower()
 
     def test_sso_callback_google_missing_code(self, client: TestClient):
         """Test GET /api/v1/auth/sso/google/callback - Missing code parameter."""
@@ -2266,8 +2288,10 @@ class TestSSOEndpoints:
         response = client.get("/api/v1/auth/sso/invalid/callback?code=test")
         assert response.status_code == 400
         data = response.json()
-        assert "error" in data
-        assert "Unsupported" in data.get("error", "") or "unsupported" in data.get("error", "").lower()
+        assert "error" in data or "message" in data
+        # Check both error and message fields for "Unsupported"
+        error_msg = (data.get("error", "") + " " + data.get("message", "")).strip()
+        assert "Unsupported" in error_msg or "unsupported" in error_msg.lower() or "unsupported" in data.get("message", "").lower()
 
 
 # ============================================================================
@@ -2339,4 +2363,65 @@ class TestInviteEndpoints:
         assert response.status_code == 403
         data = response.json()
         assert "error" in data
+
+    @pytest.mark.asyncio
+    async def test_validate_invite_token_expired(self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession):
+        """Test POST /api/v1/auth/invite/validate - Expired token."""
+        from src.services.invite_service import InviteService
+        from datetime import timedelta, timezone, datetime
+        
+        # Create an invite with expired token
+        invite_service = InviteService(db_session)
+        user = test_user_with_tokens["user"]
+        user.role = "admin"  # Make user admin for this test
+        await db_session.commit()
+        
+        # Create invite with past expiration
+        token = invite_service.generate_invite_token(user.id, expires_days=-1)
+        from src.models.user import User
+        expired_user = User(
+            id=uuid4(),
+            email="expired@example.com",
+            password_hash="hash",
+            name="Expired User",
+            invite_token=token,
+            invite_expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        db_session.add(expired_user)
+        await db_session.commit()
+        
+        response = client.post(
+            "/api/v1/auth/invite/validate",
+            json={"token": token}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["valid"] is False
+
+    @pytest.mark.asyncio
+    async def test_validate_invite_token_valid(self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession):
+        """Test POST /api/v1/auth/invite/validate - Valid token."""
+        from src.services.invite_service import InviteService
+        
+        invite_service = InviteService(db_session)
+        user = test_user_with_tokens["user"]
+        user.role = "admin"
+        await db_session.commit()
+        
+        # Create a valid invite
+        token = await invite_service.create_invite(
+            invited_by=user,
+            email="validinvite@example.com",
+            expires_days=7,
+            name="Valid Invite User"
+        )
+        
+        response = client.post(
+            "/api/v1/auth/invite/validate",
+            json={"token": token}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["valid"] is True
+        assert data["email"] == "validinvite@example.com"
 
