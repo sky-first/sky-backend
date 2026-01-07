@@ -21,6 +21,9 @@ Total: 132 endpoints tested
 - SSO (6 endpoints - Google, Azure, Okta login and callback)
 
 Total: 138 endpoints tested
+- Invite (3 endpoints - validate, login, generate)
+
+Total: 141 endpoints tested
 """
 
 import pytest
@@ -2265,4 +2268,75 @@ class TestSSOEndpoints:
         data = response.json()
         assert "error" in data
         assert "Unsupported" in data.get("error", "") or "unsupported" in data.get("error", "").lower()
+
+
+# ============================================================================
+# MODULE 17: INVITE ENDPOINTS
+# ============================================================================
+
+class TestInviteEndpoints:
+    """Tests for invite authentication endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_validate_invite_token_invalid(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/validate - Invalid token."""
+        response = client.post(
+            "/api/v1/auth/invite/validate",
+            json={"token": "invalid_token_12345"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["valid"] is False
+        assert "message" in data
+
+    def test_validate_invite_token_missing(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/validate - Missing token."""
+        response = client.post("/api/v1/auth/invite/validate", json={})
+        assert response.status_code == 422  # Validation error
+
+    def test_login_with_invite_missing_token(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/login - Missing token."""
+        response = client.post(
+            "/api/v1/auth/invite/login",
+            json={"password": "testpassword123"}
+        )
+        assert response.status_code == 422  # Validation error
+
+    def test_login_with_invite_missing_password(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/login - Missing password."""
+        response = client.post(
+            "/api/v1/auth/invite/login",
+            json={"token": "test_token"}
+        )
+        assert response.status_code == 422  # Validation error
+
+    def test_login_with_invite_invalid_token(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/login - Invalid token."""
+        response = client.post(
+            "/api/v1/auth/invite/login",
+            json={"token": "invalid_token", "password": "testpassword123"}
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert "error" in data
+
+    def test_generate_invite_no_auth(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/generate - No authentication."""
+        response = client.post(
+            "/api/v1/auth/invite/generate",
+            json={"email": "test@example.com"}
+        )
+        assert response.status_code == 401
+
+    def test_generate_invite_not_admin(self, client: TestClient, test_user_with_tokens: dict):
+        """Test POST /api/v1/auth/invite/generate - User is not admin."""
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        response = client.post(
+            "/api/v1/auth/invite/generate",
+            json={"email": "test@example.com"},
+            headers=headers
+        )
+        assert response.status_code == 403
+        data = response.json()
+        assert "error" in data
 

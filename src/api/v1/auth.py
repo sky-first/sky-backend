@@ -14,6 +14,11 @@ from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.user import (
     ForgotPasswordRequest,
+    InviteGenerateRequest,
+    InviteGenerateResponse,
+    InviteLoginRequest,
+    InviteValidateRequest,
+    InviteValidateResponse,
     LoginRequest,
     LoginResponse,
     RegisterRequest,
@@ -25,6 +30,7 @@ from src.schemas.user import (
 )
 from src.services.auth_service import AuthenticationService, user_to_response_dict
 from src.services.auth0_service import Auth0Service
+from src.services.invite_service import InviteService
 
 router = APIRouter()
 
@@ -266,4 +272,135 @@ async def get_session(
         UserResponse: Current user session data
     """
     return UserResponse.model_validate(user_to_response_dict(current_user))
+
+
+# Invite Endpoints
+
+@router.post(
+    "/invite/validate",
+    response_model=InviteValidateResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}},
+    summary="Validate Invite Token",
+    description="Validate an invite token and return invite information",
+)
+async def validate_invite(
+    request_data: InviteValidateRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> InviteValidateResponse:
+    """
+    Validate invite token endpoint.
+
+    Args:
+        request_data: Invite token to validate
+        db: Database session
+
+    Returns:
+        InviteValidateResponse: Invite information if valid
+
+    Raises:
+        BadRequestError: If token is invalid or expired
+    """
+    invite_service = InviteService(db)
+    try:
+        invite_info = await invite_service.validate_invite_token(request_data.token)
+        return InviteValidateResponse(
+            valid=True,
+            email=invite_info.get("email"),
+            expires_at=invite_info.get("expires_at"),
+            invited_by_name=invite_info.get("invited_by_name"),
+            name=invite_info.get("name"),
+            message="Invite token is valid",
+        )
+    except BadRequestError as e:
+        return InviteValidateResponse(
+            valid=False,
+            message=str(e),
+        )
+
+
+@router.post(
+    "/invite/login",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    summary="Login with Invite Token",
+    description="Authenticate user using invite token and password",
+)
+async def login_with_invite(
+    login_data: InviteLoginRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> LoginResponse:
+    """
+    Login with invite token endpoint.
+
+    Args:
+        login_data: Invite token and password
+        db: Database session
+
+    Returns:
+        LoginResponse: Access token, refresh token, and user data
+
+    Raises:
+        BadRequestError: If token is invalid or expired
+        UnauthorizedError: If password is incorrect
+    """
+    invite_service = InviteService(db)
+    login_response = await invite_service.login_with_invite(login_data.token, login_data.password)
+    return LoginResponse(**login_response)
+
+
+@router.post(
+    "/invite/generate",
+    response_model=InviteGenerateResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Generate Invite Token",
+    description="Generate an invite token for a new user (admin only)",
+)
+async def generate_invite(
+    invite_data: InviteGenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> InviteGenerateResponse:
+    """
+    Generate invite token endpoint.
+
+    Args:
+        invite_data: Email and expiration settings
+        current_user: Current authenticated user (must be admin)
+        db: Database session
+
+    Returns:
+        InviteGenerateResponse: Generated invite token and information
+
+    Raises:
+        ForbiddenError: If user is not admin
+        BadRequestError: If email already exists
+    """
+    from src.core.exceptions import ForbiddenError
+
+    # Check if user is admin
+    if current_user.role != "admin":
+        raise ForbiddenError("Only admins can generate invite tokens")
+
+    invite_service = InviteService(db)
+    token = await invite_service.create_invite(
+        invited_by=current_user,
+        email=invite_data.email,
+        expires_days=invite_data.expires_days,
+        name=invite_data.name,
+    )
+
+    # Get expiration date
+    from datetime import datetime, timedelta, timezone
+
+    expires_at = datetime.now(timezone.utc) + timedelta(days=invite_data.expires_days)
+
+    return InviteGenerateResponse(
+        token=token,
+        email=invite_data.email,
+        expires_at=expires_at.isoformat(),
+        message=f"Invite token generated successfully. Expires in {invite_data.expires_days} days.",
+    )
 

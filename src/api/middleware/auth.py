@@ -50,6 +50,8 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/v1/auth/reset-password",
         "/api/v1/auth/verify-email",
         "/api/v1/auth/sso/",  # All SSO endpoints (login and callback)
+        "/api/v1/auth/invite/validate",  # Invite validation (public)
+        "/api/v1/auth/invite/login",  # Invite login (public)
     ]
 
     # Root only (avoid "/" matching every path)

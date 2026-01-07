@@ -157,7 +157,7 @@ class AuthenticationService:
 
     async def login(self, email: str, password: str) -> LoginResponse:
         """
-        Authenticate user and return tokens.
+        Authenticate user and return tokens (hybrid: traditional, SSO, or invite).
 
         Args:
             email: User email
@@ -174,7 +174,19 @@ class AuthenticationService:
         if not user:
             raise UnauthorizedError("Invalid email or password")
 
-        # Verify password
+        # Check authentication type
+        auth_type = self._detect_auth_type(user)
+        
+        # Validate based on auth type
+        if auth_type == "sso":
+            # SSO users should not login with password
+            raise UnauthorizedError("This account uses SSO authentication. Please use your SSO provider to login.")
+        elif auth_type == "invite":
+            # Invite users can login with password, but must complete registration first
+            if user.invite_token:
+                raise UnauthorizedError("Please complete your registration using the invite token first.")
+        
+        # Verify password (for traditional and completed invite users)
         if not verify_password(password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")
 
@@ -207,6 +219,28 @@ class AuthenticationService:
             expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
             user=UserResponse.model_validate(user_to_response_dict(user)),
         )
+
+    def _detect_auth_type(self, user: User) -> str:
+        """
+        Detect authentication type for a user.
+
+        Args:
+            user: User model
+
+        Returns:
+            str: Authentication type (traditional, sso, invite)
+        """
+        # Check if user has SSO provider
+        if user.auth_provider and user.auth_provider != "local":
+            return "sso"
+        
+        # Check if user has active invite
+        if user.invite_token and user.invite_expires_at:
+            if user.invite_expires_at > datetime.now(timezone.utc):
+                return "invite"
+        
+        # Default to traditional
+        return "traditional"
 
     async def refresh_access_token(self, refresh_token: str) -> RefreshTokenResponse:
         """
