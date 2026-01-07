@@ -65,10 +65,36 @@ async def get_current_user(
             try:
                 scheme, token = authorization.split(" ", 1)  # Use maxsplit=1 to handle tokens with spaces
                 if scheme.lower() == "bearer":
-                    # Verify token directly
+                    # Try to verify as custom JWT first
                     from src.core.security import verify_token
-                    payload = verify_token(token, token_type="access")
-                    user_id = payload.get("sub")
+                    payload = None
+                    auth_type = "custom"
+                    try:
+                        payload = verify_token(token, token_type="access")
+                        user_id = payload.get("sub")
+                        logger.debug(f"🔍 Token verified as custom JWT: {user_id}")
+                    except Exception:
+                        # If custom JWT fails, try Auth0 token
+                        try:
+                            from src.config.auth0 import auth0_settings
+                            from src.services.auth0_service import Auth0Service
+                            
+                            if auth0_settings.is_auth0_enabled:
+                                auth0_service = Auth0Service(db)
+                                payload = await auth0_service.verify_auth0_token(token)
+                                auth0_id = payload.get("sub")
+                                if auth0_id:
+                                    # Get user from Auth0 ID
+                                    user = await auth0_service.get_user_from_auth0(auth0_id)
+                                    if user:
+                                        user_id = str(user.id)
+                                        auth_type = "auth0"
+                                        logger.debug(f"🔍 Token verified as Auth0, user_id: {user_id}")
+                                    else:
+                                        logger.warning(f"Auth0 token valid but user not found: {auth0_id}")
+                        except (ImportError, ValueError) as e:
+                            logger.debug(f"Auth0 verification not available: {str(e)}")
+                    
                     if user_id:
                         # Ensure request.state exists
                         if not hasattr(request, 'state'):
@@ -76,8 +102,9 @@ async def get_current_user(
                             logger.warning("request.state doesn't exist, creating it")
                         # Store in request.state for other middlewares/dependencies
                         request.state.user_id = str(user_id)
-                        request.state.user_role = payload.get("role", "user")
-                        logger.debug(f"🔍 Validated token and set user_id in state: {user_id}")
+                        request.state.user_role = payload.get("role", "user") if payload else "user"
+                        request.state.auth_type = auth_type
+                        logger.debug(f"🔍 Validated token and set user_id in state: {user_id}, auth_type: {auth_type}")
             except ValueError as e:
                 # Invalid authorization header format
                 logger.debug(f"🔍 Invalid authorization header format: {str(e)}")
@@ -89,12 +116,36 @@ async def get_current_user(
     if not user_id and credentials:
         try:
             from src.core.security import verify_token
-            payload = verify_token(credentials.credentials, token_type="access")
-            user_id = payload.get("sub")
+            payload = None
+            auth_type = "custom"
+            try:
+                payload = verify_token(credentials.credentials, token_type="access")
+                user_id = payload.get("sub")
+                logger.debug(f"🔍 Credentials verified as custom JWT: {user_id}")
+            except Exception:
+                # Try Auth0 token
+                try:
+                    from src.config.auth0 import auth0_settings
+                    from src.services.auth0_service import Auth0Service
+                    
+                    if auth0_settings.is_auth0_enabled:
+                        auth0_service = Auth0Service(db)
+                        payload = await auth0_service.verify_auth0_token(credentials.credentials)
+                        auth0_id = payload.get("sub")
+                        if auth0_id:
+                            user = await auth0_service.get_user_from_auth0(auth0_id)
+                            if user:
+                                user_id = str(user.id)
+                                auth_type = "auth0"
+                                logger.debug(f"🔍 Credentials verified as Auth0, user_id: {user_id}")
+                except (ImportError, ValueError) as e:
+                    logger.debug(f"Auth0 verification not available: {str(e)}")
+            
             if user_id:
                 request.state.user_id = str(user_id)
-                request.state.user_role = payload.get("role", "user")
-                logger.debug(f"🔍 Validated token from credentials and set user_id: {user_id}")
+                request.state.user_role = payload.get("role", "user") if payload else "user"
+                request.state.auth_type = auth_type
+                logger.debug(f"🔍 Validated token from credentials and set user_id: {user_id}, auth_type: {auth_type}")
         except Exception as e:
             logger.debug(f"🔍 Credentials validation failed: {str(e)}")
     

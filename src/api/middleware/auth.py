@@ -118,29 +118,33 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
             response = await call_next(request)
             return response
         
-        # Verify token (fallback if dependency didn't set it)
-        payload = verify_token(token, token_type="access")
-        user_id = payload.get("sub")
-        if not user_id:
-            logger.warning(f"Token payload missing 'sub': {payload}")
-            raise UnauthorizedError("Invalid token payload")
+        # Try to verify as custom JWT first
+        # Note: Auth0 token verification is handled by get_current_user dependency
+        # which has access to database session. Middleware only handles custom JWT.
+        try:
+            payload = verify_token(token, token_type="access")
+            user_id = payload.get("sub")
+            if not user_id:
+                logger.warning(f"Token payload missing 'sub': {payload}")
+                raise UnauthorizedError("Invalid token payload")
 
-        # Store user info in request state
-        # Ensure user_id is a string
-        user_id_str = str(user_id)
-        
-        # Set state attributes directly
-        request.state.user_id = user_id_str
-        request.state.user_role = payload.get("role", "user")
-        
-        # Verify it was set correctly - use INFO level so we can see it in logs
-        logger.info(f"🔍 Setting user_id: {user_id_str}, type: {type(user_id_str)}")
-        logger.info(f"🔍 request.state.user_id after set: {getattr(request.state, 'user_id', 'NOT SET')}")
-        logger.info(f"🔍 request.state attributes: {[attr for attr in dir(request.state) if not attr.startswith('_')]}")
-        logger.info(f"✅ Auth successful - user_id: {user_id_str}, path: {request.url.path}")
-
-        response = await call_next(request)
-        return response
+            # Store user info in request state
+            user_id_str = str(user_id)
+            request.state.user_id = user_id_str
+            request.state.user_role = payload.get("role", "user")
+            request.state.auth_type = "custom"
+            
+            logger.info(f"✅ Auth successful (custom JWT) - user_id: {user_id_str}, path: {request.url.path}")
+            response = await call_next(request)
+            return response
+        except JWTError:
+            # Custom JWT failed - let dependency handle Auth0 verification
+            # This allows dependency to use database session for Auth0 user lookup
+            logger.debug("Custom JWT verification failed, Auth0 verification will be handled by dependency")
+            # Continue to next middleware/route - dependency will handle Auth0 verification
+            # If dependency also fails, it will raise UnauthorizedError
+            response = await call_next(request)
+            return response
     except UnauthorizedError as e:
         # Return 401 response directly instead of raising
         logger.warning(f"Unauthorized: {e.message}")

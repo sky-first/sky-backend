@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSON
 from sqlalchemy.orm import relationship
 
 from src.config.database import Base
@@ -35,6 +35,20 @@ class User(Base):
     )
     selected_domain = Column(String(255), nullable=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Auth0 Integration
+    auth0_id = Column(String(255), unique=True, nullable=True, index=True)
+    auth_provider = Column(String(50), nullable=False, default="local", server_default="local")  # local, auth0, google, azure, okta
+    auth_provider_id = Column(String(255), nullable=True, index=True)
+    
+    # Invite System
+    invite_token = Column(String(255), nullable=True, index=True)
+    invite_expires_at = Column(DateTime(timezone=True), nullable=True)
+    invited_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    
+    # SSO Metadata
+    sso_metadata = Column(JSON, nullable=True)  # Store provider-specific data
+    
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(
         DateTime(timezone=True),
@@ -60,6 +74,9 @@ class User(Base):
         Index("idx_users_email", "email", postgresql_where=deleted_at.is_(None)),
         Index("idx_users_role", "role", postgresql_where=deleted_at.is_(None)),
         Index("idx_users_created_at", "created_at"),
+        Index("idx_users_auth0_id", "auth0_id", postgresql_where=deleted_at.is_(None)),
+        Index("idx_users_auth_provider", "auth_provider", postgresql_where=deleted_at.is_(None)),
+        Index("idx_users_invite_token", "invite_token", postgresql_where=invite_token.isnot(None)),
     )
 
     def __repr__(self) -> str:
