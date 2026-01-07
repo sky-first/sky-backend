@@ -1,9 +1,14 @@
 """Authentication endpoints."""
 
-from fastapi import APIRouter, Depends, status
+import secrets
+from typing import Optional
+from urllib.parse import urlencode
+from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session  # get_current_user usado em outros endpoints
+from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
@@ -19,6 +24,7 @@ from src.schemas.user import (
     VerifyEmailRequest,
 )
 from src.services.auth_service import AuthenticationService, user_to_response_dict
+from src.services.auth0_service import Auth0Service
 
 router = APIRouter()
 

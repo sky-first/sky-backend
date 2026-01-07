@@ -18,6 +18,9 @@ This file tests all endpoints across all modules:
 - Starred (2 endpoints)
 
 Total: 132 endpoints tested
+- SSO (6 endpoints - Google, Azure, Okta login and callback)
+
+Total: 138 endpoints tested
 """
 
 import pytest
@@ -2205,4 +2208,61 @@ class TestPlanetsStarEndpoints:
         fake_id = str(uuid4())
         response = client.post(f"/api/v1/planets/{fake_id}/star")
         assert response.status_code == 401
+
+
+# ============================================================================
+# MODULE 16: SSO ENDPOINTS
+# ============================================================================
+
+class TestSSOEndpoints:
+    """Tests for SSO authentication endpoints."""
+
+    def test_sso_login_google_not_configured(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/google/login - Google not configured."""
+        response = client.get("/api/v1/auth/sso/google/login", follow_redirects=False)
+        # Should return 400 if not configured, or 302 redirect if configured
+        assert response.status_code in [400, 302]
+
+    def test_sso_login_azure_not_configured(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/azure/login - Azure not configured."""
+        response = client.get("/api/v1/auth/sso/azure/login", follow_redirects=False)
+        # Should return 400 if not configured, or 302 redirect if configured
+        assert response.status_code in [400, 302]
+
+    def test_sso_login_okta_not_configured(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/okta/login - Okta not configured."""
+        response = client.get("/api/v1/auth/sso/okta/login", follow_redirects=False)
+        # Should return 400 if not configured, or 302 redirect if configured
+        assert response.status_code in [400, 302]
+
+    def test_sso_login_unsupported_provider(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/invalid/login - Unsupported provider."""
+        response = client.get("/api/v1/auth/sso/invalid/login", follow_redirects=False)
+        assert response.status_code == 400
+        data = response.json()
+        assert "error" in data
+        assert "Unsupported" in data.get("error", "") or "unsupported" in data.get("error", "").lower()
+
+    def test_sso_callback_google_missing_code(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/google/callback - Missing code parameter."""
+        response = client.get("/api/v1/auth/sso/google/callback")
+        assert response.status_code == 422  # Validation error
+
+    def test_sso_callback_azure_missing_code(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/azure/callback - Missing code parameter."""
+        response = client.get("/api/v1/auth/sso/azure/callback")
+        assert response.status_code == 422  # Validation error
+
+    def test_sso_callback_okta_missing_code(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/okta/callback - Missing code parameter."""
+        response = client.get("/api/v1/auth/sso/okta/callback")
+        assert response.status_code == 422  # Validation error
+
+    def test_sso_callback_unsupported_provider(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/invalid/callback - Unsupported provider."""
+        response = client.get("/api/v1/auth/sso/invalid/callback?code=test")
+        assert response.status_code == 400
+        data = response.json()
+        assert "error" in data
+        assert "Unsupported" in data.get("error", "") or "unsupported" in data.get("error", "").lower()
 

@@ -1,7 +1,9 @@
 """Auth0 service for authentication and SSO integration."""
 
 import logging
+import secrets
 from typing import Dict, Optional
+from urllib.parse import urlencode
 from uuid import UUID
 
 import httpx
@@ -10,8 +12,9 @@ from jose.constants import ALGORITHMS
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.auth0 import auth0_settings
-from src.core.exceptions import UnauthorizedError
-from src.models.user import User
+from src.core.exceptions import BadRequestError, UnauthorizedError
+from src.core.security import create_access_token, create_refresh_token, get_password_hash
+from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
 
 logger = logging.getLogger(__name__)
@@ -291,4 +294,346 @@ class Auth0Service:
             logger.info(f"✅ Synced user data from Auth0: {user.email}")
 
         return user
+
+    def _generate_state(self) -> str:
+        """
+        Generate a random state for OAuth flow.
+
+        Returns:
+            str: Random state string
+        """
+        return secrets.token_urlsafe(32)
+
+    async def get_sso_user_info(self, provider: str, access_token: str) -> Dict:
+        """
+        Get user info from SSO provider using access token.
+
+        Args:
+            provider: Provider name (google, azure, okta)
+            access_token: OAuth access token
+
+        Returns:
+            Dict: User info from provider
+
+        Raises:
+            ValueError: If provider is not supported or configured
+            UnauthorizedError: If token is invalid
+        """
+        if provider == "google":
+            if not self.settings.is_google_enabled:
+                raise ValueError("Google SSO is not configured")
+            userinfo_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+        elif provider == "azure":
+            if not self.settings.is_azure_enabled:
+                raise ValueError("Azure AD SSO is not configured")
+            userinfo_url = f"https://graph.microsoft.com/v1.0/me"
+        elif provider == "okta":
+            if not self.settings.is_okta_enabled:
+                raise ValueError("Okta SSO is not configured")
+            userinfo_url = f"https://{self.settings.OKTA_DOMAIN}/oauth2/v1/userinfo"
+        else:
+            raise ValueError(f"Unsupported provider: {provider}")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                headers = {"Authorization": f"Bearer {access_token}"}
+                response = await client.get(userinfo_url, headers=headers, timeout=10.0)
+                response.raise_for_status()
+                user_info = response.json()
+                logger.debug(f"✅ Fetched user info from {provider}")
+                return user_info
+        except httpx.HTTPStatusError as e:
+            logger.error(f"❌ Failed to fetch user info from {provider}: {e.response.status_code}")
+            raise UnauthorizedError(f"Failed to fetch user info from {provider}")
+        except httpx.HTTPError as e:
+            logger.error(f"❌ Network error fetching user info from {provider}: {str(e)}")
+            raise UnauthorizedError(f"Network error: {str(e)}")
+
+    async def handle_google_callback(self, code: str, redirect_uri: str) -> User:
+        """
+        Handle Google OAuth callback.
+
+        Args:
+            code: Authorization code from Google
+            redirect_uri: Redirect URI used in authorization
+
+        Returns:
+            User: Authenticated user
+
+        Raises:
+            BadRequestError: If Google SSO is not configured or callback fails
+        """
+        if not self.settings.is_google_enabled:
+            raise BadRequestError("Google SSO is not configured")
+
+        try:
+            # Exchange code for access token
+            token_data = {
+                "code": code,
+                "client_id": self.settings.GOOGLE_CLIENT_ID,
+                "client_secret": self.settings.GOOGLE_CLIENT_SECRET,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.settings.google_token_url,
+                    data=token_data,
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                token_response = response.json()
+                access_token = token_response.get("access_token")
+
+                if not access_token:
+                    raise BadRequestError("Failed to get access token from Google")
+
+                # Get user info
+                user_info = await self.get_sso_user_info("google", access_token)
+
+                # Extract user data
+                email = user_info.get("email")
+                name = user_info.get("name", email.split("@")[0])
+                avatar = user_info.get("picture")
+                google_id = user_info.get("id")
+
+                if not email:
+                    raise BadRequestError("Email not provided by Google")
+
+                # Get or create user
+                user = await self.get_user_from_auth0(google_id, provider="google")
+                if not user:
+                    user = await self.create_user_from_auth0(
+                        auth0_id=google_id,
+                        email=email,
+                        name=name,
+                        provider="google",
+                        provider_id=google_id,
+                        avatar=avatar,
+                        sso_metadata={"google_id": google_id, "verified_email": user_info.get("verified_email")},
+                    )
+                else:
+                    # Sync user data
+                    await self.sync_user_from_auth0(
+                        user,
+                        email=email,
+                        name=name,
+                        avatar=avatar,
+                        sso_metadata={"google_id": google_id, "verified_email": user_info.get("verified_email")},
+                    )
+
+                logger.info(f"✅ Google SSO authentication successful: {email}")
+                return user
+
+        except httpx.HTTPError as e:
+            logger.error(f"❌ Google OAuth callback failed: {str(e)}")
+            raise BadRequestError(f"Google OAuth callback failed: {str(e)}")
+
+    async def handle_azure_callback(self, code: str, redirect_uri: str) -> User:
+        """
+        Handle Azure AD OAuth callback.
+
+        Args:
+            code: Authorization code from Azure AD
+            redirect_uri: Redirect URI used in authorization
+
+        Returns:
+            User: Authenticated user
+
+        Raises:
+            BadRequestError: If Azure AD SSO is not configured or callback fails
+        """
+        if not self.settings.is_azure_enabled:
+            raise BadRequestError("Azure AD SSO is not configured")
+
+        try:
+            # Exchange code for access token
+            token_data = {
+                "code": code,
+                "client_id": self.settings.AZURE_CLIENT_ID,
+                "client_secret": self.settings.AZURE_CLIENT_SECRET,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+                "scope": "openid profile email",
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.settings.azure_token_url,
+                    data=token_data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                token_response = response.json()
+                access_token = token_response.get("access_token")
+
+                if not access_token:
+                    raise BadRequestError("Failed to get access token from Azure AD")
+
+                # Get user info
+                user_info = await self.get_sso_user_info("azure", access_token)
+
+                # Extract user data
+                email = user_info.get("mail") or user_info.get("userPrincipalName")
+                name = user_info.get("displayName") or user_info.get("givenName", email.split("@")[0] if email else "User")
+                avatar = None  # Azure AD doesn't provide avatar in basic profile
+                azure_id = user_info.get("id") or user_info.get("userPrincipalName")
+
+                if not email:
+                    raise BadRequestError("Email not provided by Azure AD")
+
+                # Get or create user
+                user = await self.get_user_from_auth0(azure_id, provider="azure")
+                if not user:
+                    user = await self.create_user_from_auth0(
+                        auth0_id=azure_id,
+                        email=email,
+                        name=name,
+                        provider="azure",
+                        provider_id=azure_id,
+                        avatar=avatar,
+                        sso_metadata={"azure_id": azure_id, "job_title": user_info.get("jobTitle")},
+                    )
+                else:
+                    # Sync user data
+                    await self.sync_user_from_auth0(
+                        user,
+                        email=email,
+                        name=name,
+                        avatar=avatar,
+                        sso_metadata={"azure_id": azure_id, "job_title": user_info.get("jobTitle")},
+                    )
+
+                logger.info(f"✅ Azure AD SSO authentication successful: {email}")
+                return user
+
+        except httpx.HTTPError as e:
+            logger.error(f"❌ Azure AD OAuth callback failed: {str(e)}")
+            raise BadRequestError(f"Azure AD OAuth callback failed: {str(e)}")
+
+    async def handle_okta_callback(self, code: str, redirect_uri: str) -> User:
+        """
+        Handle Okta OAuth callback.
+
+        Args:
+            code: Authorization code from Okta
+            redirect_uri: Redirect URI used in authorization
+
+        Returns:
+            User: Authenticated user
+
+        Raises:
+            BadRequestError: If Okta SSO is not configured or callback fails
+        """
+        if not self.settings.is_okta_enabled:
+            raise BadRequestError("Okta SSO is not configured")
+
+        try:
+            # Exchange code for access token
+            token_data = {
+                "code": code,
+                "client_id": self.settings.OKTA_CLIENT_ID,
+                "client_secret": self.settings.OKTA_CLIENT_SECRET,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.settings.okta_token_url,
+                    data=token_data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                token_response = response.json()
+                access_token = token_response.get("access_token")
+
+                if not access_token:
+                    raise BadRequestError("Failed to get access token from Okta")
+
+                # Get user info
+                user_info = await self.get_sso_user_info("okta", access_token)
+
+                # Extract user data
+                email = user_info.get("email")
+                name = user_info.get("name") or user_info.get("preferred_username", email.split("@")[0] if email else "User")
+                avatar = None  # Okta doesn't provide avatar in basic userinfo
+                okta_id = user_info.get("sub")
+
+                if not email:
+                    raise BadRequestError("Email not provided by Okta")
+
+                # Get or create user
+                user = await self.get_user_from_auth0(okta_id, provider="okta")
+                if not user:
+                    user = await self.create_user_from_auth0(
+                        auth0_id=okta_id,
+                        email=email,
+                        name=name,
+                        provider="okta",
+                        provider_id=okta_id,
+                        avatar=avatar,
+                        sso_metadata={"okta_id": okta_id, "email_verified": user_info.get("email_verified")},
+                    )
+                else:
+                    # Sync user data
+                    await self.sync_user_from_auth0(
+                        user,
+                        email=email,
+                        name=name,
+                        avatar=avatar,
+                        sso_metadata={"okta_id": okta_id, "email_verified": user_info.get("email_verified")},
+                    )
+
+                logger.info(f"✅ Okta SSO authentication successful: {email}")
+                return user
+
+        except httpx.HTTPError as e:
+            logger.error(f"❌ Okta OAuth callback failed: {str(e)}")
+            raise BadRequestError(f"Okta OAuth callback failed: {str(e)}")
+
+    async def create_login_response(self, user: User) -> Dict:
+        """
+        Create login response with tokens for SSO user.
+
+        Args:
+            user: Authenticated user
+
+        Returns:
+            Dict: Login response with access_token, refresh_token, expires_in, and user
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from src.schemas.user import UserResponse
+        from src.services.auth_service import user_to_response_dict
+
+        # Create tokens
+        token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token(token_data)
+
+        # Save refresh token
+        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)  # Effectively infinite
+        refresh_token_model = RefreshToken(
+            user_id=user.id,
+            token=refresh_token,
+            expires_at=expires_at,
+        )
+        self.db.add(refresh_token_model)
+        await self.db.commit()
+
+        # Update last login
+        user.last_login_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(user)
+
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expires_in": 365 * 100 * 24 * 60 * 60,  # 100 years in seconds
+            "user": UserResponse.model_validate(user_to_response_dict(user)),
+        }
 
