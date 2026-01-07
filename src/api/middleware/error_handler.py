@@ -7,12 +7,13 @@ from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from jose import JWTError
 
-# ExceptionGroup is available in Python 3.11+. We avoid having an invalid
-# `except ExceptionGroup:` clause on Python < 3.11 (it raises TypeError at runtime).
+# ExceptionGroup / BaseExceptionGroup exist only on Python 3.11+.
+# On 3.11, ExceptionGroup is also an Exception, so it would be caught by `except Exception`
+# unless we explicitly detect and handle it.
 try:  # pragma: no cover
-    from builtins import ExceptionGroup as _BuiltinsExceptionGroup  # type: ignore
+    from builtins import BaseExceptionGroup as _BuiltinsBaseExceptionGroup  # type: ignore
 except Exception:  # pragma: no cover
-    _BuiltinsExceptionGroup = None
+    _BuiltinsBaseExceptionGroup = None
 
 from src.core.exceptions import (
     BadRequestError,
@@ -129,6 +130,33 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
         _apply_cors_headers(request, response)
         return response
     except Exception as e:
+        # Python 3.11+: ExceptionGroup inherits from Exception, so handle it here first.
+        if _BuiltinsBaseExceptionGroup is not None and isinstance(e, _BuiltinsBaseExceptionGroup):
+            eg = e  # type: ignore[assignment]
+            exceptions = getattr(eg, "exceptions", []) or []
+            logger.warning(f"ExceptionGroup caught: {len(exceptions)} exceptions")
+
+            for exc in exceptions:
+                if isinstance(exc, UnauthorizedError):
+                    response = JSONResponse(
+                        status_code=exc.status_code,
+                        content={"error": "Unauthorized", "message": exc.message},
+                    )
+                    _apply_cors_headers(request, response)
+                    return response
+                if isinstance(exc, BaseAPIException):
+                    response = JSONResponse(
+                        status_code=exc.status_code,
+                        content={"error": "API Error", "message": exc.message},
+                    )
+                    _apply_cors_headers(request, response)
+                    return response
+
+            first = exceptions[0] if exceptions else None
+            if first:
+                raise first from eg
+            raise
+
         # Log full exception details for debugging
         import traceback
         error_traceback = traceback.format_exc()
@@ -146,32 +174,4 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
         )
         _apply_cors_headers(request, response)
         return response
-    except BaseException as e:  # pragma: no cover
-        # Python 3.11+ ExceptionGroup is a BaseException, so it bypasses `except Exception`.
-        # We handle it here without breaking Python < 3.11.
-        if _BuiltinsExceptionGroup is not None and isinstance(e, _BuiltinsExceptionGroup):
-            eg = e  # type: ignore[assignment]
-            logger.warning(f"ExceptionGroup caught: {len(getattr(eg, 'exceptions', []))} exceptions")
-            for exc in getattr(eg, "exceptions", []):
-                if isinstance(exc, UnauthorizedError):
-                    response = JSONResponse(
-                        status_code=exc.status_code,
-                        content={"error": "Unauthorized", "message": exc.message},
-                    )
-                    _apply_cors_headers(request, response)
-                    return response
-                if isinstance(exc, BaseAPIException):
-                    response = JSONResponse(
-                        status_code=exc.status_code,
-                        content={"error": "API Error", "message": exc.message},
-                    )
-                    _apply_cors_headers(request, response)
-                    return response
-            # Re-raise the first exception to preserve behavior
-            first = getattr(eg, "exceptions", [None])[0]
-            if first:
-                raise first from eg
-            raise
-        # Not an ExceptionGroup; re-raise (don't swallow KeyboardInterrupt/SystemExit)
-        raise
 

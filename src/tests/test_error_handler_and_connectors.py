@@ -126,7 +126,7 @@ async def test_error_handler_middleware_exception_group_if_available(monkeypatch
     from src.api.middleware import error_handler as eh
 
     # ExceptionGroup only exists on Python 3.11+. On 3.9 this test is a no-op.
-    EG = getattr(eh, "_BuiltinsExceptionGroup", None)
+    EG = getattr(__builtins__, "ExceptionGroup", None)
     if EG is None:
         pytest.skip("ExceptionGroup not available on this Python")
 
