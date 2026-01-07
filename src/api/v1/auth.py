@@ -86,8 +86,17 @@ async def login(
     Returns:
         LoginResponse: Access token, refresh token, and user data
     """
-    auth_service = AuthenticationService(db)
-    return await auth_service.login(login_data.email, login_data.password)
+    try:
+        auth_service = AuthenticationService(db)
+        result = await auth_service.login(login_data.email, login_data.password)
+        return result
+    except Exception as e:
+        # Log the error for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Login error: {str(e)}", exc_info=True)
+        # Re-raise to let FastAPI handle it properly
+        raise
 
 
 @router.post(
@@ -403,4 +412,143 @@ async def generate_invite(
         expires_at=expires_at.isoformat(),
         message=f"Invite token generated successfully. Expires in {invite_data.expires_days} days.",
     )
+
+
+# SSO Endpoints
+
+@router.get(
+    "/sso/{provider}/login",
+    status_code=status.HTTP_302_FOUND,
+    responses={400: {"model": ErrorResponse}},
+    summary="SSO Login",
+    description="Redirect to SSO provider login page",
+)
+async def sso_login(
+    provider: str,
+    request: Request,
+    redirect_uri: Optional[str] = Query(None, description="Redirect URI after authentication"),
+    db: AsyncSession = Depends(get_db_session),
+) -> RedirectResponse:
+    """
+    SSO login endpoint - redirects to provider OAuth page.
+
+    Args:
+        provider: SSO provider (google, azure, okta)
+        redirect_uri: Optional redirect URI (defaults to callback URL)
+        request: FastAPI request
+        db: Database session
+
+    Returns:
+        RedirectResponse: Redirect to provider OAuth page
+
+    Raises:
+        BadRequestError: If provider is not supported or not configured
+    """
+    if provider not in ["google", "azure", "okta"]:
+        raise BadRequestError(f"Unsupported SSO provider: {provider}")
+
+    auth0_service = Auth0Service(db)
+    
+    # Get redirect URI
+    if not redirect_uri:
+        base_url = str(request.base_url)
+        redirect_uri = f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
+    
+    # Get OAuth URL based on provider
+    if provider == "google":
+        if not auth0_settings.is_google_enabled:
+            raise BadRequestError("Google SSO is not configured")
+        state = auth0_service._generate_state()
+        params = {
+            "client_id": auth0_settings.GOOGLE_CLIENT_ID,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+        }
+        oauth_url = f"{auth0_settings.google_authorization_url}?{urlencode(params)}"
+    elif provider == "azure":
+        if not auth0_settings.is_azure_enabled:
+            raise BadRequestError("Azure AD SSO is not configured")
+        state = auth0_service._generate_state()
+        params = {
+            "client_id": auth0_settings.AZURE_CLIENT_ID,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+        }
+        oauth_url = f"{auth0_settings.azure_authorization_url}?{urlencode(params)}"
+    elif provider == "okta":
+        if not auth0_settings.is_okta_enabled:
+            raise BadRequestError("Okta SSO is not configured")
+        state = auth0_service._generate_state()
+        params = {
+            "client_id": auth0_settings.OKTA_CLIENT_ID,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+        }
+        oauth_url = f"{auth0_settings.okta_authorization_url}?{urlencode(params)}"
+    else:
+        raise BadRequestError(f"Unsupported provider: {provider}")
+    
+    return RedirectResponse(url=oauth_url, status_code=302)
+
+
+@router.get(
+    "/sso/{provider}/callback",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    summary="SSO Callback",
+    description="Handle OAuth callback from SSO provider",
+)
+async def sso_callback(
+    provider: str,
+    code: str = Query(..., description="Authorization code from OAuth provider"),
+    state: Optional[str] = Query(None, description="State parameter from OAuth flow"),
+    redirect_uri: Optional[str] = Query(None, description="Redirect URI used in authorization"),
+    db: AsyncSession = Depends(get_db_session),
+) -> LoginResponse:
+    """
+    SSO callback endpoint - processes OAuth callback and returns tokens.
+
+    Args:
+        provider: SSO provider (google, azure, okta)
+        code: Authorization code from OAuth provider
+        state: Optional state parameter
+        redirect_uri: Optional redirect URI (defaults to callback URL)
+        db: Database session
+
+    Returns:
+        LoginResponse: Access token, refresh token, and user data
+
+    Raises:
+        BadRequestError: If provider is not supported, not configured, or callback fails
+    """
+    if provider not in ["google", "azure", "okta"]:
+        raise BadRequestError(f"Unsupported SSO provider: {provider}")
+
+    auth0_service = Auth0Service(db)
+    
+    # Get redirect URI if not provided
+    # Note: redirect_uri should be provided by the frontend
+    if not redirect_uri:
+        redirect_uri = f"http://localhost:3000/login/sso/callback"
+    
+    # Handle callback based on provider
+    if provider == "google":
+        user = await auth0_service.handle_google_callback(code, redirect_uri)
+    elif provider == "azure":
+        user = await auth0_service.handle_azure_callback(code, redirect_uri)
+    elif provider == "okta":
+        user = await auth0_service.handle_okta_callback(code, redirect_uri)
+    else:
+        raise BadRequestError(f"Unsupported provider: {provider}")
+
+    # Create login response
+    login_response = await auth0_service.create_login_response(user)
+    return LoginResponse(**login_response)
 
