@@ -1,8 +1,8 @@
 """MySQL connector."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from src.repositories.base import BaseConnector
+from src.connectors.base import BaseConnector
 
 
 class MySQLConnector(BaseConnector):

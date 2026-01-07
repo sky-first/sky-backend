@@ -1,6 +1,6 @@
 """AI service."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -700,7 +700,7 @@ class AIService:
 
         Args:
             user_id: User ID
-            filter_type: Filter type (today, week, pinned)
+            filter_type: Filter type (today, week, pinned, all)
             search: Search query
             category: Category filter
             skip: Number of records to skip
@@ -709,19 +709,42 @@ class AIService:
         Returns:
             List[AIHistoryItem]: History items
         """
-        filters = {"user_id": user_id}
-
-        if filter_type == "pinned":
-            filters["pinned"] = True
-
+        from sqlalchemy import select
+        
+        # Build base query
+        query = select(AIHistory).where(AIHistory.user_id == user_id)
+        
+        # Apply date filters
+        now = datetime.now(timezone.utc)
+        
+        if filter_type == "today":
+            # Last 24 hours
+            yesterday = now - timedelta(hours=24)
+            query = query.where(AIHistory.date >= yesterday)
+        elif filter_type == "week":
+            # Last 7 days
+            week_ago = now - timedelta(days=7)
+            query = query.where(AIHistory.date >= week_ago)
+        elif filter_type == "pinned":
+            # Only pinned items
+            query = query.where(AIHistory.pinned == True)
+        # "all" or None: no date filter, show everything
+        
+        # Apply category filter
         if category:
-            filters["category"] = category
-
-        history_items = await self.history_repo.get_all(
-            skip=skip, limit=limit, filters=filters
-        )
-
-        # Apply search filter if provided
+            query = query.where(AIHistory.category == category)
+        
+        # Order by date descending (most recent first)
+        query = query.order_by(AIHistory.date.desc())
+        
+        # Apply pagination
+        query = query.offset(skip).limit(limit)
+        
+        # Execute query
+        result = await self.db.execute(query)
+        history_items = list(result.scalars().all())
+        
+        # Apply search filter if provided (client-side for better UX)
         if search:
             history_items = [
                 item

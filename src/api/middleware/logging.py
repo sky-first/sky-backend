@@ -51,15 +51,17 @@ async def logging_middleware(request: Request, call_next: Callable) -> Response:
         )
 
         return response
-    except Exception:
+    except Exception as e:
         # Calculate duration even on error
         duration = time.time() - start_time
         logger.warning(
-            f"Error: {request.method} {request.url.path} - {duration:.3f}s",
+            f"Error: {request.method} {request.url.path} - {duration:.3f}s - {type(e).__name__}: {str(e)}",
             extra={
                 "method": request.method,
                 "path": request.url.path,
                 "duration": duration,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
             },
         )
         # Re-raise to let error_handler_middleware handle it
