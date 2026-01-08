@@ -16,6 +16,9 @@ from sqlalchemy import select, update  # noqa: E402
 
 from src.config.database import AsyncSessionLocal, engine  # noqa: E402
 from src.models.user import User  # noqa: E402
+# Import related models to register relationships (avoid mapper lookup errors)
+from src.models.workspace import Workspace  # noqa: F401, E402
+from src.models.planet import Planet  # noqa: F401, E402
 
 
 TEST_EMAIL = os.getenv("TEST_EMAIL", "test@example.com")
