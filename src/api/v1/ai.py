@@ -12,6 +12,7 @@ from src.ai.http_client import AIServiceHTTPClient
 from src.repositories.planet import PlanetRepository
 from src.repositories.space import SpaceRepository
 from src.models.user import User
+from src.services.rbac_service import RBACService
 from src.services.ai_service import AIService
 from src.schemas.ai import (
     AIHistoryItem,
@@ -63,6 +64,16 @@ async def process_query(
     Returns:
         AIQueryResponse: Query response
     """
+    # RBAC enforcement: require ability to run queries in this context.
+    rbac = RBACService(db)
+    space_uuid: Optional[UUID] = None
+    if query_data.space_id:
+        try:
+            space_uuid = UUID(query_data.space_id)
+        except Exception:
+            space_uuid = None
+    await rbac.assert_permission(current_user, "data.query.run", space_id=space_uuid)
+
     ai_service = AIService(db)
     return await ai_service.process_query(current_user.id, query_data)
 

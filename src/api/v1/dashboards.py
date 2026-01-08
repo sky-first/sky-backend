@@ -36,6 +36,7 @@ from src.schemas.dashboard_ai import (
 )
 from src.services.ai_service import AIService
 from src.services.dashboard_service import DashboardService
+from src.services.rbac_service import RBACService
 from src.models.dashboard_build_job import DashboardBuildJob
 from src.repositories.base import BaseRepository
 
@@ -70,6 +71,8 @@ async def list_dashboards(
     Returns:
         List[DashboardResponse]: List of dashboards
     """
+    rbac = RBACService(db)
+    await rbac.assert_permission(current_user, "viewPlanets")
     dashboard_service = DashboardService(db)
     return await dashboard_service.list_dashboards(
         current_user, planet_id=planet_id, skip=skip, limit=limit
@@ -100,6 +103,8 @@ async def get_dashboard(
     Returns:
         DashboardResponse: Dashboard data
     """
+    rbac = RBACService(db)
+    await rbac.assert_permission(current_user, "viewPlanets")
     dashboard_service = DashboardService(db)
     return await dashboard_service.get_dashboard(dashboard_id, current_user)
 
@@ -128,6 +133,8 @@ async def create_dashboard(
     Returns:
         DashboardResponse: Created dashboard
     """
+    rbac = RBACService(db)
+    await rbac.assert_permission(current_user, "createPlanets")
     dashboard_service = DashboardService(db)
     return await dashboard_service.create_dashboard(current_user, dashboard_data)
 
@@ -158,6 +165,8 @@ async def update_dashboard(
     Returns:
         DashboardResponse: Updated dashboard
     """
+    rbac = RBACService(db)
+    await rbac.assert_permission(current_user, "editPlanets")
     dashboard_service = DashboardService(db)
     return await dashboard_service.update_dashboard(dashboard_id, current_user, dashboard_data)
 
@@ -186,6 +195,8 @@ async def delete_dashboard(
     Returns:
         SuccessResponse: Success message
     """
+    rbac = RBACService(db)
+    await rbac.assert_permission(current_user, "deletePlanets")
     dashboard_service = DashboardService(db)
     await dashboard_service.delete_dashboard(dashboard_id, current_user)
     return SuccessResponse(message="Dashboard deleted successfully")

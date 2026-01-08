@@ -104,3 +104,11 @@ class RolePermissionResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class EffectivePermissionsResponse(BaseModel):
+    """Effective permissions for the current user in a given context."""
+
+    platform_role: str
+    crew_role: str
+    permissions: Dict[str, bool]
+

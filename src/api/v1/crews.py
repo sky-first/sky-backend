@@ -18,6 +18,7 @@ from src.schemas.crew import (
     CrewUpdate,
 )
 from src.services.crew_service import CrewService
+from src.services.rbac_service import RBACService
 
 router = APIRouter()
 
@@ -291,6 +292,9 @@ async def update_crew_member_role(
     Returns:
         CrewMemberResponse: Updated member
     """
+    rbac = RBACService(db)
+    await rbac.assert_permission(current_user, "crews.members.manage", crew_id=crew_id)
+
     crew_service = CrewService(db)
     return await crew_service.update_crew_member_role(
         crew_id, user_id, role_data, current_user

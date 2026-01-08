@@ -2,6 +2,7 @@
 
 import secrets
 from typing import Optional
+from uuid import UUID
 from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
@@ -12,6 +13,7 @@ from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
+from src.schemas.permission import EffectivePermissionsResponse
 from src.schemas.user import (
     ForgotPasswordRequest,
     InviteGenerateRequest,
@@ -31,6 +33,7 @@ from src.schemas.user import (
 from src.services.auth_service import AuthenticationService, user_to_response_dict
 from src.services.auth0_service import Auth0Service
 from src.services.invite_service import InviteService
+from src.services.rbac_service import RBACService
 
 router = APIRouter()
 
@@ -172,6 +175,43 @@ async def get_me(
         UserResponse: User data
     """
     return UserResponse.model_validate(user_to_response_dict(current_user))
+
+
+@router.get(
+    "/me/effective-permissions",
+    response_model=EffectivePermissionsResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get effective permissions",
+    description="Return effective permissions for the current user, optionally scoped by space/crew/connection.",
+)
+async def get_effective_permissions(
+    space_id: Optional[str] = Query(None, description="Space context (optional)"),
+    crew_id: Optional[str] = Query(None, description="Crew context (optional)"),
+    connection_id: Optional[str] = Query(None, description="Connection context (optional)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> EffectivePermissionsResponse:
+    def _to_uuid(v: Optional[str]) -> Optional[UUID]:
+        if not v:
+            return None
+        try:
+            return UUID(v)
+        except Exception:
+            return None
+
+    rbac = RBACService(db)
+    eff = await rbac.get_effective_permissions(
+        current_user,
+        space_id=_to_uuid(space_id),
+        crew_id=_to_uuid(crew_id),
+        connection_id=_to_uuid(connection_id),
+    )
+    return EffectivePermissionsResponse(
+        platform_role=eff.platform_role,
+        crew_role=eff.crew_role,
+        permissions=eff.permissions,
+    )
 
 
 @router.post(

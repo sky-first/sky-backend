@@ -23,6 +23,7 @@ from src.schemas.connection import (
     TableMetadataSchema,
 )
 from src.services.connection_service import ConnectionService
+from src.services.rbac_service import RBACService
 
 router = APIRouter()
 
@@ -129,6 +130,9 @@ async def create_connection(
     Returns:
         ConnectionResponse: Created connection
     """
+    rbac = RBACService(db)
+    await rbac.assert_permission(current_user, "manageConnections")
+
     connection_service = ConnectionService(db)
     return await connection_service.create_connection(current_user, connection_data)
 
@@ -162,6 +166,9 @@ async def delete_connection(
     logger.info(f"🔴 [DELETE API] Delete connection endpoint called: connection_id={connection_id}, user_id={current_user.id}")
     
     try:
+        rbac = RBACService(db)
+        await rbac.assert_permission(current_user, "manageConnections", connection_id=connection_id)
+
         connection_service = ConnectionService(db)
         await connection_service.delete_connection(connection_id, current_user)
         logger.info(f"🔴 [DELETE API] Connection {connection_id} deleted successfully by user {current_user.id}")
@@ -197,6 +204,9 @@ async def update_connection(
     Returns:
         ConnectionResponse: Updated connection
     """
+    rbac = RBACService(db)
+    await rbac.assert_permission(current_user, "connections.edit", connection_id=connection_id)
+
     connection_service = ConnectionService(db)
     return await connection_service.update_connection(connection_id, current_user, connection_data)
 
