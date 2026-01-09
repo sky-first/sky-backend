@@ -1,7 +1,8 @@
 """FastAPI application entry point."""
 
 import logging
-from prometheus_fastapi_instrumentator import Instrumentatorfrom contextlib import asynccontextmanager
+from prometheus_fastapi_instrumentator import Instrumentator
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
