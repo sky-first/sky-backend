@@ -453,9 +453,14 @@ async def ai_plan_dashboard(
         crew_ids=crew_ids if crew_ids else None,
         language=body.language,
         goal=body.goal,
+        original_question=(body.original_question or body.goal),
         max_widgets=max_widgets,
         logical_tables_override=logical_tables_override,
         schema_summary_override=schema_summary_override,
+        initial_ai_response=body.initial_ai_response,
+        context_spaces=body.context_spaces,
+        context_crews=body.context_crews,
+        context_tables=body.context_tables,
     )
 
     # Validate / normalize into our schema
@@ -524,8 +529,13 @@ async def ai_build_dashboard(
                 space_id=resolved_space_id,
                 connection_id=connection_id,
                 goal=body.goal,
+                original_question=body.original_question,
                 language=body.language,
                 max_widgets=max_widgets,
+                initial_ai_response=body.initial_ai_response,
+                context_spaces=body.context_spaces,
+                context_crews=body.context_crews,
+                context_tables=body.context_tables,
             ),
             current_user=current_user,
             db=db,
@@ -761,17 +771,32 @@ async def ai_build_dashboard_async(
     max_widgets = min(int(body.max_widgets or 8), 8)
 
     job_repo = BaseRepository(db, DashboardBuildJob)
+    context: dict | None = None
+    if (
+        body.initial_ai_response
+        or (isinstance(body.context_spaces, list) and body.context_spaces)
+        or (isinstance(body.context_crews, list) and body.context_crews)
+        or (isinstance(body.context_tables, list) and body.context_tables)
+    ):
+        context = {
+            "original_question": body.original_question or body.goal,
+            "initial_ai_response": body.initial_ai_response,
+            "context_spaces": body.context_spaces,
+            "context_crews": body.context_crews,
+            "context_tables": body.context_tables,
+        }
     job = await job_repo.create(
         user_id=current_user.id,
         planet_id=active_planet.id,
         space_id=UUID(resolved_space_id),
         connection_id=UUID(connection_id),
-        goal=body.goal,
+        goal=body.original_question or body.goal,
         language=body.language,
         max_widgets=max_widgets,
         status="queued",
         total_widgets=max_widgets,
         completed_widgets=0,
+        plan={"_context": context} if context else None,
     )
     await db.commit()
     await db.refresh(job)
