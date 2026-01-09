@@ -2,9 +2,20 @@
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -230,3 +241,47 @@ class AIResponse(Base):
 
     def __repr__(self) -> str:
         return f"<AIResponse(id={self.id}, widget_id={self.widget_id}, is_active={self.is_active})>"
+
+
+class AIFeedback(Base):
+    """User feedback for an AI query (good/bad + optional comment)."""
+
+    __tablename__ = "ai_feedback"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    query_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("ai_queries.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    rating = Column(String(10), nullable=False)
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default="now()",
+        onupdate=datetime.utcnow,
+    )
+
+    # Relationships
+    query = relationship("AIQuery", foreign_keys=[query_id])
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        CheckConstraint("rating IN ('good', 'bad')", name="ck_ai_feedback_rating"),
+        UniqueConstraint("query_id", "user_id", name="uq_ai_feedback_query_user"),
+        Index("idx_ai_feedback_query_id", "query_id"),
+        Index("idx_ai_feedback_user_id", "user_id"),
+        Index("idx_ai_feedback_created_at", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<AIFeedback(id={self.id}, query_id={self.query_id}, user_id={self.user_id}, rating={self.rating})>"

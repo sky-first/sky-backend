@@ -1,6 +1,14 @@
 """SQLAlchemy models."""
 
-from src.models.ai import AIHistory, AIQuery, AIResponse, ChatMessage, Pipeline, PipelineStep
+from src.models.ai import (
+    AIFeedback,
+    AIHistory,
+    AIQuery,
+    AIResponse,
+    ChatMessage,
+    Pipeline,
+    PipelineStep,
+)
 from src.models.connection import ColumnMetadata, ConnectionMetadata, DataConnection, TableMetadata
 from src.models.crew import Crew, CrewMember
 from src.models.dashboard import Connection, Dashboard, Widget
@@ -35,6 +43,7 @@ __all__ = [
     "ConnectionPermission",
     "AIQuery",
     "AIHistory",
+    "AIFeedback",
     "Pipeline",
     "PipelineStep",
     "ChatMessage",
