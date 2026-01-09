@@ -1,7 +1,7 @@
 """FastAPI application entry point."""
 
 import logging
-from contextlib import asynccontextmanager
+from prometheus_fastapi_instrumentator import Instrumentatorfrom contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,7 +60,9 @@ app = FastAPI(
 
 # Setup CORS FIRST (before other middlewares)
 # CORS uses add_middleware which executes in normal order (first added = first executed)
-cors.setup_cors(app)
+
+# Prometheus Instrumentation
+Instrumentator().instrument(app).expose(app)cors.setup_cors(app)
 
 # Setup HTTP middlewares
 # IMPORTANT: In FastAPI, middleware added with app.middleware("http")() executes in REVERSE order
