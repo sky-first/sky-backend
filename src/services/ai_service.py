@@ -751,7 +751,6 @@ class AIService:
 
         # Apply date filters
         now = datetime.now(timezone.utc)
-
         if filter_type == "today":
             # Last 24 hours
             yesterday = now - timedelta(hours=24)
@@ -778,7 +777,6 @@ class AIService:
         # Execute query
         result = await self.db.execute(query)
         history_items = list(result.scalars().all())
-
         # Apply search filter if provided (client-side for better UX)
         if search:
             history_items = [
