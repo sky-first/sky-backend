@@ -318,9 +318,38 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     if isinstance(viz.get("mapping"), dict):
                         widget_data["mapping"] = viz.get("mapping")
 
+                # :novo: NOVA FUNCIONALIDADE: Sugerir título melhor baseado nos dados
+                final_title = w.get("title") or ""
+                try:
+                    # Chamar API da IA para sugerir título melhor
+                    suggested_title = await client.suggest_widget_title(
+                        question=w.get("question") or "",
+                        data_sample=query_resp.data_sample or [],
+                        answer=query_resp.answer,
+                        current_title=w.get("title") or "",
+                        language=language,
+                    )
+                    # Usar título sugerido se for válido e diferente do genérico
+                    if suggested_title and suggested_title.strip():
+                        # Verificar se o título sugerido é melhor que o atual
+                        # (não é genérico como "Widget", "Chart", etc.)
+                        generic_titles = ["widget", "chart", "kpi", "table", "text", "gráfico", "dados"]
+                        current_lower = (w.get("title") or "").lower().strip()
+                        suggested_lower = suggested_title.lower().strip()
+                        # Se o título atual é genérico OU o sugerido não é genérico
+                        if current_lower in generic_titles or suggested_lower not in generic_titles:
+                            final_title = suggested_title
+                            logger.info(f"Widget title updated: '{w.get('title')}' -> '{final_title}'")
+                except Exception as e:
+                    # Se falhar, usar título original (fail-safe)
+                    logger.warning(
+                        f"Failed to suggest title for widget {widget_id}: {e}. Using original title."
+                    )
+                    final_title = w.get("title") or ""
+
                 await widget_repo.update(
                     widget_id,
-                    title=w.get("title") or "",
+                    title=final_title,  # Usar título sugerido ou original
                     data=widget_data,
                     config={"viz": viz or {}},
                     query_id=query_resp.id,
