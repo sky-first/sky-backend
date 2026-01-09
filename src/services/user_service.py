@@ -148,7 +148,7 @@ class UserService:
 
         # Update fields
         update_data = user_data.model_dump(exclude_unset=True)
-        
+
         # Non-admin users cannot change role
         if current_user.role != "admin" and "role" in update_data:
             del update_data["role"]
@@ -276,4 +276,3 @@ class UserService:
         # TODO: Implement email sending for invitation
         # For now, just return the user
         return UserResponse.model_validate(user_to_response_dict(user))
-

@@ -66,4 +66,3 @@ async def logging_middleware(request: Request, call_next: Callable) -> Response:
         )
         # Re-raise to let error_handler_middleware handle it
         raise
-

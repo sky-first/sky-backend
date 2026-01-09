@@ -111,7 +111,9 @@ class TestProtectedRoutes:
         )
         assert response.status_code == 401
 
-    def test_protected_route_refresh_token_as_access(self, client: TestClient, valid_refresh_token: str):
+    def test_protected_route_refresh_token_as_access(
+        self, client: TestClient, valid_refresh_token: str
+    ):
         """Test protected route with refresh token instead of access token."""
         # Try to use refresh token as access token (should fail)
         response = client.get(
@@ -123,7 +125,7 @@ class TestProtectedRoutes:
     def test_protected_route_valid_token(self, client: TestClient, test_user_with_tokens: dict):
         """Test protected route with valid token."""
         access_token = test_user_with_tokens["access_token"]
-        
+
         response = client.get(
             "/api/v1/auth/me",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -139,7 +141,7 @@ class TestMiddlewareTokenExtraction:
     def test_token_extracts_user_id(self, client: TestClient, test_user_with_tokens: dict):
         """Test that user_id is extracted from token."""
         access_token = test_user_with_tokens["access_token"]
-        
+
         response = client.get(
             "/api/v1/auth/me",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -151,7 +153,7 @@ class TestMiddlewareTokenExtraction:
     def test_token_extracts_role(self, client: TestClient, test_user_with_tokens: dict):
         """Test that role is extracted from token."""
         access_token = test_user_with_tokens["access_token"]
-        
+
         response = client.get(
             "/api/v1/auth/me",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -170,4 +172,3 @@ class TestMiddlewareTokenExtraction:
         """Test that dashboard endpoints require authentication."""
         response = client.get("/api/v1/dashboards")
         assert response.status_code == 401
-

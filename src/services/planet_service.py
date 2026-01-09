@@ -7,8 +7,8 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError, NotFoundError
-from src.models.user import User
 from src.models.planet import Planet, PlanetMember
+from src.models.user import User
 from src.repositories.planet import PlanetMemberRepository, PlanetRepository
 from src.schemas.planet import (
     PlanetCreate,
@@ -33,9 +33,7 @@ class PlanetService:
         self.planet_repo = PlanetRepository(db)
         self.member_repo = PlanetMemberRepository(db)
 
-    async def create_planet(
-        self, user: User, planet_data: PlanetCreate
-    ) -> PlanetResponse:
+    async def create_planet(self, user: User, planet_data: PlanetCreate) -> PlanetResponse:
         """
         Create a new planet.
 
@@ -89,9 +87,7 @@ class PlanetService:
 
         # Check access
         if planet.owner_id != user.id:
-            member = await self.member_repo.get_by_planet_and_user(
-                planet_id, user.id
-            )
+            member = await self.member_repo.get_by_planet_and_user(planet_id, user.id)
             if not member:
                 raise ForbiddenError("Access denied to this planet")
 
@@ -134,9 +130,7 @@ class PlanetService:
 
         # Check permission (only owner or admin can update)
         if planet.owner_id != user.id:
-            member = await self.member_repo.get_by_planet_and_user(
-                planet_id, user.id
-            )
+            member = await self.member_repo.get_by_planet_and_user(planet_id, user.id)
             if not member or member.role not in ["owner", "admin"]:
                 raise ForbiddenError("Permission denied")
 
@@ -170,9 +164,7 @@ class PlanetService:
         await self.planet_repo.delete(planet_id)
         await self.db.commit()
 
-    async def switch_planet(
-        self, planet_id: UUID, user: User
-    ) -> PlanetResponse:
+    async def switch_planet(self, planet_id: UUID, user: User) -> PlanetResponse:
         """
         Switch active planet.
 
@@ -193,9 +185,7 @@ class PlanetService:
 
         # Check access
         if planet.owner_id != user.id:
-            member = await self.member_repo.get_by_planet_and_user(
-                planet_id, user.id
-            )
+            member = await self.member_repo.get_by_planet_and_user(planet_id, user.id)
             if not member:
                 raise ForbiddenError("Access denied to this planet")
 
@@ -240,16 +230,12 @@ class PlanetService:
 
         # Check permission (only owner or admin can add members)
         if planet.owner_id != user.id:
-            member = await self.member_repo.get_by_planet_and_user(
-                planet_id, user.id
-            )
+            member = await self.member_repo.get_by_planet_and_user(planet_id, user.id)
             if not member or member.role not in ["owner", "admin"]:
                 raise ForbiddenError("Permission denied")
 
         # Check if member already exists
-        existing = await self.member_repo.get_by_planet_and_user(
-            planet_id, member_data.user_id
-        )
+        existing = await self.member_repo.get_by_planet_and_user(planet_id, member_data.user_id)
         if existing:
             raise ForbiddenError("User is already a member")
 
@@ -263,9 +249,7 @@ class PlanetService:
 
         return PlanetMemberResponse.model_validate(member)
 
-    async def remove_member(
-        self, planet_id: UUID, user_id: UUID, current_user: User
-    ) -> None:
+    async def remove_member(self, planet_id: UUID, user_id: UUID, current_user: User) -> None:
         """
         Remove member from planet.
 
@@ -284,9 +268,7 @@ class PlanetService:
 
         # Check permission (only owner or admin can remove members)
         if planet.owner_id != current_user.id:
-            member = await self.member_repo.get_by_planet_and_user(
-                planet_id, current_user.id
-            )
+            member = await self.member_repo.get_by_planet_and_user(planet_id, current_user.id)
             if not member or member.role not in ["owner", "admin"]:
                 raise ForbiddenError("Permission denied")
 
@@ -301,9 +283,7 @@ class PlanetService:
         await self.member_repo.delete(member.id)
         await self.db.commit()
 
-    async def get_planet_members(
-        self, planet_id: UUID, user: User
-    ) -> List[PlanetMemberResponse]:
+    async def get_planet_members(self, planet_id: UUID, user: User) -> List[PlanetMemberResponse]:
         """
         Get all members of a planet.
 
@@ -324,9 +304,7 @@ class PlanetService:
 
         # Check access (must be member or owner)
         if planet.owner_id != user.id:
-            member = await self.member_repo.get_by_planet_and_user(
-                planet_id, user.id
-            )
+            member = await self.member_repo.get_by_planet_and_user(planet_id, user.id)
             if not member:
                 raise ForbiddenError("Access denied to this planet")
 
@@ -358,9 +336,7 @@ class PlanetService:
 
         # Check permission (only owner or admin can update roles)
         if planet.owner_id != current_user.id:
-            member = await self.member_repo.get_by_planet_and_user(
-                planet_id, current_user.id
-            )
+            member = await self.member_repo.get_by_planet_and_user(planet_id, current_user.id)
             if not member or member.role not in ["owner", "admin"]:
                 raise ForbiddenError("Permission denied")
 
@@ -381,4 +357,3 @@ class PlanetService:
         await self.db.refresh(member)
 
         return PlanetMemberResponse.model_validate(member)
-

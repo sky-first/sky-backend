@@ -11,7 +11,11 @@ class Settings(BaseSettings):
     """Application settings."""
 
     model_config = SettingsConfigDict(
-        env_file=[".env.local", ".env", "../deploy/.env"],  # Tenta .env.local primeiro (dev local), depois .env, depois deploy/.env
+        env_file=[
+            ".env.local",
+            ".env",
+            "../deploy/.env",
+        ],  # Tenta .env.local primeiro (dev local), depois .env, depois deploy/.env
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -42,66 +46,87 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db",
         description="Database connection URL (can be built from POSTGRES_* env vars)",
     )
-    
+
     # Separate PostgreSQL environment variables (for Docker Compose)
     POSTGRES_USER: str = Field(default="postgres", description="PostgreSQL username")
     POSTGRES_PASSWORD: str = Field(default="", description="PostgreSQL password")
     POSTGRES_HOST: str = Field(default="localhost", description="PostgreSQL host")
     POSTGRES_PORT: int = Field(default=5432, description="PostgreSQL port")
     POSTGRES_DB: str = Field(default="ai_saas_db", description="PostgreSQL database name")
-    
-    @model_validator(mode='after')
+
+    @model_validator(mode="after")
     def build_database_url(self):
         """Build DATABASE_URL from separate env vars if available, otherwise use provided URL."""
         import os
         from urllib.parse import quote_plus
-        
+
         # Check if we have separate PostgreSQL environment variables (Docker Compose setup)
         # Priority: env vars > Field defaults
-        postgres_user = os.getenv('POSTGRES_USER') or self.POSTGRES_USER
-        postgres_password = os.getenv('POSTGRES_PASSWORD') or self.POSTGRES_PASSWORD
-        postgres_host = os.getenv('POSTGRES_HOST') or self.POSTGRES_HOST
-        postgres_port_env = os.getenv('POSTGRES_PORT')
-        postgres_db = os.getenv('POSTGRES_DB') or self.POSTGRES_DB
-        
+        postgres_user = os.getenv("POSTGRES_USER") or self.POSTGRES_USER
+        postgres_password = os.getenv("POSTGRES_PASSWORD") or self.POSTGRES_PASSWORD
+        postgres_host = os.getenv("POSTGRES_HOST") or self.POSTGRES_HOST
+        postgres_port_env = os.getenv("POSTGRES_PORT")
+        postgres_db = os.getenv("POSTGRES_DB") or self.POSTGRES_DB
+
         # If POSTGRES_PASSWORD is set as env var, always build URL from separate vars
         # This ensures proper password encoding for Docker Compose deployments
-        if os.getenv('POSTGRES_PASSWORD'):
+        if os.getenv("POSTGRES_PASSWORD"):
             # Build URL from separate environment variables with properly encoded password
             encoded_password = quote_plus(postgres_password) if postgres_password else ""
-            port_str = f":{postgres_port_env}" if postgres_port_env else (f":{self.POSTGRES_PORT}" if self.POSTGRES_PORT != 5432 else "")
+            port_str = (
+                f":{postgres_port_env}"
+                if postgres_port_env
+                else (f":{self.POSTGRES_PORT}" if self.POSTGRES_PORT != 5432 else "")
+            )
             self.DATABASE_URL = f"postgresql+asyncpg://{postgres_user}:{encoded_password}@{postgres_host}{port_str}/{postgres_db}"
         elif self.DATABASE_URL and "@" in self.DATABASE_URL:
             # Fix existing DATABASE_URL if password contains special characters
             import re
+
             # Parse URL manually to handle special characters in password
             # Format: postgresql+asyncpg://user:password@host:port/db
-            pattern = r'^(postgresql(?:\+asyncpg)?)://([^:]+):([^@]+)@([^:/]+)(?::(\d+))?/(.+)$'
+            pattern = r"^(postgresql(?:\+asyncpg)?)://([^:]+):([^@]+)@([^:/]+)(?::(\d+))?/(.+)$"
             match = re.match(pattern, self.DATABASE_URL)
-            
+
             if match:
                 scheme, username, password, host, port, database = match.groups()
-                
+
                 # Decode password if already encoded, then re-encode to ensure proper encoding
                 from urllib.parse import unquote_plus
+
                 try:
                     # Try to decode if it's already encoded
-                    decoded_password = unquote_plus(password) if '%' in password else password
+                    decoded_password = unquote_plus(password) if "%" in password else password
                     # Only re-encode if password contains special chars that need encoding
-                    if any(c in decoded_password for c in ['/', '=', '+', '@', ':', '?', '#', '[', ']']) or '%' not in password:
+                    if (
+                        any(
+                            c in decoded_password
+                            for c in ["/", "=", "+", "@", ":", "?", "#", "[", "]"]
+                        )
+                        or "%" not in password
+                    ):
                         encoded_password = quote_plus(decoded_password)
                         port_part = f":{port}" if port else ""
-                        self.DATABASE_URL = f"{scheme}://{username}:{encoded_password}@{host}{port_part}/{database}"
+                        self.DATABASE_URL = (
+                            f"{scheme}://{username}:{encoded_password}@{host}{port_part}/{database}"
+                        )
                 except Exception:
                     # If decoding fails, try encoding the password as-is
-                    if '%' not in password:
+                    if "%" not in password:
                         encoded_password = quote_plus(password)
                         port_part = f":{port}" if port else ""
-                        self.DATABASE_URL = f"{scheme}://{username}:{encoded_password}@{host}{port_part}/{database}"
-        
+                        self.DATABASE_URL = (
+                            f"{scheme}://{username}:{encoded_password}@{host}{port_part}/{database}"
+                        )
+
         return self
-    DATABASE_POOL_SIZE: int = 3  # Reduzido para 3 conexões por processo (recomendado para evitar "too many clients")
-    DATABASE_MAX_OVERFLOW: int = 5  # Máximo de 5 conexões adicionais (total máximo: 8 conexões por processo)
+
+    DATABASE_POOL_SIZE: int = (
+        3  # Reduzido para 3 conexões por processo (recomendado para evitar "too many clients")
+    )
+    DATABASE_MAX_OVERFLOW: int = (
+        5  # Máximo de 5 conexões adicionais (total máximo: 8 conexões por processo)
+    )
     DATABASE_POOL_PRE_PING: bool = True
 
     # Redis
@@ -229,14 +254,14 @@ class Settings(BaseSettings):
     @property
     def database_url_sync(self) -> str:
         """Get synchronous database URL for Alembic."""
-        from urllib.parse import urlparse, urlunparse, unquote_plus
-        
+        from urllib.parse import unquote_plus, urlparse, urlunparse
+
         # Parse the async URL
         parsed = urlparse(self.DATABASE_URL)
-        
+
         # Remove +asyncpg from scheme
         scheme = parsed.scheme.replace("+asyncpg", "")
-        
+
         # Password is already encoded in DATABASE_URL, so we can use it directly
         # psycopg2 will handle URL decoding automatically
         if parsed.password:
@@ -244,9 +269,11 @@ class Settings(BaseSettings):
             netloc = f"{parsed.username}:{parsed.password}@{parsed.hostname}"
             if parsed.port:
                 netloc += f":{parsed.port}"
-            
-            return urlunparse((scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
-        
+
+            return urlunparse(
+                (scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+            )
+
         # If no password, just remove +asyncpg
         return self.DATABASE_URL.replace("+asyncpg", "")
 
@@ -259,4 +286,3 @@ def get_settings() -> Settings:
 
 # Global settings instance
 settings = get_settings()
-

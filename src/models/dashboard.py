@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, JSON, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -25,10 +25,14 @@ class Dashboard(Base):
         nullable=False,
         index=True,
     )
-    template_id = Column(UUID(as_uuid=True), ForeignKey("templates.id", ondelete="SET NULL"), nullable=True)
+    template_id = Column(
+        UUID(as_uuid=True), ForeignKey("templates.id", ondelete="SET NULL"), nullable=True
+    )
     canvas_settings = Column(JSON, nullable=True)  # {scale, position, snapToGrid, gridSize}
     is_locked = Column(Boolean, nullable=False, default=False, server_default="false")
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     updated_at = Column(
         DateTime(timezone=True),
@@ -41,7 +45,9 @@ class Dashboard(Base):
     # Relationships
     planet = relationship("Planet", back_populates="dashboards")
     widgets = relationship("Widget", back_populates="dashboard", cascade="all, delete-orphan")
-    connections = relationship("Connection", back_populates="dashboard", cascade="all, delete-orphan")
+    connections = relationship(
+        "Connection", back_populates="dashboard", cascade="all, delete-orphan"
+    )
     template = relationship("Template", foreign_keys=[template_id])
 
     __table_args__ = (
@@ -146,4 +152,3 @@ class Connection(Base):
 
     def __repr__(self) -> str:
         return f"<Connection(id={self.id}, from={self.from_widget_id}, to={self.to_widget_id})>"
-

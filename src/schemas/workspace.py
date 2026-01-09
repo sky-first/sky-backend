@@ -84,4 +84,3 @@ class WorkspaceMemberRoleUpdate(BaseModel):
     """Workspace member role update schema."""
 
     role: str = Field(..., pattern="^(admin|member|viewer)$")
-

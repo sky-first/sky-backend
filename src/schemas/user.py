@@ -132,6 +132,7 @@ class UserInviteRequest(BaseModel):
 
 # Invite System Schemas
 
+
 class InviteValidateRequest(BaseModel):
     """Invite validation request schema."""
 
@@ -161,7 +162,9 @@ class InviteGenerateRequest(BaseModel):
 
     email: EmailStr = Field(..., description="Email of user to invite")
     expires_days: int = Field(default=7, ge=1, le=30, description="Days until invite expires")
-    name: Optional[str] = Field(None, min_length=1, max_length=255, description="Optional name for invited user")
+    name: Optional[str] = Field(
+        None, min_length=1, max_length=255, description="Optional name for invited user"
+    )
 
 
 class InviteGenerateResponse(BaseModel):
@@ -171,4 +174,3 @@ class InviteGenerateResponse(BaseModel):
     email: str
     expires_at: str
     message: str
-

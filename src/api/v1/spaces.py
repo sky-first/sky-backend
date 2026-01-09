@@ -262,7 +262,9 @@ async def get_space_connections(
     """
     space_service = SpaceService(db)
     connections = await space_service.get_space_connections(space_id, current_user)
-    return [{"space_id": str(c.space_id), "connection_id": str(c.connection_id)} for c in connections]
+    return [
+        {"space_id": str(c.space_id), "connection_id": str(c.connection_id)} for c in connections
+    ]
 
 
 @router.get(
@@ -297,7 +299,11 @@ async def get_space_members(
     "/{space_id}/members",
     response_model=SpaceMemberResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
+    responses={
+        404: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
     summary="Add space member",
     description="Add a member to a space",
 )
@@ -380,4 +386,3 @@ async def get_space_tables(
     """
     space_service = SpaceService(db)
     return await space_service.get_space_tables(space_id, current_user)
-

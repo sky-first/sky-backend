@@ -11,13 +11,13 @@ from src.config.settings import settings
 def build_redis_url_from_env(host: str, port: int, password: str, db: int) -> str:
     """
     Build Redis URL from individual components with proper encoding.
-    
+
     Args:
         host: Redis host
         port: Redis port
         password: Redis password (will be encoded)
         db: Redis database number
-        
+
     Returns:
         str: Properly encoded Redis URL
     """
@@ -79,6 +79,7 @@ if backend_url:
 
 # Debug: Log the URLs (without password for security)
 import logging
+
 logger = logging.getLogger(__name__)
 logger.info("Celery broker URL configured")
 logger.info("Celery backend URL configured")
@@ -110,4 +111,3 @@ celery_app.conf.update(
 celery_app.conf.broker_url = broker_url
 celery_app.conf.broker_write_url = broker_url
 celery_app.conf.result_backend = backend_url
-

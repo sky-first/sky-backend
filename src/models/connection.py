@@ -2,16 +2,16 @@
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, JSON, String, Text, UniqueConstraint
+# Forward reference for SyncLog
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from src.config.database import Base
 
-# Forward reference for SyncLog
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.models.file import SyncLog
 
@@ -23,7 +23,9 @@ class DataConnection(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
-    connector_id = Column(String(100), nullable=False)  # mysql, postgresql, mongodb, google-sheets, rest-api
+    connector_id = Column(
+        String(100), nullable=False
+    )  # mysql, postgresql, mongodb, google-sheets, rest-api
     description = Column(Text, nullable=True)
     status = Column(
         String(50), nullable=False, default="inactive", server_default="inactive"
@@ -47,13 +49,26 @@ class DataConnection(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    connection_metadata = relationship("ConnectionMetadata", back_populates="connection", uselist=False, cascade="all, delete-orphan")
-    permissions = relationship("ConnectionPermission", back_populates="connection", cascade="all, delete-orphan")
+    connection_metadata = relationship(
+        "ConnectionMetadata",
+        back_populates="connection",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    permissions = relationship(
+        "ConnectionPermission", back_populates="connection", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
-        Index("idx_data_connections_connector_id", "connector_id", postgresql_where=deleted_at.is_(None)),
+        Index(
+            "idx_data_connections_connector_id",
+            "connector_id",
+            postgresql_where=deleted_at.is_(None),
+        ),
         Index("idx_data_connections_status", "status", postgresql_where=deleted_at.is_(None)),
-        Index("idx_data_connections_created_by", "created_by", postgresql_where=deleted_at.is_(None)),
+        Index(
+            "idx_data_connections_created_by", "created_by", postgresql_where=deleted_at.is_(None)
+        ),
         Index("idx_data_connections_last_sync", "last_sync"),
     )
 
@@ -129,4 +144,3 @@ class ColumnMetadata:
         self.type = type
         self.nullable = nullable
         self.description = description
-

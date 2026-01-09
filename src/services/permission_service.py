@@ -11,7 +11,11 @@ from src.models.space import SpaceConnection
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
 from src.repositories.crew import CrewMemberRepository, CrewRepository
-from src.repositories.permission import PermissionRepository, RolePermissionRepository, TableMemberPermissionRepository
+from src.repositories.permission import (
+    PermissionRepository,
+    RolePermissionRepository,
+    TableMemberPermissionRepository,
+)
 from src.repositories.space import SpaceRepository
 from src.schemas.permission import (
     ConnectionPermissionCreate,
@@ -125,16 +129,17 @@ class PermissionService:
         if permission_data.space_id:
             try:
                 # Check if SpaceConnection already exists
-                existing_connections = await self.space_repo.get_space_connections(permission_data.space_id)
+                existing_connections = await self.space_repo.get_space_connections(
+                    permission_data.space_id
+                )
                 connection_exists = any(
                     str(sc.connection_id) == str(connection_id) for sc in existing_connections
                 )
-                
+
                 if not connection_exists:
                     # Create SpaceConnection to associate connection with space
                     space_connection = SpaceConnection(
-                        space_id=permission_data.space_id,
-                        connection_id=connection_id
+                        space_id=permission_data.space_id, connection_id=connection_id
                     )
                     self.db.add(space_connection)
                     await self.db.commit()
@@ -143,8 +148,12 @@ class PermissionService:
                 # Log error but don't fail the permission creation
                 # The permission is more important than the connection association
                 import logging
+
                 logger = logging.getLogger(__name__)
-                logger.warning(f"Failed to create SpaceConnection for space {permission_data.space_id} and connection {connection_id}: {e}", exc_info=True)
+                logger.warning(
+                    f"Failed to create SpaceConnection for space {permission_data.space_id} and connection {connection_id}: {e}",
+                    exc_info=True,
+                )
                 # Rollback the SpaceConnection creation but keep the permission
                 await self.db.rollback()
 
@@ -208,9 +217,7 @@ class PermissionService:
         await self.permission_repo.delete(permission_id)
         await self.db.commit()
 
-    async def get_space_permissions(
-        self, space_id: UUID, user: User
-    ) -> List[PermissionResponse]:
+    async def get_space_permissions(self, space_id: UUID, user: User) -> List[PermissionResponse]:
         """
         Get permissions for a space.
 
@@ -229,9 +236,7 @@ class PermissionService:
         permissions = await self.permission_repo.get_by_space_id(space_id)
         return [PermissionResponse.model_validate(p) for p in permissions]
 
-    async def get_crew_permissions(
-        self, crew_id: UUID, user: User
-    ) -> List[PermissionResponse]:
+    async def get_crew_permissions(self, crew_id: UUID, user: User) -> List[PermissionResponse]:
         """
         Get permissions for a crew.
 
@@ -319,30 +324,39 @@ class PermissionService:
         if connection.created_by != user.id:
             raise ForbiddenError("Access denied to this connection")
 
-        permissions = await self.table_member_permission_repo.get_by_table(connection_id, table_name)
-        
+        permissions = await self.table_member_permission_repo.get_by_table(
+            connection_id, table_name
+        )
+
         # Convert to response format safely
         result = []
         for p in permissions:
             try:
-                result.append(TableMemberPermissionResponse.model_validate({
-                    "id": p.id,
-                    "connection_id": p.connection_id,
-                    "table_name": p.table_name,
-                    "crew_id": p.crew_id,
-                    "member_id": p.member_id,
-                    "has_access": p.has_access,
-                    "created_at": p.created_at,
-                    "updated_at": p.updated_at,
-                }))
+                result.append(
+                    TableMemberPermissionResponse.model_validate(
+                        {
+                            "id": p.id,
+                            "connection_id": p.connection_id,
+                            "table_name": p.table_name,
+                            "crew_id": p.crew_id,
+                            "member_id": p.member_id,
+                            "has_access": p.has_access,
+                            "created_at": p.created_at,
+                            "updated_at": p.updated_at,
+                        }
+                    )
+                )
             except Exception as e:
                 import logging
+
                 logger = logging.getLogger(__name__)
                 logger.error(f"Error validating permission {p.id}: {e}")
-                logger.error(f"Permission data: id={p.id}, connection_id={p.connection_id}, table_name={p.table_name}, crew_id={p.crew_id}, member_id={p.member_id}, has_access={p.has_access}")
+                logger.error(
+                    f"Permission data: id={p.id}, connection_id={p.connection_id}, table_name={p.table_name}, crew_id={p.crew_id}, member_id={p.member_id}, has_access={p.has_access}"
+                )
                 # Skip invalid permissions instead of failing completely
                 continue
-        
+
         return result
 
     async def create_table_member_permission(
@@ -507,7 +521,7 @@ class PermissionService:
 
         # Get existing role permission or create new one
         role_permission = await self.role_permission_repo.get_by_role(role)
-        
+
         if role_permission:
             # Update existing
             role_permission.permissions = permission_data.permissions
@@ -516,11 +530,9 @@ class PermissionService:
         else:
             # Create new
             role_permission = await self.role_permission_repo.create(
-                role=role,
-                permissions=permission_data.permissions
+                role=role, permissions=permission_data.permissions
             )
             await self.db.commit()
             await self.db.refresh(role_permission)
 
         return RolePermissionResponse.model_validate(role_permission)
-

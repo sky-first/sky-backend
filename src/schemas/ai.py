@@ -27,9 +27,7 @@ class AIQueryRequest(BaseModel):
     widget_id: Optional[UUID] = None
     knowledge: Optional[List[str]] = None
     configure_data: Optional[ConfigureData] = None
-    space_id: Optional[str] = Field(
-        None, description="Space ID for the query context"
-    )
+    space_id: Optional[str] = Field(None, description="Space ID for the query context")
     is_personal: Optional[bool] = Field(
         default=False,
         description="Whether the query is in personal mode (access across all crews/spaces).",
@@ -247,4 +245,3 @@ class ValidateSQLResponse(BaseModel):
     num_rows: Optional[int] = Field(None, description="Número de linhas.")
     execution_time_ms: Optional[float] = Field(None, description="Tempo de execução.")
     columns: Optional[List[str]] = Field(None, description="Colunas retornadas.")
-

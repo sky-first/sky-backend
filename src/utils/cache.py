@@ -117,4 +117,3 @@ def workspace_cache_key(workspace_id: str) -> str:
 def connection_metadata_cache_key(connection_id: str) -> str:
     """Generate cache key for connection metadata."""
     return f"connection:metadata:{connection_id}"
-

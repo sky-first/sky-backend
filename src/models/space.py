@@ -20,7 +20,9 @@ class Space(Base):
     description = Column(Text, nullable=True)
     color = Column(String(7), nullable=True)  # Hex color
     icon = Column(String(255), nullable=True)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     updated_at = Column(
         DateTime(timezone=True),
@@ -32,7 +34,9 @@ class Space(Base):
 
     # Relationships
     crews = relationship("Crew", back_populates="space", cascade="all, delete-orphan")
-    space_connections = relationship("SpaceConnection", back_populates="space", cascade="all, delete-orphan")
+    space_connections = relationship(
+        "SpaceConnection", back_populates="space", cascade="all, delete-orphan"
+    )
     members = relationship("SpaceMember", back_populates="space", cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -109,4 +113,3 @@ class SpaceMember(Base):
 
     def __repr__(self) -> str:
         return f"<SpaceMember(space_id={self.space_id}, user_id={self.user_id})>"
-

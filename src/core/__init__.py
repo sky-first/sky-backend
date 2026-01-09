@@ -30,4 +30,3 @@ __all__ = [
     "verify_password",
     "verify_token",
 ]
-

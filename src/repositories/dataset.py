@@ -50,4 +50,3 @@ class UserDatasetRepository(BaseRepository[UserDataset]):
             select(UserDataset.dataset_id).where(UserDataset.user_id == user_id)
         )
         return [row[0] for row in result.all()]
-

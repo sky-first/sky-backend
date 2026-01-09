@@ -278,4 +278,3 @@ async def remove_workspace_member(
     workspace_service = WorkspaceService(db)
     await workspace_service.remove_member(workspace_id, user_id, current_user)
     return SuccessResponse(message="Member removed successfully")
-

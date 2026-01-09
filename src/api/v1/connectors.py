@@ -92,4 +92,3 @@ async def get_categories(
     """
     connector_service = ConnectorService(db)
     return connector_service.get_categories()
-

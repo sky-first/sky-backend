@@ -159,10 +159,12 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
 
         # Log full exception details for debugging
         import traceback
+
         error_traceback = traceback.format_exc()
         logger.exception(f"Unhandled exception: {str(e)}\n{error_traceback}")
         # In development, return more details
         from src.config.settings import settings
+
         error_message = str(e) if settings.DEBUG else "An unexpected error occurred"
         response = JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -174,4 +176,3 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
         )
         _apply_cors_headers(request, response)
         return response
-

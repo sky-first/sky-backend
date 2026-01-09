@@ -13,14 +13,14 @@ async def test_build_dashboard_job_async_success(monkeypatch):
     Unit test for _build_dashboard_job_async covering the happy path with mocks only.
     This is intentionally lightweight (no DB/Redis/HTTP).
     """
-    from src.workers import ai_worker
+    from src.ai import http_client as http_client_module
     from src.config import database as database_module
     from src.repositories import base as base_repo_module
-    from src.repositories import user as user_repo_module
     from src.repositories import dashboard as dashboard_repo_module
-    from src.services import dashboard_service as dashboard_service_module
-    from src.ai import http_client as http_client_module
+    from src.repositories import user as user_repo_module
     from src.services import ai_service as ai_service_module
+    from src.services import dashboard_service as dashboard_service_module
+    from src.workers import ai_worker
 
     job_id = str(uuid4())
     user_id = uuid4()
@@ -103,7 +103,12 @@ async def test_build_dashboard_job_async_success(monkeypatch):
                 "dashboard_name": "Auto Dashboard",
                 "description": "Generated",
                 "widgets": [
-                    {"type": "text", "title": "Intro", "question": "Intro?", "viz": {"content": "Hello"}},
+                    {
+                        "type": "text",
+                        "title": "Intro",
+                        "question": "Intro?",
+                        "viz": {"content": "Hello"},
+                    },
                     {
                         "type": "chart",
                         "title": "Chart",
@@ -148,9 +153,9 @@ async def test_build_dashboard_job_async_success(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_build_dashboard_job_async_job_not_found(monkeypatch):
-    from src.workers import ai_worker
     from src.config import database as database_module
     from src.repositories import base as base_repo_module
+    from src.workers import ai_worker
 
     db = SimpleNamespace(
         commit=AsyncMock(),
@@ -181,11 +186,11 @@ async def test_build_dashboard_job_async_job_not_found(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_build_dashboard_job_async_missing_ids_sets_failed(monkeypatch):
-    from src.workers import ai_worker
     from src.config import database as database_module
     from src.repositories import base as base_repo_module
     from src.repositories import user as user_repo_module
     from src.services import ai_service as ai_service_module
+    from src.workers import ai_worker
 
     job_id = str(uuid4())
     job = SimpleNamespace(
@@ -235,7 +240,9 @@ async def test_build_dashboard_job_async_missing_ids_sets_failed(monkeypatch):
     monkeypatch.setattr(
         user_repo_module,
         "UserRepository",
-        lambda _db: SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id=job.user_id))),
+        lambda _db: SimpleNamespace(
+            get_by_id=AsyncMock(return_value=SimpleNamespace(id=job.user_id))
+        ),
     )
     monkeypatch.setattr(
         ai_service_module,
@@ -251,5 +258,3 @@ async def test_build_dashboard_job_async_missing_ids_sets_failed(monkeypatch):
 
     assert job.status == "failed"
     assert job.error is not None
-
-

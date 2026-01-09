@@ -46,4 +46,3 @@ def sync_connection_metadata(connection_id: str):
     except Exception as exc:
         logger.error(f"Metadata sync failed for connection {connection_id}: {str(exc)}")
         raise
-

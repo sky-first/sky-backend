@@ -292,4 +292,3 @@ class InviteService:
             "expires_in": 365 * 100 * 24 * 60 * 60,  # 100 years in seconds
             "user": UserResponse.model_validate(user_to_response_dict(user)),
         }
-

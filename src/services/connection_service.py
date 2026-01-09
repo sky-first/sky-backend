@@ -7,12 +7,11 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.settings import get_settings
+from src.connectors.registry import get_connector
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.user import User
-from src.repositories.connection import (
-    ConnectionMetadataRepository,
-    ConnectionRepository,
-)
+from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.schemas.connection import (
     ConnectionCreate,
     ConnectionMetadataResponse,
@@ -24,8 +23,6 @@ from src.schemas.connection import (
     ConnectionValidateResponse,
     TableMetadataSchema,
 )
-from src.connectors.registry import get_connector
-from src.config.settings import get_settings
 
 
 class ConnectionService:
@@ -104,14 +101,14 @@ class ConnectionService:
     ) -> ConnectionResponse:
         """
         Create a new connection and automatically sync metadata.
- 
+
         Args:
             user: Current user
             connection_data: Connection creation data
- 
+
         Returns:
             ConnectionResponse: Created connection (possibly already synced)
- 
+
         Raises:
             BadRequestError: If connector_id is invalid
         """
@@ -120,7 +117,7 @@ class ConnectionService:
             get_connector(connection_data.connector_id)
         except Exception:
             raise BadRequestError(f"Invalid connector_id: {connection_data.connector_id}")
- 
+
         # TODO: Encrypt config before storing
         connection = await self.connection_repo.create(
             name=connection_data.name,
@@ -131,10 +128,10 @@ class ConnectionService:
             status="inactive",
             created_by=user.id,
         )
- 
+
         await self.db.commit()
         await self.db.refresh(connection)
- 
+
         # Automatically sync metadata after creating the connection.
         # If sync fails, we keep the connection created and just return it as-is.
         try:
@@ -144,7 +141,7 @@ class ConnectionService:
         except Exception:
             # Swallow sync errors here; detailed error handling happens inside sync_connection
             pass
- 
+
         return ConnectionResponse.model_validate(connection)
 
     async def update_connection(
@@ -197,21 +194,30 @@ class ConnectionService:
             raise NotFoundError("Connection not found")
 
         settings = get_settings()
-        
+
         # In development, allow any user to delete any connection
         # In production, only admin or owner can delete
         import logging
+
         logger = logging.getLogger(__name__)
-        logger.info(f"🔴 [DELETE SERVICE] Checking permissions: connection_id={connection_id}, user_id={user.id}, environment={settings.ENVIRONMENT}, is_development={settings.is_development}")
-        
+        logger.info(
+            f"🔴 [DELETE SERVICE] Checking permissions: connection_id={connection_id}, user_id={user.id}, environment={settings.ENVIRONMENT}, is_development={settings.is_development}"
+        )
+
         if settings.is_development:
             # Development mode: allow any authenticated user to delete
-            logger.info(f"🔴 [DELETE SERVICE] Development mode: Allowing user {user.id} to delete connection {connection_id} (created by {connection.created_by})")
+            logger.info(
+                f"🔴 [DELETE SERVICE] Development mode: Allowing user {user.id} to delete connection {connection_id} (created by {connection.created_by})"
+            )
         else:
             # Production mode: only admin or owner can delete
-            logger.info(f"🔴 [DELETE SERVICE] Production mode: Checking if user {user.id} is admin or owner")
+            logger.info(
+                f"🔴 [DELETE SERVICE] Production mode: Checking if user {user.id} is admin or owner"
+            )
             if user.role != "admin" and connection.created_by != user.id:
-                logger.warning(f"🔴 [DELETE SERVICE] Access denied: user {user.id} is not admin and not owner (created_by={connection.created_by})")
+                logger.warning(
+                    f"🔴 [DELETE SERVICE] Access denied: user {user.id} is not admin and not owner (created_by={connection.created_by})"
+                )
                 raise ForbiddenError("Access denied to this connection")
 
         logger.info(f"🔴 [DELETE SERVICE] Deleting connection {connection_id} from database...")
@@ -258,7 +264,10 @@ class ConnectionService:
                 await self.connection_repo.update(
                     connection_id,
                     status="error",
-                    error={"message": "Connection test failed", "timestamp": datetime.now(timezone.utc).isoformat()},
+                    error={
+                        "message": "Connection test failed",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
                 )
                 await self.db.commit()
                 return ConnectionTestResponse(
@@ -268,7 +277,7 @@ class ConnectionService:
             await self.connection_repo.update(
                 connection_id,
                 status="error",
-                    error={"message": str(e), "timestamp": datetime.now(timezone.utc).isoformat()},
+                error={"message": str(e), "timestamp": datetime.now(timezone.utc).isoformat()},
             )
             await self.db.commit()
             return ConnectionTestResponse(success=False, message=f"Error: {str(e)}")
@@ -334,7 +343,7 @@ class ConnectionService:
             await self.connection_repo.update(
                 connection_id,
                 status="error",
-                    error={"message": str(e), "timestamp": datetime.now(timezone.utc).isoformat()},
+                error={"message": str(e), "timestamp": datetime.now(timezone.utc).isoformat()},
             )
             await self.db.commit()
             return ConnectionSyncResponse(success=False, message=f"Sync failed: {str(e)}")
@@ -366,7 +375,11 @@ class ConnectionService:
             return ConnectionMetadataResponse(tables=[], schemas=[])
 
         tables = [
-            TableMetadataSchema(**table) if isinstance(table, dict) else TableMetadataSchema.model_validate(table)
+            (
+                TableMetadataSchema(**table)
+                if isinstance(table, dict)
+                else TableMetadataSchema.model_validate(table)
+            )
             for table in (metadata.tables or [])
         ]
 
@@ -478,7 +491,8 @@ class ConnectionService:
             errors.append(f"Invalid connector: {str(e)}")
 
         if errors:
-            return ConnectionValidateResponse(valid=False, message="Validation failed", errors=errors)
+            return ConnectionValidateResponse(
+                valid=False, message="Validation failed", errors=errors
+            )
 
         return ConnectionValidateResponse(valid=True, message="Connection is valid")
-

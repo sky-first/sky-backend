@@ -148,14 +148,15 @@ async def get_history_item(
     Returns:
         AIHistoryItem: History item
     """
-    from src.repositories.base import BaseRepository
     from src.models.ai import AIHistory
+    from src.repositories.base import BaseRepository
 
     history_repo = BaseRepository(db, AIHistory)
     history_item = await history_repo.get_by_id(history_id)
 
     if not history_item or history_item.user_id != current_user.id:
         from src.core.exceptions import NotFoundError
+
         raise NotFoundError("History item not found")
 
     return AIHistoryItem.model_validate(history_item)
@@ -185,14 +186,15 @@ async def delete_history_item(
     Returns:
         SuccessResponse: Success message
     """
-    from src.repositories.base import BaseRepository
     from src.models.ai import AIHistory
+    from src.repositories.base import BaseRepository
 
     history_repo = BaseRepository(db, AIHistory)
     history_item = await history_repo.get_by_id(history_id)
 
     if not history_item or history_item.user_id != current_user.id:
         from src.core.exceptions import NotFoundError
+
         raise NotFoundError("History item not found")
 
     await history_repo.delete(history_id)
@@ -225,14 +227,15 @@ async def pin_history_item(
     Returns:
         SuccessResponse: Success message
     """
-    from src.repositories.base import BaseRepository
     from src.models.ai import AIHistory
+    from src.repositories.base import BaseRepository
 
     history_repo = BaseRepository(db, AIHistory)
     history_item = await history_repo.get_by_id(history_id)
 
     if not history_item or history_item.user_id != current_user.id:
         from src.core.exceptions import NotFoundError
+
         raise NotFoundError("History item not found")
 
     await history_repo.update(history_id, pinned=True)
@@ -265,14 +268,15 @@ async def unpin_history_item(
     Returns:
         SuccessResponse: Success message
     """
-    from src.repositories.base import BaseRepository
     from src.models.ai import AIHistory
+    from src.repositories.base import BaseRepository
 
     history_repo = BaseRepository(db, AIHistory)
     history_item = await history_repo.get_by_id(history_id)
 
     if not history_item or history_item.user_id != current_user.id:
         from src.core.exceptions import NotFoundError
+
         raise NotFoundError("History item not found")
 
     await history_repo.update(history_id, pinned=False)
@@ -392,4 +396,3 @@ async def get_pipeline_status(
     ai_service = AIService(db)
     pipeline = await ai_service.get_pipeline(pipeline_id)
     return {"status": pipeline.status, "current_step": pipeline.current_step}
-

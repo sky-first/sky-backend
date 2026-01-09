@@ -71,4 +71,3 @@ async def check_starred(
     starred_service = StarredItemService(db)
     is_starred = await starred_service.is_item_starred(current_user, item_id, item_type)
     return {"is_starred": is_starred, "item_id": str(item_id), "item_type": item_type}
-

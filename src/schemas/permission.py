@@ -11,7 +11,9 @@ class PermissionBase(BaseModel):
     """Base permission schema."""
 
     access_level: str = Field(..., pattern="^(full|read-only|custom)$")
-    table_access: Optional[List[str]] = Field(None, description="List of table names (if access_level = 'custom')")
+    table_access: Optional[List[str]] = Field(
+        None, description="List of table names (if access_level = 'custom')"
+    )
 
 
 class ConnectionPermissionCreate(PermissionBase):
@@ -90,7 +92,9 @@ class TableMemberPermissionResponse(BaseModel):
 class RolePermissionUpdate(BaseModel):
     """Role permission update schema."""
 
-    permissions: Dict[str, bool] = Field(..., description="Dictionary of permission keys and boolean values")
+    permissions: Dict[str, bool] = Field(
+        ..., description="Dictionary of permission keys and boolean values"
+    )
 
 
 class RolePermissionResponse(BaseModel):
@@ -104,3 +108,10 @@ class RolePermissionResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class EffectivePermissionsResponse(BaseModel):
+    """Effective permissions for the current user in a given context."""
+
+    platform_role: str
+    crew_role: str
+    permissions: Dict[str, bool]

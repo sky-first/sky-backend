@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, text, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -22,10 +22,14 @@ class Planet(Base):
     type = Column(String(50), nullable=False)  # personal, team
     color = Column(String(7), nullable=False)  # Hex color
     icon = Column(String(255), nullable=True)
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     is_active = Column(Boolean, nullable=False, default=False, server_default="false")
     last_accessed = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -68,11 +72,13 @@ class PlanetMember(Base):
         nullable=False,
         index=True,
     )
-    role = Column(
-        String(50), nullable=False
-    )  # owner, admin, member, viewer
-    joined_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    role = Column(String(50), nullable=False)  # owner, admin, member, viewer
+    joined_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
     planet = relationship("Planet", back_populates="members")
@@ -88,5 +94,6 @@ class PlanetMember(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<PlanetMember(planet_id={self.planet_id}, user_id={self.user_id}, role={self.role})>"
-
+        return (
+            f"<PlanetMember(planet_id={self.planet_id}, user_id={self.user_id}, role={self.role})>"
+        )

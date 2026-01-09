@@ -4,7 +4,6 @@ from typing import Dict, List, Optional
 
 from src.models.user import User
 
-
 # Permission definitions
 PERMISSIONS = {
     "workspace": {
@@ -96,4 +95,3 @@ def check_permission(
 
     allowed_roles = resource_perms[action]
     return user.role in allowed_roles
-

@@ -3,15 +3,21 @@
 import secrets
 from typing import Optional
 from urllib.parse import urlencode
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user, get_db_session  # get_current_user usado em outros endpoints
+from src.api.deps import (  # get_current_user usado em outros endpoints
+    get_current_user,
+    get_db_session,
+)
 from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
+from src.schemas.permission import EffectivePermissionsResponse
 from src.schemas.user import (
     ForgotPasswordRequest,
     InviteGenerateRequest,
@@ -21,16 +27,17 @@ from src.schemas.user import (
     InviteValidateResponse,
     LoginRequest,
     LoginResponse,
-    RegisterRequest,
     RefreshTokenRequest,
     RefreshTokenResponse,
+    RegisterRequest,
     ResetPasswordRequest,
     UserResponse,
     VerifyEmailRequest,
 )
-from src.services.auth_service import AuthenticationService, user_to_response_dict
 from src.services.auth0_service import Auth0Service
+from src.services.auth_service import AuthenticationService, user_to_response_dict
 from src.services.invite_service import InviteService
+from src.services.rbac_service import RBACService
 
 router = APIRouter()
 
@@ -93,6 +100,7 @@ async def login(
     except Exception as e:
         # Log the error for debugging
         import logging
+
         logger = logging.getLogger(__name__)
         logger.error(f"Login error: {str(e)}", exc_info=True)
         # Re-raise to let FastAPI handle it properly
@@ -172,6 +180,43 @@ async def get_me(
         UserResponse: User data
     """
     return UserResponse.model_validate(user_to_response_dict(current_user))
+
+
+@router.get(
+    "/me/effective-permissions",
+    response_model=EffectivePermissionsResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get effective permissions",
+    description="Return effective permissions for the current user, optionally scoped by space/crew/connection.",
+)
+async def get_effective_permissions(
+    space_id: Optional[str] = Query(None, description="Space context (optional)"),
+    crew_id: Optional[str] = Query(None, description="Crew context (optional)"),
+    connection_id: Optional[str] = Query(None, description="Connection context (optional)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> EffectivePermissionsResponse:
+    def _to_uuid(v: Optional[str]) -> Optional[UUID]:
+        if not v:
+            return None
+        try:
+            return UUID(v)
+        except Exception:
+            return None
+
+    rbac = RBACService(db)
+    eff = await rbac.get_effective_permissions(
+        current_user,
+        space_id=_to_uuid(space_id),
+        crew_id=_to_uuid(crew_id),
+        connection_id=_to_uuid(connection_id),
+    )
+    return EffectivePermissionsResponse(
+        platform_role=eff.platform_role,
+        crew_role=eff.crew_role,
+        permissions=eff.permissions,
+    )
 
 
 @router.post(
@@ -284,6 +329,7 @@ async def get_session(
 
 
 # Invite Endpoints
+
 
 @router.post(
     "/invite/validate",
@@ -416,6 +462,7 @@ async def generate_invite(
 
 # SSO Endpoints
 
+
 @router.get(
     "/sso/{provider}/login",
     status_code=status.HTTP_302_FOUND,
@@ -448,12 +495,12 @@ async def sso_login(
         raise BadRequestError(f"Unsupported SSO provider: {provider}")
 
     auth0_service = Auth0Service(db)
-    
+
     # Get redirect URI
     if not redirect_uri:
         base_url = str(request.base_url)
         redirect_uri = f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
-    
+
     # Get OAuth URL based on provider
     if provider == "google":
         if not auth0_settings.is_google_enabled:
@@ -493,7 +540,7 @@ async def sso_login(
         oauth_url = f"{auth0_settings.okta_authorization_url}?{urlencode(params)}"
     else:
         raise BadRequestError(f"Unsupported provider: {provider}")
-    
+
     return RedirectResponse(url=oauth_url, status_code=302)
 
 
@@ -501,7 +548,11 @@ async def sso_login(
     "/sso/{provider}/callback",
     response_model=LoginResponse,
     status_code=status.HTTP_200_OK,
-    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
     summary="SSO Callback",
     description="Handle OAuth callback from SSO provider",
 )
@@ -532,12 +583,12 @@ async def sso_callback(
         raise BadRequestError(f"Unsupported SSO provider: {provider}")
 
     auth0_service = Auth0Service(db)
-    
+
     # Get redirect URI if not provided
     # Note: redirect_uri should be provided by the frontend
     if not redirect_uri:
         redirect_uri = f"http://localhost:3000/login/sso/callback"
-    
+
     # Handle callback based on provider
     if provider == "google":
         user = await auth0_service.handle_google_callback(code, redirect_uri)
@@ -551,4 +602,3 @@ async def sso_callback(
     # Create login response
     login_response = await auth0_service.create_login_response(user)
     return LoginResponse(**login_response)
-

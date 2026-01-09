@@ -66,4 +66,3 @@ class TemplateApplyResponse(BaseModel):
     """Template apply response schema."""
 
     widgets: List[Dict[str, Any]] = Field(description="Created widgets")
-

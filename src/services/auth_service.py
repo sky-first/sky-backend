@@ -17,17 +17,23 @@ from src.core.security import (
 )
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
-from src.schemas.user import LoginResponse, RefreshTokenResponse, RegisterRequest, UserCreate, UserResponse
+from src.schemas.user import (
+    LoginResponse,
+    RefreshTokenResponse,
+    RegisterRequest,
+    UserCreate,
+    UserResponse,
+)
 from src.services.onboarding_service import ensure_default_planet_and_space
 
 
 def user_to_response_dict(user: User) -> dict:
     """
     Convert User model to dictionary for UserResponse validation.
-    
+
     Args:
         user: User model instance
-        
+
     Returns:
         dict: Dictionary with converted fields
     """
@@ -39,7 +45,11 @@ def user_to_response_dict(user: User) -> dict:
         "role": user.role,
         "email_verified": user.email_verified,
         "email_verified_at": user.email_verified_at,
-        "onboarding_step": int(user.onboarding_step) if user.onboarding_step and str(user.onboarding_step).isdigit() else 0,
+        "onboarding_step": (
+            int(user.onboarding_step)
+            if user.onboarding_step and str(user.onboarding_step).isdigit()
+            else 0
+        ),
         "has_completed_onboarding": user.has_completed_onboarding,
         "selected_domain": user.selected_domain,
         "last_login_at": user.last_login_at,
@@ -176,16 +186,20 @@ class AuthenticationService:
 
         # Check authentication type
         auth_type = self._detect_auth_type(user)
-        
+
         # Validate based on auth type
         if auth_type == "sso":
             # SSO users should not login with password
-            raise UnauthorizedError("This account uses SSO authentication. Please use your SSO provider to login.")
+            raise UnauthorizedError(
+                "This account uses SSO authentication. Please use your SSO provider to login."
+            )
         elif auth_type == "invite":
             # Invite users can login with password, but must complete registration first
             if user.invite_token:
-                raise UnauthorizedError("Please complete your registration using the invite token first.")
-        
+                raise UnauthorizedError(
+                    "Please complete your registration using the invite token first."
+                )
+
         # Verify password (for traditional and completed invite users)
         if not verify_password(password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")
@@ -233,12 +247,12 @@ class AuthenticationService:
         # Check if user has SSO provider
         if user.auth_provider and user.auth_provider != "local":
             return "sso"
-        
+
         # Check if user has active invite
         if user.invite_token and user.invite_expires_at:
             if user.invite_expires_at > datetime.now(timezone.utc):
                 return "invite"
-        
+
         # Default to traditional
         return "traditional"
 
@@ -359,4 +373,3 @@ class AuthenticationService:
             raise UnauthorizedError("User not found")
 
         return UserResponse.model_validate(user_to_response_dict(user))
-

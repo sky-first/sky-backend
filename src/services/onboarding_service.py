@@ -54,4 +54,3 @@ async def ensure_default_planet_and_space(db: AsyncSession, user: User) -> None:
 
     await db.commit()
     await db.refresh(planet)
-

@@ -41,7 +41,9 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
             logger.debug("Redis not available, skipping rate limiting")
             return await call_next(request)
         client_ip = request.client.host if request.client else "unknown"
-        user_id = getattr(request.state, "user_id", None) if hasattr(request.state, "user_id") else None
+        user_id = (
+            getattr(request.state, "user_id", None) if hasattr(request.state, "user_id") else None
+        )
 
         # Use user_id if available, otherwise use IP
         identifier = f"user:{user_id}" if user_id else f"ip:{client_ip}"
@@ -108,4 +110,3 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         # On error, allow request to proceed without rate limiting
         # Don't reset request.state - just continue
         return await call_next(request)
-

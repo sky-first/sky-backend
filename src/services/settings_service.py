@@ -13,8 +13,8 @@ from src.core.security import get_password_hash
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
 from src.repositories.crew import CrewRepository
-from src.repositories.space import SpaceRepository
 from src.repositories.settings import APIKeyRepository, IntegrationRepository
+from src.repositories.space import SpaceRepository
 from src.repositories.user import UserRepository
 from src.schemas.settings import (
     APIKeyCreate,
@@ -69,9 +69,7 @@ class SettingsService:
             preferences={},
         )
 
-    async def update_settings(
-        self, user: User, settings_data: SettingsUpdate
-    ) -> SettingsResponse:
+    async def update_settings(self, user: User, settings_data: SettingsUpdate) -> SettingsResponse:
         """
         Update user settings.
 
@@ -87,9 +85,7 @@ class SettingsService:
         update_data = settings_data.model_dump(exclude_unset=True)
         return SettingsResponse(**update_data)
 
-    async def get_data_catalog_settings(
-        self, user: User
-    ) -> DataCatalogSettingsResponse:
+    async def get_data_catalog_settings(self, user: User) -> DataCatalogSettingsResponse:
         """
         Get data catalog settings.
 
@@ -163,9 +159,7 @@ class SettingsService:
             default_role="user",
         )
 
-    async def get_permissions_settings(
-        self, user: User
-    ) -> PermissionsSettingsResponse:
+    async def get_permissions_settings(self, user: User) -> PermissionsSettingsResponse:
         """
         Get permissions settings.
 
@@ -204,9 +198,7 @@ class SettingsService:
         api_keys = await self.api_key_repo.get_by_user(user.id)
         return [APIKeyResponse.model_validate(key) for key in api_keys]
 
-    async def create_api_key(
-        self, user: User, api_key_data: APIKeyCreate
-    ) -> Dict[str, Any]:
+    async def create_api_key(self, user: User, api_key_data: APIKeyCreate) -> Dict[str, Any]:
         """
         Create API key.
 
@@ -330,9 +322,7 @@ class SettingsService:
             raise NotFoundError("Integration not found")
 
         if integration.user_id != user.id:
-            raise ForbiddenError(
-                "You do not have permission to update this integration"
-            )
+            raise ForbiddenError("You do not have permission to update this integration")
 
         update_data = integration_data.model_dump(exclude_unset=True)
         if "enabled" in update_data:
@@ -361,10 +351,7 @@ class SettingsService:
             raise NotFoundError("Integration not found")
 
         if integration.user_id != user.id:
-            raise ForbiddenError(
-                "You do not have permission to delete this integration"
-            )
+            raise ForbiddenError("You do not have permission to delete this integration")
 
         await self.integration_repo.delete(integration_id)
         await self.db.commit()
-

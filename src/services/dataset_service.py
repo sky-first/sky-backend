@@ -3,8 +3,8 @@
 import logging
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import NotFoundError
 from src.models.user import User
@@ -53,9 +53,7 @@ class DatasetService:
 
             # Also mark as excluded in user_datasets
             try:
-                existing = await self.dataset_repo.get_by_user_and_dataset(
-                    user.id, dataset_id
-                )
+                existing = await self.dataset_repo.get_by_user_and_dataset(user.id, dataset_id)
                 if not existing:
                     await self.dataset_repo.create(
                         user_id=user.id, dataset_id=dataset_id, dataset_type="file"
@@ -68,9 +66,7 @@ class DatasetService:
         else:
             # It's a table - just mark as excluded
             try:
-                existing = await self.dataset_repo.get_by_user_and_dataset(
-                    user.id, dataset_id
-                )
+                existing = await self.dataset_repo.get_by_user_and_dataset(user.id, dataset_id)
                 if not existing:
                     await self.dataset_repo.create(
                         user_id=user.id, dataset_id=dataset_id, dataset_type="table"
@@ -81,7 +77,9 @@ class DatasetService:
                 await self.db.rollback()
                 logger.debug(f"Dataset {dataset_id} already marked as excluded")
             except Exception as e:
-                logger.error(f"Error marking dataset {dataset_id} as excluded: {str(e)}", exc_info=True)
+                logger.error(
+                    f"Error marking dataset {dataset_id} as excluded: {str(e)}", exc_info=True
+                )
                 await self.db.rollback()
                 raise
 
@@ -96,4 +94,3 @@ class DatasetService:
             list[str]: List of excluded dataset IDs
         """
         return await self.dataset_repo.get_excluded_datasets(user.id)
-

@@ -117,4 +117,3 @@ class ConnectionRepository(BaseRepository[Connection]):
             )
         )
         return list(result.scalars().all())
-

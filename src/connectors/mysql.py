@@ -23,8 +23,9 @@ class MySQLConnector(BaseConnector):
         # TODO: Implement query execution
         return []
 
-    async def sync_data(self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def sync_data(
+        self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Sync MySQL data."""
         # TODO: Implement sync logic
         return {"status": "success"}
-
