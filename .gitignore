@@ -31,4 +31,5 @@ uploads/
 
 # Coverage
 .coverage
+coverage.xml
 htmlcov/

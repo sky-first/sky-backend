@@ -32,7 +32,7 @@ from src.schemas.ai import (
     PipelineResponse,
     ValidateSQLRequest,
     ValidateSQLResponse,
-    )
+)
 
 logger = logging.getLogger(__name__)
 
