@@ -224,6 +224,10 @@ class AIServiceHTTPClient:
         max_widgets: int = 6,
         logical_tables_override: Optional[List[str]] = None,
         schema_summary_override: Optional[str] = None,
+        initial_ai_response: Optional[str] = None,
+        context_spaces: Optional[List[str]] = None,
+        context_crews: Optional[List[str]] = None,
+        context_tables: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Generate a dashboard plan ("Davinci") for a given connection.
@@ -245,6 +249,14 @@ class AIServiceHTTPClient:
             payload["logical_tables_override"] = logical_tables_override
         if schema_summary_override:
             payload["schema_summary_override"] = schema_summary_override
+        if initial_ai_response:
+            payload["initial_ai_response"] = initial_ai_response
+        if context_spaces:
+            payload["context_spaces"] = context_spaces
+        if context_crews:
+            payload["context_crews"] = context_crews
+        if context_tables:
+            payload["context_tables"] = context_tables
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(

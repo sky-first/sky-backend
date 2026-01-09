@@ -28,6 +28,12 @@ class DashboardAIPlanRequest(BaseModel):
     # Temporary hard cap for auto dashboard creation.
     max_widgets: int = Field(default=8, ge=1, le=8)
 
+    # Optional conversation context (for more relevant planning)
+    initial_ai_response: Optional[str] = None
+    context_spaces: Optional[List[str]] = None
+    context_crews: Optional[List[str]] = None
+    context_tables: Optional[List[str]] = None
+
 
 class DashboardAIPlanResponse(BaseModel):
     dashboard_name: str
@@ -50,6 +56,12 @@ class DashboardAIBuildRequest(BaseModel):
     language: str = Field(default="en", pattern="^(en|pt|es)$")
     # Temporary hard cap for auto dashboard creation.
     max_widgets: int = Field(default=8, ge=1, le=8)
+
+    # Optional conversation context (forwarded to planning step when plan is generated server-side)
+    initial_ai_response: Optional[str] = None
+    context_spaces: Optional[List[str]] = None
+    context_crews: Optional[List[str]] = None
+    context_tables: Optional[List[str]] = None
 
 
 class DashboardAIBuildWidgetResult(BaseModel):
@@ -79,6 +91,12 @@ class DashboardAIBuildAsyncRequest(BaseModel):
     goal: str = Field(default="Billing overview", min_length=1, max_length=200)
     language: str = Field(default="en", pattern="^(en|pt|es)$")
     max_widgets: int = Field(default=8, ge=1, le=8)
+
+    # Optional conversation context (stored in job.plan["_context"] for worker usage)
+    initial_ai_response: Optional[str] = None
+    context_spaces: Optional[List[str]] = None
+    context_crews: Optional[List[str]] = None
+    context_tables: Optional[List[str]] = None
 
 
 class DashboardAIBuildAsyncResponse(BaseModel):

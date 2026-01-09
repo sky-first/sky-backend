@@ -142,6 +142,12 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 schema_summary_override = None
 
             client = AIServiceHTTPClient()
+            ctx = None
+            try:
+                if isinstance(job.plan, dict) and isinstance(job.plan.get("_context"), dict):
+                    ctx = job.plan.get("_context")
+            except Exception:
+                ctx = None
             plan_payload = await client.dashboard_plan(
                 connection_id=connection_id,
                 user_id=str(user_id),
@@ -152,7 +158,16 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 max_widgets=max_widgets,
                 logical_tables_override=logical_tables_override,
                 schema_summary_override=schema_summary_override,
+                initial_ai_response=(
+                    ctx.get("initial_ai_response") if isinstance(ctx, dict) else None
+                ),
+                context_spaces=(ctx.get("context_spaces") if isinstance(ctx, dict) else None),
+                context_crews=(ctx.get("context_crews") if isinstance(ctx, dict) else None),
+                context_tables=(ctx.get("context_tables") if isinstance(ctx, dict) else None),
             )
+            # Preserve any pre-existing context stored in job.plan
+            if isinstance(ctx, dict):
+                plan_payload["_context"] = ctx
             job.plan = plan_payload
             await db.commit()
             await db.refresh(job)
