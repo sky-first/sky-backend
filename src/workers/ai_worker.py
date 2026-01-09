@@ -155,6 +155,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 crew_ids=crew_ids if crew_ids else None,
                 language=language,
                 goal=goal,
+                original_question=(
+                    (ctx.get("original_question") if isinstance(ctx, dict) else None) or goal
+                ),
                 max_widgets=max_widgets,
                 logical_tables_override=logical_tables_override,
                 schema_summary_override=schema_summary_override,

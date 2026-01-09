@@ -219,6 +219,7 @@ class AIServiceHTTPClient:
         user_id: str,
         space_id: str,
         goal: str,
+        original_question: Optional[str] = None,
         crew_ids: Optional[List[str]] = None,
         language: Optional[str] = "en",
         max_widgets: int = 6,
@@ -243,6 +244,9 @@ class AIServiceHTTPClient:
             "max_widgets": max_widgets,
             "language": language or "en",
         }
+        # AI service supports (and prefers) original_question to drive widget planning
+        if original_question:
+            payload["original_question"] = original_question
         if crew_ids:
             payload["crew_ids"] = crew_ids
         if logical_tables_override:

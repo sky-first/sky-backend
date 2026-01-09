@@ -453,6 +453,7 @@ async def ai_plan_dashboard(
         crew_ids=crew_ids if crew_ids else None,
         language=body.language,
         goal=body.goal,
+        original_question=(body.original_question or body.goal),
         max_widgets=max_widgets,
         logical_tables_override=logical_tables_override,
         schema_summary_override=schema_summary_override,
@@ -528,6 +529,7 @@ async def ai_build_dashboard(
                 space_id=resolved_space_id,
                 connection_id=connection_id,
                 goal=body.goal,
+                original_question=body.original_question,
                 language=body.language,
                 max_widgets=max_widgets,
                 initial_ai_response=body.initial_ai_response,
@@ -777,6 +779,7 @@ async def ai_build_dashboard_async(
         or (isinstance(body.context_tables, list) and body.context_tables)
     ):
         context = {
+            "original_question": body.original_question or body.goal,
             "initial_ai_response": body.initial_ai_response,
             "context_spaces": body.context_spaces,
             "context_crews": body.context_crews,
@@ -787,7 +790,7 @@ async def ai_build_dashboard_async(
         planet_id=active_planet.id,
         space_id=UUID(resolved_space_id),
         connection_id=UUID(connection_id),
-        goal=body.goal,
+        goal=body.original_question or body.goal,
         language=body.language,
         max_widgets=max_widgets,
         status="queued",
