@@ -150,6 +150,12 @@ class DashboardExportResponse(BaseModel):
 class DashboardDuplicateRequest(BaseModel):
     """Dashboard duplicate request schema."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=255, description="Name for duplicated dashboard (defaults to '{original_name} (Copy)')")
-    planet_id: Optional[UUID] = Field(None, description="Planet ID for duplicated dashboard (defaults to original planet)")
-
+    name: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=255,
+        description="Name for duplicated dashboard (defaults to '{original_name} (Copy)')",
+    )
+    planet_id: Optional[UUID] = Field(
+        None, description="Planet ID for duplicated dashboard (defaults to original planet)"
+    )

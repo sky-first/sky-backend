@@ -48,7 +48,9 @@ class BaseConnector(ABC):
         pass
 
     @abstractmethod
-    async def sync_data(self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def sync_data(
+        self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Sync data from source.
 
@@ -60,4 +62,3 @@ class BaseConnector(ABC):
             Dict[str, Any]: Sync result
         """
         pass
-

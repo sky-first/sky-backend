@@ -6,8 +6,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user, get_db_session
 from src.ai.http_client import AIServiceHTTPClient
+from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.repositories.crew import CrewMemberRepository
 from src.schemas.common import ErrorResponse, SuccessResponse
@@ -29,8 +29,10 @@ router = APIRouter()
 
 # Log when module is loaded to verify DELETE endpoint is registered
 import logging
+
 _logger = logging.getLogger(__name__)
 _logger.info("🔴 [CONNECTIONS ROUTER] Module loaded, DELETE endpoint will be registered")
+
 
 async def _resolve_user_crew_ids(db: AsyncSession, user_id: UUID, space_id: UUID) -> List[str]:
     """
@@ -162,19 +164,26 @@ async def delete_connection(
         SuccessResponse: Success message
     """
     import logging
+
     logger = logging.getLogger(__name__)
-    logger.info(f"🔴 [DELETE API] Delete connection endpoint called: connection_id={connection_id}, user_id={current_user.id}")
-    
+    logger.info(
+        f"🔴 [DELETE API] Delete connection endpoint called: connection_id={connection_id}, user_id={current_user.id}"
+    )
+
     try:
         rbac = RBACService(db)
         await rbac.assert_permission(current_user, "manageConnections", connection_id=connection_id)
 
         connection_service = ConnectionService(db)
         await connection_service.delete_connection(connection_id, current_user)
-        logger.info(f"🔴 [DELETE API] Connection {connection_id} deleted successfully by user {current_user.id}")
+        logger.info(
+            f"🔴 [DELETE API] Connection {connection_id} deleted successfully by user {current_user.id}"
+        )
         return SuccessResponse(message="Connection deleted successfully")
     except Exception as e:
-        logger.error(f"🔴 [DELETE API] Error deleting connection {connection_id}: {str(e)}", exc_info=True)
+        logger.error(
+            f"🔴 [DELETE API] Error deleting connection {connection_id}: {str(e)}", exc_info=True
+        )
         raise
 
 
@@ -439,7 +448,9 @@ async def get_ai_catalog_status(
         "has_tables": has_tables,
         "table_count": len(getattr(metadata, "tables", []) or []) if metadata else 0,
         "last_metadata_update": (
-            metadata.last_metadata_update.isoformat() if metadata and metadata.last_metadata_update else None
+            metadata.last_metadata_update.isoformat()
+            if metadata and metadata.last_metadata_update
+            else None
         ),
         "ttl_seconds": ttl_seconds,
         "source": "backend_connection_metadata",
@@ -480,7 +491,9 @@ async def refresh_ai_catalog(
         "has_tables": bool(metadata and getattr(metadata, "tables", None)),
         "table_count": len(getattr(metadata, "tables", []) or []) if metadata else 0,
         "last_metadata_update": (
-            metadata.last_metadata_update.isoformat() if metadata and metadata.last_metadata_update else None
+            metadata.last_metadata_update.isoformat()
+            if metadata and metadata.last_metadata_update
+            else None
         ),
         "source": "backend_connection_metadata",
     }
@@ -532,4 +545,3 @@ async def list_ai_catalog_tables(
         "source": "backend_connection_metadata",
         "note": "Crew-level filtering is enforced by backend permissions when querying; catalog listing is best-effort.",
     }
-

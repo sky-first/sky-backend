@@ -58,7 +58,11 @@ async def get_connection_permissions(
     "/connections/{connection_id}",
     response_model=PermissionResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
     summary="Create connection permission",
     description="Create a new permission for a connection",
 )
@@ -87,6 +91,7 @@ async def create_connection_permission(
         )
     except Exception as e:
         import logging
+
         logger = logging.getLogger(__name__)
         logger.error(f"Error creating connection permission: {e}", exc_info=True)
         raise
@@ -263,10 +268,13 @@ async def get_table_member_permissions(
     """
     try:
         permission_service = PermissionService(db)
-        return await permission_service.get_table_member_permissions(connection_id, table_name, current_user)
+        return await permission_service.get_table_member_permissions(
+            connection_id, table_name, current_user
+        )
     except Exception as e:
         import logging
         import traceback
+
         logger = logging.getLogger(__name__)
         logger.error(f"Error getting table member permissions: {e}", exc_info=True)
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -277,7 +285,11 @@ async def get_table_member_permissions(
     "/table-members",
     response_model=TableMemberPermissionResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
     summary="Create table member permission",
     description="Create a new permission for a table and crew member",
 )
@@ -328,7 +340,9 @@ async def update_table_member_permission(
         TableMemberPermissionResponse: Updated permission
     """
     permission_service = PermissionService(db)
-    return await permission_service.update_table_member_permission(permission_id, current_user, permission_data)
+    return await permission_service.update_table_member_permission(
+        permission_id, current_user, permission_data
+    )
 
 
 @router.delete(
@@ -414,4 +428,3 @@ async def update_role_permission(
     """
     permission_service = PermissionService(db)
     return await permission_service.update_role_permission(role, current_user, permission_data)
-

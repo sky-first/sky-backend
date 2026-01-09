@@ -49,16 +49,15 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     # (worker process doesn't import the whole FastAPI app).
     import src.models  # noqa: F401
     import src.models.workspace  # noqa: F401
-
+    from src.ai.http_client import AIServiceHTTPClient
     from src.config.database import AsyncSessionLocal
     from src.models.dashboard_build_job import DashboardBuildJob
     from src.repositories.base import BaseRepository
-    from src.repositories.user import UserRepository
     from src.repositories.dashboard import WidgetRepository
-    from src.services.dashboard_service import DashboardService
-    from src.services.ai_service import AIService
-    from src.ai.http_client import AIServiceHTTPClient
+    from src.repositories.user import UserRepository
     from src.schemas.dashboard import DashboardCreate, WidgetCreate
+    from src.services.ai_service import AIService
+    from src.services.dashboard_service import DashboardService
 
     async with AsyncSessionLocal() as db:
         repo = BaseRepository(db, DashboardBuildJob)
@@ -99,18 +98,22 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             max_widgets = min(int(job.max_widgets or 8), 8)
 
             ai_service = AIService(db)
-            crew_ids = await ai_service._get_user_crew_ids(user_id, space_id, all_spaces=True)  # noqa: SLF001
+            crew_ids = await ai_service._get_user_crew_ids(
+                user_id, space_id, all_spaces=True
+            )  # noqa: SLF001
 
             # Build a compact schema summary from backend connection_metadata so Davinci can plan even if
             # the AI Engine catalog is not fully initialized.
             logical_tables_override = None
             schema_summary_override = None
             try:
-                meta = await ai_service.metadata_repo.get_by_connection_id(UUID(connection_id))  # noqa: SLF001
+                meta = await ai_service.metadata_repo.get_by_connection_id(
+                    UUID(connection_id)
+                )  # noqa: SLF001
                 tables = (meta.tables or []) if meta else []
                 logical_tables: list[str] = []
                 schema_lines: list[str] = []
-                for t in (tables[:12] if isinstance(tables, list) else []):
+                for t in tables[:12] if isinstance(tables, list) else []:
                     if not isinstance(t, dict):
                         continue
                     schema = str(t.get("schema") or "").strip()
@@ -125,10 +128,14 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         for c in cols[:10]:
                             if isinstance(c, dict) and c.get("name"):
                                 col_names.append(str(c["name"]))
-                    schema_lines.append(f"- {logical} cols: {', '.join(col_names)}" if col_names else f"- {logical}")
+                    schema_lines.append(
+                        f"- {logical} cols: {', '.join(col_names)}" if col_names else f"- {logical}"
+                    )
                 # unique preserving order
                 seen = set()
-                logical_tables_override = [x for x in logical_tables if not (x in seen or seen.add(x))]
+                logical_tables_override = [
+                    x for x in logical_tables if not (x in seen or seen.add(x))
+                ]
                 schema_summary_override = "\n".join(schema_lines)
             except Exception:
                 logical_tables_override = None
@@ -227,7 +234,8 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 created = await widget_repo.create(
                     dashboard_id=dashboard_id,
                     type=wtype,
-                    title=w.get("title") or (wtype.capitalize() if isinstance(wtype, str) else "Widget"),
+                    title=w.get("title")
+                    or (wtype.capitalize() if isinstance(wtype, str) else "Widget"),
                     position={"x": x, "y": y},
                     size={"width": width, "height": height},
                     data=placeholder_data,
@@ -263,7 +271,11 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     await widget_repo.update(
                         widget_id,
                         title=w.get("title") or "Text",
-                        data={"content": content, "question": w.get("question") or "", "isPlaceholder": False},
+                        data={
+                            "content": content,
+                            "question": w.get("question") or "",
+                            "isPlaceholder": False,
+                        },
                         config={"viz": viz or {}},
                         query_id=None,
                     )
@@ -327,4 +339,3 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             job.finished_at = datetime.now(timezone.utc)
             await db.commit()
             raise
-

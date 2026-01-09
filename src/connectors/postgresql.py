@@ -45,8 +45,9 @@ class PostgreSQLConnector(BaseConnector):
         finally:
             await conn.close()
 
-    async def sync_data(self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def sync_data(
+        self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Sync PostgreSQL data."""
         # TODO: Implement sync logic
         return {"status": "success"}
-

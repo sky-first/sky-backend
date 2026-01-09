@@ -3,16 +3,18 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user, get_db_session
 from src.ai.http_client import AIServiceHTTPClient
+from src.api.deps import get_current_user, get_db_session
+from src.models.dashboard_build_job import DashboardBuildJob
 from src.models.user import User
+from src.repositories.base import BaseRepository
 from src.repositories.planet import PlanetRepository
 from src.repositories.space import SpaceRepository
-from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.ai import AIQueryRequest, ConfigureData
+from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.dashboard import (
     DashboardCreate,
     DashboardDuplicateRequest,
@@ -24,21 +26,19 @@ from src.schemas.dashboard import (
     WidgetUpdate,
 )
 from src.schemas.dashboard_ai import (
+    DashboardAIBuildAsyncRequest,
+    DashboardAIBuildAsyncResponse,
     DashboardAIBuildRequest,
     DashboardAIBuildResponse,
     DashboardAIBuildWidgetResult,
-    DashboardAIBuildAsyncRequest,
-    DashboardAIBuildAsyncResponse,
-    DashboardBuildJobStatusResponse,
     DashboardAIPlanRequest,
     DashboardAIPlanResponse,
     DashboardAIPlanWidget,
+    DashboardBuildJobStatusResponse,
 )
 from src.services.ai_service import AIService
 from src.services.dashboard_service import DashboardService
 from src.services.rbac_service import RBACService
-from src.models.dashboard_build_job import DashboardBuildJob
-from src.repositories.base import BaseRepository
 
 router = APIRouter()
 
@@ -377,7 +377,9 @@ async def ai_plan_dashboard(
     planet_repo = PlanetRepository(db)
     active_planet = await planet_repo.get_active_planet(current_user.id)
     if not active_planet or getattr(active_planet, "type", None) != "personal":
-        raise HTTPException(status_code=400, detail="Dashboard AI planning is available in Personal mode only.")
+        raise HTTPException(
+            status_code=400, detail="Dashboard AI planning is available in Personal mode only."
+        )
 
     # Resolve space context (required by AI engine)
     resolved_space_id = body.space_id
@@ -390,8 +392,11 @@ async def ai_plan_dashboard(
         raise HTTPException(status_code=400, detail="No space context available for this user.")
 
     ai_service = AIService(db)
-    connection_id = body.connection_id or await ai_service._get_first_active_connection_for_space(  # noqa: SLF001
-        current_user.id, resolved_space_id
+    connection_id = (
+        body.connection_id
+        or await ai_service._get_first_active_connection_for_space(  # noqa: SLF001
+            current_user.id, resolved_space_id
+        )
     )
     if not connection_id:
         raise HTTPException(status_code=400, detail="No active connection available for this user.")
@@ -410,11 +415,13 @@ async def ai_plan_dashboard(
     logical_tables_override = None
     schema_summary_override = None
     try:
-        meta = await ai_service.metadata_repo.get_by_connection_id(UUID(connection_id))  # noqa: SLF001
+        meta = await ai_service.metadata_repo.get_by_connection_id(
+            UUID(connection_id)
+        )  # noqa: SLF001
         tables = (meta.tables or []) if meta else []
         logical_tables: list[str] = []
         schema_lines: list[str] = []
-        for t in (tables[:12] if isinstance(tables, list) else []):
+        for t in tables[:12] if isinstance(tables, list) else []:
             if not isinstance(t, dict):
                 continue
             schema = str(t.get("schema") or "").strip()
@@ -429,7 +436,9 @@ async def ai_plan_dashboard(
                 for c in cols[:10]:
                     if isinstance(c, dict) and c.get("name"):
                         col_names.append(str(c["name"]))
-            schema_lines.append(f"- {logical} cols: {', '.join(col_names)}" if col_names else f"- {logical}")
+            schema_lines.append(
+                f"- {logical} cols: {', '.join(col_names)}" if col_names else f"- {logical}"
+            )
         seen = set()
         logical_tables_override = [x for x in logical_tables if not (x in seen or seen.add(x))]
         schema_summary_override = "\n".join(schema_lines)
@@ -480,7 +489,9 @@ async def ai_build_dashboard(
     planet_repo = PlanetRepository(db)
     active_planet = await planet_repo.get_active_planet(current_user.id)
     if not active_planet or getattr(active_planet, "type", None) != "personal":
-        raise HTTPException(status_code=400, detail="Dashboard AI build is available in Personal mode only.")
+        raise HTTPException(
+            status_code=400, detail="Dashboard AI build is available in Personal mode only."
+        )
 
     # Resolve space context (required by AI engine)
     resolved_space_id = body.space_id
@@ -493,8 +504,11 @@ async def ai_build_dashboard(
         raise HTTPException(status_code=400, detail="No space context available for this user.")
 
     ai_service = AIService(db)
-    connection_id = body.connection_id or await ai_service._get_first_active_connection_for_space(  # noqa: SLF001
-        current_user.id, resolved_space_id
+    connection_id = (
+        body.connection_id
+        or await ai_service._get_first_active_connection_for_space(  # noqa: SLF001
+            current_user.id, resolved_space_id
+        )
     )
     if not connection_id:
         raise HTTPException(status_code=400, detail="No active connection available for this user.")
@@ -538,8 +552,8 @@ async def ai_build_dashboard(
     # All positions/sizes are multiples of 24px to "snap" nicely.
     GRID = 24
     GRID_COLS = 12
-    COL_W = 96   # 4 * GRID
-    GAP_X = 24   # 1 * GRID
+    COL_W = 96  # 4 * GRID
+    GAP_X = 24  # 1 * GRID
     STEP_X = COL_W + GAP_X  # 120
     BASE_X = 72  # 3 * GRID
     BASE_Y = 72  # 3 * GRID
@@ -649,7 +663,9 @@ async def ai_build_dashboard(
             # Only capture table names, not columns (e.g. ignore `customer_id` in "on `customer_id`").
             used_tables = [
                 m.group(1).strip()
-                for m in re.finditer(r"(?:\\busing\\b|\\bjoin\\b)\\s+`([^`]+)`", qtxt, flags=re.IGNORECASE)
+                for m in re.finditer(
+                    r"(?:\\busing\\b|\\bjoin\\b)\\s+`([^`]+)`", qtxt, flags=re.IGNORECASE
+                )
                 if m.group(1) and m.group(1).strip()
             ]
             # unique preserving order
@@ -718,7 +734,9 @@ async def ai_build_dashboard_async(
     planet_repo = PlanetRepository(db)
     active_planet = await planet_repo.get_active_planet(current_user.id)
     if not active_planet or getattr(active_planet, "type", None) != "personal":
-        raise HTTPException(status_code=400, detail="Dashboard AI build is available in Personal mode only.")
+        raise HTTPException(
+            status_code=400, detail="Dashboard AI build is available in Personal mode only."
+        )
 
     # Resolve space context (required by AI engine)
     resolved_space_id = body.space_id
@@ -731,8 +749,11 @@ async def ai_build_dashboard_async(
         raise HTTPException(status_code=400, detail="No space context available for this user.")
 
     ai_service = AIService(db)
-    connection_id = body.connection_id or await ai_service._get_first_active_connection_for_space(  # noqa: SLF001
-        current_user.id, resolved_space_id
+    connection_id = (
+        body.connection_id
+        or await ai_service._get_first_active_connection_for_space(  # noqa: SLF001
+            current_user.id, resolved_space_id
+        )
     )
     if not connection_id:
         raise HTTPException(status_code=400, detail="No active connection available for this user.")
@@ -892,4 +913,3 @@ async def unlock_dashboard(
     """
     dashboard_service = DashboardService(db)
     return await dashboard_service.unlock_dashboard(dashboard_id, current_user)
-

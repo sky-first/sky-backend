@@ -87,7 +87,11 @@ async def get_crew(
     "",
     response_model=CrewResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
     summary="Create crew",
     description="Create a new crew",
 )
@@ -166,9 +170,12 @@ async def delete_crew(
         SuccessResponse: Success message
     """
     import logging
+
     logger = logging.getLogger(__name__)
-    
-    logger.info(f"🔴 [DELETE API] Delete crew endpoint called: crew_id={crew_id}, user_id={current_user.id}")
+
+    logger.info(
+        f"🔴 [DELETE API] Delete crew endpoint called: crew_id={crew_id}, user_id={current_user.id}"
+    )
     crew_service = CrewService(db)
     await crew_service.delete_crew(crew_id, current_user)
     logger.info(f"🔴 [DELETE API] Crew {crew_id} deleted successfully by user {current_user.id}")
@@ -207,7 +214,11 @@ async def get_crew_members(
     "/{crew_id}/members",
     response_model=CrewMemberResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
     summary="Add crew member",
     description="Add a member to a crew",
 )
@@ -296,7 +307,4 @@ async def update_crew_member_role(
     await rbac.assert_permission(current_user, "crews.members.manage", crew_id=crew_id)
 
     crew_service = CrewService(db)
-    return await crew_service.update_crew_member_role(
-        crew_id, user_id, role_data, current_user
-    )
-
+    return await crew_service.update_crew_member_role(crew_id, user_id, role_data, current_user)

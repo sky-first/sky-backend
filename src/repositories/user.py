@@ -59,9 +59,7 @@ class UserRepository(BaseRepository[User]):
         Returns:
             Optional[User]: User or None
         """
-        result = await self.db.execute(
-            select(User).where(User.id == id, User.deleted_at.is_(None))
-        )
+        result = await self.db.execute(select(User).where(User.id == id, User.deleted_at.is_(None)))
         return result.scalar_one_or_none()
 
     async def get_by_auth0_id(self, auth0_id: str) -> Optional[User]:
@@ -75,10 +73,7 @@ class UserRepository(BaseRepository[User]):
             Optional[User]: User or None
         """
         result = await self.db.execute(
-            select(User).where(
-                User.auth0_id == auth0_id,
-                User.deleted_at.is_(None)
-            )
+            select(User).where(User.auth0_id == auth0_id, User.deleted_at.is_(None))
         )
         return result.scalar_one_or_none()
 
@@ -97,14 +92,12 @@ class UserRepository(BaseRepository[User]):
             select(User).where(
                 User.auth_provider_id == provider_id,
                 User.auth_provider == provider,
-                User.deleted_at.is_(None)
+                User.deleted_at.is_(None),
             )
         )
         return result.scalar_one_or_none()
 
-    async def get_all(
-        self, skip: int = 0, limit: int = 100
-    ) -> List[User]:
+    async def get_all(self, skip: int = 0, limit: int = 100) -> List[User]:
         """
         Get all users (excluding deleted).
 
@@ -123,4 +116,3 @@ class UserRepository(BaseRepository[User]):
             .limit(limit)
         )
         return list(result.scalars().all())
-

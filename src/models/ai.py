@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, JSON, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -82,9 +82,7 @@ class AIHistory(Base):
     answer = Column(Text, nullable=False)
     date = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
     tags = Column(JSON, nullable=False, default=list, server_default="[]")
-    category = Column(
-        String(50), nullable=True
-    )  # Finance, Marketing, Sales, General, Logistics
+    category = Column(String(50), nullable=True)  # Finance, Marketing, Sales, General, Logistics
     pinned = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     updated_at = Column(
@@ -232,4 +230,3 @@ class AIResponse(Base):
 
     def __repr__(self) -> str:
         return f"<AIResponse(id={self.id}, widget_id={self.widget_id}, is_active={self.is_active})>"
-

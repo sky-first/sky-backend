@@ -7,13 +7,11 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user, get_db_session
 from src.ai.http_client import AIServiceHTTPClient
+from src.api.deps import get_current_user, get_db_session
+from src.models.user import User
 from src.repositories.planet import PlanetRepository
 from src.repositories.space import SpaceRepository
-from src.models.user import User
-from src.services.rbac_service import RBACService
-from src.services.ai_service import AIService
 from src.schemas.ai import (
     AIHistoryItem,
     AIQueryRequest,
@@ -36,6 +34,8 @@ from src.schemas.ai import (
     ValidateSQLResponse,
 )
 from src.schemas.common import ErrorResponse, PaginatedResponse, SuccessResponse
+from src.services.ai_service import AIService
+from src.services.rbac_service import RBACService
 
 router = APIRouter()
 
@@ -124,10 +124,26 @@ async def chat_bootstrap(
             return ChatBootstrapResponse(
                 greeting="Connect a data source to get started.",
                 suggestions=[
-                    {"title": "Create dashboard", "kind": "action", "action_id": "create_dashboard"},
-                    {"title": "Connect data", "kind": "question", "question": "How do I connect a new data source?"},
-                    {"title": "Refresh catalog", "kind": "question", "question": "How do I refresh my data catalog?"},
-                    {"title": "What can you do?", "kind": "question", "question": "What can you help me with?"},
+                    {
+                        "title": "Create dashboard",
+                        "kind": "action",
+                        "action_id": "create_dashboard",
+                    },
+                    {
+                        "title": "Connect data",
+                        "kind": "question",
+                        "question": "How do I connect a new data source?",
+                    },
+                    {
+                        "title": "Refresh catalog",
+                        "kind": "question",
+                        "question": "How do I refresh my data catalog?",
+                    },
+                    {
+                        "title": "What can you do?",
+                        "kind": "question",
+                        "question": "What can you help me with?",
+                    },
                 ],
                 meta={
                     "enabled": True,
@@ -146,10 +162,26 @@ async def chat_bootstrap(
             return ChatBootstrapResponse(
                 greeting="I can help once you connect a data source.",
                 suggestions=[
-                    {"title": "Create dashboard", "kind": "action", "action_id": "create_dashboard"},
-                    {"title": "Connect data", "kind": "question", "question": "How do I connect a new data source?"},
-                    {"title": "Catalog", "kind": "question", "question": "Where do I see my available tables?"},
-                    {"title": "Refresh", "kind": "question", "question": "How do I refresh my catalog after changes?"},
+                    {
+                        "title": "Create dashboard",
+                        "kind": "action",
+                        "action_id": "create_dashboard",
+                    },
+                    {
+                        "title": "Connect data",
+                        "kind": "question",
+                        "question": "How do I connect a new data source?",
+                    },
+                    {
+                        "title": "Catalog",
+                        "kind": "question",
+                        "question": "Where do I see my available tables?",
+                    },
+                    {
+                        "title": "Refresh",
+                        "kind": "question",
+                        "question": "How do I refresh my catalog after changes?",
+                    },
                 ],
                 meta={
                     "enabled": True,
@@ -160,7 +192,9 @@ async def chat_bootstrap(
             )
 
         # 4) Resolve crew_ids for this user in this space (Personal => all crews user belongs to)
-        crew_ids = await ai_service._get_user_crew_ids(current_user.id, resolved_space_id)  # noqa: SLF001
+        crew_ids = await ai_service._get_user_crew_ids(
+            current_user.id, resolved_space_id
+        )  # noqa: SLF001
 
         # 5) Call AI Engine
         client = AIServiceHTTPClient()
@@ -186,9 +220,21 @@ async def chat_bootstrap(
             greeting="How can I help you with your data?",
             suggestions=[
                 {"title": "Create dashboard", "kind": "action", "action_id": "create_dashboard"},
-                {"title": "Available data", "kind": "question", "question": "What data do I have access to?"},
-                {"title": "Tables", "kind": "question", "question": "Which tables are available in my catalog?"},
-                {"title": "Examples", "kind": "question", "question": "Give me examples of questions I can ask about my data."},
+                {
+                    "title": "Available data",
+                    "kind": "question",
+                    "question": "What data do I have access to?",
+                },
+                {
+                    "title": "Tables",
+                    "kind": "question",
+                    "question": "Which tables are available in my catalog?",
+                },
+                {
+                    "title": "Examples",
+                    "kind": "question",
+                    "question": "Give me examples of questions I can ask about my data.",
+                },
             ][:max_suggestions],
             meta={
                 "enabled": True,
@@ -495,17 +541,18 @@ async def get_pipeline_status(
     """
     ai_service = AIService(db)
     pipeline = await ai_service.get_pipeline(pipeline_id)
-    
+
     # Verify ownership
-    from src.repositories.base import BaseRepository
     from src.models.ai import AIQuery
-    
+    from src.repositories.base import BaseRepository
+
     query_repo = BaseRepository(db, AIQuery)
     query = await query_repo.get_by_id(pipeline.query_id)
     if not query or query.user_id != current_user.id:
         from src.core.exceptions import ForbiddenError
+
         raise ForbiddenError("Access denied to this pipeline")
-    
+
     return pipeline
 
 
@@ -593,9 +640,7 @@ async def generate_answer(
     from datetime import datetime, timezone
 
     ai_service = AIService(db)
-    answer = await ai_service.generate_answer(
-        request.question, request.knowledge, request.context
-    )
+    answer = await ai_service.generate_answer(request.question, request.knowledge, request.context)
     return GenerateAnswerResponse(answer=answer, timestamp=datetime.now(timezone.utc))
 
 
@@ -683,4 +728,3 @@ async def validate_sql(
     """
     ai_service = AIService(db)
     return await ai_service.validate_sql(request, current_user)
-

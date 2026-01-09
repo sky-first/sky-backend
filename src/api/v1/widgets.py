@@ -191,4 +191,3 @@ async def refresh_widget_data(
     dashboard_service = DashboardService(db)
     data = await dashboard_service.refresh_widget_data(widget_id, current_user)
     return WidgetDataResponse(**data)
-

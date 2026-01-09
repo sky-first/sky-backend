@@ -45,7 +45,9 @@ async def test_error_handler_middleware_success(monkeypatch):
         (ConflictError("c"), 409, "Conflict"),
     ],
 )
-async def test_error_handler_middleware_known_exceptions(monkeypatch, exc, expected_status, expected_error):
+async def test_error_handler_middleware_known_exceptions(
+    monkeypatch, exc, expected_status, expected_error
+):
     from src.api.middleware import error_handler as eh
     from src.config.settings import settings as app_settings
 
@@ -142,8 +144,8 @@ async def test_error_handler_middleware_exception_group_if_available(monkeypatch
 
 @pytest.mark.asyncio
 async def test_postgresql_connector(monkeypatch):
-    from src.connectors.postgresql import PostgreSQLConnector
     import src.connectors.postgresql as pg_mod
+    from src.connectors.postgresql import PostgreSQLConnector
 
     connector = PostgreSQLConnector()
     cfg = {"host": "h", "username": "u", "password": "p", "database": "d", "port": 5432}
@@ -193,5 +195,3 @@ def test_connector_registry():
     assert get_connector("mysql") is not None
     with pytest.raises(ValueError):
         get_connector("does-not-exist")
-
-

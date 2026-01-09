@@ -297,9 +297,7 @@ async def update_planet_member_role(
         PlanetMemberResponse: Updated member
     """
     planet_service = PlanetService(db)
-    return await planet_service.update_member_role(
-        planet_id, user_id, role_data.role, current_user
-    )
+    return await planet_service.update_member_role(planet_id, user_id, role_data.role, current_user)
 
 
 @router.get(
@@ -333,7 +331,7 @@ async def get_planet_dashboards(
     # Verify planet access
     planet_service = PlanetService(db)
     await planet_service.get_planet(planet_id, current_user)
-    
+
     # Get dashboards
     dashboard_service = DashboardService(db)
     return await dashboard_service.get_planet_dashboards(
@@ -396,11 +394,11 @@ async def star_planet(
     # Verify planet exists and user has access
     planet_service = PlanetService(db)
     await planet_service.get_planet(planet_id, current_user)
-    
+
     # Star the planet
     starred_service = StarredItemService(db)
     await starred_service.star_item(current_user, planet_id, "planet")
-    
+
     return SuccessResponse(message="Planet starred successfully")
 
 
@@ -431,6 +429,5 @@ async def unstar_planet(
     # Unstar the planet (idempotent - won't error if not starred)
     starred_service = StarredItemService(db)
     await starred_service.unstar_item(current_user, planet_id, "planet")
-    
-    return SuccessResponse(message="Planet unstarred successfully")
 
+    return SuccessResponse(message="Planet unstarred successfully")

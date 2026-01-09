@@ -75,7 +75,9 @@ class PermissionRepository(BaseRepository[ConnectionPermission]):
         Returns:
             Optional[ConnectionPermission]: Permission or None
         """
-        query = select(ConnectionPermission).where(ConnectionPermission.connection_id == connection_id)
+        query = select(ConnectionPermission).where(
+            ConnectionPermission.connection_id == connection_id
+        )
 
         if space_id:
             query = query.where(ConnectionPermission.space_id == space_id)
@@ -120,13 +122,14 @@ class TableMemberPermissionRepository(BaseRepository[TableMemberPermission]):
             return list(result.scalars().all())
         except Exception as e:
             import logging
+
             logger = logging.getLogger(__name__)
-            logger.error(f"Error fetching table member permissions: connection_id={connection_id}, table_name={table_name}, error={e}")
+            logger.error(
+                f"Error fetching table member permissions: connection_id={connection_id}, table_name={table_name}, error={e}"
+            )
             raise
 
-    async def get_by_member(
-        self, member_id: UUID
-    ) -> List[TableMemberPermission]:
+    async def get_by_member(self, member_id: UUID) -> List[TableMemberPermission]:
         """
         Get permissions by member ID.
 
@@ -181,9 +184,7 @@ class RolePermissionRepository(BaseRepository[RolePermission]):
         Returns:
             Optional[RolePermission]: Role permission or None
         """
-        result = await self.db.execute(
-            select(RolePermission).where(RolePermission.role == role)
-        )
+        result = await self.db.execute(select(RolePermission).where(RolePermission.role == role))
         return result.scalar_one_or_none()
 
     async def get_all(self) -> List[RolePermission]:
@@ -195,4 +196,3 @@ class RolePermissionRepository(BaseRepository[RolePermission]):
         """
         result = await self.db.execute(select(RolePermission))
         return list(result.scalars().all())
-

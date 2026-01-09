@@ -111,6 +111,7 @@ class BaseRepository(Generic[ModelType]):
         # Set created_at, updated_at, and other timestamp fields if not provided and model has these fields
         # This is needed for SQLite which doesn't support server_default="now()"
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc)
         if hasattr(self.model, "created_at") and "created_at" not in kwargs:
             kwargs["created_at"] = now
@@ -130,7 +131,7 @@ class BaseRepository(Generic[ModelType]):
             col = getattr(self.model, "last_metadata_update", None)
             if col and not col.nullable:
                 kwargs["last_metadata_update"] = now
-        
+
         entity = self.model(**kwargs)
         self.db.add(entity)
         await self.db.flush()
@@ -154,9 +155,7 @@ class BaseRepository(Generic[ModelType]):
         if not kwargs:
             return await self.get_by_id(id)
 
-        await self.db.execute(
-            update(self.model).where(self.model.id == id).values(**kwargs)
-        )
+        await self.db.execute(update(self.model).where(self.model.id == id).values(**kwargs))
         await self.db.flush()
         return await self.get_by_id(id)
 
@@ -177,10 +176,9 @@ class BaseRepository(Generic[ModelType]):
         # Soft delete if deleted_at column exists
         if hasattr(self.model, "deleted_at"):
             from sqlalchemy import func
+
             await self.db.execute(
-                update(self.model)
-                .where(self.model.id == id)
-                .values(deleted_at=func.now())
+                update(self.model).where(self.model.id == id).values(deleted_at=func.now())
             )
         else:
             await self.db.delete(entity)
@@ -200,4 +198,3 @@ class BaseRepository(Generic[ModelType]):
         """
         entity = await self.get_by_id(id)
         return entity is not None
-

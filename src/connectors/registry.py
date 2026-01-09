@@ -63,4 +63,3 @@ def get_connector(connector_id: str) -> BaseConnector:
     if not connector_class:
         raise ValueError(f"Connector '{connector_id}' not found")
     return connector_class()
-

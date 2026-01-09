@@ -24,7 +24,9 @@ class Crew(Base):
         nullable=False,
         index=True,
     )
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     updated_at = Column(
         DateTime(timezone=True),
@@ -37,7 +39,9 @@ class Crew(Base):
     # Relationships
     space = relationship("Space", back_populates="crews")
     members = relationship("CrewMember", back_populates="crew", cascade="all, delete-orphan")
-    crew_connections = relationship("CrewConnection", back_populates="crew", cascade="all, delete-orphan")
+    crew_connections = relationship(
+        "CrewConnection", back_populates="crew", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_crews_space_id", "space_id", postgresql_where=deleted_at.is_(None)),
@@ -113,4 +117,3 @@ class CrewConnection(Base):
 
     def __repr__(self) -> str:
         return f"<CrewConnection(crew_id={self.crew_id}, connection_id={self.connection_id})>"
-

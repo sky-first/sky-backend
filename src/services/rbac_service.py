@@ -18,7 +18,6 @@ from src.repositories.connection import ConnectionRepository
 from src.repositories.crew import CrewMemberRepository
 from src.repositories.permission import PermissionRepository, RolePermissionRepository
 
-
 CrewRole = str  # commander | navigator | explorer | guest
 
 ROLE_PRECEDENCE: Dict[str, int] = {
@@ -134,7 +133,9 @@ class RBACService:
             merged = {}
             for role_map in DEFAULT_ROLE_PERMISSIONS.values():
                 merged.update({k: True for k in role_map.keys()})
-            return EffectivePermissions(platform_role="admin", crew_role="commander", permissions=merged)
+            return EffectivePermissions(
+                platform_role="admin", crew_role="commander", permissions=merged
+            )
 
         crew_role = await self._resolve_context_crew_role(
             user.id, crew_id=crew_id, space_id=space_id, connection_id=connection_id
@@ -144,7 +145,9 @@ class RBACService:
         db_role = await self.role_perms.get_by_role(crew_role)
         merged = {**defaults, **(db_role.permissions if db_role and db_role.permissions else {})}
 
-        return EffectivePermissions(platform_role=user.role, crew_role=crew_role, permissions=merged)
+        return EffectivePermissions(
+            platform_role=user.role, crew_role=crew_role, permissions=merged
+        )
 
     async def assert_permission(
         self,
@@ -177,7 +180,7 @@ class RBACService:
         # Most specific: crew_id
         if crew_id:
             member = await self.crew_members.get_by_crew_and_user(crew_id, user_id)
-            return (member.role if member and member.role else "guest")  # type: ignore[return-value]
+            return member.role if member and member.role else "guest"  # type: ignore[return-value]
 
         # Next: resolve from space_id (best role among crews in that space)
         if space_id:
@@ -191,7 +194,9 @@ class RBACService:
         return await self._best_role_for_user_anywhere(user_id)
 
     async def _best_role_for_user_in_space(self, user_id: UUID, space_id: UUID) -> CrewRole:
-        crew_ids = await self.crew_members.get_crew_ids_by_user_and_space(user_id=user_id, space_id=space_id)
+        crew_ids = await self.crew_members.get_crew_ids_by_user_and_space(
+            user_id=user_id, space_id=space_id
+        )
         if not crew_ids:
             return "guest"
 
@@ -199,7 +204,7 @@ class RBACService:
         best_score = ROLE_PRECEDENCE[best_role]
         for cid in crew_ids:
             member = await self.crew_members.get_by_crew_and_user(cid, user_id)
-            role = (member.role if member and member.role else "guest")  # type: ignore[assignment]
+            role = member.role if member and member.role else "guest"  # type: ignore[assignment]
             score = ROLE_PRECEDENCE.get(role, 0)
             if score > best_score:
                 best_score = score
@@ -215,14 +220,16 @@ class RBACService:
         best_score = ROLE_PRECEDENCE[best_role]
         for cid in crew_ids:
             member = await self.crew_members.get_by_crew_and_user(cid, user_id)
-            role = (member.role if member and member.role else "guest")  # type: ignore[assignment]
+            role = member.role if member and member.role else "guest"  # type: ignore[assignment]
             score = ROLE_PRECEDENCE.get(role, 0)
             if score > best_score:
                 best_score = score
                 best_role = role
         return best_role
 
-    async def _best_role_for_user_for_connection(self, user_id: UUID, connection_id: UUID) -> CrewRole:
+    async def _best_role_for_user_for_connection(
+        self, user_id: UUID, connection_id: UUID
+    ) -> CrewRole:
         # Owner can manage their connections in the interim model.
         conn = await self.connection_repo.get_by_id(connection_id)
         if conn and conn.created_by == user_id:
@@ -236,7 +243,7 @@ class RBACService:
         for p in perms:
             if p.crew_id:
                 member = await self.crew_members.get_by_crew_and_user(p.crew_id, user_id)
-                role = (member.role if member and member.role else "guest")  # type: ignore[assignment]
+                role = member.role if member and member.role else "guest"  # type: ignore[assignment]
                 score = ROLE_PRECEDENCE.get(role, 0)
                 if score > best_score:
                     best_score = score
@@ -249,5 +256,3 @@ class RBACService:
                     best_role = role
 
         return best_role
-
-

@@ -9,7 +9,7 @@ from src.config.settings import settings
 def setup_cors(app: FastAPI) -> None:
     """
     Setup CORS middleware.
-    
+
     IMPORTANT: CORS middleware should be added FIRST (before other middlewares)
     to ensure CORS headers are set correctly for all responses, including error responses.
     """
@@ -35,4 +35,3 @@ def setup_cors(app: FastAPI) -> None:
         ],
         max_age=3600,  # Cache preflight requests for 1 hour
     )
-

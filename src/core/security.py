@@ -55,11 +55,11 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         # Use default expiration from settings
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        )
     to_encode.update({"exp": expire, "type": "access"})
-    encoded_jwt = jwt.encode(
-        to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
-    )
+    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 
 
@@ -74,19 +74,15 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
         str: Encoded JWT refresh token
     """
     from uuid import uuid4
-    
+
     to_encode = data.copy()
     # Use default expiration from settings
     expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     # Add jti (JWT ID) to ensure uniqueness even when created at the same time
-    to_encode.update({
-        "exp": expire, 
-        "type": "refresh",
-        "jti": str(uuid4())  # JWT ID for uniqueness
-    })
-    encoded_jwt = jwt.encode(
-        to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+    to_encode.update(
+        {"exp": expire, "type": "refresh", "jti": str(uuid4())}  # JWT ID for uniqueness
     )
+    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 
 
@@ -108,9 +104,7 @@ def verify_token(token: str, token_type: str = "access") -> Dict[str, Any]:
     """
     # First, try to verify as custom JWT
     try:
-        payload = jwt.decode(
-            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
-        )
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         if payload.get("type") != token_type:
             raise JWTError("Invalid token type")
         logger.debug("✅ Token verified as custom JWT")
@@ -140,12 +134,12 @@ async def verify_auth0_token_async(token: str) -> Dict[str, Any]:
     """
     try:
         from src.config.auth0 import auth0_settings
-        from src.services.auth0_service import Auth0Service
         from src.config.database import get_db
-        
+        from src.services.auth0_service import Auth0Service
+
         if not auth0_settings.is_auth0_enabled:
             raise JWTError("Auth0 is not configured")
-        
+
         # Create a temporary db session for Auth0Service
         # Note: In production, this should use dependency injection
         async for db in get_db():
@@ -155,4 +149,3 @@ async def verify_auth0_token_async(token: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Auth0 token verification failed: {str(e)}")
         raise JWTError(f"Invalid Auth0 token: {str(e)}")
-

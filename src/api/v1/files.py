@@ -221,4 +221,3 @@ async def delete_file(
     file_service = FileUploadService(db)
     await file_service.delete_file(file_id, current_user)
     return SuccessResponse(message="File deleted successfully")
-

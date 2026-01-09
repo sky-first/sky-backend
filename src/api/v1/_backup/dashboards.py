@@ -9,11 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
-from src.schemas.dashboard import (
-    DashboardCreate,
-    DashboardResponse,
-    DashboardUpdate,
-)
+from src.schemas.dashboard import DashboardCreate, DashboardResponse, DashboardUpdate
 from src.services.dashboard_service import DashboardService
 
 router = APIRouter()
@@ -165,4 +161,3 @@ async def delete_dashboard(
     dashboard_service = DashboardService(db)
     await dashboard_service.delete_dashboard(dashboard_id, current_user)
     return SuccessResponse(message="Dashboard deleted successfully")
-

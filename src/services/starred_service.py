@@ -23,9 +23,7 @@ class StarredItemService:
         self.db = db
         self.starred_repo = StarredItemRepository(db)
 
-    async def star_item(
-        self, user: User, item_id: UUID, item_type: str
-    ) -> None:
+    async def star_item(self, user: User, item_id: UUID, item_type: str) -> None:
         """
         Star an item (planet, space, or crew).
 
@@ -42,9 +40,7 @@ class StarredItemService:
             raise BadRequestError(f"Invalid item type: {item_type}")
 
         # Check if already starred
-        existing = await self.starred_repo.get_by_user_and_item(
-            user.id, item_id, item_type
-        )
+        existing = await self.starred_repo.get_by_user_and_item(user.id, item_id, item_type)
         if existing:
             # Already starred, do nothing (idempotent)
             return
@@ -53,9 +49,7 @@ class StarredItemService:
         await self.starred_repo.create_starred_item(user.id, item_id, item_type)
         await self.db.commit()
 
-    async def unstar_item(
-        self, user: User, item_id: UUID, item_type: str
-    ) -> None:
+    async def unstar_item(self, user: User, item_id: UUID, item_type: str) -> None:
         """
         Unstar an item (planet, space, or crew).
 
@@ -72,9 +66,7 @@ class StarredItemService:
             raise BadRequestError(f"Invalid item type: {item_type}")
 
         # Find starred item
-        starred_item = await self.starred_repo.get_by_user_and_item(
-            user.id, item_id, item_type
-        )
+        starred_item = await self.starred_repo.get_by_user_and_item(user.id, item_id, item_type)
         if not starred_item:
             # Not starred, do nothing (idempotent)
             return
@@ -83,9 +75,7 @@ class StarredItemService:
         await self.starred_repo.delete(starred_item.id)
         await self.db.commit()
 
-    async def get_user_starred_items(
-        self, user: User, item_type: str = None
-    ) -> List[dict]:
+    async def get_user_starred_items(self, user: User, item_type: str = None) -> List[dict]:
         """
         Get all starred items for a user.
 
@@ -106,9 +96,7 @@ class StarredItemService:
             for item in starred_items
         ]
 
-    async def is_item_starred(
-        self, user: User, item_id: UUID, item_type: str
-    ) -> bool:
+    async def is_item_starred(self, user: User, item_id: UUID, item_type: str) -> bool:
         """
         Check if an item is starred by the user.
 
@@ -120,8 +108,5 @@ class StarredItemService:
         Returns:
             bool: True if item is starred, False otherwise
         """
-        starred_item = await self.starred_repo.get_by_user_and_item(
-            user.id, item_id, item_type
-        )
+        starred_item = await self.starred_repo.get_by_user_and_item(user.id, item_id, item_type)
         return starred_item is not None
-

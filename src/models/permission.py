@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, JSON, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -35,9 +35,7 @@ class ConnectionPermission(Base):
         nullable=True,
         index=True,
     )
-    access_level = Column(
-        String(50), nullable=False
-    )  # full, read-only, custom
+    access_level = Column(String(50), nullable=False)  # full, read-only, custom
     table_access = Column(JSON, nullable=True)  # Array of table names (if access_level = 'custom')
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     updated_at = Column(
@@ -53,9 +51,7 @@ class ConnectionPermission(Base):
     crew = relationship("Crew")
 
     __table_args__ = (
-        UniqueConstraint(
-            "connection_id", "space_id", "crew_id", name="uq_connection_permissions"
-        ),
+        UniqueConstraint("connection_id", "space_id", "crew_id", name="uq_connection_permissions"),
         Index("idx_connection_permissions_connection_id", "connection_id"),
         Index("idx_connection_permissions_space_id", "space_id"),
         Index("idx_connection_permissions_crew_id", "crew_id"),
@@ -90,7 +86,9 @@ class TableMemberPermission(Base):
         nullable=False,
         index=True,
     )
-    has_access = Column(String(10), nullable=False, default="true", server_default="true")  # "true" or "false"
+    has_access = Column(
+        String(10), nullable=False, default="true", server_default="true"
+    )  # "true" or "false"
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     updated_at = Column(
         DateTime(timezone=True),
@@ -200,7 +198,9 @@ class RolePermission(Base):
     __tablename__ = "role_permissions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    role = Column(String(50), nullable=False, unique=True, index=True)  # commander, navigator, explorer, guest
+    role = Column(
+        String(50), nullable=False, unique=True, index=True
+    )  # commander, navigator, explorer, guest
     permissions = Column(JSON, nullable=False)  # Dictionary of permission keys and boolean values
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     updated_at = Column(
@@ -210,10 +210,7 @@ class RolePermission(Base):
         onupdate=datetime.utcnow,
     )
 
-    __table_args__ = (
-        Index("idx_role_permissions_role", "role"),
-    )
+    __table_args__ = (Index("idx_role_permissions_role", "role"),)
 
     def __repr__(self) -> str:
         return f"<RolePermission(role={self.role}, permissions={self.permissions})>"
-

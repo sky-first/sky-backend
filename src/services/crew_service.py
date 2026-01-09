@@ -119,9 +119,7 @@ class CrewService:
 
         return CrewResponse.model_validate(crew)
 
-    async def update_crew(
-        self, crew_id: UUID, user: User, crew_data: CrewUpdate
-    ) -> CrewResponse:
+    async def update_crew(self, crew_id: UUID, user: User, crew_data: CrewUpdate) -> CrewResponse:
         """
         Update crew.
 
@@ -174,8 +172,9 @@ class CrewService:
             NotFoundError: If crew not found
             ForbiddenError: If user doesn't have access
         """
-        from src.config.settings import get_settings
         import logging
+
+        from src.config.settings import get_settings
 
         logger = logging.getLogger(__name__)
 
@@ -185,20 +184,24 @@ class CrewService:
         if not crew:
             logger.error(f"🔴 [DELETE SERVICE] Crew {crew_id} not found in database")
             raise NotFoundError("Crew not found")
-        
+
         # Check if crew is already deleted
         if crew.deleted_at is not None:
-            logger.warning(f"🔴 [DELETE SERVICE] Crew {crew_id} is already deleted (deleted_at: {crew.deleted_at})")
+            logger.warning(
+                f"🔴 [DELETE SERVICE] Crew {crew_id} is already deleted (deleted_at: {crew.deleted_at})"
+            )
             # Don't raise error, just return - crew is already deleted
             return
 
         settings = get_settings()
-        
+
         # In development, allow any user to delete any crew
         # In production, only admin or owner can delete
         if settings.is_development:
             # Development mode: allow any authenticated user to delete
-            logger.info(f"🔴 [DELETE SERVICE] Development mode: Allowing user {user.id} to delete crew {crew_id} (space created by {crew.space_id})")
+            logger.info(
+                f"🔴 [DELETE SERVICE] Development mode: Allowing user {user.id} to delete crew {crew_id} (space created by {crew.space_id})"
+            )
         else:
             # Production mode: only admin or owner can delete
             space = await self.space_repo.get_by_id(crew.space_id)
@@ -208,11 +211,11 @@ class CrewService:
         logger.info(f"🔴 [DELETE SERVICE] Calling crew_repo.delete for crew {crew_id}")
         await self.crew_repo.delete(crew_id)
         await self.db.commit()
-        logger.info(f"🔴 [DELETE SERVICE] Crew {crew_id} soft-deleted successfully (deleted_at set)")
+        logger.info(
+            f"🔴 [DELETE SERVICE] Crew {crew_id} soft-deleted successfully (deleted_at set)"
+        )
 
-    async def get_crew_members(
-        self, crew_id: UUID, user: User
-    ) -> List[CrewMemberResponse]:
+    async def get_crew_members(self, crew_id: UUID, user: User) -> List[CrewMemberResponse]:
         """
         Get members for a crew.
 
@@ -240,7 +243,7 @@ class CrewService:
         # Refresh user relationships to ensure they're loaded
         for member in members:
             await self.db.refresh(member, ["user"])
-        
+
         # Convert to response format with user info
         result = []
         for member in members:
@@ -254,7 +257,7 @@ class CrewService:
                 "user": user_to_response_dict(member.user) if member.user else None,
             }
             result.append(CrewMemberResponse.model_validate(member_data_dict))
-        
+
         return result
 
     async def add_crew_member(
@@ -299,9 +302,10 @@ class CrewService:
         await self.db.commit()
         # Load user relationship (similar to SpaceService)
         await self.db.refresh(member, ["user"])
-        
+
         # Convert user to dict if present (CrewMemberResponse expects Optional[dict])
         from src.schemas.user import UserResponse
+
         member_data_dict = {
             "id": member.id,
             "crew_id": member.crew_id,
@@ -313,9 +317,7 @@ class CrewService:
         }
         return CrewMemberResponse.model_validate(member_data_dict)
 
-    async def remove_crew_member(
-        self, crew_id: UUID, user_id: UUID, current_user: User
-    ) -> None:
+    async def remove_crew_member(self, crew_id: UUID, user_id: UUID, current_user: User) -> None:
         """
         Remove member from crew.
 
@@ -378,10 +380,10 @@ class CrewService:
 
         member = await self.member_repo.update(member.id, role=role_data.role)
         await self.db.commit()
-        
+
         # Reload member with user relationship
         await self.db.refresh(member, ["user"])
-        
+
         # Build response dict similar to get_crew_members
         member_data_dict = {
             "id": member.id,
@@ -392,6 +394,5 @@ class CrewService:
             "created_at": member.created_at,
             "user": user_to_response_dict(member.user) if member.user else None,
         }
-        
-        return CrewMemberResponse.model_validate(member_data_dict)
 
+        return CrewMemberResponse.model_validate(member_data_dict)

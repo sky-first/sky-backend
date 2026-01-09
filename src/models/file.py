@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import JSON, BigInteger, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -90,4 +90,3 @@ class SyncLog(Base):
 
     def __repr__(self) -> str:
         return f"<SyncLog(id={self.id}, connection_id={self.connection_id}, status={self.status})>"
-

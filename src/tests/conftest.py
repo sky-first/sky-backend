@@ -2,6 +2,7 @@
 
 # ⚠️ CRÍTICO: Sobrescrever DATABASE_URL ANTES de qualquer import que use database
 import os
+
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
 from datetime import datetime, timedelta, timezone
@@ -11,8 +12,10 @@ import pytest
 import pytest_asyncio
 from faker import Faker
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
+
+from src.api.deps import get_db_session
 
 # Agora sim, importar depois de sobrescrever a variável de ambiente
 from src.config.database import Base, get_db
@@ -21,7 +24,6 @@ from src.core.security import create_access_token, create_refresh_token, get_pas
 from src.main import app
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
-from src.api.deps import get_db_session
 
 # pytest-asyncio is configured via pytest.ini or pyproject.toml
 
@@ -35,9 +37,7 @@ test_engine = create_async_engine(
     poolclass=StaticPool,
 )
 
-TestSessionLocal = async_sessionmaker(
-    test_engine, class_=AsyncSession, expire_on_commit=False
-)
+TestSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @pytest_asyncio.fixture
@@ -56,9 +56,10 @@ async def db_session():
 @pytest.fixture
 def client(db_session):
     """Create test client."""
+
     async def override_get_db():
         yield db_session
-    
+
     async def override_get_db_session():
         yield db_session
 
@@ -80,20 +81,20 @@ def faker():
 async def test_user(db_session: AsyncSession, faker: Faker):
     """Create a test user."""
     user_repo = UserRepository(db_session)
-    
+
     email = faker.email()
     password = "test_password_123"
-    
+
     user = await user_repo.create(
         email=email,
         password_hash=get_password_hash(password),
         name=faker.name(),
-        role="user",
+        role="admin",
     )
-    
+
     await db_session.commit()
     await db_session.refresh(user)
-    
+
     return {
         "user": user,
         "email": email,
@@ -105,12 +106,12 @@ async def test_user(db_session: AsyncSession, faker: Faker):
 async def test_user_with_tokens(db_session: AsyncSession, test_user: dict):
     """Create a test user with access and refresh tokens."""
     user = test_user["user"]
-    
+
     # Create tokens
     token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
-    
+
     # Save refresh token
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     refresh_token_model = RefreshToken(
@@ -120,7 +121,7 @@ async def test_user_with_tokens(db_session: AsyncSession, test_user: dict):
     )
     db_session.add(refresh_token_model)
     await db_session.commit()
-    
+
     return {
         **test_user,
         "access_token": access_token,
@@ -170,4 +171,3 @@ async def cleanup_refresh_tokens(db_session: AsyncSession):
     """Cleanup refresh tokens after test."""
     yield
     # Cleanup is handled by db_session fixture which drops all tables
-

@@ -217,8 +217,9 @@ class Auth0Service:
         # Create new user
         # For SSO users, we don't set a password (they authenticate via provider)
         # Use a random hash that will never match (SSO users can't login with password)
-        from src.core.security import get_password_hash
         import secrets
+
+        from src.core.security import get_password_hash
 
         # Generate a random password hash that will never be used
         random_password = secrets.token_urlsafe(32)
@@ -411,7 +412,10 @@ class Auth0Service:
                         provider="google",
                         provider_id=google_id,
                         avatar=avatar,
-                        sso_metadata={"google_id": google_id, "verified_email": user_info.get("verified_email")},
+                        sso_metadata={
+                            "google_id": google_id,
+                            "verified_email": user_info.get("verified_email"),
+                        },
                     )
                 else:
                     # Sync user data
@@ -420,7 +424,10 @@ class Auth0Service:
                         email=email,
                         name=name,
                         avatar=avatar,
-                        sso_metadata={"google_id": google_id, "verified_email": user_info.get("verified_email")},
+                        sso_metadata={
+                            "google_id": google_id,
+                            "verified_email": user_info.get("verified_email"),
+                        },
                     )
 
                 logger.info(f"✅ Google SSO authentication successful: {email}")
@@ -477,7 +484,9 @@ class Auth0Service:
 
                 # Extract user data
                 email = user_info.get("mail") or user_info.get("userPrincipalName")
-                name = user_info.get("displayName") or user_info.get("givenName", email.split("@")[0] if email else "User")
+                name = user_info.get("displayName") or user_info.get(
+                    "givenName", email.split("@")[0] if email else "User"
+                )
                 avatar = None  # Azure AD doesn't provide avatar in basic profile
                 azure_id = user_info.get("id") or user_info.get("userPrincipalName")
 
@@ -559,7 +568,9 @@ class Auth0Service:
 
                 # Extract user data
                 email = user_info.get("email")
-                name = user_info.get("name") or user_info.get("preferred_username", email.split("@")[0] if email else "User")
+                name = user_info.get("name") or user_info.get(
+                    "preferred_username", email.split("@")[0] if email else "User"
+                )
                 avatar = None  # Okta doesn't provide avatar in basic userinfo
                 okta_id = user_info.get("sub")
 
@@ -576,7 +587,10 @@ class Auth0Service:
                         provider="okta",
                         provider_id=okta_id,
                         avatar=avatar,
-                        sso_metadata={"okta_id": okta_id, "email_verified": user_info.get("email_verified")},
+                        sso_metadata={
+                            "okta_id": okta_id,
+                            "email_verified": user_info.get("email_verified"),
+                        },
                     )
                 else:
                     # Sync user data
@@ -585,7 +599,10 @@ class Auth0Service:
                         email=email,
                         name=name,
                         avatar=avatar,
-                        sso_metadata={"okta_id": okta_id, "email_verified": user_info.get("email_verified")},
+                        sso_metadata={
+                            "okta_id": okta_id,
+                            "email_verified": user_info.get("email_verified"),
+                        },
                     )
 
                 logger.info(f"✅ Okta SSO authentication successful: {email}")
@@ -636,4 +653,3 @@ class Auth0Service:
             "expires_in": 365 * 100 * 24 * 60 * 60,  # 100 years in seconds
             "user": UserResponse.model_validate(user_to_response_dict(user)),
         }
-

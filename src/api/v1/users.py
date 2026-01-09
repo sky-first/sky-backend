@@ -193,10 +193,10 @@ async def get_user_permissions(
     """
     user_service = UserService(db)
     permissions = await user_service.get_user_permissions(user_id, current_user)
-    
+
     # Get user to return role
     user = await user_service.get_user(user_id, current_user)
-    
+
     return UserPermissionsResponse(permissions=permissions, role=user.role)
 
 
@@ -230,10 +230,10 @@ async def update_user_permissions(
     permissions = await user_service.update_user_permissions(
         user_id, permissions_data.model_dump(), current_user
     )
-    
+
     # Get user to return role
     user = await user_service.get_user(user_id, current_user)
-    
+
     return UserPermissionsResponse(permissions=permissions, role=user.role)
 
 
@@ -266,4 +266,3 @@ async def invite_user(
     user_service = UserService(db)
     await user_service.invite_user(user_id, invite_data.model_dump(), current_user)
     return SuccessResponse(message="Invitation sent successfully")
-

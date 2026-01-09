@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, text, func
-from sqlalchemy.dialects.postgresql import UUID, JSON
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import relationship
 
 from src.config.database import Base
@@ -35,21 +35,27 @@ class User(Base):
     )
     selected_domain = Column(String(255), nullable=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
-    
+
     # Auth0 Integration
     auth0_id = Column(String(255), unique=True, nullable=True, index=True)
-    auth_provider = Column(String(50), nullable=False, default="local", server_default="local")  # local, auth0, google, azure, okta
+    auth_provider = Column(
+        String(50), nullable=False, default="local", server_default="local"
+    )  # local, auth0, google, azure, okta
     auth_provider_id = Column(String(255), nullable=True, index=True)
-    
+
     # Invite System
     invite_token = Column(String(255), nullable=True, index=True)
     invite_expires_at = Column(DateTime(timezone=True), nullable=True)
-    invited_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    
+    invited_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     # SSO Metadata
     sso_metadata = Column(JSON, nullable=True)  # Store provider-specific data
-    
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -59,10 +65,10 @@ class User(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
-    owned_planets = relationship(
-        "Planet", back_populates="owner", foreign_keys="Planet.owner_id"
+    refresh_tokens = relationship(
+        "RefreshToken", back_populates="user", cascade="all, delete-orphan"
     )
+    owned_planets = relationship("Planet", back_populates="owner", foreign_keys="Planet.owner_id")
     planet_memberships = relationship("PlanetMember", back_populates="user")
     owned_workspaces = relationship(
         "Workspace", back_populates="owner", foreign_keys="Workspace.owner_id"
@@ -95,9 +101,13 @@ class RefreshToken(Base):
         nullable=False,
         index=True,
     )
-    token = Column(Text, nullable=False, unique=True, index=True)  # Changed from String(255) to Text for JWT tokens
+    token = Column(
+        Text, nullable=False, unique=True, index=True
+    )  # Changed from String(255) to Text for JWT tokens
     expires_at = Column(DateTime(timezone=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
     revoked_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
@@ -111,4 +121,3 @@ class RefreshToken(Base):
 
     def __repr__(self) -> str:
         return f"<RefreshToken(id={self.id}, user_id={self.user_id})>"
-

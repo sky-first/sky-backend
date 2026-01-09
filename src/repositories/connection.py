@@ -82,4 +82,3 @@ class ConnectionMetadataRepository(BaseRepository[ConnectionMetadata]):
             select(ConnectionMetadata).where(ConnectionMetadata.connection_id == connection_id)
         )
         return result.scalar_one_or_none()
-

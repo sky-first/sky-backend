@@ -68,5 +68,3 @@ def test_celery_url_helpers():
     raw = "redis://:p@ss/word@redis:6379/0"
     encoded = encode_password_in_redis_url(raw)
     assert encode_password_in_redis_url(encoded) == encoded
-
-

@@ -22,7 +22,9 @@ class Workspace(Base):
     type = Column(String(50), nullable=False)  # personal, team
     color = Column(String(7), nullable=False)  # Hex color
     icon = Column(String(255), nullable=True)
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     is_active = Column(Boolean, nullable=False, default=False, server_default="false")
     last_accessed = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
@@ -36,7 +38,9 @@ class Workspace(Base):
 
     # Relationships
     owner = relationship("User", foreign_keys=[owner_id], back_populates="owned_workspaces")
-    members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
+    members = relationship(
+        "WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan"
+    )
     # Note: Dashboards are related to Planets, not Workspaces directly
 
     __table_args__ = (
@@ -68,9 +72,7 @@ class WorkspaceMember(Base):
         nullable=False,
         index=True,
     )
-    role = Column(
-        String(50), nullable=False
-    )  # owner, admin, member, viewer
+    role = Column(String(50), nullable=False)  # owner, admin, member, viewer
     joined_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
 
@@ -89,4 +91,3 @@ class WorkspaceMember(Base):
 
     def __repr__(self) -> str:
         return f"<WorkspaceMember(workspace_id={self.workspace_id}, user_id={self.user_id}, role={self.role})>"
-

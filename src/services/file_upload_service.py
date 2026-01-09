@@ -459,4 +459,3 @@ class FileUploadService:
         # Delete database record
         await self.file_repo.delete(file_id)
         await self.db.commit()
-
