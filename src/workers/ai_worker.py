@@ -49,16 +49,15 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     # (worker process doesn't import the whole FastAPI app).
     import src.models  # noqa: F401
     import src.models.workspace  # noqa: F401
-
+    from src.ai.http_client import AIServiceHTTPClient
     from src.config.database import AsyncSessionLocal
     from src.models.dashboard_build_job import DashboardBuildJob
     from src.repositories.base import BaseRepository
-    from src.repositories.user import UserRepository
     from src.repositories.dashboard import WidgetRepository
-    from src.services.dashboard_service import DashboardService
-    from src.services.ai_service import AIService
-    from src.ai.http_client import AIServiceHTTPClient
+    from src.repositories.user import UserRepository
     from src.schemas.dashboard import DashboardCreate, WidgetCreate
+    from src.services.ai_service import AIService
+    from src.services.dashboard_service import DashboardService
 
     async with AsyncSessionLocal() as db:
         repo = BaseRepository(db, DashboardBuildJob)
@@ -99,18 +98,22 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             max_widgets = min(int(job.max_widgets or 8), 8)
 
             ai_service = AIService(db)
-            crew_ids = await ai_service._get_user_crew_ids(user_id, space_id, all_spaces=True)  # noqa: SLF001
+            crew_ids = await ai_service._get_user_crew_ids(
+                user_id, space_id, all_spaces=True
+            )  # noqa: SLF001
 
             # Build a compact schema summary from backend connection_metadata so Davinci can plan even if
             # the AI Engine catalog is not fully initialized.
             logical_tables_override = None
             schema_summary_override = None
             try:
-                meta = await ai_service.metadata_repo.get_by_connection_id(UUID(connection_id))  # noqa: SLF001
+                meta = await ai_service.metadata_repo.get_by_connection_id(
+                    UUID(connection_id)
+                )  # noqa: SLF001
                 tables = (meta.tables or []) if meta else []
                 logical_tables: list[str] = []
                 schema_lines: list[str] = []
-                for t in (tables[:12] if isinstance(tables, list) else []):
+                for t in tables[:12] if isinstance(tables, list) else []:
                     if not isinstance(t, dict):
                         continue
                     schema = str(t.get("schema") or "").strip()
@@ -125,10 +128,14 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         for c in cols[:10]:
                             if isinstance(c, dict) and c.get("name"):
                                 col_names.append(str(c["name"]))
-                    schema_lines.append(f"- {logical} cols: {', '.join(col_names)}" if col_names else f"- {logical}")
+                    schema_lines.append(
+                        f"- {logical} cols: {', '.join(col_names)}" if col_names else f"- {logical}"
+                    )
                 # unique preserving order
                 seen = set()
-                logical_tables_override = [x for x in logical_tables if not (x in seen or seen.add(x))]
+                logical_tables_override = [
+                    x for x in logical_tables if not (x in seen or seen.add(x))
+                ]
                 schema_summary_override = "\n".join(schema_lines)
             except Exception:
                 logical_tables_override = None
@@ -227,7 +234,8 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 created = await widget_repo.create(
                     dashboard_id=dashboard_id,
                     type=wtype,
-                    title=w.get("title") or (wtype.capitalize() if isinstance(wtype, str) else "Widget"),
+                    title=w.get("title")
+                    or (wtype.capitalize() if isinstance(wtype, str) else "Widget"),
                     position={"x": x, "y": y},
                     size={"width": width, "height": height},
                     data=placeholder_data,
@@ -263,7 +271,11 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     await widget_repo.update(
                         widget_id,
                         title=w.get("title") or "Text",
-                        data={"content": content, "question": w.get("question") or "", "isPlaceholder": False},
+                        data={
+                            "content": content,
+                            "question": w.get("question") or "",
+                            "isPlaceholder": False,
+                        },
                         config={"viz": viz or {}},
                         query_id=None,
                     )
@@ -306,9 +318,38 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     if isinstance(viz.get("mapping"), dict):
                         widget_data["mapping"] = viz.get("mapping")
 
+                # :novo: NOVA FUNCIONALIDADE: Sugerir título melhor baseado nos dados
+                final_title = w.get("title") or ""
+                try:
+                    # Chamar API da IA para sugerir título melhor
+                    suggested_title = await client.suggest_widget_title(
+                        question=w.get("question") or "",
+                        data_sample=query_resp.data_sample or [],
+                        answer=query_resp.answer,
+                        current_title=w.get("title") or "",
+                        language=language,
+                    )
+                    # Usar título sugerido se for válido e diferente do genérico
+                    if suggested_title and suggested_title.strip():
+                        # Verificar se o título sugerido é melhor que o atual
+                        # (não é genérico como "Widget", "Chart", etc.)
+                        generic_titles = ["widget", "chart", "kpi", "table", "text", "gráfico", "dados"]
+                        current_lower = (w.get("title") or "").lower().strip()
+                        suggested_lower = suggested_title.lower().strip()
+                        # Se o título atual é genérico OU o sugerido não é genérico
+                        if current_lower in generic_titles or suggested_lower not in generic_titles:
+                            final_title = suggested_title
+                            logger.info(f"Widget title updated: '{w.get('title')}' -> '{final_title}'")
+                except Exception as e:
+                    # Se falhar, usar título original (fail-safe)
+                    logger.warning(
+                        f"Failed to suggest title for widget {widget_id}: {e}. Using original title."
+                    )
+                    final_title = w.get("title") or ""
+
                 await widget_repo.update(
                     widget_id,
-                    title=w.get("title") or "",
+                    title=final_title,  # Usar título sugerido ou original
                     data=widget_data,
                     config={"viz": viz or {}},
                     query_id=query_resp.id,
@@ -327,4 +368,3 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             job.finished_at = datetime.now(timezone.utc)
             await db.commit()
             raise
-

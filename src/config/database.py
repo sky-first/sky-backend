@@ -1,15 +1,11 @@
 """Database configuration and session management."""
 
 import logging
-from typing import AsyncGenerator, Dict, Any
+from typing import Any, AsyncGenerator, Dict
 
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.orm import declarative_base
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import declarative_base
 
 from src.config.settings import settings
 
@@ -24,19 +20,23 @@ engine_kwargs = {
 
 # Only add pool settings for non-SQLite databases
 if "sqlite" not in settings.DATABASE_URL.lower():
-    engine_kwargs.update({
-        "pool_size": settings.DATABASE_POOL_SIZE,
-        "max_overflow": settings.DATABASE_MAX_OVERFLOW,
-        "pool_pre_ping": settings.DATABASE_POOL_PRE_PING,
-        "pool_recycle": 3600,  # Fechar conexões após 1 hora de inatividade
-        "pool_reset_on_return": "commit",  # Resetar conexões ao retornar ao pool
-    })
+    engine_kwargs.update(
+        {
+            "pool_size": settings.DATABASE_POOL_SIZE,
+            "max_overflow": settings.DATABASE_MAX_OVERFLOW,
+            "pool_pre_ping": settings.DATABASE_POOL_PRE_PING,
+            "pool_recycle": 3600,  # Fechar conexões após 1 hora de inatividade
+            "pool_reset_on_return": "commit",  # Resetar conexões ao retornar ao pool
+        }
+    )
 else:
     # SQLite-specific settings
-    engine_kwargs.update({
-        "connect_args": {"check_same_thread": False},
-        "poolclass": None,  # Use NullPool for SQLite
-    })
+    engine_kwargs.update(
+        {
+            "connect_args": {"check_same_thread": False},
+            "poolclass": None,  # Use NullPool for SQLite
+        }
+    )
 
 engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
 
@@ -82,7 +82,7 @@ async def init_db() -> None:
     """
     # Invalidate any stale connections in the pool
     await engine.dispose()
-    
+
     # Log pool configuration
     if "sqlite" not in settings.DATABASE_URL.lower():
         logger.info(
@@ -106,7 +106,7 @@ async def close_db() -> None:
 async def get_connection_pool_stats() -> Dict[str, Any]:
     """
     Get connection pool statistics.
-    
+
     Returns:
         Dict with pool statistics including size, checked out, overflow, etc.
     """
@@ -126,19 +126,21 @@ async def get_connection_pool_stats() -> Dict[str, Any]:
 async def get_database_connections(db: AsyncSession) -> Dict[str, Any]:
     """
     Get active database connections from PostgreSQL.
-    
+
     Args:
         db: Database session
-        
+
     Returns:
         Dict with connection statistics from PostgreSQL
     """
     if "sqlite" in settings.DATABASE_URL.lower():
         return {"error": "SQLite does not support connection monitoring"}
-    
+
     try:
         # Get total connections
-        result = await db.execute(text("""
+        result = await db.execute(
+            text(
+                """
             SELECT 
                 count(*) as total_connections,
                 count(*) FILTER (WHERE state = 'active') as active_connections,
@@ -147,11 +149,15 @@ async def get_database_connections(db: AsyncSession) -> Dict[str, Any]:
                 count(*) FILTER (WHERE state = 'idle in transaction (aborted)') as idle_in_transaction_aborted
             FROM pg_stat_activity
             WHERE datname = current_database()
-        """))
+        """
+            )
+        )
         total_stats = result.fetchone()
-        
+
         # Get connections by application name
-        result = await db.execute(text("""
+        result = await db.execute(
+            text(
+                """
             SELECT 
                 application_name,
                 count(*) as connection_count,
@@ -160,20 +166,22 @@ async def get_database_connections(db: AsyncSession) -> Dict[str, Any]:
             WHERE datname = current_database()
             GROUP BY application_name
             ORDER BY connection_count DESC
-        """))
+        """
+            )
+        )
         by_application = [
             {
                 "application_name": row[0] or "unknown",
                 "connection_count": row[1],
-                "active_count": row[2]
+                "active_count": row[2],
             }
             for row in result.fetchall()
         ]
-        
+
         # Get max_connections setting
         result = await db.execute(text("SHOW max_connections"))
         max_connections = int(result.scalar() or 100)
-        
+
         return {
             "total_connections": total_stats[0] or 0,
             "active_connections": total_stats[1] or 0,
@@ -182,7 +190,11 @@ async def get_database_connections(db: AsyncSession) -> Dict[str, Any]:
             "idle_in_transaction_aborted": total_stats[4] or 0,
             "max_connections": max_connections,
             "connections_by_application": by_application,
-            "connection_usage_percent": round((total_stats[0] or 0) / max_connections * 100, 2) if max_connections > 0 else 0,
+            "connection_usage_percent": (
+                round((total_stats[0] or 0) / max_connections * 100, 2)
+                if max_connections > 0
+                else 0
+            ),
         }
     except Exception as e:
         logger.error(f"Error getting database connections: {e}")
@@ -202,4 +214,3 @@ async def log_connection_stats() -> None:
         )
     except Exception as e:
         logger.error(f"Error logging connection stats: {e}")
-

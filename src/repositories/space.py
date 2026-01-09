@@ -5,11 +5,10 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy.orm import selectinload
 
-from src.models.crew import Crew
 from src.models.connection import DataConnection
+from src.models.crew import Crew
 from src.models.space import Space, SpaceConnection, SpaceMember
 from src.repositories.base import BaseRepository
 
@@ -20,9 +19,7 @@ class SpaceRepository(BaseRepository[Space]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, Space)
 
-    async def get_by_user(
-        self, user_id: UUID, skip: int = 0, limit: int = 100
-    ) -> List[Space]:
+    async def get_by_user(self, user_id: UUID, skip: int = 0, limit: int = 100) -> List[Space]:
         """
         Get spaces by user.
 
@@ -101,9 +98,7 @@ class SpaceMemberRepository(BaseRepository[SpaceMember]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, SpaceMember)
 
-    async def get_by_space_and_user(
-        self, space_id: UUID, user_id: UUID
-    ) -> Optional[SpaceMember]:
+    async def get_by_space_and_user(self, space_id: UUID, user_id: UUID) -> Optional[SpaceMember]:
         """
         Get space member by space and user.
 
@@ -122,9 +117,7 @@ class SpaceMemberRepository(BaseRepository[SpaceMember]):
         )
         return result.scalar_one_or_none()
 
-    async def get_space_members(
-        self, space_id: UUID
-    ) -> List[SpaceMember]:
+    async def get_space_members(self, space_id: UUID) -> List[SpaceMember]:
         """
         Get all members of a space.
 
@@ -140,4 +133,3 @@ class SpaceMemberRepository(BaseRepository[SpaceMember]):
             .options(selectinload(SpaceMember.user))
         )
         return list(result.scalars().all())
-

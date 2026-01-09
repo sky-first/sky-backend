@@ -89,9 +89,7 @@ class TemplateService:
 
         return TemplateResponse.model_validate(template)
 
-    async def create_template(
-        self, user: User, template_data: TemplateCreate
-    ) -> TemplateResponse:
+    async def create_template(self, user: User, template_data: TemplateCreate) -> TemplateResponse:
         """
         Create a new template.
 
@@ -239,4 +237,3 @@ class TemplateService:
         await self.db.commit()
 
         return TemplateApplyResponse(widgets=created_widgets)
-

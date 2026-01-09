@@ -82,7 +82,7 @@ class TableMetadataSchema(BaseModel):
     row_count: Optional[int] = None
     columns: Optional[List[ColumnMetadataSchema]] = None
     last_updated: Optional[datetime] = None
-    
+
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -110,4 +110,3 @@ class ConnectionValidateResponse(BaseModel):
     valid: bool
     message: str
     errors: Optional[List[str]] = None
-

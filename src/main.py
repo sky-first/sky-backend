@@ -6,15 +6,17 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.middleware import auth, cors, error_handler, logging as logging_middleware, rate_limit
+from src.api.middleware import auth, cors, error_handler
+from src.api.middleware import logging as logging_middleware
+from src.api.middleware import rate_limit
 from src.api.v1.router import api_router
 from src.config import settings
 from src.config.database import (
     close_db,
-    init_db,
     get_connection_pool_stats,
     get_database_connections,
     get_db,
+    init_db,
     log_connection_stats,
 )
 from src.config.redis import close_redis, init_redis
@@ -73,9 +75,12 @@ cors.setup_cors(app)
 #
 # So we add them as: error_handler, logging, rate_limit, auth (reverse order)
 app.middleware("http")(error_handler.error_handler_middleware)  # Added 1st, executes LAST
-app.middleware("http")(logging_middleware.logging_middleware)    # Added 2nd, executes 3rd
-app.middleware("http")(rate_limit.rate_limit_middleware)         # Added 3rd, executes 2nd
-app.middleware("http")(auth.auth_middleware)                     # Added 4th (LAST), executes FIRST
+app.middleware("http")(logging_middleware.logging_middleware)  # Added 2nd, executes 3rd
+app.middleware("http")(rate_limit.rate_limit_middleware)  # Added 3rd, executes 2nd
+app.middleware("http")(auth.auth_middleware)  # Added 4th (LAST), executes FIRST
+
+from fastapi.responses import JSONResponse
+from jose import JWTError
 
 # Add exception handlers BEFORE routers (these catch exceptions from middleware and routes)
 from src.api.middleware import error_handler as error_handler_module
@@ -88,8 +93,7 @@ from src.core.exceptions import (
     UnauthorizedError,
     ValidationError,
 )
-from fastapi.responses import JSONResponse
-from jose import JWTError
+
 
 @app.exception_handler(UnauthorizedError)
 async def unauthorized_exception_handler(request, exc: UnauthorizedError):
@@ -102,6 +106,7 @@ async def unauthorized_exception_handler(request, exc: UnauthorizedError):
     error_handler_module._apply_cors_headers(request, response)
     return response
 
+
 @app.exception_handler(JWTError)
 async def jwt_exception_handler(request, exc: JWTError):
     """Handle JWTError exceptions."""
@@ -112,6 +117,7 @@ async def jwt_exception_handler(request, exc: JWTError):
     )
     error_handler_module._apply_cors_headers(request, response)
     return response
+
 
 @app.exception_handler(ValidationError)
 async def validation_exception_handler(request, exc: ValidationError):
@@ -124,6 +130,7 @@ async def validation_exception_handler(request, exc: ValidationError):
     error_handler_module._apply_cors_headers(request, response)
     return response
 
+
 @app.exception_handler(ForbiddenError)
 async def forbidden_exception_handler(request, exc: ForbiddenError):
     """Handle ForbiddenError exceptions."""
@@ -134,6 +141,7 @@ async def forbidden_exception_handler(request, exc: ForbiddenError):
     )
     error_handler_module._apply_cors_headers(request, response)
     return response
+
 
 @app.exception_handler(NotFoundError)
 async def not_found_exception_handler(request, exc: NotFoundError):
@@ -146,6 +154,7 @@ async def not_found_exception_handler(request, exc: NotFoundError):
     error_handler_module._apply_cors_headers(request, response)
     return response
 
+
 @app.exception_handler(BadRequestError)
 async def bad_request_exception_handler(request, exc: BadRequestError):
     """Handle BadRequestError exceptions."""
@@ -156,6 +165,7 @@ async def bad_request_exception_handler(request, exc: BadRequestError):
     )
     error_handler_module._apply_cors_headers(request, response)
     return response
+
 
 @app.exception_handler(ConflictError)
 async def conflict_exception_handler(request, exc: ConflictError):
@@ -168,6 +178,7 @@ async def conflict_exception_handler(request, exc: ConflictError):
     error_handler_module._apply_cors_headers(request, response)
     return response
 
+
 @app.exception_handler(BaseAPIException)
 async def base_api_exception_handler(request, exc: BaseAPIException):
     """Handle other BaseAPIException exceptions."""
@@ -179,6 +190,7 @@ async def base_api_exception_handler(request, exc: BaseAPIException):
     error_handler_module._apply_cors_headers(request, response)
     return response
 
+
 # Include API routers
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
@@ -187,10 +199,10 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 def custom_openapi():
     """Custom OpenAPI schema - will add security when endpoints are implemented."""
     from fastapi.openapi.utils import get_openapi
-    
+
     # Force regeneration - clear any cached schema
     app.openapi_schema = None
-    
+
     # Generate base schema from routes
     openapi_schema = get_openapi(
         title=app.title,
@@ -198,12 +210,12 @@ def custom_openapi():
         description=app.description,
         routes=app.routes,
     )
-    
+
     logger.info(f"📋 OpenAPI schema generated with {len(openapi_schema.get('paths', {}))} paths")
-    
+
     # Cache the schema
     app.openapi_schema = openapi_schema
-    
+
     return openapi_schema
 
 
@@ -244,7 +256,7 @@ async def monitoring_connections(db=Depends(get_db)):
     """
     pool_stats = await get_connection_pool_stats()
     db_connections = await get_database_connections(db)
-    
+
     return {
         "pool_stats": pool_stats,
         "database_connections": db_connections,
@@ -252,22 +264,20 @@ async def monitoring_connections(db=Depends(get_db)):
     }
 
 
-def _get_connection_recommendations(
-    pool_stats: dict, db_connections: dict
-) -> list:
+def _get_connection_recommendations(pool_stats: dict, db_connections: dict) -> list:
     """Generate recommendations based on connection statistics."""
     recommendations = []
-    
+
     if "error" in db_connections:
         return recommendations
-    
+
     # Check pool usage
     pool_usage_percent = (
         pool_stats["total_connections"] / pool_stats["pool_max_size"] * 100
         if pool_stats["pool_max_size"] > 0
         else 0
     )
-    
+
     if pool_usage_percent > 80:
         recommendations.append(
             {
@@ -275,7 +285,7 @@ def _get_connection_recommendations(
                 "message": f"Pool usage is {pool_usage_percent:.1f}% - consider increasing pool_size or max_overflow",
             }
         )
-    
+
     # Check database connection usage
     db_usage_percent = db_connections.get("connection_usage_percent", 0)
     if db_usage_percent > 80:
@@ -285,7 +295,7 @@ def _get_connection_recommendations(
                 "message": f"Database connection usage is {db_usage_percent:.1f}% - close idle connections or increase max_connections",
             }
         )
-    
+
     # Check for idle in transaction
     idle_in_transaction = db_connections.get("idle_in_transaction", 0)
     if idle_in_transaction > 0:
@@ -295,7 +305,7 @@ def _get_connection_recommendations(
                 "message": f"{idle_in_transaction} connections are idle in transaction - these may indicate connection leaks",
             }
         )
-    
+
     # Check overflow usage
     if pool_stats["overflow"] > 0:
         recommendations.append(
@@ -304,7 +314,7 @@ def _get_connection_recommendations(
                 "message": f"{pool_stats['overflow']} connections in overflow - pool is being used beyond base size",
             }
         )
-    
+
     if not recommendations:
         recommendations.append(
             {
@@ -312,7 +322,7 @@ def _get_connection_recommendations(
                 "message": "Connection pool is healthy",
             }
         )
-    
+
     return recommendations
 
 
@@ -327,8 +337,6 @@ async def root():
         "health": "/health",
         "api_prefix": settings.API_V1_PREFIX,
     }
-
-
 
 
 if __name__ == "__main__":

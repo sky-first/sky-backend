@@ -87,9 +87,7 @@ class WorkspaceRepository(BaseRepository[Workspace]):
         """
         # Workspaces where user is owner
         owned_result = await self.db.execute(
-            select(Workspace).where(
-                Workspace.owner_id == user_id, Workspace.deleted_at.is_(None)
-            )
+            select(Workspace).where(Workspace.owner_id == user_id, Workspace.deleted_at.is_(None))
         )
         owned = list(owned_result.scalars().all())
 
@@ -136,9 +134,7 @@ class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
         )
         return result.scalar_one_or_none()
 
-    async def get_workspace_members(
-        self, workspace_id: UUID
-    ) -> List[WorkspaceMember]:
+    async def get_workspace_members(self, workspace_id: UUID) -> List[WorkspaceMember]:
         """
         Get all members of a workspace.
 
@@ -154,4 +150,3 @@ class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
             .options(selectinload(WorkspaceMember.user))
         )
         return list(result.scalars().all())
-

@@ -215,4 +215,3 @@ async def refresh_widget(
     """
     # TODO: Implement widget data refresh logic
     return SuccessResponse(message="Widget refresh triggered")
-

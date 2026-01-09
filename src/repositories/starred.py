@@ -57,12 +57,12 @@ class StarredItemRepository(BaseRepository[StarredItem]):
             StarredItem.user_id == user_id,
             StarredItem.deleted_at.is_(None),
         )
-        
+
         if item_type:
             query = query.where(StarredItem.item_type == item_type)
-        
+
         query = query.order_by(StarredItem.created_at.desc())
-        
+
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
@@ -79,15 +79,17 @@ class StarredItemRepository(BaseRepository[StarredItem]):
 
         Returns:
             StarredItem: Created starred item
-            
+
         Raises:
             ValueError: If a non-deleted starred item already exists
         """
         # Check if a non-deleted starred item already exists
         existing = await self.get_by_user_and_item(user_id, item_id, item_type)
         if existing:
-            raise ValueError(f"Item {item_id} of type {item_type} is already starred by user {user_id}")
-        
+            raise ValueError(
+                f"Item {item_id} of type {item_type} is already starred by user {user_id}"
+            )
+
         starred_item = StarredItem(
             user_id=user_id,
             item_id=item_id,
@@ -97,4 +99,3 @@ class StarredItemRepository(BaseRepository[StarredItem]):
         await self.db.flush()
         await self.db.refresh(starred_item)
         return starred_item
-

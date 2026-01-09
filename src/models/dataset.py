@@ -37,4 +37,3 @@ class UserDataset(Base):
 
     def __repr__(self) -> str:
         return f"<UserDataset(id={self.id}, user_id={self.user_id}, dataset_id={self.dataset_id}, type={self.dataset_type})>"
-

@@ -100,4 +100,3 @@ class DashboardBuildJobStatusResponse(BaseModel):
     error: Optional[str] = None
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
-

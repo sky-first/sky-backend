@@ -1,6 +1,7 @@
 """AI service."""
 
-from datetime import datetime, timezone, timedelta
+import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -31,8 +32,7 @@ from src.schemas.ai import (
     PipelineResponse,
     ValidateSQLRequest,
     ValidateSQLResponse,
-)
-import logging
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +60,10 @@ class AIService:
     async def _get_first_active_connection(self, user_id: UUID) -> Optional[str]:
         """
         Get the first active connection for a user.
-        
+
         Args:
             user_id: User ID
-            
+
         Returns:
             Optional[str]: First active connection_id, or None
         """
@@ -72,7 +72,9 @@ class AIService:
                 user_id, filters={"status": "active"}, limit=1
             )
             if connections:
-                logger.info(f"Using first active connection: {connections[0].id} ({connections[0].name})")
+                logger.info(
+                    f"Using first active connection: {connections[0].id} ({connections[0].name})"
+                )
                 return str(connections[0].id)
             return None
         except Exception as e:
@@ -93,6 +95,7 @@ class AIService:
         """
         try:
             from uuid import UUID as UUIDType
+
             from src.repositories.space import SpaceRepository
 
             space_uuid = UUIDType(space_id)
@@ -132,45 +135,50 @@ class AIService:
     ) -> Optional[str]:
         """
         Resolve table names to connection_id by querying connection_metadata.
-        
+
         Args:
             table_names: List of table names to search for
             user_id: User ID to filter connections
-            
+
         Returns:
             Optional[str]: First connection_id that contains any of the tables, or None
         """
         if not table_names:
             return None
-            
+
         try:
             # Get all connections for this user
             connections = await self.connection_repo.get_by_user(user_id)
-            
+
             # Check each connection's metadata for the requested tables
             for connection in connections:
                 metadata = await self.metadata_repo.get_by_connection_id(connection.id)
                 if not metadata or not metadata.tables:
                     continue
-                    
+
                 # Check if any of the requested tables exist in this connection
                 connection_table_names = [
                     table.get("name") if isinstance(table, dict) else getattr(table, "name", None)
                     for table in metadata.tables
                 ]
-                
+
                 # Normalize table names (case-insensitive comparison)
-                connection_table_names_lower = [t.lower() if t else "" for t in connection_table_names]
+                connection_table_names_lower = [
+                    t.lower() if t else "" for t in connection_table_names
+                ]
                 requested_tables_lower = [t.lower() for t in table_names]
-                
+
                 # If any requested table matches, return this connection_id
-                if any(req_table in connection_table_names_lower for req_table in requested_tables_lower):
+                if any(
+                    req_table in connection_table_names_lower
+                    for req_table in requested_tables_lower
+                ):
                     logger.info(
                         f"Resolved tables {table_names} to connection_id {connection.id} "
                         f"(connection: {connection.name})"
                     )
                     return str(connection.id)
-                    
+
             logger.warning(
                 f"Could not resolve tables {table_names} to any connection_id for user {user_id}"
             )
@@ -188,11 +196,11 @@ class AIService:
     ) -> List[str]:
         """
         Get crew IDs for a user in a specific space.
-        
+
         Args:
             user_id: User ID
             space_id: Optional space ID. If provided, filters crews by space.
-            
+
         Returns:
             List[str]: List of crew IDs as strings
         """
@@ -211,25 +219,27 @@ class AIService:
                 crew_ids = await self.crew_member_repo.get_crew_ids_by_user_and_space(
                     user_id, space_uuid
                 )
-            
+
             # Convert UUIDs to strings for API
             crew_ids_str = [str(crew_id) for crew_id in crew_ids]
-            
+
             context_label = "(all spaces)" if all_spaces else f"in space {space_id}"
             logger.info(
                 f"User {user_id} has access to {len(crew_ids_str)} crews {context_label}: {crew_ids_str}"
             )
-            
+
             return crew_ids_str
         except Exception as e:
             logger.error(
                 f"Error getting crew_ids for user {user_id} in space {space_id}: {str(e)}",
-                exc_info=True
+                exc_info=True,
             )
             # Return empty list on error - user will only see global data
             return []
 
-    async def _resolve_space_id_for_connection(self, user_id: UUID, connection_id: str) -> Optional[str]:
+    async def _resolve_space_id_for_connection(
+        self, user_id: UUID, connection_id: str
+    ) -> Optional[str]:
         """
         Resolve a space_id context for a given connection_id.
 
@@ -240,7 +250,9 @@ class AIService:
         """
         try:
             from uuid import UUID as UUIDType
+
             from sqlalchemy import or_, select
+
             from src.models.space import Space, SpaceConnection, SpaceMember
 
             conn_uuid = UUIDType(connection_id)
@@ -262,9 +274,7 @@ class AIService:
             )
             return None
 
-    async def process_query(
-        self, user_id: UUID, query_data: AIQueryRequest
-    ) -> AIQueryResponse:
+    async def process_query(self, user_id: UUID, query_data: AIQueryRequest) -> AIQueryResponse:
         """
         Process AI query.
 
@@ -301,7 +311,7 @@ class AIService:
                 # 3. If still not found, fall back to mock
                 connection_id = None
                 table_names = []
-                
+
                 # First, try to detect UUIDs (connection_ids) in knowledge
                 if configure_data.knowledge:
                     for item in configure_data.knowledge:
@@ -312,7 +322,7 @@ class AIService:
                         else:
                             # Assume it's a table name
                             table_names.append(item)
-                    
+
                     # If no UUID found, try to resolve table names to connection_id
                     if not connection_id and table_names:
                         resolved_connection_id = await self._resolve_connection_id_from_tables(
@@ -320,7 +330,7 @@ class AIService:
                         )
                         if resolved_connection_id:
                             connection_id = resolved_connection_id
-                
+
                 # If still no connection_id, try to get first active connection
                 if not connection_id:
                     space_id = getattr(query_data, "space_id", None)
@@ -339,8 +349,10 @@ class AIService:
                     # Get space_id from query_data (may be missing in Personal mode)
                     space_id = getattr(query_data, "space_id", None)
                     if not space_id:
-                        space_id = await self._resolve_space_id_for_connection(user_id, connection_id)
-                    
+                        space_id = await self._resolve_space_id_for_connection(
+                            user_id, connection_id
+                        )
+
                     if space_id:
                         # Get crew_ids for this user (Personal mode => all crews across spaces)
                         is_personal = bool(getattr(query_data, "is_personal", False))
@@ -357,12 +369,14 @@ class AIService:
                                 table_names: List[str] = []
                                 for item in configure_data.knowledge:
                                     # keep only non-UUIDs (UUIDs represent connection_id)
-                                    if isinstance(item, str) and not (len(item) == 36 and item.count("-") == 4):
+                                    if isinstance(item, str) and not (
+                                        len(item) == 36 and item.count("-") == 4
+                                    ):
                                         table_names.append(item)
                                 selected_datasets = table_names or None
                         except Exception:
                             selected_datasets = None
-                        
+
                         logger.info(
                             f"Calling real AI service with connection_id={connection_id}, "
                             f"space_id={space_id}, crew_ids={crew_ids}, question='{configure_data.question[:50]}...'"
@@ -383,22 +397,24 @@ class AIService:
                         query.data_sample = result.get("data_sample", [])
                         query.sql = result.get("sql")
                         query.status = "completed"
-                        
+
                         # Store chosen table/datasets in configure_data for frontend
                         chosen_table = result.get("chosen_table")
                         chosen_datasets = result.get("chosen_datasets", [])
-                        
+
                         # Debug log
                         logger.info(
                             f"Real AI service result: chosen_table={chosen_table}, "
                             f"chosen_datasets={chosen_datasets}, "
                             f"result_keys={list(result.keys())}"
                         )
-                        
+
                         if chosen_table or chosen_datasets:
                             # Get current config and ensure it's a dict
-                            current_config = dict(query.configure_data) if query.configure_data else {}
-                            
+                            current_config = (
+                                dict(query.configure_data) if query.configure_data else {}
+                            )
+
                             if chosen_table:
                                 current_config["chosen_table"] = chosen_table
                             if chosen_datasets:
@@ -406,14 +422,15 @@ class AIService:
                             elif chosen_table:
                                 # Fallback: if only chosen_table exists, create array
                                 current_config["chosen_datasets"] = [chosen_table]
-                            
+
                             # Assign new dict to ensure SQLAlchemy detects the change
                             query.configure_data = current_config
-                            
+
                             # Mark as modified to ensure SQLAlchemy tracks the change
                             from sqlalchemy.orm.attributes import flag_modified
+
                             flag_modified(query, "configure_data")
-                            
+
                             logger.info(
                                 f"Saved to configure_data: chosen_table={current_config.get('chosen_table')}, "
                                 f"chosen_datasets={current_config.get('chosen_datasets')}, "
@@ -424,7 +441,7 @@ class AIService:
                                 f"No chosen_table or chosen_datasets in result. "
                                 f"Result keys: {list(result.keys())}"
                             )
-                        
+
                         logger.info(
                             f"Real AI service returned answer (length: {len(query.answer or '')}, "
                             f"chosen_table: {chosen_table}, chosen_datasets: {chosen_datasets})"
@@ -438,7 +455,11 @@ class AIService:
                         result = await self.mock_ai.process_pipeline(
                             str(query.id), configure_data.model_dump()
                         )
-                        query.answer = result.get("steps", [])[-1].get("content", "") if result.get("steps") else "Answer generated"
+                        query.answer = (
+                            result.get("steps", [])[-1].get("content", "")
+                            if result.get("steps")
+                            else "Answer generated"
+                        )
                         query.status = "completed"
                 else:
                     # No connection_id found, use mock
@@ -449,21 +470,31 @@ class AIService:
                     result = await self.mock_ai.process_pipeline(
                         str(query.id), configure_data.model_dump()
                     )
-                    query.answer = result.get("steps", [])[-1].get("content", "") if result.get("steps") else "Answer generated"
+                    query.answer = (
+                        result.get("steps", [])[-1].get("content", "")
+                        if result.get("steps")
+                        else "Answer generated"
+                    )
                     query.status = "completed"
             else:
                 # Use mock AI service (either not configured or no knowledge provided)
                 if not self.real_ai:
-                    logger.debug("Real AI service not configured (AI_SERVICE_TYPE != 'real'), using mock")
+                    logger.debug(
+                        "Real AI service not configured (AI_SERVICE_TYPE != 'real'), using mock"
+                    )
                 elif not configure_data.knowledge:
                     logger.debug("No knowledge provided, using mock AI service")
-                    
+
                 result = await self.mock_ai.process_pipeline(
                     str(query.id), configure_data.model_dump()
                 )
 
                 # Update query with answer
-                query.answer = result.get("steps", [])[-1].get("content", "") if result.get("steps") else "Answer generated"
+                query.answer = (
+                    result.get("steps", [])[-1].get("content", "")
+                    if result.get("steps")
+                    else "Answer generated"
+                )
                 query.status = "completed"
         except Exception as e:
             query.status = "error"
@@ -474,46 +505,47 @@ class AIService:
 
         # Build response with chosen datasets from configure_data
         response_dict = query.__dict__.copy()
-        
+
         # Debug: log what's in configure_data after refresh
         configure_data_raw = query.configure_data
         logger.info(
             f"After refresh - configure_data type: {type(configure_data_raw)}, "
             f"configure_data value: {configure_data_raw}"
         )
-        
+
         configure_data = configure_data_raw or {}
-        
+
         # Ensure configure_data is a dict (it might be a string or other type)
         if isinstance(configure_data, str):
             import json
+
             try:
                 configure_data = json.loads(configure_data)
             except:
                 configure_data = {}
         elif not isinstance(configure_data, dict):
             configure_data = {}
-        
+
         chosen_table = configure_data.get("chosen_table")
         chosen_datasets = configure_data.get("chosen_datasets", [])
-        
+
         # Ensure chosen_datasets is a list
         if not isinstance(chosen_datasets, list):
             chosen_datasets = [chosen_datasets] if chosen_datasets else []
-        
+
         # Fallback: if only chosen_table exists, create array
         if not chosen_datasets and chosen_table:
             chosen_datasets = [chosen_table]
-        
+
         response_dict["chosen_table"] = chosen_table
         response_dict["chosen_datasets"] = chosen_datasets
-        
+
         logger.info(
             f"Returning AIQueryResponse with chosen_table={chosen_table}, "
             f"chosen_datasets={chosen_datasets}, "
             f"configure_data_keys={list(configure_data.keys()) if isinstance(configure_data, dict) else 'not_dict'}"
         )
-        
+
         return AIQueryResponse.model_validate(response_dict)
 
     async def send_chat_message(
@@ -545,7 +577,7 @@ class AIService:
         context = message_data.context or {}
         configure_data_dict = context.get("configure_data", {}) or context
         knowledge = configure_data_dict.get("knowledge", []) or []
-        
+
         # Try to use real AI service if configured
         answer = None
         try:
@@ -557,7 +589,7 @@ class AIService:
                 # 3. If still not found, fall back to mock
                 connection_id = None
                 table_names = []
-                
+
                 # First, try to detect UUIDs (connection_ids) in knowledge
                 if knowledge:
                     for item in knowledge:
@@ -568,7 +600,7 @@ class AIService:
                         elif isinstance(item, str):
                             # Assume it's a table name
                             table_names.append(item)
-                    
+
                     # If no UUID found, try to resolve table names to connection_id
                     if not connection_id and table_names:
                         resolved_connection_id = await self._resolve_connection_id_from_tables(
@@ -576,7 +608,7 @@ class AIService:
                         )
                         if resolved_connection_id:
                             connection_id = resolved_connection_id
-                
+
                 # If still no connection_id, try to get first active connection
                 if not connection_id:
                     # Try to get space_id from context
@@ -596,8 +628,10 @@ class AIService:
                     # Get space_id from context or resolve from connection
                     space_id = context.get("space_id") or configure_data_dict.get("space_id")
                     if not space_id:
-                        space_id = await self._resolve_space_id_for_connection(user_id, connection_id)
-                    
+                        space_id = await self._resolve_space_id_for_connection(
+                            user_id, connection_id
+                        )
+
                     if space_id:
                         # Get crew_ids for this user
                         is_personal = bool(context.get("is_personal", False))
@@ -606,7 +640,7 @@ class AIService:
                             space_id,
                             all_spaces=is_personal,
                         )
-                        
+
                         # Forward user-selected datasets/tables to AI engine when present
                         selected_datasets: Optional[List[str]] = None
                         try:
@@ -614,17 +648,19 @@ class AIService:
                                 table_names_list: List[str] = []
                                 for item in knowledge:
                                     # keep only non-UUIDs (UUIDs represent connection_id)
-                                    if isinstance(item, str) and not (len(item) == 36 and item.count("-") == 4):
+                                    if isinstance(item, str) and not (
+                                        len(item) == 36 and item.count("-") == 4
+                                    ):
                                         table_names_list.append(item)
                                 selected_datasets = table_names_list or None
                         except Exception:
                             selected_datasets = None
-                        
+
                         logger.info(
                             f"[send_chat_message] Calling real AI service with connection_id={connection_id}, "
                             f"space_id={space_id}, crew_ids={crew_ids}, question='{message_data.message[:50]}...'"
                         )
-                        
+
                         result = await self.real_ai.process_query(
                             connection_id=connection_id,
                             question=message_data.message,
@@ -635,7 +671,7 @@ class AIService:
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
                         )
-                        
+
                         answer = result.get("answer", "")
                         logger.info(
                             f"[send_chat_message] Real AI service returned answer (length: {len(answer)})"
@@ -660,19 +696,18 @@ class AIService:
                     )
             else:
                 # Use mock AI service (not configured)
-                logger.debug("[send_chat_message] Real AI service not configured (AI_SERVICE_TYPE != 'real'), using mock")
+                logger.debug(
+                    "[send_chat_message] Real AI service not configured (AI_SERVICE_TYPE != 'real'), using mock"
+                )
                 answer = await self.mock_ai.generate_answer(
                     message_data.message, knowledge, context
                 )
         except Exception as e:
             logger.error(
-                f"[send_chat_message] Error calling real AI service: {str(e)}",
-                exc_info=True
+                f"[send_chat_message] Error calling real AI service: {str(e)}", exc_info=True
             )
             # Fallback to mock on error
-            answer = await self.mock_ai.generate_answer(
-                message_data.message, knowledge, context
-            )
+            answer = await self.mock_ai.generate_answer(message_data.message, knowledge, context)
 
         # Save AI response
         ai_message = await BaseRepository(self.db, ChatMessage).create(
@@ -710,13 +745,13 @@ class AIService:
             List[AIHistoryItem]: History items
         """
         from sqlalchemy import select
-        
+
         # Build base query
         query = select(AIHistory).where(AIHistory.user_id == user_id)
-        
+
         # Apply date filters
         now = datetime.now(timezone.utc)
-        
+
         if filter_type == "today":
             # Last 24 hours
             yesterday = now - timedelta(hours=24)
@@ -729,21 +764,21 @@ class AIService:
             # Only pinned items
             query = query.where(AIHistory.pinned == True)
         # "all" or None: no date filter, show everything
-        
+
         # Apply category filter
         if category:
             query = query.where(AIHistory.category == category)
-        
+
         # Order by date descending (most recent first)
         query = query.order_by(AIHistory.date.desc())
-        
+
         # Apply pagination
         query = query.offset(skip).limit(limit)
-        
+
         # Execute query
         result = await self.db.execute(query)
         history_items = list(result.scalars().all())
-        
+
         # Apply search filter if provided (client-side for better UX)
         if search:
             history_items = [
@@ -815,9 +850,7 @@ class AIService:
 
         await self.db.commit()
 
-        return PipelineExecuteResponse(
-            pipeline_id=pipeline.id, status=pipeline.status
-        )
+        return PipelineExecuteResponse(pipeline_id=pipeline.id, status=pipeline.status)
 
     async def get_pipeline(self, pipeline_id: UUID) -> PipelineResponse:
         """
@@ -944,14 +977,16 @@ class AIService:
         writer.writerow(["ID", "Query", "Answer", "Date", "Category", "Pinned"])
 
         for item in history_items:
-            writer.writerow([
-                str(item.id),
-                item.query,
-                item.answer,
-                item.date.isoformat(),
-                item.category or "",
-                "Yes" if item.pinned else "No",
-            ])
+            writer.writerow(
+                [
+                    str(item.id),
+                    item.query,
+                    item.answer,
+                    item.date.isoformat(),
+                    item.category or "",
+                    "Yes" if item.pinned else "No",
+                ]
+            )
 
         return output.getvalue()
 
@@ -990,9 +1025,7 @@ class AIService:
 
         return AIHistoryItem.model_validate(history)
 
-    async def submit_feedback(
-        self, user_id: UUID, feedback_data: FeedbackRequest
-    ) -> None:
+    async def submit_feedback(self, user_id: UUID, feedback_data: FeedbackRequest) -> None:
         """
         Submit feedback for AI response.
 
@@ -1048,9 +1081,7 @@ class AIService:
         answer = await self.mock_ai.generate_answer(question, knowledge, context or {})
         return answer
 
-    async def analyze_question(
-        self, question: str, knowledge: List[str]
-    ) -> Dict[str, Any]:
+    async def analyze_question(self, question: str, knowledge: List[str]) -> Dict[str, Any]:
         """
         Analyze question.
 
@@ -1070,9 +1101,7 @@ class AIService:
             "confidence": 0.85,
         }
 
-    async def validate_sql(
-        self, request: ValidateSQLRequest, user: User
-    ) -> ValidateSQLResponse:
+    async def validate_sql(self, request: ValidateSQLRequest, user: User) -> ValidateSQLResponse:
         """
         Validate SQL by calling AI Engine.
 
@@ -1086,13 +1115,12 @@ class AIService:
         Raises:
             HTTPException: If AI service is not available or call fails
         """
-        from fastapi import HTTPException
         import httpx
+        from fastapi import HTTPException
 
         if not self.real_ai:
             raise HTTPException(
-                status_code=503,
-                detail="AI service is not available (not configured as 'real')"
+                status_code=503, detail="AI service is not available (not configured as 'real')"
             )
 
         try:
@@ -1102,12 +1130,11 @@ class AIService:
                 space_id = await self._resolve_space_id_for_connection(
                     user.id, request.connection_id
                 )
-            
+
             # If still no space_id, raise error (space_id is required for AI Engine)
             if not space_id:
                 raise HTTPException(
-                    status_code=400,
-                    detail="space_id is required for SQL validation"
+                    status_code=400, detail="space_id is required for SQL validation"
                 )
 
             # Chama AI Engine via HTTP client
@@ -1125,14 +1152,7 @@ class AIService:
             raise
         except httpx.HTTPStatusError as e:
             logger.error(f"AI service HTTP error: {e.response.status_code} - {e.response.text}")
-            raise HTTPException(
-                status_code=502,
-                detail=f"AI service error: {str(e)}"
-            )
+            raise HTTPException(status_code=502, detail=f"AI service error: {str(e)}")
         except Exception as e:
             logger.error(f"Error validating SQL: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error validating SQL: {str(e)}"
-            )
-
+            raise HTTPException(status_code=500, detail=f"Error validating SQL: {str(e)}")

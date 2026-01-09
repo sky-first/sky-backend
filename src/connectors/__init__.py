@@ -1,2 +1,1 @@
 """Connectors module."""
-

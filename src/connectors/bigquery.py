@@ -171,9 +171,7 @@ class BigQueryConnector(BaseConnector):
 
         return await asyncio.to_thread(_run)
 
-    async def execute_query(
-        self, config: Dict[str, Any], query: str
-    ) -> List[Dict[str, Any]]:
+    async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
         """
         Execute an arbitrary SQL query against BigQuery and return rows as dicts.
         """
@@ -198,5 +196,3 @@ class BigQueryConnector(BaseConnector):
             "tables_count": len(metadata.get("tables", [])),
             "schemas_count": len(metadata.get("schemas", [])),
         }
-
-

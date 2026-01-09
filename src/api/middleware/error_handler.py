@@ -7,12 +7,13 @@ from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from jose import JWTError
 
-# ExceptionGroup is available in Python 3.11+
-try:
-    from builtins import ExceptionGroup
-except ImportError:
-    # For Python < 3.11, ExceptionGroup doesn't exist
-    ExceptionGroup = type(None)  # Will never match
+# ExceptionGroup / BaseExceptionGroup exist only on Python 3.11+.
+# On 3.11, ExceptionGroup is also an Exception, so it would be caught by `except Exception`
+# unless we explicitly detect and handle it.
+try:  # pragma: no cover
+    from builtins import BaseExceptionGroup as _BuiltinsBaseExceptionGroup  # type: ignore
+except Exception:  # pragma: no cover
+    _BuiltinsBaseExceptionGroup = None
 
 from src.core.exceptions import (
     BadRequestError,
@@ -128,42 +129,42 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
         )
         _apply_cors_headers(request, response)
         return response
-    except ExceptionGroup as eg:
-        # Handle ExceptionGroup (Python 3.11+) - extract the first exception
-        logger.warning(f"ExceptionGroup caught: {len(eg.exceptions)} exceptions")
-        # Try to find UnauthorizedError in the group
-        for exc in eg.exceptions:
-            logger.debug(f"Exception in group: {type(exc).__name__}: {exc}")
-            if isinstance(exc, UnauthorizedError):
-                logger.warning(f"Unauthorized: {exc.message}")
-                response = JSONResponse(
-                    status_code=exc.status_code,
-                    content={"error": "Unauthorized", "message": exc.message},
-                )
-                _apply_cors_headers(request, response)
-                return response
-            elif isinstance(exc, BaseAPIException):
-                logger.error(f"API exception from group: {exc.message}")
-                response = JSONResponse(
-                    status_code=exc.status_code,
-                    content={"error": "API Error", "message": exc.message},
-                )
-                _apply_cors_headers(request, response)
-                return response
-        # If no known exception found, try to extract and re-raise the first one
-        # This allows FastAPI exception handlers to catch it
-        if eg.exceptions:
-            first_exc = eg.exceptions[0]
-            logger.warning(f"Re-raising first exception from group: {type(first_exc).__name__}")
-            raise first_exc from eg
-        raise
     except Exception as e:
+        # Python 3.11+: ExceptionGroup inherits from Exception, so handle it here first.
+        if _BuiltinsBaseExceptionGroup is not None and isinstance(e, _BuiltinsBaseExceptionGroup):
+            eg = e  # type: ignore[assignment]
+            exceptions = getattr(eg, "exceptions", []) or []
+            logger.warning(f"ExceptionGroup caught: {len(exceptions)} exceptions")
+
+            for exc in exceptions:
+                if isinstance(exc, UnauthorizedError):
+                    response = JSONResponse(
+                        status_code=exc.status_code,
+                        content={"error": "Unauthorized", "message": exc.message},
+                    )
+                    _apply_cors_headers(request, response)
+                    return response
+                if isinstance(exc, BaseAPIException):
+                    response = JSONResponse(
+                        status_code=exc.status_code,
+                        content={"error": "API Error", "message": exc.message},
+                    )
+                    _apply_cors_headers(request, response)
+                    return response
+
+            first = exceptions[0] if exceptions else None
+            if first:
+                raise first from eg
+            raise
+
         # Log full exception details for debugging
         import traceback
+
         error_traceback = traceback.format_exc()
         logger.exception(f"Unhandled exception: {str(e)}\n{error_traceback}")
         # In development, return more details
         from src.config.settings import settings
+
         error_message = str(e) if settings.DEBUG else "An unexpected error occurred"
         response = JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -175,4 +176,3 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
         )
         _apply_cors_headers(request, response)
         return response
-

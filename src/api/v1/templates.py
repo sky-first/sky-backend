@@ -233,4 +233,3 @@ async def apply_template(
     """
     template_service = TemplateService(db)
     return await template_service.apply_template(template_id, current_user, apply_data)
-

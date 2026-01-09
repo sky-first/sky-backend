@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List
 
-from sqlalchemy import Boolean, Column, DateTime, Index, JSON, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from src.config.database import Base
@@ -22,7 +22,9 @@ class Template(Base):
     description = Column(Text, nullable=True)
     thumbnail = Column(Text, nullable=True)
     question = Column(Text, nullable=True)
-    widgets = Column(JSON, nullable=False, default=list, server_default="[]")  # Array of widget definitions
+    widgets = Column(
+        JSON, nullable=False, default=list, server_default="[]"
+    )  # Array of widget definitions
     icon = Column(String(255), nullable=True)
     color = Column(String(7), nullable=False)  # Hex color
     popular = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
@@ -43,4 +45,3 @@ class Template(Base):
 
     def __repr__(self) -> str:
         return f"<Template(id={self.id}, name={self.name}, category={self.category})>"
-

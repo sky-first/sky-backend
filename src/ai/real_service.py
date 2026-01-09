@@ -118,21 +118,21 @@ class RealAIService:
             meta = response.get("meta", {})
             chosen_table = meta.get("chosen_table")
             chosen_datasets = meta.get("chosen_datasets")
-            
+
             # Debug log
             logger.info(
                 f"AI service response: meta_keys={list(meta.keys())}, "
                 f"chosen_table={chosen_table}, chosen_datasets={chosen_datasets}, "
                 f"response_keys={list(response.keys())}"
             )
-            
+
             # Use chosen_datasets from meta if available, otherwise fallback to chosen_table
-            final_chosen_datasets = chosen_datasets if chosen_datasets else ([chosen_table] if chosen_table else [])
-            
-            logger.info(
-                f"Mapped to final_chosen_datasets: {final_chosen_datasets}"
+            final_chosen_datasets = (
+                chosen_datasets if chosen_datasets else ([chosen_table] if chosen_table else [])
             )
-            
+
+            logger.info(f"Mapped to final_chosen_datasets: {final_chosen_datasets}")
+
             return {
                 "answer": response.get("answer", ""),
                 "data_sample": response.get("data_sample", []),
@@ -147,9 +147,7 @@ class RealAIService:
             logger.error(f"Error calling AI service: {str(e)}", exc_info=True)
             raise
 
-    async def generate_sql(
-        self, question: str, context: Dict[str, Any]
-    ) -> str:
+    async def generate_sql(self, question: str, context: Dict[str, Any]) -> str:
         """
         Generate SQL from natural language question.
 
@@ -269,4 +267,3 @@ class RealAIService:
         ]
 
         return {"status": "completed", "steps": steps}
-

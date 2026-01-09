@@ -59,14 +59,45 @@ class UserRepository(BaseRepository[User]):
         Returns:
             Optional[User]: User or None
         """
+        result = await self.db.execute(select(User).where(User.id == id, User.deleted_at.is_(None)))
+        return result.scalar_one_or_none()
+
+    async def get_by_auth0_id(self, auth0_id: str) -> Optional[User]:
+        """
+        Get user by Auth0 ID.
+
+        Args:
+            auth0_id: Auth0 user ID
+
+        Returns:
+            Optional[User]: User or None
+        """
         result = await self.db.execute(
-            select(User).where(User.id == id, User.deleted_at.is_(None))
+            select(User).where(User.auth0_id == auth0_id, User.deleted_at.is_(None))
         )
         return result.scalar_one_or_none()
 
-    async def get_all(
-        self, skip: int = 0, limit: int = 100
-    ) -> List[User]:
+    async def get_by_auth_provider_id(self, provider_id: str, provider: str) -> Optional[User]:
+        """
+        Get user by auth provider ID.
+
+        Args:
+            provider_id: Provider-specific user ID
+            provider: Provider name (google, azure, okta)
+
+        Returns:
+            Optional[User]: User or None
+        """
+        result = await self.db.execute(
+            select(User).where(
+                User.auth_provider_id == provider_id,
+                User.auth_provider == provider,
+                User.deleted_at.is_(None),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_all(self, skip: int = 0, limit: int = 100) -> List[User]:
         """
         Get all users (excluding deleted).
 
@@ -85,4 +116,3 @@ class UserRepository(BaseRepository[User]):
             .limit(limit)
         )
         return list(result.scalars().all())
-

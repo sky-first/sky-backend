@@ -38,14 +38,10 @@ class ExcelUploadResponse(BaseModel):
     """Excel upload response schema."""
 
     file_id: UUID
-    data: Dict[str, List[Dict[str, Any]]] = Field(
-        description="Parsed Excel data by sheet name"
-    )
+    data: Dict[str, List[Dict[str, Any]]] = Field(description="Parsed Excel data by sheet name")
     sheets: List[str] = Field(description="Sheet names")
     columns: Dict[str, List[str]] = Field(description="Column names by sheet")
-    preview: Dict[str, List[Dict[str, Any]]] = Field(
-        description="First 10 rows by sheet"
-    )
+    preview: Dict[str, List[Dict[str, Any]]] = Field(description="First 10 rows by sheet")
     url: str
     type: str
     size: int
@@ -68,4 +64,3 @@ class FileResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-

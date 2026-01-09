@@ -8,11 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.user import User
-from src.repositories.dashboard import (
-    ConnectionRepository,
-    DashboardRepository,
-    WidgetRepository,
-)
+from src.repositories.dashboard import ConnectionRepository, DashboardRepository, WidgetRepository
 from src.schemas.dashboard import (
     ConnectionResponse,
     DashboardCreate,
@@ -60,29 +56,34 @@ class DashboardService:
         """
         # Verify planet exists and user has access
         from src.repositories.planet import PlanetRepository
+
         planet_repo = PlanetRepository(self.db)
         planet = await planet_repo.get_by_id(dashboard_data.planet_id)
-        
+
         if not planet or planet.deleted_at:
             raise NotFoundError(f"Planet with id {dashboard_data.planet_id} not found")
-        
+
         # Check if user has access to this planet
         if planet.owner_id != user.id:
             from src.repositories.planet import PlanetMemberRepository
+
             member_repo = PlanetMemberRepository(self.db)
-            member = await member_repo.get_by_planet_and_user(
-                dashboard_data.planet_id, user.id
-            )
+            member = await member_repo.get_by_planet_and_user(dashboard_data.planet_id, user.id)
             if not member:
                 raise ForbiddenError("Access denied to this planet")
-        
+
         dashboard = await self.dashboard_repo.create(
             name=dashboard_data.name,
             description=dashboard_data.description,
             planet_id=dashboard_data.planet_id,
             template_id=dashboard_data.template_id,
             created_by=user.id,
-            canvas_settings={"scale": 1, "position": {"x": 0, "y": 0}, "snapToGrid": False, "gridSize": 24},
+            canvas_settings={
+                "scale": 1,
+                "position": {"x": 0, "y": 0},
+                "snapToGrid": False,
+                "gridSize": 24,
+            },
             is_locked=False,
         )
 
@@ -91,9 +92,7 @@ class DashboardService:
 
         return DashboardResponse.model_validate(dashboard)
 
-    async def get_dashboard(
-        self, dashboard_id: UUID, user: User
-    ) -> DashboardResponse:
+    async def get_dashboard(self, dashboard_id: UUID, user: User) -> DashboardResponse:
         """
         Get dashboard by ID.
 
@@ -130,9 +129,7 @@ class DashboardService:
         Returns:
             List[DashboardResponse]: List of dashboards
         """
-        dashboards = await self.dashboard_repo.get_by_planet(
-            planet_id, skip=skip, limit=limit
-        )
+        dashboards = await self.dashboard_repo.get_by_planet(planet_id, skip=skip, limit=limit)
         return [DashboardResponse.model_validate(d) for d in dashboards]
 
     async def update_dashboard(
@@ -185,9 +182,7 @@ class DashboardService:
         await self.dashboard_repo.delete(dashboard_id)
         await self.db.commit()
 
-    async def create_widget(
-        self, user: User, widget_data: WidgetCreate
-    ) -> WidgetResponse:
+    async def create_widget(self, user: User, widget_data: WidgetCreate) -> WidgetResponse:
         """
         Create a new widget.
 
@@ -243,9 +238,7 @@ class DashboardService:
 
         return WidgetResponse.model_validate(widget)
 
-    async def get_dashboard_widgets(
-        self, dashboard_id: UUID, user: User
-    ) -> List[WidgetResponse]:
+    async def get_dashboard_widgets(self, dashboard_id: UUID, user: User) -> List[WidgetResponse]:
         """
         Get widgets by dashboard.
 
@@ -325,9 +318,7 @@ class DashboardService:
             List[DashboardResponse]: List of dashboards
         """
         if planet_id:
-            dashboards = await self.dashboard_repo.get_by_planet(
-                planet_id, skip=skip, limit=limit
-            )
+            dashboards = await self.dashboard_repo.get_by_planet(planet_id, skip=skip, limit=limit)
         else:
             # Get all dashboards user has access to (via planets)
             # For now, return empty list if no planet_id specified
@@ -455,9 +446,7 @@ class DashboardService:
             "last_updated": widget.updated_at.isoformat() if widget.updated_at else None,
         }
 
-    async def export_dashboard(
-        self, dashboard_id: UUID, user: User
-    ) -> DashboardExportResponse:
+    async def export_dashboard(self, dashboard_id: UUID, user: User) -> DashboardExportResponse:
         """
         Export dashboard with all widgets and connections.
 
@@ -491,7 +480,10 @@ class DashboardService:
         )
 
     async def duplicate_dashboard(
-        self, dashboard_id: UUID, user: User, duplicate_data: Optional[DashboardDuplicateRequest] = None
+        self,
+        dashboard_id: UUID,
+        user: User,
+        duplicate_data: Optional[DashboardDuplicateRequest] = None,
     ) -> DashboardResponse:
         """
         Duplicate dashboard with all widgets.
@@ -513,10 +505,18 @@ class DashboardService:
             raise NotFoundError("Dashboard not found")
 
         # Determine new dashboard name
-        new_name = duplicate_data.name if duplicate_data and duplicate_data.name else f"{original_dashboard.name} (Copy)"
-        
+        new_name = (
+            duplicate_data.name
+            if duplicate_data and duplicate_data.name
+            else f"{original_dashboard.name} (Copy)"
+        )
+
         # Determine planet_id
-        new_planet_id = duplicate_data.planet_id if duplicate_data and duplicate_data.planet_id else original_dashboard.planet_id
+        new_planet_id = (
+            duplicate_data.planet_id
+            if duplicate_data and duplicate_data.planet_id
+            else original_dashboard.planet_id
+        )
 
         # Create new dashboard
         new_dashboard = await self.dashboard_repo.create(
@@ -525,7 +525,11 @@ class DashboardService:
             planet_id=new_planet_id,
             template_id=original_dashboard.template_id,
             created_by=user.id,
-            canvas_settings=original_dashboard.canvas_settings.copy() if original_dashboard.canvas_settings else None,
+            canvas_settings=(
+                original_dashboard.canvas_settings.copy()
+                if original_dashboard.canvas_settings
+                else None
+            ),
             is_locked=False,  # New dashboard starts unlocked
         )
 
@@ -539,8 +543,16 @@ class DashboardService:
                 dashboard_id=new_dashboard.id,
                 type=original_widget.type,
                 title=original_widget.title,
-                position=original_widget.position.copy() if original_widget.position else {"x": 0, "y": 0},
-                size=original_widget.size.copy() if original_widget.size else {"width": 400, "height": 300},
+                position=(
+                    original_widget.position.copy()
+                    if original_widget.position
+                    else {"x": 0, "y": 0}
+                ),
+                size=(
+                    original_widget.size.copy()
+                    if original_widget.size
+                    else {"width": 400, "height": 300}
+                ),
                 data=original_widget.data.copy() if original_widget.data else None,
                 config=original_widget.config.copy() if original_widget.config else None,
                 connection_id=original_widget.connection_id,
@@ -552,9 +564,7 @@ class DashboardService:
 
         return DashboardResponse.model_validate(new_dashboard)
 
-    async def lock_dashboard(
-        self, dashboard_id: UUID, user: User
-    ) -> DashboardResponse:
+    async def lock_dashboard(self, dashboard_id: UUID, user: User) -> DashboardResponse:
         """
         Lock dashboard.
 
@@ -580,9 +590,7 @@ class DashboardService:
 
         return DashboardResponse.model_validate(dashboard)
 
-    async def unlock_dashboard(
-        self, dashboard_id: UUID, user: User
-    ) -> DashboardResponse:
+    async def unlock_dashboard(self, dashboard_id: UUID, user: User) -> DashboardResponse:
         """
         Unlock dashboard.
 
@@ -607,4 +615,3 @@ class DashboardService:
         await self.db.refresh(dashboard)
 
         return DashboardResponse.model_validate(dashboard)
-

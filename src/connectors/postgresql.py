@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import asyncpg
 
-from src.repositories.base import BaseConnector
+from src.connectors.base import BaseConnector
 
 
 class PostgreSQLConnector(BaseConnector):
@@ -45,8 +45,9 @@ class PostgreSQLConnector(BaseConnector):
         finally:
             await conn.close()
 
-    async def sync_data(self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def sync_data(
+        self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Sync PostgreSQL data."""
         # TODO: Implement sync logic
         return {"status": "success"}
-

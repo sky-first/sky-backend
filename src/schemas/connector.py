@@ -39,4 +39,3 @@ class ConnectorResponse(BaseModel):
     config_schema: Dict[str, Any] = Field(default_factory=dict)
     sync_frequency: Optional[Dict[str, Any]] = None
     metadata_schema: Optional[Dict[str, Any]] = None
-

@@ -32,7 +32,7 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     # Browsers send OPTIONS without Authorization; blocking it causes "preflight not OK" errors.
     if request.method == "OPTIONS":
         return await call_next(request)
-    
+
     # Skip auth for public endpoints
     public_paths = [
         "/health",
@@ -49,6 +49,9 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/v1/auth/forgot-password",
         "/api/v1/auth/reset-password",
         "/api/v1/auth/verify-email",
+        "/api/v1/auth/sso/",  # All SSO endpoints (login and callback)
+        "/api/v1/auth/invite/validate",  # Invite validation (public)
+        "/api/v1/auth/invite/login",  # Invite login (public)
     ]
 
     # Root only (avoid "/" matching every path)
@@ -59,7 +62,7 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     if any(request.url.path.startswith(path) for path in public_paths):
         logger.debug(f"⏭️ Skipping auth for public path: {request.url.path}")
         return await call_next(request)
-    
+
     logger.info(f"🔐 Auth middleware executing for path: {request.url.path}")
 
     # Extract token from Authorization header
@@ -69,15 +72,15 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         if header_name in request.headers:
             authorization = request.headers[header_name]
             break
-    
+
     # Also try direct access (case-insensitive)
     if not authorization:
         authorization = request.headers.get("Authorization") or request.headers.get("authorization")
-    
+
     # Debug: log all headers
     logger.info(f"🔍 All headers: {dict(request.headers)}")
     logger.info(f"🔍 Authorization header value: {authorization}")
-    
+
     if not authorization:
         logger.warning(f"⚠️ No authorization header for path: {request.url.path}")
         response = JSONResponse(
@@ -91,8 +94,10 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers.add_vary_header("Origin")
         return response
-    
-    logger.info(f"🔑 Authorization header found for path: {request.url.path}, value: {authorization[:50]}...")
+
+    logger.info(
+        f"🔑 Authorization header found for path: {request.url.path}, value: {authorization[:50]}..."
+    )
 
     try:
         scheme, token = authorization.split()
@@ -113,34 +118,44 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     try:
         # Check if user_id already set by dependency (get_current_user validates token first)
         # This avoids duplicate token validation
-        if hasattr(request.state, 'user_id') and request.state.user_id:
-            logger.debug(f"✅ User already authenticated via dependency - user_id: {request.state.user_id}")
+        if hasattr(request.state, "user_id") and request.state.user_id:
+            logger.debug(
+                f"✅ User already authenticated via dependency - user_id: {request.state.user_id}"
+            )
             response = await call_next(request)
             return response
-        
-        # Verify token (fallback if dependency didn't set it)
-        payload = verify_token(token, token_type="access")
-        user_id = payload.get("sub")
-        if not user_id:
-            logger.warning(f"Token payload missing 'sub': {payload}")
-            raise UnauthorizedError("Invalid token payload")
 
-        # Store user info in request state
-        # Ensure user_id is a string
-        user_id_str = str(user_id)
-        
-        # Set state attributes directly
-        request.state.user_id = user_id_str
-        request.state.user_role = payload.get("role", "user")
-        
-        # Verify it was set correctly - use INFO level so we can see it in logs
-        logger.info(f"🔍 Setting user_id: {user_id_str}, type: {type(user_id_str)}")
-        logger.info(f"🔍 request.state.user_id after set: {getattr(request.state, 'user_id', 'NOT SET')}")
-        logger.info(f"🔍 request.state attributes: {[attr for attr in dir(request.state) if not attr.startswith('_')]}")
-        logger.info(f"✅ Auth successful - user_id: {user_id_str}, path: {request.url.path}")
+        # Try to verify as custom JWT first
+        # Note: Auth0 token verification is handled by get_current_user dependency
+        # which has access to database session. Middleware only handles custom JWT.
+        try:
+            payload = verify_token(token, token_type="access")
+            user_id = payload.get("sub")
+            if not user_id:
+                logger.warning(f"Token payload missing 'sub': {payload}")
+                raise UnauthorizedError("Invalid token payload")
 
-        response = await call_next(request)
-        return response
+            # Store user info in request state
+            user_id_str = str(user_id)
+            request.state.user_id = user_id_str
+            request.state.user_role = payload.get("role", "user")
+            request.state.auth_type = "custom"
+
+            logger.info(
+                f"✅ Auth successful (custom JWT) - user_id: {user_id_str}, path: {request.url.path}"
+            )
+            response = await call_next(request)
+            return response
+        except JWTError:
+            # Custom JWT failed - let dependency handle Auth0 verification
+            # This allows dependency to use database session for Auth0 user lookup
+            logger.debug(
+                "Custom JWT verification failed, Auth0 verification will be handled by dependency"
+            )
+            # Continue to next middleware/route - dependency will handle Auth0 verification
+            # If dependency also fails, it will raise UnauthorizedError
+            response = await call_next(request)
+            return response
     except UnauthorizedError as e:
         # Return 401 response directly instead of raising
         logger.warning(f"Unauthorized: {e.message}")
@@ -170,4 +185,3 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     except Exception as e:
         logger.error(f"Auth middleware error: {str(e)}")
         raise
-

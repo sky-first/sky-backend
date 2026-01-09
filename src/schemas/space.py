@@ -16,8 +16,8 @@ class SpaceBase(BaseModel):
     description: Optional[str] = None
     color: Optional[str] = Field(None)  # Allow any string or None, validate in service if needed
     icon: Optional[str] = None
-    
-    @field_validator('color', mode='before')
+
+    @field_validator("color", mode="before")
     @classmethod
     def validate_color(cls, v: Optional[str]) -> Optional[str]:
         """Validate and normalize color value."""
@@ -76,4 +76,3 @@ class SpaceMemberResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-

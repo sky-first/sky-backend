@@ -83,4 +83,3 @@ class PlanetMemberRoleUpdate(BaseModel):
     """Planet member role update schema."""
 
     role: str = Field(..., pattern="^(admin|member|viewer)$")
-

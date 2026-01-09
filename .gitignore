@@ -28,3 +28,7 @@ uploads/
 # Cursor
 .cursorignore
 .cursorindexingignore__pycache__/
+
+# Coverage
+.coverage
+htmlcov/

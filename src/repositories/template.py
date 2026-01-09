@@ -92,4 +92,3 @@ class TemplateRepository(BaseRepository[Template]):
 
         result = await self.db.execute(select(distinct(Template.category)))
         return [row[0] for row in result.all() if row[0]]
-

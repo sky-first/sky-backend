@@ -14,4 +14,3 @@ class FileUploadRepository(BaseRepository[FileUpload]):
 
     def __init__(self, db: AsyncSession):
         super().__init__(db, FileUpload)
-

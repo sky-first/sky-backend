@@ -308,3 +308,65 @@ class AIServiceHTTPClient:
             response.raise_for_status()
             return response.json()
 
+    async def suggest_widget_title(
+        self,
+        question: str,
+        data_sample: Optional[List[Dict[str, Any]]] = None,
+        answer: Optional[str] = None,
+        current_title: Optional[str] = None,
+        language: str = "pt",
+    ) -> str:
+        """
+        Sugere um título melhor para um widget baseado nos dados retornados.
+        Endpoint (ia-do-projeto):
+          POST /widgets/suggest-title
+        Args:
+            question: Pergunta original do widget
+            data_sample: Amostra dos dados retornados (máx. 5 linhas)
+            answer: Resposta textual da IA (opcional)
+            current_title: Título atual do widget (opcional)
+            language: Idioma para o título (pt, en, es)
+        Returns:
+            Título sugerido pela IA
+        Raises:
+            httpx.HTTPError: If request fails
+        """
+        url = f"{self.base_url}/widgets/suggest-title"
+        payload: Dict[str, Any] = {
+            "question": question,
+            "language": language,
+        }
+        if data_sample:
+            # Limitar a 5 linhas para não sobrecarregar
+            payload["data_sample"] = data_sample[:5]
+        if answer:
+            # Limitar resposta a 500 caracteres
+            payload["answer"] = answer[:500]
+        if current_title:
+            payload["current_title"] = current_title
+
+        async with httpx.AsyncClient(timeout=15.0) as client:  # Timeout menor para sugestão de título
+            logger.info(
+                "Calling AI suggest widget title: %s question=%s",
+                url,
+                question[:100],
+            )
+            try:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                suggested_title = data.get("title", current_title or "Widget")
+                logger.info(
+                    "Widget title suggested: '%s' -> '%s'",
+                    current_title or "N/A",
+                    suggested_title,
+                )
+                return suggested_title
+            except httpx.HTTPError as e:
+                logger.warning(
+                    "Failed to suggest widget title: %s. Using current title.",
+                    str(e)[:200],
+                )
+                # Fallback: retornar título atual ou genérico
+                return current_title or "Widget"
+

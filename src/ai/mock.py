@@ -27,7 +27,9 @@ class MockAIService:
             return f"SELECT * FROM {table_names} LIMIT 1000;"
         return "SELECT 1;"
 
-    async def generate_answer(self, question: str, sql_result: List[Dict[str, Any]], config: Dict[str, Any]) -> str:
+    async def generate_answer(
+        self, question: str, sql_result: List[Dict[str, Any]], config: Dict[str, Any]
+    ) -> str:
         """
         Generate natural language answer from SQL results.
 
@@ -42,7 +44,9 @@ class MockAIService:
         await asyncio.sleep(1.0)  # Simulate processing time
         return f"Esta é uma resposta gerada para: '{question}'\n\nAqui está uma análise detalhada com insights relevantes e recomendações baseadas nos dados disponíveis."
 
-    async def process_pipeline(self, query_id: str, configure_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_pipeline(
+        self, query_id: str, configure_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Process AI pipeline.
 
@@ -57,12 +61,47 @@ class MockAIService:
         return {
             "status": "completed",
             "steps": [
-                {"id": "1", "name": "Question", "kind": "question", "status": "COMPLETED", "content": configure_data.get("question", "")},
-                {"id": "2", "name": "Orchestrator", "kind": "orchestrator", "status": "COMPLETED", "content": "Processing..."},
-                {"id": "3", "name": "Project", "kind": "project", "status": "COMPLETED", "content": "Projected data"},
-                {"id": "4", "name": "SQL", "kind": "sql", "status": "COMPLETED", "content": "SELECT * FROM tables LIMIT 1000;"},
-                {"id": "5", "name": "Tables", "kind": "tables", "status": "COMPLETED", "content": "Tables processed"},
-                {"id": "6", "name": "Answer", "kind": "answer", "status": "COMPLETED", "content": "Answer generated"},
+                {
+                    "id": "1",
+                    "name": "Question",
+                    "kind": "question",
+                    "status": "COMPLETED",
+                    "content": configure_data.get("question", ""),
+                },
+                {
+                    "id": "2",
+                    "name": "Orchestrator",
+                    "kind": "orchestrator",
+                    "status": "COMPLETED",
+                    "content": "Processing...",
+                },
+                {
+                    "id": "3",
+                    "name": "Project",
+                    "kind": "project",
+                    "status": "COMPLETED",
+                    "content": "Projected data",
+                },
+                {
+                    "id": "4",
+                    "name": "SQL",
+                    "kind": "sql",
+                    "status": "COMPLETED",
+                    "content": "SELECT * FROM tables LIMIT 1000;",
+                },
+                {
+                    "id": "5",
+                    "name": "Tables",
+                    "kind": "tables",
+                    "status": "COMPLETED",
+                    "content": "Tables processed",
+                },
+                {
+                    "id": "6",
+                    "name": "Answer",
+                    "kind": "answer",
+                    "status": "COMPLETED",
+                    "content": "Answer generated",
+                },
             ],
         }
-

@@ -20,7 +20,11 @@ router = APIRouter()
     "/{dataset_id}",
     response_model=SuccessResponse,
     status_code=status.HTTP_200_OK,
-    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    responses={
+        404: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
     summary="Delete dataset",
     description="Delete a dataset (table or file). For files, deletes the file. For tables, marks as excluded.",
 )
@@ -54,7 +58,7 @@ async def delete_dataset(
         logger.error(f"Error deleting dataset {dataset_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete dataset: {str(e)}"
+            detail=f"Failed to delete dataset: {str(e)}",
         )
 
 
@@ -81,4 +85,3 @@ async def get_excluded_datasets(
     """
     dataset_service = DatasetService(db)
     return await dataset_service.get_excluded_datasets(current_user)
-

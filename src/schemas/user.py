@@ -129,3 +129,48 @@ class UserInviteRequest(BaseModel):
     workspace_id: Optional[UUID] = None
     role: Optional[str] = Field(None, pattern="^(admin|user|viewer)$")
 
+
+# Invite System Schemas
+
+
+class InviteValidateRequest(BaseModel):
+    """Invite validation request schema."""
+
+    token: str = Field(..., description="Invite token to validate")
+
+
+class InviteValidateResponse(BaseModel):
+    """Invite validation response schema."""
+
+    valid: bool
+    email: Optional[str] = None
+    expires_at: Optional[str] = None
+    invited_by_name: Optional[str] = None
+    name: Optional[str] = None
+    message: Optional[str] = None
+
+
+class InviteLoginRequest(BaseModel):
+    """Invite login request schema."""
+
+    token: str = Field(..., description="Invite token")
+    password: str = Field(..., min_length=8, max_length=100, description="User password")
+
+
+class InviteGenerateRequest(BaseModel):
+    """Invite generation request schema."""
+
+    email: EmailStr = Field(..., description="Email of user to invite")
+    expires_days: int = Field(default=7, ge=1, le=30, description="Days until invite expires")
+    name: Optional[str] = Field(
+        None, min_length=1, max_length=255, description="Optional name for invited user"
+    )
+
+
+class InviteGenerateResponse(BaseModel):
+    """Invite generation response schema."""
+
+    token: str
+    email: str
+    expires_at: str
+    message: str

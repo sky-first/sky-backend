@@ -332,7 +332,7 @@ async def get_workspace_dashboards(
     # Verify workspace access
     workspace_service = WorkspaceService(db)
     await workspace_service.get_workspace(workspace_id, current_user)
-    
+
     # Get dashboards
     dashboard_service = DashboardService(db)
     return await dashboard_service.get_workspace_dashboards(
@@ -366,4 +366,3 @@ async def switch_workspace(
     """
     workspace_service = WorkspaceService(db)
     return await workspace_service.switch_workspace(workspace_id, current_user)
-

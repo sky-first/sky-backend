@@ -18,42 +18,49 @@ This file tests all endpoints across all modules:
 - Starred (2 endpoints)
 
 Total: 132 endpoints tested
+- SSO (6 endpoints - Google, Azure, Okta login and callback)
+
+Total: 138 endpoints tested
+- Invite (3 endpoints - validate, login, generate)
+
+Total: 141 endpoints tested
 """
 
-import pytest
 from datetime import datetime, timezone
-from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import uuid4
 
-from src.core.security import create_access_token
-from src.services.planet_service import PlanetService
-from src.services.dashboard_service import DashboardService
-from src.services.connection_service import ConnectionService
-from src.services.template_service import TemplateService
-from src.services.space_service import SpaceService
-from src.services.crew_service import CrewService
-from src.services.user_service import UserService
-from src.services.permission_service import PermissionService
-from src.services.settings_service import SettingsService
-from src.services.file_upload_service import FileUploadService
-from src.services.connector_service import ConnectorService
-from src.services.ai_service import AIService
-from src.schemas.planet import PlanetCreate
-from src.schemas.dashboard import DashboardCreate, WidgetCreate
-from src.schemas.connection import ConnectionCreate
-from src.schemas.template import TemplateCreate
-from src.schemas.space import SpaceCreate
-from src.schemas.crew import CrewCreate
-from src.schemas.user import UserCreate
-from src.schemas.permission import ConnectionPermissionCreate
-from src.schemas.settings import SettingsUpdate
-from src.schemas.ai import AIQueryRequest
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.security import create_access_token
+from src.schemas.ai import AIQueryRequest
+from src.schemas.connection import ConnectionCreate
+from src.schemas.crew import CrewCreate
+from src.schemas.dashboard import DashboardCreate, WidgetCreate
+from src.schemas.permission import ConnectionPermissionCreate
+from src.schemas.planet import PlanetCreate
+from src.schemas.settings import SettingsUpdate
+from src.schemas.space import SpaceCreate
+from src.schemas.template import TemplateCreate
+from src.schemas.user import UserCreate
+from src.services.ai_service import AIService
+from src.services.connection_service import ConnectionService
+from src.services.connector_service import ConnectorService
+from src.services.crew_service import CrewService
+from src.services.dashboard_service import DashboardService
+from src.services.file_upload_service import FileUploadService
+from src.services.permission_service import PermissionService
+from src.services.planet_service import PlanetService
+from src.services.settings_service import SettingsService
+from src.services.space_service import SpaceService
+from src.services.template_service import TemplateService
+from src.services.user_service import UserService
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def get_auth_headers(access_token: str) -> dict:
     """Get authorization headers."""
@@ -64,19 +71,18 @@ async def create_test_planet(db_session: AsyncSession, user, name: str = "Test P
     """Helper to create a test planet."""
     planet_service = PlanetService(db_session)
     planet_data = PlanetCreate(
-        name=name,
-        description="Test planet description",
-        type="personal",
-        color="#3B82F6"
+        name=name, description="Test planet description", type="personal", color="#3B82F6"
     )
     return await planet_service.create_planet(user, planet_data)
 
 
-async def create_test_dashboard(db_session: AsyncSession, user, planet_id, name: str = "Test Dashboard"):
+async def create_test_dashboard(
+    db_session: AsyncSession, user, planet_id, name: str = "Test Dashboard"
+):
     """Helper to create a test dashboard."""
-    from src.repositories.dashboard import DashboardRepository
     from src.models.dashboard import Dashboard
-    
+    from src.repositories.dashboard import DashboardRepository
+
     # Create directly to avoid server_default issues with SQLite
     dashboard_repo = DashboardRepository(db_session)
     now = datetime.now(timezone.utc)
@@ -85,7 +91,12 @@ async def create_test_dashboard(db_session: AsyncSession, user, planet_id, name:
         description="Test dashboard",
         planet_id=planet_id,
         created_by=user.id,
-        canvas_settings={"scale": 1, "position": {"x": 0, "y": 0}, "snapToGrid": False, "gridSize": 24},
+        canvas_settings={
+            "scale": 1,
+            "position": {"x": 0, "y": 0},
+            "snapToGrid": False,
+            "gridSize": 24,
+        },
         is_locked=False,
         created_at=now,
         updated_at=now,
@@ -97,9 +108,9 @@ async def create_test_dashboard(db_session: AsyncSession, user, planet_id, name:
 
 async def create_test_widget(db_session: AsyncSession, user, dashboard_id):
     """Helper to create a test widget."""
-    from src.repositories.dashboard import WidgetRepository
     from src.models.dashboard import Widget
-    
+    from src.repositories.dashboard import WidgetRepository
+
     # Create directly to avoid server_default issues with SQLite
     widget_repo = WidgetRepository(db_session)
     now = datetime.now(timezone.utc)
@@ -119,9 +130,9 @@ async def create_test_widget(db_session: AsyncSession, user, dashboard_id):
 
 async def create_test_connection(db_session: AsyncSession, user, name: str = "Test Connection"):
     """Helper to create a test connection."""
-    from src.repositories.connection import ConnectionRepository
     from src.models.connection import DataConnection
-    
+    from src.repositories.connection import ConnectionRepository
+
     # Create directly to avoid server_default issues with SQLite
     connection_repo = ConnectionRepository(db_session)
     now = datetime.now(timezone.utc)
@@ -143,9 +154,9 @@ async def create_test_connection(db_session: AsyncSession, user, name: str = "Te
 
 async def create_test_space(db_session: AsyncSession, user, name: str = "Test Space"):
     """Helper to create a test space."""
-    from src.repositories.space import SpaceRepository
     from src.models.space import Space
-    
+    from src.repositories.space import SpaceRepository
+
     # Create directly to avoid server_default issues with SQLite
     space_repo = SpaceRepository(db_session)
     now = datetime.now(timezone.utc)
@@ -163,9 +174,9 @@ async def create_test_space(db_session: AsyncSession, user, name: str = "Test Sp
 
 async def create_test_crew(db_session: AsyncSession, user, space_id, name: str = "Test Crew"):
     """Helper to create a test crew."""
-    from src.repositories.crew import CrewRepository
     from src.models.crew import Crew
-    
+    from src.repositories.crew import CrewRepository
+
     # Create directly to avoid server_default issues with SQLite
     crew_repo = CrewRepository(db_session)
     now = datetime.now(timezone.utc)
@@ -185,14 +196,13 @@ async def create_test_crew(db_session: AsyncSession, user, space_id, name: str =
 async def create_test_user(db_session: AsyncSession, admin_user, email: str = None):
     """Helper to create a test user (admin only)."""
     from faker import Faker
+
     from src.services.user_service import UserService
+
     faker = Faker()
     user_service = UserService(db_session)
     user_data = UserCreate(
-        email=email or faker.email(),
-        password="test_password_123",
-        name=faker.name(),
-        role="user"
+        email=email or faker.email(), password="test_password_123", name=faker.name(), role="user"
     )
     return await user_service.create_user(admin_user, user_data)
 
@@ -200,6 +210,7 @@ async def create_test_user(db_session: AsyncSession, admin_user, email: str = No
 # ============================================================================
 # MODULE 1: PLANETS
 # ============================================================================
+
 
 class TestPlanetsEndpoints:
     """Tests for /api/v1/planets endpoints."""
@@ -235,7 +246,7 @@ class TestPlanetsEndpoints:
             "name": "My Test Planet",
             "description": "Test description",
             "type": "personal",
-            "color": "#3B82F6"
+            "color": "#3B82F6",
         }
         response = client.post("/api/v1/planets", json=planet_data, headers=headers)
         assert response.status_code == 201
@@ -247,11 +258,7 @@ class TestPlanetsEndpoints:
     def test_create_planet_invalid_type(self, client: TestClient, test_user_with_tokens: dict):
         """Test POST /api/v1/planets with invalid type."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        planet_data = {
-            "name": "Test Planet",
-            "type": "invalid_type",
-            "color": "#3B82F6"
-        }
+        planet_data = {"name": "Test Planet", "type": "invalid_type", "color": "#3B82F6"}
         response = client.post("/api/v1/planets", json=planet_data, headers=headers)
         assert response.status_code == 422
 
@@ -261,7 +268,7 @@ class TestPlanetsEndpoints:
         planet_data = {
             "name": "Test Planet",
             "type": "personal",
-            "color": "blue"  # Should be hex format
+            "color": "blue",  # Should be hex format
         }
         response = client.post("/api/v1/planets", json=planet_data, headers=headers)
         assert response.status_code == 422
@@ -337,25 +344,26 @@ class TestPlanetsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         # Create another user to add as member
-        from src.repositories.user import UserRepository
-        from src.core.security import get_password_hash
         from faker import Faker
+
+        from src.core.security import get_password_hash
+        from src.repositories.user import UserRepository
+
         faker = Faker()
         user_repo = UserRepository(db_session)
         new_user = await user_repo.create(
             email=faker.email(),
             password_hash=get_password_hash("password123"),
             name=faker.name(),
-            role="user"
+            role="user",
         )
         await db_session.commit()
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        member_data = {
-            "user_id": str(new_user.id),
-            "role": "member"
-        }
-        response = client.post(f"/api/v1/planets/{planet.id}/members", json=member_data, headers=headers)
+        member_data = {"user_id": str(new_user.id), "role": "member"}
+        response = client.post(
+            f"/api/v1/planets/{planet.id}/members", json=member_data, headers=headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["user_id"] == str(new_user.id)
@@ -393,6 +401,7 @@ class TestPlanetsEndpoints:
 # MODULE 2: DASHBOARDS
 # ============================================================================
 
+
 class TestDashboardsEndpoints:
     """Tests for /api/v1/dashboards endpoints."""
 
@@ -404,7 +413,7 @@ class TestDashboardsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         await create_test_dashboard(db_session, user, planet.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get("/api/v1/dashboards", headers=headers)
         assert response.status_code == 200
@@ -419,7 +428,7 @@ class TestDashboardsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         await create_test_dashboard(db_session, user, planet.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get(f"/api/v1/dashboards?planet_id={planet.id}", headers=headers)
         assert response.status_code == 200
@@ -433,12 +442,12 @@ class TestDashboardsEndpoints:
         """Test POST /api/v1/dashboards."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         dashboard_data = {
             "name": "My Dashboard",
             "description": "Test dashboard",
-            "planet_id": str(planet.id)
+            "planet_id": str(planet.id),
         }
         response = client.post("/api/v1/dashboards", json=dashboard_data, headers=headers)
         assert response.status_code == 201
@@ -454,7 +463,7 @@ class TestDashboardsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get(f"/api/v1/dashboards/{dashboard.id}", headers=headers)
         assert response.status_code == 200
@@ -469,10 +478,12 @@ class TestDashboardsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         update_data = {"name": "Updated Dashboard"}
-        response = client.put(f"/api/v1/dashboards/{dashboard.id}", json=update_data, headers=headers)
+        response = client.put(
+            f"/api/v1/dashboards/{dashboard.id}", json=update_data, headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == update_data["name"]
@@ -485,7 +496,7 @@ class TestDashboardsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.delete(f"/api/v1/dashboards/{dashboard.id}", headers=headers)
         assert response.status_code == 200
@@ -499,7 +510,7 @@ class TestDashboardsEndpoints:
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
         await create_test_widget(db_session, user, dashboard.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get(f"/api/v1/dashboards/{dashboard.id}/widgets", headers=headers)
         assert response.status_code == 200
@@ -514,16 +525,18 @@ class TestDashboardsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         widget_data = {
             "dashboard_id": str(dashboard.id),  # Required by schema
             "type": "chart",
             "title": "New Widget",
             "position": {"x": 100, "y": 100},
-            "size": {"width": 300, "height": 200}
+            "size": {"width": 300, "height": 200},
         }
-        response = client.post(f"/api/v1/dashboards/{dashboard.id}/widgets", json=widget_data, headers=headers)
+        response = client.post(
+            f"/api/v1/dashboards/{dashboard.id}/widgets", json=widget_data, headers=headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["title"] == widget_data["title"]
@@ -537,7 +550,7 @@ class TestDashboardsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get(f"/api/v1/dashboards/{dashboard.id}/export", headers=headers)
         assert response.status_code == 200
@@ -555,9 +568,11 @@ class TestDashboardsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = client.post(f"/api/v1/dashboards/{dashboard.id}/duplicate", json={}, headers=headers)
+        response = client.post(
+            f"/api/v1/dashboards/{dashboard.id}/duplicate", json={}, headers=headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert "id" in data
@@ -571,7 +586,7 @@ class TestDashboardsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.post(f"/api/v1/dashboards/{dashboard.id}/lock", headers=headers)
         assert response.status_code == 200
@@ -586,11 +601,11 @@ class TestDashboardsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
-        
+
         # Lock first
         dashboard_service = DashboardService(db_session)
         await dashboard_service.lock_dashboard(dashboard.id, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.post(f"/api/v1/dashboards/{dashboard.id}/unlock", headers=headers)
         assert response.status_code == 200
@@ -601,6 +616,7 @@ class TestDashboardsEndpoints:
 # ============================================================================
 # MODULE 3: WIDGETS
 # ============================================================================
+
 
 class TestWidgetsEndpoints:
     """Tests for /api/v1/widgets endpoints."""
@@ -614,12 +630,9 @@ class TestWidgetsEndpoints:
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        update_data = {
-            "title": "Updated Widget Title",
-            "position": {"x": 50, "y": 50}
-        }
+        update_data = {"title": "Updated Widget Title", "position": {"x": 50, "y": 50}}
         response = client.put(f"/api/v1/widgets/{widget.id}", json=update_data, headers=headers)
         assert response.status_code == 200
         data = response.json()
@@ -634,7 +647,7 @@ class TestWidgetsEndpoints:
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.delete(f"/api/v1/widgets/{widget.id}", headers=headers)
         assert response.status_code == 200
@@ -648,7 +661,7 @@ class TestWidgetsEndpoints:
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.post(f"/api/v1/widgets/{widget.id}/duplicate", headers=headers)
         assert response.status_code == 201
@@ -665,7 +678,7 @@ class TestWidgetsEndpoints:
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.post(f"/api/v1/widgets/{widget.id}/export", headers=headers)
         assert response.status_code == 200
@@ -682,7 +695,7 @@ class TestWidgetsEndpoints:
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get(f"/api/v1/widgets/{widget.id}/data", headers=headers)
         assert response.status_code == 200
@@ -698,7 +711,7 @@ class TestWidgetsEndpoints:
         planet = await create_test_planet(db_session, user)
         dashboard = await create_test_dashboard(db_session, user, planet.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.post(f"/api/v1/widgets/{widget.id}/refresh", headers=headers)
         assert response.status_code == 200
@@ -709,6 +722,7 @@ class TestWidgetsEndpoints:
 # ============================================================================
 # MODULE 4: CONNECTIONS
 # ============================================================================
+
 
 class TestConnectionsEndpoints:
     """Tests for /api/v1/connections endpoints."""
@@ -734,7 +748,7 @@ class TestConnectionsEndpoints:
             "name": "Test Connection",
             "connector_id": "postgresql",
             "description": "Test connection",
-            "config": {"host": "localhost", "port": 5432, "database": "test"}
+            "config": {"host": "localhost", "port": 5432, "database": "test"},
         }
         response = client.post("/api/v1/connections", json=connection_data, headers=headers)
         assert response.status_code == 201
@@ -764,7 +778,9 @@ class TestConnectionsEndpoints:
         connection = await create_test_connection(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         update_data = {"name": "Updated Connection"}
-        response = client.put(f"/api/v1/connections/{connection.id}", json=update_data, headers=headers)
+        response = client.put(
+            f"/api/v1/connections/{connection.id}", json=update_data, headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == update_data["name"]
@@ -791,6 +807,28 @@ class TestConnectionsEndpoints:
         response = client.post(f"/api/v1/connections/{connection.id}/test", headers=headers)
         # May return 200 (success) or 400/500 (connection failed)
         assert response.status_code in [200, 400, 500]
+        if response.status_code == 200:
+            data = response.json()
+            assert "success" in data
+            assert isinstance(data["success"], bool)
+
+    @pytest.mark.asyncio
+    async def test_test_connection_not_found(self, client: TestClient, test_user_with_tokens: dict):
+        """Test POST /api/v1/connections/{id}/test - Connection not found."""
+        fake_id = str(uuid4())
+        headers = get_auth_headers(test_user_with_tokens["access_token"])
+        response = client.post(f"/api/v1/connections/{fake_id}/test", headers=headers)
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_test_connection_no_auth(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/connections/{id}/test - No authentication."""
+        user = test_user_with_tokens["user"]
+        connection = await create_test_connection(db_session, user)
+        response = client.post(f"/api/v1/connections/{connection.id}/test")
+        assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_sync_connection(
@@ -857,13 +895,16 @@ class TestConnectionsEndpoints:
         user = test_user_with_tokens["user"]
         connection = await create_test_connection(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = client.get(f"/api/v1/connections/{connection.id}/tables/test_table/schema", headers=headers)
+        response = client.get(
+            f"/api/v1/connections/{connection.id}/tables/test_table/schema", headers=headers
+        )
         assert response.status_code in [200, 400, 404, 500]
 
 
 # ============================================================================
 # MODULE 5: TEMPLATES
 # ============================================================================
+
 
 class TestTemplatesEndpoints:
     """Tests for /api/v1/templates endpoints."""
@@ -902,7 +943,7 @@ class TestTemplatesEndpoints:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async     def test_apply_template(
+    async def test_apply_template(
         self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
     ):
         """Test POST /api/v1/templates/{id}/apply."""
@@ -911,7 +952,9 @@ class TestTemplatesEndpoints:
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
         apply_data = {"planet_id": str(planet.id)}
-        response = client.post(f"/api/v1/templates/{fake_id}/apply", json=apply_data, headers=headers)
+        response = client.post(
+            f"/api/v1/templates/{fake_id}/apply", json=apply_data, headers=headers
+        )
         # May return 404 (template not found), 400 (invalid data), or 422 (validation error)
         assert response.status_code in [200, 201, 400, 404, 422]
 
@@ -935,16 +978,14 @@ class TestTemplatesEndpoints:
 # MODULE 6: AI
 # ============================================================================
 
+
 class TestAIEndpoints:
     """Tests for /api/v1/ai endpoints."""
 
     def test_process_query_success(self, client: TestClient, test_user_with_tokens: dict):
         """Test POST /api/v1/ai/query."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        query_data = {
-            "question": "What is the total sales?",
-            "knowledge": ["sales"]
-        }
+        query_data = {"question": "What is the total sales?", "knowledge": ["sales"]}
         response = client.post("/api/v1/ai/query", json=query_data, headers=headers)
         assert response.status_code == 200
         data = response.json()
@@ -953,10 +994,7 @@ class TestAIEndpoints:
     def test_send_chat_message(self, client: TestClient, test_user_with_tokens: dict):
         """Test POST /api/v1/ai/chat."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        message_data = {
-            "widget_id": str(uuid4()),
-            "message": "Hello, AI!"
-        }
+        message_data = {"widget_id": str(uuid4()), "message": "Hello, AI!"}
         response = client.post("/api/v1/ai/chat", json=message_data, headers=headers)
         assert response.status_code == 200
         data = response.json()
@@ -1020,7 +1058,7 @@ class TestAIEndpoints:
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         sql_data = {
             "question": "Show me all users",
-            "knowledge": ["users_table"]  # Fixed: knowledge is required (List[str], min_items=1)
+            "knowledge": ["users_table"],  # Fixed: knowledge is required (List[str], min_items=1)
         }
         response = client.post("/api/v1/ai/generate-sql", json=sql_data, headers=headers)
         assert response.status_code in [200, 400]
@@ -1031,7 +1069,7 @@ class TestAIEndpoints:
         answer_data = {
             "question": "What is the total sales?",  # Fixed: question is required
             "knowledge": ["sales"],  # Fixed: knowledge is required (List[str])
-            "context": {"widget_id": str(uuid4())}  # Fixed: context should be Dict, not str
+            "context": {"widget_id": str(uuid4())},  # Fixed: context should be Dict, not str
         }
         response = client.post("/api/v1/ai/generate-answer", json=answer_data, headers=headers)
         assert response.status_code in [200, 400]
@@ -1039,9 +1077,7 @@ class TestAIEndpoints:
     def test_analyze_question(self, client: TestClient, test_user_with_tokens: dict):
         """Test POST /api/v1/ai/analyze-question."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        question_data = {
-            "question": "What is the total sales?"
-        }
+        question_data = {"question": "What is the total sales?"}
         response = client.post("/api/v1/ai/analyze-question", json=question_data, headers=headers)
         assert response.status_code == 200
         data = response.json()
@@ -1055,8 +1091,8 @@ class TestAIEndpoints:
             "knowledge": ["sales"],
             "configure_data": {  # Fixed: configure_data is required
                 "question": "What is the total sales?",
-                "knowledge": ["sales"]
-            }
+                "knowledge": ["sales"],
+            },
         }
         response = client.post("/api/v1/ai/pipeline/execute", json=pipeline_data, headers=headers)
         assert response.status_code in [200, 202, 400, 422]
@@ -1082,11 +1118,11 @@ class TestAIEndpoints:
         """Test POST /api/v1/ai/validate-sql."""
         user = test_user_with_tokens["user"]
         connection = await create_test_connection(db_session, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         validate_data = {
             "connection_id": str(connection.id),
-            "sql": "SELECT 1 as test_column LIMIT 5"
+            "sql": "SELECT 1 as test_column LIMIT 5",
         }
         response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
         # May return 200 (success) or 400/500/502/503 (validation failed or AI service error)
@@ -1098,10 +1134,7 @@ class TestAIEndpoints:
 
     def test_validate_sql_no_auth(self, client: TestClient):
         """Test POST /api/v1/ai/validate-sql without authentication."""
-        validate_data = {
-            "connection_id": str(uuid4()),
-            "sql": "SELECT 1"
-        }
+        validate_data = {"connection_id": str(uuid4()), "sql": "SELECT 1"}
         response = client.post("/api/v1/ai/validate-sql", json=validate_data)
         assert response.status_code == 401
 
@@ -1120,12 +1153,12 @@ class TestAIEndpoints:
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         connection = await create_test_connection(db_session, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         validate_data = {
             "connection_id": str(connection.id),
             "sql": "SELECT 1 as test_column LIMIT 5",
-            "space_id": str(space.id)
+            "space_id": str(space.id),
         }
         response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
         # May return 200 (success) or 400/500/502/503 (validation failed or AI service error)
@@ -1142,11 +1175,11 @@ class TestAIEndpoints:
         """Test POST /api/v1/ai/validate-sql without space_id (should try to resolve)."""
         user = test_user_with_tokens["user"]
         connection = await create_test_connection(db_session, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         validate_data = {
             "connection_id": str(connection.id),
-            "sql": "SELECT 1 as test_column LIMIT 5"
+            "sql": "SELECT 1 as test_column LIMIT 5",
             # space_id not provided - should try to resolve
         }
         response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
@@ -1165,20 +1198,18 @@ class TestAIEndpoints:
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         connection = await create_test_connection(db_session, user)
-        
+
         # Link connection to space directly in database
         from src.models.space import SpaceConnection
-        space_connection = SpaceConnection(
-            space_id=space.id,
-            connection_id=connection.id
-        )
+
+        space_connection = SpaceConnection(space_id=space.id, connection_id=connection.id)
         db_session.add(space_connection)
         await db_session.commit()
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         validate_data = {
             "connection_id": str(connection.id),
-            "sql": "SELECT 1 as test_column LIMIT 5"
+            "sql": "SELECT 1 as test_column LIMIT 5",
             # space_id not provided - should resolve from connection
         }
         response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
@@ -1197,13 +1228,9 @@ class TestAIEndpoints:
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         connection = await create_test_connection(db_session, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        validate_data = {
-            "connection_id": str(connection.id),
-            "sql": "",
-            "space_id": str(space.id)
-        }
+        validate_data = {"connection_id": str(connection.id), "sql": "", "space_id": str(space.id)}
         response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
         # May return 200, 400, 422, or 500/502/503
         assert response.status_code in [200, 400, 422, 500, 502, 503]
@@ -1217,14 +1244,14 @@ class TestAIEndpoints:
         space = await create_test_space(db_session, user)
         connection = await create_test_connection(db_session, user)
         crew = await create_test_crew(db_session, user, space.id)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         validate_data = {
             "connection_id": str(connection.id),
             "sql": "SELECT 1 as test_column LIMIT 5",
             "space_id": str(space.id),
             "crew_ids": [str(crew.id)],
-            "is_personal": False
+            "is_personal": False,
         }
         response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
         # May return 200 (success) or 400/500/502/503 (validation failed or AI service error)
@@ -1242,11 +1269,11 @@ class TestAIEndpoints:
         user = test_user_with_tokens["user"]
         # Create connection but don't link it to any space
         connection = await create_test_connection(db_session, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         validate_data = {
             "connection_id": str(connection.id),
-            "sql": "SELECT 1 as test_column LIMIT 5"
+            "sql": "SELECT 1 as test_column LIMIT 5",
             # space_id not provided and connection not linked to space - should fail with 400
         }
         response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
@@ -1254,7 +1281,9 @@ class TestAIEndpoints:
         assert response.status_code in [400, 503]
         if response.status_code == 400:
             data = response.json()
-            assert "space_id is required" in data.get("detail", "").lower() or "space_id" in data.get("detail", "")
+            assert "space_id is required" in data.get(
+                "detail", ""
+            ).lower() or "space_id" in data.get("detail", "")
 
     @pytest.mark.asyncio
     async def test_validate_sql_with_space_member(
@@ -1263,46 +1292,42 @@ class TestAIEndpoints:
         """Test POST /api/v1/ai/validate-sql with connection linked to space where user is a member (not creator)."""
         user = test_user_with_tokens["user"]
         # Create space with another user as creator
-        from src.repositories.user import UserRepository
-        from src.core.security import get_password_hash
         from faker import Faker
+
+        from src.core.security import get_password_hash
+        from src.repositories.user import UserRepository
+
         faker = Faker()
         user_repo = UserRepository(db_session)
         space_owner = await user_repo.create(
             email=faker.email(),
             password_hash=get_password_hash("password123"),
             name=faker.name(),
-            role="user"
+            role="user",
         )
         await db_session.commit()
-        
+
         # Create space owned by space_owner
         space = await create_test_space(db_session, space_owner)
         connection = await create_test_connection(db_session, space_owner)
-        
+
         # Link connection to space
         from src.models.space import SpaceConnection, SpaceMember
-        space_connection = SpaceConnection(
-            space_id=space.id,
-            connection_id=connection.id
-        )
+
+        space_connection = SpaceConnection(space_id=space.id, connection_id=connection.id)
         db_session.add(space_connection)
-        
+
         # Add user as member of space (not creator)
         # Use explicit datetime to avoid server_default issues
         now = datetime.now(timezone.utc)
-        space_member = SpaceMember(
-            space_id=space.id,
-            user_id=user.id,
-            created_at=now
-        )
+        space_member = SpaceMember(space_id=space.id, user_id=user.id, created_at=now)
         db_session.add(space_member)
         await db_session.commit()
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         validate_data = {
             "connection_id": str(connection.id),
-            "sql": "SELECT 1 as test_column LIMIT 5"
+            "sql": "SELECT 1 as test_column LIMIT 5",
             # space_id not provided - should resolve from connection via space membership
         }
         response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
@@ -1320,12 +1345,12 @@ class TestAIEndpoints:
         """Test POST /api/v1/ai/validate-sql with is_personal=True."""
         user = test_user_with_tokens["user"]
         connection = await create_test_connection(db_session, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         validate_data = {
             "connection_id": str(connection.id),
             "sql": "SELECT 1 as test_column LIMIT 5",
-            "is_personal": True
+            "is_personal": True,
         }
         response = client.post("/api/v1/ai/validate-sql", json=validate_data, headers=headers)
         # May return 200, 400, 500, 502, 503 depending on AI service availability
@@ -1339,6 +1364,7 @@ class TestAIEndpoints:
 # ============================================================================
 # MODULE 7: SPACES
 # ============================================================================
+
 
 class TestSpacesEndpoints:
     """Tests for /api/v1/spaces endpoints."""
@@ -1360,10 +1386,7 @@ class TestSpacesEndpoints:
     ):
         """Test POST /api/v1/spaces."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        space_data = {
-            "name": "Test Space",
-            "description": "Test space description"
-        }
+        space_data = {"name": "Test Space", "description": "Test space description"}
         response = client.post("/api/v1/spaces", json=space_data, headers=headers)
         assert response.status_code == 201
         data = response.json()
@@ -1429,22 +1452,26 @@ class TestSpacesEndpoints:
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         # Create another user
-        from src.repositories.user import UserRepository
-        from src.core.security import get_password_hash
         from faker import Faker
+
+        from src.core.security import get_password_hash
+        from src.repositories.user import UserRepository
+
         faker = Faker()
         user_repo = UserRepository(db_session)
         new_user = await user_repo.create(
             email=faker.email(),
             password_hash=get_password_hash("password123"),
             name=faker.name(),
-            role="user"
+            role="user",
         )
         await db_session.commit()
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         member_data = {"user_id": str(new_user.id), "role": "member"}
-        response = client.post(f"/api/v1/spaces/{space.id}/members", json=member_data, headers=headers)
+        response = client.post(
+            f"/api/v1/spaces/{space.id}/members", json=member_data, headers=headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["user_id"] == str(new_user.id)
@@ -1487,7 +1514,9 @@ class TestSpacesEndpoints:
         connection = await create_test_connection(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         connection_data = {"connection_id": str(connection.id)}
-        response = client.post(f"/api/v1/spaces/{space.id}/connections", json=connection_data, headers=headers)
+        response = client.post(
+            f"/api/v1/spaces/{space.id}/connections", json=connection_data, headers=headers
+        )
         # Endpoint only supports GET, so POST should return 405
         assert response.status_code == 405
 
@@ -1495,6 +1524,7 @@ class TestSpacesEndpoints:
 # ============================================================================
 # MODULE 8: CREWS
 # ============================================================================
+
 
 class TestCrewsEndpoints:
     """Tests for /api/v1/crews endpoints."""
@@ -1521,7 +1551,7 @@ class TestCrewsEndpoints:
         crew_data = {
             "name": "Test Crew",
             "description": "Test crew description",
-            "space_id": str(space.id)
+            "space_id": str(space.id),
         }
         response = client.post("/api/v1/crews", json=crew_data, headers=headers)
         assert response.status_code == 201
@@ -1593,22 +1623,26 @@ class TestCrewsEndpoints:
         space = await create_test_space(db_session, user)
         crew = await create_test_crew(db_session, user, space.id)
         # Create another user
-        from src.repositories.user import UserRepository
-        from src.core.security import get_password_hash
         from faker import Faker
+
+        from src.core.security import get_password_hash
+        from src.repositories.user import UserRepository
+
         faker = Faker()
         user_repo = UserRepository(db_session)
         new_user = await user_repo.create(
             email=faker.email(),
             password_hash=get_password_hash("password123"),
             name=faker.name(),
-            role="user"
+            role="user",
         )
         await db_session.commit()
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         member_data = {"user_id": str(new_user.id), "role": "explorer"}  # Fixed: use valid role
-        response = client.post(f"/api/v1/crews/{crew.id}/members", json=member_data, headers=headers)
+        response = client.post(
+            f"/api/v1/crews/{crew.id}/members", json=member_data, headers=headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["user_id"] == str(new_user.id)
@@ -1623,8 +1657,14 @@ class TestCrewsEndpoints:
         crew = await create_test_crew(db_session, user, space.id)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_member_id = str(uuid4())
-        role_data = {"role": "navigator"}  # Fixed: use valid role (commander|navigator|explorer|guest)
-        response = client.put(f"/api/v1/crews/{crew.id}/members/{fake_member_id}/role", json=role_data, headers=headers)
+        role_data = {
+            "role": "navigator"
+        }  # Fixed: use valid role (commander|navigator|explorer|guest)
+        response = client.put(
+            f"/api/v1/crews/{crew.id}/members/{fake_member_id}/role",
+            json=role_data,
+            headers=headers,
+        )
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
@@ -1637,13 +1677,16 @@ class TestCrewsEndpoints:
         crew = await create_test_crew(db_session, user, space.id)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_member_id = str(uuid4())
-        response = client.delete(f"/api/v1/crews/{crew.id}/members/{fake_member_id}", headers=headers)
+        response = client.delete(
+            f"/api/v1/crews/{crew.id}/members/{fake_member_id}", headers=headers
+        )
         assert response.status_code in [200, 404]
 
 
 # ============================================================================
 # MODULE 9: USERS
 # ============================================================================
+
 
 class TestUsersEndpoints:
     """Tests for /api/v1/users endpoints."""
@@ -1678,7 +1721,7 @@ class TestUsersEndpoints:
             "email": "newuser@example.com",
             "password": "password123",
             "name": "New User",
-            "role": "user"
+            "role": "user",
         }
         response = client.post("/api/v1/users", json=user_data, headers=headers)
         # Regular users may get 403
@@ -1711,16 +1754,16 @@ class TestUsersEndpoints:
         user = test_user_with_tokens["user"]
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         permissions_data = {"role": "user"}  # Fixed: schema expects role, not permissions
-        response = client.put(f"/api/v1/users/{user.id}/permissions", json=permissions_data, headers=headers)
+        response = client.put(
+            f"/api/v1/users/{user.id}/permissions", json=permissions_data, headers=headers
+        )
         assert response.status_code in [200, 403]
 
     def test_invite_user(self, client: TestClient, test_user_with_tokens: dict):
         """Test POST /api/v1/users/{id}/invite."""
         user = test_user_with_tokens["user"]
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        invite_data = {
-            "role": "user"
-        }
+        invite_data = {"role": "user"}
         # Endpoint is POST /users/{user_id}/invite, not /users/invite
         response = client.post(f"/api/v1/users/{user.id}/invite", json=invite_data, headers=headers)
         assert response.status_code in [200, 201, 400, 403]
@@ -1729,6 +1772,7 @@ class TestUsersEndpoints:
 # ============================================================================
 # MODULE 10: PERMISSIONS
 # ============================================================================
+
 
 class TestPermissionsEndpoints:
     """Tests for /api/v1/permissions endpoints."""
@@ -1746,9 +1790,11 @@ class TestPermissionsEndpoints:
         fake_id = str(uuid4())
         permission_data = {
             "access_level": "read-only",  # Fixed: use correct schema fields
-            "table_access": None
+            "table_access": None,
         }
-        response = client.post(f"/api/v1/permissions/connections/{fake_id}", json=permission_data, headers=headers)
+        response = client.post(
+            f"/api/v1/permissions/connections/{fake_id}", json=permission_data, headers=headers
+        )
         assert response.status_code in [200, 201, 400, 404, 422]
 
     def test_get_space_permissions(self, client: TestClient, test_user_with_tokens: dict):
@@ -1763,11 +1809,10 @@ class TestPermissionsEndpoints:
         # Note: This endpoint doesn't exist in the backend (only GET exists)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        permission_data = {
-            "user_id": str(uuid4()),
-            "permission": "read"
-        }
-        response = client.post(f"/api/v1/permissions/spaces/{fake_id}", json=permission_data, headers=headers)
+        permission_data = {"user_id": str(uuid4()), "permission": "read"}
+        response = client.post(
+            f"/api/v1/permissions/spaces/{fake_id}", json=permission_data, headers=headers
+        )
         # Endpoint only supports GET, so POST should return 405
         assert response.status_code == 405
 
@@ -1783,11 +1828,10 @@ class TestPermissionsEndpoints:
         # Note: This endpoint doesn't exist in the backend (only GET exists)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        permission_data = {
-            "user_id": str(uuid4()),
-            "permission": "read"
-        }
-        response = client.post(f"/api/v1/permissions/crews/{fake_id}", json=permission_data, headers=headers)
+        permission_data = {"user_id": str(uuid4()), "permission": "read"}
+        response = client.post(
+            f"/api/v1/permissions/crews/{fake_id}", json=permission_data, headers=headers
+        )
         # Endpoint only supports GET, so POST should return 405
         assert response.status_code == 405
 
@@ -1798,9 +1842,11 @@ class TestPermissionsEndpoints:
         validation_data = {
             "user_id": str(user.id),  # Fixed: use correct schema fields
             "connection_id": str(uuid4()),
-            "action": "read"
+            "action": "read",
         }
-        response = client.post("/api/v1/permissions/validate", json=validation_data, headers=headers)
+        response = client.post(
+            "/api/v1/permissions/validate", json=validation_data, headers=headers
+        )
         # May return 404 if connection doesn't exist
         assert response.status_code in [200, 400, 404, 422]
 
@@ -1808,6 +1854,7 @@ class TestPermissionsEndpoints:
 # ============================================================================
 # MODULE 11: SETTINGS
 # ============================================================================
+
 
 class TestSettingsEndpoints:
     """Tests for /api/v1/settings endpoints."""
@@ -1871,10 +1918,7 @@ class TestSettingsEndpoints:
     def test_create_api_key(self, client: TestClient, test_user_with_tokens: dict):
         """Test POST /api/v1/settings/api-keys."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        api_key_data = {
-            "name": "Test API Key",
-            "expires_at": None
-        }
+        api_key_data = {"name": "Test API Key", "expires_at": None}
         response = client.post("/api/v1/settings/api-keys", json=api_key_data, headers=headers)
         assert response.status_code in [200, 201]
         if response.status_code in [200, 201]:
@@ -1902,19 +1946,21 @@ class TestSettingsEndpoints:
         integration_data = {
             "name": "Slack Integration",  # Fixed: name is required
             "type": "slack",
-            "config": {"webhook_url": "https://example.com/webhook"}
+            "config": {"webhook_url": "https://example.com/webhook"},
         }
-        response = client.post("/api/v1/settings/integrations", json=integration_data, headers=headers)
+        response = client.post(
+            "/api/v1/settings/integrations", json=integration_data, headers=headers
+        )
         assert response.status_code in [200, 201]
 
     def test_update_integration(self, client: TestClient, test_user_with_tokens: dict):
         """Test PUT /api/v1/settings/integrations/{integration_id}."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        integration_data = {
-            "config": {"webhook_url": "https://updated.com/webhook"}
-        }
-        response = client.put(f"/api/v1/settings/integrations/{fake_id}", json=integration_data, headers=headers)
+        integration_data = {"config": {"webhook_url": "https://updated.com/webhook"}}
+        response = client.put(
+            f"/api/v1/settings/integrations/{fake_id}", json=integration_data, headers=headers
+        )
         assert response.status_code in [200, 404]
 
     def test_delete_integration(self, client: TestClient, test_user_with_tokens: dict):
@@ -1928,6 +1974,7 @@ class TestSettingsEndpoints:
 # ============================================================================
 # MODULE 12: FILES
 # ============================================================================
+
 
 class TestFilesEndpoints:
     """Tests for /api/v1/files endpoints."""
@@ -1955,7 +2002,13 @@ class TestFilesEndpoints:
         """Test POST /api/v1/files/upload/excel."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         # Excel files are binary, so we'll just test the endpoint exists
-        files = {"file": ("test.xlsx", b"fake excel content", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+        files = {
+            "file": (
+                "test.xlsx",
+                b"fake excel content",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        }
         response = client.post("/api/v1/files/upload/excel", files=files, headers=headers)
         assert response.status_code in [200, 201, 400]
 
@@ -1993,6 +2046,7 @@ class TestFilesEndpoints:
 # MODULE 13: CONNECTORS
 # ============================================================================
 
+
 class TestConnectorsEndpoints:
     """Tests for /api/v1/connectors endpoints."""
 
@@ -2028,6 +2082,7 @@ class TestConnectorsEndpoints:
 # MODULE 14: STARRED ITEMS
 # ============================================================================
 
+
 class TestStarredEndpoints:
     """Tests for /api/v1/starred endpoints."""
 
@@ -2038,20 +2093,23 @@ class TestStarredEndpoints:
         """Test GET /api/v1/starred - list starred items."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
-        
+
         # Star the planet first
         from src.services.starred_service import StarredItemService
+
         starred_service = StarredItemService(db_session)
         await starred_service.star_item(user, planet.id, "planet")
         await db_session.commit()
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get("/api/v1/starred", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
         assert len(data) > 0
-        assert any(item["item_id"] == str(planet.id) and item["item_type"] == "planet" for item in data)
+        assert any(
+            item["item_id"] == str(planet.id) and item["item_type"] == "planet" for item in data
+        )
 
     @pytest.mark.asyncio
     async def test_list_starred_items_with_filter(
@@ -2060,13 +2118,14 @@ class TestStarredEndpoints:
         """Test GET /api/v1/starred?item_type=planet."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
-        
+
         # Star the planet
         from src.services.starred_service import StarredItemService
+
         starred_service = StarredItemService(db_session)
         await starred_service.star_item(user, planet.id, "planet")
         await db_session.commit()
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get("/api/v1/starred?item_type=planet", headers=headers)
         assert response.status_code == 200
@@ -2086,17 +2145,17 @@ class TestStarredEndpoints:
         """Test GET /api/v1/starred/check/{item_id} - item is starred."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
-        
+
         # Star the planet
         from src.services.starred_service import StarredItemService
+
         starred_service = StarredItemService(db_session)
         await starred_service.star_item(user, planet.id, "planet")
         await db_session.commit()
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get(
-            f"/api/v1/starred/check/{planet.id}?item_type=planet",
-            headers=headers
+            f"/api/v1/starred/check/{planet.id}?item_type=planet", headers=headers
         )
         assert response.status_code == 200
         data = response.json()
@@ -2111,11 +2170,10 @@ class TestStarredEndpoints:
         """Test GET /api/v1/starred/check/{item_id} - item is not starred."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.get(
-            f"/api/v1/starred/check/{planet.id}?item_type=planet",
-            headers=headers
+            f"/api/v1/starred/check/{planet.id}?item_type=planet", headers=headers
         )
         assert response.status_code == 200
         data = response.json()
@@ -2127,16 +2185,14 @@ class TestStarredEndpoints:
         """Test GET /api/v1/starred/check/{item_id} with invalid item_type."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = client.get(
-            f"/api/v1/starred/check/{fake_id}?item_type=invalid",
-            headers=headers
-        )
+        response = client.get(f"/api/v1/starred/check/{fake_id}?item_type=invalid", headers=headers)
         assert response.status_code == 422
 
 
 # ============================================================================
 # MODULE 15: PLANET STAR/UNSTAR
 # ============================================================================
+
 
 class TestPlanetsStarEndpoints:
     """Tests for planet star/unstar endpoints."""
@@ -2148,7 +2204,7 @@ class TestPlanetsStarEndpoints:
         """Test POST /api/v1/planets/{planet_id}/star."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.post(f"/api/v1/planets/{planet.id}/star", headers=headers)
         assert response.status_code == 200
@@ -2157,9 +2213,7 @@ class TestPlanetsStarEndpoints:
         assert "starred" in data["message"].lower()
 
     @pytest.mark.asyncio
-    async def test_star_planet_not_found(
-        self, client: TestClient, test_user_with_tokens: dict
-    ):
+    async def test_star_planet_not_found(self, client: TestClient, test_user_with_tokens: dict):
         """Test POST /api/v1/planets/{planet_id}/star with non-existent planet."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
@@ -2173,13 +2227,14 @@ class TestPlanetsStarEndpoints:
         """Test DELETE /api/v1/planets/{planet_id}/star."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
-        
+
         # Star first
         from src.services.starred_service import StarredItemService
+
         starred_service = StarredItemService(db_session)
         await starred_service.star_item(user, planet.id, "planet")
         await db_session.commit()
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.delete(f"/api/v1/planets/{planet.id}/star", headers=headers)
         assert response.status_code == 200
@@ -2194,7 +2249,7 @@ class TestPlanetsStarEndpoints:
         """Test DELETE /api/v1/planets/{planet_id}/star when not starred (idempotent)."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
-        
+
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = client.delete(f"/api/v1/planets/{planet.id}/star", headers=headers)
         # Should succeed even if not starred (idempotent)
@@ -2206,3 +2261,209 @@ class TestPlanetsStarEndpoints:
         response = client.post(f"/api/v1/planets/{fake_id}/star")
         assert response.status_code == 401
 
+
+# ============================================================================
+# MODULE 16: SSO ENDPOINTS
+# ============================================================================
+
+
+class TestSSOEndpoints:
+    """Tests for SSO authentication endpoints."""
+
+    def test_sso_login_google_not_configured(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/google/login - Google not configured."""
+        response = client.get("/api/v1/auth/sso/google/login", follow_redirects=False)
+        # Should return 400 if not configured, or 302 redirect if configured
+        assert response.status_code in [400, 302]
+
+    def test_sso_login_azure_not_configured(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/azure/login - Azure not configured."""
+        response = client.get("/api/v1/auth/sso/azure/login", follow_redirects=False)
+        # Should return 400 if not configured, or 302 redirect if configured
+        assert response.status_code in [400, 302]
+
+    def test_sso_login_okta_not_configured(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/okta/login - Okta not configured."""
+        response = client.get("/api/v1/auth/sso/okta/login", follow_redirects=False)
+        # Should return 400 if not configured, or 302 redirect if configured
+        assert response.status_code in [400, 302]
+
+    def test_sso_login_unsupported_provider(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/invalid/login - Unsupported provider."""
+        response = client.get("/api/v1/auth/sso/invalid/login", follow_redirects=False)
+        assert response.status_code == 400
+        data = response.json()
+        assert "error" in data or "message" in data
+        # Check both error and message fields for "Unsupported"
+        error_msg = (data.get("error", "") + " " + data.get("message", "")).strip()
+        assert (
+            "Unsupported" in error_msg
+            or "unsupported" in error_msg.lower()
+            or "unsupported" in data.get("message", "").lower()
+        )
+
+    def test_sso_callback_google_missing_code(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/google/callback - Missing code parameter."""
+        response = client.get("/api/v1/auth/sso/google/callback")
+        assert response.status_code == 422  # Validation error
+
+    def test_sso_callback_azure_missing_code(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/azure/callback - Missing code parameter."""
+        response = client.get("/api/v1/auth/sso/azure/callback")
+        assert response.status_code == 422  # Validation error
+
+    def test_sso_callback_okta_missing_code(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/okta/callback - Missing code parameter."""
+        response = client.get("/api/v1/auth/sso/okta/callback")
+        assert response.status_code == 422  # Validation error
+
+    def test_sso_callback_unsupported_provider(self, client: TestClient):
+        """Test GET /api/v1/auth/sso/invalid/callback - Unsupported provider."""
+        response = client.get("/api/v1/auth/sso/invalid/callback?code=test")
+        assert response.status_code == 400
+        data = response.json()
+        assert "error" in data or "message" in data
+        # Check both error and message fields for "Unsupported"
+        error_msg = (data.get("error", "") + " " + data.get("message", "")).strip()
+        assert (
+            "Unsupported" in error_msg
+            or "unsupported" in error_msg.lower()
+            or "unsupported" in data.get("message", "").lower()
+        )
+
+
+# ============================================================================
+# MODULE 17: INVITE ENDPOINTS
+# ============================================================================
+
+
+class TestInviteEndpoints:
+    """Tests for invite authentication endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_validate_invite_token_invalid(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/validate - Invalid token."""
+        response = client.post(
+            "/api/v1/auth/invite/validate", json={"token": "invalid_token_12345"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["valid"] is False
+        assert "message" in data
+
+    def test_validate_invite_token_missing(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/validate - Missing token."""
+        response = client.post("/api/v1/auth/invite/validate", json={})
+        assert response.status_code == 422  # Validation error
+
+    def test_login_with_invite_missing_token(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/login - Missing token."""
+        response = client.post("/api/v1/auth/invite/login", json={"password": "testpassword123"})
+        assert response.status_code == 422  # Validation error
+
+    def test_login_with_invite_missing_password(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/login - Missing password."""
+        response = client.post("/api/v1/auth/invite/login", json={"token": "test_token"})
+        assert response.status_code == 422  # Validation error
+
+    def test_login_with_invite_invalid_token(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/login - Invalid token."""
+        response = client.post(
+            "/api/v1/auth/invite/login",
+            json={"token": "invalid_token", "password": "testpassword123"},
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert "error" in data
+
+    def test_generate_invite_no_auth(self, client: TestClient):
+        """Test POST /api/v1/auth/invite/generate - No authentication."""
+        response = client.post("/api/v1/auth/invite/generate", json={"email": "test@example.com"})
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_generate_invite_not_admin(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/auth/invite/generate - User is not admin."""
+        from sqlalchemy import update
+
+        from src.core.security import create_access_token
+        from src.models.user import User
+
+        user = test_user_with_tokens["user"]
+        await db_session.execute(update(User).where(User.id == user.id).values(role="user"))
+        await db_session.commit()
+
+        # New token with correct role
+        token_data = {"sub": str(user.id), "email": user.email, "role": "user"}
+        access_token = create_access_token(token_data)
+
+        headers = get_auth_headers(access_token)
+        response = client.post(
+            "/api/v1/auth/invite/generate", json={"email": "test@example.com"}, headers=headers
+        )
+        assert response.status_code == 403
+        data = response.json()
+        assert "error" in data or "detail" in data
+
+    @pytest.mark.asyncio
+    async def test_validate_invite_token_expired(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/auth/invite/validate - Expired token."""
+        from datetime import datetime, timedelta, timezone
+
+        from src.services.invite_service import InviteService
+
+        # Create an invite with expired token
+        invite_service = InviteService(db_session)
+        user = test_user_with_tokens["user"]
+        user.role = "admin"  # Make user admin for this test
+        await db_session.commit()
+
+        # Create invite with past expiration
+        token = invite_service.generate_invite_token(user.id, expires_days=-1)
+        from src.models.user import User
+
+        expired_user = User(
+            id=uuid4(),
+            email="expired@example.com",
+            password_hash="hash",
+            name="Expired User",
+            invite_token=token,
+            invite_expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        db_session.add(expired_user)
+        await db_session.commit()
+
+        response = client.post("/api/v1/auth/invite/validate", json={"token": token})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["valid"] is False
+
+    @pytest.mark.asyncio
+    async def test_validate_invite_token_valid(
+        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Test POST /api/v1/auth/invite/validate - Valid token."""
+        from src.services.invite_service import InviteService
+
+        invite_service = InviteService(db_session)
+        user = test_user_with_tokens["user"]
+        user.role = "admin"
+        await db_session.commit()
+
+        # Create a valid invite
+        token = await invite_service.create_invite(
+            invited_by=user,
+            email="validinvite@example.com",
+            expires_days=7,
+            name="Valid Invite User",
+        )
+
+        response = client.post("/api/v1/auth/invite/validate", json={"token": token})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["valid"] is True
+        assert data["email"] == "validinvite@example.com"
