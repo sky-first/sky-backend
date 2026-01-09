@@ -5,10 +5,9 @@ Revises: add_space_connections
 Create Date: 2025-12-24
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
-
 
 # revision identifiers, used by Alembic.
 revision = "add_ai_tables"

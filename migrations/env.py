@@ -2,13 +2,14 @@
 
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
 from alembic import context
+from sqlalchemy import engine_from_config, pool
+
+from src.config.database import Base
+from src.config.settings import settings
 
 # Import your models here for autogenerate
 from src.models import *  # noqa: F401, F403
-from src.config.database import Base
-from src.config.settings import settings
 
 # this is the Alembic Config object
 config = context.config

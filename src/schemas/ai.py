@@ -106,8 +106,23 @@ class CreateHistoryRequest(BaseModel):
 class FeedbackRequest(BaseModel):
     """Feedback request schema."""
 
-    message_id: str = Field(..., min_length=1)
+    # Preferido: associar feedback ao AIQuery (ai_queries.id)
+    query_id: Optional[UUID] = Field(
+        default=None,
+        description="AI query ID (ai_queries.id) to associate this feedback with.",
+    )
+    # Deprecado (mantido por compatibilidade com clientes antigos)
+    message_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        description="Deprecated. Prefer 'query_id'.",
+    )
     feedback: str = Field(..., pattern="^(good|bad)$")
+    comment: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description="Optional comment explaining what was wrong (typically used with feedback='bad').",
+    )
 
 
 class GenerateSQLRequest(BaseModel):

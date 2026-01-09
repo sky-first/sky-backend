@@ -5,13 +5,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.mock import MockAIService
 from src.ai.real_service import RealAIService
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
-from src.models.ai import AIHistory, AIQuery, Pipeline
+from src.models.ai import AIFeedback, AIHistory, AIQuery, Pipeline
 from src.models.user import User
 from src.repositories.base import BaseRepository
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
@@ -53,6 +54,7 @@ class AIService:
         self.query_repo = BaseRepository(db, AIQuery)
         self.history_repo = BaseRepository(db, AIHistory)
         self.pipeline_repo = BaseRepository(db, Pipeline)
+        self.feedback_repo = BaseRepository(db, AIFeedback)
         self.connection_repo = ConnectionRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.crew_member_repo = CrewMemberRepository(db)
@@ -521,7 +523,7 @@ class AIService:
 
             try:
                 configure_data = json.loads(configure_data)
-            except:
+            except Exception:
                 configure_data = {}
         elif not isinstance(configure_data, dict):
             configure_data = {}
@@ -761,7 +763,7 @@ class AIService:
             query = query.where(AIHistory.date >= week_ago)
         elif filter_type == "pinned":
             # Only pinned items
-            query = query.where(AIHistory.pinned == True)
+            query = query.where(AIHistory.pinned.is_(True))
         # "all" or None: no date filter, show everything
 
         # Apply category filter
@@ -1031,10 +1033,55 @@ class AIService:
             user_id: User ID
             feedback_data: Feedback data
         """
-        # TODO: Implementar armazenamento de feedback
-        # Pode criar uma tabela ai_feedback ou adicionar campo em chat_messages
+        # Retrocompat: clientes antigos enviavam `message_id` (string local). Isso não
+        # é mapeável de forma confiável para `ai_queries.id`, então apenas logamos.
+        if not feedback_data.query_id:
+            logger.info(
+                "Ignoring AI feedback without query_id (deprecated message_id=%s, feedback=%s, user_id=%s)",
+                feedback_data.message_id,
+                feedback_data.feedback,
+                user_id,
+            )
+            return
+
+        query = await self.query_repo.get_by_id(feedback_data.query_id)
+        if not query or query.user_id != user_id:
+            # NotFound para não vazar existência/ownership
+            raise NotFoundError("Query not found")
+
+        # Upsert por (query_id, user_id)
+        existing_res = await self.db.execute(
+            select(AIFeedback).where(
+                AIFeedback.query_id == feedback_data.query_id,
+                AIFeedback.user_id == user_id,
+            )
+        )
+        existing = existing_res.scalar_one_or_none()
+
+        now = datetime.now(timezone.utc)
+        if existing:
+            existing.rating = feedback_data.feedback
+            existing.comment = feedback_data.comment
+            existing.updated_at = now
+        else:
+            self.db.add(
+                AIFeedback(
+                    query_id=feedback_data.query_id,
+                    user_id=user_id,
+                    rating=feedback_data.feedback,
+                    comment=feedback_data.comment,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        await self.db.commit()
         logger.info(
-            f"User {user_id} submitted {feedback_data.feedback} feedback for message {feedback_data.message_id}"
+            "Stored AI feedback (query_id=%s, user_id=%s, rating=%s, has_comment=%s)",
+            str(feedback_data.query_id),
+            str(user_id),
+            feedback_data.feedback,
+            bool(feedback_data.comment),
         )
 
     async def get_pipeline_logs(self, pipeline_id: UUID, user_id: UUID) -> str:
