@@ -278,6 +278,14 @@ class ValidateSQLRequest(BaseModel):
     space_id: Optional[str] = Field(None, description="Space atual.")
     crew_ids: Optional[List[str]] = Field(None, description="Crew IDs.")
     is_personal: Optional[bool] = Field(False, description="Modo personal.")
+    include_explanation: Optional[bool] = Field(
+        default=False,
+        description="If True, asks the AI engine to generate a short explanation of the preview results.",
+    )
+    question: Optional[str] = Field(
+        default=None,
+        description="Original user question (context for explanation).",
+    )
 
 
 class ValidateSQLResponse(BaseModel):
@@ -289,3 +297,7 @@ class ValidateSQLResponse(BaseModel):
     num_rows: Optional[int] = Field(None, description="Número de linhas.")
     execution_time_ms: Optional[float] = Field(None, description="Tempo de execução.")
     columns: Optional[List[str]] = Field(None, description="Colunas retornadas.")
+    explanation: Optional[str] = Field(
+        default=None,
+        description="Short AI-generated explanation for the preview results (if requested).",
+    )
