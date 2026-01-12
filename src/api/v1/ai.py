@@ -37,6 +37,8 @@ from src.schemas.ai import (
     PipelineExecuteRequest,
     PipelineExecuteResponse,
     PipelineResponse,
+    SuggestWidgetTitleRequest,
+    SuggestWidgetTitleResponse,
     ValidateSQLRequest,
     ValidateSQLResponse,
 )
@@ -782,3 +784,87 @@ async def validate_sql(
     """
     ai_service = AIService(db)
     return await ai_service.validate_sql(request, current_user)
+
+
+@router.post(
+    "/suggest-title",
+    response_model=SuggestWidgetTitleResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+    },
+    summary="Suggest widget title",
+    description="Suggest a better title for a single widget created from an AI answer.",
+)
+async def suggest_widget_title(
+    body: SuggestWidgetTitleRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuggestWidgetTitleResponse:
+    # RBAC enforcement: same capability as querying (this still incurs AI cost).
+    rbac = RBACService(db)
+    space_uuid: Optional[UUID] = None
+    if body.space_id:
+        try:
+            space_uuid = UUID(body.space_id)
+        except Exception:
+            space_uuid = None
+    await rbac.assert_permission(current_user, "data.query.run", space_id=space_uuid)
+
+    ai_service = AIService(db)
+
+    # Rate limiting: count title suggestions as AI calls (cost control).
+    if settings.RATE_LIMIT_ENABLED and settings.AI_RATE_LIMIT_ENABLED:
+        try:
+            is_personal = bool(getattr(body, "is_personal", False))
+            space_id = getattr(body, "space_id", None)
+            crew_ids = await ai_service._get_user_crew_ids(  # noqa: SLF001
+                current_user.id,
+                space_id,
+                all_spaces=is_personal,
+            )
+            tenant_key = resolve_tenant_key(
+                user_id=str(current_user.id),
+                crew_ids=crew_ids,
+                space_id=space_id,
+                is_personal=is_personal,
+            )
+            limiter = RedisFixedWindowRateLimiter(enabled=True, key_prefix="rl:v1")
+            buckets = default_buckets_for_request(
+                tenant_key=tenant_key,
+                user_id=str(current_user.id),
+                route_key="ai.suggest_title",
+                user_per_min=settings.AI_RATE_LIMIT_USER_PER_MINUTE,
+                user_per_hour=settings.AI_RATE_LIMIT_USER_PER_HOUR,
+                tenant_per_min=settings.AI_RATE_LIMIT_TENANT_PER_MINUTE,
+                tenant_per_hour=settings.AI_RATE_LIMIT_TENANT_PER_HOUR,
+                global_user_per_hour=settings.AI_RATE_LIMIT_GLOBAL_USER_PER_HOUR,
+                key_prefix="rl:v1",
+            )
+            await limiter.enforce(buckets)
+        except RateLimitExceeded as e:
+            res = e.result
+            response = JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content=res.to_payload(),
+                headers=res.to_headers(),
+            )
+            origin = request.headers.get("Origin")
+            if origin and origin in settings.cors_origins_list:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers.add_vary_header("Origin")
+            return response  # type: ignore[return-value]
+
+    client = AIServiceHTTPClient()
+    suggested = await client.suggest_widget_title(
+        question=body.question,
+        data_sample=body.data_sample,
+        answer=body.answer,
+        current_title=body.current_title,
+        language=body.language or "pt",
+    )
+    return SuggestWidgetTitleResponse(title=suggested)
