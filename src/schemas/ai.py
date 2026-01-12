@@ -60,6 +60,33 @@ class AIQueryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SuggestWidgetTitleRequest(BaseModel):
+    """Request to suggest a better title for a single widget created from an AI answer."""
+
+    question: str = Field(..., min_length=1, max_length=4000)
+    data_sample: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Sample data for the widget (max 15 rows)"
+    )
+    answer: Optional[str] = Field(default=None, description="Optional AI textual answer")
+    current_title: Optional[str] = Field(
+        default=None, description="Current (fallback) title shown in the UI"
+    )
+    language: str = Field(default="pt", min_length=2, max_length=8)
+    space_id: Optional[str] = Field(
+        default=None, description="Space ID used for permissions/catalog context"
+    )
+    is_personal: Optional[bool] = Field(
+        default=False,
+        description="Whether the action is in personal mode (access across all crews/spaces).",
+    )
+
+
+class SuggestWidgetTitleResponse(BaseModel):
+    """Suggested widget title response."""
+
+    title: str
+
+
 class ChatMessageRequest(BaseModel):
     """Chat message request schema."""
 

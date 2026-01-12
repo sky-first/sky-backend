@@ -415,7 +415,9 @@ class AIService:
 
                         if chosen_table or chosen_datasets or dynamic_title or detected_language:
                             # Get current config and ensure it's a dict
-                            current_config = dict(query.configure_data) if query.configure_data else {}
+                            current_config = (
+                                dict(query.configure_data) if query.configure_data else {}
+                            )
 
                             if chosen_table:
                                 current_config["chosen_table"] = chosen_table
