@@ -34,6 +34,12 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
     if request.url.path in ["/health", "/ready", "/live", "/metrics"]:
         return await call_next(request)
 
+    # Skip rate limiting for low-cost polling/status endpoints (frontend may poll frequently).
+    # These endpoints should not be blocked by the generic IP/user limiter.
+    path = getattr(getattr(request, "url", None), "path", "") or ""
+    if isinstance(path, str) and path.startswith("/api/v1/dashboards/ai/build-jobs/"):
+        return await call_next(request)
+
     try:
         redis = await get_redis()
         if redis is None:
