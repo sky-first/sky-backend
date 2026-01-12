@@ -3,13 +3,20 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
+from src.config.settings import settings
 from src.models.user import User
+from src.rate_limit.core import (
+    RateLimitExceeded,
+    RedisFixedWindowRateLimiter,
+    default_buckets_for_request,
+    resolve_tenant_key,
+)
 from src.repositories.planet import PlanetRepository
 from src.repositories.space import SpaceRepository
 from src.schemas.ai import (
@@ -50,6 +57,7 @@ router = APIRouter()
 )
 async def process_query(
     query_data: AIQueryRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIQueryResponse:
@@ -75,6 +83,52 @@ async def process_query(
     await rbac.assert_permission(current_user, "data.query.run", space_id=space_uuid)
 
     ai_service = AIService(db)
+
+    # Tenant/user rate limiting (cost control). Enforced only for the costly path.
+    if settings.RATE_LIMIT_ENABLED and settings.AI_RATE_LIMIT_ENABLED:
+        try:
+            is_personal = bool(getattr(query_data, "is_personal", False))
+            space_id = getattr(query_data, "space_id", None)
+            crew_ids = await ai_service._get_user_crew_ids(  # noqa: SLF001
+                current_user.id,
+                space_id,
+                all_spaces=is_personal,
+            )
+            tenant_key = resolve_tenant_key(
+                user_id=str(current_user.id),
+                crew_ids=crew_ids,
+                space_id=space_id,
+                is_personal=is_personal,
+            )
+
+            limiter = RedisFixedWindowRateLimiter(enabled=True, key_prefix="rl:v1")
+            buckets = default_buckets_for_request(
+                tenant_key=tenant_key,
+                user_id=str(current_user.id),
+                route_key="ai.query",
+                user_per_min=settings.AI_RATE_LIMIT_USER_PER_MINUTE,
+                user_per_hour=settings.AI_RATE_LIMIT_USER_PER_HOUR,
+                tenant_per_min=settings.AI_RATE_LIMIT_TENANT_PER_MINUTE,
+                tenant_per_hour=settings.AI_RATE_LIMIT_TENANT_PER_HOUR,
+                global_user_per_hour=settings.AI_RATE_LIMIT_GLOBAL_USER_PER_HOUR,
+                key_prefix="rl:v1",
+            )
+            await limiter.enforce(buckets)
+        except RateLimitExceeded as e:
+            res = e.result
+            response = JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content=res.to_payload(),
+                headers=res.to_headers(),
+            )
+            # Preserve CORS behavior (same as middleware) so browser clients can read 429.
+            origin = request.headers.get("Origin")
+            if origin and origin in settings.cors_origins_list:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers.add_vary_header("Origin")
+            return response  # type: ignore[return-value]
+
     return await ai_service.process_query(current_user.id, query_data)
 
 

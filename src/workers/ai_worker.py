@@ -102,6 +102,52 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 user_id, space_id, all_spaces=True
             )  # noqa: SLF001
 
+            # Rate limiting (per widget) for cost control.
+            # We enforce here (worker) because this is where the expensive calls happen.
+            # If Redis is not configured/available (local dev/tests), we fail open.
+            rl_limiter = None
+            rl_buckets = None
+            try:
+                from src.config.settings import settings
+                from src.rate_limit.core import (
+                    RateLimitExceeded,
+                    RedisFixedWindowRateLimiter,
+                    default_buckets_for_request,
+                    resolve_tenant_key,
+                )
+
+                if (
+                    settings.RATE_LIMIT_ENABLED
+                    and settings.AI_RATE_LIMIT_ENABLED
+                    and bool(getattr(settings, "REDIS_URL", "") or "")
+                ):
+                    # Prefer tenant resolution by crews within the current space when possible.
+                    # (If multiple crews exist, tenant_key falls back to space:{space_id}.)
+                    crew_ids_in_space = await ai_service._get_user_crew_ids(
+                        user_id, space_id, all_spaces=False
+                    )  # noqa: SLF001
+                    tenant_key = resolve_tenant_key(
+                        user_id=str(user_id),
+                        crew_ids=crew_ids_in_space,
+                        space_id=space_id,
+                        is_personal=True,
+                    )
+                    rl_limiter = RedisFixedWindowRateLimiter(enabled=True, key_prefix="rl:v1")
+                    rl_buckets = default_buckets_for_request(
+                        tenant_key=tenant_key,
+                        user_id=str(user_id),
+                        route_key="dashboards.widget_exec",
+                        user_per_min=settings.AI_RATE_LIMIT_USER_PER_MINUTE,
+                        user_per_hour=settings.AI_RATE_LIMIT_USER_PER_HOUR,
+                        tenant_per_min=settings.AI_RATE_LIMIT_TENANT_PER_MINUTE,
+                        tenant_per_hour=settings.AI_RATE_LIMIT_TENANT_PER_HOUR,
+                        global_user_per_hour=settings.AI_RATE_LIMIT_GLOBAL_USER_PER_HOUR,
+                        key_prefix="rl:v1",
+                    )
+            except Exception:
+                rl_limiter = None
+                rl_buckets = None
+
             # Build a compact schema summary from backend connection_metadata so Davinci can plan even if
             # the AI Engine catalog is not fully initialized.
             logical_tables_override = None
@@ -284,6 +330,47 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 widget_id = UUID(wid)
 
                 try:
+                    # Enforce rate limit per widget (counts dashboards as questions too).
+                    if rl_limiter and rl_buckets:
+                        try:
+                            await rl_limiter.enforce(rl_buckets)
+                        except RateLimitExceeded as e:
+                            # Don't fail the whole job; mark this widget as rate-limited placeholder and continue.
+                            failed_count += 1
+                            failed_widget_ids.append(str(widget_id))
+                            logger.warning(
+                                "Async dashboard build: rate limited (will continue). widget_id=%s scope=%s key=%s",
+                                widget_id,
+                                e.result.scope,
+                                e.result.key,
+                            )
+                            try:
+                                safe_title = w.get("title") or (
+                                    wtype.capitalize() if isinstance(wtype, str) else "Widget"
+                                )
+                                await widget_repo.update(
+                                    widget_id,
+                                    title=f"{safe_title} (rate limited)",
+                                    data={
+                                        "isPlaceholder": True,
+                                        "placeholderMode": "manual",
+                                        "question": w.get("question") or "",
+                                        "error": "rate_limited",
+                                        "rate_limit": e.result.to_payload(),
+                                    },
+                                    config={"viz": viz or {}},
+                                    query_id=None,
+                                    connection_id=UUID(connection_id),
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to mark widget %s as rate-limited placeholder",
+                                    widget_id,
+                                )
+                            job.completed_widgets = int(job.completed_widgets or 0) + 1
+                            await db.commit()
+                            continue
+
                     if wtype == "text":
                         content = ""
                         if isinstance(viz, dict) and isinstance(viz.get("content"), str):
