@@ -110,8 +110,8 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             try:
                 from src.config.settings import settings
                 from src.rate_limit.core import (
-                    RedisFixedWindowRateLimiter,
                     RateLimitExceeded,
+                    RedisFixedWindowRateLimiter,
                     default_buckets_for_request,
                     resolve_tenant_key,
                 )

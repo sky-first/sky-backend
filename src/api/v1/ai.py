@@ -11,14 +11,14 @@ from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
 from src.config.settings import settings
 from src.models.user import User
-from src.repositories.planet import PlanetRepository
-from src.repositories.space import SpaceRepository
 from src.rate_limit.core import (
-    RedisFixedWindowRateLimiter,
     RateLimitExceeded,
+    RedisFixedWindowRateLimiter,
     default_buckets_for_request,
     resolve_tenant_key,
 )
+from src.repositories.planet import PlanetRepository
+from src.repositories.space import SpaceRepository
 from src.schemas.ai import (
     AIHistoryItem,
     AIQueryRequest,

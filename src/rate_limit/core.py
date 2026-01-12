@@ -16,7 +16,6 @@ from fastapi import HTTPException, status
 
 from src.config.redis import get_redis
 
-
 TenantKeyKind = Literal["crew", "space", "personal", "user"]
 
 
@@ -132,7 +131,9 @@ return {v, ttl}
         if scope == "tenant":
             return f"{self.key_prefix}:tenant:{tenant_key}:route:{route_key}:{window}"
         if scope == "user":
-            return f"{self.key_prefix}:tenant:{tenant_key}:user:{user_id}:route:{route_key}:{window}"
+            return (
+                f"{self.key_prefix}:tenant:{tenant_key}:user:{user_id}:route:{route_key}:{window}"
+            )
         # global_user
         return f"{self.key_prefix}:global:user:{user_id}:route:{route_key}:{window}"
 
@@ -281,5 +282,3 @@ def default_buckets_for_request(
             scope="global_user",
         ),
     ]
-
-

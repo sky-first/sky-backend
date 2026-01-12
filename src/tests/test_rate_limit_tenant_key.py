@@ -73,5 +73,3 @@ def test_resolve_tenant_key_no_context_falls_back_to_user() -> None:
         )
         == "user:u1"
     )
-
-
