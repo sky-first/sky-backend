@@ -52,6 +52,8 @@ class AIQueryResponse(BaseModel):
     chosen_datasets: Optional[List[str]] = Field(
         default=None, description="Datasets chosen by AI to answer the question"
     )
+    # NEW: extra meta returned by the AI execution engine (e.g., dynamic widget title)
+    meta: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 

@@ -403,6 +403,8 @@ class AIService:
                         # Store chosen table/datasets in configure_data for frontend
                         chosen_table = result.get("chosen_table")
                         chosen_datasets = result.get("chosen_datasets", [])
+                        dynamic_title = result.get("title")
+                        detected_language = result.get("detected_language")
 
                         # Debug log
                         logger.info(
@@ -411,11 +413,9 @@ class AIService:
                             f"result_keys={list(result.keys())}"
                         )
 
-                        if chosen_table or chosen_datasets:
+                        if chosen_table or chosen_datasets or dynamic_title or detected_language:
                             # Get current config and ensure it's a dict
-                            current_config = (
-                                dict(query.configure_data) if query.configure_data else {}
-                            )
+                            current_config = dict(query.configure_data) if query.configure_data else {}
 
                             if chosen_table:
                                 current_config["chosen_table"] = chosen_table
@@ -424,6 +424,10 @@ class AIService:
                             elif chosen_table:
                                 # Fallback: if only chosen_table exists, create array
                                 current_config["chosen_datasets"] = [chosen_table]
+                            if dynamic_title:
+                                current_config["title"] = dynamic_title
+                            if detected_language:
+                                current_config["detected_language"] = detected_language
 
                             # Assign new dict to ensure SQLAlchemy detects the change
                             query.configure_data = current_config
@@ -436,6 +440,7 @@ class AIService:
                             logger.info(
                                 f"Saved to configure_data: chosen_table={current_config.get('chosen_table')}, "
                                 f"chosen_datasets={current_config.get('chosen_datasets')}, "
+                                f"title={current_config.get('title')}, "
                                 f"full_config_keys={list(current_config.keys())}"
                             )
                         else:
@@ -530,6 +535,8 @@ class AIService:
 
         chosen_table = configure_data.get("chosen_table")
         chosen_datasets = configure_data.get("chosen_datasets", [])
+        title = configure_data.get("title")
+        detected_language = configure_data.get("detected_language")
 
         # Ensure chosen_datasets is a list
         if not isinstance(chosen_datasets, list):
@@ -541,6 +548,11 @@ class AIService:
 
         response_dict["chosen_table"] = chosen_table
         response_dict["chosen_datasets"] = chosen_datasets
+        if title or detected_language:
+            response_dict["meta"] = {
+                "title": title,
+                "detected_language": detected_language,
+            }
 
         logger.info(
             f"Returning AIQueryResponse with chosen_table={chosen_table}, "
