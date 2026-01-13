@@ -392,6 +392,7 @@ class AIService:
                             thread_id=str(query.id),
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
+                            instructions=configure_data.instructions,
                         )
 
                         # Update query with real AI results
