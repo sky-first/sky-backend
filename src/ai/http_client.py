@@ -281,6 +281,8 @@ class AIServiceHTTPClient:
         space_id: str,
         crew_ids: Optional[List[str]] = None,
         is_personal: Optional[bool] = None,
+        include_explanation: Optional[bool] = None,
+        question: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Validate SQL by executing a test query (LIMIT 5).
@@ -312,6 +314,10 @@ class AIServiceHTTPClient:
             payload["crew_ids"] = crew_ids
         if is_personal is not None:
             payload["is_personal"] = bool(is_personal)
+        if include_explanation is not None:
+            payload["include_explanation"] = bool(include_explanation)
+        if question:
+            payload["question"] = question
 
         async with httpx.AsyncClient(timeout=30.0) as client:  # Timeout menor para validação
             logger.info(

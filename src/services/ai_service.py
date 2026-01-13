@@ -1204,6 +1204,8 @@ class AIService:
                 space_id=space_id,
                 crew_ids=request.crew_ids,
                 is_personal=request.is_personal,
+                include_explanation=request.include_explanation,
+                question=request.question,
             )
 
             return ValidateSQLResponse(**result)
