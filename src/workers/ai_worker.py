@@ -317,6 +317,14 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             # 2) Fill each widget and update in-place (placeholder -> real)
             from src.schemas.ai import AIQueryRequest, ConfigureData
 
+            # Get additional context for the AI engine
+            ctx = {}
+            if isinstance(job.plan, dict) and isinstance(job.plan.get("_context"), dict):
+                ctx = job.plan.get("_context")
+            
+            context_tables = ctx.get("context_tables") or []
+            initial_ai_response = ctx.get("initial_ai_response")
+
             failed_count = 0
             failed_widget_ids: list[str] = []
 
@@ -392,14 +400,19 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         await db.commit()
                         continue
 
+                    # Merge connection_id with context tables for knowledge
+                    knowledge = [connection_id]
+                    if context_tables:
+                        knowledge.extend(context_tables)
+
                     ai_req = AIQueryRequest(
                         question=w.get("question") or "",
-                        knowledge=[connection_id],
+                        knowledge=knowledge,
                         space_id=space_id,
                         is_personal=True,
                         configure_data=ConfigureData(
                             question=w.get("question") or "",
-                            knowledge=[connection_id],
+                            knowledge=knowledge,
                             response_format="text",
                             creativity=15,
                             length=35,
