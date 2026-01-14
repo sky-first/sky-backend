@@ -1,7 +1,6 @@
 """Dataset management models."""
 
 import uuid
-from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID

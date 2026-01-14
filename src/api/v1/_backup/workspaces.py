@@ -14,7 +14,6 @@ from src.schemas.workspace import (
     WorkspaceMemberCreate,
     WorkspaceMemberResponse,
     WorkspaceResponse,
-    WorkspaceSwitchRequest,
     WorkspaceUpdate,
 )
 from src.services.workspace_service import WorkspaceService

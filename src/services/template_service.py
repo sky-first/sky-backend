@@ -1,6 +1,6 @@
 """Template service."""
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +10,7 @@ from src.core.permissions import check_permission
 from src.models.user import User
 from src.repositories.dashboard import DashboardRepository, WidgetRepository
 from src.repositories.template import TemplateRepository
-from src.schemas.dashboard import WidgetCreate, WidgetResponse
+from src.schemas.dashboard import WidgetResponse
 from src.schemas.template import (
     TemplateApplyRequest,
     TemplateApplyResponse,

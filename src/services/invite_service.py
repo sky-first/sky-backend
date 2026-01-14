@@ -8,7 +8,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.exceptions import BadRequestError, ForbiddenError, UnauthorizedError
+from src.core.exceptions import BadRequestError, UnauthorizedError
 from src.core.security import create_access_token, create_refresh_token, get_password_hash
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
@@ -43,9 +43,6 @@ class InviteService:
         """
         # Generate a secure random token
         token = secrets.token_urlsafe(32)
-
-        # Calculate expiration date
-        expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
 
         # Store token in database (we'll update the user who creates the invite)
         # In practice, we might want a separate invites table, but for simplicity
@@ -181,7 +178,7 @@ class InviteService:
             BadRequestError: If token is invalid, expired, or password is invalid
         """
         # Validate token first
-        invite_info = await self.validate_invite_token(token)
+        await self.validate_invite_token(token)
 
         # Find user with this invite token
         from sqlalchemy import select

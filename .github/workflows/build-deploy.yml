@@ -29,7 +29,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # PRs should NOT authenticate to Azure/ACR via OIDC.
+      # The federated identity in Entra is typically configured for branch refs (push),
+      # and PR subjects ("repo:...:pull_request") will fail with AADSTS700213.
       - name: Azure Login (Federated Identity)
+        if: github.event_name != 'pull_request'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -37,6 +41,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Login to Azure Container Registry
+        if: github.event_name != 'pull_request'
         run: |
           az acr login --name ${{ env.ACR_NAME }}
 
@@ -48,18 +53,23 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            # In PR events `{{branch}}` can be empty, which generates an invalid tag like ":-<sha>".
+            # Keep SHA tags stable and always valid.
+            type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
+      - name: Build (and push on push-to-branch)
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          # On PRs we build only (no registry auth), so we use GitHub Actions cache.
+          # On push we can use registry cache for faster rebuilds across runners.
+          cache-from: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}.azurecr.io/{1}:buildcache', env.ACR_NAME, env.IMAGE_NAME) || 'type=gha' }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}.azurecr.io/{1}:buildcache,mode=max', env.ACR_NAME, env.IMAGE_NAME) || 'type=gha,mode=max' }}
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 

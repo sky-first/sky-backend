@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import List
 from uuid import UUID
 
 from src.workers.celery_app import celery_app
@@ -55,7 +55,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     from src.repositories.base import BaseRepository
     from src.repositories.dashboard import WidgetRepository
     from src.repositories.user import UserRepository
-    from src.schemas.dashboard import DashboardCreate, WidgetCreate
+    from src.schemas.dashboard import DashboardCreate
     from src.services.ai_service import AIService
     from src.services.dashboard_service import DashboardService
 
@@ -478,6 +478,75 @@ async def _build_dashboard_job_async(job_id: str) -> None:
 
                     job.completed_widgets = int(job.completed_widgets or 0) + 1
                     await db.commit()
+                    continue
+
+                ai_req = AIQueryRequest(
+                    question=w.get("question") or "",
+                    knowledge=[connection_id],
+                    space_id=space_id,
+                    is_personal=True,
+                    configure_data=ConfigureData(
+                        question=w.get("question") or "",
+                        knowledge=[connection_id],
+                        response_format="text",
+                        creativity=15,
+                        length=35,
+                        sql_instructions=(
+                            "If you generate SQL for a chart, prefer aggregated results with <= 15 rows. "
+                            "Always LIMIT the result set to 15 rows or fewer."
+                        ),
+                    ),
+                )
+                query_resp = await ai_service.process_query(user_id, ai_req)
+
+                widget_data = {
+                    "question": w.get("question"),
+                    "answer": query_resp.answer,
+                    "data": query_resp.data_sample or [],
+                    "sql": query_resp.sql,
+                    "chosen_table": getattr(query_resp, "chosen_table", None),
+                    "chosen_datasets": getattr(query_resp, "chosen_datasets", None),
+                    "isPlaceholder": False,
+                }
+
+                # Preserve planner chart viz + mapping
+                if wtype == "chart" and isinstance(viz, dict) and viz.get("type"):
+                    widget_data["type"] = viz.get("type")
+                    if isinstance(viz.get("mapping"), dict):
+                        widget_data["mapping"] = viz.get("mapping")
+
+                # :novo: NOVA FUNCIONALIDADE: Sugerir título melhor baseado nos dados
+                final_title = w.get("title") or ""
+                try:
+                    # Chamar API da IA para sugerir título melhor
+                    suggested_title = await client.suggest_widget_title(
+                        question=w.get("question") or "",
+                        data_sample=query_resp.data_sample or [],
+                        answer=query_resp.answer,
+                        current_title=w.get("title") or "",
+                        language=language,
+                    )
+                    # Usar título sugerido se for válido e diferente do genérico
+                    if suggested_title and suggested_title.strip():
+                        # Verificar se o título sugerido é melhor que o atual
+                        # (não é genérico como "Widget", "Chart", etc.)
+                        generic_titles = [
+                            "widget",
+                            "chart",
+                            "kpi",
+                            "table",
+                            "text",
+                            "gráfico",
+                            "dados",
+                        ]
+                        current_lower = (w.get("title") or "").lower().strip()
+                        suggested_lower = suggested_title.lower().strip()
+                        # Se o título atual é genérico OU o sugerido não é genérico
+                        if current_lower in generic_titles or suggested_lower not in generic_titles:
+                            final_title = suggested_title
+                            logger.info(
+                                f"Widget title updated: '{w.get('title')}' -> '{final_title}'"
+                            )
                 except Exception as e:
                     # Não falhar o job inteiro: marque este widget como "manual" e continue.
                     failed_count += 1

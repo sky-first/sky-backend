@@ -1,6 +1,5 @@
 """Tests for authentication middleware."""
 
-import pytest
 from fastapi.testclient import TestClient
 
 

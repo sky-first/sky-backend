@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import List
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -263,7 +263,7 @@ class Settings(BaseSettings):
     @property
     def database_url_sync(self) -> str:
         """Get synchronous database URL for Alembic."""
-        from urllib.parse import unquote_plus, urlparse, urlunparse
+        from urllib.parse import urlparse, urlunparse
 
         # Parse the async URL
         parsed = urlparse(self.DATABASE_URL)

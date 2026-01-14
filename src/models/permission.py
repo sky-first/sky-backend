@@ -2,9 +2,8 @@
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 

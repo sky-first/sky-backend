@@ -18,7 +18,6 @@ class BaseConnector(ABC):
         Returns:
             bool: True if connection successful
         """
-        pass
 
     @abstractmethod
     async def get_metadata(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -31,7 +30,6 @@ class BaseConnector(ABC):
         Returns:
             Dict[str, Any]: Metadata (tables, schemas, etc.)
         """
-        pass
 
     @abstractmethod
     async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
@@ -45,7 +43,6 @@ class BaseConnector(ABC):
         Returns:
             List[Dict[str, Any]]: Query results
         """
-        pass
 
     @abstractmethod
     async def sync_data(
@@ -61,4 +58,3 @@ class BaseConnector(ABC):
         Returns:
             Dict[str, Any]: Sync result
         """
-        pass

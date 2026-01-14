@@ -1,7 +1,7 @@
 """Space schemas."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -36,8 +36,6 @@ class SpaceBase(BaseModel):
 
 class SpaceCreate(SpaceBase):
     """Space creation schema."""
-
-    pass
 
 
 class SpaceUpdate(BaseModel):

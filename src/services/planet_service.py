@@ -1,13 +1,13 @@
 """Planet service."""
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError, NotFoundError
-from src.models.planet import Planet, PlanetMember
+from src.models.planet import Planet
 from src.models.user import User
 from src.repositories.planet import PlanetMemberRepository, PlanetRepository
 from src.schemas.planet import (

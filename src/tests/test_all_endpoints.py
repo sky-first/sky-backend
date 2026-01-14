@@ -33,29 +33,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.security import create_access_token
-from src.schemas.ai import AIQueryRequest
-from src.schemas.connection import ConnectionCreate
-from src.schemas.crew import CrewCreate
-from src.schemas.dashboard import DashboardCreate, WidgetCreate
-from src.schemas.permission import ConnectionPermissionCreate
 from src.schemas.planet import PlanetCreate
-from src.schemas.settings import SettingsUpdate
-from src.schemas.space import SpaceCreate
-from src.schemas.template import TemplateCreate
 from src.schemas.user import UserCreate
-from src.services.ai_service import AIService
-from src.services.connection_service import ConnectionService
-from src.services.connector_service import ConnectorService
-from src.services.crew_service import CrewService
 from src.services.dashboard_service import DashboardService
-from src.services.file_upload_service import FileUploadService
-from src.services.permission_service import PermissionService
 from src.services.planet_service import PlanetService
-from src.services.settings_service import SettingsService
-from src.services.space_service import SpaceService
-from src.services.template_service import TemplateService
-from src.services.user_service import UserService
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -80,7 +61,6 @@ async def create_test_dashboard(
     db_session: AsyncSession, user, planet_id, name: str = "Test Dashboard"
 ):
     """Helper to create a test dashboard."""
-    from src.models.dashboard import Dashboard
     from src.repositories.dashboard import DashboardRepository
 
     # Create directly to avoid server_default issues with SQLite
@@ -108,7 +88,6 @@ async def create_test_dashboard(
 
 async def create_test_widget(db_session: AsyncSession, user, dashboard_id):
     """Helper to create a test widget."""
-    from src.models.dashboard import Widget
     from src.repositories.dashboard import WidgetRepository
 
     # Create directly to avoid server_default issues with SQLite
@@ -130,7 +109,6 @@ async def create_test_widget(db_session: AsyncSession, user, dashboard_id):
 
 async def create_test_connection(db_session: AsyncSession, user, name: str = "Test Connection"):
     """Helper to create a test connection."""
-    from src.models.connection import DataConnection
     from src.repositories.connection import ConnectionRepository
 
     # Create directly to avoid server_default issues with SQLite
@@ -154,7 +132,6 @@ async def create_test_connection(db_session: AsyncSession, user, name: str = "Te
 
 async def create_test_space(db_session: AsyncSession, user, name: str = "Test Space"):
     """Helper to create a test space."""
-    from src.models.space import Space
     from src.repositories.space import SpaceRepository
 
     # Create directly to avoid server_default issues with SQLite
@@ -174,7 +151,6 @@ async def create_test_space(db_session: AsyncSession, user, name: str = "Test Sp
 
 async def create_test_crew(db_session: AsyncSession, user, space_id, name: str = "Test Crew"):
     """Helper to create a test crew."""
-    from src.models.crew import Crew
     from src.repositories.crew import CrewRepository
 
     # Create directly to avoid server_default issues with SQLite

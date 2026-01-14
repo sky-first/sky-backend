@@ -3,17 +3,14 @@
 import logging
 import secrets
 from typing import Dict, Optional
-from urllib.parse import urlencode
-from uuid import UUID
 
 import httpx
 from jose import jwt
-from jose.constants import ALGORITHMS
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError, UnauthorizedError
-from src.core.security import create_access_token, create_refresh_token, get_password_hash
+from src.core.security import create_access_token, create_refresh_token
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
 
@@ -327,7 +324,7 @@ class Auth0Service:
         elif provider == "azure":
             if not self.settings.is_azure_enabled:
                 raise ValueError("Azure AD SSO is not configured")
-            userinfo_url = f"https://graph.microsoft.com/v1.0/me"
+            userinfo_url = "https://graph.microsoft.com/v1.0/me"
         elif provider == "okta":
             if not self.settings.is_okta_enabled:
                 raise ValueError("Okta SSO is not configured")

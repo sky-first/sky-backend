@@ -1,18 +1,16 @@
 """Space service."""
 
-from typing import List, Optional
+from typing import List
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.crew import Crew
-from src.models.space import Space, SpaceConnection, SpaceMember
+from src.models.space import SpaceConnection
 from src.models.user import User
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.space import SpaceMemberRepository, SpaceRepository
-from src.schemas.connection import TableMetadataSchema
 from src.schemas.space import (
     SpaceCreate,
     SpaceMemberCreate,

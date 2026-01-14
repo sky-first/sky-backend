@@ -1,11 +1,8 @@
 """Starred item models."""
 
 import uuid
-from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import Column, DateTime, ForeignKey, Index, String, func, text
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 

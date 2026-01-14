@@ -134,7 +134,7 @@ class TestJWTAccessTokens:
     def test_verify_token_wrong_secret(self):
         """Test token verification with wrong secret key."""
         token_data = {"sub": str(uuid4()), "email": "test@example.com", "role": "user"}
-        token = create_access_token(token_data)
+        create_access_token(token_data)
 
         # Try to verify with wrong secret (simulated by corrupting token)
         with pytest.raises(JWTError):

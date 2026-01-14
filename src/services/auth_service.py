@@ -1,12 +1,10 @@
 """Authentication service."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config.settings import settings
 from src.core.exceptions import BadRequestError, UnauthorizedError
 from src.core.security import (
     create_access_token,
@@ -330,7 +328,7 @@ class AuthenticationService:
         Args:
             refresh_token: Refresh token to revoke
         """
-        from sqlalchemy import select, update
+        from sqlalchemy import update
 
         await self.db.execute(
             update(RefreshToken)

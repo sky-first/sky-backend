@@ -219,7 +219,6 @@ class RealAIService:
             Dict with pipeline steps and status
         """
         question = configure_data.get("question", "")
-        knowledge = configure_data.get("knowledge", [])
 
         # If we have a connection_id in knowledge, we can process it
         # For now, return a simplified pipeline response
