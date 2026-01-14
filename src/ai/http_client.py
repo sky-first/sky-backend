@@ -345,7 +345,9 @@ class AIServiceHTTPClient:
         if current_title:
             payload["current_title"] = current_title
 
-        async with httpx.AsyncClient(timeout=15.0) as client:  # Timeout menor para sugestão de título
+        async with httpx.AsyncClient(
+            timeout=15.0
+        ) as client:  # Timeout menor para sugestão de título
             logger.info(
                 "Calling AI suggest widget title: %s question=%s",
                 url,
@@ -369,4 +371,3 @@ class AIServiceHTTPClient:
                 )
                 # Fallback: retornar título atual ou genérico
                 return current_title or "Widget"
-

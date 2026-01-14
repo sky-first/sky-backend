@@ -26,8 +26,6 @@ class TemplateBase(BaseModel):
 class TemplateCreate(TemplateBase):
     """Template creation schema."""
 
-    pass
-
 
 class TemplateUpdate(BaseModel):
     """Template update schema."""

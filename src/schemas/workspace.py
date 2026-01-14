@@ -1,7 +1,7 @@
 """Workspace schemas."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -21,8 +21,6 @@ class WorkspaceBase(BaseModel):
 
 class WorkspaceCreate(WorkspaceBase):
     """Workspace creation schema."""
-
-    pass
 
 
 class WorkspaceUpdate(BaseModel):

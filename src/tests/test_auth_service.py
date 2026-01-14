@@ -8,8 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import UnauthorizedError
-from src.models.user import RefreshToken, User
-from src.repositories.user import UserRepository
+from src.models.user import RefreshToken
 from src.services.auth_service import AuthenticationService
 
 
@@ -110,7 +109,6 @@ class TestAuthenticationServiceRefreshToken:
 
     async def test_refresh_token_expired(self, db_session: AsyncSession, test_user: dict):
         """Test refresh with expired token."""
-        from src.config.settings import settings
         from src.core.security import create_refresh_token
 
         # Create an expired refresh token

@@ -1,7 +1,6 @@
 """Sync worker for data connections."""
 
 import logging
-from uuid import UUID
 
 from src.workers.celery_app import celery_app
 

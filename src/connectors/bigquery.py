@@ -112,7 +112,6 @@ class BigQueryConnector(BaseConnector):
             }
         """
         import asyncio
-        from collections import defaultdict
 
         def _run() -> Dict[str, Any]:
             client = _create_bq_client(config)

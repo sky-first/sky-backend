@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import List
 from uuid import UUID
 
 from src.workers.celery_app import celery_app
@@ -55,7 +55,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     from src.repositories.base import BaseRepository
     from src.repositories.dashboard import WidgetRepository
     from src.repositories.user import UserRepository
-    from src.schemas.dashboard import DashboardCreate, WidgetCreate
+    from src.schemas.dashboard import DashboardCreate
     from src.services.ai_service import AIService
     from src.services.dashboard_service import DashboardService
 
@@ -333,13 +333,23 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     if suggested_title and suggested_title.strip():
                         # Verificar se o título sugerido é melhor que o atual
                         # (não é genérico como "Widget", "Chart", etc.)
-                        generic_titles = ["widget", "chart", "kpi", "table", "text", "gráfico", "dados"]
+                        generic_titles = [
+                            "widget",
+                            "chart",
+                            "kpi",
+                            "table",
+                            "text",
+                            "gráfico",
+                            "dados",
+                        ]
                         current_lower = (w.get("title") or "").lower().strip()
                         suggested_lower = suggested_title.lower().strip()
                         # Se o título atual é genérico OU o sugerido não é genérico
                         if current_lower in generic_titles or suggested_lower not in generic_titles:
                             final_title = suggested_title
-                            logger.info(f"Widget title updated: '{w.get('title')}' -> '{final_title}'")
+                            logger.info(
+                                f"Widget title updated: '{w.get('title')}' -> '{final_title}'"
+                            )
                 except Exception as e:
                     # Se falhar, usar título original (fail-safe)
                     logger.warning(

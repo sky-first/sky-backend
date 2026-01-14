@@ -521,7 +521,7 @@ class AIService:
 
             try:
                 configure_data = json.loads(configure_data)
-            except:
+            except Exception:
                 configure_data = {}
         elif not isinstance(configure_data, dict):
             configure_data = {}
@@ -762,7 +762,7 @@ class AIService:
             query = query.where(AIHistory.date >= week_ago)
         elif filter_type == "pinned":
             # Only pinned items
-            query = query.where(AIHistory.pinned == True)
+            query = query.where(AIHistory.pinned.is_(True))
         # "all" or None: no date filter, show everything
 
         # Apply category filter

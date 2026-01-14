@@ -1,12 +1,11 @@
 """Permission service."""
 
-from typing import List, Optional
+from typing import List
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
-from src.models.crew import CrewMember
 from src.models.space import SpaceConnection
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
