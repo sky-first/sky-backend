@@ -25,7 +25,7 @@ from src.utils.cache import CacheService
 from src.utils.cache import connection_metadata_cache_key as conn_cache_key
 from src.utils.cache import dashboard_cache_key, widget_cache_key, workspace_cache_key
 from src.workers.ai_worker import build_dashboard_job, process_ai_query
-from src.workers.celery_app import build_redis_url_from_env, encode_password_in_redis_url
+from src.workers.cache_warming_worker import _warm_ai_response_cache_async
 from src.workers.sync_worker import sync_connection, sync_connection_metadata
 
 # --- Tests for src/utils/cache.py ---
@@ -54,6 +54,34 @@ def test_cache_keys():
     assert dashboard_cache_key("2") == "dashboard:2"
     assert workspace_cache_key("3") == "workspace:3"
     assert conn_cache_key("4") == "connection:metadata:4"
+
+
+# --- Tests for src/workers/cache_warming_worker.py ---
+
+
+@pytest.mark.asyncio
+async def test_cache_warming_skips_when_cache_disabled():
+    # Ensure we never touch DB/Redis/AI in this test; it's purely a guard-rail branch.
+    with patch("src.workers.cache_warming_worker.settings") as s:
+        s.AI_RESPONSE_CACHE_TTL_SECONDS = 0
+        s.AI_SERVICE_TYPE = "real"
+        s.REDIS_URL = "redis://localhost:6379/0"
+        s.CACHE_WARMING_ENABLED = True
+
+        res = await _warm_ai_response_cache_async()
+        assert res["status"] == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_cache_warming_skips_when_not_real_ai():
+    with patch("src.workers.cache_warming_worker.settings") as s:
+        s.AI_RESPONSE_CACHE_TTL_SECONDS = 600
+        s.AI_SERVICE_TYPE = "mock"
+        s.REDIS_URL = "redis://localhost:6379/0"
+        s.CACHE_WARMING_ENABLED = True
+
+        res = await _warm_ai_response_cache_async()
+        assert res["status"] == "skipped"
 
 
 # --- Tests for src/workers/sync_worker.py ---
