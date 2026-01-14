@@ -1,6 +1,8 @@
 """Cache utilities using Redis."""
 
+import hashlib
 import json
+import re
 from typing import Any, Optional, TypeVar
 
 from src.config.redis import get_redis
@@ -117,3 +119,22 @@ def workspace_cache_key(workspace_id: str) -> str:
 def connection_metadata_cache_key(connection_id: str) -> str:
     """Generate cache key for connection metadata."""
     return f"connection:metadata:{connection_id}"
+
+
+def _normalize_question(question: str) -> str:
+    """Normalize user question for stable cache keys."""
+    q = (question or "").strip().lower()
+    q = re.sub(r"\s+", " ", q)
+    return q
+
+
+def ai_response_cache_key(space_id: str, connection_id: str, question: str) -> str:
+    """
+    Generate cache key for AI response.
+
+    Key = sha256(space_id + connection_id + normalized_question)
+    """
+    normalized = _normalize_question(question)
+    raw = f"{space_id}|{connection_id}|{normalized}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return f"ai:resp:v1:{digest}"

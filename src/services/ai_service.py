@@ -34,6 +34,7 @@ from src.schemas.ai import (
     ValidateSQLRequest,
     ValidateSQLResponse,
 )
+from src.utils.cache import CacheService, ai_response_cache_key
 
 logger = logging.getLogger(__name__)
 
@@ -356,6 +357,24 @@ class AIService:
                         )
 
                     if space_id:
+                        # Cache: short-lived response cache to avoid repeated expensive calls (e.g., Databricks spin-up)
+                        cache_key: Optional[str] = None
+                        cached_payload: Optional[Dict[str, Any]] = None
+                        if settings.AI_RESPONSE_CACHE_TTL_SECONDS > 0:
+                            try:
+                                cache_key = ai_response_cache_key(
+                                    space_id=space_id,
+                                    connection_id=connection_id,
+                                    question=configure_data.question,
+                                )
+                                cached_payload = await CacheService.get_json(cache_key)
+                            except Exception:
+                                cached_payload = None
+                                logger.warning(
+                                    "AI response cache check failed (ignored)",
+                                    exc_info=True,
+                                )
+
                         # Get crew_ids for this user (Personal mode => all crews across spaces)
                         is_personal = bool(getattr(query_data, "is_personal", False))
                         crew_ids = await self._get_user_crew_ids(
@@ -379,82 +398,160 @@ class AIService:
                         except Exception:
                             selected_datasets = None
 
-                        logger.info(
-                            f"Calling real AI service with connection_id={connection_id}, "
-                            f"space_id={space_id}, crew_ids={crew_ids}, question='{configure_data.question[:50]}...'"
-                        )
-                        result = await self.real_ai.process_query(
-                            connection_id=connection_id,
-                            question=configure_data.question,
-                            user_id=str(user_id),
-                            space_id=space_id,
-                            crew_ids=crew_ids if crew_ids else None,
-                            thread_id=str(query.id),
-                            is_personal=is_personal,
-                            selected_datasets=selected_datasets,
-                        )
+                        # If cache hit, bypass the AI call entirely.
+                        if cached_payload:
+                            logger.info(f"AI response cache HIT key={cache_key}")
 
-                        # Update query with real AI results
-                        query.answer = result.get("answer", "")
-                        query.data_sample = result.get("data_sample", [])
-                        query.sql = result.get("sql")
-                        query.status = "completed"
+                            query.answer = cached_payload.get("answer", "")
+                            query.data_sample = cached_payload.get("data_sample", [])
+                            query.sql = cached_payload.get("sql")
+                            query.status = "completed"
 
-                        # Store chosen table/datasets in configure_data for frontend
-                        chosen_table = result.get("chosen_table")
-                        chosen_datasets = result.get("chosen_datasets", [])
-                        dynamic_title = result.get("title")
-                        detected_language = result.get("detected_language")
+                            # Persist chosen table/datasets/title/language consistently
+                            chosen_table = cached_payload.get("chosen_table")
+                            chosen_datasets = cached_payload.get("chosen_datasets") or []
+                            dynamic_title = cached_payload.get("title")
+                            detected_language = cached_payload.get("detected_language")
 
-                        # Debug log
-                        logger.info(
-                            f"Real AI service result: chosen_table={chosen_table}, "
-                            f"chosen_datasets={chosen_datasets}, "
-                            f"result_keys={list(result.keys())}"
-                        )
+                            if (
+                                chosen_table
+                                or chosen_datasets
+                                or dynamic_title
+                                or detected_language
+                            ):
+                                current_config = (
+                                    dict(query.configure_data) if query.configure_data else {}
+                                )
+                                if chosen_table:
+                                    current_config["chosen_table"] = chosen_table
+                                if chosen_datasets:
+                                    current_config["chosen_datasets"] = chosen_datasets
+                                elif chosen_table:
+                                    current_config["chosen_datasets"] = [chosen_table]
+                                if dynamic_title:
+                                    current_config["title"] = dynamic_title
+                                if detected_language:
+                                    current_config["detected_language"] = detected_language
 
-                        if chosen_table or chosen_datasets or dynamic_title or detected_language:
-                            # Get current config and ensure it's a dict
-                            current_config = (
-                                dict(query.configure_data) if query.configure_data else {}
-                            )
+                                query.configure_data = current_config
 
-                            if chosen_table:
-                                current_config["chosen_table"] = chosen_table
-                            if chosen_datasets:
-                                current_config["chosen_datasets"] = chosen_datasets
-                            elif chosen_table:
-                                # Fallback: if only chosen_table exists, create array
-                                current_config["chosen_datasets"] = [chosen_table]
-                            if dynamic_title:
-                                current_config["title"] = dynamic_title
-                            if detected_language:
-                                current_config["detected_language"] = detected_language
+                                from sqlalchemy.orm.attributes import flag_modified
 
-                            # Assign new dict to ensure SQLAlchemy detects the change
-                            query.configure_data = current_config
+                                flag_modified(query, "configure_data")
 
-                            # Mark as modified to ensure SQLAlchemy tracks the change
-                            from sqlalchemy.orm.attributes import flag_modified
-
-                            flag_modified(query, "configure_data")
+                            await self.db.commit()
+                            await self.db.refresh(query)
+                        else:
+                            logger.info(f"AI response cache MISS key={cache_key}")
 
                             logger.info(
-                                f"Saved to configure_data: chosen_table={current_config.get('chosen_table')}, "
-                                f"chosen_datasets={current_config.get('chosen_datasets')}, "
-                                f"title={current_config.get('title')}, "
-                                f"full_config_keys={list(current_config.keys())}"
+                                f"Calling real AI service with connection_id={connection_id}, "
+                                f"space_id={space_id}, crew_ids={crew_ids}, question='{configure_data.question[:50]}...'"
                             )
-                        else:
-                            logger.warning(
-                                f"No chosen_table or chosen_datasets in result. "
-                                f"Result keys: {list(result.keys())}"
+                            result = await self.real_ai.process_query(
+                                connection_id=connection_id,
+                                question=configure_data.question,
+                                user_id=str(user_id),
+                                space_id=space_id,
+                                crew_ids=crew_ids if crew_ids else None,
+                                thread_id=str(query.id),
+                                is_personal=is_personal,
+                                selected_datasets=selected_datasets,
+                                instructions=configure_data.instructions,
                             )
 
-                        logger.info(
-                            f"Real AI service returned answer (length: {len(query.answer or '')}, "
-                            f"chosen_table: {chosen_table}, chosen_datasets: {chosen_datasets})"
-                        )
+                            # Update query with real AI results
+                            query.answer = result.get("answer", "")
+                            query.data_sample = result.get("data_sample", [])
+                            query.sql = result.get("sql")
+                            query.status = "completed"
+
+                            # Store chosen table/datasets in configure_data for frontend
+                            chosen_table = result.get("chosen_table")
+                            chosen_datasets = result.get("chosen_datasets", [])
+                            dynamic_title = result.get("title")
+                            detected_language = result.get("detected_language")
+
+                            # Debug log
+                            logger.info(
+                                f"Real AI service result: chosen_table={chosen_table}, "
+                                f"chosen_datasets={chosen_datasets}, "
+                                f"result_keys={list(result.keys())}"
+                            )
+
+                            if (
+                                chosen_table
+                                or chosen_datasets
+                                or dynamic_title
+                                or detected_language
+                            ):
+                                # Get current config and ensure it's a dict
+                                current_config = (
+                                    dict(query.configure_data) if query.configure_data else {}
+                                )
+
+                                if chosen_table:
+                                    current_config["chosen_table"] = chosen_table
+                                if chosen_datasets:
+                                    current_config["chosen_datasets"] = chosen_datasets
+                                elif chosen_table:
+                                    # Fallback: if only chosen_table exists, create array
+                                    current_config["chosen_datasets"] = [chosen_table]
+                                if dynamic_title:
+                                    current_config["title"] = dynamic_title
+                                if detected_language:
+                                    current_config["detected_language"] = detected_language
+
+                                # Assign new dict to ensure SQLAlchemy detects the change
+                                query.configure_data = current_config
+
+                                # Mark as modified to ensure SQLAlchemy tracks the change
+                                from sqlalchemy.orm.attributes import flag_modified
+
+                                flag_modified(query, "configure_data")
+
+                                logger.info(
+                                    f"Saved to configure_data: chosen_table={current_config.get('chosen_table')}, "
+                                    f"chosen_datasets={current_config.get('chosen_datasets')}, "
+                                    f"title={current_config.get('title')}, "
+                                    f"full_config_keys={list(current_config.keys())}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"No chosen_table or chosen_datasets in result. "
+                                    f"Result keys: {list(result.keys())}"
+                                )
+
+                            logger.info(
+                                f"Real AI service returned answer (length: {len(query.answer or '')}, "
+                                f"chosen_table: {chosen_table}, chosen_datasets: {chosen_datasets})"
+                            )
+
+                            # Cache write (best-effort)
+                            if settings.AI_RESPONSE_CACHE_TTL_SECONDS > 0 and cache_key:
+                                try:
+                                    payload = {
+                                        "answer": query.answer,
+                                        "data_sample": query.data_sample,
+                                        "sql": query.sql,
+                                        "chosen_table": chosen_table,
+                                        "chosen_datasets": chosen_datasets,
+                                        "title": dynamic_title,
+                                        "detected_language": detected_language,
+                                    }
+                                    await CacheService.set_json(
+                                        cache_key,
+                                        payload,
+                                        ttl=settings.AI_RESPONSE_CACHE_TTL_SECONDS,
+                                    )
+                                    logger.info(
+                                        f"AI response cache SET key={cache_key} ttl={settings.AI_RESPONSE_CACHE_TTL_SECONDS}s"
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        "AI response cache set failed (ignored)",
+                                        exc_info=True,
+                                    )
                     else:
                         # Fallback to mock if no space_id
                         logger.warning(

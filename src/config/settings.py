@@ -201,6 +201,40 @@ class Settings(BaseSettings):
         default=21600,
         description="TTL (seconds) for AI table metadata before re-discover is triggered. 0 disables staleness checks.",
     )
+    AI_RESPONSE_CACHE_TTL_SECONDS: int = Field(
+        default=600,
+        description="TTL (seconds) for cached AI responses. 0 disables caching.",
+    )
+
+    # Cache warming (background scheduler)
+    CACHE_WARMING_ENABLED: bool = Field(
+        default=True,
+        description="Enable periodic cache warming for AI response cache.",
+    )
+    CACHE_WARMING_INTERVAL_SECONDS: int = Field(
+        default=300,
+        description="Interval (seconds) for cache warming scheduler.",
+    )
+    CACHE_WARMING_LOOKBACK_HOURS: int = Field(
+        default=24,
+        description="Lookback window (hours) when selecting warm candidates.",
+    )
+    CACHE_WARMING_TOP_N_PER_CONNECTION: int = Field(
+        default=10,
+        description="Top N questions per connection to consider for warming.",
+    )
+    CACHE_WARMING_MAX_WARMS_PER_RUN: int = Field(
+        default=50,
+        description="Hard cap on how many cache entries to warm per scheduler run.",
+    )
+    CACHE_WARMING_MAX_SCAN_ROWS: int = Field(
+        default=5000,
+        description="Max recent AIQuery rows scanned per run (bounds DB work).",
+    )
+    CACHE_WARMING_MAX_TOTAL_CANDIDATES: int = Field(
+        default=200,
+        description="Max candidates kept after grouping/ranking (bounds CPU work).",
+    )
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4"
     ANTHROPIC_API_KEY: str = ""

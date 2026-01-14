@@ -31,6 +31,7 @@ class RealAIService:
         thread_id: Optional[str] = None,
         is_personal: Optional[bool] = None,
         selected_datasets: Optional[List[str]] = None,
+        instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a query using the real AI service.
@@ -42,6 +43,9 @@ class RealAIService:
             space_id: Space ID
             crew_ids: Optional list of crew IDs
             thread_id: Optional thread ID
+            is_personal: Optional personal mode flag
+            selected_datasets: Optional list of table names to force
+            instructions: Optional custom instructions for the AI
 
         Returns:
             Dict with answer, data_sample, sql, and other metadata
@@ -112,6 +116,7 @@ class RealAIService:
                 thread_id=thread_id,
                 is_personal=is_personal,
                 selected_datasets=selected_datasets,
+                instructions=instructions,
             )
 
             # Map response from AI service to our format
