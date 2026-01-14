@@ -75,8 +75,6 @@ class APIKeyBase(BaseModel):
 class APIKeyCreate(APIKeyBase):
     """API key creation schema."""
 
-    pass
-
 
 class APIKeyResponse(APIKeyBase):
     """API key response schema."""
@@ -102,8 +100,6 @@ class IntegrationBase(BaseModel):
 
 class IntegrationCreate(IntegrationBase):
     """Integration creation schema."""
-
-    pass
 
 
 class IntegrationUpdate(BaseModel):

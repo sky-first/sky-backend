@@ -72,7 +72,7 @@ class DatasetService:
                         user_id=user.id, dataset_id=dataset_id, dataset_type="table"
                     )
                     await self.db.commit()
-            except IntegrityError as e:
+            except IntegrityError:
                 # Already exists, ignore
                 await self.db.rollback()
                 logger.debug(f"Dataset {dataset_id} already marked as excluded")

@@ -20,7 +20,6 @@ from src.core.exceptions import (
     BaseAPIException,
     ConflictError,
     ForbiddenError,
-    InternalServerError,
     NotFoundError,
     UnauthorizedError,
     ValidationError,

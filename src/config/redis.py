@@ -29,7 +29,6 @@ async def get_redis() -> Redis:
 async def init_redis() -> None:
     """Initialize Redis connection."""
     global _redis
-    from urllib.parse import urlparse
 
     # Parse Redis URL manually to handle special characters in password
     redis_url = settings.REDIS_URL

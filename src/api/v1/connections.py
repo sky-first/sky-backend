@@ -1,12 +1,12 @@
 """Connection endpoints."""
 
+import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.repositories.crew import CrewMemberRepository
@@ -26,9 +26,6 @@ from src.services.connection_service import ConnectionService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
-
-# Log when module is loaded to verify DELETE endpoint is registered
-import logging
 
 _logger = logging.getLogger(__name__)
 _logger.info("🔴 [CONNECTIONS ROUTER] Module loaded, DELETE endpoint will be registered")
