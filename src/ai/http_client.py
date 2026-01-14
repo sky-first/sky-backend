@@ -219,11 +219,16 @@ class AIServiceHTTPClient:
         user_id: str,
         space_id: str,
         goal: str,
+        original_question: Optional[str] = None,
         crew_ids: Optional[List[str]] = None,
         language: Optional[str] = "en",
         max_widgets: int = 6,
         logical_tables_override: Optional[List[str]] = None,
         schema_summary_override: Optional[str] = None,
+        initial_ai_response: Optional[str] = None,
+        context_spaces: Optional[List[str]] = None,
+        context_crews: Optional[List[str]] = None,
+        context_tables: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Generate a dashboard plan ("Davinci") for a given connection.
@@ -239,12 +244,23 @@ class AIServiceHTTPClient:
             "max_widgets": max_widgets,
             "language": language or "en",
         }
+        # AI service supports (and prefers) original_question to drive widget planning
+        if original_question:
+            payload["original_question"] = original_question
         if crew_ids:
             payload["crew_ids"] = crew_ids
         if logical_tables_override:
             payload["logical_tables_override"] = logical_tables_override
         if schema_summary_override:
             payload["schema_summary_override"] = schema_summary_override
+        if initial_ai_response:
+            payload["initial_ai_response"] = initial_ai_response
+        if context_spaces:
+            payload["context_spaces"] = context_spaces
+        if context_crews:
+            payload["context_crews"] = context_crews
+        if context_tables:
+            payload["context_tables"] = context_tables
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(
@@ -265,6 +281,8 @@ class AIServiceHTTPClient:
         space_id: str,
         crew_ids: Optional[List[str]] = None,
         is_personal: Optional[bool] = None,
+        include_explanation: Optional[bool] = None,
+        question: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Validate SQL by executing a test query (LIMIT 5).
@@ -296,6 +314,10 @@ class AIServiceHTTPClient:
             payload["crew_ids"] = crew_ids
         if is_personal is not None:
             payload["is_personal"] = bool(is_personal)
+        if include_explanation is not None:
+            payload["include_explanation"] = bool(include_explanation)
+        if question:
+            payload["question"] = question
 
         async with httpx.AsyncClient(timeout=30.0) as client:  # Timeout menor para validação
             logger.info(

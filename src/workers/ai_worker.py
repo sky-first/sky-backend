@@ -102,6 +102,52 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 user_id, space_id, all_spaces=True
             )  # noqa: SLF001
 
+            # Rate limiting (per widget) for cost control.
+            # We enforce here (worker) because this is where the expensive calls happen.
+            # If Redis is not configured/available (local dev/tests), we fail open.
+            rl_limiter = None
+            rl_buckets = None
+            try:
+                from src.config.settings import settings
+                from src.rate_limit.core import (
+                    RateLimitExceeded,
+                    RedisFixedWindowRateLimiter,
+                    default_buckets_for_request,
+                    resolve_tenant_key,
+                )
+
+                if (
+                    settings.RATE_LIMIT_ENABLED
+                    and settings.AI_RATE_LIMIT_ENABLED
+                    and bool(getattr(settings, "REDIS_URL", "") or "")
+                ):
+                    # Prefer tenant resolution by crews within the current space when possible.
+                    # (If multiple crews exist, tenant_key falls back to space:{space_id}.)
+                    crew_ids_in_space = await ai_service._get_user_crew_ids(
+                        user_id, space_id, all_spaces=False
+                    )  # noqa: SLF001
+                    tenant_key = resolve_tenant_key(
+                        user_id=str(user_id),
+                        crew_ids=crew_ids_in_space,
+                        space_id=space_id,
+                        is_personal=True,
+                    )
+                    rl_limiter = RedisFixedWindowRateLimiter(enabled=True, key_prefix="rl:v1")
+                    rl_buckets = default_buckets_for_request(
+                        tenant_key=tenant_key,
+                        user_id=str(user_id),
+                        route_key="dashboards.widget_exec",
+                        user_per_min=settings.AI_RATE_LIMIT_USER_PER_MINUTE,
+                        user_per_hour=settings.AI_RATE_LIMIT_USER_PER_HOUR,
+                        tenant_per_min=settings.AI_RATE_LIMIT_TENANT_PER_MINUTE,
+                        tenant_per_hour=settings.AI_RATE_LIMIT_TENANT_PER_HOUR,
+                        global_user_per_hour=settings.AI_RATE_LIMIT_GLOBAL_USER_PER_HOUR,
+                        key_prefix="rl:v1",
+                    )
+            except Exception:
+                rl_limiter = None
+                rl_buckets = None
+
             # Build a compact schema summary from backend connection_metadata so Davinci can plan even if
             # the AI Engine catalog is not fully initialized.
             logical_tables_override = None
@@ -142,6 +188,12 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 schema_summary_override = None
 
             client = AIServiceHTTPClient()
+            ctx = None
+            try:
+                if isinstance(job.plan, dict) and isinstance(job.plan.get("_context"), dict):
+                    ctx = job.plan.get("_context")
+            except Exception:
+                ctx = None
             plan_payload = await client.dashboard_plan(
                 connection_id=connection_id,
                 user_id=str(user_id),
@@ -149,10 +201,22 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 crew_ids=crew_ids if crew_ids else None,
                 language=language,
                 goal=goal,
+                original_question=(
+                    (ctx.get("original_question") if isinstance(ctx, dict) else None) or goal
+                ),
                 max_widgets=max_widgets,
                 logical_tables_override=logical_tables_override,
                 schema_summary_override=schema_summary_override,
+                initial_ai_response=(
+                    ctx.get("initial_ai_response") if isinstance(ctx, dict) else None
+                ),
+                context_spaces=(ctx.get("context_spaces") if isinstance(ctx, dict) else None),
+                context_crews=(ctx.get("context_crews") if isinstance(ctx, dict) else None),
+                context_tables=(ctx.get("context_tables") if isinstance(ctx, dict) else None),
             )
+            # Preserve any pre-existing context stored in job.plan
+            if isinstance(ctx, dict):
+                plan_payload["_context"] = ctx
             job.plan = plan_payload
             await db.commit()
             await db.refresh(job)
@@ -253,6 +317,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             # 2) Fill each widget and update in-place (placeholder -> real)
             from src.schemas.ai import AIQueryRequest, ConfigureData
 
+            failed_count = 0
+            failed_widget_ids: list[str] = []
+
             for w, wid in zip(widgets, placeholder_ids):
                 await db.refresh(job)
                 if job.status == "cancelled":
@@ -262,23 +329,153 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 viz = w.get("viz") if isinstance(w.get("viz"), dict) else {}
                 widget_id = UUID(wid)
 
-                if wtype == "text":
-                    content = ""
-                    if isinstance(viz, dict) and isinstance(viz.get("content"), str):
-                        content = viz.get("content") or ""
-                    if not content:
-                        content = w.get("title") or ""
+                try:
+                    # Enforce rate limit per widget (counts dashboards as questions too).
+                    if rl_limiter and rl_buckets:
+                        try:
+                            await rl_limiter.enforce(rl_buckets)
+                        except RateLimitExceeded as e:
+                            # Don't fail the whole job; mark this widget as rate-limited placeholder and continue.
+                            failed_count += 1
+                            failed_widget_ids.append(str(widget_id))
+                            logger.warning(
+                                "Async dashboard build: rate limited (will continue). widget_id=%s scope=%s key=%s",
+                                widget_id,
+                                e.result.scope,
+                                e.result.key,
+                            )
+                            try:
+                                safe_title = w.get("title") or (
+                                    wtype.capitalize() if isinstance(wtype, str) else "Widget"
+                                )
+                                await widget_repo.update(
+                                    widget_id,
+                                    title=f"{safe_title} (rate limited)",
+                                    data={
+                                        "isPlaceholder": True,
+                                        "placeholderMode": "manual",
+                                        "question": w.get("question") or "",
+                                        "error": "rate_limited",
+                                        "rate_limit": e.result.to_payload(),
+                                    },
+                                    config={"viz": viz or {}},
+                                    query_id=None,
+                                    connection_id=UUID(connection_id),
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to mark widget %s as rate-limited placeholder",
+                                    widget_id,
+                                )
+                            job.completed_widgets = int(job.completed_widgets or 0) + 1
+                            await db.commit()
+                            continue
+
+                    if wtype == "text":
+                        content = ""
+                        if isinstance(viz, dict) and isinstance(viz.get("content"), str):
+                            content = viz.get("content") or ""
+                        if not content:
+                            content = w.get("title") or ""
+                        await widget_repo.update(
+                            widget_id,
+                            title=w.get("title") or "Text",
+                            data={
+                                "content": content,
+                                "question": w.get("question") or "",
+                                "isPlaceholder": False,
+                            },
+                            config={"viz": viz or {}},
+                            query_id=None,
+                        )
+                        job.completed_widgets = int(job.completed_widgets or 0) + 1
+                        await db.commit()
+                        continue
+
+                    ai_req = AIQueryRequest(
+                        question=w.get("question") or "",
+                        knowledge=[connection_id],
+                        space_id=space_id,
+                        is_personal=True,
+                        configure_data=ConfigureData(
+                            question=w.get("question") or "",
+                            knowledge=[connection_id],
+                            response_format="text",
+                            creativity=15,
+                            length=35,
+                            sql_instructions=(
+                                "If you generate SQL for a chart, prefer aggregated results with <= 15 rows. "
+                                "Always LIMIT the result set to 15 rows or fewer."
+                            ),
+                        ),
+                    )
+                    query_resp = await ai_service.process_query(user_id, ai_req)
+
+                    widget_data = {
+                        "question": w.get("question"),
+                        "answer": query_resp.answer,
+                        "data": query_resp.data_sample or [],
+                        "sql": query_resp.sql,
+                        "chosen_table": getattr(query_resp, "chosen_table", None),
+                        "chosen_datasets": getattr(query_resp, "chosen_datasets", None),
+                        "isPlaceholder": False,
+                    }
+
+                    # Preserve planner chart viz + mapping
+                    if wtype == "chart" and isinstance(viz, dict) and viz.get("type"):
+                        widget_data["type"] = viz.get("type")
+                        if isinstance(viz.get("mapping"), dict):
+                            widget_data["mapping"] = viz.get("mapping")
+
+                    # :novo: NOVA FUNCIONALIDADE: Sugerir título melhor baseado nos dados
+                    final_title = w.get("title") or ""
+                    try:
+                        suggested_title = await client.suggest_widget_title(
+                            question=w.get("question") or "",
+                            data_sample=query_resp.data_sample or [],
+                            answer=query_resp.answer,
+                            current_title=w.get("title") or "",
+                            language=language,
+                        )
+                        if suggested_title and suggested_title.strip():
+                            generic_titles = [
+                                "widget",
+                                "chart",
+                                "kpi",
+                                "table",
+                                "text",
+                                "gráfico",
+                                "dados",
+                            ]
+                            current_lower = (w.get("title") or "").lower().strip()
+                            suggested_lower = suggested_title.lower().strip()
+                            if (
+                                current_lower in generic_titles
+                                or suggested_lower not in generic_titles
+                            ):
+                                final_title = suggested_title
+                                logger.info(
+                                    "Widget title updated: '%s' -> '%s'",
+                                    w.get("title"),
+                                    final_title,
+                                )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to suggest title for widget %s: %s. Using original title.",
+                            widget_id,
+                            e,
+                        )
+                        final_title = w.get("title") or ""
+
                     await widget_repo.update(
                         widget_id,
-                        title=w.get("title") or "Text",
-                        data={
-                            "content": content,
-                            "question": w.get("question") or "",
-                            "isPlaceholder": False,
-                        },
+                        title=final_title,
+                        data=widget_data,
                         config={"viz": viz or {}},
-                        query_id=None,
+                        query_id=query_resp.id,
+                        connection_id=UUID(connection_id),
                     )
+
                     job.completed_widgets = int(job.completed_widgets or 0) + 1
                     await db.commit()
                     continue
@@ -351,25 +548,48 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                                 f"Widget title updated: '{w.get('title')}' -> '{final_title}'"
                             )
                 except Exception as e:
-                    # Se falhar, usar título original (fail-safe)
-                    logger.warning(
-                        f"Failed to suggest title for widget {widget_id}: {e}. Using original title."
+                    # Não falhar o job inteiro: marque este widget como "manual" e continue.
+                    failed_count += 1
+                    failed_widget_ids.append(str(widget_id))
+                    logger.exception(
+                        "Async dashboard build: widget failed (will continue). widget_id=%s type=%s",
+                        widget_id,
+                        wtype,
                     )
-                    final_title = w.get("title") or ""
 
-                await widget_repo.update(
-                    widget_id,
-                    title=final_title,  # Usar título sugerido ou original
-                    data=widget_data,
-                    config={"viz": viz or {}},
-                    query_id=query_resp.id,
-                    connection_id=UUID(connection_id),
-                )
+                    # Trocar placeholder "auto" por "manual" para não ficar preso em "Generating..."
+                    # O usuário pode dar double click e reconfigurar via AI.
+                    try:
+                        safe_title = w.get("title") or (
+                            wtype.capitalize() if isinstance(wtype, str) else "Widget"
+                        )
+                        await widget_repo.update(
+                            widget_id,
+                            title=f"{safe_title} (needs review)",
+                            data={
+                                "isPlaceholder": True,
+                                "placeholderMode": "manual",
+                                "question": w.get("question") or "",
+                                "error": str(e),
+                            },
+                            config={"viz": viz or {}},
+                            query_id=None,
+                            connection_id=UUID(connection_id),
+                        )
+                    except Exception:
+                        # Se até isso falhar, seguimos em frente mesmo assim.
+                        logger.exception(
+                            "Failed to mark widget %s as errored placeholder", widget_id
+                        )
 
-                job.completed_widgets = int(job.completed_widgets or 0) + 1
-                await db.commit()
+                    job.completed_widgets = int(job.completed_widgets or 0) + 1
+                    await db.commit()
 
             job.status = "succeeded"
+            if failed_count > 0:
+                job.error = (
+                    f"{failed_count} widget(s) failed; ids={','.join(failed_widget_ids[:10])}"
+                )
             job.finished_at = datetime.now(timezone.utc)
             await db.commit()
         except Exception as exc:

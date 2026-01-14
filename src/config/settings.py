@@ -210,6 +210,15 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_PER_HOUR: int = 1000
 
+    # Tenant/User rate limiting for AI cost control (Subtask 2/3)
+    AI_RATE_LIMIT_ENABLED: bool = True
+    AI_RATE_LIMIT_USER_PER_MINUTE: int = 10
+    AI_RATE_LIMIT_USER_PER_HOUR: int = 50
+    AI_RATE_LIMIT_TENANT_PER_MINUTE: int = 40
+    AI_RATE_LIMIT_TENANT_PER_HOUR: int = 200
+    # Hard cap to prevent "switching tenant context" abuse
+    AI_RATE_LIMIT_GLOBAL_USER_PER_HOUR: int = 80
+
     @model_validator(mode="after")
     def apply_environment_defaults(self):
         """

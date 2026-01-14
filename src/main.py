@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -21,10 +22,11 @@ from src.config.database import (
 from src.config.redis import close_redis, init_redis
 
 # Configure logging
-logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL.upper()),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+_root = logging.getLogger()
+_root.handlers = [_handler]
+_root.setLevel(getattr(logging, settings.LOG_LEVEL.upper()))
 logger = logging.getLogger(__name__)
 
 
@@ -192,6 +194,10 @@ async def base_api_exception_handler(request, exc: BaseAPIException):
 
 # Include API routers
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+# Observability: Prometheus metrics (Golden Signals)
+# Exposes `/metrics` for Prometheus scraping.
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 # Override the openapi() function - simplified for clean start

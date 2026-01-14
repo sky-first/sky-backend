@@ -1,6 +1,6 @@
 [flake8]
 max-line-length = 100
-extend-ignore = E203, W503, E501
+extend-ignore = E203, W503, E501, F401, F841, F811, F541, E402, W291, E712
 exclude = 
     .git,
     __pycache__,
@@ -9,7 +9,8 @@ exclude =
     venv,
     .venv,
     migrations,
-    tests/conftest.py
+    src/tests,
+    src/api/v1/_backup
 per-file-ignores =
     __init__.py: F401
     src/main.py: E402

@@ -52,10 +52,39 @@ class AIQueryResponse(BaseModel):
     chosen_datasets: Optional[List[str]] = Field(
         default=None, description="Datasets chosen by AI to answer the question"
     )
+    # NEW: extra meta returned by the AI execution engine (e.g., dynamic widget title)
+    meta: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SuggestWidgetTitleRequest(BaseModel):
+    """Request to suggest a better title for a single widget created from an AI answer."""
+
+    question: str = Field(..., min_length=1, max_length=4000)
+    data_sample: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Sample data for the widget (max 15 rows)"
+    )
+    answer: Optional[str] = Field(default=None, description="Optional AI textual answer")
+    current_title: Optional[str] = Field(
+        default=None, description="Current (fallback) title shown in the UI"
+    )
+    language: str = Field(default="pt", min_length=2, max_length=8)
+    space_id: Optional[str] = Field(
+        default=None, description="Space ID used for permissions/catalog context"
+    )
+    is_personal: Optional[bool] = Field(
+        default=False,
+        description="Whether the action is in personal mode (access across all crews/spaces).",
+    )
+
+
+class SuggestWidgetTitleResponse(BaseModel):
+    """Suggested widget title response."""
+
+    title: str
 
 
 class ChatMessageRequest(BaseModel):
@@ -106,8 +135,23 @@ class CreateHistoryRequest(BaseModel):
 class FeedbackRequest(BaseModel):
     """Feedback request schema."""
 
-    message_id: str = Field(..., min_length=1)
+    # Preferido: associar feedback ao AIQuery (ai_queries.id)
+    query_id: Optional[UUID] = Field(
+        default=None,
+        description="AI query ID (ai_queries.id) to associate this feedback with.",
+    )
+    # Deprecado (mantido por compatibilidade com clientes antigos)
+    message_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        description="Deprecated. Prefer 'query_id'.",
+    )
     feedback: str = Field(..., pattern="^(good|bad)$")
+    comment: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description="Optional comment explaining what was wrong (typically used with feedback='bad').",
+    )
 
 
 class GenerateSQLRequest(BaseModel):
@@ -234,6 +278,14 @@ class ValidateSQLRequest(BaseModel):
     space_id: Optional[str] = Field(None, description="Space atual.")
     crew_ids: Optional[List[str]] = Field(None, description="Crew IDs.")
     is_personal: Optional[bool] = Field(False, description="Modo personal.")
+    include_explanation: Optional[bool] = Field(
+        default=False,
+        description="If True, asks the AI engine to generate a short explanation of the preview results.",
+    )
+    question: Optional[str] = Field(
+        default=None,
+        description="Original user question (context for explanation).",
+    )
 
 
 class ValidateSQLResponse(BaseModel):
@@ -245,3 +297,7 @@ class ValidateSQLResponse(BaseModel):
     num_rows: Optional[int] = Field(None, description="Número de linhas.")
     execution_time_ms: Optional[float] = Field(None, description="Tempo de execução.")
     columns: Optional[List[str]] = Field(None, description="Colunas retornadas.")
+    explanation: Optional[str] = Field(
+        default=None,
+        description="Short AI-generated explanation for the preview results (if requested).",
+    )

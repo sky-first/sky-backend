@@ -5,13 +5,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.mock import MockAIService
 from src.ai.real_service import RealAIService
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
-from src.models.ai import AIHistory, AIQuery, Pipeline
+from src.models.ai import AIFeedback, AIHistory, AIQuery, Pipeline
 from src.models.user import User
 from src.repositories.base import BaseRepository
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
@@ -53,6 +54,7 @@ class AIService:
         self.query_repo = BaseRepository(db, AIQuery)
         self.history_repo = BaseRepository(db, AIHistory)
         self.pipeline_repo = BaseRepository(db, Pipeline)
+        self.feedback_repo = BaseRepository(db, AIFeedback)
         self.connection_repo = ConnectionRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.crew_member_repo = CrewMemberRepository(db)
@@ -401,6 +403,8 @@ class AIService:
                         # Store chosen table/datasets in configure_data for frontend
                         chosen_table = result.get("chosen_table")
                         chosen_datasets = result.get("chosen_datasets", [])
+                        dynamic_title = result.get("title")
+                        detected_language = result.get("detected_language")
 
                         # Debug log
                         logger.info(
@@ -409,7 +413,7 @@ class AIService:
                             f"result_keys={list(result.keys())}"
                         )
 
-                        if chosen_table or chosen_datasets:
+                        if chosen_table or chosen_datasets or dynamic_title or detected_language:
                             # Get current config and ensure it's a dict
                             current_config = (
                                 dict(query.configure_data) if query.configure_data else {}
@@ -422,6 +426,10 @@ class AIService:
                             elif chosen_table:
                                 # Fallback: if only chosen_table exists, create array
                                 current_config["chosen_datasets"] = [chosen_table]
+                            if dynamic_title:
+                                current_config["title"] = dynamic_title
+                            if detected_language:
+                                current_config["detected_language"] = detected_language
 
                             # Assign new dict to ensure SQLAlchemy detects the change
                             query.configure_data = current_config
@@ -434,6 +442,7 @@ class AIService:
                             logger.info(
                                 f"Saved to configure_data: chosen_table={current_config.get('chosen_table')}, "
                                 f"chosen_datasets={current_config.get('chosen_datasets')}, "
+                                f"title={current_config.get('title')}, "
                                 f"full_config_keys={list(current_config.keys())}"
                             )
                         else:
@@ -528,6 +537,8 @@ class AIService:
 
         chosen_table = configure_data.get("chosen_table")
         chosen_datasets = configure_data.get("chosen_datasets", [])
+        title = configure_data.get("title")
+        detected_language = configure_data.get("detected_language")
 
         # Ensure chosen_datasets is a list
         if not isinstance(chosen_datasets, list):
@@ -539,6 +550,11 @@ class AIService:
 
         response_dict["chosen_table"] = chosen_table
         response_dict["chosen_datasets"] = chosen_datasets
+        if title or detected_language:
+            response_dict["meta"] = {
+                "title": title,
+                "detected_language": detected_language,
+            }
 
         logger.info(
             f"Returning AIQueryResponse with chosen_table={chosen_table}, "
@@ -751,7 +767,6 @@ class AIService:
 
         # Apply date filters
         now = datetime.now(timezone.utc)
-
         if filter_type == "today":
             # Last 24 hours
             yesterday = now - timedelta(hours=24)
@@ -778,7 +793,6 @@ class AIService:
         # Execute query
         result = await self.db.execute(query)
         history_items = list(result.scalars().all())
-
         # Apply search filter if provided (client-side for better UX)
         if search:
             history_items = [
@@ -1033,10 +1047,55 @@ class AIService:
             user_id: User ID
             feedback_data: Feedback data
         """
-        # TODO: Implementar armazenamento de feedback
-        # Pode criar uma tabela ai_feedback ou adicionar campo em chat_messages
+        # Retrocompat: clientes antigos enviavam `message_id` (string local). Isso não
+        # é mapeável de forma confiável para `ai_queries.id`, então apenas logamos.
+        if not feedback_data.query_id:
+            logger.info(
+                "Ignoring AI feedback without query_id (deprecated message_id=%s, feedback=%s, user_id=%s)",
+                feedback_data.message_id,
+                feedback_data.feedback,
+                user_id,
+            )
+            return
+
+        query = await self.query_repo.get_by_id(feedback_data.query_id)
+        if not query or query.user_id != user_id:
+            # NotFound para não vazar existência/ownership
+            raise NotFoundError("Query not found")
+
+        # Upsert por (query_id, user_id)
+        existing_res = await self.db.execute(
+            select(AIFeedback).where(
+                AIFeedback.query_id == feedback_data.query_id,
+                AIFeedback.user_id == user_id,
+            )
+        )
+        existing = existing_res.scalar_one_or_none()
+
+        now = datetime.now(timezone.utc)
+        if existing:
+            existing.rating = feedback_data.feedback
+            existing.comment = feedback_data.comment
+            existing.updated_at = now
+        else:
+            self.db.add(
+                AIFeedback(
+                    query_id=feedback_data.query_id,
+                    user_id=user_id,
+                    rating=feedback_data.feedback,
+                    comment=feedback_data.comment,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        await self.db.commit()
         logger.info(
-            f"User {user_id} submitted {feedback_data.feedback} feedback for message {feedback_data.message_id}"
+            "Stored AI feedback (query_id=%s, user_id=%s, rating=%s, has_comment=%s)",
+            str(feedback_data.query_id),
+            str(user_id),
+            feedback_data.feedback,
+            bool(feedback_data.comment),
         )
 
     async def get_pipeline_logs(self, pipeline_id: UUID, user_id: UUID) -> str:
@@ -1145,6 +1204,8 @@ class AIService:
                 space_id=space_id,
                 crew_ids=request.crew_ids,
                 is_personal=request.is_personal,
+                include_explanation=request.include_explanation,
+                question=request.question,
             )
 
             return ValidateSQLResponse(**result)
