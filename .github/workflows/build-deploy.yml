@@ -82,3 +82,5 @@ jobs:
           echo "Image pushed successfully to ACR"
           echo "ArgoCD will auto-detect and sync within 3 minutes"
           echo "Tags: ${{ steps.meta.outputs.tags }}"
+
+

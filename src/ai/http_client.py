@@ -33,6 +33,7 @@ class AIServiceHTTPClient:
         thread_id: Optional[str] = None,
         is_personal: Optional[bool] = None,
         selected_datasets: Optional[List[str]] = None,
+        instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Query a connection using the AI service.
@@ -44,12 +45,9 @@ class AIServiceHTTPClient:
             space_id: Space ID
             crew_ids: Optional list of crew IDs
             thread_id: Optional thread ID for conversation context
-
-        Returns:
-            Dict with answer, data_sample, and meta information
-
-        Raises:
-            httpx.HTTPError: If request fails
+            is_personal: Optional personal mode flag
+            selected_datasets: Optional list of table names to force
+            instructions: Optional custom instructions for the AI
         """
         url = f"{self.base_url}/connections/{connection_id}/query"
 
@@ -67,6 +65,8 @@ class AIServiceHTTPClient:
             payload["is_personal"] = bool(is_personal)
         if selected_datasets:
             payload["selected_datasets"] = selected_datasets
+        if instructions:
+            payload["instructions"] = instructions
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(
