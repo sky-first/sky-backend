@@ -201,6 +201,10 @@ class Settings(BaseSettings):
         default=21600,
         description="TTL (seconds) for AI table metadata before re-discover is triggered. 0 disables staleness checks.",
     )
+    AI_RESPONSE_CACHE_TTL_SECONDS: int = Field(
+        default=600,
+        description="TTL (seconds) for cached AI responses. 0 disables caching.",
+    )
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4"
     ANTHROPIC_API_KEY: str = ""
