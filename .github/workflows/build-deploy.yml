@@ -53,7 +53,9 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            # In PR events `{{branch}}` can be empty, which generates an invalid tag like ":-<sha>".
+            # Keep SHA tags stable and always valid.
+            type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build (and push on push-to-branch)
