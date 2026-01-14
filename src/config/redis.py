@@ -21,7 +21,6 @@ async def get_redis() -> Redis:
     Returns:
         Redis: Redis client instance
     """
-    global _redis
     if _redis is None:
         await init_redis()
     return _redis
