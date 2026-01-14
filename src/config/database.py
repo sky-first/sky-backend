@@ -141,7 +141,7 @@ async def get_database_connections(db: AsyncSession) -> Dict[str, Any]:
         result = await db.execute(
             text(
                 """
-            SELECT 
+            SELECT
                 count(*) as total_connections,
                 count(*) FILTER (WHERE state = 'active') as active_connections,
                 count(*) FILTER (WHERE state = 'idle') as idle_connections,
@@ -158,7 +158,7 @@ async def get_database_connections(db: AsyncSession) -> Dict[str, Any]:
         result = await db.execute(
             text(
                 """
-            SELECT 
+            SELECT
                 application_name,
                 count(*) as connection_count,
                 count(*) FILTER (WHERE state = 'active') as active_count

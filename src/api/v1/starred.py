@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
-from src.schemas.common import ErrorResponse, SuccessResponse
+from src.schemas.common import ErrorResponse
 from src.services.starred_service import StarredItemService
 
 router = APIRouter()

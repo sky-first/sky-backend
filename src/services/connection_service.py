@@ -2,7 +2,7 @@
 
 import time
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -486,7 +486,7 @@ class ConnectionService:
             errors.append("Connector ID is missing")
 
         try:
-            connector = get_connector(connection.connector_id)
+            _ = get_connector(connection.connector_id)
         except Exception as e:
             errors.append(f"Invalid connector: {str(e)}")
 

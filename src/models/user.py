@@ -1,8 +1,6 @@
 """User and authentication models."""
 
 import uuid
-from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSON, UUID

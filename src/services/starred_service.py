@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.exceptions import BadRequestError, NotFoundError
+from src.core.exceptions import BadRequestError
 from src.models.user import User
 from src.repositories.starred import StarredItemRepository
 

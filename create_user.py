@@ -11,7 +11,9 @@ from sqlalchemy import select
 from src.config.database import AsyncSessionLocal, engine
 from src.config.settings import settings
 from src.core.security import get_password_hash
+from src.models.planet import Planet  # noqa: F401
 from src.models.user import User
+from src.models.workspace import Workspace  # noqa: F401
 
 
 async def create_test_user():
@@ -34,7 +36,7 @@ async def create_test_user():
             # Update password if user exists
             existing_user.password_hash = get_password_hash(new_password)
             existing_user.name = "Test User"
-            existing_user.role = "user"
+            existing_user.role = "admin"
             existing_user.email_verified = True
             existing_user.has_completed_onboarding = True
             await session.commit()
@@ -48,7 +50,7 @@ async def create_test_user():
             email="test@example.com",
             password_hash=get_password_hash(new_password),
             name="Test User",
-            role="user",
+            role="admin",
             email_verified=True,
             has_completed_onboarding=True,
         )

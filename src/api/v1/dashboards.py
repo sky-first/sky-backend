@@ -560,7 +560,6 @@ async def ai_build_dashboard(
     # so we always get 4 widgets per row, starting from the top-left.
     #
     # All positions/sizes are multiples of 24px to "snap" nicely.
-    GRID = 24
     GRID_COLS = 12
     COL_W = 96  # 4 * GRID
     GAP_X = 24  # 1 * GRID

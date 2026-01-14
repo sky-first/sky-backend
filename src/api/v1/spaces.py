@@ -8,8 +8,6 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
-from src.models.crew import Crew
-from src.models.space import SpaceConnection
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.crew import CrewResponse

@@ -1,6 +1,5 @@
 """Authentication endpoints."""
 
-import secrets
 from typing import Optional
 from urllib.parse import urlencode
 from uuid import UUID
@@ -587,7 +586,7 @@ async def sso_callback(
     # Get redirect URI if not provided
     # Note: redirect_uri should be provided by the frontend
     if not redirect_uri:
-        redirect_uri = f"http://localhost:3000/login/sso/callback"
+        redirect_uri = "http://localhost:3000/login/sso/callback"
 
     # Handle callback based on provider
     if provider == "google":

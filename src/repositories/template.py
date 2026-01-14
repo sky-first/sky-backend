@@ -1,7 +1,6 @@
 """Template repository."""
 
 from typing import List, Optional
-from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,7 +73,7 @@ class TemplateRepository(BaseRepository[Template]):
         Returns:
             List[Template]: List of templates
         """
-        query = select(Template).where(Template.popular == True)
+        query = select(Template).where(Template.popular.is_(True))
 
         query = query.order_by(Template.created_at.desc()).offset(skip).limit(limit)
 

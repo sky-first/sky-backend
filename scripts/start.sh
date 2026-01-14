@@ -57,6 +57,28 @@ if ! docker ps | grep -q sky_poc_postgres; then
     echo "   Continuando..."
 fi
 
+# Executa migrações
+echo "🔄 Executando migrações do banco de dados..."
+if [ -d "venv" ]; then
+    venv/bin/python -m alembic upgrade head
+elif [ -d ".venv" ]; then
+    .venv/bin/python -m alembic upgrade head
+else
+    python3 -m alembic upgrade head
+fi
+echo ""
+
+# Cria usuário de teste
+echo "👤 Verificando/Criando usuário de teste..."
+if [ -d "venv" ]; then
+    venv/bin/python create_user.py
+elif [ -d ".venv" ]; then
+    .venv/bin/python create_user.py
+else
+    python3 create_user.py
+fi
+echo ""
+
 # Roda o uvicorn
 echo "🌐 Iniciando servidor na porta 8000..."
 if [ -d "venv" ]; then

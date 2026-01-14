@@ -1,5 +1,6 @@
 """Celery application configuration."""
 
+import logging
 import os
 from datetime import timedelta
 from urllib.parse import quote_plus, unquote_plus
@@ -79,8 +80,6 @@ if backend_url:
     os.environ["CELERY_RESULT_BACKEND"] = backend_url
 
 # Debug: Log the URLs (without password for security)
-import logging
-
 logger = logging.getLogger(__name__)
 logger.info("Celery broker URL configured")
 logger.info("Celery backend URL configured")
