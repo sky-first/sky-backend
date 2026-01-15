@@ -26,6 +26,7 @@ from src.utils.cache import connection_metadata_cache_key as conn_cache_key
 from src.utils.cache import dashboard_cache_key, widget_cache_key, workspace_cache_key
 from src.workers.ai_worker import build_dashboard_job, process_ai_query
 from src.workers.cache_warming_worker import _warm_ai_response_cache_async
+from src.workers.celery_app import build_redis_url_from_env, encode_password_in_redis_url
 from src.workers.sync_worker import sync_connection, sync_connection_metadata
 
 # --- Tests for src/utils/cache.py ---
