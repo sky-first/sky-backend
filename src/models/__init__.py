@@ -21,6 +21,8 @@ from src.models.space import Space, SpaceMember
 from src.models.starred import StarredItem
 from src.models.template import Template
 from src.models.user import RefreshToken, User
+from src.models.workspace import Workspace, WorkspaceMember
+
 
 from src.models.notification import Notification
 from src.models.comment import Comment
@@ -56,7 +58,8 @@ __all__ = [
     "APIKey",
     "Integration",
     "FileUpload",
-    "UserDataset",
+    "Workspace",
+    "WorkspaceMember",
     "Notification",
     "Comment",
 ]

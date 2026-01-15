@@ -28,7 +28,7 @@ class CommentService:
             dashboard_id=comment_data.dashboard_id,
             widget_id=comment_data.widget_id,
             content=comment_data.content,
-            mentions=comment_data.mentions,
+            mentions=[str(m) for m in comment_data.mentions],
         )
         self.db.add(db_comment)
         await self.db.commit()
