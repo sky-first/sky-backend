@@ -57,7 +57,11 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     from src.repositories.user import UserRepository
     from src.schemas.dashboard import DashboardCreate
     from src.services.ai_service import AIService
+    from src.services.ai_service import AIService
     from src.services.dashboard_service import DashboardService
+    from src.services.notification_service import NotificationService
+    from src.models.notification import NotificationType
+    from src.schemas.notification import NotificationCreate
 
     async with AsyncSessionLocal() as db:
         repo = BaseRepository(db, DashboardBuildJob)
@@ -538,6 +542,25 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 job.completed_widgets = int(job.completed_widgets or 0) + 1
                 await db.commit()
             job.status = "succeeded"
+            
+            # Trigger Notification: NEW_INSIGHT_AVAILABLE
+            try:
+                ns = NotificationService(db)
+                await ns.create(
+                    NotificationCreate(
+                        user_id=job.user_id,
+                        space_id=job.space_id,
+                        type=NotificationType.NEW_INSIGHT_AVAILABLE,
+                        title="New Insights Ready",
+                        description=f"Your dashboard '{job.goal[:30]}...' has been built with new insights.",
+                        entity_type="dashboard",
+                        entity_id=job.dashboard_id,
+                        deep_link=f"/dashboards/{job.dashboard_id}",
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Failed to create notification for job {job_id}: {e}")
+
             if failed_count > 0:
                 job.error = (
                     f"{failed_count} widget(s) failed; ids={','.join(failed_widget_ids[:10])}"

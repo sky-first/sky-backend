@@ -219,6 +219,20 @@ def custom_openapi():
         routes=app.routes,
     )
 
+    # Add Security Scheme for Bearer Token
+    openapi_schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Enter JWT token"
+        }
+    }
+    
+    # Apply security globally to all endpoints
+    # Endpoints that don't need it will simply ignore it, or we can be more granular
+    openapi_schema["security"] = [{"BearerAuth": []}]
+
     logger.info(f"📋 OpenAPI schema generated with {len(openapi_schema.get('paths', {}))} paths")
 
     # Cache the schema
