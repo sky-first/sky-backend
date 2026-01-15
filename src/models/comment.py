@@ -3,8 +3,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Text, func, text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from src.config.database import Base
@@ -35,14 +35,16 @@ class Comment(Base):
         index=True,
     )
     content = Column(Text, nullable=False)
-    mentions = Column(JSONB, default=[], nullable=False)  # List of user_ids mentioned
-    
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    mentions = Column(JSON, default=[], nullable=False)  # List of user_ids mentioned
+
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
-        onupdate=datetime.utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=func.now(),
     )
 
     # Relationships

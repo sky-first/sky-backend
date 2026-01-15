@@ -36,7 +36,7 @@ async def count_unread_notifications(
 ):
     """Count unread notifications."""
     service = NotificationService(db)
-    count = await service.count_unread(current_user.id)
+    count = await service.get_unread_count(current_user.id)
     return {"count": count}
 
 

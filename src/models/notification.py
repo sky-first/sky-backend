@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -44,21 +44,23 @@ class Notification(Base):
     type = Column(String(50), nullable=False)  # NotificationType enum value
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    
+
     # Entity reference (polymorphic-like)
     entity_type = Column(String(50), nullable=True)  # dashboard, widget, metric
     entity_id = Column(UUID(as_uuid=True), nullable=True)
-    
+
     deep_link = Column(String(500), nullable=True)
     is_read = Column(Boolean, default=False, nullable=False, index=True)
     read_at = Column(DateTime(timezone=True), nullable=True)
-    
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
-        onupdate=datetime.utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=func.now(),
     )
 
     # Relationships

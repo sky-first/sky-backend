@@ -48,13 +48,14 @@ class NotificationService:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def count_unread(self, user_id: UUID) -> int:
+    async def get_unread_count(self, user_id: UUID) -> int:
         """Count unread notifications for a user."""
         query = select(Notification).where(
             Notification.user_id == user_id, Notification.is_read == False
         )
         # Efficient count
         from sqlalchemy import func
+
         query = select(func.count()).select_from(query.subquery())
         result = await self.db.execute(query)
         return result.scalar_one()
@@ -63,7 +64,7 @@ class NotificationService:
         """Mark specific notifications as read."""
         if not notification_ids:
             return 0
-            
+
         stmt = (
             update(Notification)
             .where(
@@ -91,6 +92,7 @@ class NotificationService:
     async def delete_all(self, user_id: UUID) -> int:
         """Delete all notifications for a user (cleanup)."""
         from sqlalchemy import delete
+
         stmt = delete(Notification).where(Notification.user_id == user_id)
         result = await self.db.execute(stmt)
         await self.db.commit()

@@ -8,10 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from src.models.comment import Comment
-from src.schemas.comment import CommentCreate
-from src.services.notification_service import NotificationService
 from src.models.notification import NotificationType
+from src.schemas.comment import CommentCreate
 from src.schemas.notification import NotificationCreate
+from src.services.notification_service import NotificationService
 
 
 class CommentService:
@@ -52,7 +52,7 @@ class CommentService:
                 )
 
         # 2. Notify dashboard owner logic (simplified/omitted for now until owner fetch is robust)
-        
+
         return db_comment
 
     async def get_by_dashboard(self, dashboard_id: UUID) -> List[Comment]:

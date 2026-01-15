@@ -14,7 +14,7 @@ from src.services.comment_service import CommentService
 router = APIRouter()
 
 
-@router.post("", response_model=CommentResponse)
+@router.post("", response_model=CommentResponse, status_code=201)
 async def create_comment(
     comment_data: CommentCreate,
     current_user: User = Depends(get_current_user),
