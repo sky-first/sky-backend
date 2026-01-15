@@ -20,6 +20,9 @@ from src.schemas.dashboard import (
     WidgetResponse,
     WidgetUpdate,
 )
+from src.models.notification import NotificationType
+from src.schemas.notification import NotificationCreate
+from src.services.notification_service import NotificationService
 
 
 class DashboardService:
@@ -36,6 +39,7 @@ class DashboardService:
         self.dashboard_repo = DashboardRepository(db)
         self.widget_repo = WidgetRepository(db)
         self.connection_repo = ConnectionRepository(db)
+        self.notification_service = NotificationService(db)
 
     async def create_dashboard(
         self, user: User, dashboard_data: DashboardCreate
@@ -159,6 +163,25 @@ class DashboardService:
         dashboard = await self.dashboard_repo.update(dashboard_id, **update_data)
         await self.db.commit()
         await self.db.refresh(dashboard)
+
+        # Trigger Notification if updated by another user
+        if dashboard.created_by and dashboard.created_by != user.id:
+            try:
+                await self.notification_service.create(
+                    NotificationCreate(
+                        user_id=dashboard.created_by,
+                        space_id=None,  # Optimization: fetch space/planet if needed
+                        type=NotificationType.DASHBOARD_EDITED_BY_OTHER,
+                        title="Dashboard Edited",
+                        description=f"User {user.email or user.id} edited your dashboard '{dashboard.name}'",
+                        entity_type="dashboard",
+                        entity_id=dashboard.id,
+                        deep_link=f"/dashboards/{dashboard.id}",
+                    )
+                )
+            except Exception:
+                # Fail silently to not block the main action
+                pass
 
         return DashboardResponse.model_validate(dashboard)
 

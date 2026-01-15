@@ -20,6 +20,8 @@ from src.api.v1 import (
     users,
     widgets,
     workspaces,
+    notifications,
+    comments,
 )
 
 api_router = APIRouter()
@@ -74,6 +76,12 @@ api_router.include_router(workspaces.router, prefix="/workspaces", tags=["Worksp
 
 # Starred items endpoints
 api_router.include_router(starred.router, prefix="/starred", tags=["Starred"])
+
+# Notification endpoints
+api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+
+# Comment endpoints
+api_router.include_router(comments.router, prefix="/comments", tags=["Comments"])
 
 # TODO: Add more routers here as we implement them step by step
 # Following the BACKEND_IMPLEMENTATION_MASTER_PLAN.md

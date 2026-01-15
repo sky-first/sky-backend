@@ -22,6 +22,10 @@ from src.models.starred import StarredItem
 from src.models.template import Template
 from src.models.user import RefreshToken, User
 
+from src.models.notification import Notification
+from src.models.comment import Comment
+
+
 __all__ = [
     "User",
     "RefreshToken",
@@ -53,4 +57,6 @@ __all__ = [
     "Integration",
     "FileUpload",
     "UserDataset",
+    "Notification",
+    "Comment",
 ]
