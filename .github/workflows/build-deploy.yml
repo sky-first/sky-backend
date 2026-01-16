@@ -11,7 +11,7 @@ on:
       - main
 
 env:
-  ACR_NAME: skyacrstaging
+  ACR_NAME: skyacrstagingj3minh
   IMAGE_NAME: sky-poc-backend
 
 permissions:
