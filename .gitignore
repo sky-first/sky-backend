@@ -33,3 +33,4 @@ uploads/
 .coverage
 coverage.xml
 htmlcov/
+celerybeat-schedule
