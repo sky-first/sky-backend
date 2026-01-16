@@ -11,6 +11,7 @@ from src.api.v1 import (
     dashboards,
     datasets,
     files,
+    notifications,
     permissions,
     planets,
     settings,
@@ -46,6 +47,9 @@ api_router.include_router(connections.router, prefix="/connections", tags=["Conn
 
 # Permission endpoints
 api_router.include_router(permissions.router, prefix="/permissions", tags=["Permissions"])
+
+# Notification endpoints
+api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 
 # Space endpoints
 api_router.include_router(spaces.router, prefix="/spaces", tags=["Spaces"])

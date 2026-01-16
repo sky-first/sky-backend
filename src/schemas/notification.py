@@ -6,41 +6,44 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from src.models.notification import NotificationType
-
 
 class NotificationBase(BaseModel):
-    """Base notification schema."""
-    
-    type: NotificationType
+    """Base schema for Notification."""
+
+    type: str = "DASHBOARD_UPDATED"  # Using simple string for now to avoid enum complexity
     title: str
     description: Optional[str] = None
-    entity_type: Optional[str] = None
-    entity_id: Optional[UUID] = None
+    entity_type: str
+    entity_id: str
     deep_link: Optional[str] = None
-    space_id: Optional[UUID] = None
 
 
 class NotificationCreate(NotificationBase):
-    """Schema for creating a notification (internal use)."""
+    """Schema for creating a Notification."""
     
     user_id: UUID
 
 
 class NotificationUpdate(BaseModel):
-    """Schema for updating a notification."""
-    
+    """Schema for updating a Notification."""
+
     is_read: Optional[bool] = None
+    read_at: Optional[datetime] = None
 
 
 class NotificationResponse(NotificationBase):
-    """Schema for notification response."""
-    
+    """Schema for Notification response."""
+
     id: UUID
     user_id: UUID
     is_read: bool
     read_at: Optional[datetime] = None
     created_at: datetime
-    updated_at: datetime
-
+    
     model_config = ConfigDict(from_attributes=True)
+
+
+class NotificationCount(BaseModel):
+    """Schema for notification counts."""
+    
+    count: int
