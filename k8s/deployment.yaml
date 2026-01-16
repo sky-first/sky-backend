@@ -25,7 +25,14 @@ spec:
           env:
             - name: PORT
               value: "8000"
-            # Add other env vars here or via ConfigMap/Secret
+            - name: DATABASE_URL
+              value: "${DATABASE_URL}" # Will be replaced by envsubst
+            - name: REDIS_URL
+              value: "${REDIS_URL}" # Will be replaced by envsubst
+            - name: OPENAI_API_KEY
+              value: "${OPENAI_API_KEY}" # Will be replaced by envsubst
+            - name: ENVIRONMENT
+              value: "staging"
           # Basic probes to ensure rolling updates work smoothly
           livenessProbe:
             httpGet:
