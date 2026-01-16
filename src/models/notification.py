@@ -1,26 +1,13 @@
-"""Notification model."""
+"""Notification models."""
 
 import uuid
 from datetime import datetime
-from enum import Enum
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text, func, text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from src.config.database import Base
-
-
-class NotificationType(str, Enum):
-    """Notification types."""
-
-    DASHBOARD_UPDATED = "DASHBOARD_UPDATED"
-    NEW_INSIGHT_AVAILABLE = "NEW_INSIGHT_AVAILABLE"
-    NEW_WIDGET_COMMENT = "NEW_WIDGET_COMMENT"
-    COMMENT_MENTION = "COMMENT_MENTION"
-    DASHBOARD_EDITED_BY_OTHER = "DASHBOARD_EDITED_BY_OTHER"
-    METRIC_THRESHOLD_EXCEEDED = "METRIC_THRESHOLD_EXCEEDED"
-    DASHBOARD_PERFORMANCE_DEGRADED = "DASHBOARD_PERFORMANCE_DEGRADED"
 
 
 class Notification(Base):
@@ -35,37 +22,29 @@ class Notification(Base):
         nullable=False,
         index=True,
     )
-    space_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("spaces.id", ondelete="CASCADE"),
-        nullable=True,
-        index=True,
-    )
-    type = Column(String(50), nullable=False)  # NotificationType enum value
+    
+    # Notification Details
+    type = Column(String(50), nullable=False)  # Enum value from NotificationType
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-
-    # Entity reference (polymorphic-like)
-    entity_type = Column(String(50), nullable=True)  # dashboard, widget, metric
-    entity_id = Column(UUID(as_uuid=True), nullable=True)
-
+    
+    # Linked Entity (for deep linking and context)
+    entity_type = Column(String(50), nullable=False)  # e.g., 'dashboard', 'insight'
+    entity_id = Column(String(255), nullable=False)
     deep_link = Column(String(500), nullable=True)
-    is_read = Column(Boolean, default=False, nullable=False, index=True)
+    
+    # Status
+    is_read = Column(Boolean, default=False, nullable=False)
     read_at = Column(DateTime(timezone=True), nullable=True)
-
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=text("CURRENT_TIMESTAMP"),
-        onupdate=func.now(),
-    )
+    
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
 
     # Relationships
     user = relationship("User", backref="notifications")
-    space = relationship("Space")
+
+    __table_args__ = (
+        Index("idx_notifications_user_unread", "user_id", "is_read"),
+    )
 
     def __repr__(self) -> str:
-        return f"<Notification(id={self.id}, user_id={self.user_id}, type={self.type})>"
+        return f"<Notification(id={self.id}, user_id={self.user_id}, type={self.type}, title={self.title})>"
