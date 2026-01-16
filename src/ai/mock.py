@@ -3,8 +3,6 @@
 import asyncio
 from typing import Any, Dict, List
 
-from src.config.settings import settings
-
 
 class MockAIService:
     """Mock AI service for development and testing."""

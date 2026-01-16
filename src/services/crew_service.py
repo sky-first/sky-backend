@@ -304,7 +304,6 @@ class CrewService:
         await self.db.refresh(member, ["user"])
 
         # Convert user to dict if present (CrewMemberResponse expects Optional[dict])
-        from src.schemas.user import UserResponse
 
         member_data_dict = {
             "id": member.id,

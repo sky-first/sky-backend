@@ -1,7 +1,5 @@
 """Onboarding helpers to ensure default planet/space for new users."""
 
-from uuid import UUID
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.user import User

@@ -1,6 +1,8 @@
 """Celery application configuration."""
 
+import logging
 import os
+from datetime import timedelta
 from urllib.parse import quote_plus, unquote_plus
 
 from celery import Celery
@@ -78,8 +80,6 @@ if backend_url:
     os.environ["CELERY_RESULT_BACKEND"] = backend_url
 
 # Debug: Log the URLs (without password for security)
-import logging
-
 logger = logging.getLogger(__name__)
 logger.info("Celery broker URL configured")
 logger.info("Celery backend URL configured")
@@ -104,10 +104,29 @@ celery_app.conf.update(
     task_soft_time_limit=25 * 60,  # 25 minutes
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
-    include=["src.workers.sync_worker", "src.workers.ai_worker"],
+    include=[
+        "src.workers.sync_worker",
+        "src.workers.ai_worker",
+        "src.workers.cache_warming_worker",
+    ],
 )
 
 # Celery may re-read broker/backend from env vars; force our sanitized URLs.
 celery_app.conf.broker_url = broker_url
 celery_app.conf.broker_write_url = broker_url
 celery_app.conf.result_backend = backend_url
+
+# Periodic tasks (Celery Beat)
+try:
+    interval = int(getattr(settings, "CACHE_WARMING_INTERVAL_SECONDS", 300) or 300)
+    if getattr(settings, "CACHE_WARMING_ENABLED", True) and interval > 0:
+        celery_app.conf.beat_schedule = {
+            **getattr(celery_app.conf, "beat_schedule", {}),
+            "warm-ai-response-cache": {
+                "task": "src.workers.cache_warming_worker.warm_ai_response_cache",
+                "schedule": timedelta(seconds=interval),
+            },
+        }
+except Exception:
+    # Fail-open: do not block worker startup if schedule can't be built.
+    pass

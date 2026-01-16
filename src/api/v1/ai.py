@@ -3,8 +3,8 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import APIRouter, Depends, Response, Query, status, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
@@ -42,7 +42,7 @@ from src.schemas.ai import (
     ValidateSQLRequest,
     ValidateSQLResponse,
 )
-from src.schemas.common import ErrorResponse, PaginatedResponse, SuccessResponse
+from src.schemas.common import ErrorResponse, SuccessResponse
 from src.services.ai_service import AIService
 from src.services.rbac_service import RBACService
 

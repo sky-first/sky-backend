@@ -2,9 +2,8 @@
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -33,12 +32,14 @@ class Dashboard(Base):
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
-        onupdate=datetime.utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=func.now(),
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -90,12 +91,14 @@ class Widget(Base):
         nullable=True,
         index=True,
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
-        onupdate=datetime.utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=func.now(),
     )
 
     # Relationships
@@ -138,7 +141,9 @@ class Connection(Base):
     )
     from_anchor = Column(String(10), nullable=False)  # top, right, bottom, left
     to_anchor = Column(String(10), nullable=False)  # top, right, bottom, left
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
 
     # Relationships
     dashboard = relationship("Dashboard", back_populates="connections")

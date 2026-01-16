@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import List
 from uuid import UUID
 
 from src.workers.celery_app import celery_app
@@ -55,9 +55,13 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     from src.repositories.base import BaseRepository
     from src.repositories.dashboard import WidgetRepository
     from src.repositories.user import UserRepository
-    from src.schemas.dashboard import DashboardCreate, WidgetCreate
+    from src.schemas.dashboard import DashboardCreate
+    from src.services.ai_service import AIService
     from src.services.ai_service import AIService
     from src.services.dashboard_service import DashboardService
+    from src.services.notification_service import NotificationService
+    from src.models.notification import NotificationType
+    from src.schemas.notification import NotificationCreate
 
     async with AsyncSessionLocal() as db:
         repo = BaseRepository(db, DashboardBuildJob)
@@ -505,10 +509,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         connection_id=UUID(connection_id),
                     )
 
-                    job.completed_widgets = int(job.completed_widgets or 0) + 1
-                    await db.commit()
                 except Exception as e:
-                    # Não falhar o job inteiro: marque este widget como "manual" e continue.
                     failed_count += 1
                     failed_widget_ids.append(str(widget_id))
                     logger.exception(
@@ -516,16 +517,13 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         widget_id,
                         wtype,
                     )
-
-                    # Trocar placeholder "auto" por "manual" para não ficar preso em "Generating..."
-                    # O usuário pode dar double click e reconfigurar via AI.
                     try:
                         safe_title = w.get("title") or (
                             wtype.capitalize() if isinstance(wtype, str) else "Widget"
                         )
                         await widget_repo.update(
                             widget_id,
-                            title=f"{safe_title} (needs review)",
+                            title=f"{safe_title} (error)",
                             data={
                                 "isPlaceholder": True,
                                 "placeholderMode": "manual",
@@ -537,15 +535,32 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                             connection_id=UUID(connection_id),
                         )
                     except Exception:
-                        # Se até isso falhar, seguimos em frente mesmo assim.
                         logger.exception(
                             "Failed to mark widget %s as errored placeholder", widget_id
                         )
 
-                    job.completed_widgets = int(job.completed_widgets or 0) + 1
-                    await db.commit()
-
+                job.completed_widgets = int(job.completed_widgets or 0) + 1
+                await db.commit()
             job.status = "succeeded"
+            
+            # Trigger Notification: NEW_INSIGHT_AVAILABLE
+            try:
+                ns = NotificationService(db)
+                await ns.create(
+                    NotificationCreate(
+                        user_id=job.user_id,
+                        space_id=job.space_id,
+                        type=NotificationType.NEW_INSIGHT_AVAILABLE,
+                        title="New Insights Ready",
+                        description=f"Your dashboard '{job.goal[:30]}...' has been built with new insights.",
+                        entity_type="dashboard",
+                        entity_id=job.dashboard_id,
+                        deep_link=f"/dashboards/{job.dashboard_id}",
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Failed to create notification for job {job_id}: {e}")
+
             if failed_count > 0:
                 job.error = (
                     f"{failed_count} widget(s) failed; ids={','.join(failed_widget_ids[:10])}"

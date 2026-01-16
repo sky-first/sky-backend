@@ -1,7 +1,8 @@
 name: Deploy Backend to AKS (Staging)
 on:
   push:
-    branches: [staging]
+    branches:
+      - staging
   workflow_dispatch:
 concurrency:
   group: deploy-backend-staging

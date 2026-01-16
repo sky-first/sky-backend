@@ -5,25 +5,32 @@ import os
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
-from datetime import datetime, timedelta, timezone
-from uuid import uuid4
+from datetime import datetime, timedelta, timezone  # noqa: E402
 
-import pytest
-import pytest_asyncio
-from faker import Faker
-from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+import pytest  # noqa: E402
+import pytest_asyncio  # noqa: E402
+from faker import Faker  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import StaticPool  # noqa: E402
 
-from src.api.deps import get_db_session
+from src.api.deps import get_db_session  # noqa: E402
 
 # Agora sim, importar depois de sobrescrever a variável de ambiente
-from src.config.database import Base, get_db
-from src.config.settings import settings
-from src.core.security import create_access_token, create_refresh_token, get_password_hash
-from src.main import app
-from src.models.user import RefreshToken, User
-from src.repositories.user import UserRepository
+from src.config.database import Base, get_db  # noqa: E402
+from src.config.settings import settings  # noqa: E402
+from src.core.security import (  # noqa: E402
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+)
+from src.main import app  # noqa: E402
+from src.models.user import RefreshToken  # noqa: E402
+from src.repositories.user import UserRepository  # noqa: E402
 
 # pytest-asyncio is configured via pytest.ini or pyproject.toml
 

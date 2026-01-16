@@ -4,16 +4,16 @@ import uuid
 from datetime import datetime
 
 # Forward reference for SyncLog
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from src.config.database import Base
 
 if TYPE_CHECKING:
-    from src.models.file import SyncLog
+    pass
 
 
 class DataConnection(Base):

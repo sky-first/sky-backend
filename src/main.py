@@ -2,12 +2,12 @@
 
 import logging
 import sys
+from pythonjsonlogger import jsonlogger
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-from pythonjsonlogger import jsonlogger
+
+from fastapi import Depends, FastAPI
 
 from src.api.middleware import auth, cors, error_handler
 from src.api.middleware import logging as logging_middleware
@@ -218,6 +218,20 @@ def custom_openapi():
         description=app.description,
         routes=app.routes,
     )
+
+    # Add Security Scheme for Bearer Token
+    openapi_schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Enter JWT token"
+        }
+    }
+    
+    # Apply security globally to all endpoints
+    # Endpoints that don't need it will simply ignore it, or we can be more granular
+    openapi_schema["security"] = [{"BearerAuth": []}]
 
     logger.info(f"📋 OpenAPI schema generated with {len(openapi_schema.get('paths', {}))} paths")
 
