@@ -10,6 +10,17 @@ from sqlalchemy.orm import relationship
 from src.config.database import Base
 
 
+class NotificationType(str, Enum):
+    """Notification types."""
+    
+    SYSTEM = "system"
+    ALERT = "alert"
+    INSIGHT = "insight"
+    SHARE = "share"
+    MENTION = "mention"
+    ACCESS = "access"
+
+
 class Notification(Base):
     """Notification model."""
 
