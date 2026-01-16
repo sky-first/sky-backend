@@ -45,18 +45,12 @@ jobs:
           # Create namespace if not exists
           kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
           
-          # Replace variables in manifest (image tag and secrets)
-          # Using envsubst to replace $DATABASE_URL, $REDIS_URL, etc from environment variables
-          export DATABASE_URL="${{ secrets.DATABASE_URL }}"
-          export REDIS_URL="${{ secrets.REDIS_URL }}"
-          export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
-          
-          # First replace the image tag specific placeholder 
+          # Replace variables in manifest (image tag only)
+          # Using sed to replace the image tag placeholder with the specific sha
           sed -i "s|image: .*|image: $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}|g" k8s/deployment.yaml
           
-          # Then use envsubst for the rest (SAFE way that only replaces variables defined in the shell)
-          envsubst < k8s/deployment.yaml > k8s/deployment.yaml.tmp && mv k8s/deployment.yaml.tmp k8s/deployment.yaml
-          
+          # Apply Manifests
+          kubectl apply -f k8s/external-secret.yaml
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
 
