@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sky-poc-backend
+  namespace: staging
+  labels:
+    app: sky-poc-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sky-poc-backend
+  template:
+    metadata:
+      labels:
+        app: sky-poc-backend
+    spec:
+      serviceAccountName: default # Ensure Workload Identity is bound if needed later
+      containers:
+        - name: sky-poc-backend
+          image: skyacrstagingj3minh.azurecr.io/sky-poc-backend:staging # Default placeholder
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PORT
+              value: "8000"
+            # Add other env vars here or via ConfigMap/Secret
+          # Basic probes to ensure rolling updates work smoothly
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
