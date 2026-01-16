@@ -45,10 +45,12 @@ jobs:
           # Create namespace if not exists
           kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
           
-          # Replace variables in manifest (image tag) and apply
+          # Replace variables in manifest (image tag only)
           # Using sed to replace the image tag placeholder with the specific sha
           sed -i "s|image: .*|image: $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}|g" k8s/deployment.yaml
           
+          # Apply Manifests
+          kubectl apply -f k8s/external-secret.yaml
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
 
