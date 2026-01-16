@@ -11,7 +11,7 @@ permissions:
   id-token: write
   contents: read
 env:
-  ACR_NAME: skyacrstaging
+  ACR_NAME: skyacrstagingj3minh
   IMAGE_NAME: sky-poc-backend
   CLUSTER_NAME: sky-aks-staging
   RESOURCE_GROUP: sky-aks-staging-rg
