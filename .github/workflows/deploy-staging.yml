@@ -41,6 +41,18 @@ jobs:
           resource-group: ${{ env.RESOURCE_GROUP }}
           cluster-name: ${{ env.CLUSTER_NAME }}
       - name: Deploy
-        run: kubectl set image deployment/$IMAGE_NAME $IMAGE_NAME=$ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} -n staging --record
+        run: |
+          # Create namespace if not exists
+          kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Replace variables in manifest (image tag only)
+          # Using sed to replace the image tag placeholder with the specific sha
+          sed -i "s|image: .*|image: $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}|g" k8s/deployment.yaml
+          
+          # Apply Manifests
+          kubectl apply -f k8s/external-secret.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+
       - name: Verify
         run: kubectl rollout status deployment/$IMAGE_NAME -n staging --timeout=60s
