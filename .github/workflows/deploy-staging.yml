@@ -1,77 +1,46 @@
 name: Deploy Backend to AKS (Staging)
-
 on:
   push:
     branches:
       - staging
   workflow_dispatch:
-    inputs:
-      reason:
-        description: "Motivo do deploy manual"
-        required: false
-        default: "Manutenção"
-
-# Evita que múltiplos deploys rodem ao mesmo tempo
 concurrency:
   group: deploy-backend-staging
   cancel-in-progress: true
-
 permissions:
   id-token: write
   contents: read
-
 env:
   ACR_NAME: skyacrstagingj3minh
   IMAGE_NAME: sky-poc-backend
   CLUSTER_NAME: sky-aks-staging
   RESOURCE_GROUP: sky-aks-staging-rg
-
 jobs:
-  validate-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Validate Secrets
-        run: |
-          echo "🔐 Verificando credenciais OIDC..."
-          if [ -z "${{ secrets.AZURE_CLIENT_ID }}" ] || [ -z "${{ secrets.AZURE_TENANT_ID }}" ] || [ -z "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
-            echo "❌ ERRO: Secrets de autenticação Azure (OIDC) não encontrados!"
-            exit 1
-          fi
-
-      - name: Azure Login
-        uses: azure/login@v2
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Build and Push to ACR
+      - name: Build and Push
         run: |
           az acr login --name $ACR_NAME
-          docker build \
-            --cache-from $ACR_NAME.azurecr.io/$IMAGE_NAME:staging \
-            -t $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} \
-            -t $ACR_NAME.azurecr.io/$IMAGE_NAME:staging .
-
+          docker build --cache-from $ACR_NAME.azurecr.io/$IMAGE_NAME:staging -t $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} -t $ACR_NAME.azurecr.io/$IMAGE_NAME:staging .
           docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}
           docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:staging
-
-      - name: Set AKS Context
-        uses: azure/aks-set-context@v3
+      # 🔓 LIBERA O ACESSO AO AKS
+      - name: Open AKS Firewall for Runner
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          az aks update --resource-group $RESOURCE_GROUP --name $CLUSTER_NAME --api-server-authorized-ip-ranges $RUNNER_IP
+      - uses: azure/aks-set-context@v3
         with:
           resource-group: ${{ env.RESOURCE_GROUP }}
           cluster-name: ${{ env.CLUSTER_NAME }}
-
-      - name: Deploy to AKS
-        run: |
-          # Atualiza a imagem no Deployment do Kubernetes
-          # O ESO (External Secrets) cuidará dos segredos injetados no Pod do Key Vault
-          kubectl set image deployment/$IMAGE_NAME $IMAGE_NAME=$ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} -n staging --record
-
-      - name: Verify Health
-        run: |
-          echo "🏥 Aguardando Rollout..."
-          kubectl rollout status deployment/$IMAGE_NAME -n staging --timeout=60s
+      - name: Deploy
+        run: kubectl set image deployment/$IMAGE_NAME $IMAGE_NAME=$ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} -n staging --record
+      - name: Verify
+        run: kubectl rollout status deployment/$IMAGE_NAME -n staging --timeout=60s
