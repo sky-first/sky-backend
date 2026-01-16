@@ -20,7 +20,7 @@ class NotificationBase(BaseModel):
 
 class NotificationCreate(NotificationBase):
     """Schema for creating a Notification."""
-    
+
     user_id: UUID
 
 
@@ -39,11 +39,11 @@ class NotificationResponse(NotificationBase):
     is_read: bool
     read_at: Optional[datetime] = None
     created_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class NotificationCount(BaseModel):
     """Schema for notification counts."""
-    
+
     count: int

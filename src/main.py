@@ -228,7 +228,7 @@ def custom_openapi():
             "description": "Enter JWT token"
         }
     }
-    
+
     # Apply security globally to all endpoints
     # Endpoints that don't need it will simply ignore it, or we can be more granular
     openapi_schema["security"] = [{"BearerAuth": []}]

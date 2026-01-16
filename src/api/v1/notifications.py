@@ -51,7 +51,7 @@ async def mark_as_read(
 ) -> dict:
     """Mark a notification as read."""
     service = NotificationService(db)
-    notification = await service.mark_as_read(notification_id=notification_id, user_id=current_user.id)
+    notification = await service.mark_notification_as_read(notification_id=notification_id, user_id=current_user.id)
     if not notification:
         raise HTTPException(status_code=404, detail="Notification not found")
     return {"updated": 1, "success": True}

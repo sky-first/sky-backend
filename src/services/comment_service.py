@@ -41,12 +41,11 @@ class CommentService:
                 await self.notification_service.create(
                     NotificationCreate(
                         user_id=mentioned_user_id,
-                        space_id=None,  # Could fetch from dashboard...
                         type=NotificationType.COMMENT_MENTION,
                         title="You were mentioned in a comment",
                         description=f"User mentioned you: {comment_data.content[:50]}...",
                         entity_type="comment",
-                        entity_id=db_comment.id,
+                        entity_id=str(db_comment.id),
                         deep_link=f"/dashboards/{comment_data.dashboard_id}",
                     )
                 )
