@@ -433,12 +433,7 @@ class AIService:
                             f"result_keys={list(result.keys())}"
                         )
 
-                        if (
-                            chosen_table
-                            or chosen_datasets
-                            or dynamic_title
-                            or detected_language
-                        ):
+                        if chosen_table or chosen_datasets or dynamic_title or detected_language:
                             # Get current config and ensure it's a dict
                             current_config = (
                                 dict(query.configure_data) if query.configure_data else {}

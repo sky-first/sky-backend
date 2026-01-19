@@ -69,9 +69,7 @@ class Settings(BaseSettings):
         postgres_db = os.getenv("POSTGRES_DB") or self.POSTGRES_DB
 
         # If POSTGRES_PASSWORD is set as env var, always build URL from separate vars
-        # This ensures proper password encoding for Docker Compose deployments
         if os.getenv("POSTGRES_PASSWORD"):
-            # Build URL from separate environment variables with properly encoded password
             encoded_password = quote_plus(postgres_password) if postgres_password else ""
             port_str = (
                 f":{postgres_port_env}"
@@ -79,11 +77,17 @@ class Settings(BaseSettings):
                 else (f":{self.POSTGRES_PORT}" if self.POSTGRES_PORT != 5432 else "")
             )
             self.DATABASE_URL = f"postgresql+asyncpg://{postgres_user}:{encoded_password}@{postgres_host}{port_str}/{postgres_db}"
-        elif self.DATABASE_URL and "@" in self.DATABASE_URL:
+
+        # Helper to ensure async driver
+        if self.DATABASE_URL and self.DATABASE_URL.startswith("postgresql://"):
+            self.DATABASE_URL = self.DATABASE_URL.replace(
+                "postgresql://", "postgresql+asyncpg://", 1
+            )
+
+        if self.DATABASE_URL and "@" in self.DATABASE_URL and "asyncpg" in self.DATABASE_URL:
             # Fix existing DATABASE_URL if password contains special characters
             import re
 
-            # Parse URL manually to handle special characters in password
             # Format: postgresql+asyncpg://user:password@host:port/db
             pattern = r"^(postgresql(?:\+asyncpg)?)://([^:]+):([^@]+)@([^:/]+)(?::(\d+))?/(.+)$"
             match = re.match(pattern, self.DATABASE_URL)
@@ -91,7 +95,7 @@ class Settings(BaseSettings):
             if match:
                 scheme, username, password, host, port, database = match.groups()
 
-                # Decode password if already encoded, then re-encode to ensure proper encoding
+                # Check if password needs encoding
                 from urllib.parse import unquote_plus
 
                 try:
@@ -111,13 +115,8 @@ class Settings(BaseSettings):
                             f"{scheme}://{username}:{encoded_password}@{host}{port_part}/{database}"
                         )
                 except Exception:
-                    # If decoding fails, try encoding the password as-is
-                    if "%" not in password:
-                        encoded_password = quote_plus(password)
-                        port_part = f":{port}" if port else ""
-                        self.DATABASE_URL = (
-                            f"{scheme}://{username}:{encoded_password}@{host}{port_part}/{database}"
-                        )
+                    # If any error in complex parsing, leave as is
+                    pass
 
         return self
 
