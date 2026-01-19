@@ -55,7 +55,7 @@ async def test_create_notification(db_session, test_user):
         title="Test Title",
         description="Test Desc",
         entity_type="test",
-        entity_id=uuid4(),
+        entity_id=str(uuid4()),
     )
     notif = await service.create(notif_data)
     assert notif.title == "Test Title"
@@ -72,7 +72,7 @@ async def test_get_unread_notifications(db_session, test_user):
                 type=NotificationType.DASHBOARD_EDITED_BY_OTHER,
                 title=f"Title {i}",
                 entity_type="test",
-                entity_id=uuid4(),
+                entity_id=str(uuid4()),
             )
         )
 
@@ -91,7 +91,7 @@ async def test_mark_as_read(db_session, test_user):
             type=NotificationType.COMMENT_MENTION,
             title="To be read",
             entity_type="test",
-            entity_id=uuid4(),
+            entity_id=str(uuid4()),
         )
     )
 
@@ -114,7 +114,7 @@ async def test_mark_all_as_read(db_session, test_user):
                 type=NotificationType.NEW_INSIGHT_AVAILABLE,
                 title="Bulk",
                 entity_type="test",
-                entity_id=uuid4(),
+                entity_id=str(uuid4()),
             )
         )
 

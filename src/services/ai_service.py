@@ -433,8 +433,6 @@ class AIService:
                             f"result_keys={list(result.keys())}"
                         )
 
-
-
                         if (
                             chosen_table
                             or chosen_datasets

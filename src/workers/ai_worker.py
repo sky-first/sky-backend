@@ -325,7 +325,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             ctx = {}
             if isinstance(job.plan, dict) and isinstance(job.plan.get("_context"), dict):
                 ctx = job.plan.get("_context")
-            
+
             context_tables = ctx.get("context_tables") or []
             initial_ai_response = ctx.get("initial_ai_response")
 
@@ -415,10 +415,10 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     )
                     if initial_ai_response:
                         context_instructions += f"The user previously received this answer: '{initial_ai_response}'.\n"
-                    
+
                     if context_tables:
                         context_instructions += f"Relevant tables identified in the conversation: {', '.join(context_tables)}.\n"
-                    
+
                     context_instructions += (
                         "Use this context to correctly identify tables and columns for the current widget question. "
                         "If you need to join tables, look for relationships in the schema metadata."
@@ -542,7 +542,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 job.completed_widgets = int(job.completed_widgets or 0) + 1
                 await db.commit()
             job.status = "succeeded"
-            
+
             # Trigger Notification: NEW_INSIGHT_AVAILABLE
             try:
                 ns = NotificationService(db)

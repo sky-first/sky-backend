@@ -34,19 +34,19 @@ class NotificationRepository:
     ) -> List[Notification]:
         """Get all notifications for a user."""
         stmt = select(Notification).where(Notification.user_id == user_id)
-        
+
         if unread_only:
             stmt = stmt.where(Notification.is_read == False)
-            
+
         stmt = stmt.order_by(desc(Notification.created_at)).offset(offset).limit(limit)
-        
+
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
     async def get_unread_count(self, user_id: UUID) -> int:
         """Get unread notification count for a user."""
         stmt = select(func.count(Notification.id)).where(
-            Notification.user_id == user_id, 
+            Notification.user_id == user_id,
             Notification.is_read == False
         )
         result = await self.db.execute(stmt)
@@ -55,18 +55,18 @@ class NotificationRepository:
     async def mark_as_read(self, notification_id: UUID, user_id: UUID) -> Optional[Notification]:
         """Mark a notification as read."""
         stmt = select(Notification).where(
-            Notification.id == notification_id, 
+            Notification.id == notification_id,
             Notification.user_id == user_id
         )
         result = await self.db.execute(stmt)
         db_notification = result.scalar_one_or_none()
-        
+
         if db_notification:
             db_notification.is_read = True
             db_notification.read_at = datetime.utcnow()
             await self.db.commit()
             await self.db.refresh(db_notification)
-            
+
         return db_notification
 
     async def mark_all_as_read(self, user_id: UUID) -> int:

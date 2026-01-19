@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 class CommentBase(BaseModel):
     """Base comment schema."""
-    
+
     content: str
     dashboard_id: UUID
     widget_id: Optional[UUID] = None
@@ -23,7 +23,7 @@ class CommentCreate(CommentBase):
 
 class CommentResponse(CommentBase):
     """Schema for comment response."""
-    
+
     id: UUID
     user_id: UUID
     created_at: datetime
