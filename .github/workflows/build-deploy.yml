@@ -76,11 +76,42 @@ jobs:
       - name: Image digest
         run: echo ${{ steps.build.outputs.digest }}
 
-      - name: Trigger ArgoCD Sync (Optional)
+      - name: Update Infra Repository (GitOps Write-Back)
         if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main'
+        env:
+          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+          INFRA_REPO: sky-first/sky-poc-infra
+          BRANCH: staging
         run: |
-          echo "Image pushed successfully to ACR"
-          echo "ArgoCD will auto-detect and sync within 3 minutes"
-          echo "Tags: ${{ steps.meta.outputs.tags }}"
+          echo "🔄 Checking out Infra Repository..."
+          git clone https://$GITOPS_PAT@github.com/$INFRA_REPO.git infra-repo
+          cd infra-repo
+          git checkout $BRANCH
+          
+          # Define target file based on environment
+          TARGET_FILE="gitops/bootstrap/staging/backend.yaml"
+          echo "📂 Updating $TARGET_FILE..."
+          
+          # Update rollout-trigger annotation with current timestamp
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          # Use sed to replace the existing timestamp or add it if missing
+          # Looking for 'rollout-trigger: "..."'
+          sed -i "s/rollout-trigger: \".*\"/rollout-trigger: \"$TIMESTAMP\"/g" $TARGET_FILE
+          
+          # Verify change
+          git diff $TARGET_FILE
+          
+          # Commit and Push
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add $TARGET_FILE
+          
+          if git diff --staged --quiet; then
+            echo "⚠️ No changes to commit (timestamp might be identical, or updates too fast)."
+          else
+            git commit -m "GitOps: Update rollout-trigger for backend at $TIMESTAMP"
+            git push origin $BRANCH
+            echo "✅ GitOps Write-Back Complete. ArgoCD should detect changes shortly."
+          fi
 
 
