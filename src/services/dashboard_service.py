@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.user import User
-from src.repositories.dashboard import ConnectionRepository, DashboardRepository, WidgetRepository
+from src.repositories.dashboard import (
+    ConnectionRepository,
+    DashboardRepository,
+    WidgetFeedbackRepository,
+    WidgetRepository,
+)
 from src.schemas.dashboard import (
     ConnectionResponse,
     DashboardCreate,
@@ -17,6 +22,8 @@ from src.schemas.dashboard import (
     DashboardResponse,
     DashboardUpdate,
     WidgetCreate,
+    WidgetFeedbackCreate,
+    WidgetFeedbackResponse,
     WidgetResponse,
     WidgetUpdate,
 )
@@ -39,6 +46,7 @@ class DashboardService:
         self.dashboard_repo = DashboardRepository(db)
         self.widget_repo = WidgetRepository(db)
         self.connection_repo = ConnectionRepository(db)
+        self.feedback_repo = WidgetFeedbackRepository(db)
         self.notification_service = NotificationService(db)
 
     async def create_dashboard(
@@ -638,3 +646,48 @@ class DashboardService:
         await self.db.refresh(dashboard)
 
         return DashboardResponse.model_validate(dashboard)
+
+    async def add_widget_feedback(
+        self, widget_id: UUID, user: User, feedback_data: WidgetFeedbackCreate
+    ) -> WidgetFeedbackResponse:
+        """
+        Add feedback to widget.
+
+        Args:
+            widget_id: Widget ID
+            user: Current user
+            feedback_data: Feedback data
+
+        Returns:
+            WidgetFeedbackResponse: Created/Updated feedback
+
+        Raises:
+            NotFoundError: If widget not found
+        """
+        widget = await self.widget_repo.get_by_id(widget_id)
+        if not widget:
+            raise NotFoundError("Widget not found")
+
+        # Check if user already voted
+        existing_feedback = await self.feedback_repo.get_by_widget_and_user(widget_id, user.id)
+
+        if existing_feedback:
+            # Update existing feedback
+            existing_feedback.score = feedback_data.score
+            existing_feedback.reason = feedback_data.reason
+            existing_feedback.context = feedback_data.context
+            await self.db.commit()
+            await self.db.refresh(existing_feedback)
+            return WidgetFeedbackResponse.model_validate(existing_feedback)
+        else:
+            # Create new feedback
+            feedback = await self.feedback_repo.create(
+                widget_id=widget_id,
+                user_id=user.id,
+                score=feedback_data.score,
+                reason=feedback_data.reason,
+                context=feedback_data.context,
+            )
+            await self.db.commit()
+            await self.db.refresh(feedback)
+            return WidgetFeedbackResponse.model_validate(feedback)

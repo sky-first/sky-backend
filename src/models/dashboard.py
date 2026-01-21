@@ -3,9 +3,9 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import backref, relationship
 
 from src.config.database import Base
 
@@ -157,3 +157,51 @@ class Connection(Base):
 
     def __repr__(self) -> str:
         return f"<Connection(id={self.id}, from={self.from_widget_id}, to={self.to_widget_id})>"
+
+
+class WidgetFeedback(Base):
+    """Widget feedback model (Like/Dislike votes)."""
+
+    __tablename__ = "widget_feedback"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    widget_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("widgets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    score = Column(
+        Integer,
+        nullable=False,
+        comment="1 for like, -1 for dislike",
+    )
+
+    reason = Column(Text, nullable=True)
+    context = Column(String(50), nullable=True)  # 'personal' or 'collaborative'
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=func.now(),
+    )
+
+    # Relationships
+    widget = relationship("Widget", backref=backref("feedback", cascade="all, delete-orphan"))
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        Index("idx_widget_feedback_widget_user", "widget_id", "user_id", unique=True),
+    )
+
+    def __repr__(self) -> str:
+        return f"<WidgetFeedback(id={self.id}, widget={self.widget_id}, score={self.score})>"

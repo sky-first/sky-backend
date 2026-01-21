@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.models.dashboard import Connection, Dashboard, Widget
+from src.models.dashboard import Connection, Dashboard, Widget, WidgetFeedback
 from src.repositories.base import BaseRepository
 
 
@@ -117,3 +117,30 @@ class ConnectionRepository(BaseRepository[Connection]):
             )
         )
         return list(result.scalars().all())
+
+
+class WidgetFeedbackRepository(BaseRepository[WidgetFeedback]):
+    """Widget feedback repository."""
+
+    def __init__(self, db: AsyncSession):
+        super().__init__(db, WidgetFeedback)
+
+    async def get_by_widget_and_user(
+        self, widget_id: UUID, user_id: UUID
+    ) -> Optional[WidgetFeedback]:
+        """
+        Get feedback by widget and user.
+
+        Args:
+            widget_id: Widget ID
+            user_id: User ID
+
+        Returns:
+            Optional[WidgetFeedback]: Feedback or None
+        """
+        result = await self.db.execute(
+            select(WidgetFeedback).where(
+                WidgetFeedback.widget_id == widget_id, WidgetFeedback.user_id == user_id
+            )
+        )
+        return result.scalar_one_or_none()

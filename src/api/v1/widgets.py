@@ -11,6 +11,8 @@ from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.dashboard import (
     WidgetDataResponse,
     WidgetExportResponse,
+    WidgetFeedbackCreate,
+    WidgetFeedbackResponse,
     WidgetResponse,
     WidgetUpdate,
 )
@@ -191,3 +193,33 @@ async def refresh_widget_data(
     dashboard_service = DashboardService(db)
     data = await dashboard_service.refresh_widget_data(widget_id, current_user)
     return WidgetDataResponse(**data)
+
+
+@router.post(
+    "/{widget_id}/feedback",
+    response_model=WidgetFeedbackResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}},
+    summary="Add widget feedback",
+    description="Add or update like/dislike feedback for a widget",
+)
+async def add_widget_feedback(
+    widget_id: UUID,
+    feedback_data: WidgetFeedbackCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> WidgetFeedbackResponse:
+    """
+    Add widget feedback.
+
+    Args:
+        widget_id: Widget ID
+        feedback_data: Feedback data
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        WidgetFeedbackResponse: Created/Updated feedback
+    """
+    dashboard_service = DashboardService(db)
+    return await dashboard_service.add_widget_feedback(widget_id, current_user, feedback_data)

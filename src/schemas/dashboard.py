@@ -159,3 +159,26 @@ class DashboardDuplicateRequest(BaseModel):
     planet_id: Optional[UUID] = Field(
         None, description="Planet ID for duplicated dashboard (defaults to original planet)"
     )
+
+
+class WidgetFeedbackCreate(BaseModel):
+    """Widget feedback creation schema."""
+
+    score: int = Field(..., description="1 for like, -1 for dislike")
+    reason: Optional[str] = None
+    context: Optional[str] = None
+
+
+class WidgetFeedbackResponse(BaseModel):
+    """Widget feedback response schema."""
+
+    id: UUID
+    widget_id: UUID
+    user_id: UUID
+    score: int
+    reason: Optional[str] = None
+    context: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
