@@ -59,13 +59,13 @@ class SettingsService:
         Returns:
             SettingsResponse: User settings
         """
-        # TODO: Store settings in database or cache
-        # For now, return default settings
+        preferences = user.preferences or {}
+
         return SettingsResponse(
-            theme="light",
-            language="en",
-            notifications={"email": True, "push": False},
-            preferences={},
+            theme=preferences.get("theme", "light"),
+            language=preferences.get("language", "en"),
+            notifications=preferences.get("notifications", {"email": True, "push": False}),
+            preferences=preferences,
         )
 
     async def update_settings(self, user: User, settings_data: SettingsUpdate) -> SettingsResponse:
@@ -79,10 +79,46 @@ class SettingsService:
         Returns:
             SettingsResponse: Updated settings
         """
-        # TODO: Store settings in database or cache
-        # For now, return updated settings
+        # Get existing preferences or initialize empty
+        current_preferences = user.preferences or {}
+
+        # Update with new data
         update_data = settings_data.model_dump(exclude_unset=True)
-        return SettingsResponse(**update_data)
+
+        # Merge dictionaries carefully
+        # For top-level keys like 'theme' and 'language', direct replacement is fine
+        if "theme" in update_data:
+            current_preferences["theme"] = update_data["theme"]
+        if "language" in update_data:
+            current_preferences["language"] = update_data["language"]
+
+        # For nested dictionaries like 'notifications', we might want to merge
+        if "notifications" in update_data and update_data["notifications"]:
+            current_preferences["notifications"] = {
+                **(current_preferences.get("notifications") or {}),
+                **update_data["notifications"]
+            }
+
+        # For the generic 'preferences' field, deep merge is tricky, but let's do shallow merge for now
+        if "preferences" in update_data and update_data["preferences"]:
+            current_preferences.update(update_data["preferences"])
+
+        # Update user object
+        user.preferences = current_preferences
+
+        # Make sure to flag the field as modified for SQLAlchemy to pick up JSON changes
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(user, "preferences")
+
+        # Check permissions? (Usually user can update their own settings)
+        await self.user_repo.update(user.id, preferences=current_preferences)
+
+        return SettingsResponse(
+            theme=current_preferences.get("theme", "light"),
+            language=current_preferences.get("language", "en"),
+            notifications=current_preferences.get("notifications", {"email": True, "push": False}),
+            preferences=current_preferences,
+        )
 
     async def get_data_catalog_settings(self, user: User) -> DataCatalogSettingsResponse:
         """
