@@ -16,18 +16,18 @@ from src.models.dashboard import Dashboard
 from sqlalchemy.future import select
 
 # Trigger all models registration
-import src.models 
+import src.models
 
 
 async def trigger_test_notification():
     print("🚀 Initializing database...")
     await init_db()
-    
+
     async for db in get_db():
         # 1. Get a user to notify (the first one)
         result = await db.execute(select(User).limit(1))
         user = result.scalars().first()
-        
+
         if not user:
             print("❌ No users found in database.")
             return
@@ -59,7 +59,7 @@ async def trigger_test_notification():
         comment_service = CommentService(db)
         if dashboard:
             await comment_service.create(
-                user_id=user.id, # As if they mentioned themselves
+                user_id=user.id,  # As if they mentioned themselves
                 comment_data=CommentCreate(
                     content="Check this out! @test",
                     dashboard_id=dashboard.id,

@@ -2,8 +2,8 @@
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
-from sqlalchemy.dialects.postgresql import JSON, UUID
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text, JSON
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from src.config.database import Base
@@ -33,7 +33,7 @@ class User(Base):
     )
     selected_domain = Column(String(255), nullable=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
-    preferences = Column(JSON, nullable=True, default={}, server_default=text("'{}'::json"))
+    preferences = Column(JSON, nullable=True, default={}, server_default=text("'{}'"))
 
     # Auth0 Integration
     auth0_id = Column(String(255), unique=True, nullable=True, index=True)

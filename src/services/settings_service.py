@@ -81,35 +81,35 @@ class SettingsService:
         """
         # Get existing preferences or initialize empty
         current_preferences = user.preferences or {}
-        
+
         # Update with new data
         update_data = settings_data.model_dump(exclude_unset=True)
-        
+
         # Merge dictionaries carefully
         # For top-level keys like 'theme' and 'language', direct replacement is fine
         if "theme" in update_data:
             current_preferences["theme"] = update_data["theme"]
         if "language" in update_data:
             current_preferences["language"] = update_data["language"]
-            
+
         # For nested dictionaries like 'notifications', we might want to merge
         if "notifications" in update_data and update_data["notifications"]:
             current_preferences["notifications"] = {
                 **(current_preferences.get("notifications") or {}),
                 **update_data["notifications"]
             }
-            
+
         # For the generic 'preferences' field, deep merge is tricky, but let's do shallow merge for now
         if "preferences" in update_data and update_data["preferences"]:
             current_preferences.update(update_data["preferences"])
 
         # Update user object
         user.preferences = current_preferences
-        
+
         # Make sure to flag the field as modified for SQLAlchemy to pick up JSON changes
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(user, "preferences")
-        
+
         # Check permissions? (Usually user can update their own settings)
         await self.user_repo.update(user.id, preferences=current_preferences)
 
