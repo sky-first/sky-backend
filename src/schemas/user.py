@@ -42,6 +42,9 @@ class UserUpdate(BaseModel):
     has_completed_onboarding: Optional[bool] = None
     selected_domain: Optional[str] = None
     preferences: Optional[dict] = None
+    ai_tone: Optional[str] = None
+    ai_style: Optional[str] = None
+    ai_context: Optional[str] = None
 
 
 class UserResponse(UserBase):
@@ -188,3 +191,9 @@ class SessionResponse(BaseModel):
     ip_address: Optional[str] = None
     is_current: bool = False
 
+
+class ChangePasswordRequest(BaseModel):
+    """Change password request schema."""
+
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=100)

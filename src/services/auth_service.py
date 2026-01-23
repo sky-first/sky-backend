@@ -425,3 +425,27 @@ class AuthenticationService:
             }
             for token in tokens
         ]
+
+    async def change_password(
+        self, user_id: UUID, current_password: str, new_password: str
+    ) -> None:
+        """
+        Change user password.
+
+        Args:
+            user_id: User ID
+            current_password: Current password
+            new_password: New password
+
+        Raises:
+            UnauthorizedError: If current password is incorrect
+        """
+        user = await self.user_repo.get_by_id(user_id)
+        if not user:
+            raise UnauthorizedError("User not found")
+
+        if not verify_password(current_password, user.password_hash):
+            raise UnauthorizedError("Invalid current password")
+
+        user.password_hash = get_password_hash(new_password)
+        await self.db.commit()

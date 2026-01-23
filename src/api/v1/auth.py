@@ -19,6 +19,7 @@ from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.permission import EffectivePermissionsResponse
 from src.schemas.user import (
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     InviteGenerateRequest,
     InviteGenerateResponse,
@@ -398,6 +399,37 @@ async def revoke_all_sessions(
     auth_service = AuthenticationService(db)
     await auth_service.revoke_all_tokens(current_user.id)
     return SuccessResponse(message="All sessions revoked successfully")
+
+
+@router.post(
+    "/change-password",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="Change password",
+    description="Change authenticated user password",
+)
+async def change_password(
+    request_data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Change password endpoint.
+
+    Args:
+        request_data: Current and new password
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    auth_service = AuthenticationService(db)
+    await auth_service.change_password(
+        current_user.id, request_data.current_password, request_data.new_password
+    )
+    return SuccessResponse(message="Password changed successfully")
 
 
 # Invite Endpoints
