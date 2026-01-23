@@ -197,6 +197,8 @@ async def base_api_exception_handler(request, exc: BaseAPIException):
 
 # Include API routers
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+# Also include at /api for legacy frontend support (without /v1)
+app.include_router(api_router, prefix="/api")
 
 # Observability: Prometheus metrics (Golden Signals)
 # Exposes `/metrics` for Prometheus scraping.
@@ -225,7 +227,7 @@ def custom_openapi():
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": "JWT",
-            "description": "Enter JWT token"
+            "description": "Enter JWT token",
         }
     }
 
