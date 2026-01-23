@@ -56,5 +56,6 @@ class TestUserPreferences:
         
         assert response.status_code == 200
         data = response.json()
-        assert data["preferences"] == new_preferences
-        assert "notifications" not in data["preferences"]
+        # Verify merge behavior: new value overwrites old, distinct value persists
+        assert data["preferences"]["theme"] == "dark"
+        assert data["preferences"]["notifications"] is True

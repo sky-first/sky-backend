@@ -365,12 +365,6 @@ async def get_sessions(
     """
     auth_service = AuthenticationService(db)
     sessions = await auth_service.get_active_sessions(current_user.id)
-    
-    # Mark current session
-    # Note: We can't determine current session easily without passing the token itself
-    # But we can try to match loosely or just return as is
-    # For now, we return as is. Front-end can compare current token ID if available
-    
     return [SessionResponse(**s) for s in sessions]
 
 

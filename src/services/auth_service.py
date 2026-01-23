@@ -52,7 +52,6 @@ def user_to_response_dict(user: User) -> dict:
         "selected_domain": user.selected_domain,
         "preferences": user.preferences or {},
         "last_login_at": user.last_login_at,
-        "last_login_at": user.last_login_at,
         "created_at": user.created_at,
         "updated_at": user.updated_at,
     }
