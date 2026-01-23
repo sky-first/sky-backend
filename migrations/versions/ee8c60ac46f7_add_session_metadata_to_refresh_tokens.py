@@ -40,31 +40,31 @@ def upgrade() -> None:
     # op.drop_table('query_audit_log')
     op.create_index(op.f("ix_ai_feedback_query_id"), "ai_feedback", ["query_id"], unique=False)
     op.create_index(op.f("ix_ai_feedback_user_id"), "ai_feedback", ["user_id"], unique=False)
-    op.alter_column(
-        "comments",
-        "mentions",
-        existing_type=postgresql.JSONB(astext_type=sa.Text()),
-        type_=sa.JSON(),
-        existing_nullable=False,
-    )
-    op.alter_column(
-        "notifications", "entity_type", existing_type=sa.VARCHAR(length=50), nullable=False
-    )
-    op.alter_column(
-        "notifications",
-        "entity_id",
-        existing_type=sa.UUID(),
-        type_=sa.String(length=255),
-        nullable=False,
-    )
-    op.drop_index("ix_notifications_is_read", table_name="notifications")
-    op.drop_index("ix_notifications_space_id", table_name="notifications")
-    op.create_index(
-        "idx_notifications_user_unread", "notifications", ["user_id", "is_read"], unique=False
-    )
-    op.drop_constraint("notifications_space_id_fkey", "notifications", type_="foreignkey")
-    op.drop_column("notifications", "updated_at")
-    op.drop_column("notifications", "space_id")
+    # op.alter_column(
+    #     "comments",
+    #     "mentions",
+    #     existing_type=postgresql.JSONB(astext_type=sa.Text()),
+    #     type_=sa.JSON(),
+    #     existing_nullable=False,
+    # )
+    # op.alter_column(
+    #     "notifications", "entity_type", existing_type=sa.VARCHAR(length=50), nullable=False
+    # )
+    # op.alter_column(
+    #     "notifications",
+    #     "entity_id",
+    #     existing_type=sa.UUID(),
+    #     type_=sa.String(length=255),
+    #     nullable=False,
+    # )
+    # op.drop_index("ix_notifications_is_read", table_name="notifications")
+    # op.drop_index("ix_notifications_space_id", table_name="notifications")
+    # op.create_index(
+    #     "idx_notifications_user_unread", "notifications", ["user_id", "is_read"], unique=False
+    # )
+    # op.drop_constraint("notifications_space_id_fkey", "notifications", type_="foreignkey")
+    # op.drop_column("notifications", "updated_at")
+    # op.drop_column("notifications", "space_id")
     op.add_column("refresh_tokens", sa.Column("user_agent", sa.String(length=255), nullable=True))
     op.add_column("refresh_tokens", sa.Column("ip_address", sa.String(length=45), nullable=True))
     op.drop_constraint("role_permissions_role_key", "role_permissions", type_="unique")
@@ -78,11 +78,11 @@ def upgrade() -> None:
         type_=sa.JSON(),
         existing_nullable=True,
     )
-    op.drop_index(
-        "idx_users_auth_provider_id",
-        table_name="users",
-        postgresql_where="((auth_provider_id IS NOT NULL) AND (deleted_at IS NULL))",
-    )
+    # op.drop_index(
+    #     "idx_users_auth_provider_id",
+    #     table_name="users",
+    #     postgresql_where="((auth_provider_id IS NOT NULL) AND (deleted_at IS NULL))",
+    # )
     op.create_index(op.f("ix_users_auth0_id"), "users", ["auth0_id"], unique=True)
     op.create_index(op.f("ix_users_auth_provider_id"), "users", ["auth_provider_id"], unique=False)
     op.create_index(op.f("ix_users_invite_token"), "users", ["invite_token"], unique=False)
