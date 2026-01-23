@@ -50,6 +50,8 @@ def user_to_response_dict(user: User) -> dict:
         ),
         "has_completed_onboarding": user.has_completed_onboarding,
         "selected_domain": user.selected_domain,
+        "preferences": user.preferences or {},
+        "last_login_at": user.last_login_at,
         "last_login_at": user.last_login_at,
         "created_at": user.created_at,
         "updated_at": user.updated_at,
@@ -104,7 +106,13 @@ class AuthenticationService:
 
         return UserResponse.model_validate(user_to_response_dict(user))
 
-    async def register_with_tokens(self, register_data: RegisterRequest) -> LoginResponse:
+    async def register_with_tokens(
+        self,
+        register_data: RegisterRequest,
+        user_agent: str = None,
+        ip_address: str = None,
+    ) -> LoginResponse:
+
         """
         Register a new user and return tokens (auto-login after registration).
 
@@ -152,6 +160,8 @@ class AuthenticationService:
             user_id=user.id,
             token=refresh_token,
             expires_at=expires_at,
+            user_agent=user_agent,
+            ip_address=ip_address,
         )
         self.db.add(refresh_token_model)
         await self.db.commit()
@@ -163,7 +173,14 @@ class AuthenticationService:
             user=user_response,
         )
 
-    async def login(self, email: str, password: str) -> LoginResponse:
+    async def login(
+        self,
+        email: str,
+        password: str,
+        user_agent: str = None,
+        ip_address: str = None,
+    ) -> LoginResponse:
+
         """
         Authenticate user and return tokens (hybrid: traditional, SSO, or invite).
 
@@ -221,6 +238,8 @@ class AuthenticationService:
             user_id=user.id,
             token=refresh_token,
             expires_at=expires_at,
+            user_agent=user_agent,
+            ip_address=ip_address,
         )
         self.db.add(refresh_token_model)
         await self.db.commit()
@@ -371,3 +390,38 @@ class AuthenticationService:
             raise UnauthorizedError("User not found")
 
         return UserResponse.model_validate(user_to_response_dict(user))
+
+    async def get_active_sessions(self, user_id: UUID) -> list[dict]:
+        """
+        Get active sessions for a user.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            list[dict]: List of active sessions
+        """
+        from sqlalchemy import select
+
+        result = await self.db.execute(
+            select(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.expires_at > datetime.now(timezone.utc),
+            )
+            .order_by(RefreshToken.created_at.desc())
+        )
+        tokens = result.scalars().all()
+
+        return [
+            {
+                "id": str(token.id),
+                "created_at": token.created_at,
+                "expires_at": token.expires_at,
+                "user_agent": token.user_agent,
+                "ip_address": token.ip_address,
+                "is_current": False,  # Client can determine this by comparing tokens
+            }
+            for token in tokens
+        ]

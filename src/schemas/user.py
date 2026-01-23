@@ -41,6 +41,7 @@ class UserUpdate(BaseModel):
     onboarding_step: Optional[int] = None
     has_completed_onboarding: Optional[bool] = None
     selected_domain: Optional[str] = None
+    preferences: Optional[dict] = None
 
 
 class UserResponse(UserBase):
@@ -52,6 +53,7 @@ class UserResponse(UserBase):
     onboarding_step: int
     has_completed_onboarding: bool
     selected_domain: Optional[str] = None
+    preferences: dict = Field(default_factory=dict)
     last_login_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -174,3 +176,15 @@ class InviteGenerateResponse(BaseModel):
     email: str
     expires_at: str
     message: str
+
+
+class SessionResponse(BaseModel):
+    """Session response schema."""
+
+    id: str
+    created_at: datetime
+    expires_at: datetime
+    user_agent: Optional[str] = None
+    ip_address: Optional[str] = None
+    is_current: bool = False
+
