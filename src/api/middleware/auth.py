@@ -43,6 +43,7 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/openapi.json",
         "/redoc",
         "/debug/openapi",
+        # API v1 auth routes
         "/api/v1/auth/login",
         "/api/v1/auth/logout",  # Logout doesn't require auth header, only refresh token in body
         "/api/v1/auth/refresh",
@@ -52,6 +53,14 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/v1/auth/sso/",  # All SSO endpoints (login and callback)
         "/api/v1/auth/invite/validate",  # Invite validation (public)
         "/api/v1/auth/invite/login",  # Invite login (public)
+        # Legacy API routes (without /v1 prefix)
+        "/api/auth/login",
+        "/api/auth/logout",
+        "/api/auth/refresh",
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password",
+        "/api/auth/verify-email",
+        "/api/auth/register",  # Registration endpoint
     ]
 
     # Root only (avoid "/" matching every path)
