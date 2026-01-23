@@ -1,6 +1,7 @@
 """Authentication endpoints."""
 
-from typing import Optional
+from typing import List, Optional
+
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.permission import EffectivePermissionsResponse
 from src.schemas.user import (
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     InviteGenerateRequest,
     InviteGenerateResponse,
@@ -30,6 +32,7 @@ from src.schemas.user import (
     RefreshTokenResponse,
     RegisterRequest,
     ResetPasswordRequest,
+    SessionResponse,
     UserResponse,
     VerifyEmailRequest,
 )
@@ -51,6 +54,7 @@ router = APIRouter()
 )
 async def register(
     register_data: RegisterRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
     """
@@ -67,7 +71,11 @@ async def register(
         BadRequestError: If email already exists or validation fails
     """
     auth_service = AuthenticationService(db)
-    return await auth_service.register_with_tokens(register_data)
+    return await auth_service.register_with_tokens(
+        register_data,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=request.client.host if request.client else None,
+    )
 
 
 @router.post(
@@ -80,6 +88,7 @@ async def register(
 )
 async def login(
     login_data: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
     """
@@ -94,7 +103,12 @@ async def login(
     """
     try:
         auth_service = AuthenticationService(db)
-        result = await auth_service.login(login_data.email, login_data.password)
+        result = await auth_service.login(
+            login_data.email,
+            login_data.password,
+            user_agent=request.headers.get("user-agent"),
+            ip_address=request.client.host if request.client else None,
+        )
         return result
     except Exception as e:
         # Log the error for debugging
@@ -325,6 +339,91 @@ async def get_session(
         UserResponse: Current user session data
     """
     return UserResponse.model_validate(user_to_response_dict(current_user))
+
+
+@router.get(
+    "/sessions",
+    response_model=List[SessionResponse],
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="Get active sessions",
+    description="Get list of active sessions for the current user",
+)
+async def get_sessions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[SessionResponse]:
+    """
+    Get active sessions endpoint.
+
+    Args:
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        List[SessionResponse]: List of active sessions
+    """
+    auth_service = AuthenticationService(db)
+    sessions = await auth_service.get_active_sessions(current_user.id)
+    return [SessionResponse(**s) for s in sessions]
+
+
+@router.delete(
+    "/sessions",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="Revoke all sessions",
+    description="Revoke all sessions (except usually current one, but here all)",
+)
+async def revoke_all_sessions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Revoke all sessions endpoint.
+
+    Args:
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    auth_service = AuthenticationService(db)
+    await auth_service.revoke_all_tokens(current_user.id)
+    return SuccessResponse(message="All sessions revoked successfully")
+
+
+@router.post(
+    "/change-password",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="Change password",
+    description="Change authenticated user password",
+)
+async def change_password(
+    request_data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Change password endpoint.
+
+    Args:
+        request_data: Current and new password
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    auth_service = AuthenticationService(db)
+    await auth_service.change_password(
+        current_user.id, request_data.current_password, request_data.new_password
+    )
+    return SuccessResponse(message="Password changed successfully")
 
 
 # Invite Endpoints

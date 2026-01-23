@@ -258,6 +258,46 @@ class TestSessionEndpoint:
         assert response.status_code == 401
 
 
+class TestSessionsEndpoint:
+    """Tests for session management endpoints."""
+
+    def test_get_sessions_success(self, client: TestClient, test_user_with_tokens: dict):
+        """Test getting active sessions."""
+        access_token = test_user_with_tokens["access_token"]
+        response = client.get(
+            "/api/v1/auth/sessions",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) > 0
+        assert "user_agent" in data[0]
+
+    def test_revoke_all_sessions_success(self, client: TestClient, test_user_with_tokens: dict):
+        """Test revoking all sessions."""
+        access_token = test_user_with_tokens["access_token"]
+        response = client.delete(
+            "/api/v1/auth/sessions",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data
+
+        # Verify token is revoked
+        response = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        # Note: Access token might still be valid until expiry, but refresh token is revoked
+        # Checking refresh token revocation
+        refresh_response = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": test_user_with_tokens["refresh_token"]},
+        )
+        assert refresh_response.status_code == 401
+
 class TestForgotPasswordEndpoint:
     """Tests for POST /api/v1/auth/forgot-password."""
 

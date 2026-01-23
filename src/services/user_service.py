@@ -153,6 +153,29 @@ class UserService:
         if current_user.role != "admin" and "role" in update_data:
             del update_data["role"]
 
+        # Handle preferences specifically to merge instead of replace
+        ai_fields = ["ai_tone", "ai_style", "ai_context"]
+        has_ai_updates = any(field in update_data for field in ai_fields)
+
+        if has_ai_updates or "preferences" in update_data:
+            current_preferences = user.preferences or {}
+
+            # Merge explicit AI fields
+            for field in ai_fields:
+                if field in update_data:
+                    current_preferences[field] = update_data.pop(field)
+
+            # Merge general preferences if provided
+            if "preferences" in update_data:
+                prefs_to_merge = update_data.pop("preferences")
+                if isinstance(prefs_to_merge, dict):
+                    current_preferences.update(prefs_to_merge)
+
+            user.preferences = current_preferences
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(user, "preferences")
+
+        # Update remaining fields
         for key, value in update_data.items():
             setattr(user, key, value)
 

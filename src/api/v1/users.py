@@ -52,6 +52,34 @@ async def list_users(
     return await user_service.list_users(current_user, skip=skip, limit=limit)
 
 
+@router.put(
+    "/me",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    responses={403: {"model": ErrorResponse}},
+    summary="Update current user",
+    description="Update current authenticated user information",
+)
+async def update_me(
+    user_data: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserResponse:
+    """
+    Update current user.
+
+    Args:
+        user_data: User update data
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        UserResponse: Updated user
+    """
+    user_service = UserService(db)
+    return await user_service.update_user(current_user.id, user_data, current_user)
+
+
 @router.get(
     "/{user_id}",
     response_model=UserResponse,

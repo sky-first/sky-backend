@@ -108,6 +108,8 @@ class RefreshToken(Base):
         DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
     revoked_at = Column(DateTime(timezone=True), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    ip_address = Column(String(45), nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="refresh_tokens")
