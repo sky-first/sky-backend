@@ -111,7 +111,6 @@ class AuthenticationService:
         user_agent: str = None,
         ip_address: str = None,
     ) -> LoginResponse:
-
         """
         Register a new user and return tokens (auto-login after registration).
 
@@ -179,7 +178,6 @@ class AuthenticationService:
         user_agent: str = None,
         ip_address: str = None,
     ) -> LoginResponse:
-
         """
         Authenticate user and return tokens (hybrid: traditional, SSO, or invite).
 

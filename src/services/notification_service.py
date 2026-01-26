@@ -15,7 +15,9 @@ class NotificationService:
     def __init__(self, db: AsyncSession):
         self.repository = NotificationRepository(db)
 
-    async def create_notification(self, notification_in: NotificationCreate) -> NotificationResponse:
+    async def create_notification(
+        self, notification_in: NotificationCreate
+    ) -> NotificationResponse:
         """Create a new notification."""
         return await self.repository.create(notification_in)
 
@@ -58,7 +60,9 @@ class NotificationService:
                 count += 1
         return count
 
-    async def mark_notification_as_read(self, notification_id: UUID, user_id: UUID) -> Optional[NotificationResponse]:
+    async def mark_notification_as_read(
+        self, notification_id: UUID, user_id: UUID
+    ) -> Optional[NotificationResponse]:
         """Mark a single notification as read."""
         return await self.repository.mark_as_read(notification_id, user_id)
 

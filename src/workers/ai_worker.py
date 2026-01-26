@@ -52,16 +52,15 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     from src.ai.http_client import AIServiceHTTPClient
     from src.config.database import AsyncSessionLocal
     from src.models.dashboard_build_job import DashboardBuildJob
+    from src.models.notification import NotificationType
     from src.repositories.base import BaseRepository
     from src.repositories.dashboard import WidgetRepository
     from src.repositories.user import UserRepository
     from src.schemas.dashboard import DashboardCreate
-    from src.services.ai_service import AIService
+    from src.schemas.notification import NotificationCreate
     from src.services.ai_service import AIService
     from src.services.dashboard_service import DashboardService
     from src.services.notification_service import NotificationService
-    from src.models.notification import NotificationType
-    from src.schemas.notification import NotificationCreate
 
     async with AsyncSessionLocal() as db:
         repo = BaseRepository(db, DashboardBuildJob)
@@ -410,11 +409,11 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         knowledge.extend(context_tables)
 
                     # Construct rich context instructions for the AI
-                    context_instructions = (
-                        f"CONTEXT: You are building a widget for a dashboard with the goal: '{goal}'.\n"
-                    )
+                    context_instructions = f"CONTEXT: You are building a widget for a dashboard with the goal: '{goal}'.\n"
                     if initial_ai_response:
-                        context_instructions += f"The user previously received this answer: '{initial_ai_response}'.\n"
+                        context_instructions += (
+                            f"The user previously received this answer: '{initial_ai_response}'.\n"
+                        )
 
                     if context_tables:
                         context_instructions += f"Relevant tables identified in the conversation: {', '.join(context_tables)}.\n"

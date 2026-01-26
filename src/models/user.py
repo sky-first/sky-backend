@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text, JSON
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 

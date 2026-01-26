@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from src.api.v1 import (
     ai,
     auth,
+    comments,
     connections,
     connectors,
     crews,
@@ -21,8 +22,6 @@ from src.api.v1 import (
     users,
     widgets,
     workspaces,
-    notifications,
-    comments,
 )
 
 api_router = APIRouter()

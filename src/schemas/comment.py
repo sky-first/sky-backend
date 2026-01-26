@@ -18,6 +18,7 @@ class CommentBase(BaseModel):
 
 class CommentCreate(CommentBase):
     """Schema for creating a comment."""
+
     pass
 
 

@@ -1,7 +1,6 @@
 """Authentication endpoints."""
 
 from typing import List, Optional
-
 from urllib.parse import urlencode
 from uuid import UUID
 

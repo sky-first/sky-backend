@@ -298,6 +298,7 @@ class TestSessionsEndpoint:
         )
         assert refresh_response.status_code == 401
 
+
 class TestForgotPasswordEndpoint:
     """Tests for POST /api/v1/auth/forgot-password."""
 

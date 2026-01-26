@@ -173,6 +173,7 @@ class UserService:
 
             user.preferences = current_preferences
             from sqlalchemy.orm.attributes import flag_modified
+
             flag_modified(user, "preferences")
 
         # Update remaining fields

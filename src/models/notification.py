@@ -60,9 +60,7 @@ class Notification(Base):
     # Relationships
     user = relationship("User", backref="notifications")
 
-    __table_args__ = (
-        Index("idx_notifications_user_unread", "user_id", "is_read"),
-    )
+    __table_args__ = (Index("idx_notifications_user_unread", "user_id", "is_read"),)
 
     def __repr__(self) -> str:
         return f"<Notification(id={self.id}, user_id={self.user_id}, type={self.type}, title={self.title})>"
