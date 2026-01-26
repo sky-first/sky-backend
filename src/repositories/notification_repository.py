@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import desc, func, update, select
+from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.notification import Notification
@@ -46,8 +46,7 @@ class NotificationRepository:
     async def get_unread_count(self, user_id: UUID) -> int:
         """Get unread notification count for a user."""
         stmt = select(func.count(Notification.id)).where(
-            Notification.user_id == user_id,
-            Notification.is_read == False
+            Notification.user_id == user_id, Notification.is_read == False
         )
         result = await self.db.execute(stmt)
         return result.scalar() or 0
@@ -55,8 +54,7 @@ class NotificationRepository:
     async def mark_as_read(self, notification_id: UUID, user_id: UUID) -> Optional[Notification]:
         """Mark a notification as read."""
         stmt = select(Notification).where(
-            Notification.id == notification_id,
-            Notification.user_id == user_id
+            Notification.id == notification_id, Notification.user_id == user_id
         )
         result = await self.db.execute(stmt)
         db_notification = result.scalar_one_or_none()

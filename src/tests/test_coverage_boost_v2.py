@@ -1,18 +1,25 @@
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
 import pytest
-from uuid import uuid4, UUID
-from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from src.models.user import User
-from src.models.planet import Planet, PlanetMember
+from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.dashboard import Dashboard, Widget
+from src.models.planet import Planet, PlanetMember
+from src.models.user import User
+from src.schemas.dashboard import (
+    DashboardCreate,
+    DashboardDuplicateRequest,
+    DashboardUpdate,
+    WidgetCreate,
+    WidgetUpdate,
+)
+from src.schemas.planet import PlanetCreate, PlanetMemberCreate, PlanetUpdate
 from src.services.dashboard_service import DashboardService
 from src.services.planet_service import PlanetService
-from src.schemas.dashboard import DashboardCreate, DashboardUpdate, WidgetCreate, WidgetUpdate, DashboardDuplicateRequest
-from src.schemas.planet import PlanetCreate, PlanetUpdate, PlanetMemberCreate
-from src.core.exceptions import NotFoundError, ForbiddenError
+
 
 @pytest.mark.asyncio
 class TestDashboardServiceBoost:
@@ -40,7 +47,9 @@ class TestDashboardServiceBoost:
         assert len(dash_list) >= 1
 
         # 5. Update Dashboard
-        updated_dash = await dash_service.update_dashboard(dash_res.id, user, DashboardUpdate(name="Renamed Dash", is_locked=True))
+        updated_dash = await dash_service.update_dashboard(
+            dash_res.id, user, DashboardUpdate(name="Renamed Dash", is_locked=True)
+        )
         assert updated_dash.name == "Renamed Dash"
         assert updated_dash.is_locked is True
 
@@ -50,7 +59,7 @@ class TestDashboardServiceBoost:
             type="chart",
             title="Widget 1",
             position={"x": 10, "y": 20},
-            size={"width": 100, "height": 200}
+            size={"width": 100, "height": 200},
         )
         widget_res = await dash_service.create_widget(user, widget_data)
         assert widget_res.title == "Widget 1"
@@ -64,7 +73,9 @@ class TestDashboardServiceBoost:
         assert len(widgets) >= 1
 
         # 9. Update Widget
-        updated_widget = await dash_service.update_widget(widget_res.id, user, WidgetUpdate(title="New Title"))
+        updated_widget = await dash_service.update_widget(
+            widget_res.id, user, WidgetUpdate(title="New Title")
+        )
         assert updated_widget.title == "New Title"
 
         # 10. Duplicate Widget
@@ -89,7 +100,9 @@ class TestDashboardServiceBoost:
         assert len(exp_dash.widgets) >= 2
 
         # 15. Duplicate Dashboard
-        dup_dash = await dash_service.duplicate_dashboard(dash_res.id, user, DashboardDuplicateRequest(name="Cloned Dash"))
+        dup_dash = await dash_service.duplicate_dashboard(
+            dash_res.id, user, DashboardDuplicateRequest(name="Cloned Dash")
+        )
         assert dup_dash.name == "Cloned Dash"
 
         # 16. Lock/Unlock
@@ -114,10 +127,17 @@ class TestDashboardServiceBoost:
             await service.update_dashboard(uuid4(), user, DashboardUpdate(name="X"))
 
         with pytest.raises(NotFoundError):
-            await service.create_widget(user, WidgetCreate(
-                dashboard_id=uuid4(), type="chart", title="T",
-                position={"x":0,"y":0}, size={"width":1,"height":1}
-            ))
+            await service.create_widget(
+                user,
+                WidgetCreate(
+                    dashboard_id=uuid4(),
+                    type="chart",
+                    title="T",
+                    position={"x": 0, "y": 0},
+                    size={"width": 1, "height": 1},
+                ),
+            )
+
 
 @pytest.mark.asyncio
 class TestPlanetServiceBoost:
@@ -151,7 +171,9 @@ class TestPlanetServiceBoost:
         db_session.add(other_user)
         await db_session.commit()
 
-        member = await service.add_member(planet.id, user, PlanetMemberCreate(user_id=other_user.id, role="viewer"))
+        member = await service.add_member(
+            planet.id, user, PlanetMemberCreate(user_id=other_user.id, role="viewer")
+        )
         assert member.user_id == other_user.id
 
         # 7. Get Members
@@ -181,15 +203,21 @@ class TestPlanetServiceBoost:
 
         with pytest.raises(ForbiddenError):
             # Try to remove owner
-            p = await service.create_planet(user, PlanetCreate(name="P", type="personal", color="#000000"))
+            p = await service.create_planet(
+                user, PlanetCreate(name="P", type="personal", color="#000000")
+            )
             await service.remove_member(p.id, user.id, user)
 
     async def test_planet_switch_logic(self, db_session: AsyncSession, test_user: dict):
         user = test_user["user"]
         service = PlanetService(db_session)
 
-        p1 = await service.create_planet(user, PlanetCreate(name="P1", type="personal", color="#000000"))
-        p2 = await service.create_planet(user, PlanetCreate(name="P2", type="personal", color="#000000"))
+        p1 = await service.create_planet(
+            user, PlanetCreate(name="P1", type="personal", color="#000000")
+        )
+        p2 = await service.create_planet(
+            user, PlanetCreate(name="P2", type="personal", color="#000000")
+        )
 
         await service.switch_planet(p1.id, user)
 

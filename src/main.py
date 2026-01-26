@@ -2,12 +2,11 @@
 
 import logging
 import sys
-from pythonjsonlogger import jsonlogger
 from contextlib import asynccontextmanager
 
-from prometheus_fastapi_instrumentator import Instrumentator
-
 from fastapi import Depends, FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator
+from pythonjsonlogger import jsonlogger
 
 from src.api.middleware import auth, cors, error_handler
 from src.api.middleware import logging as logging_middleware

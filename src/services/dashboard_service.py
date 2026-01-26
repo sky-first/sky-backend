@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError, NotFoundError
+from src.models.notification import NotificationType
 from src.models.user import User
 from src.repositories.dashboard import (
     ConnectionRepository,
@@ -27,7 +28,6 @@ from src.schemas.dashboard import (
     WidgetResponse,
     WidgetUpdate,
 )
-from src.models.notification import NotificationType
 from src.schemas.notification import NotificationCreate
 from src.services.notification_service import NotificationService
 

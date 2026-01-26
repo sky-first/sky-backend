@@ -96,7 +96,7 @@ class SettingsService:
         if "notifications" in update_data and update_data["notifications"]:
             current_preferences["notifications"] = {
                 **(current_preferences.get("notifications") or {}),
-                **update_data["notifications"]
+                **update_data["notifications"],
             }
 
         # For the generic 'preferences' field, deep merge is tricky, but let's do shallow merge for now
@@ -108,6 +108,7 @@ class SettingsService:
 
         # Make sure to flag the field as modified for SQLAlchemy to pick up JSON changes
         from sqlalchemy.orm.attributes import flag_modified
+
         flag_modified(user, "preferences")
 
         # Check permissions? (Usually user can update their own settings)
