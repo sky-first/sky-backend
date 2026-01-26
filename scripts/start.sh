@@ -68,6 +68,17 @@ else
 fi
 echo ""
 
+# Seed role permissions (RBAC)
+echo "🌱 Populando permissões de roles (RBAC)..."
+if [ -d "venv" ]; then
+    venv/bin/python scripts/seed_role_permissions.py
+elif [ -d ".venv" ]; then
+    .venv/bin/python scripts/seed_role_permissions.py
+else
+    python3 scripts/seed_role_permissions.py
+fi
+echo ""
+
 # Cria usuário de teste
 echo "👤 Verificando/Criando usuário de teste..."
 if [ -d "venv" ]; then

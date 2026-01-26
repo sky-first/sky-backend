@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Seed role_permissions table with default permissions.
+
+This script populates the role_permissions table with the default permissions
+defined in src/services/rbac_service.py. It should be run after migrations
+to ensure the system has the required permission data.
+
+Usage:
+    python scripts/seed_role_permissions.py
+"""
+
+import asyncio
+import sys
+from pathlib import Path
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+
+from src.config.settings import get_settings
+from src.models.permission import RolePermission
+
+# Default permissions from rbac_service.py
+DEFAULT_ROLE_PERMISSIONS = {
+    "commander": {
+        "createPlanets": True,
+        "viewPlanets": True,
+        "editPlanets": True,
+        "deletePlanets": True,
+        "sharePlanets": True,
+        "manageCrew": True,
+        "viewConnections": True,
+        "manageConnections": True,
+        "connections.edit": True,
+        "data.query.run": True,
+        "data.table.read": True,
+        "admin.users.manage": False,
+        "spaces.create": True,
+        "spaces.members.manage": True,
+        "crews.create": True,
+        "crews.members.manage": True,
+    },
+    "navigator": {
+        "createPlanets": True,
+        "viewPlanets": True,
+        "editPlanets": True,
+        "deletePlanets": False,
+        "sharePlanets": True,
+        "manageCrew": False,
+        "viewConnections": True,
+        "manageConnections": False,
+        "connections.edit": True,
+        "data.query.run": True,
+        "data.table.read": True,
+        "admin.users.manage": False,
+        "spaces.create": True,
+        "spaces.members.manage": True,
+        "crews.create": True,
+        "crews.members.manage": True,
+    },
+    "explorer": {
+        "createPlanets": False,
+        "viewPlanets": True,
+        "editPlanets": False,
+        "deletePlanets": False,
+        "sharePlanets": False,
+        "manageCrew": False,
+        "viewConnections": True,
+        "manageConnections": False,
+        "connections.edit": False,
+        "data.query.run": False,
+        "data.table.read": True,
+        "admin.users.manage": False,
+        "spaces.create": False,
+        "spaces.members.manage": False,
+        "crews.create": False,
+        "crews.members.manage": False,
+    },
+    "guest": {
+        "createPlanets": False,
+        "viewPlanets": True,
+        "editPlanets": False,
+        "deletePlanets": False,
+        "sharePlanets": False,
+        "manageCrew": False,
+        "viewConnections": False,
+        "manageConnections": False,
+        "connections.edit": False,
+        "data.query.run": False,
+        "data.table.read": False,
+        "admin.users.manage": False,
+        "spaces.create": False,
+        "spaces.members.manage": False,
+        "crews.create": False,
+        "crews.members.manage": False,
+    },
+}
+
+
+async def seed_role_permissions():
+    """Seed the role_permissions table with default permissions."""
+    settings = get_settings()
+
+    # Create async engine
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=False,
+        pool_pre_ping=True,
+    )
+
+    # Create async session
+    async_session = sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async with async_session() as session:
+        try:
+            print("🔍 Checking existing role permissions...")
+
+            # Check existing permissions
+            result = await session.execute(select(RolePermission))
+            existing_perms = result.scalars().all()
+            existing_roles = {perm.role for perm in existing_perms}
+
+            print(f"   Found {len(existing_roles)} existing roles: {existing_roles}")
+
+            # Insert or update each role
+            inserted = 0
+            updated = 0
+
+            for role, permissions in DEFAULT_ROLE_PERMISSIONS.items():
+                if role in existing_roles:
+                    # Update existing
+                    result = await session.execute(
+                        select(RolePermission).where(RolePermission.role == role)
+                    )
+                    role_perm = result.scalar_one()
+                    role_perm.permissions = permissions
+                    updated += 1
+                    print(f"   ✏️  Updated role: {role}")
+                else:
+                    # Insert new
+                    role_perm = RolePermission(
+                        role=role,
+                        permissions=permissions
+                    )
+                    session.add(role_perm)
+                    inserted += 1
+                    print(f"   ✅ Inserted role: {role}")
+
+            # Commit changes
+            await session.commit()
+
+            print(f"\n✨ Seed completed successfully!")
+            print(f"   📊 Inserted: {inserted} roles")
+            print(f"   📝 Updated: {updated} roles")
+            print(f"   🎯 Total roles: {len(DEFAULT_ROLE_PERMISSIONS)}")
+
+        except Exception as e:
+            await session.rollback()
+            print(f"\n❌ Error seeding role permissions: {e}")
+            raise
+        finally:
+            await engine.dispose()
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("🌱 Seeding role_permissions table")
+    print("=" * 60)
+    asyncio.run(seed_role_permissions())
