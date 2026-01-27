@@ -1,0 +1,36 @@
+# env / secrets
+.env
+.env.*
+*.env
+*.env.*
+
+# python
+__pycache__/
+*.py[codz]
+*$py.class
+*.pyo
+*.pyd
+
+# venv
+venv/
+.venv/
+
+# tests/tools
+.pytest_cache/
+.mypy_cache/
+
+# mac
+.DS_Store
+
+# uploads (não versionar)
+uploads/
+
+# Cursor
+.cursorignore
+.cursorindexingignore__pycache__/
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+celerybeat-schedule
