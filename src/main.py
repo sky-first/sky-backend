@@ -1,15 +1,11 @@
 """FastAPI application entry point."""
 
-import logging
-import sys
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
-from pythonjsonlogger import jsonlogger
 
-from src.api.middleware import auth, cors, error_handler
-from src.api.middleware import logging as logging_middleware
+from src.api.middleware import auth, cors
 from src.api.middleware import rate_limit
 from src.api.v1.router import api_router
 from src.config import settings
@@ -22,34 +18,33 @@ from src.config.database import (
     log_connection_stats,
 )
 from src.config.redis import close_redis, init_redis
+from src.core.logging import configure_logging, get_logger
+from src.core.middleware.correlation import CorrelationIdMiddleware
+from src.core.errors.handlers import register_exception_handlers
 
-# Configure logging
-_handler = logging.StreamHandler(sys.stdout)
-_handler.setFormatter(jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
-_root = logging.getLogger()
-_root.handlers = [_handler]
-_root.setLevel(getattr(logging, settings.LOG_LEVEL.upper()))
-logger = logging.getLogger(__name__)
+# Configure structured logging
+configure_logging()
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown."""
     # Startup
-    logger.info("Starting application...")
+    logger.info("application_startup")
     await init_db()
     await init_redis()
     # Log initial connection stats
     await log_connection_stats()
-    logger.info("Application started successfully")
+    logger.info("application_ready")
 
     yield
 
     # Shutdown
-    logger.info("Shutting down application...")
+    logger.info("application_shutdown")
     await close_db()
     await close_redis()
-    logger.info("Application shut down successfully")
+    logger.info("application_stopped")
 
 
 # Create FastAPI app
@@ -63,136 +58,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Setup CORS FIRST (before other middlewares)
-# CORS uses add_middleware which executes in normal order (first added = first executed)
+# 1. CORS (Should be outer-most to handle OPTIONS requests)
 cors.setup_cors(app)
+
+# 2. Correlation ID (Should be early to trace everything)
+app.add_middleware(CorrelationIdMiddleware)
 
 # Setup HTTP middlewares
 # IMPORTANT: In FastAPI, middleware added with app.middleware("http")() executes in REVERSE order
-# So we add them in REVERSE order of desired execution:
 # Desired execution order:
 # 1. auth (FIRST - sets request.state.user_id)
 # 2. rate_limit (needs user_id from auth)
-# 3. logging
-# 4. error_handler (LAST - catches exceptions)
 #
-# So we add them as: error_handler, logging, rate_limit, auth (reverse order)
-app.middleware("http")(error_handler.error_handler_middleware)  # Added 1st, executes LAST
-app.middleware("http")(logging_middleware.logging_middleware)  # Added 2nd, executes 3rd
-app.middleware("http")(rate_limit.rate_limit_middleware)  # Added 3rd, executes 2nd
-app.middleware("http")(auth.auth_middleware)  # Added 4th (LAST), executes FIRST
+# So we add them as: rate_limit, auth (reverse order)
+app.middleware("http")(rate_limit.rate_limit_middleware)  # Added 1st, executes 2nd
+app.middleware("http")(auth.auth_middleware)  # Added 2nd (LAST), executes FIRST
 
-from fastapi.responses import JSONResponse
-from jose import JWTError
-
-# Add exception handlers BEFORE routers (these catch exceptions from middleware and routes)
-from src.api.middleware import error_handler as error_handler_module
-from src.core.exceptions import (
-    BadRequestError,
-    BaseAPIException,
-    ConflictError,
-    ForbiddenError,
-    NotFoundError,
-    UnauthorizedError,
-    ValidationError,
-)
-
-
-@app.exception_handler(UnauthorizedError)
-async def unauthorized_exception_handler(request, exc: UnauthorizedError):
-    """Handle UnauthorizedError exceptions."""
-    error_handler_module.logger.warning(f"Unauthorized handler: {exc.message}")
-    response = JSONResponse(
-        status_code=exc.status_code,
-        content={"error": "Unauthorized", "message": exc.message},
-    )
-    error_handler_module._apply_cors_headers(request, response)
-    return response
-
-
-@app.exception_handler(JWTError)
-async def jwt_exception_handler(request, exc: JWTError):
-    """Handle JWTError exceptions."""
-    error_handler_module.logger.warning(f"JWT error handler: {str(exc)}")
-    response = JSONResponse(
-        status_code=401,
-        content={"error": "Unauthorized", "message": "Invalid token"},
-    )
-    error_handler_module._apply_cors_headers(request, response)
-    return response
-
-
-@app.exception_handler(ValidationError)
-async def validation_exception_handler(request, exc: ValidationError):
-    """Handle ValidationError exceptions."""
-    error_handler_module.logger.warning(f"Validation error handler: {exc.message}")
-    response = JSONResponse(
-        status_code=exc.status_code,
-        content={"error": "Validation Error", "message": exc.message},
-    )
-    error_handler_module._apply_cors_headers(request, response)
-    return response
-
-
-@app.exception_handler(ForbiddenError)
-async def forbidden_exception_handler(request, exc: ForbiddenError):
-    """Handle ForbiddenError exceptions."""
-    error_handler_module.logger.warning(f"Forbidden handler: {exc.message}")
-    response = JSONResponse(
-        status_code=exc.status_code,
-        content={"error": "Forbidden", "message": exc.message},
-    )
-    error_handler_module._apply_cors_headers(request, response)
-    return response
-
-
-@app.exception_handler(NotFoundError)
-async def not_found_exception_handler(request, exc: NotFoundError):
-    """Handle NotFoundError exceptions."""
-    error_handler_module.logger.warning(f"Not found handler: {exc.message}")
-    response = JSONResponse(
-        status_code=exc.status_code,
-        content={"error": "Not Found", "message": exc.message},
-    )
-    error_handler_module._apply_cors_headers(request, response)
-    return response
-
-
-@app.exception_handler(BadRequestError)
-async def bad_request_exception_handler(request, exc: BadRequestError):
-    """Handle BadRequestError exceptions."""
-    error_handler_module.logger.warning(f"Bad request handler: {exc.message}")
-    response = JSONResponse(
-        status_code=exc.status_code,
-        content={"error": "Bad Request", "message": exc.message},
-    )
-    error_handler_module._apply_cors_headers(request, response)
-    return response
-
-
-@app.exception_handler(ConflictError)
-async def conflict_exception_handler(request, exc: ConflictError):
-    """Handle ConflictError exceptions."""
-    error_handler_module.logger.warning(f"Conflict handler: {exc.message}")
-    response = JSONResponse(
-        status_code=exc.status_code,
-        content={"error": "Conflict", "message": exc.message},
-    )
-    error_handler_module._apply_cors_headers(request, response)
-    return response
-
-
-@app.exception_handler(BaseAPIException)
-async def base_api_exception_handler(request, exc: BaseAPIException):
-    """Handle other BaseAPIException exceptions."""
-    error_handler_module.logger.error(f"API exception handler: {exc.message}")
-    response = JSONResponse(
-        status_code=exc.status_code,
-        content={"error": "API Error", "message": exc.message},
-    )
-    error_handler_module._apply_cors_headers(request, response)
-    return response
-
+# Register output-standardizing exception handlers
+register_exception_handlers(app)
 
 # Include API routers
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
@@ -200,7 +83,6 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(api_router, prefix="/api")
 
 # Observability: Prometheus metrics (Golden Signals)
-# Exposes `/metrics` for Prometheus scraping.
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
@@ -231,10 +113,9 @@ def custom_openapi():
     }
 
     # Apply security globally to all endpoints
-    # Endpoints that don't need it will simply ignore it, or we can be more granular
     openapi_schema["security"] = [{"BearerAuth": []}]
 
-    logger.info(f"📋 OpenAPI schema generated with {len(openapi_schema.get('paths', {}))} paths")
+    logger.info("openapi_schema_generated", paths=len(openapi_schema.get('paths', {})))
 
     # Cache the schema
     app.openapi_schema = openapi_schema
@@ -361,15 +242,18 @@ async def root():
         "api_prefix": settings.API_V1_PREFIX,
     }
 
-
 if __name__ == "__main__":
     import uvicorn
+    import sys
+
+    # Check if a custom port is required (e.g. from tests)
+    port = 8000
+    if len(sys.argv) > 1 and sys.argv[1].isdigit():
+        port = int(sys.argv[1])
 
     uvicorn.run(
         "src.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=settings.DEBUG,
     )
-# Trigger fresh build
-# Build trigger: Sun Jan 18 10:23:06 UTC 2026
