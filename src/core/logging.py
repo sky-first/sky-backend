@@ -13,9 +13,10 @@ logging.basicConfig(
     level=settings.LOG_LEVEL.upper(),
 )
 
+
 def configure_logging():
     """Configure structlog and standard logging integration."""
-    
+
     shared_processors = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
@@ -65,6 +66,7 @@ def configure_logging():
     # Mute noisy loggers
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
+
 
 def get_logger(name: str):
     """Get a structured logger instance."""

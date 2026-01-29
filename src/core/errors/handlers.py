@@ -20,6 +20,7 @@ from jose import JWTError
 
 logger = structlog.get_logger(__name__)
 
+
 def register_exception_handlers(app: FastAPI):
     """Register all global exception handlers."""
 
@@ -38,7 +39,7 @@ def register_exception_handlers(app: FastAPI):
         # We don't always log 404s as errors to avoid noise
         log_method = logger.warning if exc.status_code < 500 else logger.error
         log_method("http_exception", status_code=exc.status_code, detail=exc.detail)
-        
+
         return _json_response(
             status_code=exc.status_code,
             code="HTTP_ERROR",
@@ -60,7 +61,7 @@ def register_exception_handlers(app: FastAPI):
     @app.exception_handler(BaseAPIException)
     async def app_exception_handler(request: Request, exc: BaseAPIException):
         logger.warning("app_exception", error=exc.message, status_code=exc.status_code)
-        
+
         # Map exception class to error code string
         code_map = {
             UnauthorizedError: "UNAUTHORIZED",
@@ -71,9 +72,9 @@ def register_exception_handlers(app: FastAPI):
             ConflictError: "CONFLICT",
             InternalServerError: "SERVER_ERROR",
         }
-        
+
         code = code_map.get(type(exc), "API_ERROR")
-        
+
         return _json_response(
             status_code=exc.status_code,
             code=code,
@@ -91,6 +92,7 @@ def register_exception_handlers(app: FastAPI):
             correlation_id=structlog.contextvars.get_contextvars().get("correlation_id")
         )
 
+
 def _json_response(status_code: int, code: str, message: str, details: Any = None, correlation_id: str = None):
     content = {
         "error": {
@@ -98,13 +100,13 @@ def _json_response(status_code: int, code: str, message: str, details: Any = Non
             "message": message,
         }
     }
-    
+
     if details:
         content["error"]["details"] = details
-        
+
     if correlation_id:
         content["error"]["correlation_id"] = correlation_id
-        
+
     return JSONResponse(
         status_code=status_code,
         content=content

@@ -9,6 +9,7 @@ from starlette.types import ASGIApp
 
 logger = structlog.get_logger(__name__)
 
+
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
     def __init__(
         self, 
@@ -25,14 +26,14 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         # Extract or generate correlation ID
         correlation_id = request.headers.get(self.header_name)
-        
+
         if not correlation_id:
             correlation_id = str(uuid.uuid4())
-        
+
         # Bind to structlog context
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(correlation_id=correlation_id)
-        
+
         # Log request start
         logger.info(
             "request_started",
@@ -45,7 +46,7 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
 
         # Add header to response
         response.headers[self.header_name] = correlation_id
-        
+
         # Log request completion
         logger.info(
             "request_completed",
