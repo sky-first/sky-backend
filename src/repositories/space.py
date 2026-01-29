@@ -91,6 +91,26 @@ class SpaceRepository(BaseRepository[Space]):
         )
         return list(result.scalars().all())
 
+    async def get_spaces_by_connection_id(self, connection_id: UUID) -> List[Space]:
+        """
+        Get all spaces associated with a connection.
+
+        Args:
+            connection_id: Connection ID
+
+        Returns:
+            List[Space]: List of spaces linked to the connection
+        """
+        result = await self.db.execute(
+            select(Space)
+            .join(SpaceConnection, Space.id == SpaceConnection.space_id)
+            .where(
+                SpaceConnection.connection_id == connection_id,
+                Space.deleted_at.is_(None)
+            )
+        )
+        return list(result.scalars().all())
+
 
 class SpaceMemberRepository(BaseRepository[SpaceMember]):
     """Space member repository."""

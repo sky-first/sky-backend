@@ -23,6 +23,11 @@ from src.schemas.connection import (
     ConnectionValidateResponse,
     TableMetadataSchema,
 )
+from src.ai.http_client import AIServiceHTTPClient
+from src.repositories.space import SpaceRepository
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class ConnectionService:
@@ -38,6 +43,8 @@ class ConnectionService:
         self.db = db
         self.connection_repo = ConnectionRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
+        self.space_repo = SpaceRepository(db)
+        self.ai_client = AIServiceHTTPClient()
 
     async def list_connections(
         self,
@@ -335,6 +342,48 @@ class ConnectionService:
                 error=None,
             )
             await self.db.commit()
+
+            # === Notify AI Service for embedding generation ===
+            try:
+                # Get all spaces linked to this connection
+                spaces = await self.space_repo.get_spaces_by_connection_id(connection_id)
+
+                logger.info(
+                    "notifying_ai_service_for_connection_sync",
+                    connection_id=str(connection_id),
+                    space_count=len(spaces)
+                )
+
+                # Notify AI service for each space
+                for space in spaces:
+                    try:
+                        await self.ai_client.discover_connection(
+                            connection_id=connection_id,
+                            space_id=space.id,
+                            run_in_background=True
+                        )
+                        logger.info(
+                            "ai_service_notified",
+                            connection_id=str(connection_id),
+                            space_id=str(space.id)
+                        )
+                    except Exception as space_error:
+                        # Log but don't propagate - fire-and-forget per space
+                        logger.warning(
+                            "ai_service_notification_failed_for_space",
+                            connection_id=str(connection_id),
+                            space_id=str(space.id),
+                            error=str(space_error)
+                        )
+
+            except Exception as e:
+                # Log but don't propagate - fire-and-forget
+                logger.error(
+                    "ai_service_notification_failed",
+                    connection_id=str(connection_id),
+                    error=str(e),
+                    exc_info=True
+                )
 
             return ConnectionSyncResponse(
                 success=True, last_sync=now, message="Sync completed successfully"
