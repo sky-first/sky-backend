@@ -44,10 +44,15 @@ export CELERY_BROKER_URL="${CELERY_BROKER_URL:-redis://localhost:6379/1}"
 export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/2}"
 export AI_SERVICE_URL="${AI_SERVICE_URL:-http://localhost:8001}"
 
+# Cache Warming settings
+export CACHE_WARMING_ENABLED="${CACHE_WARMING_ENABLED:-true}"
+export CACHE_WARMING_INTERVAL_SECONDS="${CACHE_WARMING_INTERVAL_SECONDS:-60}"
+
 echo "✅ Variáveis de ambiente configuradas"
 echo "   DATABASE_URL: $DATABASE_URL"
 echo "   REDIS_URL: $REDIS_URL"
 echo "   AI_SERVICE_URL: $AI_SERVICE_URL"
+echo "   CACHE_WARMING: $CACHE_WARMING_ENABLED (Interval: ${CACHE_WARMING_INTERVAL_SECONDS}s)"
 echo ""
 
 # Verifica se infraestrutura está rodando
@@ -56,6 +61,18 @@ if ! docker ps | grep -q sky_poc_postgres; then
     echo "   Execute: cd ../../deploy && ./start.sh"
     echo "   Continuando..."
 fi
+
+# Função para limpar processos em background ao sair
+cleanup() {
+    echo ""
+    echo "🛑 Desligando Celery Worker e Beat..."
+    if [ ! -z "$WORKER_PID" ]; then kill $WORKER_PID 2>/dev/null || true; fi
+    if [ ! -z "$BEAT_PID" ]; then kill $BEAT_PID 2>/dev/null || true; fi
+    echo "✅ Processos encerrados."
+}
+
+# Trap para capturar interrupção (Ctrl+C) e encerrar processos filhos
+trap cleanup EXIT
 
 # Executa migrações
 echo "🔄 Executando migrações do banco de dados..."
@@ -89,6 +106,27 @@ else
     python3 create_user.py
 fi
 echo ""
+
+# Inicia Celery Worker (se habilitado)
+if [ "$CACHE_WARMING_ENABLED" = "true" ]; then
+    echo "⚙️ Iniciando Celery Worker em background..."
+    if [ -d "venv" ]; then
+        export PYTHONPATH=$PYTHONPATH:.
+        venv/bin/celery -A src.workers.celery_app worker --loglevel=error -Q celery > /dev/null 2>&1 &
+    else
+        export PYTHONPATH=$PYTHONPATH:.
+        celery -A src.workers.celery_app worker --loglevel=error -Q celery > /dev/null 2>&1 &
+    fi
+    WORKER_PID=$!
+    
+    echo "⏰ Iniciando Celery Beat em background..."
+    if [ -d "venv" ]; then
+        venv/bin/celery -A src.workers.celery_app beat --loglevel=error > /dev/null 2>&1 &
+    else
+        celery -A src.workers.celery_app beat --loglevel=error > /dev/null 2>&1 &
+    fi
+    BEAT_PID=$!
+fi
 
 # Roda o uvicorn
 echo "🌐 Iniciando servidor na porta 8000..."
