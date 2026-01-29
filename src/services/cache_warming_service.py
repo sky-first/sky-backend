@@ -93,23 +93,63 @@ async def get_ai_cache_warm_candidates(
     """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
 
-    # Pull recent, completed queries that are tied to widgets with connection_id.
+    # Pull recent, completed queries. Join Widget only when it exists.
     stmt = (
-        select(AIQuery.user_id, AIQuery.question, AIQuery.updated_at, Widget.connection_id)
-        .join(Widget, Widget.id == AIQuery.widget_id)
+        select(
+            AIQuery.user_id,
+            AIQuery.question,
+            AIQuery.updated_at,
+            AIQuery.configure_data,
+            Widget.connection_id,
+        )
+        .outerjoin(Widget, Widget.id == AIQuery.widget_id)
         .where(AIQuery.status == "completed")
         .where(AIQuery.updated_at >= cutoff)
-        .where(Widget.connection_id.is_not(None))
         .order_by(AIQuery.updated_at.desc())
         .limit(max_scan_rows)
     )
     rows = (await db.execute(stmt)).all()
 
+    # Relaxed resolve: try to find connection_id.
+    # We'll need some repositories if we fail to find id in widget/config
+    from src.repositories.connection import ConnectionRepository
+
+    conn_repo = ConnectionRepository(db)
+    # cache of user_id -> space_id (first found for them)
+    user_primary_space: Dict[UUID, Optional[str]] = {}
+
     # Group by (connection_id, normalized_question)
     groups: Dict[Tuple[str, str], Tuple[int, datetime, UUID, str]] = {}
-    for user_id, question, updated_at, connection_uuid in rows:
+    for user_id, question, updated_at, config_data, widget_connection_uuid in rows:
         if not question or len(str(question).strip()) < min_question_length:
             continue
+
+        # Try to find connection_id.
+        # 1. From Widget (if query is tied to one)
+        # 2. From configure_data.knowledge (Connection IDs are often stored there)
+        # 3. Fallback: First active connection of the user
+        connection_uuid = widget_connection_uuid
+        if not connection_uuid and config_data and isinstance(config_data, dict):
+            knowledge = config_data.get("knowledge", [])
+            if isinstance(knowledge, list):
+                for item in knowledge:
+                    if isinstance(item, str) and len(item) == 36 and item.count("-") == 4:
+                        try:
+                            connection_uuid = UUID(item)
+                            break
+                        except Exception:
+                            continue
+
+        # 4. Deep fallback: if still None, we look up the user's connections.
+        if not connection_uuid:
+            try:
+                # This matches what AIService does when connection is missing.
+                user_conns = await conn_repo.get_by_user(user_id, filters={"status": "active"}, limit=1)
+                if user_conns:
+                    connection_uuid = user_conns[0].id
+            except Exception:
+                connection_uuid = None
+
         if not connection_uuid:
             continue
 
@@ -150,6 +190,23 @@ async def get_ai_cache_warm_candidates(
                 space_by_conn[conn_id_str] = None
 
         space_id = space_by_conn.get(conn_id_str)
+
+        # Fallback for space_id: if connection isn't linked to a space,
+        # we try to find ANY space the user belongs to as a target for warming.
+        if not space_id:
+            if user_id not in user_primary_space:
+                from src.models.space import Space, SpaceMember
+                from sqlalchemy import or_
+                stmt_space = (
+                    select(Space.id)
+                    .outerjoin(SpaceMember, SpaceMember.space_id == Space.id)
+                    .where(or_(Space.created_by == user_id, SpaceMember.user_id == user_id))
+                    .limit(1)
+                )
+                res_space = await db.scalar(stmt_space)
+                user_primary_space[user_id] = str(res_space) if res_space else None
+            space_id = user_primary_space[user_id]
+
         if not space_id:
             continue
 
