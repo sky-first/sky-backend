@@ -1257,9 +1257,9 @@ class TestAIEndpoints:
         assert response.status_code in [400, 503]
         if response.status_code == 400:
             data = response.json()
-            assert "space_id is required" in data.get(
-                "detail", ""
-            ).lower() or "space_id" in data.get("detail", "")
+            error_data = data.get("error", {})
+            message = error_data.get("message", "").lower() or data.get("detail", "").lower()
+            assert "space_id is required" in message or "space_id" in message
 
     @pytest.mark.asyncio
     async def test_validate_sql_with_space_member(
@@ -2269,13 +2269,11 @@ class TestSSOEndpoints:
         response = client.get("/api/v1/auth/sso/invalid/login", follow_redirects=False)
         assert response.status_code == 400
         data = response.json()
-        assert "error" in data or "message" in data
-        # Check both error and message fields for "Unsupported"
-        error_msg = (data.get("error", "") + " " + data.get("message", "")).strip()
+        error_info = data.get("error", {})
+        error_msg = (str(error_info.get("code", "")) + " " + str(error_info.get("message", "")) + " " + str(data.get("detail", ""))).strip()
         assert (
             "Unsupported" in error_msg
             or "unsupported" in error_msg.lower()
-            or "unsupported" in data.get("message", "").lower()
         )
 
     def test_sso_callback_google_missing_code(self, client: TestClient):
@@ -2298,13 +2296,11 @@ class TestSSOEndpoints:
         response = client.get("/api/v1/auth/sso/invalid/callback?code=test")
         assert response.status_code == 400
         data = response.json()
-        assert "error" in data or "message" in data
-        # Check both error and message fields for "Unsupported"
-        error_msg = (data.get("error", "") + " " + data.get("message", "")).strip()
+        error_info = data.get("error", {})
+        error_msg = (str(error_info.get("code", "")) + " " + str(error_info.get("message", "")) + " " + str(data.get("detail", ""))).strip()
         assert (
             "Unsupported" in error_msg
             or "unsupported" in error_msg.lower()
-            or "unsupported" in data.get("message", "").lower()
         )
 
 

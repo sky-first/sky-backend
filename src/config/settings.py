@@ -138,6 +138,24 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_PASSWORD: str = ""
 
+    @model_validator(mode="after")
+    def build_redis_url(self):
+        """Build REDIS_URL from separate env vars if available and URL is empty."""
+        import os
+
+        # Priority: env var > Field default
+        redis_host = os.getenv("REDIS_HOST") or self.REDIS_HOST
+        redis_port = os.getenv("REDIS_PORT") or str(self.REDIS_PORT)
+        redis_db = os.getenv("REDIS_DB") or str(self.REDIS_DB)
+        redis_password = os.getenv("REDIS_PASSWORD") or self.REDIS_PASSWORD
+
+        # Build REDIS_URL only if it's empty and we have at least a host
+        if not self.REDIS_URL and redis_host:
+            auth = f":{redis_password}@" if redis_password else ""
+            self.REDIS_URL = f"redis://{auth}{redis_host}:{redis_port}/{redis_db}"
+
+        return self
+
     # Celery
     CELERY_BROKER_URL: str = Field(
         default="redis://localhost:6379/1",
