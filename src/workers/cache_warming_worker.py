@@ -61,108 +61,114 @@ async def _warm_ai_response_cache_async() -> Dict[str, Any]:
 
     real_ai = RealAIService()
 
-    async with AsyncSessionLocal() as db:
-        candidates = await get_ai_cache_warm_candidates(
-            db,
-            lookback_hours=lookback_hours,
-            top_n_per_connection=top_n,
-            max_scan_rows=max_scan,
-            max_total=max_total,
-        )
-
-        if not candidates:
-            return {
-                "status": "ok",
-                "candidates": 0,
-                "hits": 0,
-                "misses": 0,
-                "warmed": 0,
-                "skipped": 0,
-                "errors": 0,
-            }
-
-        ai_service = AIService(db)
-
-        for c in candidates:
-            if warmed >= max_warms:
-                break
-
-            cache_key = ai_response_cache_key(
-                space_id=c.space_id,
-                connection_id=c.connection_id,
-                question=c.question,
+    try:
+        async with AsyncSessionLocal() as db:
+            candidates = await get_ai_cache_warm_candidates(
+                db,
+                lookback_hours=lookback_hours,
+                top_n_per_connection=top_n,
+                max_scan_rows=max_scan,
+                max_total=max_total,
             )
 
-            try:
-                existing = await CacheService.get_json(cache_key)
-                if existing:
-                    hits += 1
-                    continue
-                misses += 1
-
-                # Resolve crew_ids for context (best-effort).
-                crew_ids = None
-                try:
-                    crew_ids = await ai_service._get_user_crew_ids(  # noqa: SLF001
-                        c.user_id,
-                        c.space_id,
-                        all_spaces=False,
-                    )
-                except Exception:
-                    crew_ids = None
-
-                # Execute the query via Real AI Service and cache result.
-                thread_id = f"warm:{c.space_id}:{c.connection_id}:{cache_key[-12:]}"
-                result = await real_ai.process_query(
-                    connection_id=c.connection_id,
-                    question=c.question,
-                    user_id=str(c.user_id),
-                    space_id=c.space_id,
-                    crew_ids=crew_ids if crew_ids else None,
-                    thread_id=thread_id,
-                    is_personal=False,
-                    selected_datasets=None,
-                    instructions=None,
-                )
-
-                payload: Dict[str, Any] = {
-                    "answer": result.get("answer", ""),
-                    "data_sample": result.get("data_sample", []),
-                    "sql": result.get("sql"),
-                    "chosen_table": result.get("chosen_table"),
-                    "chosen_datasets": result.get("chosen_datasets", []),
-                    "title": result.get("title"),
-                    "detected_language": result.get("detected_language"),
-                    "meta": result.get("meta"),
+            if not candidates:
+                return {
+                    "status": "ok",
+                    "candidates": 0,
+                    "hits": 0,
+                    "misses": 0,
+                    "warmed": 0,
+                    "skipped": 0,
+                    "errors": 0,
                 }
 
-                await CacheService.set_json(
-                    cache_key,
-                    payload,
-                    ttl=settings.AI_RESPONSE_CACHE_TTL_SECONDS,
-                )
-                warmed += 1
-            except Exception as e:
-                errors += 1
-                logger.warning(
-                    "Cache warming failed for candidate",
-                    extra={
-                        "space_id": c.space_id,
-                        "connection_id": c.connection_id,
-                        "question": c.question[:200],
-                        "error": str(e),
-                    },
-                    exc_info=True,
-                )
-                continue
+            ai_service = AIService(db)
 
-    return {
-        "status": "ok",
-        "candidates": len(candidates),
-        "hits": hits,
-        "misses": misses,
-        "warmed": warmed,
-        "skipped": skipped,
-        "errors": errors,
-        "max_warms": max_warms,
-    }
+            for c in candidates:
+                if warmed >= max_warms:
+                    break
+
+                cache_key = ai_response_cache_key(
+                    space_id=c.space_id,
+                    connection_id=c.connection_id,
+                    question=c.question,
+                )
+
+                try:
+                    existing = await CacheService.get_json(cache_key)
+                    if existing:
+                        hits += 1
+                        continue
+                    misses += 1
+
+                    # Resolve crew_ids for context (best-effort).
+                    crew_ids = None
+                    try:
+                        crew_ids = await ai_service._get_user_crew_ids(  # noqa: SLF001
+                            c.user_id,
+                            c.space_id,
+                            all_spaces=False,
+                        )
+                    except Exception:
+                        crew_ids = None
+
+                    # Execute the query via Real AI Service and cache result.
+                    thread_id = f"warm:{c.space_id}:{c.connection_id}:{cache_key[-12:]}"
+                    result = await real_ai.process_query(
+                        connection_id=c.connection_id,
+                        question=c.question,
+                        user_id=str(c.user_id),
+                        space_id=c.space_id,
+                        crew_ids=crew_ids if crew_ids else None,
+                        thread_id=thread_id,
+                        is_personal=False,
+                        selected_datasets=None,
+                        instructions=None,
+                    )
+
+                    payload: Dict[str, Any] = {
+                        "answer": result.get("answer", ""),
+                        "data_sample": result.get("data_sample", []),
+                        "sql": result.get("sql"),
+                        "chosen_table": result.get("chosen_table"),
+                        "chosen_datasets": result.get("chosen_datasets", []),
+                        "title": result.get("title"),
+                        "detected_language": result.get("detected_language"),
+                        "meta": result.get("meta"),
+                    }
+
+                    await CacheService.set_json(
+                        cache_key,
+                        payload,
+                        ttl=settings.AI_RESPONSE_CACHE_TTL_SECONDS,
+                    )
+                    warmed += 1
+                except Exception as e:
+                    errors += 1
+                    logger.warning(
+                        "Cache warming failed for candidate",
+                        extra={
+                            "space_id": c.space_id,
+                            "connection_id": c.connection_id,
+                            "question": c.question[:200],
+                            "error": str(e),
+                        },
+                        exc_info=True,
+                    )
+                    continue
+
+        return {
+            "status": "ok",
+            "candidates": len(candidates),
+            "hits": hits,
+            "misses": misses,
+            "warmed": warmed,
+            "skipped": skipped,
+            "errors": errors,
+            "max_warms": max_warms,
+        }
+    finally:
+        # CRITICAL: dispose engine to prevent "Event loop is closed" errors in subsequent runs
+        # since each celery task creates a new loop via asyncio.run()
+        from src.config.database import engine
+        await engine.dispose()
