@@ -41,7 +41,7 @@ class TestLoginEndpoint:
         assert response.status_code == 401
         data = response.json()
         assert "error" in data
-        assert "message" in data
+        assert "message" in data["error"]
 
     def test_login_invalid_password(self, client: TestClient, test_user: dict):
         """Test login with incorrect password."""
@@ -56,7 +56,7 @@ class TestLoginEndpoint:
         assert response.status_code == 401
         data = response.json()
         assert "error" in data
-        assert "message" in data
+        assert "message" in data["error"]
 
     def test_login_invalid_email_format(self, client: TestClient):
         """Test login with invalid email format."""
