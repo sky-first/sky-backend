@@ -6,6 +6,8 @@ from typing import Any, AsyncGenerator, Dict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.pool import NullPool
+import sys
 
 from src.config.settings import settings
 
@@ -18,23 +20,37 @@ engine_kwargs = {
     "future": True,
 }
 
+# Check if we are running in a Celery worker context
+is_celery_worker = (
+    "celery" in sys.argv[0]
+    or (len(sys.argv) > 1 and "celery" in sys.argv[1])
+    or (len(sys.argv) > 0 and sys.argv[0].endswith("celery"))
+)
+
 # Only add pool settings for non-SQLite databases
 if "sqlite" not in settings.DATABASE_URL.lower():
-    engine_kwargs.update(
-        {
-            "pool_size": settings.DATABASE_POOL_SIZE,
-            "max_overflow": settings.DATABASE_MAX_OVERFLOW,
-            "pool_pre_ping": settings.DATABASE_POOL_PRE_PING,
-            "pool_recycle": 3600,  # Fechar conexões após 1 hora de inatividade
-            "pool_reset_on_return": "commit",  # Resetar conexões ao retornar ao pool
-        }
-    )
+    if is_celery_worker:
+        # Worker uses asyncio.run() per task, which creates a new event loop each time.
+        # Standard pooling binds connections to the creating loop, causing "Future attached to different loop" errors.
+        # NullPool forces a new connection per session (per task), avoiding reuse across loops.
+        logger.info("🔧 Configurando NullPool para Celery Worker (compatibilidade async/solo)")
+        engine_kwargs.update({"poolclass": NullPool})
+    else:
+        engine_kwargs.update(
+            {
+                "pool_size": settings.DATABASE_POOL_SIZE,
+                "max_overflow": settings.DATABASE_MAX_OVERFLOW,
+                "pool_pre_ping": settings.DATABASE_POOL_PRE_PING,
+                "pool_recycle": 3600,  # Fechar conexões após 1 hora de inatividade
+                "pool_reset_on_return": "commit",  # Resetar conexões ao retornar ao pool
+            }
+        )
 else:
     # SQLite-specific settings
     engine_kwargs.update(
         {
             "connect_args": {"check_same_thread": False},
-            "poolclass": None,  # Use NullPool for SQLite
+            "poolclass": NullPool,  # Use NullPool for SQLite
         }
     )
 
