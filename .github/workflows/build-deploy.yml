@@ -9,7 +9,9 @@ on:
     branches:
       - staging
       - main
-
+concurrency:
+  group: build-deploy-backend-${{ github.ref }}
+  cancel-in-progress: false
 env:
   IMAGE_NAME: sky-poc-backend
 
