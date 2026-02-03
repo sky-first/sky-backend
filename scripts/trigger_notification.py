@@ -10,10 +10,11 @@ from src.services.notification_service import NotificationService
 from src.services.comment_service import CommentService
 from src.schemas.notification import NotificationCreate
 from src.schemas.comment import CommentCreate
-from src.models.notification import NotificationType
+from src.models.notification import NotificationType, Notification
 from src.models.user import User
 from src.models.dashboard import Dashboard
 from sqlalchemy.future import select
+from sqlalchemy import delete
 
 # Trigger all models registration
 import src.models
@@ -40,6 +41,11 @@ async def trigger_test_notification():
         print(f"👤 Notifying User: {user.email} (ID: {user.id})")
         print(f"📊 Using Dashboard ID: {dashboard_id}")
 
+        # Clean current notifications
+        print(f"🧹 Clearing notifications for user {user.id}...")
+        await db.execute(delete(Notification).where(Notification.user_id == user.id))
+        await db.commit()
+
         # 3. Create a Direct Notification (Simple way)
         notification_service = NotificationService(db)
         await notification_service.create(
@@ -49,7 +55,7 @@ async def trigger_test_notification():
                 title="🚀 Test Notification!",
                 description="This notification was generated via script to test the frontend bell.",
                 entity_type="test",
-                entity_id=user.id,
+                entity_id=str(user.id),
                 deep_link=f"/dashboards/{dashboard_id}" if dashboard else None
             )
         )
