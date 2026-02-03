@@ -15,33 +15,15 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE_NAME: sky-poc-backend
+IMAGE_NAME: sky-poc-backend
 
 permissions:
-  id-token: write
-  contents: read
+id-token: write
+contents: read
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Determine Environment & ACR
-        id: env-setup
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "ACR_NAME=skyacrprodel5zpw" >> $GITHUB_ENV
-            echo "Targeting PRODUCTION Environment"
-          else
-            echo "ACR_NAME=skyacrstagingj3minh" >> $GITHUB_ENV
-            echo "Targeting STAGING Environment"
-          fi
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+build-and-push:
+runs-on: ubuntu-latest
 
       # Login to Azure is required for pushing images, but not for PR builds
       - name: Azure Login (Federated Identity)
@@ -52,10 +34,16 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login to Azure Container Registry
-        if: github.event_name != 'pull_request'
-        run: |
-          az acr login --name ${{ env.ACR_NAME }}
+- name: Determine Environment & ACR
+id: env-setup
+run: |
+if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+echo "ACR_NAME=skyacrprodel5zpw" >> $GITHUB_ENV
+echo "Targeting PRODUCTION Environment"
+else
+echo "ACR_NAME=skyacrstagingj3minh" >> $GITHUB_ENV
+echo "Targeting STAGING Environment"
+fi
 
       - name: Extract metadata (tags, labels)
         id: meta
