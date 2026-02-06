@@ -760,6 +760,60 @@ class ConnectorService:
                     "options": ["0 */1 * * *", "0 */6 * * *", "0 0 * * *", "0 0 * * 0"],
                 },
             },
+            "databricks": {
+                "id": "databricks",
+                "name": "Databricks",
+                "category": "database",
+                "description": "Connect to Databricks SQL Warehouse or Compute Cluster",
+                "icon": "database",
+                "fields": [
+                    {
+                        "key": "server_hostname",
+                        "label": "Server Hostname",
+                        "type": "text",
+                        "required": True,
+                        "placeholder": "adb-12345.6.azuredatabricks.net",
+                    },
+                    {
+                        "key": "http_path",
+                        "label": "HTTP Path",
+                        "type": "text",
+                        "required": True,
+                        "placeholder": "/sql/1.0/warehouses/abc12345",
+                    },
+                    {
+                        "key": "port",
+                        "label": "Port",
+                        "type": "number",
+                        "required": True,
+                        "placeholder": "443",
+                        "default": 443,
+                    },
+                ],
+                "auth_methods": [
+                    {
+                        "type": "token",
+                        "label": "Personal Access Token",
+                        "fields": [
+                            {
+                                "key": "token",
+                                "label": "Access Token",
+                                "type": "password",
+                                "required": True,
+                            },
+                        ],
+                    },
+                ],
+                "config_schema": {
+                    "server_hostname": {"type": "string", "required": True},
+                    "http_path": {"type": "string", "required": True},
+                    "port": {"type": "number", "required": True},
+                },
+                "sync_frequency": {
+                    "default": "0 */6 * * *",
+                    "options": ["0 */1 * * *", "0 */6 * * *", "0 0 * * *", "0 0 * * 0"],
+                },
+            },
         }
 
         return connectors_registry.get(connector_id)
@@ -771,13 +825,45 @@ class ConnectorService:
         Returns:
             List[ConnectorResponse]: List of connectors
         """
-        connectors = []
+        # Define the desired order for database connectors
+        database_order = [
+            "databricks",
+            "mongodb",
+            "bigquery",
+            "redshift",
+            "postgresql",
+            "mysql",
+            "oracle",
+            "sqlite",
+            "sqlserver",
+            "snowflake",
+            "clickhouse",
+        ]
+        
+        # Separate database connectors from other connectors
+        database_connectors = []
+        other_connectors = []
+        
         for connector_id in CONNECTORS.keys():
             definition = self._get_connector_definition(connector_id)
             if definition:
-                connectors.append(self._convert_to_response(definition))
+                connector_response = self._convert_to_response(definition)
+                if definition.get("category") == "database":
+                    database_connectors.append((connector_id, connector_response))
+                else:
+                    other_connectors.append(connector_response)
+        
+        # Sort database connectors according to the defined order
+        ordered_databases = []
+        for db_id in database_order:
+            for connector_id, connector_response in database_connectors:
+                if connector_id == db_id:
+                    ordered_databases.append(connector_response)
+                    break
+        
+        # Combine ordered databases with other connectors
+        return ordered_databases + other_connectors
 
-        return connectors
 
     def get_connector(self, connector_id: str) -> ConnectorResponse:
         """

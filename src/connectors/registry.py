@@ -42,6 +42,7 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "oracle": MockConnector,
     "sqlite": MockConnector,
     "clickhouse": MockConnector,
+    "databricks": MockConnector,
     # TODO: Implement real connectors
 }
 
