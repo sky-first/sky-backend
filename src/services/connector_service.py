@@ -839,11 +839,11 @@ class ConnectorService:
             "snowflake",
             "clickhouse",
         ]
-        
+
         # Separate database connectors from other connectors
         database_connectors = []
         other_connectors = []
-        
+
         for connector_id in CONNECTORS.keys():
             definition = self._get_connector_definition(connector_id)
             if definition:
@@ -852,7 +852,7 @@ class ConnectorService:
                     database_connectors.append((connector_id, connector_response))
                 else:
                     other_connectors.append(connector_response)
-        
+
         # Sort database connectors according to the defined order
         ordered_databases = []
         for db_id in database_order:
@@ -860,10 +860,9 @@ class ConnectorService:
                 if connector_id == db_id:
                     ordered_databases.append(connector_response)
                     break
-        
+
         # Combine ordered databases with other connectors
         return ordered_databases + other_connectors
-
 
     def get_connector(self, connector_id: str) -> ConnectorResponse:
         """

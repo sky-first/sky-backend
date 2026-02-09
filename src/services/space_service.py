@@ -485,7 +485,7 @@ class SpaceService:
 
         # Get space connections
         space_connections = await self.space_repo.get_space_connections(space_id)
-        
+
         # Get explicitly selected tables
         selected_tables_entities = await self.table_repo.get_space_tables(space_id)
         selected_tables_map = {
@@ -510,7 +510,7 @@ class SpaceService:
                     t_name = table_data.get("name", "")
                     t_schema = table_data.get("schema")
                     is_selected = (str(space_conn.connection_id), t_name, t_schema) in selected_tables_map
-                    
+
                     tables.append(
                         {
                             "connection_id": str(space_conn.connection_id),

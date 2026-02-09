@@ -1,6 +1,6 @@
 """Connector registry."""
 
-from typing import Dict, Type
+from typing import Any, Dict, Optional, Type
 
 from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
@@ -22,7 +22,7 @@ class MockConnector(BaseConnector):
         """Execute query - returns empty list for now."""
         return []
 
-    async def sync_data(self, config: Dict, options: Dict = None) -> Dict:
+    async def sync_data(self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Sync data - returns empty result for now."""
         return {"success": True}
 
