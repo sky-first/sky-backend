@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from src.models.connection import DataConnection
 from src.models.crew import Crew
-from src.models.space import Space, SpaceConnection, SpaceMember
+from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable
 from src.repositories.base import BaseRepository
 
 
@@ -91,6 +91,27 @@ class SpaceRepository(BaseRepository[Space]):
         )
         return list(result.scalars().all())
 
+    async def get_space_connection(
+        self, space_id: UUID, connection_id: UUID
+    ) -> Optional[SpaceConnection]:
+        """
+        Get a specific space connection association.
+
+        Args:
+            space_id: Space ID
+            connection_id: Connection ID
+
+        Returns:
+            Optional[SpaceConnection]: The association or None
+        """
+        result = await self.db.execute(
+            select(SpaceConnection).where(
+                SpaceConnection.space_id == space_id,
+                SpaceConnection.connection_id == connection_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def get_spaces_by_connection_id(self, connection_id: UUID) -> List[Space]:
         """
         Get all spaces associated with a connection.
@@ -153,3 +174,53 @@ class SpaceMemberRepository(BaseRepository[SpaceMember]):
             .options(selectinload(SpaceMember.user))
         )
         return list(result.scalars().all())
+
+
+class SpaceTableRepository(BaseRepository[SpaceTable]):
+    """Space table repository."""
+
+    def __init__(self, db: AsyncSession):
+        super().__init__(db, SpaceTable)
+
+    async def get_space_tables(self, space_id: UUID) -> List[SpaceTable]:
+        """
+        Get all tables linked to a space.
+
+        Args:
+            space_id: Space ID
+
+        Returns:
+            List[SpaceTable]: List of linked tables
+        """
+        result = await self.db.execute(
+            select(SpaceTable).where(SpaceTable.space_id == space_id)
+        )
+        return list(result.scalars().all())
+
+    async def get_space_table(
+        self, space_id: UUID, connection_id: UUID, table_name: str, schema_name: Optional[str] = None
+    ) -> Optional[SpaceTable]:
+        """
+        Get a specific space table connection.
+
+        Args:
+            space_id: Space ID
+            connection_id: Connection ID
+            table_name: Table name
+            schema_name: Schema name
+
+        Returns:
+            Optional[SpaceTable]: The association or None
+        """
+        query = select(SpaceTable).where(
+            SpaceTable.space_id == space_id,
+            SpaceTable.connection_id == connection_id,
+            SpaceTable.table_name == table_name,
+        )
+        if schema_name:
+            query = query.where(SpaceTable.schema_name == schema_name)
+        else:
+            query = query.where(SpaceTable.schema_name.is_(None))
+
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()

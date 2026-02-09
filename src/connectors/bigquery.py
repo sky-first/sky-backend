@@ -67,7 +67,7 @@ def _infer_dataset_from_config(config: Dict[str, Any]) -> str:
     default_schema = config.get("default_schema")
     if default_schema and isinstance(default_schema, str) and "." in default_schema:
         # project.dataset -> return dataset part
-        return default_schema.split(".", 1)[1]
+        return str(default_schema.split(".", 1)[1])
 
     raise ValueError(
         "Dataset not found in BigQuery config (expected 'dataset' or 'default_schema')."
