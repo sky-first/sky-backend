@@ -1,7 +1,7 @@
 """Space endpoints."""
 
 import logging
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -16,6 +16,7 @@ from src.schemas.space import (
     SpaceMemberCreate,
     SpaceMemberResponse,
     SpaceResponse,
+    SpaceTableCreate,
     SpaceUpdate,
 )
 from src.services.space_service import SpaceService
@@ -265,6 +266,72 @@ async def get_space_connections(
     ]
 
 
+@router.post(
+    "/{space_id}/connections/{connection_id}",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Add space connection",
+    description="Link a connection to a space",
+)
+async def add_space_connection(
+    space_id: UUID,
+    connection_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """
+    Link a connection to a space.
+
+    Args:
+        space_id: Space ID
+        connection_id: Connection ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        dict: Success message and linked IDs
+    """
+    space_service = SpaceService(db)
+    await space_service.add_space_connection(space_id, connection_id, current_user)
+    return {
+        "message": "Connection linked successfully",
+        "space_id": str(space_id),
+        "connection_id": str(connection_id),
+    }
+
+
+@router.delete(
+    "/{space_id}/connections/{connection_id}",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Remove space connection",
+    description="Unlink a connection from a space",
+)
+async def remove_space_connection(
+    space_id: UUID,
+    connection_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Unlink a connection from a space.
+
+    Args:
+        space_id: Space ID
+        connection_id: Connection ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    space_service = SpaceService(db)
+    await space_service.remove_space_connection(space_id, connection_id, current_user)
+    return SuccessResponse(message="Connection unlinked successfully")
+
+
 @router.get(
     "/{space_id}/members",
     response_model=List[SpaceMemberResponse],
@@ -384,3 +451,50 @@ async def get_space_tables(
     """
     space_service = SpaceService(db)
     return await space_service.get_space_tables(space_id, current_user)
+
+
+@router.post(
+    "/{space_id}/tables",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Add space table",
+    description="Link a specific table to a space",
+)
+async def add_space_table(
+    space_id: UUID,
+    table_data: SpaceTableCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """
+    Link a specific table to a space.
+    """
+    space_service = SpaceService(db)
+    return await space_service.add_space_table(space_id, table_data, current_user)
+
+
+@router.delete(
+    "/{space_id}/connections/{connection_id}/tables/{table_name}",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Remove space table",
+    description="Unlink a specific table from a space",
+)
+async def remove_space_table(
+    space_id: UUID,
+    connection_id: UUID,
+    table_name: str,
+    schema_name: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Unlink a specific table from a space.
+    """
+    space_service = SpaceService(db)
+    await space_service.remove_space_table(
+        space_id, connection_id, table_name, schema_name, current_user
+    )
+    return SuccessResponse(message="Table unlinked successfully")

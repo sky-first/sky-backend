@@ -37,6 +37,9 @@ class Space(Base):
     space_connections = relationship(
         "SpaceConnection", back_populates="space", cascade="all, delete-orphan"
     )
+    space_tables = relationship(
+        "SpaceTable", back_populates="space", cascade="all, delete-orphan"
+    )
     members = relationship("SpaceMember", back_populates="space", cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -113,3 +116,44 @@ class SpaceMember(Base):
 
     def __repr__(self) -> str:
         return f"<SpaceMember(space_id={self.space_id}, user_id={self.user_id})>"
+
+
+class SpaceTable(Base):
+    """Space specific table association."""
+
+    __tablename__ = "space_tables"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    space_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("spaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    connection_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("data_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    table_name = Column(String(255), nullable=False)
+    schema_name = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+
+    # Relationships
+    space = relationship("Space", back_populates="space_tables")
+    connection = relationship("DataConnection")
+
+    __table_args__ = (
+        Index(
+            "idx_space_tables_space_conn_table",
+            "space_id",
+            "connection_id",
+            "table_name",
+            "schema_name",
+            unique=True,
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<SpaceTable(space_id={self.space_id}, table={self.table_name})>"

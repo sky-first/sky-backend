@@ -1,6 +1,6 @@
 """Space service."""
 
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,12 +10,13 @@ from src.models.crew import Crew
 from src.models.space import SpaceConnection
 from src.models.user import User
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
-from src.repositories.space import SpaceMemberRepository, SpaceRepository
+from src.repositories.space import SpaceMemberRepository, SpaceRepository, SpaceTableRepository
 from src.schemas.space import (
     SpaceCreate,
     SpaceMemberCreate,
     SpaceMemberResponse,
     SpaceResponse,
+    SpaceTableCreate,
     SpaceUpdate,
 )
 
@@ -35,6 +36,7 @@ class SpaceService:
         self.connection_repo = ConnectionRepository(db)
         self.member_repo = SpaceMemberRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
+        self.table_repo = SpaceTableRepository(db)
 
     async def list_spaces(self, user: User, skip: int = 0, limit: int = 100) -> List[SpaceResponse]:
         """
@@ -278,6 +280,75 @@ class SpaceService:
         connections = await self.space_repo.get_space_connections(space_id)
         return connections
 
+    async def add_space_connection(
+        self, space_id: UUID, connection_id: UUID, user: User
+    ) -> SpaceConnection:
+        """
+        Add a connection to a space.
+
+        Args:
+            space_id: Space ID
+            connection_id: Connection ID
+            user: Current user
+
+        Returns:
+            SpaceConnection: The created association
+
+        Raises:
+            NotFoundError: If space or connection not found
+            ForbiddenError: If user doesn't have access
+        """
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+
+        if space.created_by != user.id:
+            raise ForbiddenError("Access denied to this space")
+
+        connection = await self.connection_repo.get_by_id(connection_id)
+        if not connection:
+            raise NotFoundError("Connection not found")
+
+        # Check if already exists
+        existing = await self.space_repo.get_space_connection(space_id, connection_id)
+        if existing:
+            return existing
+
+        # Create association using the repository's helper or manually
+        space_connection = SpaceConnection(space_id=space_id, connection_id=connection_id)
+        self.db.add(space_connection)
+        await self.db.commit()
+        await self.db.refresh(space_connection)
+
+        return space_connection
+
+    async def remove_space_connection(self, space_id: UUID, connection_id: UUID, user: User) -> None:
+        """
+        Remove a connection from a space.
+
+        Args:
+            space_id: Space ID
+            connection_id: Connection ID
+            user: Current user
+
+        Raises:
+            NotFoundError: If space or association not found
+            ForbiddenError: If user doesn't have access
+        """
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+
+        if space.created_by != user.id:
+            raise ForbiddenError("Access denied to this space")
+
+        association = await self.space_repo.get_space_connection(space_id, connection_id)
+        if not association:
+            raise NotFoundError("Connection not linked to this space")
+
+        await self.db.delete(association)
+        await self.db.commit()
+
     async def get_space_members(self, space_id: UUID, user: User) -> List[SpaceMemberResponse]:
         """
         Get all members of a space.
@@ -414,6 +485,13 @@ class SpaceService:
 
         # Get space connections
         space_connections = await self.space_repo.get_space_connections(space_id)
+        
+        # Get explicitly selected tables
+        selected_tables_entities = await self.table_repo.get_space_tables(space_id)
+        selected_tables_map = {
+            (str(t.connection_id), t.table_name, t.schema_name): True 
+            for t in selected_tables_entities
+        }
 
         # Get tables from each connection
         tables = []
@@ -429,27 +507,94 @@ class SpaceService:
             # Extract table information
             for table_data in metadata.tables:
                 if isinstance(table_data, dict):
+                    t_name = table_data.get("name", "")
+                    t_schema = table_data.get("schema")
+                    is_selected = (str(space_conn.connection_id), t_name, t_schema) in selected_tables_map
+                    
                     tables.append(
                         {
                             "connection_id": str(space_conn.connection_id),
                             "connection_name": connection.name,
                             "connection_type": getattr(connection, "connector_id", None),
-                            "table_name": table_data.get("name", ""),
-                            "schema": table_data.get("schema"),
+                            "table_name": t_name,
+                            "schema": t_schema,
                             "row_count": table_data.get("row_count"),
+                            "selected": is_selected
                         }
                     )
                 else:
                     # If it's already a TableMetadata object
+                    t_name = getattr(table_data, "name", "")
+                    t_schema = getattr(table_data, "schema", None)
+                    is_selected = (str(space_conn.connection_id), t_name, t_schema) in selected_tables_map
+
                     tables.append(
                         {
                             "connection_id": str(space_conn.connection_id),
                             "connection_name": connection.name,
                             "connection_type": getattr(connection, "connector_id", None),
-                            "table_name": getattr(table_data, "name", ""),
-                            "schema": getattr(table_data, "schema", None),
+                            "table_name": t_name,
+                            "schema": t_schema,
                             "row_count": getattr(table_data, "row_count", None),
+                            "selected": is_selected
                         }
                     )
 
         return tables
+
+    async def add_space_table(
+        self, space_id: UUID, table_data: SpaceTableCreate, user: User
+    ) -> dict:
+        """
+        Add a specific table to a space.
+        """
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+
+        if space.created_by != user.id:
+            raise ForbiddenError("Access denied to this space")
+
+        # Check if already exists
+        existing = await self.table_repo.get_space_table(
+            space_id, table_data.connection_id, table_data.table_name, table_data.schema_name
+        )
+        if existing:
+            return {"message": "Table already linked", "id": str(existing.id)}
+
+        # Create association
+        from src.models.space import SpaceTable
+
+        space_table = SpaceTable(
+            space_id=space_id,
+            connection_id=table_data.connection_id,
+            table_name=table_data.table_name,
+            schema_name=table_data.schema_name,
+        )
+        self.db.add(space_table)
+        await self.db.commit()
+        await self.db.refresh(space_table)
+
+        return {"message": "Table linked successfully", "id": str(space_table.id)}
+
+    async def remove_space_table(
+        self, space_id: UUID, connection_id: UUID, table_name: str, schema_name: Optional[str], user: User
+    ) -> None:
+        """
+        Remove a specific table from a space.
+        """
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+
+        if space.created_by != user.id:
+            raise ForbiddenError("Access denied to this space")
+
+        association = await self.table_repo.get_space_table(
+            space_id, connection_id, table_name, schema_name
+        )
+        if not association:
+            raise NotFoundError("Table association not found")
+
+        await self.db.delete(association)
+        await self.db.commit()

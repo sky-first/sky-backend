@@ -74,3 +74,24 @@ class SpaceMemberResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SpaceTableCreate(BaseModel):
+    """Space table creation schema."""
+
+    connection_id: UUID
+    table_name: str
+    schema_name: Optional[str] = None
+
+
+class SpaceTableResponse(BaseModel):
+    """Space table response schema."""
+
+    id: UUID
+    space_id: UUID
+    connection_id: UUID
+    table_name: str
+    schema_name: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
