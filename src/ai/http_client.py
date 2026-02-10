@@ -34,6 +34,7 @@ class AIServiceHTTPClient:
         is_personal: Optional[bool] = None,
         selected_datasets: Optional[List[str]] = None,
         instructions: Optional[str] = None,
+        response_format: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Query a connection using the AI service.
@@ -67,6 +68,8 @@ class AIServiceHTTPClient:
             payload["selected_datasets"] = selected_datasets
         if instructions:
             payload["instructions"] = instructions
+        if response_format:
+            payload["response_format"] = response_format
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(

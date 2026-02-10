@@ -419,8 +419,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         context_instructions += f"Relevant tables identified in the conversation: {', '.join(context_tables)}.\n"
 
                     context_instructions += (
-                        "Use this context to correctly identify tables and columns for the current widget question. "
-                        "If you need to join tables, look for relationships in the schema metadata."
+                        "Use this context to correctly identify tables and columns... "
+                        "CRITICAL: You MUST generate a SQL query to retrieve data for this chart. "
+                        "Do not return just text."
                     )
 
                     ai_req = AIQueryRequest(
@@ -432,8 +433,8 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                             question=w.get("question") or "",
                             knowledge=knowledge,
                             instructions=context_instructions,
-                            response_format="text",
-                            creativity=15,
+                            creativity=5,
+                            response_format="json",
                             length=35,
                             sql_instructions=(
                                 "If you generate SQL for a chart, prefer aggregated results with <= 15 rows. "

@@ -32,6 +32,7 @@ class RealAIService:
         is_personal: Optional[bool] = None,
         selected_datasets: Optional[List[str]] = None,
         instructions: Optional[str] = None,
+        response_format: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a query using the real AI service.
@@ -117,6 +118,7 @@ class RealAIService:
                 is_personal=is_personal,
                 selected_datasets=selected_datasets,
                 instructions=instructions,
+                response_format=response_format,
             )
 
             # Map response from AI service to our format
