@@ -412,6 +412,7 @@ class AIService:
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
                             instructions=configure_data.instructions,
+                            response_format=configure_data.response_format,
                         )
 
                         # Update query with real AI results
