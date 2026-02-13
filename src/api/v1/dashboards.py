@@ -43,6 +43,19 @@ from src.services.rbac_service import RBACService
 router = APIRouter()
 
 
+def _get_textual_layout() -> list[dict]:
+    """Return the exact 6-widget layout derived from Image 2 (orange boxes)."""
+    # G = 24px (grid unit)
+    return [
+        {"x": 72.0, "y": 72.0, "w": 456.0, "h": 96.0},  # w1: Header
+        {"x": 120.0, "y": 192.0, "w": 576.0, "h": 168.0},  # w2: Summary
+        {"x": 144.0, "y": 384.0, "w": 264.0, "h": 504.0},  # w3: Detail A
+        {"x": 432.0, "y": 384.0, "w": 216.0, "h": 360.0},  # w4: Detail B
+        {"x": 696.0, "y": 96.0, "w": 336.0, "h": 720.0},  # w5: Column 1
+        {"x": 1056.0, "y": 96.0, "w": 336.0, "h": 720.0},  # w6: Column 2
+    ]
+
+
 @router.get(
     "",
     response_model=List[DashboardResponse],
@@ -408,7 +421,11 @@ async def ai_plan_dashboard(
     )
 
     client = AIServiceHTTPClient()
-    max_widgets = min(int(body.max_widgets or 8), 8)
+    # Detect textual format early to cap max_widgets if needed
+    is_textual = "[Visualization Format: textual]" in (
+        getattr(body, "original_question", "") or getattr(body, "goal", "") or ""
+    )
+    max_widgets = min(int(body.max_widgets or 8), 6 if is_textual else 8)
 
     # Build override schema summary from backend connection_metadata so Davinci can plan even if the AI Engine
     # can't access DB catalog directly.
@@ -519,7 +536,11 @@ async def ai_build_dashboard(
         raise HTTPException(status_code=400, detail="No active connection available for this user.")
 
     # Get plan (either provided or generated)
-    max_widgets = min(int(body.max_widgets or 8), 8)
+    # Detect textual format early to cap max_widgets if needed
+    is_textual = "[Visualization Format: textual]" in (
+        getattr(body, "original_question", "") or getattr(body, "goal", "") or ""
+    )
+    max_widgets = min(int(body.max_widgets or 8), 6 if is_textual else 8)
 
     plan = body.plan
     if not plan:
@@ -554,19 +575,18 @@ async def ai_build_dashboard(
 
     # Execute widget questions and create widgets
     results: list[DashboardAIBuildWidgetResult] = []
-    # Invisible grid layout (aligned to frontend canvas gridSize=24).
-    #
-    # We use a 12-column grid with a fixed 3-col span for ALL widgets
-    # so we always get 4 widgets per row, starting from the top-left.
-    #
-    # All positions/sizes are multiples of 24px to "snap" nicely.
+    # Layout logic
+    is_textual = "[Visualization Format: textual]" in (body.original_question or body.goal or "")
+    textual_layout = _get_textual_layout() if is_textual else []
+
+    # Layout parameters
     GRID_COLS = 12
-    COL_W = 96  # 4 * GRID
-    GAP_X = 24  # 1 * GRID
-    STEP_X = COL_W + GAP_X  # 120
-    BASE_X = 72  # 3 * GRID
-    BASE_Y = 72  # 3 * GRID
-    ROW_STEP = 360  # 15 * GRID (prevents overlaps across mixed heights)
+    COL_W = 96
+    GAP_X = 24
+    STEP_X = COL_W + GAP_X
+    BASE_X = 72
+    BASE_Y = 72
+    ROW_STEP = 360
 
     def _widget_grid_span(widget_type: str) -> int:
         # Always 4 widgets per row (12 cols / 3 col span)
@@ -591,20 +611,26 @@ async def ai_build_dashboard(
 
     for idx, w in enumerate(plan.widgets[:max_widgets]):
         wtype = w.type or "chart"
-        span = _widget_grid_span(wtype)
-        if cursor_col + span > GRID_COLS:
-            cursor_row += 1
-            cursor_col = 0
 
-        x = float(BASE_X + cursor_col * STEP_X)
-        y = float(BASE_Y + cursor_row * ROW_STEP)
-        width = _span_width_px(span)
-        height = _widget_height(wtype)
+        # Apply fixed textual layout if available and applicable
+        if is_textual and idx < len(textual_layout):
+            pos_info = textual_layout[idx]
+            x, y = pos_info["x"], pos_info["y"]
+            width, height = pos_info["w"], pos_info["h"]
+        else:
+            span = _widget_grid_span(wtype)
+            if cursor_col + span > GRID_COLS:
+                cursor_row += 1
+                cursor_col = 0
+
+            x = float(BASE_X + cursor_col * STEP_X)
+            y = float(BASE_Y + cursor_row * ROW_STEP)
+            width = _span_width_px(span)
+            height = _widget_height(wtype)
+            cursor_col += span
 
         position = {"x": x, "y": y}
         size = {"width": width, "height": height}
-
-        cursor_col += span
 
         # For text widgets, don't execute queries.
         if wtype == "text":
@@ -767,7 +793,11 @@ async def ai_build_dashboard_async(
     if not connection_id:
         raise HTTPException(status_code=400, detail="No active connection available for this user.")
 
-    max_widgets = min(int(body.max_widgets or 8), 8)
+    # Detect textual format early to cap max_widgets if needed
+    is_textual = "[Visualization Format: textual]" in (
+        getattr(body, "original_question", "") or getattr(body, "goal", "") or ""
+    )
+    max_widgets = min(int(body.max_widgets or 8), 6 if is_textual else 8)
 
     job_repo = BaseRepository(db, DashboardBuildJob)
     context: dict | None = None

@@ -5,8 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from src.api.middleware import auth, cors
-from src.api.middleware import rate_limit
+from src.api.middleware import auth, cors, rate_limit
 from src.api.v1.router import api_router
 from src.config import settings
 from src.config.database import (
@@ -18,9 +17,9 @@ from src.config.database import (
     log_connection_stats,
 )
 from src.config.redis import close_redis, init_redis
+from src.core.errors.handlers import register_exception_handlers
 from src.core.logging import configure_logging, get_logger
 from src.core.middleware.correlation import CorrelationIdMiddleware
-from src.core.errors.handlers import register_exception_handlers
 
 # Configure structured logging
 configure_logging()
@@ -115,7 +114,7 @@ def custom_openapi():
     # Apply security globally to all endpoints
     openapi_schema["security"] = [{"BearerAuth": []}]
 
-    logger.info("openapi_schema_generated", paths=len(openapi_schema.get('paths', {})))
+    logger.info("openapi_schema_generated", paths=len(openapi_schema.get("paths", {})))
 
     # Cache the schema
     app.openapi_schema = openapi_schema
@@ -242,9 +241,11 @@ async def root():
         "api_prefix": settings.API_V1_PREFIX,
     }
 
+
 if __name__ == "__main__":
-    import uvicorn
     import sys
+
+    import uvicorn
 
     # Check if a custom port is required (e.g. from tests)
     port = 8000

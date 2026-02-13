@@ -394,16 +394,15 @@ async def test_rbac_best_role_for_user_for_connection_owner_and_perms():
     svc.crew_members.get_by_crew_and_user = AsyncMock(return_value=MagicMock(role="explorer"))
     svc._best_role_for_user_in_space = AsyncMock(return_value="navigator")
     assert await svc._best_role_for_user_for_connection(user_id, conn_id) == "navigator"
+
+
 # --- Tests for src/services/rbac_service.py ---
 
 
 def test_effective_permissions_helper():
     from src.services.rbac_service import EffectivePermissions
-    ep = EffectivePermissions(
-        platform_role="user",
-        crew_role="navigator",
-        permissions={"a": True}
-    )
+
+    ep = EffectivePermissions(platform_role="user", crew_role="navigator", permissions={"a": True})
     assert ep.permissions.get("a") is True
     assert ep.permissions.get("b", False) is False
 
@@ -414,14 +413,17 @@ def test_effective_permissions_helper():
 @pytest.mark.asyncio
 async def test_onboarding_service_simple():
     from src.services.onboarding_service import ensure_default_planet_and_space
+
     db = AsyncMock()
     user = MagicMock()
     user.id = uuid4()
     user.name = "Test User"
-    
-    with patch("src.services.onboarding_service.PlanetRepository") as pr, \
-         patch("src.services.onboarding_service.SpaceRepository") as sr:
-        
+
+    with (
+        patch("src.services.onboarding_service.PlanetRepository") as pr,
+        patch("src.services.onboarding_service.SpaceRepository") as sr,
+    ):
+
         pr.return_value.get_by_owner = AsyncMock(return_value=[MagicMock()])
         await ensure_default_planet_and_space(db, user)
 
@@ -432,15 +434,16 @@ async def test_onboarding_service_simple():
 @pytest.mark.asyncio
 async def test_starred_service_simple():
     from src.services.starred_service import StarredItemService
+
     db = AsyncMock()
     service = StarredItemService(db)
     user = MagicMock()
     user.id = uuid4()
-    
+
     service.starred_repo = MagicMock()
     service.starred_repo.get_by_user_and_item = AsyncMock(return_value=None)
     service.starred_repo.create_starred_item = AsyncMock()
     service.starred_repo.get_by_user = AsyncMock(return_value=[])
-    
+
     await service.star_item(user, uuid4(), "planet")
     await service.get_user_starred_items(user, "planet")

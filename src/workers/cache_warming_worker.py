@@ -171,4 +171,5 @@ async def _warm_ai_response_cache_async() -> Dict[str, Any]:
         # CRITICAL: dispose engine to prevent "Event loop is closed" errors in subsequent runs
         # since each celery task creates a new loop via asyncio.run()
         from src.config.database import engine
+
         await engine.dispose()

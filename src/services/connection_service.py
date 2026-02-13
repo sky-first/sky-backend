@@ -5,13 +5,16 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.http_client import AIServiceHTTPClient
 from src.config.settings import get_settings
 from src.connectors.registry import get_connector
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.user import User
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
+from src.repositories.space import SpaceRepository
 from src.schemas.connection import (
     ConnectionCreate,
     ConnectionMetadataResponse,
@@ -23,9 +26,6 @@ from src.schemas.connection import (
     ConnectionValidateResponse,
     TableMetadataSchema,
 )
-from src.ai.http_client import AIServiceHTTPClient
-from src.repositories.space import SpaceRepository
-import structlog
 
 logger = structlog.get_logger(__name__)
 
@@ -351,21 +351,19 @@ class ConnectionService:
                 logger.info(
                     "notifying_ai_service_for_connection_sync",
                     connection_id=str(connection_id),
-                    space_count=len(spaces)
+                    space_count=len(spaces),
                 )
 
                 # Notify AI service for each space
                 for space in spaces:
                     try:
                         await self.ai_client.discover_connection(
-                            connection_id=connection_id,
-                            space_id=space.id,
-                            run_in_background=True
+                            connection_id=connection_id, space_id=space.id, run_in_background=True
                         )
                         logger.info(
                             "ai_service_notified",
                             connection_id=str(connection_id),
-                            space_id=str(space.id)
+                            space_id=str(space.id),
                         )
                     except Exception as space_error:
                         # Log but don't propagate - fire-and-forget per space
@@ -373,7 +371,7 @@ class ConnectionService:
                             "ai_service_notification_failed_for_space",
                             connection_id=str(connection_id),
                             space_id=str(space.id),
-                            error=str(space_error)
+                            error=str(space_error),
                         )
 
             except Exception as e:
@@ -382,7 +380,7 @@ class ConnectionService:
                     "ai_service_notification_failed",
                     connection_id=str(connection_id),
                     error=str(e),
-                    exc_info=True
+                    exc_info=True,
                 )
 
             return ConnectionSyncResponse(

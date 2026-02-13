@@ -1,9 +1,9 @@
-
 import logging
 import sys
 from typing import Any, Dict
 
 import structlog
+
 from src.config import settings
 
 # Configure standard logging to intercept all logs
@@ -29,7 +29,8 @@ def configure_logging():
     ]
 
     structlog.configure(
-        processors=shared_processors + [
+        processors=shared_processors
+        + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),

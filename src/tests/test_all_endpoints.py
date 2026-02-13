@@ -2270,11 +2270,14 @@ class TestSSOEndpoints:
         assert response.status_code == 400
         data = response.json()
         error_info = data.get("error", {})
-        error_msg = (str(error_info.get("code", "")) + " " + str(error_info.get("message", "")) + " " + str(data.get("detail", ""))).strip()
-        assert (
-            "Unsupported" in error_msg
-            or "unsupported" in error_msg.lower()
-        )
+        error_msg = (
+            str(error_info.get("code", ""))
+            + " "
+            + str(error_info.get("message", ""))
+            + " "
+            + str(data.get("detail", ""))
+        ).strip()
+        assert "Unsupported" in error_msg or "unsupported" in error_msg.lower()
 
     def test_sso_callback_google_missing_code(self, client: TestClient):
         """Test GET /api/v1/auth/sso/google/callback - Missing code parameter."""
@@ -2297,11 +2300,14 @@ class TestSSOEndpoints:
         assert response.status_code == 400
         data = response.json()
         error_info = data.get("error", {})
-        error_msg = (str(error_info.get("code", "")) + " " + str(error_info.get("message", "")) + " " + str(data.get("detail", ""))).strip()
-        assert (
-            "Unsupported" in error_msg
-            or "unsupported" in error_msg.lower()
-        )
+        error_msg = (
+            str(error_info.get("code", ""))
+            + " "
+            + str(error_info.get("message", ""))
+            + " "
+            + str(data.get("detail", ""))
+        ).strip()
+        assert "Unsupported" in error_msg or "unsupported" in error_msg.lower()
 
 
 # ============================================================================

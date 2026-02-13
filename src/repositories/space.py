@@ -125,10 +125,7 @@ class SpaceRepository(BaseRepository[Space]):
         result = await self.db.execute(
             select(Space)
             .join(SpaceConnection, Space.id == SpaceConnection.space_id)
-            .where(
-                SpaceConnection.connection_id == connection_id,
-                Space.deleted_at.is_(None)
-            )
+            .where(SpaceConnection.connection_id == connection_id, Space.deleted_at.is_(None))
         )
         return list(result.scalars().all())
 
@@ -192,13 +189,15 @@ class SpaceTableRepository(BaseRepository[SpaceTable]):
         Returns:
             List[SpaceTable]: List of linked tables
         """
-        result = await self.db.execute(
-            select(SpaceTable).where(SpaceTable.space_id == space_id)
-        )
+        result = await self.db.execute(select(SpaceTable).where(SpaceTable.space_id == space_id))
         return list(result.scalars().all())
 
     async def get_space_table(
-        self, space_id: UUID, connection_id: UUID, table_name: str, schema_name: Optional[str] = None
+        self,
+        space_id: UUID,
+        connection_id: UUID,
+        table_name: str,
+        schema_name: Optional[str] = None,
     ) -> Optional[SpaceTable]:
         """
         Get a specific space table connection.

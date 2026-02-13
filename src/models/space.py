@@ -37,9 +37,7 @@ class Space(Base):
     space_connections = relationship(
         "SpaceConnection", back_populates="space", cascade="all, delete-orphan"
     )
-    space_tables = relationship(
-        "SpaceTable", back_populates="space", cascade="all, delete-orphan"
-    )
+    space_tables = relationship("SpaceTable", back_populates="space", cascade="all, delete-orphan")
     members = relationship("SpaceMember", back_populates="space", cascade="all, delete-orphan")
 
     __table_args__ = (

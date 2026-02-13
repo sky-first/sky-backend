@@ -144,7 +144,9 @@ async def get_ai_cache_warm_candidates(
         if not connection_uuid:
             try:
                 # This matches what AIService does when connection is missing.
-                user_conns = await conn_repo.get_by_user(user_id, filters={"status": "active"}, limit=1)
+                user_conns = await conn_repo.get_by_user(
+                    user_id, filters={"status": "active"}, limit=1
+                )
                 if user_conns:
                     connection_uuid = user_conns[0].id
             except Exception:
@@ -195,8 +197,10 @@ async def get_ai_cache_warm_candidates(
         # we try to find ANY space the user belongs to as a target for warming.
         if not space_id:
             if user_id not in user_primary_space:
-                from src.models.space import Space, SpaceMember
                 from sqlalchemy import or_
+
+                from src.models.space import Space, SpaceMember
+
                 stmt_space = (
                     select(Space.id)
                     .outerjoin(SpaceMember, SpaceMember.space_id == Space.id)

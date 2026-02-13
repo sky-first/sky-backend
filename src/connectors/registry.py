@@ -22,7 +22,9 @@ class MockConnector(BaseConnector):
         """Execute query - returns empty list for now."""
         return []
 
-    async def sync_data(self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def sync_data(
+        self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Sync data - returns empty result for now."""
         return {"success": True}
 
