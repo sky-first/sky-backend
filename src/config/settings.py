@@ -1,7 +1,7 @@
 """Application settings using Pydantic Settings."""
 
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -133,7 +133,10 @@ class Settings(BaseSettings):
         default="",
         description="Redis connection URL (empty to skip Redis - OK for local development)",
     )
-    REDIS_HOST: str = "localhost"
+    REDIS_HOST: Optional[str] = Field(
+        default=None,
+        description="Redis host (empty to use REDIS_URL or fallback to localhost in dev)",
+    )
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_PASSWORD: str = ""
@@ -153,6 +156,12 @@ class Settings(BaseSettings):
         if not self.REDIS_URL and redis_host:
             auth = f":{redis_password}@" if redis_password else ""
             self.REDIS_URL = f"redis://{auth}{redis_host}:{redis_port}/{redis_db}"
+        elif not self.REDIS_URL and not redis_host and self.ENVIRONMENT != "development":
+            # Safety check for non-development environments
+            import logging
+            logging.getLogger(__name__).warning(
+                "REDIS_URL and REDIS_HOST are both empty in non-development environment"
+            )
 
         return self
 

@@ -30,8 +30,33 @@ async def init_redis() -> None:
     """Initialize Redis connection."""
     global _redis
 
-    # Parse Redis URL manually to handle special characters in password
-    redis_url = settings.REDIS_URL
+    # Strategy: Try atomic variables first (Host/Port) as they are more robust in Kubernetes
+    # and avoid manual parsing of complex URLs with special characters.
+    if settings.REDIS_HOST and settings.REDIS_HOST != "localhost":
+        try:
+            logger.info(
+                f"Connecting to Redis via atomic vars: host={settings.REDIS_HOST}, port={settings.REDIS_PORT}"
+            )
+            _redis = Redis(
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                db=settings.REDIS_DB,
+                password=settings.REDIS_PASSWORD or None,
+                encoding="utf-8",
+                decode_responses=True,
+                max_connections=50,
+            )
+            # Verify connection
+            await _redis.ping()
+            return
+        except Exception as e:
+            logger.warning(
+                f"Failed to connect to Redis via atomic vars, falling back to URL parsing: {e}"
+            )
+            _redis = None
+
+    # Fallback/Default: Parse Redis URL manually to handle special characters in password
+    redis_url = settings.REDIS_URL or "redis://localhost:6379/0"
 
     # Extract components from URL
     # Format: redis://:password@host:port/db or redis://username:password@host:port/db
