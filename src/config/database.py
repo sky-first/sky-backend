@@ -1,13 +1,13 @@
 """Database configuration and session management."""
 
 import logging
+import sys
 from typing import Any, AsyncGenerator, Dict
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool
-import sys
 
 from src.config.settings import settings
 

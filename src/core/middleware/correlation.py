@@ -1,4 +1,3 @@
-
 import uuid
 from typing import Optional
 
@@ -12,18 +11,13 @@ logger = structlog.get_logger(__name__)
 
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
     def __init__(
-        self, 
-        app: ASGIApp, 
-        header_name: str = "X-Correlation-ID",
-        validate_uuid: bool = True
+        self, app: ASGIApp, header_name: str = "X-Correlation-ID", validate_uuid: bool = True
     ):
         super().__init__(app)
         self.header_name = header_name
         self.validate_uuid = validate_uuid
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         # Extract or generate correlation ID
         correlation_id = request.headers.get(self.header_name)
 
@@ -39,7 +33,7 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
             "request_started",
             path=request.url.path,
             method=request.method,
-            client_ip=request.client.host if request.client else None
+            client_ip=request.client.host if request.client else None,
         )
 
         response = await call_next(request)
@@ -52,7 +46,7 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
             "request_completed",
             path=request.url.path,
             method=request.method,
-            status_code=response.status_code
+            status_code=response.status_code,
         )
 
         return response

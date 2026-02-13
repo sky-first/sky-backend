@@ -1,22 +1,22 @@
+from typing import Any
 
 import structlog
-from typing import Any
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from jose import JWTError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.core.exceptions import (
-    BaseAPIException,
-    UnauthorizedError,
-    ForbiddenError,
-    NotFoundError,
-    ValidationError,
     BadRequestError,
+    BaseAPIException,
     ConflictError,
-    InternalServerError
+    ForbiddenError,
+    InternalServerError,
+    NotFoundError,
+    UnauthorizedError,
+    ValidationError,
 )
-from jose import JWTError
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +31,7 @@ def register_exception_handlers(app: FastAPI):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="INTERNAL_ERROR",
             message="An unexpected error occurred.",
-            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id")
+            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
 
     @app.exception_handler(StarletteHTTPException)
@@ -44,7 +44,7 @@ def register_exception_handlers(app: FastAPI):
             status_code=exc.status_code,
             code="HTTP_ERROR",
             message=str(exc.detail),
-            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id")
+            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
 
     @app.exception_handler(RequestValidationError)
@@ -55,7 +55,7 @@ def register_exception_handlers(app: FastAPI):
             code="VALIDATION_ERROR",
             message="Invalid request format.",
             details=exc.errors(),
-            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id")
+            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
 
     @app.exception_handler(BaseAPIException)
@@ -79,7 +79,7 @@ def register_exception_handlers(app: FastAPI):
             status_code=exc.status_code,
             code=code,
             message=exc.message,
-            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id")
+            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
 
     @app.exception_handler(JWTError)
@@ -89,11 +89,13 @@ def register_exception_handlers(app: FastAPI):
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="UNAUTHORIZED",
             message="Invalid authentication token.",
-            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id")
+            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
 
 
-def _json_response(status_code: int, code: str, message: str, details: Any = None, correlation_id: str = None):
+def _json_response(
+    status_code: int, code: str, message: str, details: Any = None, correlation_id: str = None
+):
     content = {
         "error": {
             "code": code,
@@ -107,7 +109,4 @@ def _json_response(status_code: int, code: str, message: str, details: Any = Non
     if correlation_id:
         content["error"]["correlation_id"] = correlation_id
 
-    return JSONResponse(
-        status_code=status_code,
-        content=content
-    )
+    return JSONResponse(status_code=status_code, content=content)

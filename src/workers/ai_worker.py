@@ -48,12 +48,12 @@ def _get_textual_layout() -> list[dict]:
     """Return the exact 6-widget layout derived from Image 2 (orange boxes)."""
     # G = 24px (grid unit)
     return [
-        {"x": 72.0, "y": 72.0, "w": 456.0, "h": 96.0},    # w1: Header
-        {"x": 120.0, "y": 192.0, "w": 576.0, "h": 168.0}, # w2: Summary
-        {"x": 144.0, "y": 384.0, "w": 264.0, "h": 504.0}, # w3: Detail A
-        {"x": 432.0, "y": 384.0, "w": 216.0, "h": 360.0}, # w4: Detail B
+        {"x": 72.0, "y": 72.0, "w": 456.0, "h": 96.0},  # w1: Header
+        {"x": 120.0, "y": 192.0, "w": 576.0, "h": 168.0},  # w2: Summary
+        {"x": 144.0, "y": 384.0, "w": 264.0, "h": 504.0},  # w3: Detail A
+        {"x": 432.0, "y": 384.0, "w": 216.0, "h": 360.0},  # w4: Detail B
         {"x": 696.0, "y": 96.0, "w": 336.0, "h": 720.0},  # w5: Column 1
-        {"x": 1056.0, "y": 96.0, "w": 336.0, "h": 720.0}, # w6: Column 2
+        {"x": 1056.0, "y": 96.0, "w": 336.0, "h": 720.0},  # w6: Column 2
     ]
 
 
@@ -111,7 +111,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             connection_id = str(job.connection_id)
             goal = job.goal
             language = job.language or "en"
-            
+
             # Detect textual format early to cap max_widgets if needed
             is_textual = "[Visualization Format: textual]" in (goal or "")
             max_widgets = min(int(job.max_widgets or 8), 6 if is_textual else 8)
@@ -264,6 +264,15 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             is_textual = "[Visualization Format: textual]" in (goal or "")
             textual_layout = _get_textual_layout() if is_textual else []
 
+            # Layout parameters
+            GRID_COLS = 12
+            COL_W = 96
+            GAP_X = 24
+            STEP_X = COL_W + GAP_X
+            BASE_X = 72
+            BASE_Y = 72
+            ROW_STEP = 360
+
             def _widget_grid_span(_widget_type: str) -> int:
                 return 3
 
@@ -285,7 +294,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
 
             for idx, w in enumerate(widgets):
                 wtype = w.get("type") or "chart"
-                
+
                 # Apply fixed textual layout if available and applicable
                 if is_textual and idx < len(textual_layout):
                     pos_info = textual_layout[idx]

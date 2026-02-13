@@ -322,7 +322,9 @@ class SpaceService:
 
         return space_connection
 
-    async def remove_space_connection(self, space_id: UUID, connection_id: UUID, user: User) -> None:
+    async def remove_space_connection(
+        self, space_id: UUID, connection_id: UUID, user: User
+    ) -> None:
         """
         Remove a connection from a space.
 
@@ -489,7 +491,7 @@ class SpaceService:
         # Get explicitly selected tables
         selected_tables_entities = await self.table_repo.get_space_tables(space_id)
         selected_tables_map = {
-            (str(t.connection_id), t.table_name, t.schema_name): True 
+            (str(t.connection_id), t.table_name, t.schema_name): True
             for t in selected_tables_entities
         }
 
@@ -509,7 +511,11 @@ class SpaceService:
                 if isinstance(table_data, dict):
                     t_name = table_data.get("name", "")
                     t_schema = table_data.get("schema")
-                    is_selected = (str(space_conn.connection_id), t_name, t_schema) in selected_tables_map
+                    is_selected = (
+                        str(space_conn.connection_id),
+                        t_name,
+                        t_schema,
+                    ) in selected_tables_map
 
                     tables.append(
                         {
@@ -519,14 +525,18 @@ class SpaceService:
                             "table_name": t_name,
                             "schema": t_schema,
                             "row_count": table_data.get("row_count"),
-                            "selected": is_selected
+                            "selected": is_selected,
                         }
                     )
                 else:
                     # If it's already a TableMetadata object
                     t_name = getattr(table_data, "name", "")
                     t_schema = getattr(table_data, "schema", None)
-                    is_selected = (str(space_conn.connection_id), t_name, t_schema) in selected_tables_map
+                    is_selected = (
+                        str(space_conn.connection_id),
+                        t_name,
+                        t_schema,
+                    ) in selected_tables_map
 
                     tables.append(
                         {
@@ -536,7 +546,7 @@ class SpaceService:
                             "table_name": t_name,
                             "schema": t_schema,
                             "row_count": getattr(table_data, "row_count", None),
-                            "selected": is_selected
+                            "selected": is_selected,
                         }
                     )
 
@@ -578,7 +588,12 @@ class SpaceService:
         return {"message": "Table linked successfully", "id": str(space_table.id)}
 
     async def remove_space_table(
-        self, space_id: UUID, connection_id: UUID, table_name: str, schema_name: Optional[str], user: User
+        self,
+        space_id: UUID,
+        connection_id: UUID,
+        table_name: str,
+        schema_name: Optional[str],
+        user: User,
     ) -> None:
         """
         Remove a specific table from a space.
