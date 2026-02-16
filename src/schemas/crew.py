@@ -36,6 +36,8 @@ class CrewResponse(CrewBase):
     created_by: UUID
     created_at: datetime
     updated_at: datetime
+    member_count: int = 0
+    connection_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -51,12 +51,13 @@ class CrewService:
             List[CrewResponse]: List of crews
         """
         if space_id:
-            crews = await self.crew_repo.get_by_space(space_id, skip=skip, limit=limit)
+            crews_data = await self.crew_repo.get_by_space_with_stats(space_id, skip=skip, limit=limit)
+            return [CrewResponse.model_validate(c) for c in crews_data]
         else:
             # Get all crews user has access to
+            # TODO: Implement get_all_with_stats if needed
             crews = await self.crew_repo.get_all(skip=skip, limit=limit)
-
-        return [CrewResponse.model_validate(c) for c in crews]
+            return [CrewResponse.model_validate(c) for c in crews]
 
     async def get_crew(self, crew_id: UUID, user: User) -> CrewResponse:
         """
@@ -73,16 +74,16 @@ class CrewService:
             NotFoundError: If crew not found
             ForbiddenError: If user doesn't have access
         """
-        crew = await self.crew_repo.get_by_id(crew_id)
-        if not crew:
+        crew_data = await self.crew_repo.get_by_id_with_stats(crew_id)
+        if not crew_data:
             raise NotFoundError("Crew not found")
 
         # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
+        space = await self.space_repo.get_by_id(crew_data["space_id"])
         if not space or space.created_by != user.id:
             raise ForbiddenError("Access denied to this crew")
 
-        return CrewResponse.model_validate(crew)
+        return CrewResponse.model_validate(crew_data)
 
     async def create_crew(self, user: User, crew_data: CrewCreate) -> CrewResponse:
         """
@@ -156,9 +157,10 @@ class CrewService:
 
         crew = await self.crew_repo.update(crew_id, **update_data)
         await self.db.commit()
-        await self.db.refresh(crew)
-
-        return CrewResponse.model_validate(crew)
+        
+        # Fetch updated crew with stats
+        updated_crew_data = await self.crew_repo.get_by_id_with_stats(crew_id)
+        return CrewResponse.model_validate(updated_crew_data)
 
     async def delete_crew(self, crew_id: UUID, user: User) -> None:
         """
