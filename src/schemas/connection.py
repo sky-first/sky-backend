@@ -82,6 +82,9 @@ class TableMetadataSchema(BaseModel):
     row_count: Optional[int] = None
     columns: Optional[List[ColumnMetadataSchema]] = None
     last_updated: Optional[datetime] = None
+    health: Optional[str] = "Healthy"
+    usage_score: Optional[int] = 0
+    tags: Optional[List[str]] = []
 
     model_config = ConfigDict(populate_by_name=True)
 
