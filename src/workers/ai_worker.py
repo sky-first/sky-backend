@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone
 from typing import List
 from uuid import UUID
+import uuid
 
 from src.workers.celery_app import celery_app
 
@@ -263,6 +264,11 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             # Layout logic
             is_textual = "[Visualization Format: textual]" in (goal or "")
             textual_layout = _get_textual_layout() if is_textual else []
+            
+            # If textual layout is active, FORCE all widgets to be insight cards
+            if is_textual:
+                for w in widgets:
+                    w["type"] = "insight"
 
             def _widget_grid_span(_widget_type: str) -> int:
                 return 3
@@ -441,6 +447,12 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         "CRITICAL: You MUST generate a SQL query to retrieve data for this chart. "
                         "Do not return just text."
                     )
+                    
+                    if wtype == "insight":
+                         context_instructions += (
+                            "\nFor this Insight Card, provide a concise analytical summary in the answer field, "
+                            "and ensure the data sample supports the insight with a relevant chart structure."
+                        )
 
                     ai_req = AIQueryRequest(
                         question=w.get("question") or "",
@@ -471,52 +483,93 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         "chosen_datasets": getattr(query_resp, "chosen_datasets", None),
                         "isPlaceholder": False,
                     }
-
-                    # Preserve planner chart viz + mapping
-                    if wtype == "chart" and isinstance(viz, dict) and viz.get("type"):
+                    
+                    if wtype == "insight":
+                        # Map query result to Insight data structure
+                        # Wide widgets get text_beside_chart, tall get text_above_chart
+                        layout_type = "text_beside_chart" if idx < 2 else "text_above_chart"
+                        
+                        # Simple heuristic for icon priority
+                        priority = "medium"
+                        answer_lower = (query_resp.answer or "").lower()
+                        if "critical" in answer_lower or "urgent" in answer_lower or "fail" in answer_lower:
+                            priority = "critical"
+                        elif "high" in answer_lower or "important" in answer_lower or "significant" in answer_lower:
+                            priority = "high"
+                            
+                        # Chart type fallback
+                        chart_type = "bar"
+                        if isinstance(viz, dict) and viz.get("type"):
+                            chart_type = viz.get("type")
+                            
+                        widget_data.update({
+                            "isInsight": True,
+                            "insightTitle": w.get("title") or "Insight",
+                            "layout_type": layout_type,
+                            "section_id": f"insight-{idx}-{uuid.uuid4()}",
+                            "content": {
+                                "text_block": {
+                                    "title": "Analysis",
+                                    "body": query_resp.answer or "No insight generated.",
+                                    "priority": priority
+                                },
+                                "chart_block": {
+                                    "chartType": chart_type,
+                                    "data": query_resp.data_sample or [],
+                                    "chartTitle": "Supporting Data"
+                                }
+                            }
+                        })
+                    
+                    # Preserve planner chart viz + mapping ONLY for non-insight charts
+                    elif wtype == "chart" and isinstance(viz, dict) and viz.get("type"):
                         widget_data["type"] = viz.get("type")
                         if isinstance(viz.get("mapping"), dict):
                             widget_data["mapping"] = viz.get("mapping")
 
                     # :novo: NOVA FUNCIONALIDADE: Sugerir título melhor baseado nos dados
-                    final_title = w.get("title") or ""
-                    try:
-                        suggested_title = await client.suggest_widget_title(
-                            question=w.get("question") or "",
-                            data_sample=query_resp.data_sample or [],
-                            answer=query_resp.answer,
-                            current_title=w.get("title") or "",
-                            language=language,
-                        )
-                        if suggested_title and suggested_title.strip():
-                            generic_titles = [
-                                "widget",
-                                "chart",
-                                "kpi",
-                                "table",
-                                "text",
-                                "gráfico",
-                                "dados",
-                            ]
-                            current_lower = (w.get("title") or "").lower().strip()
-                            suggested_lower = suggested_title.lower().strip()
-                            if (
-                                current_lower in generic_titles
-                                or suggested_lower not in generic_titles
-                            ):
-                                final_title = suggested_title
-                                logger.info(
-                                    "Widget title updated: '%s' -> '%s'",
-                                    w.get("title"),
-                                    final_title,
-                                )
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to suggest title for widget %s: %s. Using original title.",
-                            widget_id,
-                            e,
-                        )
+                    # Skip for Insight cards (they manage their own title via content.text_block.title or w.get("title"))
+                    if wtype == "insight":
+                        final_title = w.get("title") or "Insight"
+                    else:
                         final_title = w.get("title") or ""
+                        try:
+                            suggested_title = await client.suggest_widget_title(
+                                question=w.get("question") or "",
+                                data_sample=query_resp.data_sample or [],
+                                answer=query_resp.answer,
+                                current_title=w.get("title") or "",
+                                language=language,
+                            )
+                            if suggested_title and suggested_title.strip():
+                                generic_titles = [
+                                    "widget",
+                                    "chart",
+                                    "kpi",
+                                    "table",
+                                    "text",
+                                    "gráfico",
+                                    "dados",
+                                ]
+                                current_lower = (w.get("title") or "").lower().strip()
+                                suggested_lower = suggested_title.lower().strip()
+                                if (
+                                    current_lower in generic_titles
+                                    or suggested_lower not in generic_titles
+                                ):
+                                    final_title = suggested_title
+                                    logger.info(
+                                        "Widget title updated: '%s' -> '%s'",
+                                        w.get("title"),
+                                        final_title,
+                                    )
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to suggest title for widget %s: %s. Using original title.",
+                                widget_id,
+                                e,
+                            )
+                            final_title = w.get("title") or ""
 
                     await widget_repo.update(
                         widget_id,

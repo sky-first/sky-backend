@@ -2,6 +2,7 @@
 
 from typing import List, Optional
 from uuid import UUID
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -598,6 +599,8 @@ async def ai_build_dashboard(
 
     for idx, w in enumerate(plan.widgets[:max_widgets]):
         wtype = w.type or "chart"
+        if is_textual:
+            wtype = "insight"
 
         # Apply fixed textual layout if available and applicable
         if is_textual and idx < len(textual_layout):
@@ -698,7 +701,46 @@ async def ai_build_dashboard(
         except Exception:
             widget_data["used_tables"] = None
         widget_config = {"viz": w.viz or {}}
-        if wtype == "chart" and isinstance(w.viz, dict) and w.viz.get("type"):
+        
+        # Populate specific structure for Insight cards
+        if wtype == "insight":
+            # Map query result to Insight data structure
+            # Wide widgets get text_beside_chart, tall get text_above_chart
+            layout_type = "text_beside_chart" if idx < 2 else "text_above_chart"
+            
+            # Simple heuristic for icon priority
+            priority = "medium"
+            answer_lower = (query_resp.answer or "").lower()
+            if "critical" in answer_lower or "urgent" in answer_lower or "fail" in answer_lower:
+                priority = "critical"
+            elif "high" in answer_lower or "important" in answer_lower or "significant" in answer_lower:
+                priority = "high"
+                
+            # Chart type fallback
+            chart_type = "bar"
+            if w.viz and isinstance(w.viz, dict) and w.viz.get("type"):
+                chart_type = w.viz.get("type")
+                
+            widget_data.update({
+                "isInsight": True,
+                "insightTitle": w.title,
+                "layout_type": layout_type,
+                "section_id": f"insight-{idx}-{uuid.uuid4()}",
+                "content": {
+                    "text_block": {
+                        "title": "Analysis",
+                        "body": query_resp.answer or "No insight generated.",
+                        "priority": priority
+                    },
+                    "chart_block": {
+                        "chartType": chart_type,
+                        "data": query_resp.data_sample or [],
+                        "chartTitle": "Supporting Data"
+                    }
+                }
+            })
+            
+        elif wtype == "chart" and isinstance(w.viz, dict) and w.viz.get("type"):
             # Backward-compatible path for current frontend ChartWidget
             widget_data["type"] = w.viz.get("type")
             if isinstance(w.viz.get("mapping"), dict):
