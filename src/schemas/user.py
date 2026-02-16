@@ -44,7 +44,10 @@ class UserUpdate(BaseModel):
     preferences: Optional[dict] = None
     ai_tone: Optional[str] = None
     ai_style: Optional[str] = None
+    ai_tone: Optional[str] = None
+    ai_style: Optional[str] = None
     ai_context: Optional[str] = None
+    status: Optional[str] = Field(None, pattern="^(active|away|offline)$")
 
 
 class UserResponse(UserBase):
@@ -58,6 +61,8 @@ class UserResponse(UserBase):
     selected_domain: Optional[str] = None
     preferences: dict = Field(default_factory=dict)
     last_login_at: Optional[datetime] = None
+    last_active_at: Optional[datetime] = None
+    status: str = "offline"
     created_at: datetime
     updated_at: datetime
 
