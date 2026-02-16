@@ -80,9 +80,6 @@ api_router.include_router(workspaces.router, prefix="/workspaces", tags=["Worksp
 # Starred items endpoints
 api_router.include_router(starred.router, prefix="/starred", tags=["Starred"])
 
-# Notification endpoints
-api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
-
 # Comment endpoints
 api_router.include_router(comments.router, prefix="/comments", tags=["Comments"])
 
