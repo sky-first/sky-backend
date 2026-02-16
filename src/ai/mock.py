@@ -1,105 +1,89 @@
-"""Mock AI service for development."""
-
 import asyncio
-from typing import Any, Dict, List
+import logging
+import random
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class MockAIService:
-    """Mock AI service for development and testing."""
-
-    async def generate_sql(self, question: str, context: Dict[str, Any]) -> str:
-        """
-        Generate SQL from natural language question.
-
-        Args:
-            question: Natural language question
-            context: Context (tables, schemas, etc.)
-
-        Returns:
-            str: Generated SQL query
-        """
-        await asyncio.sleep(0.5)  # Simulate processing time
-        tables = context.get("tables", [])
-        if tables:
-            table_names = ", ".join([t.get("name", "") for t in tables])
-            return f"SELECT * FROM {table_names} LIMIT 1000;"
-        return "SELECT 1;"
+    """Mock implementation of AI processing for development and testing."""
 
     async def generate_answer(
-        self, question: str, sql_result: List[Dict[str, Any]], config: Dict[str, Any]
+        self, question: str, knowledge: List[str], context: Optional[Dict[str, Any]] = None
     ) -> str:
-        """
-        Generate natural language answer from SQL results.
+        """Mock answer generation."""
+        await asyncio.sleep(0.5)
+        return (
+            f"This is a mock answer for the question: '{question}' based on knowledge: {knowledge}"
+        )
 
-        Args:
-            question: Original question
-            sql_result: SQL query results
-            config: Configuration (creativity, length, etc.)
-
-        Returns:
-            str: Generated answer
-        """
-        await asyncio.sleep(1.0)  # Simulate processing time
-        return f"Esta é uma resposta gerada para: '{question}'\n\nAqui está uma análise detalhada com insights relevantes e recomendações baseadas nos dados disponíveis."
+    async def process_query(self, query_id: str, configure_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Mock query processing."""
+        await asyncio.sleep(1)
+        return {
+            "id": query_id,
+            "answer": f"Mock answer for {configure_data.get('question', 'query')}",
+            "status": "completed",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
 
     async def process_pipeline(
         self, query_id: str, configure_data: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Process AI pipeline.
-
-        Args:
-            query_id: Query ID
-            configure_data: Configuration data
-
-        Returns:
-            Dict[str, Any]: Pipeline result
-        """
-        await asyncio.sleep(2.0)  # Simulate processing time
+        """Mock pipeline processing with 6 steps."""
+        await asyncio.sleep(0.2)
+        steps = [
+            {
+                "name": "Question",
+                "kind": "question",
+                "status": "COMPLETED",
+                "content": configure_data.get("question", ""),
+            },
+            {
+                "name": "Orchestrator",
+                "kind": "orchestrator",
+                "status": "COMPLETED",
+                "content": "Analyzing intent...",
+            },
+            {
+                "name": "Project",
+                "kind": "project",
+                "status": "COMPLETED",
+                "content": "Schema mapping...",
+            },
+            {
+                "name": "SQL",
+                "kind": "sql",
+                "status": "COMPLETED",
+                "content": "SELECT * FROM mock_table;",
+            },
+            {
+                "name": "Tables",
+                "kind": "tables",
+                "status": "COMPLETED",
+                "content": "Processing results...",
+            },
+            {
+                "name": "Answer",
+                "kind": "answer",
+                "status": "COMPLETED",
+                "content": f"Mock summary for {configure_data.get('question', 'query')}",
+            },
+        ]
         return {
+            "id": query_id,
             "status": "completed",
-            "steps": [
-                {
-                    "id": "1",
-                    "name": "Question",
-                    "kind": "question",
-                    "status": "COMPLETED",
-                    "content": configure_data.get("question", ""),
-                },
-                {
-                    "id": "2",
-                    "name": "Orchestrator",
-                    "kind": "orchestrator",
-                    "status": "COMPLETED",
-                    "content": "Processing...",
-                },
-                {
-                    "id": "3",
-                    "name": "Project",
-                    "kind": "project",
-                    "status": "COMPLETED",
-                    "content": "Projected data",
-                },
-                {
-                    "id": "4",
-                    "name": "SQL",
-                    "kind": "sql",
-                    "status": "COMPLETED",
-                    "content": "SELECT * FROM tables LIMIT 1000;",
-                },
-                {
-                    "id": "5",
-                    "name": "Tables",
-                    "kind": "tables",
-                    "status": "COMPLETED",
-                    "content": "Tables processed",
-                },
-                {
-                    "id": "6",
-                    "name": "Answer",
-                    "kind": "answer",
-                    "status": "COMPLETED",
-                    "content": "Answer generated",
-                },
-            ],
+            "steps": steps,
         }
+
+    async def generate_sql(self, question: str, context: Optional[Dict[str, Any]] = None) -> str:
+        """Mock SQL generation."""
+        await asyncio.sleep(0.3)
+        return "SELECT count(*) FROM users WHERE created_at > '2025-01-01';"
+
+    async def analyze_question(self, question: str, knowledge: List[str]) -> Dict[str, Any]:
+        """Mock question analysis."""
+        await asyncio.sleep(0.2)
+        return {"intent": "query", "entities": ["users", "sales"], "complexity": "simple"}

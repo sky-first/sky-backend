@@ -2,10 +2,10 @@
 
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import List
 from uuid import UUID
-import uuid
 
 from src.workers.celery_app import celery_app
 
@@ -49,12 +49,12 @@ def _get_textual_layout() -> list[dict]:
     """Return the exact 6-widget layout derived from Image 2 (orange boxes)."""
     # G = 24px (grid unit)
     return [
-        {"x": 72.0, "y": 72.0, "w": 456.0, "h": 96.0},    # w1: Header
-        {"x": 120.0, "y": 192.0, "w": 576.0, "h": 168.0}, # w2: Summary
-        {"x": 144.0, "y": 384.0, "w": 264.0, "h": 504.0}, # w3: Detail A
-        {"x": 432.0, "y": 384.0, "w": 216.0, "h": 360.0}, # w4: Detail B
+        {"x": 72.0, "y": 72.0, "w": 456.0, "h": 96.0},  # w1: Header
+        {"x": 120.0, "y": 192.0, "w": 576.0, "h": 168.0},  # w2: Summary
+        {"x": 144.0, "y": 384.0, "w": 264.0, "h": 504.0},  # w3: Detail A
+        {"x": 432.0, "y": 384.0, "w": 216.0, "h": 360.0},  # w4: Detail B
         {"x": 696.0, "y": 96.0, "w": 336.0, "h": 720.0},  # w5: Column 1
-        {"x": 1056.0, "y": 96.0, "w": 336.0, "h": 720.0}, # w6: Column 2
+        {"x": 1056.0, "y": 96.0, "w": 336.0, "h": 720.0},  # w6: Column 2
     ]
 
 
@@ -112,10 +112,10 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             connection_id = str(job.connection_id)
             goal = job.goal
             language = job.language or "en"
-            
-            # Detect textual format early to cap max_widgets if needed
-            is_textual = "[Visualization Format: textual]" in (goal or "")
-            max_widgets = min(int(job.max_widgets or 8), 6 if is_textual else 8)
+
+            # Force textual/infographic mode for AI-built dashboards as requested by USER
+            is_textual = True
+            max_widgets = min(int(job.max_widgets or 8), 6)
 
             ai_service = AIService(db)
             crew_ids = await ai_service._get_user_crew_ids(
@@ -261,10 +261,17 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             # Plan widgets (cap to max_widgets)
             widgets = list(plan_payload.get("widgets") or [])[:max_widgets]
 
-            # Layout logic
-            is_textual = "[Visualization Format: textual]" in (goal or "")
-            textual_layout = _get_textual_layout() if is_textual else []
-            
+            textual_layout = _get_textual_layout()
+
+            # Layout parameters
+            GRID_COLS = 12
+            COL_W = 96
+            GAP_X = 24
+            STEP_X = COL_W + GAP_X
+            BASE_X = 72
+            BASE_Y = 72
+            ROW_STEP = 360
+
             # If textual layout is active, FORCE all widgets to be insight cards
             if is_textual:
                 for w in widgets:
@@ -291,7 +298,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
 
             for idx, w in enumerate(widgets):
                 wtype = w.get("type") or "chart"
-                
+
                 # Apply fixed textual layout if available and applicable
                 if is_textual and idx < len(textual_layout):
                     pos_info = textual_layout[idx]
@@ -314,6 +321,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     "isPlaceholder": True,
                     "placeholderMode": "auto",
                     "question": w.get("question") or "",
+                    "isInsight": True if is_textual else False,
                 }
                 # Keep chart type/mapping if known (useful once we "bring it to life")
                 if wtype == "chart" and isinstance(viz, dict):
@@ -355,7 +363,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             failed_count = 0
             failed_widget_ids: list[str] = []
 
-            for w, wid in zip(widgets, placeholder_ids):
+            for idx, (w, wid) in enumerate(zip(widgets, placeholder_ids)):
                 await db.refresh(job)
                 if job.status == "cancelled":
                     return
@@ -447,9 +455,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         "CRITICAL: You MUST generate a SQL query to retrieve data for this chart. "
                         "Do not return just text."
                     )
-                    
+
                     if wtype == "insight":
-                         context_instructions += (
+                        context_instructions += (
                             "\nFor this Insight Card, provide a concise analytical summary in the answer field, "
                             "and ensure the data sample supports the insight with a relevant chart structure."
                         )
@@ -483,44 +491,54 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         "chosen_datasets": getattr(query_resp, "chosen_datasets", None),
                         "isPlaceholder": False,
                     }
-                    
+
                     if wtype == "insight":
                         # Map query result to Insight data structure
                         # Wide widgets get text_beside_chart, tall get text_above_chart
                         layout_type = "text_beside_chart" if idx < 2 else "text_above_chart"
-                        
+
                         # Simple heuristic for icon priority
                         priority = "medium"
                         answer_lower = (query_resp.answer or "").lower()
-                        if "critical" in answer_lower or "urgent" in answer_lower or "fail" in answer_lower:
+                        if (
+                            "critical" in answer_lower
+                            or "urgent" in answer_lower
+                            or "fail" in answer_lower
+                        ):
                             priority = "critical"
-                        elif "high" in answer_lower or "important" in answer_lower or "significant" in answer_lower:
+                        elif (
+                            "high" in answer_lower
+                            or "important" in answer_lower
+                            or "significant" in answer_lower
+                        ):
                             priority = "high"
-                            
+
                         # Chart type fallback
                         chart_type = "bar"
                         if isinstance(viz, dict) and viz.get("type"):
                             chart_type = viz.get("type")
-                            
-                        widget_data.update({
-                            "isInsight": True,
-                            "insightTitle": w.get("title") or "Insight",
-                            "layout_type": layout_type,
-                            "section_id": f"insight-{idx}-{uuid.uuid4()}",
-                            "content": {
-                                "text_block": {
-                                    "title": "Analysis",
-                                    "body": query_resp.answer or "No insight generated.",
-                                    "priority": priority
+
+                        widget_data.update(
+                            {
+                                "isInsight": True,
+                                "insightTitle": w.get("title") or "Insight",
+                                "layout_type": layout_type,
+                                "section_id": f"insight-{idx}-{uuid.uuid4()}",
+                                "content": {
+                                    "text_block": {
+                                        "title": "Analysis",
+                                        "body": query_resp.answer or "No insight generated.",
+                                        "priority": priority,
+                                    },
+                                    "chart_block": {
+                                        "chartType": chart_type,
+                                        "data": query_resp.data_sample or [],
+                                        "chartTitle": "Supporting Data",
+                                    },
                                 },
-                                "chart_block": {
-                                    "chartType": chart_type,
-                                    "data": query_resp.data_sample or [],
-                                    "chartTitle": "Supporting Data"
-                                }
                             }
-                        })
-                    
+                        )
+
                     # Preserve planner chart viz + mapping ONLY for non-insight charts
                     elif wtype == "chart" and isinstance(viz, dict) and viz.get("type"):
                         widget_data["type"] = viz.get("type")

@@ -1,8 +1,8 @@
 """Dashboard endpoints."""
 
+import uuid
 from typing import List, Optional
 from uuid import UUID
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,12 +48,12 @@ def _get_textual_layout() -> list[dict]:
     """Return the exact 6-widget layout derived from Image 2 (orange boxes)."""
     # G = 24px (grid unit)
     return [
-        {"x": 72.0, "y": 72.0, "w": 456.0, "h": 96.0},    # w1: Header
-        {"x": 120.0, "y": 192.0, "w": 576.0, "h": 168.0}, # w2: Summary
-        {"x": 144.0, "y": 384.0, "w": 264.0, "h": 504.0}, # w3: Detail A
-        {"x": 432.0, "y": 384.0, "w": 216.0, "h": 360.0}, # w4: Detail B
+        {"x": 72.0, "y": 72.0, "w": 456.0, "h": 96.0},  # w1: Header
+        {"x": 120.0, "y": 192.0, "w": 576.0, "h": 168.0},  # w2: Summary
+        {"x": 144.0, "y": 384.0, "w": 264.0, "h": 504.0},  # w3: Detail A
+        {"x": 432.0, "y": 384.0, "w": 216.0, "h": 360.0},  # w4: Detail B
         {"x": 696.0, "y": 96.0, "w": 336.0, "h": 720.0},  # w5: Column 1
-        {"x": 1056.0, "y": 96.0, "w": 336.0, "h": 720.0}, # w6: Column 2
+        {"x": 1056.0, "y": 96.0, "w": 336.0, "h": 720.0},  # w6: Column 2
     ]
 
 
@@ -423,8 +423,9 @@ async def ai_plan_dashboard(
 
     client = AIServiceHTTPClient()
     # Detect textual format early to cap max_widgets if needed
-    is_textual = "[Visualization Format: textual]" in (getattr(body, "original_question", "") or getattr(body, "goal", "") or "")
-    max_widgets = min(int(body.max_widgets or 8), 6 if is_textual else 8)
+    # Force textual/infographic mode for AI-built dashboards as requested by USER
+    is_textual = True
+    max_widgets = min(int(body.max_widgets or 8), 6)
 
     # Build override schema summary from backend connection_metadata so Davinci can plan even if the AI Engine
     # can't access DB catalog directly.
@@ -535,9 +536,9 @@ async def ai_build_dashboard(
         raise HTTPException(status_code=400, detail="No active connection available for this user.")
 
     # Get plan (either provided or generated)
-    # Detect textual format early to cap max_widgets if needed
-    is_textual = "[Visualization Format: textual]" in (getattr(body, "original_question", "") or getattr(body, "goal", "") or "")
-    max_widgets = min(int(body.max_widgets or 8), 6 if is_textual else 8)
+    # Force textual/infographic mode for AI-built dashboards as requested by USER
+    is_textual = True
+    max_widgets = min(int(body.max_widgets or 8), 6)
 
     plan = body.plan
     if not plan:
@@ -572,9 +573,16 @@ async def ai_build_dashboard(
 
     # Execute widget questions and create widgets
     results: list[DashboardAIBuildWidgetResult] = []
-    # Layout logic
-    is_textual = "[Visualization Format: textual]" in (body.original_question or body.goal or "")
-    textual_layout = _get_textual_layout() if is_textual else []
+    textual_layout = _get_textual_layout()
+
+    # Layout parameters
+    GRID_COLS = 12
+    COL_W = 96
+    GAP_X = 24
+    STEP_X = COL_W + GAP_X
+    BASE_X = 72
+    BASE_Y = 72
+    ROW_STEP = 360
 
     def _widget_grid_span(widget_type: str) -> int:
         # Always 4 widgets per row (12 cols / 3 col span)
@@ -631,8 +639,8 @@ async def ai_build_dashboard(
                     dashboard_id=dashboard.id,
                     type="text",
                     title=w.title,
-                    position=position,
-                    size=size,
+                    position={"x": x, "y": y},
+                    size={"width": width, "height": height},
                     data=widget_data,
                     config={"viz": w.viz or {}},
                     connection_id=UUID(connection_id),
@@ -701,45 +709,51 @@ async def ai_build_dashboard(
         except Exception:
             widget_data["used_tables"] = None
         widget_config = {"viz": w.viz or {}}
-        
+
         # Populate specific structure for Insight cards
         if wtype == "insight":
             # Map query result to Insight data structure
             # Wide widgets get text_beside_chart, tall get text_above_chart
             layout_type = "text_beside_chart" if idx < 2 else "text_above_chart"
-            
+
             # Simple heuristic for icon priority
             priority = "medium"
             answer_lower = (query_resp.answer or "").lower()
             if "critical" in answer_lower or "urgent" in answer_lower or "fail" in answer_lower:
                 priority = "critical"
-            elif "high" in answer_lower or "important" in answer_lower or "significant" in answer_lower:
+            elif (
+                "high" in answer_lower
+                or "important" in answer_lower
+                or "significant" in answer_lower
+            ):
                 priority = "high"
-                
+
             # Chart type fallback
             chart_type = "bar"
             if w.viz and isinstance(w.viz, dict) and w.viz.get("type"):
                 chart_type = w.viz.get("type")
-                
-            widget_data.update({
-                "isInsight": True,
-                "insightTitle": w.title,
-                "layout_type": layout_type,
-                "section_id": f"insight-{idx}-{uuid.uuid4()}",
-                "content": {
-                    "text_block": {
-                        "title": "Analysis",
-                        "body": query_resp.answer or "No insight generated.",
-                        "priority": priority
+
+            widget_data.update(
+                {
+                    "isInsight": True,
+                    "insightTitle": w.title,
+                    "layout_type": layout_type,
+                    "section_id": f"insight-{idx}-{uuid.uuid4()}",
+                    "content": {
+                        "text_block": {
+                            "title": "Analysis",
+                            "body": query_resp.answer or "No insight generated.",
+                            "priority": priority,
+                        },
+                        "chart_block": {
+                            "chartType": chart_type,
+                            "data": query_resp.data_sample or [],
+                            "chartTitle": "Supporting Data",
+                        },
                     },
-                    "chart_block": {
-                        "chartType": chart_type,
-                        "data": query_resp.data_sample or [],
-                        "chartTitle": "Supporting Data"
-                    }
                 }
-            })
-            
+            )
+
         elif wtype == "chart" and isinstance(w.viz, dict) and w.viz.get("type"):
             # Backward-compatible path for current frontend ChartWidget
             widget_data["type"] = w.viz.get("type")
@@ -752,8 +766,8 @@ async def ai_build_dashboard(
                 dashboard_id=dashboard.id,
                 type=wtype,
                 title=w.title,
-                position=position,
-                size=size,
+                position={"x": x, "y": y},
+                size={"width": width, "height": height},
                 data=widget_data,
                 config=widget_config,
                 connection_id=UUID(connection_id),
@@ -820,8 +834,9 @@ async def ai_build_dashboard_async(
         raise HTTPException(status_code=400, detail="No active connection available for this user.")
 
     # Detect textual format early to cap max_widgets if needed
-    is_textual = "[Visualization Format: textual]" in (getattr(body, "original_question", "") or getattr(body, "goal", "") or "")
-    max_widgets = min(int(body.max_widgets or 8), 6 if is_textual else 8)
+    # Force textual/infographic mode for AI-built dashboards as requested by USER
+    is_textual = True
+    max_widgets = min(int(body.max_widgets or 8), 6)
 
     job_repo = BaseRepository(db, DashboardBuildJob)
     context: dict | None = None
