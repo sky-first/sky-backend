@@ -503,6 +503,36 @@ async def login_with_invite(
 
 
 @router.post(
+    "/invite/accept",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}},
+    summary="Accept Invite",
+    description="Accept invite, set password and login",
+)
+async def accept_invite_endpoint(
+    login_data: InviteLoginRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> LoginResponse:
+    """
+    Accept invite endpoint.
+
+    Args:
+        login_data: Invite token and new password
+        db: Database session
+
+    Returns:
+        LoginResponse: Access token, refresh token, and user data
+
+    Raises:
+        BadRequestError: If token is invalid or expired
+    """
+    invite_service = InviteService(db)
+    login_response = await invite_service.accept_invite(login_data.token, login_data.password)
+    return LoginResponse(**login_response)
+
+
+@router.post(
     "/invite/generate",
     response_model=InviteGenerateResponse,
     status_code=status.HTTP_201_CREATED,

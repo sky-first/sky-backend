@@ -301,6 +301,36 @@ async def get_connection_metadata(
     return await connection_service.get_metadata(connection_id, current_user)
 
 
+@router.put(
+    "/{connection_id}/metadata",
+    response_model=ConnectionMetadataResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Update connection metadata",
+    description="Update connection metadata (e.g., column tags, descriptions)",
+)
+async def update_connection_metadata(
+    connection_id: UUID,
+    metadata_update: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConnectionMetadataResponse:
+    """
+    Update connection metadata.
+
+    Args:
+        connection_id: Connection ID
+        metadata_update: Partial metadata update
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        ConnectionMetadataResponse: Updated connection metadata
+    """
+    connection_service = ConnectionService(db)
+    return await connection_service.update_metadata(connection_id, current_user, metadata_update)
+
+
 @router.get(
     "/{connection_id}/tables",
     response_model=List[TableMetadataSchema],

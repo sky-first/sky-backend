@@ -12,7 +12,9 @@ from src.models.user import User
 from src.repositories.user import UserRepository
 from src.schemas.user import UserCreate, UserResponse, UserUpdate
 from src.services.auth_service import user_to_response_dict
+from src.services.email_service import EmailService
 from src.services.onboarding_service import ensure_default_planet_and_space
+from src.config.settings import settings
 
 
 class UserService:
@@ -99,13 +101,27 @@ class UserService:
         if existing_user:
             raise BadRequestError("User with this email already exists")
 
-        # Create user
+        # Generate secure invite token
+        import secrets
+        from datetime import datetime, timedelta, timezone
+        
+        invite_token = secrets.token_urlsafe(32)
+        invite_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        
+        # Override password with a random secure one (user must set it via invite)
+        # This prevents the fixed "TempPassword123!" from being usable
+        secure_random_password = secrets.token_urlsafe(16)
+        
+        # Create user with invite data
         user = await self.user_repo.create(
             email=user_data.email,
-            password_hash=get_password_hash(user_data.password),
+            password_hash=get_password_hash(secure_random_password),
             name=user_data.name,
             avatar=user_data.avatar,
             role=user_data.role,
+            invite_token=invite_token,
+            invite_expires_at=invite_expires_at,
+            invited_by=current_user.id,
         )
 
         await self.db.commit()
@@ -113,6 +129,23 @@ class UserService:
 
         # Ensure default planet/space for new users created by admins
         await ensure_default_planet_and_space(self.db, user)
+
+        # Send invite email
+        try:
+            email_service = EmailService()
+            # Define frontend URL (should be in settings, fallback to localhost)
+            frontend_url = "http://localhost:3000"
+            if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
+                # Take first origin as frontend URL
+                frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
+            
+            invite_link = f"{frontend_url}/auth/accept-invite?token={invite_token}"
+            
+            email_success = email_service.send_invite_email(user.email, invite_link, current_user.name)
+            if not email_success:
+                logger.warning(f"Failed to send invite email to {user.email}")
+        except Exception as e:
+            logger.error(f"Error sending invite email: {e}")
 
         return UserResponse.model_validate(user_to_response_dict(user))
 
@@ -297,6 +330,46 @@ class UserService:
         if not user:
             raise NotFoundError("User not found")
 
-        # TODO: Implement email sending for invitation
-        # For now, just return the user
+        # Check if user needs a new invite token
+        import secrets
+        from datetime import datetime, timedelta, timezone
+
+        should_generate_token = False
+        if not user.invite_token:
+            should_generate_token = True
+        elif user.invite_expires_at:
+            # Check expiry (normalize to UTC)
+            expires_at = user.invite_expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            
+            if expires_at < datetime.now(timezone.utc):
+                should_generate_token = True
+        
+        if should_generate_token:
+            user.invite_token = secrets.token_urlsafe(32)
+            user.invite_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+            user.invited_by = current_user.id
+            await self.db.commit()
+            await self.db.refresh(user)
+
+        # Send invite email
+        try:
+            email_service = EmailService()
+            # Define frontend URL (should be in settings, fallback to localhost)
+            frontend_url = "http://localhost:3000"
+            if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
+                # Take first origin as frontend URL
+                frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
+            
+            invite_link = f"{frontend_url}/auth/accept-invite?token={user.invite_token}"
+            
+            email_success = email_service.send_invite_email(user.email, invite_link, current_user.name)
+            if not email_success:
+                logger.warning(f"Failed to send invite email to {user.email}")
+            else:
+                logger.info(f"✅ Invite email sent to {user.email}")
+        except Exception as e:
+            logger.error(f"Error sending invite email: {e}")
+
         return UserResponse.model_validate(user_to_response_dict(user))

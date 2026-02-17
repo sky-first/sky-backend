@@ -436,6 +436,53 @@ class ConnectionService:
             last_metadata_update=metadata.last_metadata_update,
         )
 
+    async def update_metadata(
+        self, connection_id: UUID, user: User, metadata_update: dict
+    ) -> ConnectionMetadataResponse:
+        """
+        Update connection metadata (e.g., column tags, descriptions).
+
+        Args:
+            connection_id: Connection ID
+            user: Current user
+            metadata_update: Partial metadata to update
+
+        Returns:
+            ConnectionMetadataResponse: Updated metadata
+
+        Raises:
+            NotFoundError: If connection not found
+            ForbiddenError: If user doesn't have access
+        """
+        connection = await self.connection_repo.get_by_id(connection_id)
+        if not connection:
+            raise NotFoundError("Connection not found")
+
+        if connection.created_by != user.id:
+            raise ForbiddenError("Access denied to this connection")
+
+        # Get existing metadata
+        existing_metadata = await self.metadata_repo.get_by_connection_id(connection_id)
+        if not existing_metadata:
+            raise NotFoundError("Connection metadata not found")
+
+        # Merge the update with existing metadata
+        update_data = {}
+        if "tables" in metadata_update:
+            update_data["tables"] = metadata_update["tables"]
+        if "schemas" in metadata_update:
+            update_data["schemas"] = metadata_update["schemas"]
+        
+        # Update last_metadata_update timestamp
+        update_data["last_metadata_update"] = datetime.now(timezone.utc)
+
+        # Update metadata
+        await self.metadata_repo.update(existing_metadata.id, **update_data)
+        await self.db.commit()
+
+        # Return updated metadata
+        return await self.get_metadata(connection_id, user)
+
     async def get_tables(self, connection_id: UUID, user: User) -> List[TableMetadataSchema]:
         """
         Get connection tables.

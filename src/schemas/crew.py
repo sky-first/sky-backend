@@ -67,3 +67,15 @@ class CrewMemberResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CrewStatusResponse(BaseModel):
+    """Crew status response with running tasks info."""
+
+    crew_id: UUID
+    has_running_tasks: bool
+    running_tasks_count: int
+    last_task_started_at: Optional[datetime] = None
+    active_task_ids: Optional[list[str]] = None
+
+    model_config = ConfigDict(from_attributes=True)

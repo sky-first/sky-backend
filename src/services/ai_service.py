@@ -1258,9 +1258,23 @@ class AIService:
             return ValidateSQLResponse(**result)
         except HTTPException:
             raise
+        except httpx.ConnectError as e:
+            logger.error(f"AI service connection failed: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"AI service unavailable: Connection failed to {e.request.url}",
+            )
+        except httpx.TimeoutException as e:
+            logger.error(f"AI service timeout: {e}")
+            raise HTTPException(
+                status_code=504, detail=f"AI service timeout: {e.request.url}"
+            )
         except httpx.HTTPStatusError as e:
             logger.error(f"AI service HTTP error: {e.response.status_code} - {e.response.text}")
-            raise HTTPException(status_code=502, detail=f"AI service error: {str(e)}")
+            raise HTTPException(
+                status_code=502, detail=f"AI service error ({e.response.status_code}): {e.response.text}"
+            )
         except Exception as e:
-            logger.error(f"Error validating SQL: {str(e)}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error validating SQL: {str(e)}")
+            error_msg = str(e) or repr(e) or "Unknown error"
+            logger.error(f"Error validating SQL: {error_msg}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error validating SQL: {error_msg}")

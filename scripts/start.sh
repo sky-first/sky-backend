@@ -25,16 +25,14 @@ elif [ -d ".venv" ]; then
 fi
 
 # Instala dependências se necessário
-if [ ! -f ".deps_installed" ]; then
-    echo "📦 Instalando dependências..."
-    if [ -d "venv" ]; then
-        venv/bin/pip install -q -r requirements.txt
-    elif [ -d ".venv" ]; then
-        .venv/bin/pip install -q -r requirements.txt
-    else
-        pip install -q -r requirements.txt
-    fi
-    touch .deps_installed
+# Sempre verifica e instala dependências para garantir ambiente atualizado
+echo "📦 Verificando dependências..."
+if [ -d "venv" ]; then
+    venv/bin/pip install -q -r requirements.txt
+elif [ -d ".venv" ]; then
+    .venv/bin/pip install -q -r requirements.txt
+else
+    pip install -q -r requirements.txt
 fi
 
 # Configura variáveis de ambiente
