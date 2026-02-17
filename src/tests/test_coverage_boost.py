@@ -114,9 +114,10 @@ def test_sync_connection_metadata_task():
 
 def test_sync_connection_metadata_task_exception_branch():
     func = getattr(sync_connection_metadata, "__wrapped__", sync_connection_metadata)
+    conn_id = str(uuid4())
     with patch("src.workers.sync_worker.logger.info", side_effect=RuntimeError("boom")):
         with pytest.raises(RuntimeError, match="boom"):
-            func("conn_id")
+            func(conn_id)
 
 
 # --- Tests for src/workers/ai_worker.py ---
