@@ -1266,13 +1266,12 @@ class AIService:
             )
         except httpx.TimeoutException as e:
             logger.error(f"AI service timeout: {e}")
-            raise HTTPException(
-                status_code=504, detail=f"AI service timeout: {e.request.url}"
-            )
+            raise HTTPException(status_code=504, detail=f"AI service timeout: {e.request.url}")
         except httpx.HTTPStatusError as e:
             logger.error(f"AI service HTTP error: {e.response.status_code} - {e.response.text}")
             raise HTTPException(
-                status_code=502, detail=f"AI service error ({e.response.status_code}): {e.response.text}"
+                status_code=502,
+                detail=f"AI service error ({e.response.status_code}): {e.response.text}",
             )
         except Exception as e:
             error_msg = str(e) or repr(e) or "Unknown error"

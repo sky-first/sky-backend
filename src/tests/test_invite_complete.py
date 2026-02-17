@@ -1,12 +1,14 @@
-import pytest
 from unittest.mock import patch
-from src.services.user_service import UserService
-from src.services.invite_service import InviteService
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import select
+
+from src.core.security import verify_password
 from src.models.user import User
 from src.schemas.user import UserCreate
-from src.core.security import verify_password
-from sqlalchemy import select
-from uuid import uuid4
+from src.services.invite_service import InviteService
+from src.services.user_service import UserService
 
 
 @pytest.mark.asyncio
@@ -20,7 +22,7 @@ async def test_invite_user_flow(db_session, faker):
         name="Admin",
         role="admin",
         password_hash="hash",
-        email_verified=True
+        email_verified=True,
     )
     db_session.add(admin)
     await db_session.commit()
@@ -32,7 +34,7 @@ async def test_invite_user_flow(db_session, faker):
         name="Invitee",
         role="user",
         avatar=None,
-        password="TempPassword123!"
+        password="TempPassword123!",
     )
 
     # Instantiate services
@@ -87,7 +89,9 @@ async def test_reinvite_user_flow(db_session):
     user_service = UserService(db_session)
 
     # Create admin
-    admin = User(id=uuid4(), email="admin2@example.com", role="admin", password_hash="x", name="Admin")
+    admin = User(
+        id=uuid4(), email="admin2@example.com", role="admin", password_hash="x", name="Admin"
+    )
     db_session.add(admin)
 
     # Create user with expired token or no token
@@ -97,7 +101,7 @@ async def test_reinvite_user_flow(db_session):
         name="Reinvite",
         role="user",
         status="offline",
-        password_hash="oldhash"
+        password_hash="oldhash",
     )
     db_session.add(user)
     await db_session.commit()
@@ -127,9 +131,7 @@ async def test_email_service_mock_mode(faker):
 
         # Test successful send (logged only)
         success = email_service.send_invite_email(
-            "test@example.com",
-            "http://localhost:3000/invite?token=123",
-            "Admin Name"
+            "test@example.com", "http://localhost:3000/invite?token=123", "Admin Name"
         )
         assert success is True
 
@@ -154,9 +156,7 @@ async def test_email_service_smtp_mode(faker):
             mock_server = MockSMTP.return_value.__enter__.return_value
 
             success = email_service.send_invite_email(
-                "test@example.com",
-                "http://localhost:3000/invite?token=123",
-                "Admin Name"
+                "test@example.com", "http://localhost:3000/invite?token=123", "Admin Name"
             )
 
             assert success is True
@@ -183,10 +183,6 @@ async def test_email_service_failure(faker):
             # configure mock to raise exception on sendmail
             mock_server.sendmail.side_effect = Exception("SMTP Connection Failed")
 
-            success = email_service.send_invite_email(
-                "test@example.com",
-                "link",
-                "Admin"
-            )
+            success = email_service.send_invite_email("test@example.com", "link", "Admin")
 
             assert success is False

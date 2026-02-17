@@ -79,7 +79,9 @@ class EmailService:
             logger.error(f"❌ Failed to send email to {to_email}: {str(e)}")
             return False
 
-    def send_invite_email(self, to_email: str, invite_link: str, inviter_name: str = "Administrator") -> bool:
+    def send_invite_email(
+        self, to_email: str, invite_link: str, inviter_name: str = "Administrator"
+    ) -> bool:
         """
         Send invitation email.
 

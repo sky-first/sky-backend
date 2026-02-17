@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.core.permissions import check_permission, get_user_permissions
 from src.core.security import get_password_hash
@@ -15,7 +16,6 @@ from src.schemas.user import UserCreate, UserResponse, UserUpdate
 from src.services.auth_service import user_to_response_dict
 from src.services.email_service import EmailService
 from src.services.onboarding_service import ensure_default_planet_and_space
-from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +144,9 @@ class UserService:
 
             invite_link = f"{frontend_url}/auth/accept-invite?token={invite_token}"
 
-            email_success = email_service.send_invite_email(user.email, invite_link, current_user.name)
+            email_success = email_service.send_invite_email(
+                user.email, invite_link, current_user.name
+            )
             if not email_success:
                 logger.warning(f"Failed to send invite email to {user.email}")
         except Exception as e:
@@ -367,7 +369,9 @@ class UserService:
 
             invite_link = f"{frontend_url}/auth/accept-invite?token={user.invite_token}"
 
-            email_success = email_service.send_invite_email(user.email, invite_link, current_user.name)
+            email_success = email_service.send_invite_email(
+                user.email, invite_link, current_user.name
+            )
             if not email_success:
                 logger.warning(f"Failed to send invite email to {user.email}")
             else:
