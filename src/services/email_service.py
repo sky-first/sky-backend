@@ -58,7 +58,7 @@ class EmailService:
             if text_content:
                 part1 = MIMEText(text_content, "plain")
                 msg.attach(part1)
-            
+
             part2 = MIMEText(html_content, "html")
             msg.attach(part2)
 
@@ -66,12 +66,12 @@ class EmailService:
             with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
                 if self.use_tls:
                     server.starttls()
-                
+
                 if self.smtp_user and self.smtp_password:
                     server.login(self.smtp_user, self.smtp_password)
-                
+
                 server.sendmail(self.from_email, to_email, msg.as_string())
-            
+
             logger.info(f"✅ Email sent to {to_email}")
             return True
 
@@ -92,7 +92,7 @@ class EmailService:
             bool: Success status
         """
         subject = f"You have been invited to join {settings.APP_NAME}"
-        
+
         html_content = f"""
         <html>
           <body style="font-family: Arial, sans-serif; color: #333;">
@@ -115,19 +115,18 @@ class EmailService:
           </body>
         </html>
         """
-        
+
         text_content = f"""
         Welcome to {settings.APP_NAME}
-        
+
         Hello,
-        
+
         You have been invited by {inviter_name} to join the workspace.
-        
+
         Please accept the invitation and set your password by visiting this link:
         {invite_link}
-        
+
         This link will expire in 7 days.
         """
-        
-        return self.send_email(to_email, subject, html_content, text_content)
 
+        return self.send_email(to_email, subject, html_content, text_content)

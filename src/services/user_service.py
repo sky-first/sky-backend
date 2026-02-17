@@ -1,5 +1,6 @@
 """User service."""
 
+import logging
 from typing import List
 from uuid import UUID
 
@@ -15,6 +16,8 @@ from src.services.auth_service import user_to_response_dict
 from src.services.email_service import EmailService
 from src.services.onboarding_service import ensure_default_planet_and_space
 from src.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -104,14 +107,14 @@ class UserService:
         # Generate secure invite token
         import secrets
         from datetime import datetime, timedelta, timezone
-        
+
         invite_token = secrets.token_urlsafe(32)
         invite_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-        
+
         # Override password with a random secure one (user must set it via invite)
         # This prevents the fixed "TempPassword123!" from being usable
         secure_random_password = secrets.token_urlsafe(16)
-        
+
         # Create user with invite data
         user = await self.user_repo.create(
             email=user_data.email,
@@ -138,9 +141,9 @@ class UserService:
             if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
                 # Take first origin as frontend URL
                 frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
-            
+
             invite_link = f"{frontend_url}/auth/accept-invite?token={invite_token}"
-            
+
             email_success = email_service.send_invite_email(user.email, invite_link, current_user.name)
             if not email_success:
                 logger.warning(f"Failed to send invite email to {user.email}")
@@ -342,10 +345,10 @@ class UserService:
             expires_at = user.invite_expires_at
             if expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
-            
+
             if expires_at < datetime.now(timezone.utc):
                 should_generate_token = True
-        
+
         if should_generate_token:
             user.invite_token = secrets.token_urlsafe(32)
             user.invite_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
@@ -361,9 +364,9 @@ class UserService:
             if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
                 # Take first origin as frontend URL
                 frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
-            
+
             invite_link = f"{frontend_url}/auth/accept-invite?token={user.invite_token}"
-            
+
             email_success = email_service.send_invite_email(user.email, invite_link, current_user.name)
             if not email_success:
                 logger.warning(f"Failed to send invite email to {user.email}")

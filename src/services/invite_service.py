@@ -265,7 +265,8 @@ class InviteService:
         await self.db.refresh(user)
 
         # Create tokens
-        from src.schemas.user import UserResponse, user_to_response_dict
+        from src.schemas.user import UserResponse
+        from src.services.auth_service import user_to_response_dict
 
         token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
         access_token = create_access_token(token_data)
@@ -338,7 +339,8 @@ class InviteService:
         await ensure_default_planet_and_space(self.db, user)
 
         # Create tokens
-        from src.schemas.user import UserResponse, user_to_response_dict
+        from src.schemas.user import UserResponse
+        from src.services.auth_service import user_to_response_dict
 
         token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
         access_token = create_access_token(token_data)
