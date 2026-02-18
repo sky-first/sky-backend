@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class DashboardAIPlanWidget(BaseModel):
     widget_key: str = Field(..., description="Stable key within the plan (e.g., w1, w2).")
-    type: str = Field(..., pattern="^(chart|kpi|table|text)$")
+    type: str = Field(..., pattern="^(chart|kpi|table|text|infographic)$")
     title: str
     question: str
     viz: Optional[Dict[str, Any]] = None

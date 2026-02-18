@@ -87,3 +87,55 @@ class MockAIService:
         """Mock question analysis."""
         await asyncio.sleep(0.2)
         return {"intent": "query", "entities": ["users", "sales"], "complexity": "simple"}
+
+    async def generate_infographic(
+        self,
+        question: str,
+        answer: str,
+        data_sample: Optional[List[Dict[str, Any]]] = None,
+        language: str = "en",
+        style: str = "mix",
+    ) -> Dict[str, Any]:
+        """Mock infographic generation."""
+        await asyncio.sleep(0.5)
+        
+        # Simple style variation for mock
+        prefix = f"[{style.upper()}] " if style != "mix" else ""
+        
+        return {
+            "title": f"{prefix}Mock Infographic Title",
+            "subtitle": f"Analysis based on mock data ({style})",
+            "mainValue": "$1.2M",
+            "mainValueLabel": "Total Revenue",
+            "summary": "This is a mock summary for visualization testing.",
+            "highlightedValue": "+15%",
+            "marginLabel": "Gross Margin",
+            "marginValue": "45%",
+            "cacLabel": "CAC",
+            "cacValue": "$120",
+            "trajectoryTitle": "Growth Trajectory",
+            "trajectoryData": [
+                {"name": "Jan", "value": 100},
+                {"name": "Feb", "value": 120},
+                {"name": "Mar", "value": 150},
+            ],
+            "recordHighLabel": "All-time High",
+            "drivers": [
+                {
+                    "name": "New Product Launch",
+                    "impact": "High",
+                    "description": "Successful launch of V2 product line.",
+                },
+                {
+                    "name": "Market Expansion",
+                    "impact": "Medium",
+                    "description": "Entry into new regional markets.",
+                },
+            ],
+            "whyTitle": "Why is this happening?",
+            "whyContent": "Mock explanation for trends.",
+            "strategicTitle": "Strategic Outlook",
+            "strategicContent": "Focus on retention and upselling.",
+            "outlookTitle": "Forecast",
+            "outlookContent": "Stable growth expected.",
+        }

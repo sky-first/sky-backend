@@ -273,14 +273,21 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             ROW_STEP = 360
 
             # If textual layout is active, FORCE all widgets to be insight cards
+            # UNLESS they are explicitly marked as 'infographic'
             if is_textual:
                 for w in widgets:
-                    w["type"] = "insight"
+                    if w.get("type") != "infographic":
+                        w["type"] = "insight"
 
             def _widget_grid_span(_widget_type: str) -> int:
+                # Infographic takes full width
+                if _widget_type == "infographic":
+                    return 12
                 return 3
 
             def _widget_height(widget_type: str) -> float:
+                if widget_type == "infographic":
+                    return float(800)  # Taller for infographic
                 if widget_type == "table":
                     return float(360)
                 if widget_type in ("kpi", "text"):
@@ -300,7 +307,8 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 wtype = w.get("type") or "chart"
 
                 # Apply fixed textual layout if available and applicable
-                if is_textual and idx < len(textual_layout):
+                # SKIP fixed layout for infographic widgets to let them flow naturally
+                if is_textual and idx < len(textual_layout) and wtype != "infographic":
                     pos_info = textual_layout[idx]
                     x, y = pos_info["x"], pos_info["y"]
                     width, height = pos_info["w"], pos_info["h"]
@@ -321,7 +329,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     "isPlaceholder": True,
                     "placeholderMode": "auto",
                     "question": w.get("question") or "",
-                    "isInsight": True if is_textual else False,
+                    "isInsight": True if (is_textual and wtype != "infographic") else False,
                 }
                 # Keep chart type/mapping if known (useful once we "bring it to life")
                 if wtype == "chart" and isinstance(viz, dict):
@@ -350,7 +358,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             await db.refresh(job)
 
             # 2) Fill each widget and update in-place (placeholder -> real)
-            from src.schemas.ai import AIQueryRequest, ConfigureData
+            from src.schemas.ai import AIQueryRequest, ConfigureData, GenerateInfographicRequest
 
             # Get additional context for the AI engine
             ctx = {}
@@ -456,6 +464,12 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         "Do not return just text."
                     )
 
+                    if wtype == "infographic":
+                        context_instructions += (
+                            "\nFor this Infographic, provide a broad and detailed analysis in the answer field. "
+                            "Include metrics, growth rates, drivers, and strategic outlook in the text. "
+                        )
+
                     if wtype == "insight":
                         context_instructions += (
                             "\nFor this Insight Card, provide a concise analytical summary in the answer field, "
@@ -492,7 +506,43 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         "isPlaceholder": False,
                     }
 
-                    if wtype == "insight":
+                    print(f"DEBUG: Processing widget {idx}, type={wtype}", file=sys.stderr)
+                    if wtype == "infographic":
+                        # Generate structured infographic data
+                        try:
+                            # Extract style from widget config or data
+                            # Default to 'mix' if not specified
+                            style = "mix"
+                            if isinstance(viz, dict) and viz.get("style"):
+                                style = viz.get("style")
+                            elif isinstance(w.get("data"), dict) and w.get("data").get("style"):
+                                style = w.get("data").get("style")
+                            
+                            print(f"DEBUG: Generating infographic with style={style}", file=sys.stderr)
+
+                            infographic_req = GenerateInfographicRequest(
+                                question=w.get("question") or "",
+                                answer=query_resp.answer or "",
+                                data_sample=query_resp.data_sample,
+                                language=language,
+                                style=style,
+                            )
+                            infographic_data = await ai_service.generate_infographic(user_id, infographic_req)
+                            print(f"DEBUG: Generated data: {str(infographic_data)[:100]}...", file=sys.stderr)
+                            
+                            widget_data["infographic_data"] = infographic_data
+                            widget_data["type"] = "infographic"
+                        except Exception as e:
+                            logger.error(f"Error generating infographic data: {e}")
+                            # WRITE ERROR TO FILE FOR DEBUGGING
+                            try:
+                                with open("debug_ai_error.txt", "w") as f:
+                                    f.write(f"Error: {str(e)}\nInput: {w}")
+                            except:
+                                pass
+                            # Fallback: maintain basic widget data
+
+                    elif wtype == "insight":
                         # Map query result to Insight data structure
                         # Wide widgets get text_beside_chart, tall get text_above_chart
                         layout_type = "text_beside_chart" if idx < 2 else "text_above_chart"

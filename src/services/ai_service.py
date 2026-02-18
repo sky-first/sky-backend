@@ -1,6 +1,7 @@
 """AI service."""
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -26,6 +27,7 @@ from src.schemas.ai import (
     ConfigureData,
     CreateHistoryRequest,
     FeedbackRequest,
+    GenerateInfographicRequest,
     GenerateSQLRequest,
     GenerateSQLResponse,
     PipelineExecuteRequest,
@@ -783,6 +785,39 @@ class AIService:
         await self.db.refresh(ai_message)
 
         return ChatMessageResponse.model_validate(ai_message)
+
+    async def generate_infographic(
+        self,
+        user_id: UUID,
+        request: "GenerateInfographicRequest",
+    ) -> Dict[str, Any]:
+        """
+        Generate structured infographic data using the real AI service (or mock).
+        """
+        from src.schemas.ai import GenerateInfographicRequest
+
+        if self.real_ai:
+            try:
+                return await self.real_ai.generate_infographic(
+                    question=request.question,
+                    answer=request.answer,
+                    data_sample=request.data_sample,
+                    language=request.language,
+                    style=request.style,
+                )
+            except Exception as e:
+                logger.error(f"Error calling real AI generate_infographic: {e}")
+                # Fallback to mock if needed, or just return empty/partial
+                pass
+
+        # Fallback (mock or error)
+        return await self.mock_ai.generate_infographic(
+            question=request.question,
+            answer=request.answer,
+            data_sample=request.data_sample,
+            language=request.language,
+            style=request.style,
+        )
 
     async def get_history(
         self,
