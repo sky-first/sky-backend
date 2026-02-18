@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sys
 import uuid
 from datetime import datetime, timezone
 from typing import List
@@ -413,10 +414,11 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                                     query_id=None,
                                     connection_id=UUID(connection_id),
                                 )
-                            except Exception:
+                            except Exception as update_exc:
                                 logger.exception(
                                     "Failed to mark widget %s as rate-limited placeholder",
                                     widget_id,
+                                    exc_info=update_exc,
                                 )
                             job.completed_widgets = int(job.completed_widgets or 0) + 1
                             await db.commit()
@@ -515,11 +517,8 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                             style = "mix"
                             if isinstance(viz, dict) and viz.get("style"):
                                 style = viz.get("style")
-                            elif isinstance(w.get("data"), dict) and w.get("data").get("style"):
-                                style = w.get("data").get("style")
-                            
-                            print(f"DEBUG: Generating infographic with style={style}", file=sys.stderr)
 
+                            from src.schemas.ai import GenerateInfographicRequest
                             infographic_req = GenerateInfographicRequest(
                                 question=w.get("question") or "",
                                 answer=query_resp.answer or "",
@@ -527,19 +526,13 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                                 language=language,
                                 style=style,
                             )
-                            infographic_data = await ai_service.generate_infographic(user_id, infographic_req)
-                            print(f"DEBUG: Generated data: {str(infographic_data)[:100]}...", file=sys.stderr)
-                            
+                            infographic_data = await ai_service.generate_infographic(
+                                user_id, infographic_req
+                            )
                             widget_data["infographic_data"] = infographic_data
                             widget_data["type"] = "infographic"
                         except Exception as e:
                             logger.error(f"Error generating infographic data: {e}")
-                            # WRITE ERROR TO FILE FOR DEBUGGING
-                            try:
-                                with open("debug_ai_error.txt", "w") as f:
-                                    f.write(f"Error: {str(e)}\nInput: {w}")
-                            except:
-                                pass
                             # Fallback: maintain basic widget data
 
                     elif wtype == "insight":

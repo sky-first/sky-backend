@@ -98,10 +98,9 @@ class MockAIService:
     ) -> Dict[str, Any]:
         """Mock infographic generation."""
         await asyncio.sleep(0.5)
-        
+
         # Simple style variation for mock
         prefix = f"[{style.upper()}] " if style != "mix" else ""
-        
         return {
             "title": f"{prefix}Mock Infographic Title",
             "subtitle": f"Analysis based on mock data ({style})",
