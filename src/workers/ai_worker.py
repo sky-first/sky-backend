@@ -223,7 +223,11 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             existing_plan = None
             try:
                 p = job.plan
-                if isinstance(p, dict) and isinstance(p.get("widgets"), list) and len(p["widgets"]) > 0:
+                if (
+                    isinstance(p, dict)
+                    and isinstance(p.get("widgets"), list)
+                    and len(p["widgets"]) > 0
+                ):
                     existing_plan = p
             except Exception:
                 existing_plan = None
@@ -263,7 +267,6 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             job.plan = plan_payload
             await db.commit()
             await db.refresh(job)
-
 
             # Create dashboard once
             dashboard_service = DashboardService(db)
@@ -349,7 +352,10 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     height = float(plan_layout.get("h") or 312.0)
                     logger.debug(
                         "build_dashboard_job(%s): widget %d using plan layout x=%s y=%s",
-                        job_id, idx, x, y,
+                        job_id,
+                        idx,
+                        x,
+                        y,
                     )
                 elif is_textual and idx < len(textual_layout) and wtype != "infographic":
                     # Fallback to hardcoded textual layout (skipped for infographic widgets)

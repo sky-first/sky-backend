@@ -159,6 +159,7 @@ class Settings(BaseSettings):
         elif not self.REDIS_URL and not redis_host and self.ENVIRONMENT != "development":
             # Safety check for non-development environments
             import logging
+
             logging.getLogger(__name__).warning(
                 "REDIS_URL and REDIS_HOST are both empty in non-development environment"
             )

@@ -56,7 +56,7 @@ async def trigger_test_notification():
                 description="This notification was generated via script to test the frontend bell.",
                 entity_type="test",
                 entity_id=str(user.id),
-                deep_link=f"/dashboards/{dashboard_id}" if dashboard else None
+                deep_link=f"/dashboards/{dashboard_id}" if dashboard else None,
             )
         )
         print("✅ Direct Notification created!")
@@ -67,15 +67,14 @@ async def trigger_test_notification():
             await comment_service.create(
                 user_id=user.id,  # As if they mentioned themselves
                 comment_data=CommentCreate(
-                    content="Check this out! @test",
-                    dashboard_id=dashboard.id,
-                    mentions=[user.id]
-                )
+                    content="Check this out! @test", dashboard_id=dashboard.id, mentions=[user.id]
+                ),
             )
             print("✅ Comment Mention triggered!")
 
         print("\n✨ Done! Now check your Dashboard Bell 🔔 (you might need to refresh).")
         break
+
 
 if __name__ == "__main__":
     asyncio.run(trigger_test_notification())

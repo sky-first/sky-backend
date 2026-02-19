@@ -1289,7 +1289,9 @@ class AIService:
             dict: Structured infographic payload ready for the frontend renderer.
         """
         logger.info(
-            "generate_infographic: starting (real_ai=%s, language=%s)", self.real_ai is not None, language
+            "generate_infographic: starting (real_ai=%s, language=%s)",
+            self.real_ai is not None,
+            language,
         )
 
         # ── Try Real AI service ────────────────────────────────────────────────
@@ -1318,9 +1320,7 @@ class AIService:
                     exc_info=True,
                 )
         else:
-            logger.debug(
-                "generate_infographic: Real AI service not configured – using mock"
-            )
+            logger.debug("generate_infographic: Real AI service not configured – using mock")
 
         # ── Mock fallback ──────────────────────────────────────────────────────
         logger.info("generate_infographic: returning mock infographic data")
