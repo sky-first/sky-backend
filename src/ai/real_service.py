@@ -275,3 +275,22 @@ class RealAIService:
         ]
 
         return {"status": "completed", "steps": steps}
+
+    async def generate_infographic(
+        self,
+        question: str,
+        answer: str,
+        data_sample: Optional[List[Dict[str, Any]]] = None,
+        language: str = "en",
+        style: str = "mix",
+    ) -> Dict[str, Any]:
+        """
+        Generate structured data for an infographic based on question, answer and data.
+        """
+        return await self.http_client.generate_infographic(
+            question=question,
+            answer=answer,
+            data_sample=data_sample,
+            language=language,
+            style=style,
+        )

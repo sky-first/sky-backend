@@ -301,3 +301,73 @@ class ValidateSQLResponse(BaseModel):
         default=None,
         description="Short AI-generated explanation for the preview results (if requested).",
     )
+
+
+class InfographicDataDriver(BaseModel):
+    """Driver item for infographic."""
+
+    name: str
+    icon: Optional[str] = None
+    impact: Optional[str] = None
+    description: Optional[str] = None
+
+
+class InfographicData(BaseModel):
+    """Structured data for infographic widget."""
+
+    # Header
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    mainValue: Optional[str] = None
+    mainValueLabel: Optional[str] = None
+
+    # Summary
+    summary: Optional[str] = None
+    highlightedValue: Optional[str] = None
+
+    # KPIs
+    marginLabel: Optional[str] = None
+    marginValue: Optional[str] = None
+    cacLabel: Optional[str] = None
+    cacValue: Optional[str] = None
+
+    # Trajectory
+    trajectoryTitle: Optional[str] = None
+    trajectoryData: Optional[List[Dict[str, Any]]] = None
+    recordHighLabel: Optional[str] = None
+
+    # Drivers
+    drivers: Optional[List[InfographicDataDriver]] = None
+
+    # Why
+    whyTitle: Optional[str] = None
+    whyContent: Optional[str] = None
+    whyChartData: Optional[List[Dict[str, Any]]] = None
+
+    # Strategic
+    strategicTitle: Optional[str] = None
+    strategicContent: Optional[str] = None
+
+    # Outlook
+    outlookTitle: Optional[str] = None
+    outlookContent: Optional[str] = None
+    outlookChartData: Optional[List[Dict[str, Any]]] = None
+    outlookChartCenterValue: Optional[str] = None
+    outlookChartCenterLabel: Optional[str] = None
+
+
+class GenerateInfographicRequest(BaseModel):
+    """Request to generate structured infographic data."""
+
+    question: str
+    answer: str
+    data_sample: Optional[List[Dict[str, Any]]] = None
+    language: str = "en"
+    style: str = "mix"  # textual, visual, mix
+
+
+class GenerateInfographicResponse(BaseModel):
+    """Response with structured infographic data."""
+
+    data: InfographicData
+    timestamp: datetime

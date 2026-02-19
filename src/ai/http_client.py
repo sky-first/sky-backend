@@ -396,3 +396,33 @@ class AIServiceHTTPClient:
                 )
                 # Fallback: retornar título atual ou genérico
                 return current_title or "Widget"
+
+    async def generate_infographic(
+        self,
+        question: str,
+        answer: str,
+        data_sample: Optional[List[Dict[str, Any]]] = None,
+        language: str = "en",
+        style: str = "mix",
+    ) -> Dict[str, Any]:
+        """
+        Generate structured data for an infographic based on question, answer and data.
+
+        Endpoint (ia-do-projeto):
+          POST /widgets/infographic
+        """
+        url = f"{self.base_url}/widgets/infographic"
+        payload = {
+            "question": question,
+            "answer": answer,
+            "language": language,
+            "style": style,
+        }
+        if data_sample:
+            payload["data_sample"] = data_sample
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            logger.info(f"Calling AI generate infographic: {url}")
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            return response.json()
