@@ -735,22 +735,28 @@ async def generate_infographic(
 
     ai_service = AIService(db)
     logger.info(f"Generating infographic for user {current_user.id}, question: {str(request.question)[:50]}...")
-    
+
     try:
         raw = await ai_service.generate_infographic(current_user.id, request)
         logger.info(f"AI service returned raw data type: {type(raw)}")
-        
+
         # The AI service returns a plain dict; validate it into the typed schema.
         from src.schemas.ai import InfographicData
 
-        if isinstance(raw, dict):
-            try:
-                infographic_data = InfographicData.model_validate(raw)
-                logger.info("Successfully validated infographic data")
-            except Exception as val_err:
-                logger.error(f"Validation error for infographic data: {val_err}")
-                logger.debug(f"Raw data that failed validation: {raw}")
-                # Fallback to empty but with title
+        if isinstance(raw, (dict, GenerateInfographicResponse)):
+            # If it's already a response (fallback from AIService), use its data
+            if hasattr(raw, "data") and isinstance(raw.data, InfographicData):
+                infographic_data = raw.data
+            elif isinstance(raw, dict):
+                try:
+                    infographic_data = InfographicData.model_validate(raw)
+                    logger.info("Successfully validated infographic data")
+                except Exception as val_err:
+                    logger.error(f"Validation error for infographic data: {val_err}")
+                    logger.debug(f"Raw data that failed validation: {raw}")
+                    # Fallback to empty but with title
+                    infographic_data = InfographicData()
+            else:
                 infographic_data = InfographicData()
         else:
             logger.warning(f"AI service returned non-dict: {type(raw)}")

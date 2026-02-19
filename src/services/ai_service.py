@@ -1299,4 +1299,3 @@ class AIService:
         except Exception as e:
             logger.error(f"Error validating SQL: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error validating SQL: {str(e)}")
-
