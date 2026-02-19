@@ -112,9 +112,7 @@ async def seed_role_permissions():
     )
 
     # Create async session
-    async_session = sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
         try:
@@ -143,10 +141,7 @@ async def seed_role_permissions():
                     print(f"   ✏️  Updated role: {role}")
                 else:
                     # Insert new
-                    role_perm = RolePermission(
-                        role=role,
-                        permissions=permissions
-                    )
+                    role_perm = RolePermission(role=role, permissions=permissions)
                     session.add(role_perm)
                     inserted += 1
                     print(f"   ✅ Inserted role: {role}")

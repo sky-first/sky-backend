@@ -1299,3 +1299,90 @@ class AIService:
         except Exception as e:
             logger.error(f"Error validating SQL: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Error validating SQL: {str(e)}")
+
+    async def generate_infographic(
+        self,
+        question: str,
+        answer: str,
+        data_sample: Optional[Any] = None,
+        language: str = "en",
+        style: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate structured infographic data from a question and AI answer.
+
+        Attempts to call the Real AI service first. Falls back to mock data if
+        the real service is not configured or raises an exception.
+
+        Args:
+            question: The user's original question.
+            answer: The AI-generated text answer.
+            data_sample: Optional data rows to embed in the infographic.
+            language: Language hint (en, pt, es).
+            style: Optional visual style hint.
+
+        Returns:
+            dict: Structured infographic payload ready for the frontend renderer.
+        """
+        logger.info(
+            "generate_infographic: starting (real_ai=%s, language=%s)",
+            self.real_ai is not None,
+            language,
+        )
+
+        # ── Try Real AI service ────────────────────────────────────────────────
+        if self.real_ai:
+            try:
+                logger.info("generate_infographic: calling Real AI service")
+                result = await self.real_ai.generate_infographic(
+                    question=question,
+                    answer=answer,
+                    data_sample=data_sample,
+                    language=language,
+                    style=style,
+                )
+                logger.info("generate_infographic: Real AI service succeeded")
+                return result
+            except AttributeError:
+                # Real AI service does not implement generate_infographic yet
+                logger.warning(
+                    "generate_infographic: Real AI service does not implement "
+                    "generate_infographic – falling back to mock"
+                )
+            except Exception as exc:
+                logger.error(
+                    "generate_infographic: Real AI service failed (%s) – falling back to mock",
+                    exc,
+                    exc_info=True,
+                )
+        else:
+            logger.debug("generate_infographic: Real AI service not configured – using mock")
+
+        # ── Mock fallback ──────────────────────────────────────────────────────
+        logger.info("generate_infographic: returning mock infographic data")
+        return {
+            "type": "infographic",
+            "language": language,
+            "style": style or "default",
+            "sections": [
+                {
+                    "id": "header",
+                    "type": "header",
+                    "title": question[:80] if question else "Infographic",
+                    "subtitle": f"Generated in {language.upper()}",
+                },
+                {
+                    "id": "summary",
+                    "type": "text",
+                    "title": "Summary",
+                    "body": answer or "No answer available.",
+                },
+                {
+                    "id": "chart",
+                    "type": "chart",
+                    "title": "Supporting Data",
+                    "chartType": "bar",
+                    "data": data_sample if isinstance(data_sample, list) else [],
+                },
+            ],
+            "meta": {"mock": True, "question_len": len(question), "answer_len": len(answer)},
+        }

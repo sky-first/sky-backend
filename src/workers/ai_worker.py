@@ -208,33 +208,60 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 logical_tables_override = None
                 schema_summary_override = None
 
-            client = AIServiceHTTPClient()
+            # ── Plan Bypass ──────────────────────────────────────────────────────────
+            # If the frontend/chat already supplied a valid plan in job.plan, use it
+            # directly without an extra AI round-trip (saves cost and latency).
+
+            # Extract any conversation context stored in job.plan._context first,
+            # so it is available in both the bypass and the re-plan branches.
             ctx = None
             try:
                 if isinstance(job.plan, dict) and isinstance(job.plan.get("_context"), dict):
                     ctx = job.plan.get("_context")
             except Exception:
                 ctx = None
-            plan_payload = await client.dashboard_plan(
-                connection_id=connection_id,
-                user_id=str(user_id),
-                space_id=space_id,
-                crew_ids=crew_ids if crew_ids else None,
-                language=language,
-                goal=goal,
-                original_question=(
-                    (ctx.get("original_question") if isinstance(ctx, dict) else None) or goal
-                ),
-                max_widgets=max_widgets,
-                logical_tables_override=logical_tables_override,
-                schema_summary_override=schema_summary_override,
-                initial_ai_response=(
-                    ctx.get("initial_ai_response") if isinstance(ctx, dict) else None
-                ),
-                context_spaces=(ctx.get("context_spaces") if isinstance(ctx, dict) else None),
-                context_crews=(ctx.get("context_crews") if isinstance(ctx, dict) else None),
-                context_tables=(ctx.get("context_tables") if isinstance(ctx, dict) else None),
-            )
+
+            existing_plan = None
+            try:
+                p = job.plan
+                if (
+                    isinstance(p, dict)
+                    and isinstance(p.get("widgets"), list)
+                    and len(p["widgets"]) > 0
+                ):
+                    existing_plan = p
+            except Exception:
+                existing_plan = None
+
+            if existing_plan is not None:
+                logger.info(
+                    "build_dashboard_job(%s): using pre-calculated plan (%d widgets)",
+                    job_id,
+                    len(existing_plan["widgets"]),
+                )
+                plan_payload = existing_plan
+            else:
+                client = AIServiceHTTPClient()
+                plan_payload = await client.dashboard_plan(
+                    connection_id=connection_id,
+                    user_id=str(user_id),
+                    space_id=space_id,
+                    crew_ids=crew_ids if crew_ids else None,
+                    language=language,
+                    goal=goal,
+                    original_question=(
+                        (ctx.get("original_question") if isinstance(ctx, dict) else None) or goal
+                    ),
+                    max_widgets=max_widgets,
+                    logical_tables_override=logical_tables_override,
+                    schema_summary_override=schema_summary_override,
+                    initial_ai_response=(
+                        ctx.get("initial_ai_response") if isinstance(ctx, dict) else None
+                    ),
+                    context_spaces=(ctx.get("context_spaces") if isinstance(ctx, dict) else None),
+                    context_crews=(ctx.get("context_crews") if isinstance(ctx, dict) else None),
+                    context_tables=(ctx.get("context_tables") if isinstance(ctx, dict) else None),
+                )
             # Preserve any pre-existing context stored in job.plan
             if isinstance(ctx, dict):
                 plan_payload["_context"] = ctx
@@ -254,6 +281,19 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     ),
                 )
                 job.dashboard_id = dashboard.id
+
+                # ── Filters ───────────────────────────────────────────────────────────
+                # If the plan contains filters, persist them to canvas_settings so the
+                # frontend can hydrate the filter bar without an extra round-trip.
+                plan_filters = plan_payload.get("filters")
+                if plan_filters and isinstance(plan_filters, list):
+                    dashboard.canvas_settings = {"filters": plan_filters}
+                    logger.info(
+                        "build_dashboard_job(%s): saved %d filters to canvas_settings",
+                        job_id,
+                        len(plan_filters),
+                    )
+
                 await db.commit()
                 await db.refresh(job)
 
@@ -307,9 +347,26 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             for idx, w in enumerate(widgets):
                 wtype = w.get("type") or "chart"
 
-                # Apply fixed textual layout if available and applicable
-                # SKIP fixed layout for infographic widgets to let them flow naturally
-                if is_textual and idx < len(textual_layout) and wtype != "infographic":
+                # ── Layout priority (CRITICAL: must be checked BEFORE is_textual logic) ──
+                # 1. Explicit layout from the AI plan takes highest priority.
+                # 2. Hardcoded textual layout is used as fallback (but never for infographic).
+                # 3. Plain grid layout as last resort.
+                plan_layout = w.get("layout")
+                if plan_layout and isinstance(plan_layout, dict):
+                    # AI plan supplied explicit coordinates — use them directly
+                    x = float(plan_layout.get("x") or 72.0)
+                    y = float(plan_layout.get("y") or 72.0)
+                    width = float(plan_layout.get("w") or 456.0)
+                    height = float(plan_layout.get("h") or 312.0)
+                    logger.debug(
+                        "build_dashboard_job(%s): widget %d using plan layout x=%s y=%s",
+                        job_id,
+                        idx,
+                        x,
+                        y,
+                    )
+                elif is_textual and idx < len(textual_layout) and wtype != "infographic":
+                    # Fallback to hardcoded textual layout (skipped for infographic widgets)
                     pos_info = textual_layout[idx]
                     x, y = pos_info["x"], pos_info["y"]
                     width, height = pos_info["w"], pos_info["h"]
