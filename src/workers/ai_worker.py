@@ -563,6 +563,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         "chosen_table": getattr(query_resp, "chosen_table", None),
                         "chosen_datasets": getattr(query_resp, "chosen_datasets", None),
                         "isPlaceholder": False,
+                        "isLoading": False,
                     }
 
                     print(f"DEBUG: Processing widget {idx}, type={wtype}", file=sys.stderr)
@@ -590,8 +591,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                             widget_data["infographic_data"] = infographic_data
                             widget_data["type"] = "infographic"
                         except Exception as e:
-                            logger.error(f"Error generating infographic data: {e}")
                             # Fallback: maintain basic widget data
+                            widget_data["isLoading"] = False
+                            widget_data["error"] = True
 
                     elif wtype == "insight":
                         # Map query result to Insight data structure

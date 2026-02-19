@@ -376,7 +376,7 @@ class AIServiceHTTPClient:
             logger.info(
                 "Calling AI suggest widget title: %s question=%s",
                 url,
-                question[:100],
+                str(question)[:100],
             )
             try:
                 response = await client.post(url, json=payload)
