@@ -576,6 +576,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                                 style = viz.get("style")
 
                             from src.schemas.ai import GenerateInfographicRequest
+
                             infographic_req = GenerateInfographicRequest(
                                 question=w.get("question") or "",
                                 answer=query_resp.answer or "",

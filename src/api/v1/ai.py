@@ -736,7 +736,17 @@ async def generate_infographic(
     # The AI service returns a plain dict; validate it into the typed schema.
     from src.schemas.ai import InfographicData
 
-    infographic_data = InfographicData.model_validate(raw) if isinstance(raw, dict) else InfographicData()
+    infographic_data = (
+        InfographicData.model_validate(raw) if isinstance(raw, dict) else InfographicData()
+    )
+
+    # ✅ ENSURE DATA FOR UI: If the AI failed to provide a title or summary, 
+    # we provide minimal fallbacks to avoid the "Grey Box" empty state in the frontend.
+    if not infographic_data.title:
+        infographic_data.title = "Analysis Result"
+    if not infographic_data.summary and not infographic_data.mainValue:
+        infographic_data.summary = "Strategic analysis based on the provided query context."
+
     return GenerateInfographicResponse(
         data=infographic_data,
         timestamp=datetime.now(timezone.utc),
