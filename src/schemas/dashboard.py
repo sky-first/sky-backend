@@ -48,7 +48,7 @@ class DashboardResponse(DashboardBase):
 class WidgetBase(BaseModel):
     """Base widget schema."""
 
-    type: str = Field(..., pattern="^(chart|kpi|table|ai-box|text|insight)$")
+    type: str = Field(..., pattern="^(chart|kpi|table|ai-box|text|insight|infographic)$")
     title: str = Field(..., min_length=1, max_length=255)
     position: Dict[str, float] = Field(..., description="Position {x, y}")
     size: Dict[str, float] = Field(..., description="Size {width, height}")

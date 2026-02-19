@@ -32,6 +32,8 @@ from src.schemas.ai import (
     FeedbackRequest,
     GenerateAnswerRequest,
     GenerateAnswerResponse,
+    GenerateInfographicRequest,
+    GenerateInfographicResponse,
     GenerateSQLRequest,
     GenerateSQLResponse,
     PipelineExecuteRequest,
@@ -698,6 +700,47 @@ async def generate_answer(
     ai_service = AIService(db)
     answer = await ai_service.generate_answer(request.question, request.knowledge, request.context)
     return GenerateAnswerResponse(answer=answer, timestamp=datetime.now(timezone.utc))
+
+
+@router.post(
+    "/generate-infographic",
+    response_model=GenerateInfographicResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    summary="Generate infographic data",
+    description="Generate structured JSON data for an infographic widget from a question and AI answer.",
+)
+async def generate_infographic(
+    request: GenerateInfographicRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> GenerateInfographicResponse:
+    """
+    Generate structured infographic data.
+
+    Uses the real AI service when AI_SERVICE_TYPE=real, otherwise falls back to mock.
+
+    Args:
+        request: question, answer, optional data_sample, language, style
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        GenerateInfographicResponse: Structured infographic data
+    """
+    from datetime import datetime, timezone
+
+    ai_service = AIService(db)
+    raw = await ai_service.generate_infographic(current_user.id, request)
+
+    # The AI service returns a plain dict; validate it into the typed schema.
+    from src.schemas.ai import InfographicData
+
+    infographic_data = InfographicData.model_validate(raw) if isinstance(raw, dict) else InfographicData()
+    return GenerateInfographicResponse(
+        data=infographic_data,
+        timestamp=datetime.now(timezone.utc),
+    )
 
 
 @router.post(
