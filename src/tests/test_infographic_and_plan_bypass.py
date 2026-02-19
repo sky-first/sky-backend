@@ -191,7 +191,9 @@ def _patch_worker_deps(monkeypatch, job, plan_from_http=None, widget_answer="ok"
     monkeypatch.setattr(
         user_repo_module,
         "UserRepository",
-        lambda _db: SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id=job.user_id))),
+        lambda _db: SimpleNamespace(
+            get_by_id=AsyncMock(return_value=SimpleNamespace(id=job.user_id))
+        ),
     )
 
     http_called = {"n": 0}
@@ -251,7 +253,12 @@ async def test_plan_bypass_uses_existing_plan_without_http_call(monkeypatch):
             "dashboard_name": "Pre-built",
             "description": "Already planned",
             "widgets": [
-                {"type": "text", "title": "Header", "question": "What?", "viz": {"content": "Intro"}},
+                {
+                    "type": "text",
+                    "title": "Header",
+                    "question": "What?",
+                    "viz": {"content": "Intro"},
+                },
             ],
         }
     )
@@ -362,7 +369,9 @@ async def test_filters_saved_to_canvas_settings(monkeypatch):
     monkeypatch.setattr(
         user_repo_module,
         "UserRepository",
-        lambda _db: SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id=job.user_id))),
+        lambda _db: SimpleNamespace(
+            get_by_id=AsyncMock(return_value=SimpleNamespace(id=job.user_id))
+        ),
     )
     monkeypatch.setattr(
         ai_service_module,
@@ -371,7 +380,9 @@ async def test_filters_saved_to_canvas_settings(monkeypatch):
             metadata_repo=SimpleNamespace(get_by_connection_id=AsyncMock(return_value=None)),
             _get_user_crew_ids=AsyncMock(return_value=[]),
             process_query=AsyncMock(
-                return_value=SimpleNamespace(id=uuid4(), answer="ok", data_sample=[], sql="select 1")
+                return_value=SimpleNamespace(
+                    id=uuid4(), answer="ok", data_sample=[], sql="select 1"
+                )
             ),
         ),
     )
@@ -486,7 +497,9 @@ async def test_layout_from_plan_overrides_textual_layout(monkeypatch):
     monkeypatch.setattr(
         user_repo_module,
         "UserRepository",
-        lambda _db: SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id=job.user_id))),
+        lambda _db: SimpleNamespace(
+            get_by_id=AsyncMock(return_value=SimpleNamespace(id=job.user_id))
+        ),
     )
     monkeypatch.setattr(
         ai_service_module,
@@ -495,7 +508,9 @@ async def test_layout_from_plan_overrides_textual_layout(monkeypatch):
             metadata_repo=SimpleNamespace(get_by_connection_id=AsyncMock(return_value=None)),
             _get_user_crew_ids=AsyncMock(return_value=[]),
             process_query=AsyncMock(
-                return_value=SimpleNamespace(id=uuid4(), answer="ok", data_sample=[], sql="select 1")
+                return_value=SimpleNamespace(
+                    id=uuid4(), answer="ok", data_sample=[], sql="select 1"
+                )
             ),
         ),
     )
@@ -577,7 +592,7 @@ def test_dashboard_ai_build_async_request_goal_normalised():
 def test_dashboard_ai_plan_widget_valid_types():
     from src.schemas.dashboard_ai import DashboardAIPlanWidget
 
-    for t in ("chart", "kpi", "table", "text"):
+    for t in ("chart", "kpi", "table", "text", "infographic"):
         w = DashboardAIPlanWidget(widget_key="w1", type=t, title="T", question="Q?")
         assert w.type == t
 
@@ -586,4 +601,4 @@ def test_dashboard_ai_plan_widget_invalid_type():
     from src.schemas.dashboard_ai import DashboardAIPlanWidget
 
     with pytest.raises(Exception):
-        DashboardAIPlanWidget(widget_key="w1", type="infographic", title="T", question="Q?")
+        DashboardAIPlanWidget(widget_key="w1", type="unsupported_type", title="T", question="Q?")
