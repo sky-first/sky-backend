@@ -1,5 +1,7 @@
 """AI endpoints."""
 
+import logging
+
 from typing import List, Optional
 from uuid import UUID
 
@@ -49,6 +51,7 @@ from src.services.ai_service import AIService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -731,26 +734,50 @@ async def generate_infographic(
     from datetime import datetime, timezone
 
     ai_service = AIService(db)
-    raw = await ai_service.generate_infographic(current_user.id, request)
+    logger.info(f"Generating infographic for user {current_user.id}, question: {str(request.question)[:50]}...")
+    
+    try:
+        raw = await ai_service.generate_infographic(current_user.id, request)
+        logger.info(f"AI service returned raw data type: {type(raw)}")
+        
+        # The AI service returns a plain dict; validate it into the typed schema.
+        from src.schemas.ai import InfographicData
 
-    # The AI service returns a plain dict; validate it into the typed schema.
-    from src.schemas.ai import InfographicData
+        if isinstance(raw, dict):
+            try:
+                infographic_data = InfographicData.model_validate(raw)
+                logger.info("Successfully validated infographic data")
+            except Exception as val_err:
+                logger.error(f"Validation error for infographic data: {val_err}")
+                logger.debug(f"Raw data that failed validation: {raw}")
+                # Fallback to empty but with title
+                infographic_data = InfographicData()
+        else:
+            logger.warning(f"AI service returned non-dict: {type(raw)}")
+            infographic_data = InfographicData()
 
-    infographic_data = (
-        InfographicData.model_validate(raw) if isinstance(raw, dict) else InfographicData()
-    )
+        # ✅ ENSURE DATA FOR UI: If the AI failed to provide a title or summary, 
+        # we provide minimal fallbacks to avoid the "Grey Box" empty state in the frontend.
+        if not infographic_data.title:
+            infographic_data.title = "Analysis Result"
+        if not infographic_data.summary and not infographic_data.mainValue:
+            infographic_data.summary = "Strategic analysis based on the provided query context."
 
-    # ✅ ENSURE DATA FOR UI: If the AI failed to provide a title or summary, 
-    # we provide minimal fallbacks to avoid the "Grey Box" empty state in the frontend.
-    if not infographic_data.title:
-        infographic_data.title = "Analysis Result"
-    if not infographic_data.summary and not infographic_data.mainValue:
-        infographic_data.summary = "Strategic analysis based on the provided query context."
-
-    return GenerateInfographicResponse(
-        data=infographic_data,
-        timestamp=datetime.now(timezone.utc),
-    )
+        return GenerateInfographicResponse(
+            data=infographic_data,
+            timestamp=datetime.now(timezone.utc),
+        )
+    except Exception as e:
+        logger.exception(f"Unexpected error in generating infographic: {e}")
+        # Return a safe response instead of 500
+        from src.schemas.ai import InfographicData
+        return GenerateInfographicResponse(
+            data=InfographicData(
+                title="Analysis Error",
+                summary=f"Error: {str(e)}. Please check backend logs."
+            ),
+            timestamp=datetime.now(timezone.utc),
+        )
 
 
 @router.post(
@@ -953,12 +980,16 @@ async def generate_infographic(
 
     ai_service = AIService(db)
     try:
-        result = await ai_service.generate_infographic(
+        from src.schemas.ai import GenerateInfographicRequest
+        request = GenerateInfographicRequest(
             question=body.get("question", ""),
             answer=body.get("answer", ""),
             data_sample=body.get("data_sample"),
             language=body.get("language", "en"),
-            style=body.get("style"),
+            style=body.get("style") or "mix",
+        )
+        result = await ai_service.generate_infographic(
+            current_user.id, request
         )
         _logger.info("generate_infographic succeeded for user=%s", current_user.id)
         return result
