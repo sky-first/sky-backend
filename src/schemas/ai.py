@@ -32,6 +32,7 @@ class AIQueryRequest(BaseModel):
         default=False,
         description="Whether the query is in personal mode (access across all crews/spaces).",
     )
+    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
 
 
 class AIQueryResponse(BaseModel):
@@ -54,6 +55,7 @@ class AIQueryResponse(BaseModel):
     )
     # NEW: extra meta returned by the AI execution engine (e.g., dynamic widget title)
     meta: Optional[Dict[str, Any]] = None
+    planet_id: UUID
     created_at: datetime
     updated_at: datetime
 
@@ -92,6 +94,7 @@ class ChatMessageRequest(BaseModel):
 
     message: str = Field(..., min_length=1)
     widget_id: UUID
+    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
     context: Optional[Dict[str, Any]] = None
 
 
@@ -101,6 +104,7 @@ class ChatMessageResponse(BaseModel):
     id: UUID
     type: str  # user, assistant
     content: str
+    planet_id: UUID
     timestamp: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -117,6 +121,7 @@ class AIHistoryItem(BaseModel):
     tags: List[str] = Field(default_factory=list)
     category: Optional[str] = None
     pinned: bool = False
+    planet_id: UUID
     created_at: datetime
     updated_at: datetime
 
@@ -128,6 +133,7 @@ class CreateHistoryRequest(BaseModel):
 
     query: str = Field(..., min_length=1)
     answer: str = Field(..., min_length=1)
+    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
     category: Optional[str] = None
     tags: Optional[List[str]] = Field(default_factory=list)
 
@@ -206,6 +212,7 @@ class PipelineExecuteRequest(BaseModel):
     question: str = Field(..., min_length=1)
     knowledge: List[str] = Field(default_factory=list)
     configure_data: ConfigureData
+    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
 
 
 class PipelineExecuteResponse(BaseModel):

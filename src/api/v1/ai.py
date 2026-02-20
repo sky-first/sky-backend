@@ -135,6 +135,19 @@ async def process_query(
                 response.headers.add_vary_header("Origin")
             return response  # type: ignore[return-value]
 
+    # Resolve and validate planet_id
+    if not query_data.planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active planet found for user")
+        query_data.planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(query_data.planet_id, current_user.id)
+
     return await ai_service.process_query(current_user.id, query_data)
 
 
@@ -328,6 +341,19 @@ async def send_chat_message(
     Returns:
         ChatMessageResponse: Chat response
     """
+    # Resolve and validate planet_id
+    if not message_data.planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active planet found for user")
+        message_data.planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(message_data.planet_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.send_chat_message(current_user.id, message_data)
 
@@ -344,8 +370,8 @@ async def get_history(
     filter: Optional[str] = Query(None, description="Filter: today, week, pinned"),
     search: Optional[str] = Query(None, description="Search query"),
     category: Optional[str] = Query(None, description="Category filter"),
-    skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for filtering"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[AIHistoryItem]:
@@ -364,9 +390,24 @@ async def get_history(
     Returns:
         List[AIHistoryItem]: History items
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.get_history(
         current_user.id,
+        planet_id=resolved_planet_id,
         filter_type=filter,
         search=search,
         category=category,
@@ -399,6 +440,19 @@ async def create_history(
     Returns:
         AIHistoryItem: Created history item
     """
+    # Resolve and validate planet_id
+    if not history_data.planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active planet found for user")
+        history_data.planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(history_data.planet_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.create_history(current_user.id, history_data)
 
@@ -413,6 +467,7 @@ async def create_history(
 )
 async def get_history_by_id(
     history_id: UUID,
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -427,8 +482,22 @@ async def get_history_by_id(
     Returns:
         AIHistoryItem: History item
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
-    return await ai_service.get_history_by_id(history_id, current_user.id)
+    return await ai_service.get_history_by_id(history_id, current_user.id, resolved_planet_id)
 
 
 @router.delete(
@@ -441,6 +510,7 @@ async def get_history_by_id(
 )
 async def delete_history(
     history_id: UUID,
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
@@ -455,8 +525,22 @@ async def delete_history(
     Returns:
         SuccessResponse: Success message
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
-    await ai_service.delete_history(history_id, current_user.id)
+    await ai_service.delete_history(history_id, current_user.id, resolved_planet_id)
     return SuccessResponse(message="History item deleted successfully")
 
 
@@ -470,6 +554,7 @@ async def delete_history(
 )
 async def pin_history(
     history_id: UUID,
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -484,8 +569,22 @@ async def pin_history(
     Returns:
         AIHistoryItem: Updated history item
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
-    return await ai_service.pin_history(history_id, current_user.id)
+    return await ai_service.pin_history(history_id, current_user.id, resolved_planet_id)
 
 
 @router.post(
@@ -498,6 +597,7 @@ async def pin_history(
 )
 async def unpin_history(
     history_id: UUID,
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -512,8 +612,22 @@ async def unpin_history(
     Returns:
         AIHistoryItem: Updated history item
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
-    return await ai_service.unpin_history(history_id, current_user.id)
+    return await ai_service.unpin_history(history_id, current_user.id, resolved_planet_id)
 
 
 @router.get(
@@ -524,6 +638,7 @@ async def unpin_history(
     description="Export history as CSV",
 )
 async def export_history(
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> StreamingResponse:
@@ -537,8 +652,22 @@ async def export_history(
     Returns:
         StreamingResponse: CSV file
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
-    csv_content = await ai_service.export_history(current_user.id)
+    csv_content = await ai_service.export_history(current_user.id, resolved_planet_id)
 
     return StreamingResponse(
         iter([csv_content]),
@@ -571,6 +700,19 @@ async def execute_pipeline(
     Returns:
         PipelineExecuteResponse: Pipeline response
     """
+    # Resolve and validate planet_id
+    if not request.planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active planet found for user")
+        request.planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(request.planet_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.execute_pipeline(current_user.id, request)
 
