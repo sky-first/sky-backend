@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True  # Temporarily enabled for debugging
     ENVIRONMENT: str = "development"
+    ADMIN_ONBOARDING_VERSION: int = 1
 
     # API
     API_V1_PREFIX: str = "/api/v1"

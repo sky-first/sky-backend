@@ -13,6 +13,7 @@ from src.core.security import (
     verify_password,
     verify_token,
 )
+from src.config.settings import settings
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
 from src.schemas.user import (
@@ -43,10 +44,11 @@ def user_to_response_dict(user: User) -> dict:
         "role": user.role,
         "email_verified": user.email_verified,
         "email_verified_at": user.email_verified_at,
-        "onboarding_step": (
-            int(user.onboarding_step)
-            if user.onboarding_step and str(user.onboarding_step).isdigit()
-            else 0
+        "onboarding_step": user.onboarding_step or 0,
+        "onboarding_version": user.onboarding_version or 0,
+        "needs_onboarding": (
+            user.role == "admin"
+            and (user.onboarding_version or 0) < settings.ADMIN_ONBOARDING_VERSION
         ),
         "has_completed_onboarding": user.has_completed_onboarding,
         "selected_domain": user.selected_domain,
