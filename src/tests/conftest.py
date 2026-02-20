@@ -87,6 +87,8 @@ def faker():
 @pytest_asyncio.fixture
 async def test_user(db_session: AsyncSession, faker: Faker):
     """Create a test user."""
+    from src.services.onboarding_service import ensure_default_planet_and_space
+
     user_repo = UserRepository(db_session)
 
     email = faker.email()
@@ -98,6 +100,9 @@ async def test_user(db_session: AsyncSession, faker: Faker):
         name=faker.name(),
         role="admin",
     )
+
+    # Ensure user has a default planet and space
+    await ensure_default_planet_and_space(db_session, user)
 
     await db_session.commit()
     await db_session.refresh(user)

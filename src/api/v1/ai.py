@@ -370,6 +370,7 @@ async def get_history(
     filter: Optional[str] = Query(None, description="Filter: today, week, pinned"),
     search: Optional[str] = Query(None, description="Search query"),
     category: Optional[str] = Query(None, description="Category filter"),
+    skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     planet_id: Optional[UUID] = Query(None, description="Planet ID for filtering"),
     current_user: User = Depends(get_current_user),
