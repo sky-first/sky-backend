@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from src.api.middleware import auth, cors, rate_limit
+from src.api.middleware import auth, cors, idempotency, rate_limit
 from src.api.v1.router import api_router
 from src.config import settings
 from src.config.database import (
@@ -68,10 +68,12 @@ app.add_middleware(CorrelationIdMiddleware)
 # Desired execution order:
 # 1. auth (FIRST - sets request.state.user_id)
 # 2. rate_limit (needs user_id from auth)
+# 3. idempotency (needs user_id from auth)
 #
-# So we add them as: rate_limit, auth (reverse order)
-app.middleware("http")(rate_limit.rate_limit_middleware)  # Added 1st, executes 2nd
-app.middleware("http")(auth.auth_middleware)  # Added 2nd (LAST), executes FIRST
+# So we add them as: idempotency, rate_limit, auth (reverse order)
+app.middleware("http")(idempotency.idempotency_middleware)
+app.middleware("http")(rate_limit.rate_limit_middleware)
+app.middleware("http")(auth.auth_middleware)
 
 # Register output-standardizing exception handlers
 register_exception_handlers(app)
