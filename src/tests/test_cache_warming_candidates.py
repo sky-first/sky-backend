@@ -6,6 +6,7 @@ import pytest
 from src.models.ai import AIQuery
 from src.models.connection import DataConnection
 from src.models.dashboard import Dashboard, Widget
+from src.models.planet import Planet
 from src.models.space import Space, SpaceConnection
 from src.models.user import User
 from src.services.cache_warming_service import get_ai_cache_warm_candidates
@@ -18,6 +19,7 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
     conn_id = uuid4()
     dashboard_id = uuid4()
     widget_id = uuid4()
+    planet_id = uuid4()
 
     # Minimal user
     user = User(
@@ -44,11 +46,23 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
     space = Space(id=space_id, name="S1", created_by=user_id, created_at=now, updated_at=now)
     sc = SpaceConnection(space_id=space_id, connection_id=conn_id)
 
+    # Planet
+    planet = Planet(
+        id=planet_id,
+        name="P1",
+        owner_id=user_id,
+        type="personal",
+        color="#000000",
+        is_active=True,
+        created_at=now,
+        updated_at=now,
+    )
+
     # Dashboard + widget linked to connection
     dash = Dashboard(
         id=dashboard_id,
         name="D1",
-        planet_id=uuid4(),  # not relevant for this test
+        planet_id=planet_id,
         created_by=user_id,
         created_at=now,
         updated_at=now,
@@ -72,6 +86,7 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
     aq1 = AIQuery(
         id=uuid4(),
         user_id=user_id,
+        planet_id=planet_id,
         widget_id=widget_id,
         question=q1,
         status="completed",
@@ -82,6 +97,7 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
     aq2 = AIQuery(
         id=uuid4(),
         user_id=user_id,
+        planet_id=planet_id,
         widget_id=widget_id,
         question=q1_variant,
         status="completed",
@@ -90,7 +106,7 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
         updated_at=now - timedelta(minutes=1),
     )
 
-    db_session.add_all([user, conn, space, sc, dash, w, aq1, aq2])
+    db_session.add_all([user, planet, conn, space, sc, dash, w, aq1, aq2])
     await db_session.commit()
 
     candidates = await get_ai_cache_warm_candidates(

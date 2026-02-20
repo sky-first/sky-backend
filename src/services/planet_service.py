@@ -357,3 +357,34 @@ class PlanetService:
         await self.db.refresh(member)
 
         return PlanetMemberResponse.model_validate(member)
+
+    async def get_user_planet_or_404(self, planet_id: UUID, user_id: UUID) -> Planet:
+        """
+        Get planet by ID and verify user access.
+        Used for backend validation of tenant isolation.
+
+        Args:
+            planet_id: Planet ID
+            user_id: User ID
+
+        Returns:
+            Planet: Planet model
+
+        Raises:
+            NotFoundError: If planet not found
+            ForbiddenError: If user doesn't have access
+        """
+        planet = await self.planet_repo.get_by_id(planet_id)
+        if not planet or planet.deleted_at:
+            raise NotFoundError("Planet not found")
+
+        # Check if user is owner or member
+        if planet.owner_id != user_id:
+            member = await self.member_repo.get_by_planet_and_user(planet_id, user_id)
+            if not member:
+                # We return 404 instead of 403 to prevent ID enumeration
+                # but for internal service logic, ForbiddenError might be clearer.
+                # However, the plan says 404 to avoid enumeration.
+                raise NotFoundError("Planet not found")
+
+        return planet
