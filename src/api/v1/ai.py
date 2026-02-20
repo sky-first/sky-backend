@@ -1,7 +1,6 @@
 """AI endpoints."""
 
 import logging
-
 from typing import List, Optional
 from uuid import UUID
 
@@ -734,7 +733,9 @@ async def generate_infographic(
     from datetime import datetime, timezone
 
     ai_service = AIService(db)
-    logger.info(f"Generating infographic for user {current_user.id}, question: {str(request.question)[:50]}...")
+    logger.info(
+        f"Generating infographic for user {current_user.id}, question: {str(request.question)[:50]}..."
+    )
 
     try:
         raw = await ai_service.generate_infographic(current_user.id, request)
@@ -762,7 +763,7 @@ async def generate_infographic(
             logger.warning(f"AI service returned non-dict: {type(raw)}")
             infographic_data = InfographicData()
 
-        # ✅ ENSURE DATA FOR UI: If the AI failed to provide a title or summary, 
+        # ✅ ENSURE DATA FOR UI: If the AI failed to provide a title or summary,
         # we provide minimal fallbacks to avoid the "Grey Box" empty state in the frontend.
         if not infographic_data.title:
             infographic_data.title = "Analysis Result"
@@ -777,10 +778,10 @@ async def generate_infographic(
         logger.exception(f"Unexpected error in generating infographic: {e}")
         # Return a safe response instead of 500
         from src.schemas.ai import InfographicData
+
         return GenerateInfographicResponse(
             data=InfographicData(
-                title="Analysis Error",
-                summary=f"Error: {str(e)}. Please check backend logs."
+                title="Analysis Error", summary=f"Error: {str(e)}. Please check backend logs."
             ),
             timestamp=datetime.now(timezone.utc),
         )
@@ -987,6 +988,7 @@ async def generate_infographic(
     ai_service = AIService(db)
     try:
         from src.schemas.ai import GenerateInfographicRequest
+
         request = GenerateInfographicRequest(
             question=body.get("question", ""),
             answer=body.get("answer", ""),
@@ -994,9 +996,7 @@ async def generate_infographic(
             language=body.get("language", "en"),
             style=body.get("style") or "mix",
         )
-        result = await ai_service.generate_infographic(
-            current_user.id, request
-        )
+        result = await ai_service.generate_infographic(current_user.id, request)
         _logger.info("generate_infographic succeeded for user=%s", current_user.id)
         return result
     except Exception as exc:

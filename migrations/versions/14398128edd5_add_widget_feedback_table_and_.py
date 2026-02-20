@@ -5,8 +5,8 @@ Revises: add_ai_feedback
 Create Date: 2026-01-21 09:35:26.801030
 
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.

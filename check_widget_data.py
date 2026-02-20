@@ -5,10 +5,11 @@ import sys
 # Add src to path
 sys.path.append(os.getcwd())
 
+from sqlalchemy import desc
+from sqlalchemy.future import select
+
 # Setup DB connection
 from src.config.database import AsyncSessionLocal
-from sqlalchemy.future import select
-from sqlalchemy import desc
 from src.models.dashboard import Widget
 
 

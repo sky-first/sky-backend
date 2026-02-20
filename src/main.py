@@ -125,7 +125,7 @@ def custom_openapi():
 
 
 # Override the default openapi function
-app.openapi = custom_openapi
+setattr(app, "openapi", custom_openapi)
 
 
 @app.get("/health", tags=["Health"])
@@ -169,9 +169,9 @@ async def monitoring_connections(db=Depends(get_db)):
     }
 
 
-def _get_connection_recommendations(pool_stats: dict, db_connections: dict) -> list:
+def _get_connection_recommendations(pool_stats: dict, db_connections: dict) -> list[dict[str, str]]:
     """Generate recommendations based on connection statistics."""
-    recommendations = []
+    recommendations: list[dict[str, str]] = []
 
     if "error" in db_connections:
         return recommendations

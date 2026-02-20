@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
-from src.schemas.ai import GenerateInfographicRequest
 
+from src.schemas.ai import GenerateInfographicRequest
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AIService.generate_infographic
@@ -34,10 +34,11 @@ def _make_ai_service(real_ai=None):
             "sections": [
                 {"id": "header", "type": "header", "title": "Mock"},
                 {"id": "summary", "type": "text", "body": "Mock body"},
-                {"id": "chart", "type": "chart", "data": kwargs.get("data_sample") or []}
+                {"id": "chart", "type": "chart", "data": kwargs.get("data_sample") or []},
             ],
-            "meta": {"mock": True}
+            "meta": {"mock": True},
         }
+
     svc.mock_ai.generate_infographic = AsyncMock(side_effect=mock_gen)
     svc.real_ai = real_ai
     svc.query_repo = MagicMock()
@@ -160,6 +161,7 @@ async def test_generate_infographic_non_list_data_sample_becomes_empty():
     )
     chart_section = next(s for s in result["sections"] if s["id"] == "chart")
     assert chart_section["data"] == []
+
 
 # Since we want to test falling through with NONE, let's keep it simple.
 # The real check for non-list already happens inside mock_ai or real_ai.

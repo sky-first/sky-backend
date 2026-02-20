@@ -1,7 +1,7 @@
 """Rate limiting middleware."""
 
 import logging
-from typing import Callable
+from typing import Callable, cast
 
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
@@ -24,28 +24,28 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         Response: HTTP response
     """
     if not settings.RATE_LIMIT_ENABLED:
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     # Skip rate limiting for CORS preflight requests
     if request.method == "OPTIONS":
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     # Skip rate limiting for health checks
     if request.url.path in ["/health", "/ready", "/live", "/metrics"]:
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     # Skip rate limiting for low-cost polling/status endpoints (frontend may poll frequently).
     # These endpoints should not be blocked by the generic IP/user limiter.
     path = getattr(getattr(request, "url", None), "path", "") or ""
     if isinstance(path, str) and path.startswith("/api/v1/dashboards/ai/build-jobs/"):
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     try:
         redis = await get_redis()
         if redis is None:
             # Redis not available, skip rate limiting
             logger.debug("Redis not available, skipping rate limiting")
-            return await call_next(request)
+            return cast(Response, await call_next(request))
         client_ip = request.client.host if request.client else "unknown"
         user_id = (
             getattr(request.state, "user_id", None) if hasattr(request.state, "user_id") else None
@@ -115,4 +115,4 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         logger.warning(f"Rate limiting error (continuing without rate limit): {str(e)}")
         # On error, allow request to proceed without rate limiting
         # Don't reset request.state - just continue
-        return await call_next(request)
+        return cast(Response, await call_next(request))
