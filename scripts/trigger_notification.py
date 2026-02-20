@@ -1,23 +1,23 @@
 import asyncio
-import sys
 import os
+import sys
 
 # Add the src directory to the path
 sys.path.append(os.getcwd())
 
-from src.config.database import init_db, get_db
-from src.services.notification_service import NotificationService
-from src.services.comment_service import CommentService
-from src.schemas.notification import NotificationCreate
-from src.schemas.comment import CommentCreate
-from src.models.notification import NotificationType, Notification
-from src.models.user import User
-from src.models.dashboard import Dashboard
-from sqlalchemy.future import select
 from sqlalchemy import delete
+from sqlalchemy.future import select
 
 # Trigger all models registration
 import src.models
+from src.config.database import get_db, init_db
+from src.models.dashboard import Dashboard
+from src.models.notification import Notification, NotificationType
+from src.models.user import User
+from src.schemas.comment import CommentCreate
+from src.schemas.notification import NotificationCreate
+from src.services.comment_service import CommentService
+from src.services.notification_service import NotificationService
 
 
 async def trigger_test_notification():

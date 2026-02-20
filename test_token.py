@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Test token verification."""
-import sys
-import requests
 import json
+import sys
+
+import requests
 
 # Get token
 login_response = requests.post(

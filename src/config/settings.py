@@ -280,6 +280,10 @@ class Settings(BaseSettings):
     # Hard cap to prevent "switching tenant context" abuse
     AI_RATE_LIMIT_GLOBAL_USER_PER_HOUR: int = 80
 
+    IDEMPOTENCY_TTL_SECONDS: int = Field(
+        default=86400, description="TTL in seconds for idempotency keys stored in Redis."
+    )
+
     @model_validator(mode="after")
     def apply_environment_defaults(self):
         """
