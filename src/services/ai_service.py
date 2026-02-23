@@ -366,14 +366,14 @@ class AIService:
                             req_count = await redis.incr(kill_switch_key)
                             if req_count == 1:
                                 await redis.expire(kill_switch_key, 86400)
-                            
+
                             if req_count > 5000:
                                 logger.warning(f"Kill switch activated for connection {connection_id}. Count: {req_count}")
                                 query.status = "failed"
                                 query.answer = "Error: Daily AI quota exceeded for this environment (Hard Cap reached). Please contact support or check for runaway processes."
                                 await self.db.commit()
                                 await self.db.refresh(query)
-                                
+
                                 response_dict = query.__dict__.copy()
                                 response_dict["chosen_table"] = None
                                 response_dict["chosen_datasets"] = []
