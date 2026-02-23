@@ -1,5 +1,6 @@
 from typing import Any
 
+import httpx
 import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -57,6 +58,17 @@ def register_exception_handlers(app: FastAPI):
             details=exc.errors(),
             correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
+
+    @app.exception_handler(httpx.TimeoutException)
+    async def httpx_timeout_exception_handler(request: Request, exc: httpx.TimeoutException):
+        logger.warning("ai_service_timeout", error=str(exc))
+        return _json_response(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            code="GATEWAY_TIMEOUT",
+            message="Connection to AI service timed out.",
+            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
+        )
+
 
     @app.exception_handler(BaseAPIException)
     async def app_exception_handler(request: Request, exc: BaseAPIException):

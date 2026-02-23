@@ -21,7 +21,7 @@ class AIServiceHTTPClient:
             base_url: Base URL of AI service (defaults to settings.AI_SERVICE_URL)
         """
         self.base_url = (base_url or settings.AI_SERVICE_URL).rstrip("/")
-        self.timeout = 300.0  # 5 minutes timeout for AI queries
+        self.timeout = 14.0  # Failsafe timeout for AI queries
 
     async def query_connection(
         self,
@@ -322,7 +322,7 @@ class AIServiceHTTPClient:
         if question:
             payload["question"] = question
 
-        async with httpx.AsyncClient(timeout=30.0) as client:  # Timeout menor para validação
+        async with httpx.AsyncClient(timeout=14.0) as client:  # Timeout failsafe para validação
             logger.info(
                 "Calling AI validate SQL: %s connection_id=%s space_id=%s",
                 url,
@@ -371,8 +371,8 @@ class AIServiceHTTPClient:
             payload["current_title"] = current_title
 
         async with httpx.AsyncClient(
-            timeout=15.0
-        ) as client:  # Timeout menor para sugestão de título
+            timeout=14.0
+        ) as client:  # Timeout failsafe para sugestão de título
             logger.info(
                 "Calling AI suggest widget title: %s question=%s",
                 url,
@@ -421,7 +421,7 @@ class AIServiceHTTPClient:
         if data_sample:
             payload["data_sample"] = data_sample
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=14.0) as client:
             logger.info(f"Calling AI generate infographic: {url}")
             response = await client.post(url, json=payload)
             response.raise_for_status()
