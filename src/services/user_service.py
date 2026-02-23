@@ -211,9 +211,9 @@ class UserService:
             user.onboarding_step = step
         if version is not None:
             user.onboarding_version = version
-            if version >= 1: # Assuming 1 is the completed version for now
+            if version >= 1:  # Assuming 1 is the completed version for now
                 user.has_completed_onboarding = True
-                user.onboarding_step = None # Clear step on completion
+                user.onboarding_step = None  # Clear step on completion
 
         await self.db.commit()
         await self.db.refresh(user)
