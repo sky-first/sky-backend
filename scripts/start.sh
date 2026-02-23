@@ -45,7 +45,7 @@ export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/2}
 export AI_SERVICE_URL="${AI_SERVICE_URL:-http://localhost:8001}"
 
 # Cache Warming settings
-export CACHE_WARMING_ENABLED="${CACHE_WARMING_ENABLED:-true}"
+export CACHE_WARMING_ENABLED="${CACHE_WARMING_ENABLED:-false}"
 export CACHE_WARMING_INTERVAL_SECONDS="${CACHE_WARMING_INTERVAL_SECONDS:-60}"
 
 echo "✅ Variáveis de ambiente configuradas"
