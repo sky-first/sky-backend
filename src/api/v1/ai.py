@@ -141,10 +141,12 @@ async def process_query(
         active_planet = await planet_repo.get_active_planet(current_user.id)
         if not active_planet:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active planet found for user")
         query_data.planet_id = active_planet.id
     else:
         from src.services.planet_service import PlanetService
+
         planet_service = PlanetService(db)
         await planet_service.get_user_planet_or_404(query_data.planet_id, current_user.id)
 
@@ -347,10 +349,12 @@ async def send_chat_message(
         active_planet = await planet_repo.get_active_planet(current_user.id)
         if not active_planet:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active planet found for user")
         message_data.planet_id = active_planet.id
     else:
         from src.services.planet_service import PlanetService
+
         planet_service = PlanetService(db)
         await planet_service.get_user_planet_or_404(message_data.planet_id, current_user.id)
 
@@ -398,10 +402,12 @@ async def get_history(
         active_planet = await planet_repo.get_active_planet(current_user.id)
         if not active_planet:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active planet found for user")
         resolved_planet_id = active_planet.id
     else:
         from src.services.planet_service import PlanetService
+
         planet_service = PlanetService(db)
         await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
 
@@ -447,10 +453,12 @@ async def create_history(
         active_planet = await planet_repo.get_active_planet(current_user.id)
         if not active_planet:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active planet found for user")
         history_data.planet_id = active_planet.id
     else:
         from src.services.planet_service import PlanetService
+
         planet_service = PlanetService(db)
         await planet_service.get_user_planet_or_404(history_data.planet_id, current_user.id)
 
@@ -490,10 +498,12 @@ async def get_history_by_id(
         active_planet = await planet_repo.get_active_planet(current_user.id)
         if not active_planet:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active planet found for user")
         resolved_planet_id = active_planet.id
     else:
         from src.services.planet_service import PlanetService
+
         planet_service = PlanetService(db)
         await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
 
@@ -533,10 +543,12 @@ async def delete_history(
         active_planet = await planet_repo.get_active_planet(current_user.id)
         if not active_planet:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active planet found for user")
         resolved_planet_id = active_planet.id
     else:
         from src.services.planet_service import PlanetService
+
         planet_service = PlanetService(db)
         await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
 
@@ -577,10 +589,12 @@ async def pin_history(
         active_planet = await planet_repo.get_active_planet(current_user.id)
         if not active_planet:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active planet found for user")
         resolved_planet_id = active_planet.id
     else:
         from src.services.planet_service import PlanetService
+
         planet_service = PlanetService(db)
         await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
 
@@ -620,10 +634,12 @@ async def unpin_history(
         active_planet = await planet_repo.get_active_planet(current_user.id)
         if not active_planet:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active planet found for user")
         resolved_planet_id = active_planet.id
     else:
         from src.services.planet_service import PlanetService
+
         planet_service = PlanetService(db)
         await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
 
@@ -660,10 +676,12 @@ async def export_history(
         active_planet = await planet_repo.get_active_planet(current_user.id)
         if not active_planet:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active planet found for user")
         resolved_planet_id = active_planet.id
     else:
         from src.services.planet_service import PlanetService
+
         planet_service = PlanetService(db)
         await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
 
@@ -707,10 +725,12 @@ async def execute_pipeline(
         active_planet = await planet_repo.get_active_planet(current_user.id)
         if not active_planet:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active planet found for user")
         request.planet_id = active_planet.id
     else:
         from src.services.planet_service import PlanetService
+
         planet_service = PlanetService(db)
         await planet_service.get_user_planet_or_404(request.planet_id, current_user.id)
 

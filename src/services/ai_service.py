@@ -368,7 +368,9 @@ class AIService:
                                 await redis.expire(kill_switch_key, 86400)
 
                             if req_count > 5000:
-                                logger.warning(f"Kill switch activated for connection {connection_id}. Count: {req_count}")
+                                logger.warning(
+                                    f"Kill switch activated for connection {connection_id}. Count: {req_count}"
+                                )
                                 query.status = "failed"
                                 query.answer = "Error: Daily AI quota exceeded for this environment (Hard Cap reached). Please contact support or check for runaway processes."
                                 await self.db.commit()
@@ -1071,7 +1073,9 @@ class AIService:
 
         return AIHistoryItem.model_validate(history)
 
-    async def unpin_history(self, history_id: UUID, user_id: UUID, planet_id: UUID) -> AIHistoryItem:
+    async def unpin_history(
+        self, history_id: UUID, user_id: UUID, planet_id: UUID
+    ) -> AIHistoryItem:
         """
         Unpin history item.
 
