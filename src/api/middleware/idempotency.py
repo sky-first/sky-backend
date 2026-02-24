@@ -70,45 +70,52 @@ async def idempotency_middleware(request: Request, call_next: Callable) -> Respo
                 )
 
         # 2. Process request normally if no cache hit
-        response = cast(Response, await call_next(request))
+        try:
+            response = cast(Response, await call_next(request))
+        except Exception:
+            # If the actual endpoint throws, let it bubble up to the exception handlers
+            raise
 
         # 3. Cache successful (2xx) responses
         if 200 <= response.status_code < 300:
-            logger.debug(f"Caching successful response for idempotency key: {idempotency_key}")
-
-            # Read body from iterator
-            # We use Any cast because body_iterator is not in base Response but present in StreamingResponse
-            res_any = cast(Any, response)
-            response_body = [section async for section in res_any.body_iterator]
-            # Restore body iterator so background processing/FastAPI can still use it
-            res_any.body_iterator = iterate_in_threadpool(iter(response_body))
-
-            # Combine body parts
-            full_body_bytes = b"".join(response_body)
-            # Try to store as string if possible, or base64 if binary?
-            # Most of our responses are JSON (text).
             try:
-                full_body = full_body_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                # If binary, we might not want to cache it or we'd need base64
-                # For now, we only care about API JSON mutations
-                return response
+                logger.debug(f"Caching successful response for idempotency key: {idempotency_key}")
 
-            # Prepare metadata for caching
-            cache_payload = {
-                "status_code": response.status_code,
-                "body": full_body,
-                "headers": dict(response.headers),
-                "media_type": response.media_type,
-            }
+                # Read body from iterator
+                # We use Any cast because body_iterator is not in base Response but present in StreamingResponse
+                res_any = cast(Any, response)
+                response_body = [section async for section in res_any.body_iterator]
+                # Restore body iterator so background processing/FastAPI can still use it
+                res_any.body_iterator = iterate_in_threadpool(iter(response_body))
 
-            await redis.setex(
-                redis_key, settings.IDEMPOTENCY_TTL_SECONDS, json.dumps(cache_payload)
-            )
+                # Combine body parts
+                full_body_bytes = b"".join(response_body)
+                # Try to store as string if possible, or base64 if binary?
+                # Most of our responses are JSON (text).
+                try:
+                    full_body = full_body_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    # If binary, we might not want to cache it or we'd need base64
+                    # For now, we only care about API JSON mutations
+                    return response
+
+                # Prepare metadata for caching
+                cache_payload = {
+                    "status_code": response.status_code,
+                    "body": full_body,
+                    "headers": dict(response.headers),
+                    "media_type": response.media_type,
+                }
+
+                await redis.setex(
+                    redis_key, settings.IDEMPOTENCY_TTL_SECONDS, json.dumps(cache_payload)
+                )
+            except Exception as cache_error:
+                logger.error(f"Idempotency cache persistence error: {str(cache_error)}")
 
         return response
 
     except Exception as e:
         logger.error(f"Idempotency middleware error (continuing without idempotency): {str(e)}")
-        # On middleware internal failure, allow request to proceed
+        # On middleware internal failure (before call_next), allow request to proceed
         return cast(Response, await call_next(request))

@@ -69,7 +69,6 @@ def register_exception_handlers(app: FastAPI):
             correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
 
-
     @app.exception_handler(BaseAPIException)
     async def app_exception_handler(request: Request, exc: BaseAPIException):
         logger.warning("app_exception", error=exc.message, status_code=exc.status_code)

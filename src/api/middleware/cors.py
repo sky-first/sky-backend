@@ -27,6 +27,7 @@ def setup_cors(app: FastAPI) -> None:
             "X-CSRF-Token",
             "X-API-Key",
             "X-Correlation-ID",
+            "Idempotency-Key",
         ],
         expose_headers=[
             "X-RateLimit-Limit-Minute",
@@ -34,6 +35,7 @@ def setup_cors(app: FastAPI) -> None:
             "X-RateLimit-Limit-Hour",
             "X-RateLimit-Remaining-Hour",
             "X-Correlation-ID",
+            "X-Idempotency-Cache",
         ],
         max_age=3600,  # Cache preflight requests for 1 hour
     )
