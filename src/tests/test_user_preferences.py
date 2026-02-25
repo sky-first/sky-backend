@@ -1,5 +1,6 @@
 import pytest
 from httpx import AsyncClient
+
 """Tests for user preferences endpoints."""
 
 
@@ -7,7 +8,9 @@ class TestUserPreferences:
     """Tests for user preferences updates."""
 
     @pytest.mark.asyncio
-    async def test_update_preferences_success(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_update_preferences_success(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test updating user preferences."""
         access_token = test_user_with_tokens["access_token"]
         preferences = {"theme": "dark", "language": "pt-BR", "ai_tone": "casual"}
@@ -32,7 +35,9 @@ class TestUserPreferences:
         assert data["preferences"] == preferences
 
     @pytest.mark.asyncio
-    async def test_update_preferences_partial(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_update_preferences_partial(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test updating user preferences partially (overwrite behavior)."""
         access_token = test_user_with_tokens["access_token"]
 

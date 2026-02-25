@@ -93,7 +93,9 @@ class ConnectionResponse(ConnectionBase):
     created_by: UUID
     created_at: datetime
     updated_at: datetime
-    connection_metadata: Optional[ConnectionMetadataResponse] = Field(None, serialization_alias="metadata")
+    connection_metadata: Optional[ConnectionMetadataResponse] = Field(
+        None, serialization_alias="metadata"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

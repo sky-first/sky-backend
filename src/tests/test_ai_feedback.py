@@ -1,4 +1,5 @@
 from httpx import AsyncClient
+
 """Tests for AI feedback endpoint."""
 
 from datetime import datetime, timezone
@@ -107,7 +108,9 @@ class TestAIFeedback:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_submit_feedback_invalid_rating(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_submit_feedback_invalid_rating(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/ai/feedback - invalid rating enum."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fb_data = {"query_id": str(uuid4()), "feedback": "not_good_or_bad"}

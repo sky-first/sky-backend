@@ -613,6 +613,7 @@ class SpaceService:
 
         await self.db.delete(association)
         await self.db.commit()
+
     async def get_space_stats(self, space_id: UUID, user: User) -> dict:
         """
         Get statistics for a space.

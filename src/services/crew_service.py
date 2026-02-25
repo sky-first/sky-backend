@@ -53,7 +53,9 @@ class CrewService:
             List[CrewResponse]: List of crews
         """
         if space_id:
-            crews_data = await self.crew_repo.get_by_space_with_stats(space_id, skip=skip, limit=limit)
+            crews_data = await self.crew_repo.get_by_space_with_stats(
+                space_id, skip=skip, limit=limit
+            )
             return [CrewResponse.model_validate(c) for c in crews_data]
         else:
             # Get all crews user has access to
@@ -203,7 +205,7 @@ class CrewService:
             logger.info(f"Getting status for crew {crew_id} (real data - no tasks running)")
 
             # Mock response with running tasks for testing
-            from datetime import datetime, timezone
+
             return CrewStatusResponse(
                 crew_id=crew_id,
                 has_running_tasks=False,
@@ -213,9 +215,7 @@ class CrewService:
         except Exception as e:
             logger.warning(f"Failed to get AI task status for crew {crew_id}: {e}")
             return CrewStatusResponse(
-                crew_id=crew_id,
-                has_running_tasks=False,
-                running_tasks_count=0
+                crew_id=crew_id, has_running_tasks=False, running_tasks_count=0
             )
 
     async def delete_crew(self, crew_id: UUID, user: User, force: bool = False) -> None:
@@ -282,7 +282,9 @@ class CrewService:
             try:
                 # TODO: Integrate with AI service to stop tasks
                 # await self.ai_client.stop_crew_tasks(crew_id)
-                logger.info(f"Would stop all tasks for crew {crew_id} before deletion (not implemented yet)")
+                logger.info(
+                    f"Would stop all tasks for crew {crew_id} before deletion (not implemented yet)"
+                )
             except Exception as e:
                 logger.warning(f"Failed to stop tasks for crew {crew_id}: {e}")
 
@@ -501,31 +503,22 @@ class CrewService:
         # In a real app, these would come from the database/analytics service
         # For now, we return 0/neutral if no data exists, but formatted to represent real state
         # We can simulate some basic "real-looking" data based on the crew existence
-        
+
         # Determine PII access based on some logic (e.g. if name contains 'Finance' or 'HR')
-        is_sensitive = any(kw in crew.name.lower() or (crew.description and kw in crew.description.lower()) 
-                          for kw in ['finance', 'hr', 'salary', 'legal', 'restricted'])
-        
+        is_sensitive = any(
+            kw in crew.name.lower() or (crew.description and kw in crew.description.lower())
+            for kw in ["finance", "hr", "salary", "legal", "restricted"]
+        )
+
         pii_status = "RESTRICTED" if is_sensitive else "OPEN"
         pii_description = (
             "This crew has active filters for Personal Identifiable Information across all tables."
-            if is_sensitive else
-            "This crew has full access to available data without PII restrictions."
+            if is_sensitive
+            else "This crew has full access to available data without PII restrictions."
         )
 
         return CrewStatsResponse(
-            usage_summary={
-                "value": "0", 
-                "change": "+0%", 
-                "trend": "neutral"
-            },
-            insights_contributed={
-                "value": "0", 
-                "change": "+0%", 
-                "trend": "neutral"
-            },
-            pii_access={
-                "status": pii_status,
-                "description": pii_description
-            }
+            usage_summary={"value": "0", "change": "+0%", "trend": "neutral"},
+            insights_contributed={"value": "0", "change": "+0%", "trend": "neutral"},
+            pii_access={"status": pii_status, "description": pii_description},
         )

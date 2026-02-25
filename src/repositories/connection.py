@@ -4,8 +4,8 @@ from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from src.models.connection import ConnectionMetadata, DataConnection
 from src.repositories.base import BaseRepository

@@ -1,12 +1,13 @@
 """File upload repository."""
 
+from typing import List
+from uuid import UUID
+
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.file import FileUpload, SyncLog
 from src.repositories.base import BaseRepository
-from sqlalchemy import select, desc
-from uuid import UUID
-from typing import List
 
 
 class FileUploadRepository(BaseRepository[FileUpload]):

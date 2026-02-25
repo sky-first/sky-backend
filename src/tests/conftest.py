@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone  # noqa: E402
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from faker import Faker  # noqa: E402
-from httpx import AsyncClient  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from httpx import AsyncClient  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncSession,
     async_sessionmaker,

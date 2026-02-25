@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Optional
+from typing import List
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -16,12 +17,8 @@ class SpaceBase(BaseModel):
     description: Optional[str] = None
     color: Optional[str] = Field(None)  # Allow any string or None, validate in service if needed
     icon: Optional[str] = None
-    privacy: str = Field(
-        "private", description="public, private"
-    )  # Default can be 'private'
-    sensitivity: str = Field(
-        "internal", description="internal, confidential, restricted"
-    )
+    privacy: str = Field("private", description="public, private")  # Default can be 'private'
+    sensitivity: str = Field("internal", description="internal, confidential, restricted")
 
     @field_validator("color", mode="before")
     @classmethod
@@ -104,7 +101,6 @@ class SpaceTableResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-from typing import List
 
 class SpaceMetric(BaseModel):
     """Schema for a metric in the space overview."""

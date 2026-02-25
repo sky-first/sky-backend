@@ -1,7 +1,7 @@
 """Dashboard endpoints."""
 
 import uuid
-from typing import Any, List, Optional, cast
+from typing import List, Optional, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status

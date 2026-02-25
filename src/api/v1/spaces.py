@@ -500,6 +500,7 @@ async def remove_space_table(
     )
     return SuccessResponse(message="Table unlinked successfully")
 
+
 @router.get(
     "/{space_id}/stats",
     response_model=SpaceStatsResponse,
