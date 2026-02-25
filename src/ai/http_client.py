@@ -21,7 +21,7 @@ class AIServiceHTTPClient:
             base_url: Base URL of AI service (defaults to settings.AI_SERVICE_URL)
         """
         self.base_url = (base_url or settings.AI_SERVICE_URL).rstrip("/")
-        self.timeout = 300.0  # 5 minutes timeout for AI queries
+        self.timeout = 25.0  # Failsafe timeout for AI queries
 
     async def query_connection(
         self,
@@ -373,12 +373,12 @@ class AIServiceHTTPClient:
             payload["current_title"] = current_title
 
         async with httpx.AsyncClient(
-            timeout=15.0
-        ) as client:  # Timeout menor para sugestão de título
+            timeout=25.0
+        ) as client:  # Timeout failsafe para sugestão de título
             logger.info(
                 "Calling AI suggest widget title: %s question=%s",
                 url,
-                question[:100],
+                str(question)[:100],
             )
             try:
                 response = await client.post(url, json=payload)
@@ -398,3 +398,33 @@ class AIServiceHTTPClient:
                 )
                 # Fallback: retornar título atual ou genérico
                 return current_title or "Widget"
+
+    async def generate_infographic(
+        self,
+        question: str,
+        answer: str,
+        data_sample: Optional[List[Dict[str, Any]]] = None,
+        language: str = "en",
+        style: str = "mix",
+    ) -> Dict[str, Any]:
+        """
+        Generate structured data for an infographic based on question, answer and data.
+
+        Endpoint (ia-do-projeto):
+          POST /widgets/infographic
+        """
+        url = f"{self.base_url}/widgets/infographic"
+        payload = {
+            "question": question,
+            "answer": answer,
+            "language": language,
+            "style": style,
+        }
+        if data_sample:
+            payload["data_sample"] = data_sample
+
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            logger.info(f"Calling AI generate infographic: {url}")
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            return response.json()

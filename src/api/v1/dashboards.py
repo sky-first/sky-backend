@@ -1,7 +1,7 @@
 """Dashboard endpoints."""
 
 import uuid
-from typing import List, Optional
+from typing import Any, List, Optional, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -514,6 +514,8 @@ async def ai_build_dashboard(
             status_code=400, detail="Dashboard AI build is available in Personal mode only."
         )
 
+    active_planet_id = cast(UUID, active_planet.id)
+
     # Resolve space context (required by AI engine)
     resolved_space_id = body.space_id
     if not resolved_space_id:
@@ -566,7 +568,7 @@ async def ai_build_dashboard(
         DashboardCreate(
             name=plan.dashboard_name,
             description=plan.description,
-            planet_id=active_planet.id,
+            planet_id=active_planet_id,
         ),
     )
 
@@ -672,7 +674,7 @@ async def ai_build_dashboard(
                 ),
             ),
         )
-        query_resp = await ai_service.process_query(current_user.id, query_req)
+        query_resp = await ai_service.process_query(cast(UUID, current_user.id), query_req)
 
         widget_data = {
             "question": w.question,
@@ -728,9 +730,9 @@ async def ai_build_dashboard(
                 priority = "high"
 
             # Chart type fallback
-            chart_type = "bar"
-            if w.viz and isinstance(w.viz, dict) and w.viz.get("type"):
-                chart_type = w.viz.get("type")
+            chart_type = cast(
+                str, w.viz.get("type") if (w.viz and isinstance(w.viz, dict)) else "bar"
+            )
 
             widget_data.update(
                 {
@@ -812,6 +814,9 @@ async def ai_build_dashboard_async(
             status_code=400, detail="Dashboard AI build is available in Personal mode only."
         )
 
+    user_id = cast(UUID, current_user.id)
+    active_planet_id = cast(UUID, active_planet.id)
+
     # Resolve space context (required by AI engine)
     resolved_space_id = body.space_id
     if not resolved_space_id:
@@ -826,7 +831,7 @@ async def ai_build_dashboard_async(
     connection_id = (
         body.connection_id
         or await ai_service._get_first_active_connection_for_space(  # noqa: SLF001
-            current_user.id, resolved_space_id
+            user_id, resolved_space_id
         )
     )
     if not connection_id:
@@ -852,8 +857,8 @@ async def ai_build_dashboard_async(
             "context_tables": body.context_tables,
         }
     job = await job_repo.create(
-        user_id=current_user.id,
-        planet_id=active_planet.id,
+        user_id=user_id,
+        planet_id=active_planet_id,
         space_id=UUID(resolved_space_id),
         connection_id=UUID(connection_id),
         goal=body.original_question or body.goal,
@@ -874,12 +879,12 @@ async def ai_build_dashboard_async(
     build_dashboard_job.apply_async(args=[str(job.id)], ignore_result=True)
 
     return DashboardAIBuildAsyncResponse(
-        job_id=job.id,
-        status=job.status,
+        job_id=cast(UUID, job.id),
+        status=cast(str, job.status),
         total_widgets=int(job.total_widgets or 0),
         completed_widgets=int(job.completed_widgets or 0),
-        dashboard_id=job.dashboard_id,
-        error=job.error,
+        dashboard_id=cast(Optional[UUID], job.dashboard_id),
+        error=cast(Optional[str], job.error),
     )
 
 
@@ -908,13 +913,13 @@ async def get_dashboard_build_job(
         created_ids = None
 
     return DashboardBuildJobStatusResponse(
-        job_id=job.id,
-        status=job.status,
+        job_id=cast(UUID, job.id),
+        status=cast(str, job.status),
         total_widgets=int(job.total_widgets or 0),
         completed_widgets=int(job.completed_widgets or 0),
-        dashboard_id=job.dashboard_id,
+        dashboard_id=cast(Optional[UUID], job.dashboard_id),
         created_widget_ids=created_ids,
-        error=job.error,
+        error=cast(Optional[str], job.error),
         started_at=job.started_at.isoformat() if job.started_at else None,
         finished_at=job.finished_at.isoformat() if job.finished_at else None,
     )

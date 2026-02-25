@@ -43,7 +43,7 @@ export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/2}
 export AI_SERVICE_URL="${AI_SERVICE_URL:-http://localhost:8001}"
 
 # Cache Warming settings
-export CACHE_WARMING_ENABLED="${CACHE_WARMING_ENABLED:-true}"
+export CACHE_WARMING_ENABLED="${CACHE_WARMING_ENABLED:-false}"
 export CACHE_WARMING_INTERVAL_SECONDS="${CACHE_WARMING_INTERVAL_SECONDS:-60}"
 
 echo "✅ Variáveis de ambiente configuradas"
@@ -74,12 +74,29 @@ trap cleanup EXIT
 
 # Executa migrações
 echo "🔄 Executando migrações do banco de dados..."
+ALEMBIC_CMD="python3 -m alembic"
 if [ -d "venv" ]; then
-    venv/bin/python -m alembic upgrade head
+    ALEMBIC_CMD="venv/bin/python -m alembic"
 elif [ -d ".venv" ]; then
-    .venv/bin/python -m alembic upgrade head
-else
-    python3 -m alembic upgrade head
+    ALEMBIC_CMD=".venv/bin/python -m alembic"
+fi
+
+if ! $ALEMBIC_CMD upgrade head; then
+    echo "⚠️  Falha nas migrações. Verificando se há revisões órfãs..."
+    # Se o erro for "Can't locate revision", tentamos sincronizar com stamp head
+    if $ALEMBIC_CMD current 2>&1 | grep -q "Can't locate revision"; then
+        echo "💡 Detectada revisão órfã (possivelmente de outra branch) na tabela alembic_version."
+        echo "🔧 Tentando sincronizar banco de dados com 'alembic stamp head'..."
+        if $ALEMBIC_CMD stamp head && $ALEMBIC_CMD upgrade head; then
+            echo "✅ Banco de dados sincronizado e atualizado com sucesso!"
+        else
+            echo "❌ Não foi possível recuperar automaticamente. Verifique as migrações manualmente."
+            exit 1
+        fi
+    else
+        echo "❌ Falha crítica nas migrações. Por favor, verifique os logs acima."
+        exit 1
+    fi
 fi
 echo ""
 

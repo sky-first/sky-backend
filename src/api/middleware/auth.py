@@ -1,7 +1,7 @@
 """Authentication middleware."""
 
 import logging
-from typing import Callable
+from typing import Any, Callable, cast
 
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
@@ -31,7 +31,7 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     # Always allow CORS preflight requests through so CORSMiddleware can respond with 200.
     # Browsers send OPTIONS without Authorization; blocking it causes "preflight not OK" errors.
     if request.method == "OPTIONS":
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     # Skip auth for public endpoints
     public_paths = [
@@ -68,11 +68,11 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     # Root only (avoid "/" matching every path)
     if request.url.path == "/":
         logger.debug(f"⏭️ Skipping auth for root path: {request.url.path}")
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     if any(request.url.path.startswith(path) for path in public_paths):
         logger.debug(f"⏭️ Skipping auth for public path: {request.url.path}")
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     logger.info(f"🔐 Auth middleware executing for path: {request.url.path}")
 

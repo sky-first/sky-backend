@@ -32,6 +32,7 @@ class AIQueryRequest(BaseModel):
         default=False,
         description="Whether the query is in personal mode (access across all crews/spaces).",
     )
+    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
 
 
 class AIQueryResponse(BaseModel):
@@ -54,6 +55,7 @@ class AIQueryResponse(BaseModel):
     )
     # NEW: extra meta returned by the AI execution engine (e.g., dynamic widget title)
     meta: Optional[Dict[str, Any]] = None
+    planet_id: UUID
     created_at: datetime
     updated_at: datetime
 
@@ -92,6 +94,7 @@ class ChatMessageRequest(BaseModel):
 
     message: str = Field(..., min_length=1)
     widget_id: UUID
+    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
     context: Optional[Dict[str, Any]] = None
 
 
@@ -101,6 +104,7 @@ class ChatMessageResponse(BaseModel):
     id: UUID
     type: str  # user, assistant
     content: str
+    planet_id: UUID
     timestamp: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -117,6 +121,7 @@ class AIHistoryItem(BaseModel):
     tags: List[str] = Field(default_factory=list)
     category: Optional[str] = None
     pinned: bool = False
+    planet_id: UUID
     created_at: datetime
     updated_at: datetime
 
@@ -128,6 +133,7 @@ class CreateHistoryRequest(BaseModel):
 
     query: str = Field(..., min_length=1)
     answer: str = Field(..., min_length=1)
+    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
     category: Optional[str] = None
     tags: Optional[List[str]] = Field(default_factory=list)
 
@@ -206,6 +212,7 @@ class PipelineExecuteRequest(BaseModel):
     question: str = Field(..., min_length=1)
     knowledge: List[str] = Field(default_factory=list)
     configure_data: ConfigureData
+    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
 
 
 class PipelineExecuteResponse(BaseModel):
@@ -301,3 +308,73 @@ class ValidateSQLResponse(BaseModel):
         default=None,
         description="Short AI-generated explanation for the preview results (if requested).",
     )
+
+
+class InfographicDataDriver(BaseModel):
+    """Driver item for infographic."""
+
+    name: str
+    icon: Optional[str] = None
+    impact: Optional[str] = None
+    description: Optional[str] = None
+
+
+class InfographicData(BaseModel):
+    """Structured data for infographic widget."""
+
+    # Header
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    mainValue: Optional[str] = None
+    mainValueLabel: Optional[str] = None
+
+    # Summary
+    summary: Optional[str] = None
+    highlightedValue: Optional[str] = None
+
+    # KPIs
+    marginLabel: Optional[str] = None
+    marginValue: Optional[str] = None
+    cacLabel: Optional[str] = None
+    cacValue: Optional[str] = None
+
+    # Trajectory
+    trajectoryTitle: Optional[str] = None
+    trajectoryData: Optional[List[Dict[str, Any]]] = None
+    recordHighLabel: Optional[str] = None
+
+    # Drivers
+    drivers: Optional[List[InfographicDataDriver]] = None
+
+    # Why
+    whyTitle: Optional[str] = None
+    whyContent: Optional[str] = None
+    whyChartData: Optional[List[Dict[str, Any]]] = None
+
+    # Strategic
+    strategicTitle: Optional[str] = None
+    strategicContent: Optional[str] = None
+
+    # Outlook
+    outlookTitle: Optional[str] = None
+    outlookContent: Optional[str] = None
+    outlookChartData: Optional[List[Dict[str, Any]]] = None
+    outlookChartCenterValue: Optional[str] = None
+    outlookChartCenterLabel: Optional[str] = None
+
+
+class GenerateInfographicRequest(BaseModel):
+    """Request to generate structured infographic data."""
+
+    question: str
+    answer: str
+    data_sample: Optional[List[Dict[str, Any]]] = None
+    language: str = "en"
+    style: str = "mix"  # textual, visual, mix
+
+
+class GenerateInfographicResponse(BaseModel):
+    """Response with structured infographic data."""
+
+    data: InfographicData
+    timestamp: datetime

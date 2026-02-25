@@ -53,6 +53,12 @@ class AIQuery(Base):
         ForeignKey("pipelines.id", ondelete="SET NULL"),
         nullable=True,
     )
+    planet_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("planets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     updated_at = Column(
         DateTime(timezone=True),
@@ -64,12 +70,15 @@ class AIQuery(Base):
     # Relationships
     user = relationship("User")
     widget = relationship("Widget", foreign_keys=[widget_id])
+    planet = relationship("Planet")
 
     __table_args__ = (
         Index("idx_ai_queries_user_id", "user_id"),
         Index("idx_ai_queries_widget_id", "widget_id"),
+        Index("idx_ai_queries_planet_id", "planet_id"),
         Index("idx_ai_queries_status", "status"),
         Index("idx_ai_queries_created_at", "created_at"),
+        Index("idx_ai_queries_planet_created", "planet_id", "created_at"),
     )
 
     def __repr__(self) -> str:
@@ -95,6 +104,12 @@ class AIHistory(Base):
     tags = Column(JSON, nullable=False, default=list, server_default="[]")
     category = Column(String(50), nullable=True)  # Finance, Marketing, Sales, General, Logistics
     pinned = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    planet_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("planets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     updated_at = Column(
         DateTime(timezone=True),
@@ -105,13 +120,16 @@ class AIHistory(Base):
 
     # Relationships
     user = relationship("User")
+    planet = relationship("Planet")
 
     __table_args__ = (
         Index("idx_ai_history_user_id", "user_id"),
+        Index("idx_ai_history_planet_id", "planet_id"),
         Index("idx_ai_history_pinned", "pinned"),
         Index("idx_ai_history_category", "category"),
         Index("idx_ai_history_date", "date"),
         Index("idx_ai_history_user_date", "user_id", "date"),
+        Index("idx_ai_history_planet_created", "planet_id", "created_at"),
     )
 
     def __repr__(self) -> str:
@@ -198,15 +216,24 @@ class ChatMessage(Base):
     )
     type = Column(String(50), nullable=False)  # user, assistant
     content = Column(Text, nullable=False)
+    planet_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("planets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     timestamp = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
 
     # Relationships
     widget = relationship("Widget")
+    planet = relationship("Planet")
 
     __table_args__ = (
         Index("idx_chat_messages_widget_id", "widget_id"),
+        Index("idx_chat_messages_planet_id", "planet_id"),
         Index("idx_chat_messages_timestamp", "timestamp"),
+        Index("idx_chat_messages_planet_created", "planet_id", "created_at"),
     )
 
     def __repr__(self) -> str:

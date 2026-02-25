@@ -39,6 +39,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = Field(None, pattern="^(admin|user|viewer)$")
     email_verified: Optional[bool] = None
     onboarding_step: Optional[int] = None
+    onboarding_version: Optional[int] = None
     has_completed_onboarding: Optional[bool] = None
     selected_domain: Optional[str] = None
     preferences: Optional[dict] = None
@@ -48,6 +49,14 @@ class UserUpdate(BaseModel):
     ai_style: Optional[str] = None
     ai_context: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(active|away|offline)$")
+    onboarding_version: Optional[int] = None
+
+
+class OnboardingUpdate(BaseModel):
+    """Onboarding update schema."""
+
+    step: Optional[int] = None
+    version: Optional[int] = None
 
 
 class UserResponse(UserBase):
@@ -56,7 +65,9 @@ class UserResponse(UserBase):
     id: UUID
     email_verified: bool
     email_verified_at: Optional[datetime] = None
-    onboarding_step: int
+    onboarding_step: Optional[int] = 0
+    onboarding_version: int = 0
+    needs_onboarding: bool = False
     has_completed_onboarding: bool
     selected_domain: Optional[str] = None
     preferences: dict = Field(default_factory=dict)

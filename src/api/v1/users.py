@@ -10,6 +10,7 @@ from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.user import (
+    OnboardingUpdate,
     UserCreate,
     UserInviteRequest,
     UserPermissionsResponse,
@@ -78,6 +79,36 @@ async def update_me(
     """
     user_service = UserService(db)
     return await user_service.update_user(current_user.id, user_data, current_user)
+
+
+@router.patch(
+    "/me/onboarding",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    responses={403: {"model": ErrorResponse}},
+    summary="Update onboarding progress",
+    description="Update onboarding step or version for current user",
+)
+async def update_my_onboarding(
+    onboarding_data: OnboardingUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserResponse:
+    """
+    Update my onboarding progress.
+
+    Args:
+        onboarding_data: Onboarding update data
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        UserResponse: Updated user
+    """
+    user_service = UserService(db)
+    return await user_service.update_onboarding(
+        current_user.id, onboarding_data.step, onboarding_data.version, current_user
+    )
 
 
 @router.get(

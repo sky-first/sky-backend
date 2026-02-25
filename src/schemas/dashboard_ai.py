@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class DashboardAIPlanWidget(BaseModel):
     widget_key: str = Field(..., description="Stable key within the plan (e.g., w1, w2).")
-    type: str = Field(..., pattern="^(chart|kpi|table|text)$")
+    type: str = Field(..., pattern="^(chart|kpi|table|text|infographic)$")
     title: str
     question: str
     viz: Optional[Dict[str, Any]] = None
@@ -127,6 +127,10 @@ class DashboardAIBuildAsyncRequest(BaseModel):
     language: str = Field(default="en", pattern="^(en|pt|es)$")
     max_widgets: int = Field(default=8, ge=1, le=8)
 
+    # Optional pre-calculated plan (from chat/frontend). If provided, the worker
+    # will use it directly instead of calling the AI service for re-planning.
+    plan: Optional[Dict[str, Any]] = None
+
     # Optional conversation context (stored in job.plan["_context"] for worker usage)
     initial_ai_response: Optional[str] = None
     context_spaces: Optional[List[str]] = None
@@ -141,9 +145,9 @@ class DashboardAIBuildAsyncRequest(BaseModel):
             else ""
         )
         g = (self.goal or "").strip() if isinstance(self.goal, str) else ""
-        if not oq and not g:
-            raise ValueError("Either 'original_question' or 'goal' must be provided.")
-        self.goal = oq or g
+        if not oq and not g and self.plan is None:
+            raise ValueError("Either 'original_question', 'goal', or 'plan' must be provided.")
+        self.goal = oq or g or self.goal
         return self
 
 

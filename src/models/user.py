@@ -2,7 +2,19 @@
 
 import uuid
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -27,7 +39,8 @@ class User(Base):
     )  # admin, user, viewer
     email_verified = Column(Boolean, nullable=False, default=False, server_default="false")
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
-    onboarding_step = Column(String(50), nullable=False, default="0", server_default="0")
+    onboarding_step = Column(Integer, nullable=True, default=0, server_default="0")
+    onboarding_version = Column(Integer, nullable=False, default=0, server_default="0")
     has_completed_onboarding = Column(
         Boolean, nullable=False, default=False, server_default="false"
     )

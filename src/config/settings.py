@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True  # Temporarily enabled for debugging
     ENVIRONMENT: str = "development"
+    ADMIN_ONBOARDING_VERSION: int = 1
 
     # API
     API_V1_PREFIX: str = "/api/v1"
@@ -159,6 +160,7 @@ class Settings(BaseSettings):
         elif not self.REDIS_URL and not redis_host and self.ENVIRONMENT != "development":
             # Safety check for non-development environments
             import logging
+
             logging.getLogger(__name__).warning(
                 "REDIS_URL and REDIS_HOST are both empty in non-development environment"
             )
@@ -278,6 +280,10 @@ class Settings(BaseSettings):
     AI_RATE_LIMIT_TENANT_PER_HOUR: int = 200
     # Hard cap to prevent "switching tenant context" abuse
     AI_RATE_LIMIT_GLOBAL_USER_PER_HOUR: int = 80
+
+    IDEMPOTENCY_TTL_SECONDS: int = Field(
+        default=86400, description="TTL in seconds for idempotency keys stored in Redis."
+    )
 
     @model_validator(mode="after")
     def apply_environment_defaults(self):

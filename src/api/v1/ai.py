@@ -1,5 +1,6 @@
 """AI endpoints."""
 
+import logging
 from typing import List, Optional
 from uuid import UUID
 
@@ -32,6 +33,8 @@ from src.schemas.ai import (
     FeedbackRequest,
     GenerateAnswerRequest,
     GenerateAnswerResponse,
+    GenerateInfographicRequest,
+    GenerateInfographicResponse,
     GenerateSQLRequest,
     GenerateSQLResponse,
     PipelineExecuteRequest,
@@ -47,6 +50,7 @@ from src.services.ai_service import AIService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -130,6 +134,21 @@ async def process_query(
                 response.headers["Access-Control-Allow-Credentials"] = "true"
                 response.headers.add_vary_header("Origin")
             return response  # type: ignore[return-value]
+
+    # Resolve and validate planet_id
+    if not query_data.planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active planet found for user")
+        query_data.planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(query_data.planet_id, current_user.id)
 
     return await ai_service.process_query(current_user.id, query_data)
 
@@ -324,6 +343,21 @@ async def send_chat_message(
     Returns:
         ChatMessageResponse: Chat response
     """
+    # Resolve and validate planet_id
+    if not message_data.planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active planet found for user")
+        message_data.planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(message_data.planet_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.send_chat_message(current_user.id, message_data)
 
@@ -342,6 +376,7 @@ async def get_history(
     category: Optional[str] = Query(None, description="Category filter"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for filtering"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[AIHistoryItem]:
@@ -360,9 +395,26 @@ async def get_history(
     Returns:
         List[AIHistoryItem]: History items
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.get_history(
         current_user.id,
+        planet_id=resolved_planet_id,
         filter_type=filter,
         search=search,
         category=category,
@@ -395,6 +447,21 @@ async def create_history(
     Returns:
         AIHistoryItem: Created history item
     """
+    # Resolve and validate planet_id
+    if not history_data.planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active planet found for user")
+        history_data.planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(history_data.planet_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.create_history(current_user.id, history_data)
 
@@ -409,6 +476,7 @@ async def create_history(
 )
 async def get_history_by_id(
     history_id: UUID,
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -423,8 +491,24 @@ async def get_history_by_id(
     Returns:
         AIHistoryItem: History item
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
-    return await ai_service.get_history_by_id(history_id, current_user.id)
+    return await ai_service.get_history_by_id(history_id, current_user.id, resolved_planet_id)
 
 
 @router.delete(
@@ -437,6 +521,7 @@ async def get_history_by_id(
 )
 async def delete_history(
     history_id: UUID,
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
@@ -451,8 +536,24 @@ async def delete_history(
     Returns:
         SuccessResponse: Success message
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
-    await ai_service.delete_history(history_id, current_user.id)
+    await ai_service.delete_history(history_id, current_user.id, resolved_planet_id)
     return SuccessResponse(message="History item deleted successfully")
 
 
@@ -466,6 +567,7 @@ async def delete_history(
 )
 async def pin_history(
     history_id: UUID,
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -480,8 +582,24 @@ async def pin_history(
     Returns:
         AIHistoryItem: Updated history item
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
-    return await ai_service.pin_history(history_id, current_user.id)
+    return await ai_service.pin_history(history_id, current_user.id, resolved_planet_id)
 
 
 @router.post(
@@ -494,6 +612,7 @@ async def pin_history(
 )
 async def unpin_history(
     history_id: UUID,
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -508,8 +627,24 @@ async def unpin_history(
     Returns:
         AIHistoryItem: Updated history item
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
-    return await ai_service.unpin_history(history_id, current_user.id)
+    return await ai_service.unpin_history(history_id, current_user.id, resolved_planet_id)
 
 
 @router.get(
@@ -520,6 +655,7 @@ async def unpin_history(
     description="Export history as CSV",
 )
 async def export_history(
+    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> StreamingResponse:
@@ -533,8 +669,24 @@ async def export_history(
     Returns:
         StreamingResponse: CSV file
     """
+    # Resolve and validate planet_id
+    resolved_planet_id = planet_id
+    if not resolved_planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active planet found for user")
+        resolved_planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+
     ai_service = AIService(db)
-    csv_content = await ai_service.export_history(current_user.id)
+    csv_content = await ai_service.export_history(current_user.id, resolved_planet_id)
 
     return StreamingResponse(
         iter([csv_content]),
@@ -567,6 +719,21 @@ async def execute_pipeline(
     Returns:
         PipelineExecuteResponse: Pipeline response
     """
+    # Resolve and validate planet_id
+    if not request.planet_id:
+        planet_repo = PlanetRepository(db)
+        active_planet = await planet_repo.get_active_planet(current_user.id)
+        if not active_planet:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active planet found for user")
+        request.planet_id = active_planet.id
+    else:
+        from src.services.planet_service import PlanetService
+
+        planet_service = PlanetService(db)
+        await planet_service.get_user_planet_or_404(request.planet_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.execute_pipeline(current_user.id, request)
 
@@ -698,6 +865,89 @@ async def generate_answer(
     ai_service = AIService(db)
     answer = await ai_service.generate_answer(request.question, request.knowledge, request.context)
     return GenerateAnswerResponse(answer=answer, timestamp=datetime.now(timezone.utc))
+
+
+@router.post(
+    "/generate-infographic",
+    response_model=GenerateInfographicResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    summary="Generate infographic data",
+    description="Generate structured JSON data for an infographic widget from a question and AI answer.",
+)
+async def generate_infographic(
+    request: GenerateInfographicRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> GenerateInfographicResponse:
+    """
+    Generate structured infographic data.
+
+    Uses the real AI service when AI_SERVICE_TYPE=real, otherwise falls back to mock.
+
+    Args:
+        request: question, answer, optional data_sample, language, style
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        GenerateInfographicResponse: Structured infographic data
+    """
+    from datetime import datetime, timezone
+
+    ai_service = AIService(db)
+    logger.info(
+        f"Generating infographic for user {current_user.id}, question: {str(request.question)[:50]}..."
+    )
+
+    try:
+        raw = await ai_service.generate_infographic(current_user.id, request)
+        logger.info(f"AI service returned raw data type: {type(raw)}")
+
+        # The AI service returns a plain dict; validate it into the typed schema.
+        from src.schemas.ai import InfographicData
+
+        if isinstance(raw, (dict, GenerateInfographicResponse)):
+            # If it's already a response (fallback from AIService), use its data
+            if hasattr(raw, "data") and isinstance(raw.data, InfographicData):
+                infographic_data = raw.data
+            elif isinstance(raw, dict):
+                try:
+                    infographic_data = InfographicData.model_validate(raw)
+                    logger.info("Successfully validated infographic data")
+                except Exception as val_err:
+                    logger.error(f"Validation error for infographic data: {val_err}")
+                    logger.debug(f"Raw data that failed validation: {raw}")
+                    # Fallback to empty but with title
+                    infographic_data = InfographicData()
+            else:
+                infographic_data = InfographicData()
+        else:
+            logger.warning(f"AI service returned non-dict: {type(raw)}")
+            infographic_data = InfographicData()
+
+        # ✅ ENSURE DATA FOR UI: If the AI failed to provide a title or summary,
+        # we provide minimal fallbacks to avoid the "Grey Box" empty state in the frontend.
+        if not infographic_data.title:
+            infographic_data.title = "Analysis Result"
+        if not infographic_data.summary and not infographic_data.mainValue:
+            infographic_data.summary = "Strategic analysis based on the provided query context."
+
+        return GenerateInfographicResponse(
+            data=infographic_data,
+            timestamp=datetime.now(timezone.utc),
+        )
+    except Exception as e:
+        logger.exception(f"Unexpected error in generating infographic: {e}")
+        # Return a safe response instead of 500
+        from src.schemas.ai import InfographicData
+
+        return GenerateInfographicResponse(
+            data=InfographicData(
+                title="Analysis Error", summary=f"Error: {str(e)}. Please check backend logs."
+            ),
+            timestamp=datetime.now(timezone.utc),
+        )
 
 
 @router.post(
@@ -868,3 +1118,55 @@ async def suggest_widget_title(
         language=body.language or "pt",
     )
     return SuggestWidgetTitleResponse(title=suggested)
+
+
+import logging as _logging  # noqa: E402
+
+_logger = _logging.getLogger(__name__)
+
+
+@router.post(
+    "/generate-infographic",
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    summary="Generate infographic data",
+    description="Generate structured infographic data from a question and AI answer.",
+)
+async def generate_infographic(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Generate infographic data using the AI service.
+
+    Falls back to mock data if the real AI service is unavailable.
+    """
+    _logger.info(
+        "generate_infographic called by user=%s question_len=%d",
+        current_user.id,
+        len(str(body.get("question", ""))),
+    )
+    _logger.debug("generate_infographic payload: %s", body)
+
+    ai_service = AIService(db)
+    try:
+        from src.schemas.ai import GenerateInfographicRequest
+
+        request = GenerateInfographicRequest(
+            question=body.get("question", ""),
+            answer=body.get("answer", ""),
+            data_sample=body.get("data_sample"),
+            language=body.get("language", "en"),
+            style=body.get("style") or "mix",
+        )
+        result = await ai_service.generate_infographic(current_user.id, request)
+        _logger.info("generate_infographic succeeded for user=%s", current_user.id)
+        return result
+    except Exception as exc:
+        _logger.error(
+            "generate_infographic failed for user=%s: %s",
+            current_user.id,
+            exc,
+            exc_info=True,
+        )
+        raise

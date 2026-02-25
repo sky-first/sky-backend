@@ -1,7 +1,7 @@
 """User service."""
 
 import logging
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -217,6 +217,41 @@ class UserService:
         # Update remaining fields
         for key, value in update_data.items():
             setattr(user, key, value)
+
+        await self.db.commit()
+        await self.db.refresh(user)
+
+        return UserResponse.model_validate(user_to_response_dict(user))
+
+    async def update_onboarding(
+        self, user_id: UUID, step: Optional[int], version: Optional[int], current_user: User
+    ) -> UserResponse:
+        """
+        Update user onboarding progress.
+
+        Args:
+            user_id: User ID
+            step: Current onboarding step
+            version: Onboarding version (e.g., when completed)
+            current_user: Current authenticated user
+
+        Returns:
+            UserResponse: Updated user data
+        """
+        if user_id != current_user.id:
+            raise ForbiddenError("You can only update your own onboarding progress")
+
+        user = await self.user_repo.get_by_id(user_id)
+        if not user:
+            raise NotFoundError("User not found")
+
+        if step is not None:
+            user.onboarding_step = step
+        if version is not None:
+            user.onboarding_version = version
+            if version >= 1:  # Assuming 1 is the completed version for now
+                user.has_completed_onboarding = True
+                user.onboarding_step = None  # Clear step on completion
 
         await self.db.commit()
         await self.db.refresh(user)
