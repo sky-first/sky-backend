@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.mock import MockAIService
 from src.ai.real_service import RealAIService
+from src.config.redis import get_redis
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
 from src.models.ai import AIFeedback, AIHistory, AIQuery, ChatMessage, Pipeline
@@ -39,7 +40,6 @@ from src.schemas.ai import (
     ValidateSQLResponse,
 )
 from src.utils.cache import CacheService, ai_response_cache_key
-from src.config.redis import get_redis
 
 logger = logging.getLogger(__name__)
 
