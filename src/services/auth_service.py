@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.settings import settings
 from src.core.exceptions import BadRequestError, UnauthorizedError
 from src.core.security import (
     create_access_token,
@@ -13,7 +14,6 @@ from src.core.security import (
     verify_password,
     verify_token,
 )
-from src.config.settings import settings
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
 from src.schemas.user import (
