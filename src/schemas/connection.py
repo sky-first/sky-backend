@@ -67,6 +67,19 @@ class ConnectionUpdate(BaseModel):
     status: Optional[str] = Field(None, pattern="^(active|inactive|error)$")
 
 
+class ConnectionMetrics(BaseModel):
+    """Connection metrics schema."""
+
+    queries_count: int = 0
+    active_users: int = 0
+    latency_ms: int = 0
+    uptime_pct: float = 0.0
+    satisfaction_pct: float = 0.0
+    ai_roi_hours: float = 0.0
+    top_users: List[Dict[str, Any]] = []
+    usage_history: List[Dict[str, Any]] = []
+
+
 class ConnectionResponse(ConnectionBase):
     """Connection response schema."""
 
@@ -76,6 +89,7 @@ class ConnectionResponse(ConnectionBase):
     next_sync: Optional[datetime] = None
     last_metadata_update: Optional[datetime] = None
     error: Optional[Dict[str, Any]] = None
+    metrics: Optional[ConnectionMetrics] = None
     created_by: UUID
     created_at: datetime
     updated_at: datetime

@@ -15,9 +15,12 @@ from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.user import User
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.space import SpaceRepository
+from src.repositories.file import SyncLogRepository
+from src.repositories.ai import AIQueryRepository
 from src.schemas.connection import (
     ConnectionCreate,
     ConnectionMetadataResponse,
+    ConnectionMetrics,
     ConnectionResponse,
     ConnectionStatusResponse,
     ConnectionSyncResponse,
@@ -44,6 +47,8 @@ class ConnectionService:
         self.connection_repo = ConnectionRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.space_repo = SpaceRepository(db)
+        self.sync_log_repo = SyncLogRepository(db)
+        self.ai_query_repo = AIQueryRepository(db)
         self.ai_client = AIServiceHTTPClient()
 
     async def _calculate_next_sync(self, frequency: str, last_sync: Optional[datetime]) -> Optional[datetime]:
@@ -598,6 +603,62 @@ class ConnectionService:
             error=connection.error,
             is_healthy=connection.status == "active" and connection.error is None,
         )
+
+    async def get_metrics(self, connection_id: UUID, user: User) -> ConnectionMetrics:
+        """
+        Calculate and return connection metrics.
+        
+        Calculates:
+        - queries_count: total AI queries using this connection
+        - active_users: unique users querying this connection
+        - latency_ms: average duration of sync logs
+        - uptime_pct: successful syncs / total syncs
+        """
+        connection = await self.connection_repo.get_by_id(connection_id)
+        if not connection:
+            raise NotFoundError("Connection not found")
+
+        # Check access (only owner for now)
+        if connection.created_by != user.id:
+            raise ForbiddenError("Access denied to this connection")
+
+        # 1. AI Queries metrics
+        queries_count = await self.ai_query_repo.count_queries_by_connection_id(connection_id)
+        active_users = await self.ai_query_repo.get_active_users_by_connection_id(connection_id)
+
+        # 2. Sync metrics (Latency & Uptime)
+        sync_logs = await self.sync_log_repo.get_by_connection_id(connection_id, limit=30)
+        
+        latency_ms = 0
+        uptime_pct = 0.0
+        
+        if sync_logs:
+            # Average latency of successful syncs
+            durations = [log.duration for log in sync_logs if log.duration and log.status == "success"]
+            if durations:
+                latency_ms = int(sum(durations) / len(durations))
+            
+            # Uptime based on status of last 30 syncs
+            success_count = sum(1 for log in sync_logs if log.status == "success")
+            uptime_pct = (success_count / len(sync_logs)) * 100
+
+        # Create the metrics object
+        metrics = ConnectionMetrics(
+            queries_count=queries_count,
+            active_users=active_users,
+            latency_ms=latency_ms,
+            uptime_pct=round(uptime_pct, 1),
+            satisfaction_pct=0.0, # TODO: implement feedback aggregation
+            ai_roi_hours=0.0,     # TODO: implement ROI calculation
+            top_users=[],        # TODO: implement top users aggregation
+            usage_history=[]     # TODO: implement history trend
+        )
+
+        # Update the connection's metrics field (cache)
+        await self.connection_repo.update(connection_id, metrics=metrics.model_dump())
+        await self.db.commit()
+
+        return metrics
 
     async def validate_connection(
         self, connection_id: UUID, user: User

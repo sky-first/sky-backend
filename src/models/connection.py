@@ -46,6 +46,7 @@ class DataConnection(Base):
         server_default="now()",
         onupdate=datetime.utcnow,
     )
+    metrics = Column(JSON, nullable=True)  # Aggregated usage metrics
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
