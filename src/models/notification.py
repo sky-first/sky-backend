@@ -1,7 +1,6 @@
 """Notification models."""
 
 import uuid
-from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func

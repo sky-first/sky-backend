@@ -56,7 +56,7 @@ class CrewRepository(BaseRepository[Crew]):
             .limit(limit)
         )
         result = await self.db.execute(stmt)
-        
+
         crews = []
         for row in result:
             crew, member_count, connection_count = row
@@ -64,7 +64,7 @@ class CrewRepository(BaseRepository[Crew]):
             crew_data["member_count"] = member_count
             crew_data["connection_count"] = connection_count
             crews.append(crew_data)
-            
+
         return crews
 
     async def get_by_id_with_stats(self, id: UUID) -> Optional[dict]:
@@ -84,7 +84,7 @@ class CrewRepository(BaseRepository[Crew]):
         row = result.first()
         if not row:
             return None
-            
+
         crew, member_count, connection_count = row
         crew_data = {c.name: getattr(crew, c.name) for c in crew.__table__.columns}
         crew_data["member_count"] = member_count

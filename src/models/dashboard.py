@@ -1,7 +1,6 @@
 """Dashboard and widget models."""
 
 import uuid
-from datetime import datetime
 
 from sqlalchemy import (
     JSON,

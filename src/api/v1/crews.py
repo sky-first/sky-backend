@@ -213,10 +213,10 @@ async def delete_crew(
     )
     crew_service = CrewService(db)
     await crew_service.delete_crew(crew_id, current_user, force=force)
-    
+
     message = "Crew force deleted successfully" if force else "Crew deleted successfully"
     logger.info(f"🔴 [DELETE API] {message}: crew_id={crew_id}")
-    
+
     return SuccessResponse(message=message)
 
 

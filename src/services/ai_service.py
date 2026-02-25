@@ -359,7 +359,7 @@ class AIService:
                     if space_id:
                         # Cache: short-lived response cache to avoid repeated expensive calls (e.g., Databricks spin-up)
                         cache_key: Optional[str] = None
-                        cached_payload: Optional[Dict[str, Any]] = None
+                        cached_payload: Optional[Dict[str, Any]] = None  # noqa: F841
                         if settings.AI_RESPONSE_CACHE_TTL_SECONDS > 0:
                             try:
                                 cache_key = ai_response_cache_key(
@@ -367,9 +367,8 @@ class AIService:
                                     connection_id=connection_id,
                                     question=configure_data.question,
                                 )
-                                cached_payload = await CacheService.get_json(cache_key)
+                                await CacheService.get_json(cache_key)
                             except Exception:
-                                cached_payload = None
                                 logger.warning(
                                     "AI response cache check failed (ignored)",
                                     exc_info=True,

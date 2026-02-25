@@ -1,6 +1,6 @@
 """Connection service."""
 
-import time
+import time as _time
 from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
@@ -54,19 +54,19 @@ class ConnectionService:
     async def _calculate_next_sync(self, frequency: str, last_sync: Optional[datetime]) -> Optional[datetime]:
         """
         Calculate next sync time based on frequency.
-        
+
         Args:
             frequency: Sync frequency alias (1h, 6h, daily_00, etc.)
             last_sync: Last successful sync time
-            
+
         Returns:
             Optional[datetime]: Next predicted sync time
         """
         if not frequency or frequency == "manual":
             return None
-            
+
         base_time = last_sync or datetime.now(timezone.utc)
-        
+
         if frequency == "1h":
             return base_time + timedelta(hours=1)
         elif frequency == "6h":
@@ -85,7 +85,7 @@ class ConnectionService:
             # Simple handling for cron strings from connector definitions
             # Default to 6 hours for any cron-like string for now
             return base_time + timedelta(hours=6)
-            
+
         return base_time + timedelta(hours=1)
 
     async def list_connections(
@@ -223,17 +223,19 @@ class ConnectionService:
             raise ForbiddenError("Access denied to this connection")
 
         update_data = connection_data.model_dump(exclude_unset=True)
-        
+
         # If sync_frequency is updated, recalculate next_sync
         if "sync_frequency" in update_data:
             update_data["next_sync"] = await self._calculate_next_sync(
                 update_data["sync_frequency"], connection.last_sync
             )
-            
+
         # TODO: Encrypt config if provided
-        connection = await self.connection_repo.update(connection_id, **update_data)
+        await self.connection_repo.update(connection_id, **update_data)
         await self.db.commit()
-        await self.db.refresh(connection)
+
+        # Reload fully using get_by_id to avoid MissingGreenlet on relationships
+        connection = await self.connection_repo.get_by_id(connection_id)
 
         return ConnectionResponse.model_validate(connection)
 
@@ -309,9 +311,9 @@ class ConnectionService:
 
         try:
             connector = get_connector(connection.connector_id)
-            start_time = time.time()
+            start_time = _time.time()
             success = await connector.test_connection(connection.config)
-            latency = int((time.time() - start_time) * 1000)
+            latency = int((_time.time() - start_time) * 1000)
 
             if success:
                 # Update status
@@ -527,7 +529,7 @@ class ConnectionService:
             update_data["tables"] = metadata_update["tables"]
         if "schemas" in metadata_update:
             update_data["schemas"] = metadata_update["schemas"]
-        
+
         # Update last_metadata_update timestamp
         update_data["last_metadata_update"] = datetime.now(timezone.utc)
 
@@ -607,7 +609,7 @@ class ConnectionService:
     async def get_metrics(self, connection_id: UUID, user: User) -> ConnectionMetrics:
         """
         Calculate and return connection metrics.
-        
+
         Calculates:
         - queries_count: total AI queries using this connection
         - active_users: unique users querying this connection
@@ -628,16 +630,16 @@ class ConnectionService:
 
         # 2. Sync metrics (Latency & Uptime)
         sync_logs = await self.sync_log_repo.get_by_connection_id(connection_id, limit=30)
-        
+
         latency_ms = 0
         uptime_pct = 0.0
-        
+
         if sync_logs:
             # Average latency of successful syncs
             durations = [log.duration for log in sync_logs if log.duration and log.status == "success"]
             if durations:
                 latency_ms = int(sum(durations) / len(durations))
-            
+
             # Uptime based on status of last 30 syncs
             success_count = sum(1 for log in sync_logs if log.status == "success")
             uptime_pct = (success_count / len(sync_logs)) * 100
@@ -648,7 +650,7 @@ class ConnectionService:
             active_users=active_users,
             latency_ms=latency_ms,
             uptime_pct=round(uptime_pct, 1),
-            satisfaction_pct=0.0, # TODO: implement feedback aggregation
+            satisfaction_pct=0.0,  # TODO: implement feedback aggregation
             ai_roi_hours=0.0,     # TODO: implement ROI calculation
             top_users=[],        # TODO: implement top users aggregation
             usage_history=[]     # TODO: implement history trend

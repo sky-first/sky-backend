@@ -1,13 +1,10 @@
-from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
 from src.core.exceptions import ForbiddenError, NotFoundError
-from src.models.dashboard import Dashboard, Widget
-from src.models.planet import Planet, PlanetMember
+from src.models.planet import Planet
 from src.models.user import User
 from src.schemas.dashboard import (
     DashboardCreate,

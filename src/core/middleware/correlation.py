@@ -1,5 +1,4 @@
 import uuid
-from typing import Optional
 
 import structlog
 from fastapi import Request, Response

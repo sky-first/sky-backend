@@ -19,8 +19,6 @@ class CommentBase(BaseModel):
 class CommentCreate(CommentBase):
     """Schema for creating a comment."""
 
-    pass
-
 
 class CommentResponse(CommentBase):
     """Schema for comment response."""

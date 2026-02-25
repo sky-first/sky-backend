@@ -158,7 +158,7 @@ class CrewService:
 
         crew = await self.crew_repo.update(crew_id, **update_data)
         await self.db.commit()
-        
+
         # Fetch updated crew with stats
         updated_crew_data = await self.crew_repo.get_by_id_with_stats(crew_id)
         return CrewResponse.model_validate(updated_crew_data)
@@ -166,41 +166,41 @@ class CrewService:
     async def get_crew_status(self, crew_id: UUID, user: User) -> CrewStatusResponse:
         """
         Get crew status including running tasks.
-        
+
         Queries AI service to check for running tasks associated with this crew.
-        
+
         Args:
             crew_id: Crew ID
             user: Current user
-            
+
         Returns:
             CrewStatusResponse: Crew status with running tasks info
-            
+
         Raises:
             NotFoundError: If crew not found
             ForbiddenError: If user doesn't have access
         """
         import logging
-        
+
         logger = logging.getLogger(__name__)
-        
+
         crew = await self.crew_repo.get_by_id(crew_id)
         if not crew:
             raise NotFoundError("Crew not found")
-        
+
         # Check access via space
         space = await self.space_repo.get_by_id(crew.space_id)
         if not space or space.created_by != user.id:
             raise ForbiddenError("Access denied to this crew")
-        
+
         # Query AI service for running tasks
         # For now, return mock data - integrate with AI service later
         try:
             # TODO: Replace with actual AI service call
             # ai_status = await self.ai_client.get_crew_tasks_status(crew_id)
-            
+
             logger.info(f"Getting status for crew {crew_id} (mock data - showing running tasks for testing)")
-            
+
             # Mock response with running tasks for testing
             from datetime import datetime, timezone
             return CrewStatusResponse(
@@ -221,12 +221,12 @@ class CrewService:
     async def delete_crew(self, crew_id: UUID, user: User, force: bool = False) -> None:
         """
         Delete crew.
-        
+
         Args:
             crew_id: Crew ID
             user: Current user
             force: If True, force delete even with running tasks
-            
+
         Raises:
             NotFoundError: If crew not found
             ForbiddenError: If user doesn't have access
@@ -267,7 +267,7 @@ class CrewService:
             space = await self.space_repo.get_by_id(crew.space_id)
             if not space or space.created_by != user.id:
                 raise ForbiddenError("Access denied to this crew")
-        
+
         # Check for running tasks if not forcing
         if not force:
             status = await self.get_crew_status(crew_id, user)
@@ -276,7 +276,7 @@ class CrewService:
                     f"Cannot delete crew with {status.running_tasks_count} running task(s). "
                     "Use force=true to delete anyway."
                 )
-        
+
         # If force=true, stop all running tasks first
         if force:
             try:

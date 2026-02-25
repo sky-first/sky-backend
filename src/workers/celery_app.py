@@ -41,7 +41,7 @@ def encode_password_in_redis_url(url: str) -> str:
         return url
     try:
         prefix = "redis://:"
-        rest = url[len(prefix) :]
+        rest = url[len(prefix):]
         raw_password, host_and_path = rest.rsplit("@", 1)
         # Make encoding idempotent (avoid turning %2F into %252F).
         decoded_password = unquote_plus(raw_password)

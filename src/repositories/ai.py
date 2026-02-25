@@ -1,9 +1,8 @@
 """AI repository."""
 
-from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select, func, cast, String
+from sqlalchemy import select, func, cast
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 

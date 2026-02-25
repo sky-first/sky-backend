@@ -1,7 +1,4 @@
-import os
 
-import pytest
-from pydantic import Field
 
 from src.config.settings import Settings
 

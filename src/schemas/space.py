@@ -12,6 +12,7 @@ from src.schemas.user import UserResponse
 class SpaceBase(BaseModel):
     """Base space schema."""
 
+    name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     color: Optional[str] = Field(None)  # Allow any string or None, validate in service if needed
     icon: Optional[str] = None

@@ -1,17 +1,18 @@
+import pytest
+from httpx import AsyncClient
 """Tests for user preferences endpoints."""
-
-from fastapi.testclient import TestClient
 
 
 class TestUserPreferences:
     """Tests for user preferences updates."""
 
-    def test_update_preferences_success(self, client: TestClient, test_user_with_tokens: dict):
+    @pytest.mark.asyncio
+    async def test_update_preferences_success(self, async_client: AsyncClient, test_user_with_tokens: dict):
         """Test updating user preferences."""
         access_token = test_user_with_tokens["access_token"]
         preferences = {"theme": "dark", "language": "pt-BR", "ai_tone": "casual"}
 
-        response = client.put(
+        response = await async_client.put(
             "/api/v1/users/me",
             headers={"Authorization": f"Bearer {access_token}"},
             json={"preferences": preferences},
@@ -22,7 +23,7 @@ class TestUserPreferences:
         assert data["preferences"] == preferences
 
         # Verify persistence
-        response = client.get(
+        response = await async_client.get(
             "/api/v1/auth/me",
             headers={"Authorization": f"Bearer {access_token}"},
         )
@@ -30,12 +31,13 @@ class TestUserPreferences:
         data = response.json()
         assert data["preferences"] == preferences
 
-    def test_update_preferences_partial(self, client: TestClient, test_user_with_tokens: dict):
+    @pytest.mark.asyncio
+    async def test_update_preferences_partial(self, async_client: AsyncClient, test_user_with_tokens: dict):
         """Test updating user preferences partially (overwrite behavior)."""
         access_token = test_user_with_tokens["access_token"]
 
         # Set initial preferences
-        client.put(
+        await async_client.put(
             "/api/v1/users/me",
             headers={"Authorization": f"Bearer {access_token}"},
             json={"preferences": {"theme": "light", "notifications": True}},
@@ -44,7 +46,7 @@ class TestUserPreferences:
         # Update with new dict (should replace entire dict based on typical PUT behavior for JSON fields unless merged manually)
         # In our implementation, we are replacing the field value, so it should be a replacement.
         new_preferences = {"theme": "dark"}
-        response = client.put(
+        response = await async_client.put(
             "/api/v1/users/me",
             headers={"Authorization": f"Bearer {access_token}"},
             json={"preferences": new_preferences},
