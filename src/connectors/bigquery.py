@@ -190,18 +190,12 @@ class BigQueryConnector(BaseConnector):
 
                 if table_name not in tables:
                     table_stats = stats_rows.get(table_name, {})
-                    raw_last_mod = table_stats.get("last_modified_time")
-                    last_updated = None
-                    if raw_last_mod:
-                        # BigQuery __TABLES__ last_modified_time is in milliseconds
-                        last_updated = datetime.fromtimestamp(raw_last_mod / 1000.0, tz=timezone.utc).isoformat()
-
                     tables[table_name] = {
                         "name": table_name,
                         "schema": dataset,
                         "row_count": table_stats.get("row_count"),
                         "columns": [],
-                        "last_updated": last_updated,
+                        "last_updated": datetime.now(timezone.utc).isoformat(),
                         "usage": usage_stats.get(table_name, "Low"),
                     }
 

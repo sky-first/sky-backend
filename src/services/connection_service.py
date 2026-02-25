@@ -1,7 +1,7 @@
 """Connection service."""
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -45,6 +45,43 @@ class ConnectionService:
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.space_repo = SpaceRepository(db)
         self.ai_client = AIServiceHTTPClient()
+
+    async def _calculate_next_sync(self, frequency: str, last_sync: Optional[datetime]) -> Optional[datetime]:
+        """
+        Calculate next sync time based on frequency.
+        
+        Args:
+            frequency: Sync frequency alias (1h, 6h, daily_00, etc.)
+            last_sync: Last successful sync time
+            
+        Returns:
+            Optional[datetime]: Next predicted sync time
+        """
+        if not frequency or frequency == "manual":
+            return None
+            
+        base_time = last_sync or datetime.now(timezone.utc)
+        
+        if frequency == "1h":
+            return base_time + timedelta(hours=1)
+        elif frequency == "6h":
+            return base_time + timedelta(hours=6)
+        elif frequency == "12h":
+            return base_time + timedelta(hours=12)
+        elif frequency == "daily_00":
+            # Next day at 00:00 UTC
+            next_day = base_time.date() + timedelta(days=1)
+            return datetime.combine(next_day, time(0, 0), tzinfo=timezone.utc)
+        elif frequency == "daily_02":
+            # Next day at 02:00 UTC
+            next_day = base_time.date() + timedelta(days=1)
+            return datetime.combine(next_day, time(2, 0), tzinfo=timezone.utc)
+        elif "*/" in frequency:
+            # Simple handling for cron strings from connector definitions
+            # Default to 6 hours for any cron-like string for now
+            return base_time + timedelta(hours=6)
+            
+        return base_time + timedelta(hours=1)
 
     async def list_connections(
         self,
@@ -126,12 +163,16 @@ class ConnectionService:
             raise BadRequestError(f"Invalid connector_id: {connection_data.connector_id}")
 
         # TODO: Encrypt config before storing
+        # Calculate initial next sync
+        next_sync = await self._calculate_next_sync(connection_data.sync_frequency, None)
+
         connection = await self.connection_repo.create(
             name=connection_data.name,
             connector_id=connection_data.connector_id,
             description=connection_data.description,
             config=connection_data.config,
             sync_frequency=connection_data.sync_frequency,
+            next_sync=next_sync,
             status="inactive",
             created_by=user.id,
         )
@@ -177,6 +218,13 @@ class ConnectionService:
             raise ForbiddenError("Access denied to this connection")
 
         update_data = connection_data.model_dump(exclude_unset=True)
+        
+        # If sync_frequency is updated, recalculate next_sync
+        if "sync_frequency" in update_data:
+            update_data["next_sync"] = await self._calculate_next_sync(
+                update_data["sync_frequency"], connection.last_sync
+            )
+            
         # TODO: Encrypt config if provided
         connection = await self.connection_repo.update(connection_id, **update_data)
         await self.db.commit()
@@ -334,9 +382,11 @@ class ConnectionService:
 
             # Update connection
             now = datetime.now(timezone.utc)
+            next_sync = await self._calculate_next_sync(connection.sync_frequency, now)
             await self.connection_repo.update(
                 connection_id,
                 last_sync=now,
+                next_sync=next_sync,
                 last_metadata_update=now,
                 status="active",
                 error=None,
