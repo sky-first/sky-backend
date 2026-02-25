@@ -15,6 +15,7 @@ from src.schemas.crew import (
     CrewMemberResponse,
     CrewMemberUpdate,
     CrewResponse,
+    CrewStatsResponse,
     CrewStatusResponse,
     CrewUpdate,
 )
@@ -346,3 +347,31 @@ async def update_crew_member_role(
 
     crew_service = CrewService(db)
     return await crew_service.update_crew_member_role(crew_id, user_id, role_data, current_user)
+
+
+@router.get(
+    "/{crew_id}/stats",
+    response_model=CrewStatsResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get crew stats",
+    description="Get statistics for a crew",
+)
+async def get_crew_stats(
+    crew_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> CrewStatsResponse:
+    """
+    Get statistics for a crew.
+
+    Args:
+        crew_id: Crew ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        CrewStatsResponse: Crew statistics
+    """
+    crew_service = CrewService(db)
+    return await crew_service.get_crew_stats(crew_id, current_user)
