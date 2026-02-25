@@ -103,3 +103,34 @@ class SpaceTableResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+from typing import List
+
+class SpaceMetric(BaseModel):
+    """Schema for a metric in the space overview."""
+
+    value: str
+    change: str
+    trend: str  # 'up', 'down', 'neutral'
+
+
+class SpaceActivity(BaseModel):
+    """Schema for an activity in the space feed."""
+
+    id: UUID
+    user: str
+    action: str
+    target: str
+    time: str
+
+
+class SpaceStatsResponse(BaseModel):
+    """Schema for a space's statistics."""
+
+    total_queries: SpaceMetric
+    active_users: SpaceMetric
+    data_usage: SpaceMetric
+    compliance_score: SpaceMetric
+    activity_feed: List[SpaceActivity]
+
+    model_config = ConfigDict(from_attributes=True)
