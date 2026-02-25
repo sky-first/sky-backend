@@ -14,6 +14,7 @@ from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.connection import (
     ConnectionCreate,
     ConnectionMetadataResponse,
+    ConnectionMetrics,
     ConnectionResponse,
     ConnectionStatusResponse,
     ConnectionSyncResponse,
@@ -301,6 +302,36 @@ async def get_connection_metadata(
     return await connection_service.get_metadata(connection_id, current_user)
 
 
+@router.put(
+    "/{connection_id}/metadata",
+    response_model=ConnectionMetadataResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Update connection metadata",
+    description="Update connection metadata (e.g., column tags, descriptions)",
+)
+async def update_connection_metadata(
+    connection_id: UUID,
+    metadata_update: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConnectionMetadataResponse:
+    """
+    Update connection metadata.
+
+    Args:
+        connection_id: Connection ID
+        metadata_update: Partial metadata update
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        ConnectionMetadataResponse: Updated connection metadata
+    """
+    connection_service = ConnectionService(db)
+    return await connection_service.update_metadata(connection_id, current_user, metadata_update)
+
+
 @router.get(
     "/{connection_id}/tables",
     response_model=List[TableMetadataSchema],
@@ -384,6 +415,29 @@ async def get_connection_status(
     """
     connection_service = ConnectionService(db)
     return await connection_service.get_status(connection_id, current_user)
+
+
+@router.get(
+    "/{connection_id}/metrics",
+    response_model=ConnectionMetrics,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get connection metrics",
+    description="Get aggregated usage metrics for a connection (queries, latency, uptime, active users)",
+)
+async def get_connection_metrics(
+    connection_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConnectionMetrics:
+    """
+    Get connection metrics.
+
+    Calculates real metrics from sync_logs and ai_queries tables.
+    Returns zeros for metrics that haven't been recorded yet.
+    """
+    connection_service = ConnectionService(db)
+    return await connection_service.get_metrics(connection_id, current_user)
 
 
 @router.post(

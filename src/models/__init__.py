@@ -14,7 +14,6 @@ from src.models.connection import ColumnMetadata, ConnectionMetadata, DataConnec
 from src.models.crew import Crew, CrewMember
 from src.models.dashboard import Connection, Dashboard, Widget
 from src.models.dashboard_build_job import DashboardBuildJob
-from src.models.dataset import UserDataset
 from src.models.file import FileUpload
 from src.models.notification import Notification
 from src.models.permission import APIKey, ConnectionPermission, Integration

@@ -4,6 +4,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.connection import ConnectionMetadata, DataConnection
@@ -31,8 +32,10 @@ class ConnectionRepository(BaseRepository[DataConnection]):
         Returns:
             List[DataConnection]: List of connections
         """
-        query = select(DataConnection).where(
-            DataConnection.created_by == user_id, DataConnection.deleted_at.is_(None)
+        query = (
+            select(DataConnection)
+            .options(joinedload(DataConnection.connection_metadata))
+            .where(DataConnection.created_by == user_id, DataConnection.deleted_at.is_(None))
         )
 
         if filters:
@@ -57,7 +60,20 @@ class ConnectionRepository(BaseRepository[DataConnection]):
             Optional[DataConnection]: Entity or None
         """
         result = await self.db.execute(
-            select(self.model).where(self.model.id == id, self.model.deleted_at.is_(None))
+            select(self.model)
+            .options(joinedload(DataConnection.connection_metadata))
+            .where(self.model.id == id, self.model.deleted_at.is_(None))
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_id_with_metadata(self, id: UUID) -> Optional[DataConnection]:
+        """
+        Get connection by ID with metadata included.
+        """
+        result = await self.db.execute(
+            select(self.model)
+            .options(joinedload(DataConnection.connection_metadata))
+            .where(self.model.id == id, self.model.deleted_at.is_(None))
         )
         return result.scalar_one_or_none()
 

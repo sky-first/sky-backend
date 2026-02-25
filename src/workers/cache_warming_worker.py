@@ -5,7 +5,7 @@ Subtask 2: scheduler/worker that warms the short-lived AI response cache.
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from src.ai.real_service import RealAIService
 from src.config.settings import settings

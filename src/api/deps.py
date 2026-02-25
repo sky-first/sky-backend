@@ -176,6 +176,16 @@ async def get_current_user(
     if not user:
         raise UnauthorizedError("User not found")
 
+    # Update user activity
+    try:
+        from datetime import datetime, timezone
+
+        await user_repo.update(
+            user.id, last_active_at=datetime.now(timezone.utc), status="active"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to update user activity: {e}")
+
     return user
 
 

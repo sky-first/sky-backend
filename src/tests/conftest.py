@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone  # noqa: E402
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from faker import Faker  # noqa: E402
+from httpx import AsyncClient  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncSession,
@@ -178,8 +179,18 @@ def expired_token(valid_token_payload: dict):
     return create_access_token(valid_token_payload, expires_delta=expired_delta)
 
 
-@pytest.fixture
-async def cleanup_refresh_tokens(db_session: AsyncSession):
-    """Cleanup refresh tokens after test."""
-    yield
-    # Cleanup is handled by db_session fixture which drops all tables
+@pytest_asyncio.fixture
+async def async_client(db_session, valid_token_payload):
+    async def override_get_db():
+        yield db_session
+
+    async def override_get_db_session():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()

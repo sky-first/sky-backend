@@ -46,6 +46,13 @@ class User(Base):
     )
     selected_domain = Column(String(255), nullable=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+    last_active_at = Column(DateTime(timezone=True), nullable=True)
+    status = Column(
+        String(50),
+        nullable=False,
+        default="offline",
+        server_default="offline",
+    )  # active, away, offline
     preferences = Column(JSON, nullable=True, default={}, server_default=text("'{}'"))
 
     # Auth0 Integration

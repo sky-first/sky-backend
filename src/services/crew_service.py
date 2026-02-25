@@ -15,6 +15,7 @@ from src.schemas.crew import (
     CrewMemberResponse,
     CrewMemberUpdate,
     CrewResponse,
+    CrewStatusResponse,
     CrewUpdate,
 )
 from src.services.auth_service import user_to_response_dict
@@ -51,12 +52,13 @@ class CrewService:
             List[CrewResponse]: List of crews
         """
         if space_id:
-            crews = await self.crew_repo.get_by_space(space_id, skip=skip, limit=limit)
+            crews_data = await self.crew_repo.get_by_space_with_stats(space_id, skip=skip, limit=limit)
+            return [CrewResponse.model_validate(c) for c in crews_data]
         else:
             # Get all crews user has access to
+            # TODO: Implement get_all_with_stats if needed
             crews = await self.crew_repo.get_all(skip=skip, limit=limit)
-
-        return [CrewResponse.model_validate(c) for c in crews]
+            return [CrewResponse.model_validate(c) for c in crews]
 
     async def get_crew(self, crew_id: UUID, user: User) -> CrewResponse:
         """
@@ -73,16 +75,16 @@ class CrewService:
             NotFoundError: If crew not found
             ForbiddenError: If user doesn't have access
         """
-        crew = await self.crew_repo.get_by_id(crew_id)
-        if not crew:
+        crew_data = await self.crew_repo.get_by_id_with_stats(crew_id)
+        if not crew_data:
             raise NotFoundError("Crew not found")
 
         # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
+        space = await self.space_repo.get_by_id(crew_data["space_id"])
         if not space or space.created_by != user.id:
             raise ForbiddenError("Access denied to this crew")
 
-        return CrewResponse.model_validate(crew)
+        return CrewResponse.model_validate(crew_data)
 
     async def create_crew(self, user: User, crew_data: CrewCreate) -> CrewResponse:
         """
@@ -156,21 +158,79 @@ class CrewService:
 
         crew = await self.crew_repo.update(crew_id, **update_data)
         await self.db.commit()
-        await self.db.refresh(crew)
 
-        return CrewResponse.model_validate(crew)
+        # Fetch updated crew with stats
+        updated_crew_data = await self.crew_repo.get_by_id_with_stats(crew_id)
+        return CrewResponse.model_validate(updated_crew_data)
 
-    async def delete_crew(self, crew_id: UUID, user: User) -> None:
+    async def get_crew_status(self, crew_id: UUID, user: User) -> CrewStatusResponse:
+        """
+        Get crew status including running tasks.
+
+        Queries AI service to check for running tasks associated with this crew.
+
+        Args:
+            crew_id: Crew ID
+            user: Current user
+
+        Returns:
+            CrewStatusResponse: Crew status with running tasks info
+
+        Raises:
+            NotFoundError: If crew not found
+            ForbiddenError: If user doesn't have access
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        crew = await self.crew_repo.get_by_id(crew_id)
+        if not crew:
+            raise NotFoundError("Crew not found")
+
+        # Check access via space
+        space = await self.space_repo.get_by_id(crew.space_id)
+        if not space or space.created_by != user.id:
+            raise ForbiddenError("Access denied to this crew")
+
+        # Query AI service for running tasks
+        # For now, return mock data - integrate with AI service later
+        try:
+            # TODO: Replace with actual AI service call
+            # ai_status = await self.ai_client.get_crew_tasks_status(crew_id)
+
+            logger.info(f"Getting status for crew {crew_id} (mock data - showing running tasks for testing)")
+
+            # Mock response with running tasks for testing
+            from datetime import datetime, timezone
+            return CrewStatusResponse(
+                crew_id=crew_id,
+                has_running_tasks=True,
+                running_tasks_count=3,
+                last_task_started_at=datetime.now(timezone.utc),
+                active_task_ids=["task-1", "task-2", "task-3"]
+            )
+        except Exception as e:
+            logger.warning(f"Failed to get AI task status for crew {crew_id}: {e}")
+            return CrewStatusResponse(
+                crew_id=crew_id,
+                has_running_tasks=False,
+                running_tasks_count=0
+            )
+
+    async def delete_crew(self, crew_id: UUID, user: User, force: bool = False) -> None:
         """
         Delete crew.
 
         Args:
             crew_id: Crew ID
             user: Current user
+            force: If True, force delete even with running tasks
 
         Raises:
             NotFoundError: If crew not found
             ForbiddenError: If user doesn't have access
+            BadRequestError: If crew has running tasks and force=False
         """
         import logging
 
@@ -207,6 +267,24 @@ class CrewService:
             space = await self.space_repo.get_by_id(crew.space_id)
             if not space or space.created_by != user.id:
                 raise ForbiddenError("Access denied to this crew")
+
+        # Check for running tasks if not forcing
+        if not force:
+            status = await self.get_crew_status(crew_id, user)
+            if status.has_running_tasks:
+                raise BadRequestError(
+                    f"Cannot delete crew with {status.running_tasks_count} running task(s). "
+                    "Use force=true to delete anyway."
+                )
+
+        # If force=true, stop all running tasks first
+        if force:
+            try:
+                # TODO: Integrate with AI service to stop tasks
+                # await self.ai_client.stop_crew_tasks(crew_id)
+                logger.info(f"Would stop all tasks for crew {crew_id} before deletion (not implemented yet)")
+            except Exception as e:
+                logger.warning(f"Failed to stop tasks for crew {crew_id}: {e}")
 
         logger.info(f"🔴 [DELETE SERVICE] Calling crew_repo.delete for crew {crew_id}")
         await self.crew_repo.delete(crew_id)

@@ -3,10 +3,10 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, func, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.crew import Crew, CrewMember
+from src.models.crew import Crew, CrewMember, CrewConnection
 from src.repositories.base import BaseRepository
 
 
@@ -36,6 +36,60 @@ class CrewRepository(BaseRepository[Crew]):
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def get_by_space_with_stats(self, space_id: UUID, skip: int = 0, limit: int = 100) -> List[dict]:
+        """
+        Get crews by space with statistics.
+        """
+        stmt = (
+            select(
+                Crew,
+                func.count(distinct(CrewMember.id)).label("member_count"),
+                func.count(distinct(CrewConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(CrewMember, Crew.id == CrewMember.crew_id)
+            .outerjoin(CrewConnection, Crew.id == CrewConnection.crew_id)
+            .where(Crew.space_id == space_id, Crew.deleted_at.is_(None))
+            .group_by(Crew.id)
+            .order_by(Crew.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+
+        crews = []
+        for row in result:
+            crew, member_count, connection_count = row
+            crew_data = {c.name: getattr(crew, c.name) for c in crew.__table__.columns}
+            crew_data["member_count"] = member_count
+            crew_data["connection_count"] = connection_count
+            crews.append(crew_data)
+
+        return crews
+
+    async def get_by_id_with_stats(self, id: UUID) -> Optional[dict]:
+        """Get crew by ID with statistics."""
+        stmt = (
+            select(
+                Crew,
+                func.count(distinct(CrewMember.id)).label("member_count"),
+                func.count(distinct(CrewConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(CrewMember, Crew.id == CrewMember.crew_id)
+            .outerjoin(CrewConnection, Crew.id == CrewConnection.crew_id)
+            .where(Crew.id == id, Crew.deleted_at.is_(None))
+            .group_by(Crew.id)
+        )
+        result = await self.db.execute(stmt)
+        row = result.first()
+        if not row:
+            return None
+
+        crew, member_count, connection_count = row
+        crew_data = {c.name: getattr(crew, c.name) for c in crew.__table__.columns}
+        crew_data["member_count"] = member_count
+        crew_data["connection_count"] = connection_count
+        return crew_data
 
     async def get_by_id(self, id: UUID) -> Optional[Crew]:
         """

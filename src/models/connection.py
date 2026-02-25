@@ -46,6 +46,7 @@ class DataConnection(Base):
         server_default="now()",
         onupdate=datetime.utcnow,
     )
+    metrics = Column(JSON, nullable=True)  # Aggregated usage metrics
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
@@ -122,12 +123,18 @@ class TableMetadata:
         row_count: Optional[int] = None,
         columns: Optional[List["ColumnMetadata"]] = None,
         last_updated: Optional[datetime] = None,
+        health: str = "Healthy",  # Healthy, Stale, Broken
+        usage_score: int = 0,  # 0-100
+        tags: Optional[List[str]] = None,
     ):
         self.name = name
         self.schema = schema
         self.row_count = row_count
         self.columns = columns or []
         self.last_updated = last_updated
+        self.health = health
+        self.usage_score = usage_score
+        self.tags = tags or []
 
 
 class ColumnMetadata:

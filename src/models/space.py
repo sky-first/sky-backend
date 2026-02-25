@@ -20,6 +20,12 @@ class Space(Base):
     description = Column(Text, nullable=True)
     color = Column(String(7), nullable=True)  # Hex color
     icon = Column(String(255), nullable=True)
+    privacy = Column(
+        String(50), nullable=False, default="private", server_default="private"
+    )  # public, private
+    sensitivity = Column(
+        String(50), nullable=False, default="internal", server_default="internal"
+    )  # internal, confidential, restricted
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )

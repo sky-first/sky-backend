@@ -1,7 +1,7 @@
 """Connection service."""
 
-import time
-from datetime import datetime, timezone
+import time as _time
+from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -15,9 +15,12 @@ from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.user import User
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.space import SpaceRepository
+from src.repositories.file import SyncLogRepository
+from src.repositories.ai import AIQueryRepository
 from src.schemas.connection import (
     ConnectionCreate,
     ConnectionMetadataResponse,
+    ConnectionMetrics,
     ConnectionResponse,
     ConnectionStatusResponse,
     ConnectionSyncResponse,
@@ -44,7 +47,46 @@ class ConnectionService:
         self.connection_repo = ConnectionRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.space_repo = SpaceRepository(db)
+        self.sync_log_repo = SyncLogRepository(db)
+        self.ai_query_repo = AIQueryRepository(db)
         self.ai_client = AIServiceHTTPClient()
+
+    async def _calculate_next_sync(self, frequency: str, last_sync: Optional[datetime]) -> Optional[datetime]:
+        """
+        Calculate next sync time based on frequency.
+
+        Args:
+            frequency: Sync frequency alias (1h, 6h, daily_00, etc.)
+            last_sync: Last successful sync time
+
+        Returns:
+            Optional[datetime]: Next predicted sync time
+        """
+        if not frequency or frequency == "manual":
+            return None
+
+        base_time = last_sync or datetime.now(timezone.utc)
+
+        if frequency == "1h":
+            return base_time + timedelta(hours=1)
+        elif frequency == "6h":
+            return base_time + timedelta(hours=6)
+        elif frequency == "12h":
+            return base_time + timedelta(hours=12)
+        elif frequency == "daily_00":
+            # Next day at 00:00 UTC
+            next_day = base_time.date() + timedelta(days=1)
+            return datetime.combine(next_day, time(0, 0), tzinfo=timezone.utc)
+        elif frequency == "daily_02":
+            # Next day at 02:00 UTC
+            next_day = base_time.date() + timedelta(days=1)
+            return datetime.combine(next_day, time(2, 0), tzinfo=timezone.utc)
+        elif "*/" in frequency:
+            # Simple handling for cron strings from connector definitions
+            # Default to 6 hours for any cron-like string for now
+            return base_time + timedelta(hours=6)
+
+        return base_time + timedelta(hours=1)
 
     async def list_connections(
         self,
@@ -93,7 +135,7 @@ class ConnectionService:
             NotFoundError: If connection not found
             ForbiddenError: If user doesn't have access
         """
-        connection = await self.connection_repo.get_by_id(connection_id)
+        connection = await self.connection_repo.get_by_id_with_metadata(connection_id)
         if not connection:
             raise NotFoundError("Connection not found")
 
@@ -126,12 +168,16 @@ class ConnectionService:
             raise BadRequestError(f"Invalid connector_id: {connection_data.connector_id}")
 
         # TODO: Encrypt config before storing
+        # Calculate initial next sync
+        next_sync = await self._calculate_next_sync(connection_data.sync_frequency, None)
+
         connection = await self.connection_repo.create(
             name=connection_data.name,
             connector_id=connection_data.connector_id,
             description=connection_data.description,
             config=connection_data.config,
             sync_frequency=connection_data.sync_frequency,
+            next_sync=next_sync,
             status="inactive",
             created_by=user.id,
         )
@@ -177,10 +223,19 @@ class ConnectionService:
             raise ForbiddenError("Access denied to this connection")
 
         update_data = connection_data.model_dump(exclude_unset=True)
+
+        # If sync_frequency is updated, recalculate next_sync
+        if "sync_frequency" in update_data:
+            update_data["next_sync"] = await self._calculate_next_sync(
+                update_data["sync_frequency"], connection.last_sync
+            )
+
         # TODO: Encrypt config if provided
-        connection = await self.connection_repo.update(connection_id, **update_data)
+        await self.connection_repo.update(connection_id, **update_data)
         await self.db.commit()
-        await self.db.refresh(connection)
+
+        # Reload fully using get_by_id to avoid MissingGreenlet on relationships
+        connection = await self.connection_repo.get_by_id(connection_id)
 
         return ConnectionResponse.model_validate(connection)
 
@@ -256,9 +311,9 @@ class ConnectionService:
 
         try:
             connector = get_connector(connection.connector_id)
-            start_time = time.time()
+            start_time = _time.time()
             success = await connector.test_connection(connection.config)
-            latency = int((time.time() - start_time) * 1000)
+            latency = int((_time.time() - start_time) * 1000)
 
             if success:
                 # Update status
@@ -334,9 +389,11 @@ class ConnectionService:
 
             # Update connection
             now = datetime.now(timezone.utc)
+            next_sync = await self._calculate_next_sync(connection.sync_frequency, now)
             await self.connection_repo.update(
                 connection_id,
                 last_sync=now,
+                next_sync=next_sync,
                 last_metadata_update=now,
                 status="active",
                 error=None,
@@ -436,6 +493,53 @@ class ConnectionService:
             last_metadata_update=metadata.last_metadata_update,
         )
 
+    async def update_metadata(
+        self, connection_id: UUID, user: User, metadata_update: dict
+    ) -> ConnectionMetadataResponse:
+        """
+        Update connection metadata (e.g., column tags, descriptions).
+
+        Args:
+            connection_id: Connection ID
+            user: Current user
+            metadata_update: Partial metadata to update
+
+        Returns:
+            ConnectionMetadataResponse: Updated metadata
+
+        Raises:
+            NotFoundError: If connection not found
+            ForbiddenError: If user doesn't have access
+        """
+        connection = await self.connection_repo.get_by_id(connection_id)
+        if not connection:
+            raise NotFoundError("Connection not found")
+
+        if connection.created_by != user.id:
+            raise ForbiddenError("Access denied to this connection")
+
+        # Get existing metadata
+        existing_metadata = await self.metadata_repo.get_by_connection_id(connection_id)
+        if not existing_metadata:
+            raise NotFoundError("Connection metadata not found")
+
+        # Merge the update with existing metadata
+        update_data = {}
+        if "tables" in metadata_update:
+            update_data["tables"] = metadata_update["tables"]
+        if "schemas" in metadata_update:
+            update_data["schemas"] = metadata_update["schemas"]
+
+        # Update last_metadata_update timestamp
+        update_data["last_metadata_update"] = datetime.now(timezone.utc)
+
+        # Update metadata
+        await self.metadata_repo.update(existing_metadata.id, **update_data)
+        await self.db.commit()
+
+        # Return updated metadata
+        return await self.get_metadata(connection_id, user)
+
     async def get_tables(self, connection_id: UUID, user: User) -> List[TableMetadataSchema]:
         """
         Get connection tables.
@@ -501,6 +605,62 @@ class ConnectionService:
             error=connection.error,
             is_healthy=connection.status == "active" and connection.error is None,
         )
+
+    async def get_metrics(self, connection_id: UUID, user: User) -> ConnectionMetrics:
+        """
+        Calculate and return connection metrics.
+
+        Calculates:
+        - queries_count: total AI queries using this connection
+        - active_users: unique users querying this connection
+        - latency_ms: average duration of sync logs
+        - uptime_pct: successful syncs / total syncs
+        """
+        connection = await self.connection_repo.get_by_id(connection_id)
+        if not connection:
+            raise NotFoundError("Connection not found")
+
+        # Check access (only owner for now)
+        if connection.created_by != user.id:
+            raise ForbiddenError("Access denied to this connection")
+
+        # 1. AI Queries metrics
+        queries_count = await self.ai_query_repo.count_queries_by_connection_id(connection_id)
+        active_users = await self.ai_query_repo.get_active_users_by_connection_id(connection_id)
+
+        # 2. Sync metrics (Latency & Uptime)
+        sync_logs = await self.sync_log_repo.get_by_connection_id(connection_id, limit=30)
+
+        latency_ms = 0
+        uptime_pct = 0.0
+
+        if sync_logs:
+            # Average latency of successful syncs
+            durations = [log.duration for log in sync_logs if log.duration and log.status == "success"]
+            if durations:
+                latency_ms = int(sum(durations) / len(durations))
+
+            # Uptime based on status of last 30 syncs
+            success_count = sum(1 for log in sync_logs if log.status == "success")
+            uptime_pct = (success_count / len(sync_logs)) * 100
+
+        # Create the metrics object
+        metrics = ConnectionMetrics(
+            queries_count=queries_count,
+            active_users=active_users,
+            latency_ms=latency_ms,
+            uptime_pct=round(uptime_pct, 1),
+            satisfaction_pct=0.0,  # TODO: implement feedback aggregation
+            ai_roi_hours=0.0,     # TODO: implement ROI calculation
+            top_users=[],        # TODO: implement top users aggregation
+            usage_history=[]     # TODO: implement history trend
+        )
+
+        # Update the connection's metrics field (cache)
+        await self.connection_repo.update(connection_id, metrics=metrics.model_dump())
+        await self.db.commit()
+
+        return metrics
 
     async def validate_connection(
         self, connection_id: UUID, user: User

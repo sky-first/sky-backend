@@ -53,6 +53,7 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/v1/auth/sso/",  # All SSO endpoints (login and callback)
         "/api/v1/auth/invite/validate",  # Invite validation (public)
         "/api/v1/auth/invite/login",  # Invite login (public)
+        "/api/v1/auth/invite/accept",  # Invite accept (public)
         # Legacy API routes (without /v1 prefix)
         "/api/auth/login",
         "/api/auth/logout",

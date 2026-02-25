@@ -394,7 +394,7 @@ class AIService:
                     if space_id:
                         # Cache: short-lived response cache to avoid repeated expensive calls (e.g., Databricks spin-up)
                         cache_key: Optional[str] = None
-                        cached_payload: Optional[Dict[str, Any]] = None
+                        cached_payload: Optional[Dict[str, Any]] = None  # noqa: F841
                         if settings.AI_RESPONSE_CACHE_TTL_SECONDS > 0:
                             try:
                                 cache_key = ai_response_cache_key(
@@ -402,9 +402,8 @@ class AIService:
                                     connection_id=connection_id,
                                     question=configure_data.question,
                                 )
-                                cached_payload = await CacheService.get_json(cache_key)
+                                await CacheService.get_json(cache_key)
                             except Exception:
-                                cached_payload = None
                                 logger.warning(
                                     "AI response cache check failed (ignored)",
                                     exc_info=True,
@@ -1344,9 +1343,22 @@ class AIService:
             return ValidateSQLResponse(**result)
         except HTTPException:
             raise
+        except httpx.ConnectError as e:
+            logger.error(f"AI service connection failed: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"AI service unavailable: Connection failed to {e.request.url}",
+            )
+        except httpx.TimeoutException as e:
+            logger.error(f"AI service timeout: {e}")
+            raise HTTPException(status_code=504, detail=f"AI service timeout: {e.request.url}")
         except httpx.HTTPStatusError as e:
             logger.error(f"AI service HTTP error: {e.response.status_code} - {e.response.text}")
-            raise HTTPException(status_code=502, detail=f"AI service error: {str(e)}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"AI service error ({e.response.status_code}): {e.response.text}",
+            )
         except Exception as e:
-            logger.error(f"Error validating SQL: {str(e)}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error validating SQL: {str(e)}")
+            error_msg = str(e) or repr(e) or "Unknown error"
+            logger.error(f"Error validating SQL: {error_msg}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error validating SQL: {error_msg}")

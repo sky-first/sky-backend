@@ -322,7 +322,9 @@ class AIServiceHTTPClient:
         if question:
             payload["question"] = question
 
-        async with httpx.AsyncClient(timeout=25.0) as client:  # Timeout failsafe para validação
+        async with httpx.AsyncClient(
+            timeout=60.0
+        ) as client:  # Timeout aumentado para 60s (warehouses podem demorar)
             logger.info(
                 "Calling AI validate SQL: %s connection_id=%s space_id=%s",
                 url,

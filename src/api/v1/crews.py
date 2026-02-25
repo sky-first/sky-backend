@@ -15,6 +15,7 @@ from src.schemas.crew import (
     CrewMemberResponse,
     CrewMemberUpdate,
     CrewResponse,
+    CrewStatusResponse,
     CrewUpdate,
 )
 from src.services.crew_service import CrewService
@@ -145,24 +146,58 @@ async def update_crew(
     return await crew_service.update_crew(crew_id, current_user, crew_data)
 
 
+@router.get(
+    "/{crew_id}/status",
+    response_model=CrewStatusResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get crew status",
+    description="Get crew status including running tasks count",
+)
+async def get_crew_status(
+    crew_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> CrewStatusResponse:
+    """
+    Get crew status with running tasks info.
+
+    Args:
+        crew_id: Crew ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        CrewStatusResponse: Crew status with running tasks info
+    """
+    crew_service = CrewService(db)
+    return await crew_service.get_crew_status(crew_id, current_user)
+
+
 @router.delete(
     "/{crew_id}",
     response_model=SuccessResponse,
     status_code=status.HTTP_200_OK,
-    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    responses={
+        404: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
     summary="Delete crew",
-    description="Delete crew (soft delete)",
+    description="Delete crew (soft delete by default, hard delete with force=true)",
 )
 async def delete_crew(
     crew_id: UUID,
+    force: bool = Query(False, description="Force delete even with running tasks"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
-    Delete crew.
+    Delete crew with optional force parameter.
 
     Args:
         crew_id: Crew ID
+        force: If True, force delete even with running tasks
         current_user: Current authenticated user
         db: Database session
 
@@ -174,12 +209,15 @@ async def delete_crew(
     logger = logging.getLogger(__name__)
 
     logger.info(
-        f"🔴 [DELETE API] Delete crew endpoint called: crew_id={crew_id}, user_id={current_user.id}"
+        f"🔴 [DELETE API] Delete crew endpoint called: crew_id={crew_id}, user_id={current_user.id}, force={force}"
     )
     crew_service = CrewService(db)
-    await crew_service.delete_crew(crew_id, current_user)
-    logger.info(f"🔴 [DELETE API] Crew {crew_id} deleted successfully by user {current_user.id}")
-    return SuccessResponse(message="Crew deleted successfully")
+    await crew_service.delete_crew(crew_id, current_user, force=force)
+
+    message = "Crew force deleted successfully" if force else "Crew deleted successfully"
+    logger.info(f"🔴 [DELETE API] {message}: crew_id={crew_id}")
+
+    return SuccessResponse(message=message)
 
 
 @router.get(

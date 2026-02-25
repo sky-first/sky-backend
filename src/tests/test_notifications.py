@@ -1,11 +1,9 @@
 from uuid import uuid4
 
 import pytest
-from sqlalchemy.future import select
 
-from src.models.comment import Comment
 from src.models.dashboard import Dashboard
-from src.models.notification import Notification, NotificationType
+from src.models.notification import NotificationType
 from src.models.planet import Planet
 from src.models.user import User
 from src.schemas.comment import CommentCreate

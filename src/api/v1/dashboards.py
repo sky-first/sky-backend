@@ -424,7 +424,6 @@ async def ai_plan_dashboard(
     client = AIServiceHTTPClient()
     # Detect textual format early to cap max_widgets if needed
     # Force textual/infographic mode for AI-built dashboards as requested by USER
-    is_textual = True
     max_widgets = min(int(body.max_widgets or 8), 6)
 
     # Build override schema summary from backend connection_metadata so Davinci can plan even if the AI Engine
@@ -840,7 +839,6 @@ async def ai_build_dashboard_async(
 
     # Detect textual format early to cap max_widgets if needed
     # Force textual/infographic mode for AI-built dashboards as requested by USER
-    is_textual = True
     max_widgets = min(int(body.max_widgets or 8), 6)
 
     job_repo = BaseRepository(db, DashboardBuildJob)
