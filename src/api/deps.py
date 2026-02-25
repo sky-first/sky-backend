@@ -180,9 +180,7 @@ async def get_current_user(
     try:
         from datetime import datetime, timezone
 
-        await user_repo.update(
-            user.id, last_active_at=datetime.now(timezone.utc), status="active"
-        )
+        await user_repo.update(user.id, last_active_at=datetime.now(timezone.utc), status="active")
     except Exception as e:
         logger.warning(f"Failed to update user activity: {e}")
 

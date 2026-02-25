@@ -613,3 +613,77 @@ class SpaceService:
 
         await self.db.delete(association)
         await self.db.commit()
+
+    async def get_space_stats(self, space_id: UUID, user: User) -> dict:
+        """
+        Get statistics for a space.
+        """
+        from src.repositories.ai import AIQueryRepository
+
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+
+        # Get space connections
+        space_connections = await self.space_repo.get_space_connections(space_id)
+        connection_ids = [sc.connection_id for sc in space_connections]
+
+        # Get stats from AI Repository
+        ai_repo = AIQueryRepository(self.db)
+        total_queries = await ai_repo.count_queries_by_connection_ids(connection_ids)
+        active_users = await ai_repo.get_active_users_by_connection_ids(connection_ids)
+
+        # Aggregated metrics from connections
+        total_usage_bytes = 0
+        avg_compliance = 0
+        conn_count = 0
+
+        for sc in space_connections:
+            conn = await self.connection_repo.get_by_id(sc.connection_id)
+            if conn and conn.metrics:
+                m = conn.metrics
+                if isinstance(m, dict):
+                    total_usage_bytes += m.get("usage_bytes", 0)
+                    if "compliance_score" in m:
+                        avg_compliance += m["compliance_score"]
+                        conn_count += 1
+
+        compliance = (avg_compliance / conn_count) if conn_count > 0 else 0
+
+        # Formatting helpers
+        def format_bytes(b):
+            if b <= 0:
+                return "0B"
+            import math
+
+            size_name = ("B", "KB", "MB", "GB", "TB")
+            i = int(math.floor(math.log(b, 1024)))
+            p = math.pow(1024, i)
+            s = round(b / p, 1)
+            return f"{s}{size_name[i]}"
+
+        def format_number(n):
+            if n >= 1000:
+                return f"{round(n/1000, 1)}k"
+            return str(n)
+
+        # Return in a format that matches the expected schema
+        return {
+            "total_queries": {
+                "value": format_number(total_queries),
+                "change": "+0%",
+                "trend": "neutral",
+            },
+            "active_users": {"value": str(active_users), "change": "+0%", "trend": "neutral"},
+            "data_usage": {
+                "value": format_bytes(total_usage_bytes),
+                "change": "+0%",
+                "trend": "neutral",
+            },
+            "compliance_score": {
+                "value": f"{int(compliance)}%",
+                "change": "+0%",
+                "trend": "neutral",
+            },
+            "activity_feed": [],  # TODO: Implement activity feed
+        }

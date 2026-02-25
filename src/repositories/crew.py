@@ -3,10 +3,10 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select, func, distinct
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.crew import Crew, CrewMember, CrewConnection
+from src.models.crew import Crew, CrewConnection, CrewMember
 from src.repositories.base import BaseRepository
 
 
@@ -37,7 +37,9 @@ class CrewRepository(BaseRepository[Crew]):
         )
         return list(result.scalars().all())
 
-    async def get_by_space_with_stats(self, space_id: UUID, skip: int = 0, limit: int = 100) -> List[dict]:
+    async def get_by_space_with_stats(
+        self, space_id: UUID, skip: int = 0, limit: int = 100
+    ) -> List[dict]:
         """
         Get crews by space with statistics.
         """

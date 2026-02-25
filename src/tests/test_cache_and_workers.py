@@ -51,8 +51,6 @@ def test_cache_key_helpers():
     assert connection_metadata_cache_key("4") == "connection:metadata:4"
 
 
-import pytest
-
 @pytest.mark.skip(reason="Brittle DB test in CI")
 def test_sync_worker_tasks_smoke():
     from src.workers.sync_worker import sync_connection_metadata

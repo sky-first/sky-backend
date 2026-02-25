@@ -39,12 +39,13 @@ def sync_connection_metadata(connection_id: str):
         dict: Sync result
     """
     import asyncio
+    from uuid import UUID
+
     from src.config.database import AsyncSessionLocal
-    from src.repositories.connection import ConnectionRepository, ConnectionMetadataRepository
+    from src.config.settings import settings
+    from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
     from src.services.connector_service import ConnectorService
     from src.utils.encryption import decrypt_dict
-    from src.config.settings import settings
-    from uuid import UUID
 
     async def _sync():
         async with AsyncSessionLocal() as db:
@@ -63,8 +64,9 @@ def sync_connection_metadata(connection_id: str):
             # 2. Extract metadata from source
             # We need to instantiate the specific connector based on connection.connector_id
             # For now, we'll manually check, but ideally this should be a factory in ConnectorService
-            if connection.connector_id == 'postgresql':
+            if connection.connector_id == "postgresql":
                 from src.connectors.postgresql import PostgreSQLConnector
+
                 connector = PostgreSQLConnector()
                 try:
                     source_metadata = await connector.get_metadata(config)
@@ -82,13 +84,21 @@ def sync_connection_metadata(connection_id: str):
             if existing_metadata and existing_metadata.tables:
                 for table in existing_metadata.tables:
                     # Key by schema.name or just name
-                    key = f"{table.get('schema')}.{table.get('name')}" if table.get('schema') else table.get('name')
+                    key = (
+                        f"{table.get('schema')}.{table.get('name')}"
+                        if table.get("schema")
+                        else table.get("name")
+                    )
                     existing_tables_map[key] = table
 
             # 4. Merge metadata
             merged_tables = []
             for table in source_metadata.get("tables", []):
-                key = f"{table.get('schema')}.{table.get('name')}" if table.get('schema') else table.get('name')
+                key = (
+                    f"{table.get('schema')}.{table.get('name')}"
+                    if table.get("schema")
+                    else table.get("name")
+                )
                 existing_table = existing_tables_map.get(key)
 
                 if existing_table:
@@ -111,13 +121,13 @@ def sync_connection_metadata(connection_id: str):
                 await metadata_repo.update(
                     existing_metadata.id,
                     tables=merged_tables,
-                    schemas=source_metadata.get("schemas", [])
+                    schemas=source_metadata.get("schemas", []),
                 )
             else:
                 await metadata_repo.create(
                     connection_id=connection.id,
                     tables=merged_tables,
-                    schemas=source_metadata.get("schemas", [])
+                    schemas=source_metadata.get("schemas", []),
                 )
 
             logger.info(f"Syncing connection metadata {connection_id} complete")

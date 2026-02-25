@@ -141,7 +141,9 @@ class BigQueryConnector(BaseConnector):
             columns_rows = list(columns_job.result())
 
             # 2. Fetch Table Stats (row count, last modified)
-            stats_query = f"SELECT table_id, row_count, last_modified_time FROM `{full_dataset}.__TABLES__`"
+            stats_query = (
+                f"SELECT table_id, row_count, last_modified_time FROM `{full_dataset}.__TABLES__`"
+            )
             stats_job = client.query(stats_query)
             stats_rows = {row["table_id"]: row for row in stats_job.result()}
 

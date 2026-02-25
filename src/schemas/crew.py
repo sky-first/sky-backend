@@ -79,3 +79,28 @@ class CrewStatusResponse(BaseModel):
     active_task_ids: Optional[list[str]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CrewMetric(BaseModel):
+    """Schema for a metric in the crew overview."""
+
+    value: str
+    change: str
+    trend: str  # 'up', 'down', 'neutral'
+
+
+class CrewPIIAccess(BaseModel):
+    """Schema for PII access status in the crew overview."""
+
+    status: str  # e.g., 'RESTRICTED', 'OPEN'
+    description: str
+
+
+class CrewStatsResponse(BaseModel):
+    """Schema for a crew's statistics."""
+
+    usage_summary: CrewMetric
+    insights_contributed: CrewMetric
+    pii_access: CrewPIIAccess
+
+    model_config = ConfigDict(from_attributes=True)

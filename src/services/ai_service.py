@@ -1,7 +1,6 @@
 """AI service."""
 
 import logging
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -15,7 +14,6 @@ from src.config.redis import get_redis
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
 from src.models.ai import AIFeedback, AIHistory, AIQuery, ChatMessage, Pipeline
-from src.models.planet import Planet
 from src.models.user import User
 from src.repositories.base import BaseRepository
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
@@ -658,7 +656,6 @@ class AIService:
         Returns:
             ChatMessageResponse: Chat response
         """
-        from src.models.ai import ChatMessage
 
         # Save user message
         user_message = await self.chat_repo.create(
@@ -828,7 +825,6 @@ class AIService:
         """
         Generate structured infographic data using the real AI service (or mock).
         """
-        from src.schemas.ai import GenerateInfographicRequest
 
         if self.real_ai:
             try:

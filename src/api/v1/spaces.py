@@ -16,6 +16,7 @@ from src.schemas.space import (
     SpaceMemberCreate,
     SpaceMemberResponse,
     SpaceResponse,
+    SpaceStatsResponse,
     SpaceTableCreate,
     SpaceUpdate,
 )
@@ -498,3 +499,23 @@ async def remove_space_table(
         space_id, connection_id, table_name, schema_name, current_user
     )
     return SuccessResponse(message="Table unlinked successfully")
+
+
+@router.get(
+    "/{space_id}/stats",
+    response_model=SpaceStatsResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get space statistics",
+    description="Get aggregated metrics and activity for a space",
+)
+async def get_space_stats(
+    space_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SpaceStatsResponse:
+    """
+    Get statistics for a space.
+    """
+    space_service = SpaceService(db)
+    return await space_service.get_space_stats(space_id, current_user)

@@ -75,12 +75,14 @@ class PostgreSQLConnector(BaseConnector):
 
                 column_data = []
                 for col in columns:
-                    column_data.append({
-                        "name": col["column_name"],
-                        "type": col["data_type"],
-                        "nullable": col["is_nullable"] == "YES",
-                        "description": None  # Postgre doesn't store descriptions in information_schema easily
-                    })
+                    column_data.append(
+                        {
+                            "name": col["column_name"],
+                            "type": col["data_type"],
+                            "nullable": col["is_nullable"] == "YES",
+                            "description": None,  # Postgre doesn't store descriptions in information_schema easily
+                        }
+                    )
 
                 # Fetch row count (approximate or exact)
                 # Using count(*) can be slow on large tables; using pg_class for approximation
@@ -88,16 +90,18 @@ class PostgreSQLConnector(BaseConnector):
                 # row_count_result = await conn.fetchval(row_count_query)
                 row_count_result = 0  # Placeholder for now to avoid performance hit
 
-                result_tables.append({
-                    "name": name,
-                    "schema": schema,
-                    "row_count": row_count_result,
-                    "columns": column_data,
-                    "last_updated": None,  # Database doesn't track this by default
-                    "health": "Healthy",  # Default
-                    "usage_score": 0,  # Default
-                    "tags": []  # Default
-                })
+                result_tables.append(
+                    {
+                        "name": name,
+                        "schema": schema,
+                        "row_count": row_count_result,
+                        "columns": column_data,
+                        "last_updated": None,  # Database doesn't track this by default
+                        "health": "Healthy",  # Default
+                        "usage_score": 0,  # Default
+                        "tags": [],  # Default
+                    }
+                )
 
             return {"tables": result_tables, "schemas": list(schemas)}
         finally:

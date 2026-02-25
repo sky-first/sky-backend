@@ -576,8 +576,6 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                             if isinstance(viz, dict) and viz.get("style"):
                                 style = viz.get("style")
 
-                            from src.schemas.ai import GenerateInfographicRequest
-
                             infographic_req = GenerateInfographicRequest(
                                 question=w.get("question") or "",
                                 answer=query_resp.answer or "",
@@ -590,7 +588,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                             )
                             widget_data["infographic_data"] = infographic_data
                             widget_data["type"] = "infographic"
-                        except Exception as e:
+                        except Exception:
                             # Fallback: maintain basic widget data
                             widget_data["isLoading"] = False
                             widget_data["error"] = True

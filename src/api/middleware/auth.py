@@ -1,7 +1,7 @@
 """Authentication middleware."""
 
 import logging
-from typing import Any, Callable, cast
+from typing import Callable, cast
 
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse

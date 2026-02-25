@@ -13,10 +13,10 @@ from src.config.settings import get_settings
 from src.connectors.registry import get_connector
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.user import User
-from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
-from src.repositories.space import SpaceRepository
-from src.repositories.file import SyncLogRepository
 from src.repositories.ai import AIQueryRepository
+from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
+from src.repositories.file import SyncLogRepository
+from src.repositories.space import SpaceRepository
 from src.schemas.connection import (
     ConnectionCreate,
     ConnectionMetadataResponse,
@@ -51,7 +51,9 @@ class ConnectionService:
         self.ai_query_repo = AIQueryRepository(db)
         self.ai_client = AIServiceHTTPClient()
 
-    async def _calculate_next_sync(self, frequency: str, last_sync: Optional[datetime]) -> Optional[datetime]:
+    async def _calculate_next_sync(
+        self, frequency: str, last_sync: Optional[datetime]
+    ) -> Optional[datetime]:
         """
         Calculate next sync time based on frequency.
 
@@ -636,7 +638,9 @@ class ConnectionService:
 
         if sync_logs:
             # Average latency of successful syncs
-            durations = [log.duration for log in sync_logs if log.duration and log.status == "success"]
+            durations = [
+                log.duration for log in sync_logs if log.duration and log.status == "success"
+            ]
             if durations:
                 latency_ms = int(sum(durations) / len(durations))
 
@@ -651,9 +655,9 @@ class ConnectionService:
             latency_ms=latency_ms,
             uptime_pct=round(uptime_pct, 1),
             satisfaction_pct=0.0,  # TODO: implement feedback aggregation
-            ai_roi_hours=0.0,     # TODO: implement ROI calculation
-            top_users=[],        # TODO: implement top users aggregation
-            usage_history=[]     # TODO: implement history trend
+            ai_roi_hours=0.0,  # TODO: implement ROI calculation
+            top_users=[],  # TODO: implement top users aggregation
+            usage_history=[],  # TODO: implement history trend
         )
 
         # Update the connection's metrics field (cache)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -343,7 +343,6 @@ async def test_plan_bypass_falls_through_to_http_when_plan_has_empty_widgets(mon
 @pytest.mark.asyncio
 async def test_filters_saved_to_canvas_settings(monkeypatch):
     """When plan has filters, dashboard.canvas_settings must be set to {filters: [...]}."""
-    from src.ai import http_client as http_client_module
     from src.config import database as database_module
     from src.repositories import base as base_repo_module
     from src.repositories import dashboard as dashboard_repo_module
@@ -463,7 +462,6 @@ async def test_filters_saved_to_canvas_settings(monkeypatch):
 @pytest.mark.asyncio
 async def test_layout_from_plan_overrides_textual_layout(monkeypatch):
     """Widgets with explicit layout in the plan must use those coordinates, not the textual layout."""
-    from src.ai import http_client as http_client_module
     from src.config import database as database_module
     from src.repositories import base as base_repo_module
     from src.repositories import dashboard as dashboard_repo_module

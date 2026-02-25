@@ -1,5 +1,6 @@
 import pytest
 from httpx import AsyncClient
+
 """Tests for authentication middleware."""
 
 
@@ -116,7 +117,9 @@ class TestProtectedRoutes:
         assert "error" in data
 
     @pytest.mark.asyncio
-    async def test_protected_route_expired_token(self, async_client: AsyncClient, expired_token: str):
+    async def test_protected_route_expired_token(
+        self, async_client: AsyncClient, expired_token: str
+    ):
         """Test protected route with expired token."""
         response = await async_client.get(
             "/api/v1/auth/me",
@@ -137,7 +140,9 @@ class TestProtectedRoutes:
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_protected_route_valid_token(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_protected_route_valid_token(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test protected route with valid token."""
         access_token = test_user_with_tokens["access_token"]
 
@@ -154,7 +159,9 @@ class TestMiddlewareTokenExtraction:
     """Tests for token extraction and validation in middleware."""
 
     @pytest.mark.asyncio
-    async def test_token_extracts_user_id(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_token_extracts_user_id(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test that user_id is extracted from token."""
         access_token = test_user_with_tokens["access_token"]
 
@@ -167,7 +174,9 @@ class TestMiddlewareTokenExtraction:
         assert data["id"] == str(test_user_with_tokens["user"].id)
 
     @pytest.mark.asyncio
-    async def test_token_extracts_role(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_token_extracts_role(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test that role is extracted from token."""
         access_token = test_user_with_tokens["access_token"]
 

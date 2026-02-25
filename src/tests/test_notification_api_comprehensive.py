@@ -1,8 +1,8 @@
-from httpx import AsyncClient
 from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.comment import Comment
@@ -84,7 +84,9 @@ class TestNotificationAPI:
         )
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(f"/api/v1/notifications/{notif.id}/read", headers=headers)
+        response = await async_client.post(
+            f"/api/v1/notifications/{notif.id}/read", headers=headers
+        )
         assert response.status_code == 200
         assert response.json()["updated"] == 1
 
@@ -228,7 +230,9 @@ class TestCommentAPI:
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/comments?dashboard_id={dashboard.id}", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/comments?dashboard_id={dashboard.id}", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 1

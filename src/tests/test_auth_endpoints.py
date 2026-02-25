@@ -1,5 +1,6 @@
 import pytest
 from httpx import AsyncClient
+
 """Tests for authentication endpoints."""
 
 
@@ -189,7 +190,9 @@ class TestRefreshEndpoint:
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_refresh_revoked_token(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_refresh_revoked_token(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test refresh with revoked token."""
         refresh_token = test_user_with_tokens["refresh_token"]
 
@@ -279,7 +282,9 @@ class TestSessionsEndpoint:
     """Tests for session management endpoints."""
 
     @pytest.mark.asyncio
-    async def test_get_sessions_success(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_get_sessions_success(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test getting active sessions."""
         access_token = test_user_with_tokens["access_token"]
         response = await async_client.get(
@@ -293,7 +298,9 @@ class TestSessionsEndpoint:
         assert "user_agent" in data[0]
 
     @pytest.mark.asyncio
-    async def test_revoke_all_sessions_success(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_revoke_all_sessions_success(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test revoking all sessions."""
         access_token = test_user_with_tokens["access_token"]
         response = await async_client.delete(
