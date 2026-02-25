@@ -93,7 +93,7 @@ class ConnectionService:
             NotFoundError: If connection not found
             ForbiddenError: If user doesn't have access
         """
-        connection = await self.connection_repo.get_by_id(connection_id)
+        connection = await self.connection_repo.get_by_id_with_metadata(connection_id)
         if not connection:
             raise NotFoundError("Connection not found")
 

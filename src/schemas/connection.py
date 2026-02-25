@@ -7,6 +7,41 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ColumnMetadataSchema(BaseModel):
+    """Column metadata schema."""
+
+    name: str
+    type: str
+    nullable: bool = True
+    description: Optional[str] = None
+
+
+class TableMetadataSchema(BaseModel):
+    """Table metadata schema."""
+
+    name: str
+    schema_name: Optional[str] = Field(None, alias="schema", description="Database schema name")
+    row_count: Optional[int] = None
+    columns: Optional[List[ColumnMetadataSchema]] = None
+    last_updated: Optional[datetime] = None
+    usage: Optional[str] = Field(None, description="Usage level (High, Medium, Low)")
+    health: Optional[str] = "Healthy"
+    usage_score: Optional[int] = 0
+    tags: Optional[List[str]] = []
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ConnectionMetadataResponse(BaseModel):
+    """Connection metadata response schema."""
+
+    tables: List[TableMetadataSchema] = []
+    schemas: List[str] = []
+    last_metadata_update: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ConnectionBase(BaseModel):
     """Base connection schema."""
 
@@ -44,6 +79,7 @@ class ConnectionResponse(ConnectionBase):
     created_by: UUID
     created_at: datetime
     updated_at: datetime
+    connection_metadata: Optional[ConnectionMetadataResponse] = Field(None, serialization_alias="metadata")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -63,38 +99,6 @@ class ConnectionSyncResponse(BaseModel):
     last_sync: Optional[datetime] = None
     next_sync: Optional[datetime] = None
     message: Optional[str] = None
-
-
-class ColumnMetadataSchema(BaseModel):
-    """Column metadata schema."""
-
-    name: str
-    type: str
-    nullable: bool = True
-    description: Optional[str] = None
-
-
-class TableMetadataSchema(BaseModel):
-    """Table metadata schema."""
-
-    name: str
-    schema_name: Optional[str] = Field(None, alias="schema", description="Database schema name")
-    row_count: Optional[int] = None
-    columns: Optional[List[ColumnMetadataSchema]] = None
-    last_updated: Optional[datetime] = None
-    health: Optional[str] = "Healthy"
-    usage_score: Optional[int] = 0
-    tags: Optional[List[str]] = []
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class ConnectionMetadataResponse(BaseModel):
-    """Connection metadata response schema."""
-
-    tables: List[TableMetadataSchema] = []
-    schemas: List[str] = []
-    last_metadata_update: Optional[datetime] = None
 
 
 class ConnectionStatusResponse(BaseModel):

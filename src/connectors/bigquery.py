@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.connectors.base import BaseConnector
@@ -126,7 +127,8 @@ class BigQueryConnector(BaseConnector):
             else:
                 full_dataset = f"{project_id}.{dataset}"
 
-            query = f"""
+            # 1. Fetch Columns
+            columns_query = f"""
             SELECT
               table_name,
               column_name,
@@ -135,24 +137,72 @@ class BigQueryConnector(BaseConnector):
             FROM `{full_dataset}.INFORMATION_SCHEMA.COLUMNS`
             ORDER BY table_name, ordinal_position
             """
+            columns_job = client.query(columns_query)
+            columns_rows = list(columns_job.result())
 
-            job = client.query(query)
-            rows = list(job.result())
+            # 2. Fetch Table Stats (row count, last modified)
+            stats_query = f"SELECT table_id, row_count, last_modified_time FROM `{full_dataset}.__TABLES__`"
+            stats_job = client.query(stats_query)
+            stats_rows = {row["table_id"]: row for row in stats_job.result()}
+
+            # 3. Fetch Usage (approximate from jobs last 30 days)
+            # Use project region if available, otherwise fallback to project-level view (might need region prefix)
+            # For simplicity, we'll try a generic query and fallback to Low if it fails
+            usage_stats: Dict[str, str] = {}
+            try:
+                # We try to find the region of the dataset to query the correct JOBS_BY_PROJECT view
+                ds_obj = client.get_dataset(dataset)
+                region = ds_obj.location.lower() if ds_obj.location else "us"
+                region_prefix = f"region-{region}"
+
+                usage_query = f"""
+                SELECT
+                  referenced_table.table_id,
+                  count(*) as query_count
+                FROM
+                  `{region_prefix}.INFORMATION_SCHEMA.JOBS_BY_PROJECT`,
+                  UNNEST(referenced_tables) AS referenced_table
+                WHERE
+                  creation_time > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+                  AND referenced_table.project_id = '{project_id}'
+                  AND referenced_table.dataset_id = '{dataset}'
+                GROUP BY 1
+                """
+                usage_job = client.query(usage_query)
+                for row in usage_job.result():
+                    count = row["query_count"]
+                    if count > 100:
+                        level = "High"
+                    elif count > 20:
+                        level = "Medium"
+                    else:
+                        level = "Low"
+                    usage_stats[row["table_id"]] = level
+            except Exception as e:
+                print(f"Warning: Could not fetch usage stats: {e}")
 
             tables: Dict[str, Dict[str, Any]] = {}
-            for row in rows:
+            for row in columns_rows:
                 table_name = str(row["table_name"])
                 column_name = str(row["column_name"])
                 data_type = str(row["data_type"])
                 is_nullable = str(row["is_nullable"]).upper() == "YES"
 
                 if table_name not in tables:
+                    table_stats = stats_rows.get(table_name, {})
+                    raw_last_mod = table_stats.get("last_modified_time")
+                    last_updated = None
+                    if raw_last_mod:
+                        # BigQuery __TABLES__ last_modified_time is in milliseconds
+                        last_updated = datetime.fromtimestamp(raw_last_mod / 1000.0, tz=timezone.utc).isoformat()
+
                     tables[table_name] = {
                         "name": table_name,
-                        "schema": dataset,  # logical dataset/schema name
-                        "row_count": None,
+                        "schema": dataset,
+                        "row_count": table_stats.get("row_count"),
                         "columns": [],
-                        "last_updated": None,
+                        "last_updated": last_updated,
+                        "usage": usage_stats.get(table_name, "Low"),
                     }
 
                 tables[table_name]["columns"].append(
