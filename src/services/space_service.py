@@ -519,11 +519,14 @@ class SpaceService:
 
                     tables.append(
                         {
+                            "id": f"{space_conn.connection_id}-{t_name}",
                             "connection_id": str(space_conn.connection_id),
                             "connection_name": connection.name,
                             "connection_type": getattr(connection, "connector_id", None),
                             "table_name": t_name,
+                            "name": t_name,
                             "schema": t_schema,
+                            "schema_name": t_schema,
                             "row_count": table_data.get("row_count"),
                             "selected": is_selected,
                         }
@@ -540,11 +543,14 @@ class SpaceService:
 
                     tables.append(
                         {
+                            "id": f"{space_conn.connection_id}-{t_name}",
                             "connection_id": str(space_conn.connection_id),
                             "connection_name": connection.name,
                             "connection_type": getattr(connection, "connector_id", None),
                             "table_name": t_name,
+                            "name": t_name,
                             "schema": t_schema,
+                            "schema_name": t_schema,
                             "row_count": getattr(table_data, "row_count", None),
                             "selected": is_selected,
                         }
