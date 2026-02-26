@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """Test token verification."""
-import json
-import sys
 
 import requests
 

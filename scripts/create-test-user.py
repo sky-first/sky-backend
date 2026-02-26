@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from src.config.database import Base
 from src.core.security import get_password_hash
 from src.models.planet import Planet  # noqa: F401
 from src.models.user import User
@@ -44,8 +43,8 @@ async def create_test_user():
             session.add(existing_user)
             await session.commit()
             print("✅ Test user already exists (password refreshed).")
-            print(f"   Email: test@example.com")
-            print(f"   Password: Test@2024!Secure")
+            print("   Email: test@example.com")
+            print("   Password: Test@2024!Secure")
             return
 
         # Create test user
@@ -62,8 +61,8 @@ async def create_test_user():
         await session.commit()
 
         print("✅ Test user created successfully!")
-        print(f"   Email: test@example.com")
-        print(f"   Password: Test@2024!Secure")
+        print("   Email: test@example.com")
+        print("   Password: Test@2024!Secure")
 
     await engine.dispose()
 

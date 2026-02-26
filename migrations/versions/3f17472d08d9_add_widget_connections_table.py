@@ -5,9 +5,7 @@ Revises: fix_missing_tables_20260123
 Create Date: 2026-01-26 09:28:57.196060
 
 """
-import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '3f17472d08d9'

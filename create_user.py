@@ -59,7 +59,7 @@ async def create_test_user():
         await session.commit()
 
         print("✅ Test user created successfully!")
-        print(f"   Email: test@example.com")
+        print("   Email: test@example.com")
         print(f"   Password: {new_password}")
         print(
             f"   Database: {settings.DATABASE_URL.split('@')[1] if '@' in settings.DATABASE_URL else 'N/A'}"

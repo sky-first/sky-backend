@@ -37,7 +37,7 @@ async def update_password():
         await session.commit()
 
         print("✅ Password updated successfully!")
-        print(f"   Email: test@example.com")
+        print("   Email: test@example.com")
         print(f"   New Password: {new_password}")
         print("\n⚠️  Note: Update this password in LOGIN_CREDENTIALS.md")
 

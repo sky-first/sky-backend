@@ -7,7 +7,6 @@ Create Date: 2026-02-16 14:32:45.912218
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = 'a0ded69bb18d'
