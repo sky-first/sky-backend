@@ -19,7 +19,7 @@ from src.models.file import FileUpload
 from src.models.notification import Notification
 from src.models.permission import APIKey, ConnectionPermission, Integration
 from src.models.planet import Planet, PlanetMember
-from src.models.space import Space, SpaceMember
+from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable
 from src.models.starred import StarredItem
 from src.models.template import Template
 from src.models.user import RefreshToken, User
@@ -41,6 +41,8 @@ __all__ = [
     "ColumnMetadata",
     "Space",
     "SpaceMember",
+    "SpaceConnection",
+    "SpaceTable",
     "Crew",
     "CrewMember",
     "ConnectionPermission",
