@@ -1,14 +1,13 @@
 import sys
 import os
 import asyncio
-from uuid import UUID
 
 # Add current directory to path
 sys.path.append(os.getcwd())
 
 from src.config.database import AsyncSessionLocal
 from src.models.space import Space, SpaceConnection, SpaceTable
-from src.models.connection import DataConnection, ConnectionMetadata
+from src.models.connection import ConnectionMetadata
 from sqlalchemy import select
 
 async def check_data():
@@ -36,7 +35,7 @@ async def check_data():
                     if len(tables) > 0:
                         print(f"      First table example: {tables[0]}")
                 else:
-                    print(f"      No metadata found")
+                    print("      No metadata found")
 
             # Check selected tables
             res_tabs = await db.execute(select(SpaceTable).where(SpaceTable.space_id == s.id))

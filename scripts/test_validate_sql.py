@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Script de teste para o endpoint de validação SQL."""
 
-import asyncio
 import sys
 from pathlib import Path
 

@@ -9,7 +9,6 @@ from sqlalchemy import delete
 from sqlalchemy.future import select
 
 # Trigger all models registration
-import src.models
 from src.config.database import get_db, init_db
 from src.models.dashboard import Dashboard
 from src.models.notification import Notification, NotificationType

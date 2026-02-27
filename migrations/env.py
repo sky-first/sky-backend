@@ -1,9 +1,11 @@
 """Alembic environment configuration."""
 
+import os
+from urllib.parse import quote_plus
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import pool
 
 from src.config.database import Base
 from src.config.settings import settings
@@ -20,9 +22,6 @@ if config.config_file_name is not None:
 
 # Set SQLAlchemy URL from settings
 # Build URL directly if POSTGRES_PASSWORD env var is available (Docker Compose)
-import os
-from urllib.parse import quote_plus
-
 postgres_password = os.getenv('POSTGRES_PASSWORD')
 if postgres_password:
     # Build URL from separate env vars with properly encoded password

@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import uuid
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -12,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from src.config.settings import settings
 from src.models.ai import AIHistory, AIQuery, ChatMessage
 from src.models.dashboard import Dashboard, Widget
-from src.models.planet import Planet, PlanetMember
+from src.models.planet import Planet
 from src.models.user import User
 from src.services.onboarding_service import ensure_default_planet_and_space
 

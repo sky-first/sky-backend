@@ -149,7 +149,7 @@ async def seed_role_permissions():
             # Commit changes
             await session.commit()
 
-            print(f"\n✨ Seed completed successfully!")
+            print("\n✨ Seed completed successfully!")
             print(f"   📊 Inserted: {inserted} roles")
             print(f"   📝 Updated: {updated} roles")
             print(f"   🎯 Total roles: {len(DEFAULT_ROLE_PERMISSIONS)}")

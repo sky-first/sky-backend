@@ -6,8 +6,6 @@ Create Date: 2026-02-25 11:20:00.000000
 
 """
 
-from alembic import op
-import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "merge_metrics_head_20260225"

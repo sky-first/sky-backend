@@ -16,7 +16,7 @@ from src.models.user import User
 from src.repositories.ai import AIQueryRepository
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.file import SyncLogRepository
-from src.repositories.space import SpaceRepository
+from src.repositories.space import SpaceRepository, SpaceTableRepository
 from src.schemas.connection import (
     ConnectionCreate,
     ConnectionMetadataResponse,
@@ -47,6 +47,7 @@ class ConnectionService:
         self.connection_repo = ConnectionRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.space_repo = SpaceRepository(db)
+        self.table_repo = SpaceTableRepository(db)
         self.sync_log_repo = SyncLogRepository(db)
         self.ai_query_repo = AIQueryRepository(db)
         self.ai_client = AIServiceHTTPClient()
@@ -412,6 +413,39 @@ class ConnectionService:
                     connection_id=str(connection_id),
                     space_count=len(spaces),
                 )
+
+                # --- Auto-link discovered tables to all associated spaces ---
+                # This ensures tables don't "disappear" from the space view after refresh.
+                for space in spaces:
+                    for table_data in metadata.get("tables", []):
+                        t_name = (
+                            table_data.get("name")
+                            if isinstance(table_data, dict)
+                            else getattr(table_data, "name", None)
+                        )
+                        t_schema = (
+                            table_data.get("schema")
+                            if isinstance(table_data, dict)
+                            else getattr(table_data, "schema", None)
+                        )
+
+                        if t_name:
+                            # Check if already linked
+                            existing_table = await self.table_repo.get_space_table(
+                                space.id, connection_id, t_name, t_schema
+                            )
+                            if not existing_table:
+                                from src.models.space import SpaceTable
+
+                                new_table = SpaceTable(
+                                    space_id=space.id,
+                                    connection_id=connection_id,
+                                    table_name=t_name,
+                                    schema_name=t_schema,
+                                )
+                                self.db.add(new_table)
+
+                await self.db.commit()
 
                 # Notify AI service for each space
                 for space in spaces:

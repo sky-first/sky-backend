@@ -1484,7 +1484,6 @@ class TestSpacesEndpoints:
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         space_data = {
             "name": "Test Space",
-            "name": "Test Space",
             "description": "Test space description",
         }
         response = await async_client.post("/api/v1/spaces", json=space_data, headers=headers)

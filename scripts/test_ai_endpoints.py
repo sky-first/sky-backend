@@ -4,10 +4,9 @@ Script para testar todos os endpoints da chatbox AI
 Verifica se estão usando Real AI Service e retornando respostas reais
 """
 
-import json
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import requests
 from dotenv import load_dotenv
@@ -236,7 +235,7 @@ def main():
     print("=" * 80)
     print("🧪 TESTE COMPLETO DOS ENDPOINTS DA CHATBOX AI")
     print("=" * 80)
-    print(f"\nConfigurações:")
+    print("\nConfigurações:")
     print(f"  Backend URL: {BACKEND_URL}")
     print(f"  AI Service URL: {AI_SERVICE_URL}")
     print(f"  Test Email: {TEST_EMAIL}")
