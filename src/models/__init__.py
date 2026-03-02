@@ -23,6 +23,7 @@ from src.models.starred import StarredItem
 from src.models.template import Template
 from src.models.user import RefreshToken, User
 from src.models.workspace import Workspace, WorkspaceMember
+from src.models.signal_event import SignalEvent
 
 __all__ = [
     "User",
@@ -60,4 +61,5 @@ __all__ = [
     "WorkspaceMember",
     "Notification",
     "Comment",
+    "SignalEvent",
 ]

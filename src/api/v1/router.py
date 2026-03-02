@@ -22,6 +22,7 @@ from src.api.v1 import (
     users,
     widgets,
     workspaces,
+    signal_events,
 )
 
 api_router = APIRouter()
@@ -82,6 +83,9 @@ api_router.include_router(starred.router, prefix="/starred", tags=["Starred"])
 
 # Comment endpoints
 api_router.include_router(comments.router, prefix="/comments", tags=["Comments"])
+
+# Signal Events endpoints
+api_router.include_router(signal_events.router, prefix="/signal-events", tags=["Signal Events"])
 
 # TODO: Add more routers here as we implement them step by step
 # Following the BACKEND_IMPLEMENTATION_MASTER_PLAN.md
