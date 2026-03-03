@@ -269,8 +269,8 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True
-    RATE_LIMIT_PER_MINUTE: int = 60
-    RATE_LIMIT_PER_HOUR: int = 1000
+    RATE_LIMIT_PER_MINUTE: int = 300
+    RATE_LIMIT_PER_HOUR: int = 10000
 
     # Tenant/User rate limiting for AI cost control (Subtask 2/3)
     AI_RATE_LIMIT_ENABLED: bool = True
@@ -299,9 +299,9 @@ class Settings(BaseSettings):
 
         # Only apply defaults when the env var is not explicitly set.
         if os.getenv("RATE_LIMIT_PER_MINUTE") is None:
-            self.RATE_LIMIT_PER_MINUTE = 60 if is_prod else 600
+            self.RATE_LIMIT_PER_MINUTE = 300 if is_prod else 3000
         if os.getenv("RATE_LIMIT_PER_HOUR") is None:
-            self.RATE_LIMIT_PER_HOUR = 1000 if is_prod else 10000
+            self.RATE_LIMIT_PER_HOUR = 10000 if is_prod else 1000000
         if os.getenv("RATE_LIMIT_ENABLED") is None:
             # Keep enabled by default; can be disabled explicitly in env.
             self.RATE_LIMIT_ENABLED = True

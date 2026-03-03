@@ -35,10 +35,13 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         return cast(Response, await call_next(request))
 
     # Skip rate limiting for low-cost polling/status endpoints (frontend may poll frequently).
-    # These endpoints should not be blocked by the generic IP/user limiter.
+    # Also skip for auth endpoints to prevent login issues (auth has its own protections or higher needs).
     path = getattr(getattr(request, "url", None), "path", "") or ""
-    if isinstance(path, str) and path.startswith("/api/v1/dashboards/ai/build-jobs/"):
-        return cast(Response, await call_next(request))
+    if isinstance(path, str):
+        if path.startswith("/api/v1/dashboards/ai/build-jobs/"):
+            return cast(Response, await call_next(request))
+        if "/auth/" in path:
+            return cast(Response, await call_next(request))
 
     try:
         redis = await get_redis()
@@ -46,7 +49,14 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
             # Redis not available, skip rate limiting
             logger.debug("Redis not available, skipping rate limiting")
             return cast(Response, await call_next(request))
-        client_ip = request.client.host if request.client else "unknown"
+            
+        # Try to get real IP if behind a proxy
+        client_ip = request.headers.get("X-Forwarded-For")
+        if client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+        else:
+            client_ip = request.client.host if request.client else "unknown"
+            
         user_id = (
             getattr(request.state, "user_id", None) if hasattr(request.state, "user_id") else None
         )
