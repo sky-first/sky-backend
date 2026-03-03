@@ -9,6 +9,10 @@ class StrategicPillarBase(BaseModel):
     name: str
     description: Optional[str] = None
     color: Optional[str] = None
+    horizon: Optional[str] = None
+    owner: Optional[str] = None
+    metrics: Optional[List[str]] = Field(default_factory=list)
+    priority: Optional[str] = None
 
 
 class StrategicPillarCreate(StrategicPillarBase):
@@ -33,14 +37,15 @@ class StrategicPillarResponse(StrategicPillarBase):
 
 class StrategicObjectiveBase(BaseModel):
     pillar_id: Optional[UUID] = None
-    type: str  # corporate, unit, team
+    type: str  # corporate, unit, team, team_leader
     title: str
     description: Optional[str] = None
-    horizon: Optional[str] = None
-    area: Optional[str] = None
+    status: Optional[str] = "on_track"
     priority: Optional[str] = None
-    weight: Optional[float] = 1.0
-    owner_crew_id: Optional[UUID] = None
+    area: Optional[str] = None
+    owner: Optional[str] = None
+    kpis: Optional[List[str]] = Field(default_factory=list)
+    budget: Optional[float] = None
 
 
 class StrategicObjectiveCreate(StrategicObjectiveBase):
@@ -140,14 +145,19 @@ class StrategyKeyResultResponse(StrategyKeyResultBase):
 class StrategyInitiativeBase(BaseModel):
     title: str
     description: Optional[str] = None
-    owner_crew_id: Optional[UUID] = None
-    budget_estimated: Optional[float] = None
-    expected_impact: Optional[str] = None
-    status: Optional[str] = "planned"
+    type: Optional[str] = None
+    pillar_id: Optional[UUID] = None
+    objective_id: Optional[UUID] = None
+    unit: Optional[str] = None
+    owner: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    alignment_score: Optional[int] = 0
-    supports_objectives: Optional[List[UUID]] = Field(default_factory=list)
+    status: Optional[str] = "planned"
+    impact: Optional[str] = None
+    budget: Optional[float] = None
+    risks: Optional[List[str]] = Field(default_factory=list)
+    assumptions: Optional[List[str]] = Field(default_factory=list)
+    progress: Optional[int] = 0
 
 
 class StrategyInitiativeCreate(StrategyInitiativeBase):
@@ -180,10 +190,15 @@ class StrategyInitiativeResponse(StrategyInitiativeBase):
 class StrategyAssumptionBase(BaseModel):
     title: str
     description: Optional[str] = None
-    confidence: Optional[str] = None
-    validated: bool = False
-    revision_deadline: Optional[datetime] = None
-    owner_crew_id: Optional[UUID] = None
+    category: Optional[str] = None
+    impact_score: Optional[int] = 3
+    probability_score: Optional[int] = 3
+    priority: Optional[str] = None
+    impacted_entities: Optional[List[str]] = Field(default_factory=list)
+    source: Optional[str] = None
+    status: Optional[str] = "identified"
+    mitigation_plan: Optional[str] = None
+    owner: Optional[str] = None
     linked_objective_id: Optional[UUID] = None
 
 
@@ -215,7 +230,7 @@ class StrategyHealthResponse(BaseModel):
     coverage_percentage: float
     execution_gap: int
     assumption_risk: int
-    cascade_depth_completeness: float
+    cascade_depth: float
 
 
 class StrategyTreeResponse(BaseModel):

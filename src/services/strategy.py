@@ -149,8 +149,7 @@ class StrategyService:
 
     async def create_initiative(self, schema: StrategyInitiativeCreate) -> StrategyInitiativeResponse:
         initiative = await self.repository.create_initiative(schema)
-        # Auto-compute alignment score
-        initiative.alignment_score = self._compute_alignment_score(initiative.supports_objectives)
+        # Compute progress initial (0) or from schema
         await self.session.commit()
         await self.session.refresh(initiative)
         return initiative
@@ -160,9 +159,6 @@ class StrategyService:
         if not initiative:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Initiative not found")
         initiative = await self.repository.update_initiative(initiative, schema)
-        # Re-compute alignment score if supports_objectives changed
-        if schema.supports_objectives is not None:
-            initiative.alignment_score = self._compute_alignment_score(initiative.supports_objectives)
         await self.session.commit()
         await self.session.refresh(initiative)
         return initiative
@@ -207,6 +203,7 @@ class StrategyService:
         return min(len(supports_objectives) * 20, 100)
 
     async def get_strategy_health(self) -> StrategyHealthResponse:
+        pillars = await self.repository.get_all_pillars()
         objectives = await self.repository.get_all_objectives()
         okrs = await self.repository.get_all_okrs()
         assumptions = await self.repository.get_all_assumptions()
@@ -220,34 +217,28 @@ class StrategyService:
             objectives_with_okrs = {okr.objective_id for okr in okrs}
             coverage = (len(objectives_with_okrs) / total_objectives) * 100
 
-        # 2. Execution Gap (objectives with 0 initiatives)
-        # This requires checking initiative.supports_objectives JSON list
-        init_supported_obj_ids = set()
-        for init in initiatives:
-            if init.supports_objectives:
-                for obj_id_str in init.supports_objectives:
-                    init_supported_obj_ids.add(str(obj_id_str))
-        
-        execution_gap = 0
-        for obj in objectives:
-            if str(obj.id) not in init_supported_obj_ids:
-                execution_gap += 1
+        # 2. Execution Velocity (Average progress of all initiatives)
+        total_progress = sum(init.progress for init in initiatives if init.progress is not None)
+        velocity = (total_progress / len(initiatives)) if initiatives else 100.0
 
-        # 3. Assumption Risk (number of unvalidated assumptions past deadline)
-        now = datetime.now()
-        assumption_risk = 0
-        for assumption in assumptions:
-            if not assumption.validated:
-                if assumption.revision_deadline and assumption.revision_deadline.replace(tzinfo=None) < now:
-                    assumption_risk += 1
+        # 3. Risk Exposure (Sum of impact * probability of unmitigated risks)
+        risk_exposure = 0
+        active_risks = [r for r in assumptions if r.status in ["identified", "materialized"]]
+        if active_risks:
+            max_possible_risk = len(active_risks) * 25 # 5 * 5
+            total_current_risk = sum((r.impact_score or 0) * (r.probability_score or 0) for r in active_risks)
+            risk_exposure = (total_current_risk / max_possible_risk) * 100
 
-        # 4. Cascade Depth Completeness (Pillar -> Objective -> OKR -> Initiative chain)
-        # For now, a simple placeholder based on ratios
-        cascade_depth = (coverage / 100.0) * 0.5 + (1.0 - (execution_gap / max(total_objectives, 1))) * 0.5
+        # 4. Cascade Depth (Completeness of links: Pillar -> Objective -> Initiative)
+        # This measures how many "leaf" paths exist.
+        cascade_depth = 0.0
+        if total_objectives > 0:
+            linked_count = sum(1 for obj in objectives if obj.pillar_id is not None)
+            cascade_depth = (linked_count / total_objectives) * 100
 
         return StrategyHealthResponse(
             coverage_percentage=round(coverage, 2),
-            execution_gap=execution_gap,
-            assumption_risk=assumption_risk,
-            cascade_depth_completeness=round(cascade_depth * 100, 2),
+            execution_gap=int(velocity),
+            assumption_risk=int(risk_exposure),
+            cascade_depth=round(cascade_depth, 2),
         )

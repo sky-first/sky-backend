@@ -20,6 +20,10 @@ class StrategicPillar(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     color = Column(String(50), nullable=True)
+    horizon = Column(String(50), nullable=True)
+    owner = Column(String(100), nullable=True)
+    metrics = Column(JSON, nullable=True, default=list)
+    priority = Column(String(50), nullable=True)
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
@@ -48,10 +52,12 @@ class StrategicObjective(Base):
     type = Column(String(50), nullable=False)  # corporate, unit, team
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    horizon = Column(String(50), nullable=True)
-    area = Column(String(100), nullable=True)
+    status = Column(String(50), nullable=True, default="on_track")
     priority = Column(String(50), nullable=True)
-    weight = Column(Float, nullable=True, default=1.0)
+    area = Column(String(100), nullable=True)
+    owner = Column(String(100), nullable=True)
+    kpis = Column(JSON, nullable=True, default=list)
+    budget = Column(Float, nullable=True)
     owner_crew_id = Column(
         UUID(as_uuid=True),
         ForeignKey("crews.id", ondelete="SET NULL"),
@@ -148,18 +154,19 @@ class StrategyInitiative(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    owner_crew_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("crews.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    budget_estimated = Column(Float, nullable=True)
-    expected_impact = Column(Text, nullable=True)
-    status = Column(String(50), nullable=True, default="planned")
+    type = Column(String(50), nullable=True)
+    pillar_id = Column(UUID(as_uuid=True), nullable=True)
+    objective_id = Column(UUID(as_uuid=True), nullable=True)
+    unit = Column(String(100), nullable=True)
+    owner = Column(String(100), nullable=True)
     start_date = Column(DateTime(timezone=True), nullable=True)
     end_date = Column(DateTime(timezone=True), nullable=True)
-    alignment_score = Column(Integer, nullable=True, default=0)
-    supports_objectives = Column(JSON, nullable=True, default=list)  # List of UUIDs
+    status = Column(String(50), nullable=True, default="planned")
+    impact = Column(Text, nullable=True)
+    budget = Column(Float, nullable=True)
+    risks = Column(JSON, nullable=True, default=list)
+    assumptions = Column(JSON, nullable=True, default=list)
+    progress = Column(Integer, nullable=True, default=0)
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
@@ -179,14 +186,15 @@ class StrategyAssumption(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    confidence = Column(String(50), nullable=True)  # Low, Medium, High
-    validated = Column(Boolean, nullable=False, default=False)
-    revision_deadline = Column(DateTime(timezone=True), nullable=True)
-    owner_crew_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("crews.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    category = Column(String(100), nullable=True)
+    impact_score = Column(Integer, nullable=True, default=3)
+    probability_score = Column(Integer, nullable=True, default=3)
+    priority = Column(String(50), nullable=True)
+    impacted_entities = Column(JSON, nullable=True, default=list)
+    source = Column(String(255), nullable=True)
+    status = Column(String(50), nullable=True, default="identified")
+    mitigation_plan = Column(Text, nullable=True)
+    owner = Column(String(100), nullable=True)
     linked_objective_id = Column(
         UUID(as_uuid=True),
         ForeignKey("strategic_objectives.id", ondelete="SET NULL"),
