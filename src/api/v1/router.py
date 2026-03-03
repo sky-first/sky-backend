@@ -11,6 +11,7 @@ from src.api.v1 import (
     crews,
     dashboards,
     datasets,
+    enterprise_graph,
     files,
     notifications,
     permissions,
@@ -22,6 +23,7 @@ from src.api.v1 import (
     users,
     widgets,
     workspaces,
+    signal_events,
 )
 
 api_router = APIRouter()
@@ -83,5 +85,8 @@ api_router.include_router(starred.router, prefix="/starred", tags=["Starred"])
 # Comment endpoints
 api_router.include_router(comments.router, prefix="/comments", tags=["Comments"])
 
-# TODO: Add more routers here as we implement them step by step
-# Following the BACKEND_IMPLEMENTATION_MASTER_PLAN.md
+# Signal Events endpoints
+api_router.include_router(signal_events.router, prefix="/signal-events", tags=["Signal Events"])
+
+# Enterprise Graph endpoints
+api_router.include_router(enterprise_graph.router, prefix="/enterprise-graph", tags=["Enterprise Graph"])
