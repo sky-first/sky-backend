@@ -108,7 +108,7 @@ class BaseRepository(Generic[ModelType]):
             ModelType: Created entity
         """
         # Set created_at, updated_at, and other timestamp fields if not provided and model has these fields
-        # This is needed for SQLite which doesn't support server_default="now()"
+        # This is needed for SQLite which doesn't support server_default=func.now()
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc)

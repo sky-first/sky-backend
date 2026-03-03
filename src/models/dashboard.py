@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import (
+from sqlalchemy import  (
     JSON,
     Boolean,
     Column,

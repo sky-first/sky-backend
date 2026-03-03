@@ -1,0 +1,191 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-7.4.4, pluggy-1.6.0
+rootdir: /Users/thedatafirst/Desktop/Repositorios/sky-poc-backend
+configfile: pyproject.toml
+plugins: Faker-22.0.0, anyio-4.12.1, asyncio-0.23.3, xdist-3.8.0, timeout-2.4.0, cov-4.1.0
+asyncio: mode=auto
+collected 4 items
+
+src/tests/test_strategy.py 
+
+=============================== warnings summary ===============================
+src/schemas/workspace.py:35
+  /Users/thedatafirst/Desktop/Repositorios/sky-poc-backend/src/schemas/workspace.py:35: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class WorkspaceResponse(WorkspaceBase):
+
+src/schemas/workspace.py:61
+  /Users/thedatafirst/Desktop/Repositorios/sky-poc-backend/src/schemas/workspace.py:61: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class WorkspaceMemberResponse(WorkspaceMemberBase):
+
+sys:1
+  sys:1: SAWarning: Can't sort tables for DROP; an unresolvable foreign key dependency exists between tables: ai_queries, pipelines, widgets; and backend does not support ALTER.  To restore at least a partial sort, apply use_alter=True to ForeignKey and ForeignKeyConstraint objects involved in the cycle to mark these as known cycles that will be ignored.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform darwin, python 3.9.6-final-0 -----------
+Name                                          Stmts   Miss  Cover   Missing
+---------------------------------------------------------------------------
+src/__init__.py                                   1      0   100%
+src/ai/__init__.py                                0      0   100%
+src/ai/http_client.py                           148    132    11%   23-24, 53-81, 102-115, 131-149, 163-177, 195-217, 242-277, 310-336, 361-400, 416-430
+src/ai/mock.py                                   26     14    46%   16-17, 23-24, 35-74, 82-83, 87-88, 99-103
+src/ai/real_service.py                           53     41    23%   22, 57-157, 175-179, 203-210, 228-277, 290
+src/api/__init__.py                               0      0   100%
+src/api/deps.py                                 107     83    22%   63-121, 126-164, 167-170, 176-187, 197-198
+src/api/middleware/__init__.py                    0      0   100%
+src/api/middleware/auth.py                       95     54    43%   34, 70-71, 74-75, 89, 96-107, 116-127, 133-137, 146-147, 159-198
+src/api/middleware/cors.py                        5      0   100%
+src/api/middleware/error_handler.py              88     88     0%   3-177
+src/api/middleware/idempotency.py                53     41    23%   29-121
+src/api/middleware/logging.py                    17     17     0%   3-68
+src/api/middleware/rate_limit.py                 60     27    55%   27, 31, 35, 41, 47-48, 63-77, 85-99, 104-113
+src/api/v1/__init__.py                            0      0   100%
+src/api/v1/ai.py                                324    265    18%   82-153, 181-294, 347-362, 399-415, 451-466, 495-511, 540-557, 586-602, 631-647, 673-691, 723-738, 765-779, 806-808, 835-836, 863-867, 896-945, 977-979, 1006-1008, 1035-1036, 1058-1120
+src/api/v1/auth.py                              156    100    36%   72-73, 103-119, 143-145, 170-171, 194, 212-227, 257, 287, 317, 340, 365-367, 392-394, 421-425, 456-468, 500-502, 530-532, 563-582, 621-671, 709-731
+src/api/v1/comments.py                           17      4    76%   24-25, 35-36
+src/api/v1/connections.py                       115     65    43%   40-42, 75-76, 105-106, 133-137, 164-185, 214-218, 245-246, 273-274, 301-302, 331-332, 359-361, 388-389, 416-417, 439-440, 467-468, 489-496, 529-537, 576-591
+src/api/v1/connectors.py                         21      6    71%   39-40, 67-68, 93-94
+src/api/v1/crews.py                              64     31    52%   56-57, 84-85, 116-117, 146-147, 174-175, 208-221, 248-249, 282-283, 312-314, 345-349, 376-377
+src/api/v1/dashboards.py                        295    240    19%   50, 88-91, 120-123, 150-153, 182-185, 212-216, 243-246, 275-278, 309-313, 342-347, 374-375, 391-484, 510-786, 810-881, 903-915, 954-955, 982-983, 1010-1011
+src/api/v1/datasets.py                           26     12    54%   50-59, 86-87
+src/api/v1/enterprise_graph.py                   31      8    74%   25, 34, 46, 57, 67, 79, 90, 100
+src/api/v1/files.py                              39     15    62%   49-50, 77-78, 105-106, 135-136, 165-166, 193-194, 221-223
+src/api/v1/notifications.py                      30     13    57%   26-27, 41-43, 53-59, 68-70
+src/api/v1/permissions.py                        78     42    46%   53-54, 87-97, 126-127, 154-156, 183-184, 211-212, 239-240, 269-281, 312-313, 342-343, 372-374, 399-400, 429-430
+src/api/v1/planets.py                            79     40    49%   54-64, 91-92, 119-120, 149-150, 177-179, 206-207, 236-237, 266-268, 299-300, 332-337, 366-367, 395-402, 430-433
+src/api/v1/router.py                             25      0   100%
+src/api/v1/settings.py                           68     30    56%   53-54, 81-82, 107-108, 133-134, 159-160, 185-186, 211-212, 237-238, 265-266, 293-295, 320-321, 348-349, 378-379, 406-408
+src/api/v1/signal_events.py                      32     15    53%   20, 30, 40-43, 54-58, 68-73
+src/api/v1/spaces.py                             92     47    49%   55-56, 83-84, 111-125, 154-168, 195-207, 234-236, 263-265, 296-298, 331-333, 360-361, 394-395, 424-426, 453-454, 474-475, 497-501, 520-521
+src/api/v1/starred.py                            18      5    72%   41-42, 71-73
+src/api/v1/strategy.py                           70     19    73%   47, 56, 79, 89, 101, 112, 122, 134, 145, 155, 167, 178, 188, 200, 211, 221, 233, 244, 254
+src/api/v1/templates.py                          39     15    62%   56-57, 91-92, 119-120, 149-150, 177-179, 204-205, 234-235
+src/api/v1/users.py                              56     26    54%   52-53, 80-81, 108-109, 138-139, 166-167, 196-197, 224-226, 253-259, 288-296, 325-327
+src/api/v1/widgets.py                            41     18    56%   50-51, 78-80, 107-108, 135-137, 164-166, 193-195, 224-225
+src/api/v1/workspaces.py                         66     32    52%   53-63, 90-91, 118-119, 148-149, 176-178, 205-206, 235-236, 265-267, 298-299, 333-338, 367-368
+src/config/__init__.py                            4      0   100%
+src/config/auth0.py                              70     21    70%   108, 118, 123, 133, 143-145, 150, 155, 160-162, 167-169, 174-176, 181-183
+src/config/database.py                           62     40    35%   32-39, 80-89, 100-114, 119, 129-139, 152-217, 222-232
+src/config/redis.py                              67     47    30%   36-56, 71-135, 146-157, 163-165
+src/config/settings.py                          161     33    80%   42, 74-80, 84, 90-120, 160-164, 322, 327, 332-353
+src/connectors/__init__.py                        0      0   100%
+src/connectors/base.py                           11      0   100%
+src/connectors/bigquery.py                       98     85    13%   17-26, 31-54, 65-73, 85-93, 115-217, 223-230, 238-239
+src/connectors/mysql.py                          11     11     0%   3-31
+src/connectors/postgresql.py                     39     39     0%   3-131
+src/connectors/registry.py                       18      8    56%   15, 19, 23, 29, 65-68
+src/core/__init__.py                              4      0   100%
+src/core/errors/handlers.py                      45     21    53%   30-31, 41-44, 53-54, 64-65, 74-89, 98-99, 110-123
+src/core/exceptions.py                           26     10    62%   8-10, 17, 24, 31, 38, 45, 52, 59
+src/core/logging.py                              20      1    95%   51
+src/core/middleware/correlation.py               22      3    86%   41-51
+src/core/permissions.py                          19     14    26%   58-66, 85-97
+src/core/security.py                             51     20    61%   39, 55, 109, 112-117, 135-151
+src/main.py                                      88     49    44%   33-46, 93-124, 134-136, 147, 153, 162-165, 174-231, 237, 248-257
+src/models/__init__.py                           19      0   100%
+src/models/ai.py                                114     14    88%   85, 136, 178, 195-202, 240, 270, 314
+src/models/comment.py                            20      1    95%   55
+src/models/connection.py                         61     14    77%   77, 112, 130-137, 150-153
+src/models/crew.py                               44      3    93%   52, 88, 119
+src/models/dashboard.py                          75      4    95%   72, 128, 170, 218
+src/models/dashboard_build_job.py                27      0   100%
+src/models/dataset.py                            16      1    94%   38
+src/models/enterprise_graph.py                   25      0   100%
+src/models/file.py                               40      2    95%   58, 91
+src/models/notification.py                       34      1    97%   65
+src/models/permission.py                         79      5    94%   60, 115, 155, 191, 215
+src/models/planet.py                             38      2    95%   52, 95
+src/models/signal_event.py                       30      0   100%
+src/models/space.py                              59      4    93%   54, 85, 122, 163
+src/models/starred.py                            18      1    94%   46
+src/models/strategy.py                          104      0   100%
+src/models/template.py                           24      1    96%   46
+src/models/user.py                               56      2    96%   108, 144
+src/models/workspace.py                          38      2    95%   53, 92
+src/rate_limit/__init__.py                        0      0   100%
+src/rate_limit/core.py                           79     42    47%   42-51, 77, 80, 94-95, 98, 118-119, 131-138, 143-187, 202-205, 222-223
+src/repositories/__init__.py                      2      0   100%
+src/repositories/ai.py                           34     21    38%   18, 25-33, 39-46, 52-71, 77-94
+src/repositories/base.py                         77     40    48%   38-39, 60-76, 88-98, 122, 124, 126, 130-132, 155, 158-159, 171-186, 198-199
+src/repositories/connection.py                   32     17    47%   18, 35-50, 62-67, 73-78, 85, 97-100
+src/repositories/crew.py                         68     48    29%   17, 31-38, 46-70, 74-94, 106-109, 122-123, 144-163, 170, 182-189, 202-205, 218-228, 237-246
+src/repositories/dashboard.py                    34     14    59%   18, 34-42, 54-62, 69, 85-92, 99, 111-119, 126, 141-146
+src/repositories/dataset.py                      15      5    67%   17, 32-37, 49-52
+src/repositories/enterprise_graph.py             57     39    32%   18, 21-22, 25-28, 31-34, 39-50, 53-54, 57-58, 61-64, 67-70, 75-86, 89-90
+src/repositories/file.py                         16      5    69%   17, 24, 28-35
+src/repositories/notification_repository.py      42     28    33%   18, 22-26, 36-44, 48-52, 56-68, 72-79
+src/repositories/permission.py                   55     34    38%   17, 29-32, 44-47, 59-62, 78-93, 100, 115-130, 142-145, 161-168, 175, 187-188, 197-198
+src/repositories/planet.py                       36     16    56%   52-74, 87-105, 127-133, 145-150
+src/repositories/settings.py                     21      8    62%   17, 31-38, 45, 61-68, 81-86
+src/repositories/signal_event.py                 10      2    80%   9, 12
+src/repositories/space.py                        52     26    50%   34-41, 53-56, 68-71, 83-92, 107-113, 125-130, 137, 150-156, 168-173, 180, 192-193, 214-225
+src/repositories/starred.py                      28     17    39%   17, 33-41, 56-67, 87-101
+src/repositories/strategy.py                    129     87    33%   38-39, 42-45, 51, 56-60, 63-64, 69-70, 73-76, 79-82, 87-91, 94-95, 100-101, 104-107, 110-113, 118-122, 125-126, 131-132, 135-138, 141-144, 149-153, 156-157, 162-163, 166-169, 172-175, 180-184, 187-188, 193-194, 197-200, 203-206, 211-215, 218-219
+src/repositories/template.py                     29     18    38%   16, 32-40, 56-63, 76-81, 90-93
+src/repositories/user.py                         28     11    61%   30-33, 45-50, 63, 75-78, 91-98, 111-118
+src/repositories/workspace.py                    36     20    44%   18, 34-41, 54-76, 89-107, 114, 129-135, 147-152
+src/schemas/__init__.py                           3      0   100%
+src/schemas/ai.py                               200      0   100%
+src/schemas/comment.py                           16      0   100%
+src/schemas/common.py                            25      2    92%   40-41
+src/schemas/connection.py                        79      0   100%
+src/schemas/connector.py                         26      0   100%
+src/schemas/crew.py                              55      0   100%
+src/schemas/dashboard.py                        102      0   100%
+src/schemas/dashboard_ai.py                      99     18    82%   42-52, 86-98, 142-151
+src/schemas/enterprise_graph.py                  41      0   100%
+src/schemas/file.py                              45      0   100%
+src/schemas/notification.py                      25      0   100%
+src/schemas/permission.py                        59      0   100%
+src/schemas/planet.py                            42      0   100%
+src/schemas/settings.py                          62      0   100%
+src/schemas/signal_event.py                      29      0   100%
+src/schemas/space.py                             77      9    88%   27-37
+src/schemas/strategy.py                         170      0   100%
+src/schemas/template.py                          39      0   100%
+src/schemas/user.py                             114      0   100%
+src/schemas/workspace.py                         43      0   100%
+src/services/__init__.py                          0      0   100%
+src/services/ai_service.py                      489    444     9%   55-67, 79-96, 105-140, 155-197, 216-247, 260-284, 298-644, 661-818, 829-844, 876-919, 931-935, 951-983, 998-1002, 1021-1025, 1039-1044, 1061-1069, 1088-1096, 1109-1132, 1148-1168, 1180-1221, 1243-1252, 1268-1269, 1284, 1305-1360
+src/services/auth0_service.py                   248    222    10%   30-33, 45-60, 76-92, 108-138, 152-166, 196-248, 271-294, 303, 320-348, 364-435, 451-520, 536-610, 622-647
+src/services/auth_service.py                    125    102    18%   39, 74-75, 91-110, 131-171, 199-248, 266-275, 291-338, 351-358, 367-374, 389-393, 405-418, 444-452
+src/services/cache_warming_service.py           107    107     0%   6-228
+src/services/comment_service.py                  27     13    52%   21-22, 26-55, 59-65
+src/services/connection_service.py              254    220    13%   46-53, 68-92, 115-124, 141-149, 168-201, 221-243, 257-291, 308-348, 365-489, 506-526, 550-577, 594-595, 612-613, 630-637, 655-701, 720-743
+src/services/connector_service.py                43     32    26%   21, 34-819, 829-865, 880-886, 895-901, 913
+src/services/crew_service.py                    170    148    13%   35-38, 55-64, 81-90, 108-125, 143-167, 186-217, 235-294, 313-341, 362-397, 412-426, 447-477, 494-520
+src/services/dashboard_service.py               182    149    18%   45-50, 70-105, 121-127, 144-145, 164-194, 207-214, 231-250, 266-270, 283-284, 304-316, 329-334, 351-359, 375-395, 411-415, 442-446, 465-475, 494-506, 534-596, 612-622, 638-648, 667-693
+src/services/dataset_service.py                  44     31    30%   27-29, 43-84, 96
+src/services/email_service.py                    46     35    24%   19-24, 46-80, 96-134
+src/services/enterprise_graph.py                 57     43    25%   20-21, 24-27, 33-36, 41-50, 53-60, 64-79, 84-93, 96-103
+src/services/file_upload_service.py             147    117    20%   44-47, 59-60, 75-76, 92-113, 130-155, 177-214, 236-289, 316-343, 368-395, 420-429, 443-460
+src/services/invite_service.py                  128    108    16%   30-31, 45-54, 79-108, 124-153, 181-214, 232-287, 309-361
+src/services/notification_service.py             29     14    52%   16, 22, 26, 36, 48, 52, 56-61, 67, 71
+src/services/onboarding_service.py               17      1    94%   23
+src/services/permission_service.py              175    149    15%   43-50, 69-78, 99-159, 179-193, 207-217, 235-236, 254-255, 273-297, 319-359, 379-415, 435-449, 463-473, 489-493, 514-537
+src/services/planet_service.py                  136    114    16%   32-34, 47-67, 84-94, 106-107, 127-142, 156-165, 182-207, 227-250, 265-284, 301-312, 333-359, 377-390
+src/services/rbac_service.py                    101     75    26%   116-120, 131-148, 162-170, 181-194, 197-212, 215-228, 234-258
+src/services/settings_service.py                104     74    29%   44-50, 62-64, 83-117, 135, 152, 169, 188-192, 211-215, 234-235, 249-267, 289-297, 309-310, 325-336, 356-371, 385-393
+src/services/space_service.py                   265    237    11%   34-39, 53-110, 127-135, 148-159, 179-191, 205-231, 248-256, 273-281, 301-323, 340-352, 369-380, 401-422, 437-454, 481-559, 567-594, 607-621, 627-677
+src/services/starred_service.py                  32     20    38%   23-24, 39-50, 65-76, 89-90, 111-112
+src/services/strategy.py                        157    126    20%   37-43, 55-57, 60-66, 69-73, 78-81, 84-90, 93-97, 102-105, 108-114, 117-121, 126-129, 132-138, 141-145, 150-154, 157-163, 166-170, 175-178, 181-187, 190-194, 199-202, 205-237
+src/services/template_service.py                 74     55    26%   33-36, 61-70, 86-90, 107-114, 134-147, 161-170, 182-183, 203-239
+src/services/user_service.py                    171    145    15%   33-34, 53-57, 75-82, 99-155, 176-224, 241-259, 274-285, 303-310, 330-346, 366-417
+src/services/workspace_service.py               127    106    17%   32-34, 49-69, 86-96, 108-109, 129-144, 158-167, 184-209, 229-254, 269-288, 307-318, 339-365
+src/utils/__init__.py                             0      0   100%
+src/utils/cache.py                               54     29    46%   27-28, 40-44, 54-55, 68-72, 85-88, 100, 106, 111, 116, 121, 126-128, 137-140
+src/utils/encryption.py                           7      7     0%   3-36
+src/workers/__init__.py                           0      0   100%
+src/workers/ai_worker.py                        345    345     0%   3-765
+src/workers/cache_warming_worker.py              72     72     0%   6-175
+src/workers/celery_app.py                        54     54     0%   3-132
+src/workers/sync_worker.py                       69     69     0%   3-143
+---------------------------------------------------------------------------
+TOTAL                                         10459   5994    43%
+Coverage HTML written to dir htmlcov
+
+FAIL Required test coverage of 71% not reached. Total coverage: 42.69%
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/selectors.py:562: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+============================= 3 warnings in 4.00s ==============================

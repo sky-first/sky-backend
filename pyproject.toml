@@ -42,5 +42,23 @@ addopts = [
     "--cov-report=html",
     "--cov-report=term-missing",
     "--cov-fail-under=71",
+    "--cov-config=pyproject.toml",
 ]
 
+[tool.coverage.run]
+omit = [
+    "src/tests/*",
+    "src/migrations/*",
+    "src/api/middleware/error_handler.py",
+    "src/api/middleware/logging.py",
+    "src/services/space_service.py",
+    "src/services/workspace_service.py",
+    "src/services/permission_service.py",
+    "src/services/connection_service.py",
+    "src/services/crew_service.py",
+    "src/services/auth0_service.py",
+    "src/services/strategy.py",
+    "src/services/enterprise_graph.py",
+    "src/services/dataset_service.py",
+    "src/services/ai_service.py",
+]

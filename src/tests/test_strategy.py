@@ -1,6 +1,5 @@
 import pytest
 from httpx import AsyncClient
-from uuid import UUID
 
 @pytest.mark.asyncio
 async def test_create_pillar(async_client: AsyncClient, test_user_with_tokens: dict):

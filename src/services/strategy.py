@@ -1,4 +1,3 @@
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -203,7 +202,6 @@ class StrategyService:
         return min(len(supports_objectives) * 20, 100)
 
     async def get_strategy_health(self) -> StrategyHealthResponse:
-        pillars = await self.repository.get_all_pillars()
         objectives = await self.repository.get_all_objectives()
         okrs = await self.repository.get_all_okrs()
         assumptions = await self.repository.get_all_assumptions()

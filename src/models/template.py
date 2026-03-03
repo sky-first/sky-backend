@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Index, String, Text
+from sqlalchemy import func, JSON, Boolean, Column, DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from src.config.database import Base
@@ -28,11 +28,11 @@ class Template(Base):
     color = Column(String(7), nullable=False)  # Hex color
     popular = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
     enterprise = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
