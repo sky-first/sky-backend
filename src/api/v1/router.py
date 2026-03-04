@@ -25,6 +25,7 @@ from src.api.v1 import (
     signal_events,
     strategy,
     enterprise_relationships,
+    settings_metrics,
 )
 
 api_router = APIRouter()
@@ -67,6 +68,9 @@ api_router.include_router(templates.router, prefix="/templates", tags=["Template
 
 # Settings endpoints
 api_router.include_router(settings.router, prefix="/settings", tags=["Settings"])
+
+# Settings Metrics endpoints
+api_router.include_router(settings_metrics.router, prefix="/settings/metrics", tags=["Settings Metrics"])
 
 # File upload endpoints
 api_router.include_router(files.router, prefix="/files", tags=["Files"])
