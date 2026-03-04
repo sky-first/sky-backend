@@ -290,8 +290,8 @@ class Settings(BaseSettings):
         """
         Apply safer defaults for large-app development without impacting production.
 
-        - In production: default to 60/min and 1000/hour unless explicitly set via env vars.
-        - In development: keep rate limit enabled, but raise limits to avoid dev/HMR/test storms.
+        - In production: default to 300/min and 10000/hour unless explicitly set via env vars.
+        - In development: keep rate limit enabled, but raise limits to avoid dev/HMR/test storms (3000/min).
         """
         import os
 
