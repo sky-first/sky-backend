@@ -70,7 +70,9 @@ api_router.include_router(templates.router, prefix="/templates", tags=["Template
 api_router.include_router(settings.router, prefix="/settings", tags=["Settings"])
 
 # Settings Metrics endpoints
-api_router.include_router(settings_metrics.router, prefix="/settings/metrics", tags=["Settings Metrics"])
+api_router.include_router(
+    settings_metrics.router, prefix="/settings/metrics", tags=["Settings Metrics"]
+)
 
 # File upload endpoints
 api_router.include_router(files.router, prefix="/files", tags=["Files"])
@@ -98,5 +100,7 @@ api_router.include_router(strategy.router, prefix="/strategy", tags=["Strategy"]
 
 # Enterprise Relationship endpoints
 api_router.include_router(
-    enterprise_relationships.router, prefix="/enterprise/relationships", tags=["Enterprise Relationships"]
+    enterprise_relationships.router,
+    prefix="/enterprise/relationships",
+    tags=["Enterprise Relationships"],
 )

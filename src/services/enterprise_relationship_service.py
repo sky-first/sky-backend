@@ -11,6 +11,7 @@ from src.core.exceptions import NotFoundError, ForbiddenError
 
 logger = logging.getLogger(__name__)
 
+
 class EnterpriseRelationshipService:
     """Enterprise Relationship management service."""
 
@@ -28,7 +29,7 @@ class EnterpriseRelationshipService:
         """Create a new relationship."""
         # Convert sources to dict for JSON storage
         sources_data = [s.model_dump() for s in data.sources]
-        
+
         relationship = await self.relationship_repo.create(
             name=data.name,
             description=data.description,
@@ -36,7 +37,7 @@ class EnterpriseRelationshipService:
             target_id=data.target_id,
             target_type=data.target_type,
             relationship_type=data.relationship_type,
-            created_by=user.id
+            created_by=user.id,
         )
         await self.db.commit()
         await self.db.refresh(relationship)
@@ -47,9 +48,9 @@ class EnterpriseRelationshipService:
         relationship = await self.relationship_repo.get_by_id(relationship_id)
         if not relationship:
             raise NotFoundError("Relationship not found")
-        
+
         if relationship.created_by != user.id:
             raise ForbiddenError("You don't have permission to delete this relationship")
-        
+
         await self.relationship_repo.delete(relationship_id)
         await self.db.commit()

@@ -35,6 +35,7 @@ class StrategicPillarResponse(StrategicPillarBase):
 
 # --- Strategic Objective ---
 
+
 class StrategicObjectiveBase(BaseModel):
     pillar_id: Optional[UUID] = None
     type: str  # corporate, unit, team, team_leader
@@ -74,6 +75,7 @@ class StrategicObjectiveResponse(StrategicObjectiveBase):
 
 # --- Strategy OKR ---
 
+
 class StrategyOKRBase(BaseModel):
     objective_id: UUID
     title: str
@@ -110,6 +112,7 @@ class StrategyOKRResponse(StrategyOKRBase):
 
 # --- Strategy Key Result ---
 
+
 class StrategyKeyResultBase(BaseModel):
     okr_id: UUID
     description: str
@@ -141,6 +144,7 @@ class StrategyKeyResultResponse(StrategyKeyResultBase):
 
 
 # --- Strategy Initiative ---
+
 
 class StrategyInitiativeBase(BaseModel):
     title: str
@@ -187,6 +191,7 @@ class StrategyInitiativeResponse(StrategyInitiativeBase):
 
 # --- Strategy Assumption ---
 
+
 class StrategyAssumptionBase(BaseModel):
     title: str
     description: Optional[str] = None
@@ -225,6 +230,7 @@ class StrategyAssumptionResponse(StrategyAssumptionBase):
 
 
 # --- Strategy Health ---
+
 
 class StrategyHealthResponse(BaseModel):
     coverage_percentage: float

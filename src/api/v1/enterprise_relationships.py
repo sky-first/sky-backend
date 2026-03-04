@@ -8,12 +8,16 @@ from src.api.deps import get_current_user, get_db_session
 from src.core.exceptions import NotFoundError, ForbiddenError
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
-from src.schemas.enterprise_relationship import EnterpriseRelationshipCreate, EnterpriseRelationshipResponse
+from src.schemas.enterprise_relationship import (
+    EnterpriseRelationshipCreate,
+    EnterpriseRelationshipResponse,
+)
 from src.services.enterprise_relationship_service import EnterpriseRelationshipService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
 
 @router.get(
     "",
@@ -28,6 +32,7 @@ async def list_relationships(
     """List all relationships for the current user."""
     service = EnterpriseRelationshipService(db)
     return await service.list_relationships(current_user)
+
 
 @router.post(
     "",
@@ -50,6 +55,7 @@ async def create_relationship(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create relationship: {str(e)}",
         )
+
 
 @router.delete(
     "/{relationship_id}",

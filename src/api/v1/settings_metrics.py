@@ -1,5 +1,3 @@
-from uuid import UUID
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +14,7 @@ from src.schemas.settings_metrics import (
 
 router = APIRouter()
 
+
 @router.get("/global", response_model=GlobalMetricsResponse)
 async def get_global_metrics(
     current_user: User = Depends(get_current_user),
@@ -27,25 +26,25 @@ async def get_global_metrics(
             "totalQueries": {"value": ""},
             "last30Days": {"value": ""},
             "growth": {"value": ""},
-            "avgFrequency": {"value": ""}
+            "avgFrequency": {"value": ""},
         },
         "performance": {
             "avgLatency": {"value": ""},
             "slaCompliance": {"value": ""},
-            "responseTime": {"value": ""}
+            "responseTime": {"value": ""},
         },
         "engagement": {
             "activeUsers": {"value": ""},
             "topUsersGroup": {"value": ""},
             "recurrenceRate": {"value": ""},
-            "satisfactionRate": {"value": ""}
+            "satisfactionRate": {"value": ""},
         },
         "valueGeneration": {
             "financialImpact": {"value": ""},
             "hoursSaved": {"value": ""},
             "influencedDecisions": {"value": ""},
-            "costAvoided": {"value": ""}
-        }
+            "costAvoided": {"value": ""},
+        },
     }
 
 
@@ -60,17 +59,14 @@ async def get_connection_metrics(
         "usage": {
             "queriesProcessed": {"value": ""},
             "dataTransferred": {"value": ""},
-            "avgSyncFrequency": {"value": ""}
+            "avgSyncFrequency": {"value": ""},
         },
-        "valueMap": {
-            "supportedProcesses": {"value": ""},
-            "dependentKpis": {"value": ""}
-        },
+        "valueMap": {"supportedProcesses": {"value": ""}, "dependentKpis": {"value": ""}},
         "reliability": {
             "syncFailures": {"value": ""},
             "avgExecTime": {"value": ""},
-            "slaMaintenance": {"value": ""}
-        }
+            "slaMaintenance": {"value": ""},
+        },
     }
 
 
@@ -85,12 +81,9 @@ async def get_space_metrics(
         "usageVolume": {
             "activityPerSpace": {"value": ""},
             "avgEngagement": {"value": ""},
-            "interactionVolume": {"value": ""}
+            "interactionVolume": {"value": ""},
         },
-        "networkHealth": {
-            "networkGrowth": {"value": ""},
-            "crossCollaboration": {"value": ""}
-        }
+        "networkHealth": {"networkGrowth": {"value": ""}, "crossCollaboration": {"value": ""}},
     }
 
 
@@ -102,13 +95,8 @@ async def get_crew_metrics(
 ):
     """Get metrics for a specific crew."""
     return {
-        "engagement": {
-            "usageFrequency": {"value": ""},
-            "activeSessions": {"value": ""}
-        },
-        "performance": {
-            "avgResponseTime": {"value": ""}
-        }
+        "engagement": {"usageFrequency": {"value": ""}, "activeSessions": {"value": ""}},
+        "performance": {"avgResponseTime": {"value": ""}},
     }
 
 
@@ -123,7 +111,7 @@ async def get_user_metrics(
         "individualPatterns": {
             "queriesPerPeriod": {"value": ""},
             "recurrence": {"value": ""},
-            "satisfactionScore": {"value": ""}
+            "satisfactionScore": {"value": ""},
         }
     }
 
@@ -140,6 +128,6 @@ async def get_ai_metrics(
             "correctionsMade": {"value": ""},
             "insightAcceptanceRate": {"value": ""},
             "averageLatency": {"value": ""},
-            "estResponseConfidence": {"value": ""}
+            "estResponseConfidence": {"value": ""},
         }
     }

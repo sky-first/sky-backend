@@ -35,7 +35,9 @@ class StrategicPillar(Base):
     )
 
     # Relationships
-    objectives = relationship("StrategicObjective", back_populates="pillar", cascade="all, delete-orphan")
+    objectives = relationship(
+        "StrategicObjective", back_populates="pillar", cascade="all, delete-orphan"
+    )
 
 
 class StrategicObjective(Base):
@@ -113,7 +115,9 @@ class StrategyOKR(Base):
 
     # Relationships
     objective = relationship("StrategicObjective", back_populates="okrs")
-    key_results = relationship("StrategyKeyResult", back_populates="okr", cascade="all, delete-orphan")
+    key_results = relationship(
+        "StrategyKeyResult", back_populates="okr", cascade="all, delete-orphan"
+    )
 
 
 class StrategyKeyResult(Base):

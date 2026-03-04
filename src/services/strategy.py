@@ -56,7 +56,9 @@ class StrategyService:
         await self.session.refresh(pillar)
         return pillar
 
-    async def update_pillar(self, pillar_id: UUID, schema: StrategicPillarUpdate) -> StrategicPillarResponse:
+    async def update_pillar(
+        self, pillar_id: UUID, schema: StrategicPillarUpdate
+    ) -> StrategicPillarResponse:
         pillar = await self.repository.get_pillar_by_id(pillar_id)
         if not pillar:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pillar not found")
@@ -74,13 +76,17 @@ class StrategyService:
 
     # --- Strategic Objective ---
 
-    async def create_objective(self, schema: StrategicObjectiveCreate) -> StrategicObjectiveResponse:
+    async def create_objective(
+        self, schema: StrategicObjectiveCreate
+    ) -> StrategicObjectiveResponse:
         objective = await self.repository.create_objective(schema)
         await self.session.commit()
         await self.session.refresh(objective)
         return objective
 
-    async def update_objective(self, objective_id: UUID, schema: StrategicObjectiveUpdate) -> StrategicObjectiveResponse:
+    async def update_objective(
+        self, objective_id: UUID, schema: StrategicObjectiveUpdate
+    ) -> StrategicObjectiveResponse:
         objective = await self.repository.get_objective_by_id(objective_id)
         if not objective:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Objective not found")
@@ -128,10 +134,14 @@ class StrategyService:
         await self.session.refresh(key_result)
         return key_result
 
-    async def update_key_result(self, key_result_id: UUID, schema: StrategyKeyResultUpdate) -> StrategyKeyResultResponse:
+    async def update_key_result(
+        self, key_result_id: UUID, schema: StrategyKeyResultUpdate
+    ) -> StrategyKeyResultResponse:
         key_result = await self.repository.get_key_result_by_id(key_result_id)
         if not key_result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Key Result not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Key Result not found"
+            )
         key_result = await self.repository.update_key_result(key_result, schema)
         await self.session.commit()
         await self.session.refresh(key_result)
@@ -140,23 +150,31 @@ class StrategyService:
     async def delete_key_result(self, key_result_id: UUID) -> None:
         key_result = await self.repository.get_key_result_by_id(key_result_id)
         if not key_result:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Key Result not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Key Result not found"
+            )
         await self.repository.delete_key_result(key_result)
         await self.session.commit()
 
     # --- Strategy Initiative ---
 
-    async def create_initiative(self, schema: StrategyInitiativeCreate) -> StrategyInitiativeResponse:
+    async def create_initiative(
+        self, schema: StrategyInitiativeCreate
+    ) -> StrategyInitiativeResponse:
         initiative = await self.repository.create_initiative(schema)
         # Compute progress initial (0) or from schema
         await self.session.commit()
         await self.session.refresh(initiative)
         return initiative
 
-    async def update_initiative(self, initiative_id: UUID, schema: StrategyInitiativeUpdate) -> StrategyInitiativeResponse:
+    async def update_initiative(
+        self, initiative_id: UUID, schema: StrategyInitiativeUpdate
+    ) -> StrategyInitiativeResponse:
         initiative = await self.repository.get_initiative_by_id(initiative_id)
         if not initiative:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Initiative not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Initiative not found"
+            )
         initiative = await self.repository.update_initiative(initiative, schema)
         await self.session.commit()
         await self.session.refresh(initiative)
@@ -165,22 +183,30 @@ class StrategyService:
     async def delete_initiative(self, initiative_id: UUID) -> None:
         initiative = await self.repository.get_initiative_by_id(initiative_id)
         if not initiative:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Initiative not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Initiative not found"
+            )
         await self.repository.delete_initiative(initiative)
         await self.session.commit()
 
     # --- Strategy Assumption ---
 
-    async def create_assumption(self, schema: StrategyAssumptionCreate) -> StrategyAssumptionResponse:
+    async def create_assumption(
+        self, schema: StrategyAssumptionCreate
+    ) -> StrategyAssumptionResponse:
         assumption = await self.repository.create_assumption(schema)
         await self.session.commit()
         await self.session.refresh(assumption)
         return assumption
 
-    async def update_assumption(self, assumption_id: UUID, schema: StrategyAssumptionUpdate) -> StrategyAssumptionResponse:
+    async def update_assumption(
+        self, assumption_id: UUID, schema: StrategyAssumptionUpdate
+    ) -> StrategyAssumptionResponse:
         assumption = await self.repository.get_assumption_by_id(assumption_id)
         if not assumption:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assumption not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Assumption not found"
+            )
         assumption = await self.repository.update_assumption(assumption, schema)
         await self.session.commit()
         await self.session.refresh(assumption)
@@ -189,7 +215,9 @@ class StrategyService:
     async def delete_assumption(self, assumption_id: UUID) -> None:
         assumption = await self.repository.get_assumption_by_id(assumption_id)
         if not assumption:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assumption not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Assumption not found"
+            )
         await self.repository.delete_assumption(assumption)
         await self.session.commit()
 
@@ -223,8 +251,10 @@ class StrategyService:
         risk_exposure = 0
         active_risks = [r for r in assumptions if r.status in ["identified", "materialized"]]
         if active_risks:
-            max_possible_risk = len(active_risks) * 25 # 5 * 5
-            total_current_risk = sum((r.impact_score or 0) * (r.probability_score or 0) for r in active_risks)
+            max_possible_risk = len(active_risks) * 25  # 5 * 5
+            total_current_risk = sum(
+                (r.impact_score or 0) * (r.probability_score or 0) for r in active_risks
+            )
             risk_exposure = (total_current_risk / max_possible_risk) * 100
 
         # 4. Cascade Depth (Completeness of links: Pillar -> Objective -> Initiative)

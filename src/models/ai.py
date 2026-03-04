@@ -156,7 +156,9 @@ class Pipeline(Base):
     current_step = Column(String(255), nullable=True)
     errors = Column(JSON, nullable=True)  # Array of errors
     logs = Column(Text, nullable=True)
-    started_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    started_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
     completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
@@ -223,7 +225,9 @@ class ChatMessage(Base):
         nullable=False,
         index=True,
     )
-    timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    timestamp = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relationships
@@ -254,7 +258,9 @@ class AIResponse(Base):
         index=True,
     )
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    timestamp = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
     is_active = Column(Boolean, nullable=False, default=True, server_default="true", index=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

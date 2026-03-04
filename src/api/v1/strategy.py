@@ -58,6 +58,7 @@ async def get_strategy_health(
 
 # --- Strategic Pillar ---
 
+
 @router.post("/pillars", response_model=StrategicPillarResponse, status_code=201)
 async def create_pillar(
     body: StrategicPillarCreate,
@@ -90,6 +91,7 @@ async def delete_pillar(
 
 
 # --- Strategic Objective ---
+
 
 @router.post("/objectives", response_model=StrategicObjectiveResponse, status_code=201)
 async def create_objective(
@@ -124,6 +126,7 @@ async def delete_objective(
 
 # --- Strategy OKR ---
 
+
 @router.post("/okrs", response_model=StrategyOKRResponse, status_code=201)
 async def create_okr(
     body: StrategyOKRCreate,
@@ -156,6 +159,7 @@ async def delete_okr(
 
 
 # --- Strategy Key Result ---
+
 
 @router.post("/key-results", response_model=StrategyKeyResultResponse, status_code=201)
 async def create_key_result(
@@ -190,6 +194,7 @@ async def delete_key_result(
 
 # --- Strategy Initiative ---
 
+
 @router.post("/initiatives", response_model=StrategyInitiativeResponse, status_code=201)
 async def create_initiative(
     body: StrategyInitiativeCreate,
@@ -222,6 +227,7 @@ async def delete_initiative(
 
 
 # --- Strategy Assumption ---
+
 
 @router.post("/assumptions", response_model=StrategyAssumptionResponse, status_code=201)
 async def create_assumption(

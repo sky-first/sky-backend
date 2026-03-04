@@ -94,7 +94,9 @@ class ConnectionMetadata(Base):
     schemas = Column(JSON, nullable=True)  # Array of SchemaMetadata
     documents = Column(JSON, nullable=True)  # Array of DocumentMetadata
     endpoints = Column(JSON, nullable=True)  # Array of EndpointMetadata
-    last_metadata_update = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_metadata_update = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
