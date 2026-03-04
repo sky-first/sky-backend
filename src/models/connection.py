@@ -6,7 +6,7 @@ from datetime import datetime
 # Forward reference for SyncLog
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import func, JSON, Column, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -39,11 +39,11 @@ class DataConnection(Base):
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
     metrics = Column(JSON, nullable=True)  # Aggregated usage metrics
@@ -94,12 +94,12 @@ class ConnectionMetadata(Base):
     schemas = Column(JSON, nullable=True)  # Array of SchemaMetadata
     documents = Column(JSON, nullable=True)  # Array of DocumentMetadata
     endpoints = Column(JSON, nullable=True)  # Array of EndpointMetadata
-    last_metadata_update = Column(DateTime(timezone=True), nullable=False, server_default="now()")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    last_metadata_update = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 

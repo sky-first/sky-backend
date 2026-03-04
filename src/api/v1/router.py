@@ -24,6 +24,7 @@ from src.api.v1 import (
     widgets,
     workspaces,
     signal_events,
+    strategy,
 )
 
 api_router = APIRouter()
@@ -90,3 +91,6 @@ api_router.include_router(signal_events.router, prefix="/signal-events", tags=["
 
 # Enterprise Graph endpoints
 api_router.include_router(enterprise_graph.router, prefix="/enterprise-graph", tags=["Enterprise Graph"])
+
+# Strategy endpoints
+api_router.include_router(strategy.router, prefix="/strategy", tags=["Strategy"])

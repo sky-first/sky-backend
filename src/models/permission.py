@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -36,11 +36,11 @@ class ConnectionPermission(Base):
     )
     access_level = Column(String(50), nullable=False)  # full, read-only, custom
     table_access = Column(JSON, nullable=True)  # Array of table names (if access_level = 'custom')
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -88,11 +88,11 @@ class TableMemberPermission(Base):
     has_access = Column(
         String(10), nullable=False, default="true", server_default="true"
     )  # "true" or "false"
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -134,11 +134,11 @@ class APIKey(Base):
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -171,11 +171,11 @@ class Integration(Base):
     type = Column(String(100), nullable=False)  # slack, webhook, email, etc.
     config = Column(JSON, nullable=False)  # Integration configuration
     enabled = Column(String(10), nullable=False, default="true", server_default="true")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -201,11 +201,11 @@ class RolePermission(Base):
         String(50), nullable=False, unique=True, index=True
     )  # commander, navigator, explorer, guest
     permissions = Column(JSON, nullable=False)  # Dictionary of permission keys and boolean values
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 

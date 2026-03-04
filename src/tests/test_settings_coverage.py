@@ -62,13 +62,13 @@ def test_apply_environment_defaults_logic(monkeypatch):
 
     # Production defaults
     s_prod = Settings(ENVIRONMENT="production")
-    assert s_prod.RATE_LIMIT_PER_MINUTE == 60
-    assert s_prod.RATE_LIMIT_PER_HOUR == 1000
+    assert s_prod.RATE_LIMIT_PER_MINUTE == 300
+    assert s_prod.RATE_LIMIT_PER_HOUR == 10000
 
     # Development defaults
     s_dev = Settings(ENVIRONMENT="development")
-    assert s_dev.RATE_LIMIT_PER_MINUTE == 600
-    assert s_dev.RATE_LIMIT_PER_HOUR == 10000
+    assert s_dev.RATE_LIMIT_PER_MINUTE == 3000
+    assert s_dev.RATE_LIMIT_PER_HOUR == 1000000
 
 
 def test_build_database_url_from_components(monkeypatch):

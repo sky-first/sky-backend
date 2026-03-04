@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -59,11 +60,11 @@ class AIQuery(Base):
         nullable=False,
         index=True,
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -100,7 +101,7 @@ class AIHistory(Base):
     query = Column(Text, nullable=False)
     preview = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
-    date = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
+    date = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
     tags = Column(JSON, nullable=False, default=list, server_default="[]")
     category = Column(String(50), nullable=True)  # Finance, Marketing, Sales, General, Logistics
     pinned = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
@@ -110,11 +111,11 @@ class AIHistory(Base):
         nullable=False,
         index=True,
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -155,13 +156,13 @@ class Pipeline(Base):
     current_step = Column(String(255), nullable=True)
     errors = Column(JSON, nullable=True)  # Array of errors
     logs = Column(Text, nullable=True)
-    started_at = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
+    started_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -222,8 +223,8 @@ class ChatMessage(Base):
         nullable=False,
         index=True,
     )
-    timestamp = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relationships
     widget = relationship("Widget")
@@ -253,9 +254,9 @@ class AIResponse(Base):
         index=True,
     )
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default="true", index=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relationships
     widget = relationship("Widget")
@@ -290,11 +291,11 @@ class AIFeedback(Base):
     )
     rating = Column(String(10), nullable=False)
     comment = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 

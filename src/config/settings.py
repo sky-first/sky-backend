@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
     CORS_ORIGINS: str = Field(
-        default="http://localhost:3000,http://localhost:3001",
+        default="http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001",
         description="CORS allowed origins (comma-separated)",
     )
 
@@ -269,8 +269,8 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True
-    RATE_LIMIT_PER_MINUTE: int = 60
-    RATE_LIMIT_PER_HOUR: int = 1000
+    RATE_LIMIT_PER_MINUTE: int = 300
+    RATE_LIMIT_PER_HOUR: int = 10000
 
     # Tenant/User rate limiting for AI cost control (Subtask 2/3)
     AI_RATE_LIMIT_ENABLED: bool = True
@@ -290,8 +290,8 @@ class Settings(BaseSettings):
         """
         Apply safer defaults for large-app development without impacting production.
 
-        - In production: default to 60/min and 1000/hour unless explicitly set via env vars.
-        - In development: keep rate limit enabled, but raise limits to avoid dev/HMR/test storms.
+        - In production: default to 300/min and 10000/hour unless explicitly set via env vars.
+        - In development: keep rate limit enabled, but raise limits to avoid dev/HMR/test storms (3000/min).
         """
         import os
 
@@ -299,9 +299,9 @@ class Settings(BaseSettings):
 
         # Only apply defaults when the env var is not explicitly set.
         if os.getenv("RATE_LIMIT_PER_MINUTE") is None:
-            self.RATE_LIMIT_PER_MINUTE = 60 if is_prod else 600
+            self.RATE_LIMIT_PER_MINUTE = 300 if is_prod else 3000
         if os.getenv("RATE_LIMIT_PER_HOUR") is None:
-            self.RATE_LIMIT_PER_HOUR = 1000 if is_prod else 10000
+            self.RATE_LIMIT_PER_HOUR = 10000 if is_prod else 1000000
         if os.getenv("RATE_LIMIT_ENABLED") is None:
             # Keep enabled by default; can be disabled explicitly in env.
             self.RATE_LIMIT_ENABLED = True

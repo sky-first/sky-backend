@@ -24,7 +24,15 @@ from src.models.template import Template
 from src.models.user import RefreshToken, User
 from src.models.workspace import Workspace, WorkspaceMember
 from src.models.signal_event import SignalEvent
-from src.models.enterprise_graph import EnterpriseGraphNode, EnterpriseGraphEdge
+from src.models.enterprise_graph import EnterpriseGraphEdge, EnterpriseGraphNode
+from src.models.strategy import (
+    StrategicObjective,
+    StrategicPillar,
+    StrategyAssumption,
+    StrategyInitiative,
+    StrategyKeyResult,
+    StrategyOKR,
+)
 
 __all__ = [
     "User",
@@ -65,4 +73,10 @@ __all__ = [
     "SignalEvent",
     "EnterpriseGraphNode",
     "EnterpriseGraphEdge",
+    "StrategicPillar",
+    "StrategicObjective",
+    "StrategyOKR",
+    "StrategyKeyResult",
+    "StrategyInitiative",
+    "StrategyAssumption",
 ]
