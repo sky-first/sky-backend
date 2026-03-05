@@ -1,8 +1,9 @@
 """Enterprise Relationship schemas."""
 
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 

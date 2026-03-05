@@ -34,8 +34,8 @@ async def test_planet_service_coverage():
 
 @pytest.mark.asyncio
 async def test_user_service_coverage():
-    from src.services.user_service import UserService
     from src.core.exceptions import NotFoundError
+    from src.services.user_service import UserService
 
     db = AsyncMock()
     service = UserService(db)

@@ -6,7 +6,7 @@ from datetime import datetime
 # Forward reference for SyncLog
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import func, JSON, Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 

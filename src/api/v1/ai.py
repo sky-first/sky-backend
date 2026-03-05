@@ -392,7 +392,9 @@ async def get_history(
     filter: Optional[str] = Query(None, description="Filter: today, week, pinned"),
     search: Optional[str] = Query(None, description="Search query"),
     category: Optional[str] = Query(None, description="Category filter"),
-    crew_id: Optional[str] = Query(None, description="Filter history by active crew (collaborative mode)"),
+    crew_id: Optional[str] = Query(
+        None, description="Filter history by active crew (collaborative mode)"
+    ),
     space_id: Optional[str] = Query(None, description="Filter history by space"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),

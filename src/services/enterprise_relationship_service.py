@@ -2,12 +2,14 @@
 
 import logging
 from uuid import UUID
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.models.user import User
+
+from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.enterprise_relationship import EnterpriseRelationship
+from src.models.user import User
 from src.repositories.enterprise_relationship import EnterpriseRelationshipRepository
 from src.schemas.enterprise_relationship import EnterpriseRelationshipCreate
-from src.core.exceptions import NotFoundError, ForbiddenError
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,10 @@
-import uuid
-from sqlalchemy import Column, String, Text, DateTime, JSON, Enum as SQLEnum
 import enum
+import uuid
 from datetime import datetime
+
+from sqlalchemy import JSON, Column, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import String, Text
 
 from src.config.database import Base
 

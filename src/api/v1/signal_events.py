@@ -1,11 +1,11 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, Query, status, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.api.deps import get_current_user
 from src.models.user import User
-from src.repositories.signal_event import get_signal_event_repo, SignalEventRepository
-from src.schemas.signal_event import SignalEventCreate, SignalEventUpdate, SignalEventResponse
+from src.repositories.signal_event import SignalEventRepository, get_signal_event_repo
+from src.schemas.signal_event import SignalEventCreate, SignalEventResponse, SignalEventUpdate
 
 router = APIRouter()
 

@@ -1,5 +1,6 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.api.deps import get_db
 from src.models.signal_event import SignalEvent
 from src.repositories.base import BaseRepository

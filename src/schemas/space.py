@@ -1,8 +1,7 @@
 """Space schemas."""
 
 from datetime import datetime
-from typing import Optional
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator

@@ -1,7 +1,9 @@
 from datetime import datetime
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict
-from src.models.signal_event import SignalCategory, SignalNature, SignalConfidence
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from src.models.signal_event import SignalCategory, SignalConfidence, SignalNature
 
 
 class SignalEventBase(BaseModel):
