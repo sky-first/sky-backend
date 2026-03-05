@@ -33,6 +33,15 @@ class AIQueryRequest(BaseModel):
         description="Whether the query is in personal mode (access across all crews/spaces).",
     )
     planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
+    # Collaborative mode: restrict AI data context to this specific crew
+    crew_id: Optional[str] = Field(
+        None,
+        description=(
+            "Active crew ID. When set, the AI will only use data accessible to this crew "
+            "(collaborative mode). When None + is_personal=False, uses all crews the user "
+            "belongs to in the space."
+        ),
+    )
 
 
 class AIQueryResponse(BaseModel):
@@ -96,6 +105,10 @@ class ChatMessageRequest(BaseModel):
     widget_id: UUID
     planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
     context: Optional[Dict[str, Any]] = None
+    # Explicit collaborative context fields (preferred over context dict)
+    space_id: Optional[str] = Field(None, description="Space ID for context")
+    crew_id: Optional[str] = Field(None, description="Active crew ID (collaborative mode)")
+    is_personal: Optional[bool] = Field(default=False, description="Personal mode flag")
 
 
 class ChatMessageResponse(BaseModel):
@@ -124,6 +137,9 @@ class AIHistoryItem(BaseModel):
     planet_id: UUID
     created_at: datetime
     updated_at: datetime
+    # Collaborative context filters
+    space_id: Optional[str] = None
+    crew_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -136,6 +152,9 @@ class CreateHistoryRequest(BaseModel):
     planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
     category: Optional[str] = None
     tags: Optional[List[str]] = Field(default_factory=list)
+    # Collaborative context
+    space_id: Optional[str] = None
+    crew_id: Optional[str] = None
 
 
 class FeedbackRequest(BaseModel):

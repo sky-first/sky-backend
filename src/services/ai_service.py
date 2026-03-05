@@ -409,11 +409,27 @@ class AIService:
 
                         # Get crew_ids for this user (Personal mode => all crews across spaces)
                         is_personal = bool(getattr(query_data, "is_personal", False))
-                        crew_ids = await self._get_user_crew_ids(
-                            user_id,
-                            space_id,
-                            all_spaces=is_personal,
-                        )
+                        active_crew_id = getattr(query_data, "crew_id", None)
+
+                        if is_personal:
+                            # Personal mode: full access across all crews
+                            crew_ids = await self._get_user_crew_ids(
+                                user_id, space_id, all_spaces=True
+                            )
+                        elif active_crew_id:
+                            # Collaborative mode: validate membership and restrict to this crew
+                            user_crew_ids = await self._get_user_crew_ids(user_id, space_id)
+                            if active_crew_id in user_crew_ids:
+                                crew_ids = [active_crew_id]
+                            else:
+                                logger.warning(
+                                    f"User {user_id} is not a member of crew {active_crew_id}, "
+                                    f"falling back to all crews"
+                                )
+                                crew_ids = user_crew_ids
+                        else:
+                            # No specific crew: use all crews the user belongs to in the space
+                            crew_ids = await self._get_user_crew_ids(user_id, space_id)
                         # Forward user-selected datasets/tables to AI engine when present.
                         # Frontend stores manual table selection in configure_data.knowledge.
                         selected_datasets: Optional[List[str]] = None
@@ -728,13 +744,27 @@ class AIService:
                         )
 
                     if space_id:
-                        # Get crew_ids for this user
-                        is_personal = bool(context.get("is_personal", False))
-                        crew_ids = await self._get_user_crew_ids(
-                            user_id,
-                            space_id,
-                            all_spaces=is_personal,
+                        # Resolve crew_ids — prefer explicit crew_id from request (collaborative mode)
+                        is_personal = bool(
+                            message_data.is_personal
+                            if message_data.is_personal is not None
+                            else context.get("is_personal", False)
                         )
+                        active_crew_id = message_data.crew_id or context.get("crew_id")
+
+                        if is_personal:
+                            crew_ids = await self._get_user_crew_ids(
+                                user_id, space_id, all_spaces=True
+                            )
+                        elif active_crew_id:
+                            user_crew_ids = await self._get_user_crew_ids(user_id, space_id)
+                            crew_ids = (
+                                [active_crew_id]
+                                if active_crew_id in user_crew_ids
+                                else user_crew_ids
+                            )
+                        else:
+                            crew_ids = await self._get_user_crew_ids(user_id, space_id)
 
                         # Forward user-selected datasets/tables to AI engine when present
                         selected_datasets: Optional[List[str]] = None
@@ -858,6 +888,8 @@ class AIService:
         category: Optional[str] = None,
         skip: int = 0,
         limit: int = 100,
+        crew_id: Optional[str] = None,
+        space_id: Optional[str] = None,
     ) -> List[AIHistoryItem]:
         """
         Get AI history.
@@ -898,6 +930,12 @@ class AIService:
         # Apply category filter
         if category:
             query = query.where(AIHistory.category == category)
+
+        # Apply collaborative context filters
+        if crew_id:
+            query = query.where(AIHistory.crew_id == crew_id)
+        if space_id:
+            query = query.where(AIHistory.space_id == space_id)
 
         # Order by date descending (most recent first)
         query = query.order_by(AIHistory.date.desc())
@@ -1160,6 +1198,8 @@ class AIService:
             category=history_data.category,
             tags=history_data.tags or [],
             date=datetime.now(timezone.utc),
+            space_id=history_data.space_id,
+            crew_id=history_data.crew_id,
         )
 
         await self.db.commit()
