@@ -58,7 +58,6 @@ omit = [
     "src/services/crew_service.py",
     "src/services/auth0_service.py",
     "src/services/strategy.py",
-    "src/services/enterprise_graph.py",
     "src/services/dataset_service.py",
     "src/services/ai_service.py",
 ]

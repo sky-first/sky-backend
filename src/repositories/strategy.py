@@ -101,9 +101,7 @@ class StrategyRepository:
         return result.scalars().all()
 
     async def get_okr_by_id(self, okr_id: UUID) -> Optional[StrategyOKR]:
-        result = await self.session.execute(
-            select(StrategyOKR).where(StrategyOKR.id == okr_id)
-        )
+        result = await self.session.execute(select(StrategyOKR).where(StrategyOKR.id == okr_id))
         return result.scalar_one_or_none()
 
     async def create_okr(self, schema: StrategyOKRCreate) -> StrategyOKR:
@@ -112,9 +110,7 @@ class StrategyRepository:
         await self.session.flush()
         return okr
 
-    async def update_okr(
-        self, okr: StrategyOKR, schema: StrategyOKRUpdate
-    ) -> StrategyOKR:
+    async def update_okr(self, okr: StrategyOKR, schema: StrategyOKRUpdate) -> StrategyOKR:
         update_data = schema.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(okr, key, value)

@@ -9,6 +9,7 @@ from src.schemas.signal_event import SignalEventCreate, SignalEventUpdate, Signa
 
 router = APIRouter()
 
+
 @router.get("/", response_model=List[SignalEventResponse])
 async def list_signal_events(
     skip: int = Query(0, ge=0),
@@ -54,7 +55,7 @@ async def update_signal_event(
     event = await repo.get_by_id(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Signal event not found")
-        
+
     return await repo.update(event_id, **event_in.model_dump(exclude_unset=True))
 
 
@@ -68,6 +69,6 @@ async def delete_signal_event(
     event = await repo.get_by_id(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Signal event not found")
-        
+
     await repo.delete(event_id)
     return None

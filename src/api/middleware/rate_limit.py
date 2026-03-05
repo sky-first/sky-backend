@@ -49,14 +49,14 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
             # Redis not available, skip rate limiting
             logger.debug("Redis not available, skipping rate limiting")
             return cast(Response, await call_next(request))
-            
+
         # Try to get real IP if behind a proxy
         client_ip = request.headers.get("X-Forwarded-For")
         if client_ip:
             client_ip = client_ip.split(",")[0].strip()
         else:
             client_ip = request.client.host if request.client else "unknown"
-            
+
         user_id = (
             getattr(request.state, "user_id", None) if hasattr(request.state, "user_id") else None
         )

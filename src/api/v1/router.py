@@ -11,7 +11,6 @@ from src.api.v1 import (
     crews,
     dashboards,
     datasets,
-    enterprise_graph,
     files,
     notifications,
     permissions,
@@ -25,6 +24,8 @@ from src.api.v1 import (
     workspaces,
     signal_events,
     strategy,
+    enterprise_relationships,
+    settings_metrics,
 )
 
 api_router = APIRouter()
@@ -68,6 +69,11 @@ api_router.include_router(templates.router, prefix="/templates", tags=["Template
 # Settings endpoints
 api_router.include_router(settings.router, prefix="/settings", tags=["Settings"])
 
+# Settings Metrics endpoints
+api_router.include_router(
+    settings_metrics.router, prefix="/settings/metrics", tags=["Settings Metrics"]
+)
+
 # File upload endpoints
 api_router.include_router(files.router, prefix="/files", tags=["Files"])
 
@@ -89,8 +95,12 @@ api_router.include_router(comments.router, prefix="/comments", tags=["Comments"]
 # Signal Events endpoints
 api_router.include_router(signal_events.router, prefix="/signal-events", tags=["Signal Events"])
 
-# Enterprise Graph endpoints
-api_router.include_router(enterprise_graph.router, prefix="/enterprise-graph", tags=["Enterprise Graph"])
-
 # Strategy endpoints
 api_router.include_router(strategy.router, prefix="/strategy", tags=["Strategy"])
+
+# Enterprise Relationship endpoints
+api_router.include_router(
+    enterprise_relationships.router,
+    prefix="/enterprise/relationships",
+    tags=["Enterprise Relationships"],
+)
