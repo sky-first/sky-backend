@@ -166,6 +166,10 @@ async def chat_bootstrap(
         None,
         description="Space ID used as context for permissions/catalog. In Personal mode, currentSpace is usually set.",
     ),
+    crew_id: Optional[str] = Query(
+        None,
+        description="Active crew ID. When provided, the AI suggestions are scoped to that crew (collaborative mode).",
+    ),
     language: Optional[str] = Query(None, description="Optional language hint (e.g. en, pt, es)"),
     max_suggestions: int = Query(4, ge=1, le=8),
     current_user: User = Depends(get_current_user),
@@ -266,10 +270,24 @@ async def chat_bootstrap(
                 },
             )
 
-        # 4) Resolve crew_ids for this user in this space (Personal => all crews user belongs to)
-        crew_ids = await ai_service._get_user_crew_ids(
-            current_user.id, resolved_space_id
-        )  # noqa: SLF001
+        # 4) Resolve crew_ids for this user in this space
+        #    Collaborative mode: restrict to active crew_id if provided and user is a member
+        if crew_id:
+            all_user_crew_ids = await ai_service._get_user_crew_ids(  # noqa: SLF001
+                current_user.id, resolved_space_id
+            )
+            if crew_id in all_user_crew_ids:
+                crew_ids = [crew_id]
+            else:
+                logger.warning(
+                    f"[chat_bootstrap] User {current_user.id} not member of crew {crew_id}, "
+                    "falling back to all crews"
+                )
+                crew_ids = all_user_crew_ids
+        else:
+            crew_ids = await ai_service._get_user_crew_ids(  # noqa: SLF001
+                current_user.id, resolved_space_id
+            )
 
         # 5) Call AI Engine
         client = AIServiceHTTPClient()
@@ -374,6 +392,10 @@ async def get_history(
     filter: Optional[str] = Query(None, description="Filter: today, week, pinned"),
     search: Optional[str] = Query(None, description="Search query"),
     category: Optional[str] = Query(None, description="Category filter"),
+    crew_id: Optional[str] = Query(
+        None, description="Filter history by active crew (collaborative mode)"
+    ),
+    space_id: Optional[str] = Query(None, description="Filter history by space"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     planet_id: Optional[UUID] = Query(None, description="Planet ID for filtering"),
@@ -420,6 +442,8 @@ async def get_history(
         category=category,
         skip=skip,
         limit=limit,
+        crew_id=crew_id,
+        space_id=space_id,
     )
 
 

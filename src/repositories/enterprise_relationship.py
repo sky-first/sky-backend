@@ -2,8 +2,10 @@
 
 from typing import List
 from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.repositories.base import BaseRepository
 

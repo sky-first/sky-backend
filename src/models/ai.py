@@ -111,6 +111,9 @@ class AIHistory(Base):
         nullable=False,
         index=True,
     )
+    # Collaborative context: used to scope history by active crew/space
+    space_id = Column(String, nullable=True, index=True)
+    crew_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -131,6 +134,8 @@ class AIHistory(Base):
         Index("idx_ai_history_date", "date"),
         Index("idx_ai_history_user_date", "user_id", "date"),
         Index("idx_ai_history_planet_created", "planet_id", "created_at"),
+        Index("idx_ai_history_crew_id", "crew_id"),
+        Index("idx_ai_history_space_id", "space_id"),
     )
 
     def __repr__(self) -> str:

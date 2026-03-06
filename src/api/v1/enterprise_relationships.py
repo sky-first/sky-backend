@@ -2,10 +2,12 @@
 
 import logging
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.api.deps import get_current_user, get_db_session
-from src.core.exceptions import NotFoundError, ForbiddenError
+from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.enterprise_relationship import (
@@ -55,6 +57,35 @@ async def create_relationship(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create relationship: {str(e)}",
         )
+
+@router.put(
+    "/{relationship_id}",
+    response_model=EnterpriseRelationshipResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Update enterprise relationship",
+)
+async def update_relationship(
+    relationship_id: UUID,
+    data: EnterpriseRelationshipCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> EnterpriseRelationshipResponse:
+    """Update a relationship."""
+    try:
+        service = EnterpriseRelationshipService(db)
+        return await service.update_relationship(relationship_id, data, current_user)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ForbiddenError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating relationship: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update relationship: {str(e)}",
+        )
+
 
 
 @router.delete(

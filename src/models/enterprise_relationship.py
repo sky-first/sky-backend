@@ -2,8 +2,10 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text, func, JSON
+
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
+
 from src.config.database import Base
 
 
@@ -21,6 +23,7 @@ class EnterpriseRelationship(Base):
 
     target_id = Column(String(255), nullable=False)
     target_type = Column(String(50), nullable=False)  # connection, dataset, table
+    target_details = Column(JSON, nullable=True)
 
     relationship_type = Column(String(50), nullable=False)  # maps_to, derived_from, etc.
 
