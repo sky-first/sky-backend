@@ -38,12 +38,41 @@ class EnterpriseRelationshipService:
             sources=sources_data,
             target_id=data.target_id,
             target_type=data.target_type,
+            target_details=data.target_details,
             relationship_type=data.relationship_type,
             created_by=user.id,
         )
         await self.db.commit()
         await self.db.refresh(relationship)
         return relationship
+
+    async def update_relationship(
+        self, relationship_id: UUID, data: EnterpriseRelationshipCreate, user: User
+    ) -> EnterpriseRelationship:
+        """Update an existing relationship."""
+        relationship = await self.relationship_repo.get_by_id(relationship_id)
+        if not relationship:
+            raise NotFoundError("Relationship not found")
+
+        if relationship.created_by != user.id:
+            raise ForbiddenError("You don't have permission to update this relationship")
+
+        sources_data = [s.model_dump() for s in data.sources]
+
+        updated_relationship = await self.relationship_repo.update(
+            relationship_id,
+            name=data.name,
+            description=data.description,
+            sources=sources_data,
+            target_id=data.target_id,
+            target_type=data.target_type,
+            target_details=data.target_details,
+            relationship_type=data.relationship_type,
+        )
+        await self.db.commit()
+        if updated_relationship:
+            await self.db.refresh(updated_relationship)
+        return updated_relationship
 
     async def delete_relationship(self, relationship_id: UUID, user: User) -> None:
         """Delete a relationship."""

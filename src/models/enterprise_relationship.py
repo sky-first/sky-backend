@@ -23,6 +23,7 @@ class EnterpriseRelationship(Base):
 
     target_id = Column(String(255), nullable=False)
     target_type = Column(String(50), nullable=False)  # connection, dataset, table
+    target_details = Column(JSON, nullable=True)
 
     relationship_type = Column(String(50), nullable=False)  # maps_to, derived_from, etc.
 

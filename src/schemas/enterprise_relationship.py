@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 class SourceEntity(BaseModel):
     id: str
     type: str
+    details: Optional[Dict[str, str]] = None
 
 
 class EnterpriseRelationshipBase(BaseModel):
@@ -18,6 +19,7 @@ class EnterpriseRelationshipBase(BaseModel):
     sources: List[SourceEntity]
     target_id: str
     target_type: str
+    target_details: Optional[Dict[str, str]] = None
     relationship_type: str
 
 
@@ -32,6 +34,7 @@ class EnterpriseRelationshipResponse(BaseModel):
     sources: List[SourceEntity]
     target_id: str
     target_type: str
+    target_details: Optional[Dict[str, str]] = None
     relationship_type: str
     created_by: UUID
     created_at: datetime
@@ -56,4 +59,4 @@ class EnterpriseRelationshipResponse(BaseModel):
         if " → " in self.name:
             target_name = self.name.split(" → ")[-1]
 
-        return {"id": self.target_id, "type": self.target_type, "name": target_name}
+        return {"id": self.target_id, "type": self.target_type, "name": target_name, "details": self.target_details}
