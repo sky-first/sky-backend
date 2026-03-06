@@ -25,6 +25,9 @@ from src.schemas.strategy import (
     StrategyOKRResponse,
     StrategyOKRUpdate,
     StrategyTreeResponse,
+    StrategyCycleCreate,
+    StrategyCycleResponse,
+    StrategyCycleUpdate,
 )
 
 
@@ -36,14 +39,18 @@ class StrategyService:
     async def get_strategy_tree(self) -> StrategyTreeResponse:
         pillars = await self.repository.get_all_pillars()
         objectives = await self.repository.get_all_objectives()
+        cycles = await self.repository.get_all_cycles()
         okrs = await self.repository.get_all_okrs()
+        key_results = await self.repository.get_all_key_results()
         initiatives = await self.repository.get_all_initiatives()
         assumptions = await self.repository.get_all_assumptions()
 
         return StrategyTreeResponse(
             pillars=pillars,
             objectives=objectives,
+            cycles=cycles,
             okrs=okrs,
+            key_results=key_results,
             initiatives=initiatives,
             assumptions=assumptions,
         )
@@ -124,6 +131,32 @@ class StrategyService:
         if not okr:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found")
         await self.repository.delete_okr(okr)
+        await self.session.commit()
+
+    # --- Strategy Cycle ---
+
+    async def create_cycle(self, schema: StrategyCycleCreate) -> StrategyCycleResponse:
+        cycle = await self.repository.create_cycle(schema)
+        await self.session.commit()
+        await self.session.refresh(cycle)
+        return cycle
+
+    async def update_cycle(
+        self, cycle_id: UUID, schema: StrategyCycleUpdate
+    ) -> StrategyCycleResponse:
+        cycle = await self.repository.get_cycle_by_id(cycle_id)
+        if not cycle:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cycle not found")
+        cycle = await self.repository.update_cycle(cycle, schema)
+        await self.session.commit()
+        await self.session.refresh(cycle)
+        return cycle
+
+    async def delete_cycle(self, cycle_id: UUID) -> None:
+        cycle = await self.repository.get_cycle_by_id(cycle_id)
+        if not cycle:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cycle not found")
+        await self.repository.delete_cycle(cycle)
         await self.session.commit()
 
     # --- Strategy Key Result ---

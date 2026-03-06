@@ -81,6 +81,31 @@ class StrategicObjective(Base):
     assumptions = relationship("StrategyAssumption", back_populates="objective")
 
 
+class StrategyCycle(Base):
+    """Strategy Cycle model (Quarterly, Annual, etc)."""
+
+    __tablename__ = "strategy_cycles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False)
+    type = Column(String(50), nullable=False)  # quarterly, annual, monthly
+    start_date = Column(DateTime(timezone=True), nullable=False)
+    end_date = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String(50), nullable=True, default="active")
+    
+    # Audit info
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=datetime.utcnow,
+    )
+
+    # Relationships
+    okrs = relationship("StrategyOKR", back_populates="cycle")
+
+
 class StrategyOKR(Base):
     """Strategy OKR model."""
 
@@ -91,6 +116,11 @@ class StrategyOKR(Base):
         UUID(as_uuid=True),
         ForeignKey("strategic_objectives.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    cycle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("strategy_cycles.id", ondelete="SET NULL"),
+        nullable=True,
     )
     title = Column(String(255), nullable=False)
     linked_kpi_id = Column(String(100), nullable=True)  # Reference to external metrics system
@@ -115,6 +145,7 @@ class StrategyOKR(Base):
 
     # Relationships
     objective = relationship("StrategicObjective", back_populates="okrs")
+    cycle = relationship("StrategyCycle", back_populates="okrs")
     key_results = relationship(
         "StrategyKeyResult", back_populates="okr", cascade="all, delete-orphan"
     )

@@ -17,6 +17,9 @@ from src.schemas.strategy import (
     StrategyAssumptionCreate,
     StrategyAssumptionResponse,
     StrategyAssumptionUpdate,
+    StrategyCycleCreate,
+    StrategyCycleResponse,
+    StrategyCycleUpdate,
     StrategyHealthResponse,
     StrategyInitiativeCreate,
     StrategyInitiativeResponse,
@@ -38,7 +41,7 @@ def get_service(db: AsyncSession = Depends(get_db)) -> StrategyService:
     return StrategyService(db)
 
 
-@router.get("", response_model=StrategyTreeResponse)
+@router.get("/tree", response_model=StrategyTreeResponse)
 async def get_strategy_tree(
     current_user: User = Depends(get_current_user),
     service: StrategyService = Depends(get_service),
@@ -156,6 +159,40 @@ async def delete_okr(
 ) -> None:
     """Delete a strategy OKR."""
     await service.delete_okr(okr_id)
+
+
+# --- Strategy Cycle ---
+
+
+@router.post("/cycles", response_model=StrategyCycleResponse, status_code=201)
+async def create_cycle(
+    body: StrategyCycleCreate,
+    current_user: User = Depends(get_current_user),
+    service: StrategyService = Depends(get_service),
+) -> StrategyCycleResponse:
+    """Create a new strategy cycle."""
+    return await service.create_cycle(body)
+
+
+@router.put("/cycles/{cycle_id}", response_model=StrategyCycleResponse)
+async def update_cycle(
+    cycle_id: UUID,
+    body: StrategyCycleUpdate,
+    current_user: User = Depends(get_current_user),
+    service: StrategyService = Depends(get_service),
+) -> StrategyCycleResponse:
+    """Update a strategy cycle."""
+    return await service.update_cycle(cycle_id, body)
+
+
+@router.delete("/cycles/{cycle_id}", status_code=204)
+async def delete_cycle(
+    cycle_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: StrategyService = Depends(get_service),
+) -> None:
+    """Delete a strategy cycle."""
+    await service.delete_cycle(cycle_id)
 
 
 # --- Strategy Key Result ---

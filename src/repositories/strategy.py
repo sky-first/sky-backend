@@ -8,6 +8,7 @@ from src.models.strategy import (
     StrategicObjective,
     StrategicPillar,
     StrategyAssumption,
+    StrategyCycle,
     StrategyInitiative,
     StrategyKeyResult,
     StrategyOKR,
@@ -19,6 +20,8 @@ from src.schemas.strategy import (
     StrategicPillarUpdate,
     StrategyAssumptionCreate,
     StrategyAssumptionUpdate,
+    StrategyCycleCreate,
+    StrategyCycleUpdate,
     StrategyInitiativeCreate,
     StrategyInitiativeUpdate,
     StrategyKeyResultCreate,
@@ -119,6 +122,37 @@ class StrategyRepository:
 
     async def delete_okr(self, okr: StrategyOKR) -> None:
         await self.session.delete(okr)
+        await self.session.flush()
+
+    # --- Strategy Cycle ---
+
+    async def get_all_cycles(self) -> List[StrategyCycle]:
+        result = await self.session.execute(select(StrategyCycle))
+        return result.scalars().all()
+
+    async def get_cycle_by_id(self, cycle_id: UUID) -> Optional[StrategyCycle]:
+        result = await self.session.execute(
+            select(StrategyCycle).where(StrategyCycle.id == cycle_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def create_cycle(self, schema: StrategyCycleCreate) -> StrategyCycle:
+        cycle = StrategyCycle(**schema.model_dump())
+        self.session.add(cycle)
+        await self.session.flush()
+        return cycle
+
+    async def update_cycle(
+        self, cycle: StrategyCycle, schema: StrategyCycleUpdate
+    ) -> StrategyCycle:
+        update_data = schema.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(cycle, key, value)
+        await self.session.flush()
+        return cycle
+
+    async def delete_cycle(self, cycle: StrategyCycle) -> None:
+        await self.session.delete(cycle)
         await self.session.flush()
 
     # --- Strategy Key Result ---
