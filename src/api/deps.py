@@ -176,11 +176,23 @@ async def get_current_user(
     if not user:
         raise UnauthorizedError("User not found")
 
-    # Update user activity
+    # Update user activity (throttled to avoid lock contention)
     try:
-        from datetime import datetime, timezone
+        from datetime import datetime, timezone, timedelta
 
-        await user_repo.update(user.id, last_active_at=datetime.now(timezone.utc), status="active")
+        now = datetime.now(timezone.utc)
+        last_active = user.last_active_at
+        if last_active:
+            # Ensure it has timezone info for comparison
+            if last_active.tzinfo is None:
+                last_active = last_active.replace(tzinfo=timezone.utc)
+            
+            # Only update if more than 60 seconds have passed
+            if now - last_active > timedelta(seconds=60):
+                await user_repo.update(user.id, last_active_at=now, status="active")
+        else:
+            # First time activity
+            await user_repo.update(user.id, last_active_at=now, status="active")
     except Exception as e:
         logger.warning(f"Failed to update user activity: {e}")
 
