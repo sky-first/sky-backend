@@ -1,7 +1,7 @@
 """Space endpoints."""
 
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -428,30 +428,34 @@ async def remove_space_member(
 
 @router.get(
     "/{space_id}/tables",
-    response_model=List[dict],
+    response_model=List[Dict[str, Any]],
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
     summary="Get space tables",
-    description="Get all tables from connections in a space",
+    description="Get list of tables from all connections in a space",
 )
 async def get_space_tables(
     space_id: UUID,
+    only_selected: bool = Query(
+        False, description="If true, only returns tables explicitly linked to the space"
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> List[dict]:
+) -> List[Dict[str, Any]]:
     """
-    Get all tables from connections in a space.
+    Get space tables.
 
     Args:
         space_id: Space ID
+        only_selected: Filter for only selected tables
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        List[dict]: List of tables with connection info
+        List[Dict[str, Any]]: List of tables
     """
     space_service = SpaceService(db)
-    return await space_service.get_space_tables(space_id, current_user)
+    return await space_service.get_space_tables(space_id, current_user, only_selected=only_selected)
 
 
 @router.post(

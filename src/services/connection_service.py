@@ -16,6 +16,7 @@ from src.models.user import User
 from src.repositories.ai import AIQueryRepository
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.file import SyncLogRepository
+from src.repositories.permission import PermissionRepository
 from src.repositories.space import SpaceRepository, SpaceTableRepository
 from src.schemas.connection import (
     ConnectionCreate,
@@ -50,6 +51,7 @@ class ConnectionService:
         self.table_repo = SpaceTableRepository(db)
         self.sync_log_repo = SyncLogRepository(db)
         self.ai_query_repo = AIQueryRepository(db)
+        self.permission_repo = PermissionRepository(db)
         self.ai_client = AIServiceHTTPClient()
 
     async def _calculate_next_sync(
@@ -417,6 +419,17 @@ class ConnectionService:
                 # --- Auto-link discovered tables to all associated spaces ---
                 # This ensures tables don't "disappear" from the space view after refresh.
                 for space in spaces:
+                    # Get permissions for this space and connection
+                    perm = await self.permission_repo.get_by_connection_and_space(
+                        connection_id, space.id, None
+                    )
+                    
+                    # If perm exists and has restricted table access, only link those tables.
+                    # If access_level is 'full', we link all.
+                    restricted_tables = None
+                    if perm and perm.access_level != "full" and perm.table_access:
+                        restricted_tables = set(perm.table_access)
+
                     for table_data in metadata.get("tables", []):
                         t_name = (
                             table_data.get("name")
@@ -430,6 +443,18 @@ class ConnectionService:
                         )
 
                         if t_name:
+                            # Skip if this table is not in the restricted list
+                            if restricted_tables is not None:
+                                fully_qualified = f"{t_schema}.{t_name}" if t_schema else t_name
+                                # Match by base name, fully qualified name, or if the restricted name ends with .t_name
+                                match = (
+                                    t_name in restricted_tables 
+                                    or fully_qualified in restricted_tables
+                                    or any(rt.endswith(f".{t_name}") for rt in restricted_tables)
+                                )
+                                if not match:
+                                    continue
+
                             # Check if already linked
                             existing_table = await self.table_repo.get_space_table(
                                 space.id, connection_id, t_name, t_schema

@@ -62,7 +62,7 @@ async def test_get_strategy_tree(async_client: AsyncClient, test_user_with_token
     # Create some data
     await async_client.post("/api/v1/strategy/pillars", json={"name": "P1"}, headers=headers)
 
-    response = await async_client.get("/api/v1/strategy", headers=headers)
+    response = await async_client.get("/api/v1/strategy/tree", headers=headers)
     assert response.status_code == 200
     data = response.json()
     assert "pillars" in data
