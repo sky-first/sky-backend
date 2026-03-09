@@ -88,6 +88,7 @@ class SpaceRepository(BaseRepository[Space]):
                 SpaceConnection.space_id == space_id,
                 DataConnection.deleted_at.is_(None),
             )
+            .options(selectinload(SpaceConnection.connection))
         )
         return list(result.scalars().all())
 

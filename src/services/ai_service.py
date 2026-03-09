@@ -38,6 +38,7 @@ from src.schemas.ai import (
     ValidateSQLResponse,
 )
 from src.utils.cache import CacheService, ai_response_cache_key
+from src.services.permission_service import PermissionService
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class AIService:
         self.crew_member_repo = CrewMemberRepository(db)
         self.planet_repo = PlanetRepository(db)
         self.member_repo = PlanetMemberRepository(db)
+        self.permission_service = PermissionService(db)
 
     async def _get_first_active_connection(self, user_id: UUID) -> Optional[str]:
         """
@@ -430,21 +432,44 @@ class AIService:
                         else:
                             # No specific crew: use all crews the user belongs to in the space
                             crew_ids = await self._get_user_crew_ids(user_id, space_id)
-                        # Forward user-selected datasets/tables to AI engine when present.
-                        # Frontend stores manual table selection in configure_data.knowledge.
-                        selected_datasets: Optional[List[str]] = None
+                        # --- MANDATORY PERMISSION FILTERING ---
+                        # 1. Get truly authorized tables for this context (space/crew/user)
                         try:
-                            if configure_data.knowledge:
-                                table_names: List[str] = []
-                                for item in configure_data.knowledge:
-                                    # keep only non-UUIDs (UUIDs represent connection_id)
-                                    if isinstance(item, str) and not (
-                                        len(item) == 36 and item.count("-") == 4
-                                    ):
-                                        table_names.append(item)
-                                selected_datasets = table_names or None
-                        except Exception:
-                            selected_datasets = None
+                            authorized_tables = await self.permission_service.get_authorized_tables(
+                                user_id=user_id,
+                                connection_id=UUID(connection_id),
+                                space_id=UUID(space_id) if space_id else None,
+                                crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+                            )
+                        except Exception as e:
+                            logger.error(f"Error checking authorized tables: {e}", exc_info=True)
+                            authorized_tables = []  # Fail closed
+
+                        # 2. Forward user-selected datasets/tables from configure_data.knowledge,
+                        # BUT filter them against authorized_tables.
+                        requested_datasets: List[str] = []
+                        if configure_data.knowledge:
+                            for item in configure_data.knowledge:
+                                if isinstance(item, str) and not (
+                                    len(item) == 36 and item.count("-") == 4
+                                ):
+                                    requested_datasets.append(item)
+
+                        if requested_datasets:
+                            # Intersect requested with authorized (case-sensitive as per DB storage)
+                            selected_datasets = [
+                                t for t in requested_datasets if t in authorized_tables
+                            ]
+                        else:
+                            # If no specific requested tables, use all authorized tables
+                            selected_datasets = authorized_tables
+
+                        if not selected_datasets:
+                            logger.warning(
+                                f"No authorized tables found for user {user_id} on connection {connection_id}"
+                            )
+                            # We still pass an empty list or None to the AI engine so it can report "no access"
+                            selected_datasets = []
 
                         logger.info(
                             f"Calling real AI service with connection_id={connection_id}, "
@@ -766,20 +791,46 @@ class AIService:
                         else:
                             crew_ids = await self._get_user_crew_ids(user_id, space_id)
 
-                        # Forward user-selected datasets/tables to AI engine when present
-                        selected_datasets: Optional[List[str]] = None
+                        # --- MANDATORY PERMISSION FILTERING ---
+                        # 1. Get truly authorized tables for this context
                         try:
-                            if knowledge:
-                                table_names_list: List[str] = []
-                                for item in knowledge:
-                                    # keep only non-UUIDs (UUIDs represent connection_id)
-                                    if isinstance(item, str) and not (
-                                        len(item) == 36 and item.count("-") == 4
-                                    ):
-                                        table_names_list.append(item)
-                                selected_datasets = table_names_list or None
-                        except Exception:
-                            selected_datasets = None
+                            authorized_tables = await self.permission_service.get_authorized_tables(
+                                user_id=user_id,
+                                connection_id=UUID(connection_id),
+                                space_id=UUID(space_id) if space_id else None,
+                                crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"[send_chat_message] Error checking authorized tables: {e}",
+                                exc_info=True,
+                            )
+                            authorized_tables = []  # Fail closed
+
+                        # 2. Forward user-selected datasets/tables from knowledge,
+                        # BUT filter them against authorized_tables.
+                        requested_datasets: List[str] = []
+                        if knowledge:
+                            for item in knowledge:
+                                if isinstance(item, str) and not (
+                                    len(item) == 36 and item.count("-") == 4
+                                ):
+                                    requested_datasets.append(item)
+
+                        if requested_datasets:
+                            # Intersect requested with authorized
+                            selected_datasets = [
+                                t for t in requested_datasets if t in authorized_tables
+                            ]
+                        else:
+                            # If no specific requested tables, use all authorized tables
+                            selected_datasets = authorized_tables
+
+                        if not selected_datasets:
+                            logger.warning(
+                                f"[send_chat_message] No authorized tables found for user {user_id} on connection {connection_id}"
+                            )
+                            selected_datasets = []
 
                         logger.info(
                             f"[send_chat_message] Calling real AI service with connection_id={connection_id}, "

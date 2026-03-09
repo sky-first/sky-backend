@@ -78,6 +78,7 @@ class StrategicObjectiveResponse(StrategicObjectiveBase):
 
 class StrategyOKRBase(BaseModel):
     objective_id: UUID
+    cycle_id: Optional[UUID] = None
     title: str
     linked_kpi_id: Optional[str] = None
     baseline: Optional[float] = None
@@ -93,6 +94,7 @@ class StrategyOKRCreate(StrategyOKRBase):
 
 class StrategyOKRUpdate(BaseModel):
     objective_id: Optional[UUID] = None
+    cycle_id: Optional[UUID] = None
     title: Optional[str] = None
     linked_kpi_id: Optional[str] = None
     baseline: Optional[float] = None
@@ -103,6 +105,37 @@ class StrategyOKRUpdate(BaseModel):
 
 
 class StrategyOKRResponse(StrategyOKRBase):
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Strategy Cycle ---
+
+
+class StrategyCycleBase(BaseModel):
+    name: str
+    type: str  # quarterly, annual, monthly
+    start_date: datetime
+    end_date: datetime
+    status: Optional[str] = "active"
+
+
+class StrategyCycleCreate(StrategyCycleBase):
+    pass
+
+
+class StrategyCycleUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    status: Optional[str] = None
+
+
+class StrategyCycleResponse(StrategyCycleBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
@@ -242,6 +275,8 @@ class StrategyHealthResponse(BaseModel):
 class StrategyTreeResponse(BaseModel):
     pillars: List[StrategicPillarResponse]
     objectives: List[StrategicObjectiveResponse]
+    cycles: List[StrategyCycleResponse] = Field(default_factory=list)
     okrs: List[StrategyOKRResponse]
+    key_results: List[StrategyKeyResultResponse] = Field(default_factory=list)
     initiatives: List[StrategyInitiativeResponse]
     assumptions: List[StrategyAssumptionResponse]

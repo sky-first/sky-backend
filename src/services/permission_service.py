@@ -1,6 +1,6 @@
 """Permission service."""
 
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +48,9 @@ class PermissionService:
         self.crew_repo = CrewRepository(db)
         self.crew_member_repo = CrewMemberRepository(db)
         self.space_repo = SpaceRepository(db)
+        from src.repositories.space import SpaceTableRepository
+
+        self.space_table_repo = SpaceTableRepository(db)
 
     async def get_connection_permissions(
         self, connection_id: UUID, user: User
@@ -535,3 +538,104 @@ class PermissionService:
             await self.db.refresh(role_permission)
 
         return RolePermissionResponse.model_validate(role_permission)
+
+    async def get_authorized_tables(
+        self,
+        user_id: UUID,
+        connection_id: UUID,
+        space_id: Optional[UUID] = None,
+        crew_ids: Optional[List[UUID]] = None,
+    ) -> List[str]:
+        """
+        Get authorized tables for a user in a specific context.
+
+        Args:
+            user_id: User ID
+            connection_id: Connection ID
+            space_id: Optional Space ID
+            crew_ids: Optional list of Crew IDs
+
+        Returns:
+            List[str]: List of authorized table names
+        """
+        from typing import Set
+
+        connection = await self.connection_repo.get_by_id_with_metadata(connection_id)
+        if not connection:
+            return []
+
+        # Helper to get all tables from metadata
+        def get_all_tables() -> List[str]:
+            metadata = connection.connection_metadata
+            if metadata and metadata.tables:
+                return [t.get("name") for t in metadata.tables if t.get("name")]
+            return []
+
+        # 1. Ownership: If user owns the connection, return all tables
+        if connection.created_by == user_id:
+            return get_all_tables()
+
+        authorized_tables: Set[str] = set()
+        is_restricted_by_space = False
+
+        # 2. Space Permissions & Table Linkage
+        if space_id:
+            perm = await self.permission_repo.get_by_connection_and_space(
+                connection_id, space_id, None
+            )
+            
+            # Check explicit SpaceTable associations
+            space_tables = await self.space_table_repo.get_space_tables(space_id)
+            linked_tables = {
+                t.table_name for t in space_tables 
+                if t.connection_id == connection_id
+            }
+
+            if perm:
+                if perm.access_level == "full":
+                    # Full access at space level usually bypasses specific table checks
+                    # unless we want SpaceTable to be the absolute filter.
+                    # For now, full access wins.
+                    return get_all_tables()
+                elif perm.table_access:
+                    authorized_tables.update(perm.table_access)
+                    is_restricted_by_space = True
+            
+            if linked_tables:
+                # If the user has linked specific tables to this space, use them.
+                # If authorized_tables already had some from 'perm', they merge.
+                authorized_tables.update(linked_tables)
+                is_restricted_by_space = True
+
+        # 3. Crew Permissions
+        if crew_ids:
+            for crew_id in crew_ids:
+                perm = await self.permission_repo.get_by_connection_and_space(
+                    connection_id, None, crew_id
+                )
+                if perm:
+                    if perm.access_level == "full":
+                        return get_all_tables()  # Full access at crew level
+                    elif perm.table_access:
+                        authorized_tables.update(perm.table_access)
+                        is_restricted_by_space = True
+
+        # 4. Individual Table Member Permissions
+        # This repository method get_by_member returns all TableMemberPermissions for a user
+        member_perms = await self.table_member_permission_repo.get_by_member(user_id)
+        has_member_perms = False
+        for mp in member_perms:
+            if mp.connection_id == connection_id and mp.has_access:
+                authorized_tables.add(mp.table_name)
+                has_member_perms = True
+
+        # Final check: if we are in a space/crew context and NO tables are authorized yet,
+        # but the user is NOT the owner and DOES NOT have member perms, they should have nothing.
+        if (space_id or crew_ids) and not authorized_tables and not is_restricted_by_space and not has_member_perms:
+            # If no permissions are explicitly defined for the space/crew, does it inherit ownership?
+            # No, ownership was checked at step 1.
+            # Does it inherit "all tables"? Usually not in a collaborative context unless public.
+            # For now, return empty if no matches found in collaborative context.
+            return []
+
+        return sorted(list(authorized_tables))

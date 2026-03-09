@@ -1,6 +1,6 @@
 """Space service."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -453,38 +453,20 @@ class SpaceService:
         await self.member_repo.delete(member.id)
         await self.db.commit()
 
-    async def get_space_tables(self, space_id: UUID, user: User) -> List[dict]:
+    async def get_space_tables(
+        self, space_id: UUID, user: User, only_selected: bool = False
+    ) -> List[Dict[str, Any]]:
         """
         Get all tables from connections in a space.
 
         Args:
             space_id: Space ID
             user: Current user
+            only_selected: If True, only return tables that were explicitly linked to the space.
 
         Returns:
-            List[dict]: List of tables with connection info
-                Format: [
-                    {
-                        "connection_id": str,
-                        "connection_name": str,
-                        "table_name": str,
-                        "schema": str | None,
-                        "row_count": int | None
-                    },
-                    ...
-                ]
-
-        Raises:
-            NotFoundError: If space not found
-            ForbiddenError: If user doesn't have access
+            List[Dict[str, Any]]: List of tables with connection info
         """
-        space = await self.space_repo.get_by_id(space_id)
-        if not space:
-            raise NotFoundError("Space not found")
-
-        if space.created_by != user.id:
-            raise ForbiddenError("Access denied to this space")
-
         # Get space connections
         space_connections = await self.space_repo.get_space_connections(space_id)
 
@@ -498,48 +480,33 @@ class SpaceService:
         # Get tables from each connection
         tables = []
         for space_conn in space_connections:
-            connection = await self.connection_repo.get_by_id(space_conn.connection_id)
-            if not connection:
-                continue
-
+            connection = space_conn.connection
             metadata = await self.metadata_repo.get_by_connection_id(space_conn.connection_id)
             if not metadata or not metadata.tables:
                 continue
 
             # Extract table information
             for table_data in metadata.tables:
-                if isinstance(table_data, dict):
-                    t_name = table_data.get("name", "")
-                    t_schema = table_data.get("schema")
-                    is_selected = (
-                        str(space_conn.connection_id),
-                        t_name,
-                        t_schema,
-                    ) in selected_tables_map
+                t_name = None
+                t_schema = None
 
-                    tables.append(
-                        {
-                            "id": f"{space_conn.connection_id}-{t_name}",
-                            "connection_id": str(space_conn.connection_id),
-                            "connection_name": connection.name,
-                            "connection_type": getattr(connection, "connector_id", None),
-                            "table_name": t_name,
-                            "name": t_name,
-                            "schema": t_schema,
-                            "schema_name": t_schema,
-                            "row_count": table_data.get("row_count"),
-                            "selected": is_selected,
-                        }
-                    )
+                if isinstance(table_data, dict):
+                    t_name = table_data.get("name")
+                    t_schema = table_data.get("schema")
                 else:
                     # If it's already a TableMetadata object
-                    t_name = getattr(table_data, "name", "")
+                    t_name = getattr(table_data, "name", None)
                     t_schema = getattr(table_data, "schema", None)
+
+                if t_name:
                     is_selected = (
                         str(space_conn.connection_id),
                         t_name,
                         t_schema,
                     ) in selected_tables_map
+
+                    if only_selected and not is_selected:
+                        continue
 
                     tables.append(
                         {
@@ -551,7 +518,11 @@ class SpaceService:
                             "name": t_name,
                             "schema": t_schema,
                             "schema_name": t_schema,
-                            "row_count": getattr(table_data, "row_count", None),
+                            "row_count": (
+                                table_data.get("row_count")
+                                if isinstance(table_data, dict)
+                                else getattr(table_data, "row_count", None)
+                            ),
                             "selected": is_selected,
                         }
                     )
