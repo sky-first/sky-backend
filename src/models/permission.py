@@ -57,7 +57,9 @@ class ConnectionPermission(Base):
     user = relationship("User")
 
     __table_args__ = (
-        UniqueConstraint("connection_id", "space_id", "crew_id", "user_id", name="uq_connection_permissions"),
+        UniqueConstraint(
+            "connection_id", "space_id", "crew_id", "user_id", name="uq_connection_permissions"
+        ),
         Index("idx_connection_permissions_connection_id", "connection_id"),
         Index("idx_connection_permissions_space_id", "space_id"),
         Index("idx_connection_permissions_crew_id", "crew_id"),

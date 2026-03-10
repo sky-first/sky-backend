@@ -59,4 +59,9 @@ class EnterpriseRelationshipResponse(BaseModel):
         if " → " in self.name:
             target_name = self.name.split(" → ")[-1]
 
-        return {"id": self.target_id, "type": self.target_type, "name": target_name, "details": self.target_details}
+        return {
+            "id": self.target_id,
+            "type": self.target_type,
+            "name": target_name,
+            "details": self.target_details,
+        }

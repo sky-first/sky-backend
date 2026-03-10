@@ -1,8 +1,8 @@
 """Alembic environment configuration."""
 
 import os
-from urllib.parse import quote_plus
 from logging.config import fileConfig
+from urllib.parse import quote_plus
 
 from alembic import context
 from sqlalchemy import pool

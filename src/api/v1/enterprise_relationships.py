@@ -58,6 +58,7 @@ async def create_relationship(
             detail=f"Failed to create relationship: {str(e)}",
         )
 
+
 @router.put(
     "/{relationship_id}",
     response_model=EnterpriseRelationshipResponse,
@@ -85,7 +86,6 @@ async def update_relationship(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update relationship: {str(e)}",
         )
-
 
 
 @router.delete(

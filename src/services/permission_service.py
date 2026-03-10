@@ -109,10 +109,15 @@ class PermissionService:
 
         # Check if permission already exists
         existing = await self.permission_repo.get_by_connection_and_space(
-            connection_id, permission_data.space_id, permission_data.crew_id, permission_data.user_id
+            connection_id,
+            permission_data.space_id,
+            permission_data.crew_id,
+            permission_data.user_id,
         )
         if existing:
-            raise BadRequestError("Permission already exists for this connection, target (space/crew/user) already assigned")
+            raise BadRequestError(
+                "Permission already exists for this connection, target (space/crew/user) already assigned"
+            )
 
         permission = await self.permission_repo.create(
             connection_id=connection_id,
@@ -141,6 +146,7 @@ class PermissionService:
 
                 if not connection_exists:
                     from src.models.space import SpaceConnection
+
                     space_connection = SpaceConnection(
                         space_id=permission_data.space_id, connection_id=connection_id
                     )
@@ -155,6 +161,7 @@ class PermissionService:
 
             except Exception as e:
                 import logging
+
                 logger = logging.getLogger(__name__)
                 logger.warning(
                     f"Failed to sync space associations for space {permission_data.space_id} and connection {connection_id}: {e}",
@@ -193,13 +200,13 @@ class PermissionService:
 
         update_data = permission_data.model_dump(exclude_unset=True)
         permission = await self.permission_repo.update(permission_id, **update_data)
-        
+
         # If space_id exists and table_access was updated, sync SpaceTable
         if permission.space_id and "table_access" in update_data:
             await self._sync_space_tables(
                 permission.space_id, permission.connection_id, update_data["table_access"]
             )
-            
+
         await self.db.commit()
         await self.db.refresh(permission)
 
@@ -629,13 +636,10 @@ class PermissionService:
             perm = await self.permission_repo.get_by_connection_and_space(
                 connection_id, space_id, None
             )
-            
+
             # Check explicit SpaceTable associations
             space_tables = await self.space_table_repo.get_space_tables(space_id)
-            linked_tables = {
-                t.table_name for t in space_tables 
-                if t.connection_id == connection_id
-            }
+            linked_tables = {t.table_name for t in space_tables if t.connection_id == connection_id}
 
             if perm:
                 if perm.access_level == "full":
@@ -646,7 +650,7 @@ class PermissionService:
                 elif perm.table_access:
                     authorized_tables.update(perm.table_access)
                     is_restricted_by_space = True
-            
+
             if linked_tables:
                 # If the user has linked specific tables to this space, use them.
                 # If authorized_tables already had some from 'perm', they merge.
@@ -675,14 +679,16 @@ class PermissionService:
                 return get_all_tables()
             elif user_conn_perm.table_access:
                 authorized_tables.update(user_conn_perm.table_access)
-                is_restricted_by_space = True # Treat user restriction similarly for inheritance logic
+                is_restricted_by_space = (
+                    True  # Treat user restriction similarly for inheritance logic
+                )
 
         # 5. Granular Table Member Permissions (if any)
         # Note: These usually come from crew member context, but kept for legacy/bridge support
         query = select(CrewMember.id).where(CrewMember.user_id == user_id)
         res = await self.db.execute(query)
         member_ids = [r[0] for r in res.all()]
-        
+
         member_perms = []
         if member_ids:
             # We filter by member_id and connection_id
@@ -695,7 +701,12 @@ class PermissionService:
 
         # Final check: if we are in a space/crew context and NO tables are authorized yet,
         # but the user is NOT the owner and DOES NOT have member perms, they should have nothing.
-        if (space_id or crew_ids) and not authorized_tables and not is_restricted_by_space and not member_perms:
+        if (
+            (space_id or crew_ids)
+            and not authorized_tables
+            and not is_restricted_by_space
+            and not member_perms
+        ):
             # If no permissions are explicitly defined for the space/crew, does it inherit ownership?
             # No, ownership was checked at step 1.
             # Does it inherit "all tables"? Usually not in a collaborative context unless public.

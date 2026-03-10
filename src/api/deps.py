@@ -178,7 +178,7 @@ async def get_current_user(
 
     # Update user activity (throttled to avoid lock contention)
     try:
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
 
         now = datetime.now(timezone.utc)
         last_active = user.last_active_at
@@ -186,7 +186,7 @@ async def get_current_user(
             # Ensure it has timezone info for comparison
             if last_active.tzinfo is None:
                 last_active = last_active.replace(tzinfo=timezone.utc)
-            
+
             # Only update if more than 60 seconds have passed
             if now - last_active > timedelta(seconds=60):
                 await user_repo.update(user.id, last_active_at=now, status="active")
