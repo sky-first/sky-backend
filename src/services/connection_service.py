@@ -287,8 +287,8 @@ class ConnectionService:
                 )
                 raise ForbiddenError("Access denied to this connection")
 
-        logger.info(f"🔴 [DELETE SERVICE] Deleting connection {connection_id} from database...")
-        await self.connection_repo.delete(connection_id)
+        logger.info(f"🔴 [DELETE SERVICE] HARD Deleting connection {connection_id} and metadata...")
+        await self.db.delete(connection)
         await self.db.commit()
         logger.info(f"🔴 [DELETE SERVICE] Connection {connection_id} deleted successfully")
 

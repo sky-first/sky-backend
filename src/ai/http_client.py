@@ -58,6 +58,13 @@ class AIServiceHTTPClient:
             "space_id": space_id,
         }
 
+        if selected_datasets is not None:
+             # ABSOLUTE SANDBOX: Provide exact table whitelist to AI Engine
+             payload["authorized_tables"] = selected_datasets
+        elif crew_ids or space_id:
+             # Fail-Closed: if in collaborative mode but no tables allowed, pass empty list
+             payload["authorized_tables"] = []
+
         if crew_ids:
             payload["crew_ids"] = crew_ids
         if thread_id:
@@ -200,6 +207,14 @@ class AIServiceHTTPClient:
         }
         if crew_ids:
             payload["crew_ids"] = crew_ids
+        
+        # Security: always transmit authorized tables list if provided
+        if "selected_datasets" in payload:
+             payload["authorized_tables"] = payload.pop("selected_datasets")
+        elif crew_ids or space_id:
+             # Fail-closed
+             payload["authorized_tables"] = []
+
         if language:
             payload["language"] = language
         if is_personal is not None:
@@ -250,6 +265,14 @@ class AIServiceHTTPClient:
         # AI service supports (and prefers) original_question to drive widget planning
         if original_question:
             payload["original_question"] = original_question
+        
+        # Security: always transmit authorized tables list
+        if "selected_datasets" in payload:
+             payload["authorized_tables"] = payload.pop("selected_datasets")
+        elif crew_ids or space_id:
+             # Fail-closed
+             payload["authorized_tables"] = []
+
         if crew_ids:
             payload["crew_ids"] = crew_ids
         if logical_tables_override:

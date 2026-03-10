@@ -90,6 +90,10 @@ class SuggestWidgetTitleRequest(BaseModel):
         default=False,
         description="Whether the action is in personal mode (access across all crews/spaces).",
     )
+    crew_id: Optional[str] = Field(
+        None,
+        description="Active crew ID for collaborative context.",
+    )
 
 
 class SuggestWidgetTitleResponse(BaseModel):

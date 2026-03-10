@@ -30,6 +30,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown."""
     # Startup
+    logger.info("VERIFY_RELOAD_SUCCESSFUL")
     logger.info("application_startup")
     await init_db()
     await init_redis()
