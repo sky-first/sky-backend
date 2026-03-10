@@ -3,9 +3,11 @@
 from typing import List, Optional
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
+from src.models.crew import Crew, CrewMember
 from src.models.space import SpaceConnection
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
@@ -108,15 +110,16 @@ class PermissionService:
 
         # Check if permission already exists
         existing = await self.permission_repo.get_by_connection_and_space(
-            connection_id, permission_data.space_id, permission_data.crew_id
+            connection_id, permission_data.space_id, permission_data.crew_id, permission_data.user_id
         )
         if existing:
-            raise BadRequestError("Permission already exists for this connection, space, and crew")
+            raise BadRequestError("Permission already exists for this connection, target (space/crew/user) already assigned")
 
         permission = await self.permission_repo.create(
             connection_id=connection_id,
             space_id=permission_data.space_id,
             crew_id=permission_data.crew_id,
+            user_id=permission_data.user_id,
             access_level=permission_data.access_level,
             table_access=permission_data.table_access,
         )
@@ -127,10 +130,9 @@ class PermissionService:
 
         # If permission is for a space, automatically create SpaceConnection
         # so tables are available when viewing the space
-        # Do this after committing the permission to avoid rollback
         if permission_data.space_id:
             try:
-                # Check if SpaceConnection already exists
+                # 1. Sync SpaceConnection
                 existing_connections = await self.space_repo.get_space_connections(
                     permission_data.space_id
                 )
@@ -139,24 +141,26 @@ class PermissionService:
                 )
 
                 if not connection_exists:
-                    # Create SpaceConnection to associate connection with space
+                    from src.models.space import SpaceConnection
                     space_connection = SpaceConnection(
                         space_id=permission_data.space_id, connection_id=connection_id
                     )
                     self.db.add(space_connection)
                     await self.db.commit()
 
-            except Exception as e:
-                # Log error but don't fail the permission creation
-                # The permission is more important than the connection association
-                import logging
+                # 2. Sync SpaceTable if tables are specified
+                if permission_data.table_access:
+                    await self._sync_space_tables(
+                        permission_data.space_id, connection_id, permission_data.table_access
+                    )
 
+            except Exception as e:
+                import logging
                 logger = logging.getLogger(__name__)
                 logger.warning(
-                    f"Failed to create SpaceConnection for space {permission_data.space_id} and connection {connection_id}: {e}",
+                    f"Failed to sync space associations for space {permission_data.space_id} and connection {connection_id}: {e}",
                     exc_info=True,
                 )
-                # Rollback the SpaceConnection creation but keep the permission
                 await self.db.rollback()
 
         return PermissionResponse.model_validate(permission)
@@ -190,6 +194,13 @@ class PermissionService:
 
         update_data = permission_data.model_dump(exclude_unset=True)
         permission = await self.permission_repo.update(permission_id, **update_data)
+        
+        # If space_id exists and table_access was updated, sync SpaceTable
+        if permission.space_id and "table_access" in update_data:
+            await self._sync_space_tables(
+                permission.space_id, permission.connection_id, update_data["table_access"]
+            )
+            
         await self.db.commit()
         await self.db.refresh(permission)
 
@@ -216,8 +227,43 @@ class PermissionService:
         if not connection or connection.created_by != user.id:
             raise ForbiddenError("Access denied to this permission")
 
+        # If this was a space permission, we might want to clean up SpaceTable entries
+        # so they don't linger without permission
+        if permission.space_id:
+            await self._sync_space_tables(permission.space_id, permission.connection_id, [])
+
         await self.permission_repo.delete(permission_id)
         await self.db.commit()
+
+    async def _sync_space_tables(
+        self, space_id: UUID, connection_id: UUID, table_access: Optional[List[str]]
+    ) -> None:
+        """
+        Sync SpaceTable entries for a space and connection.
+        """
+        if not space_id:
+            return
+
+        # Get existing SpaceTable entries for this space and connection
+        existing_tables = await self.space_table_repo.get_space_tables(space_id)
+        existing_conn_tables = {
+            t.table_name: t for t in existing_tables if t.connection_id == connection_id
+        }
+
+        # Tables that SHOULD be there
+        target_tables = set(table_access or [])
+
+        # Tables to add
+        for table_name in target_tables:
+            if table_name not in existing_conn_tables:
+                await self.space_table_repo.create(
+                    space_id=space_id, connection_id=connection_id, table_name=table_name
+                )
+
+        # Tables to remove
+        for table_name, t_obj in existing_conn_tables.items():
+            if table_name not in target_tables:
+                await self.space_table_repo.delete(t_obj.id)
 
     async def get_space_permissions(self, space_id: UUID, user: User) -> List[PermissionResponse]:
         """
@@ -571,8 +617,9 @@ class PermissionService:
                 return [t.get("name") for t in metadata.tables if t.get("name")]
             return []
 
-        # 1. Ownership: If user owns the connection, return all tables
-        if connection.created_by == user_id:
+        # 1. Ownership: Still return all tables if owner AND No Context (Personal Management)
+        # If in Space or Crew context, enforce strict filtering (Fail-Closed).
+        if connection.created_by == user_id and not space_id and not crew_ids:
             return get_all_tables()
 
         authorized_tables: Set[str] = set()
@@ -620,22 +667,42 @@ class PermissionService:
                         authorized_tables.update(perm.table_access)
                         is_restricted_by_space = True
 
-        # 4. Individual Table Member Permissions
-        # This repository method get_by_member returns all TableMemberPermissions for a user
-        member_perms = await self.table_member_permission_repo.get_by_member(user_id)
-        has_member_perms = False
-        for mp in member_perms:
-            if mp.connection_id == connection_id and mp.has_access:
-                authorized_tables.add(mp.table_name)
-                has_member_perms = True
+        # 4. Individual User Connection Permissions
+        user_conn_perm = await self.permission_repo.get_by_connection_and_space(
+            connection_id, None, None, user_id
+        )
+        if user_conn_perm:
+            if user_conn_perm.access_level == "full":
+                return get_all_tables()
+            elif user_conn_perm.table_access:
+                authorized_tables.update(user_conn_perm.table_access)
+                is_restricted_by_space = True # Treat user restriction similarly for inheritance logic
+
+        # 5. Granular Table Member Permissions (if any)
+        # Note: These usually come from crew member context, but kept for legacy/bridge support
+        query = select(CrewMember.id).where(CrewMember.user_id == user_id)
+        res = await self.db.execute(query)
+        member_ids = [r[0] for r in res.all()]
+        
+        member_perms = []
+        if member_ids:
+            # We filter by member_id and connection_id
+            for m_id in member_ids:
+                perms = await self.table_member_permission_repo.get_by_member(m_id)
+                for p in perms:
+                    if p.connection_id == connection_id and p.has_access:
+                        authorized_tables.add(p.table_name)
+                        member_perms.append(p)
 
         # Final check: if we are in a space/crew context and NO tables are authorized yet,
         # but the user is NOT the owner and DOES NOT have member perms, they should have nothing.
-        if (space_id or crew_ids) and not authorized_tables and not is_restricted_by_space and not has_member_perms:
+        if (space_id or crew_ids) and not authorized_tables and not is_restricted_by_space and not member_perms:
             # If no permissions are explicitly defined for the space/crew, does it inherit ownership?
             # No, ownership was checked at step 1.
             # Does it inherit "all tables"? Usually not in a collaborative context unless public.
             # For now, return empty if no matches found in collaborative context.
             return []
 
-        return sorted(list(authorized_tables))
+        # Final safety filter: ensure everything in authorized_tables is a non-None string
+        final_list = [t for t in authorized_tables if t and isinstance(t, str)]
+        return sorted(list(set(final_list)))

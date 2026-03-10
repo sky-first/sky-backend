@@ -62,18 +62,10 @@ class PermissionRepository(BaseRepository[ConnectionPermission]):
         return list(result.scalars().all())
 
     async def get_by_connection_and_space(
-        self, connection_id: UUID, space_id: Optional[UUID], crew_id: Optional[UUID]
+        self, connection_id: UUID, space_id: Optional[UUID], crew_id: Optional[UUID], user_id: Optional[UUID] = None
     ) -> Optional[ConnectionPermission]:
         """
-        Get permission by connection, space, and crew.
-
-        Args:
-            connection_id: Connection ID
-            space_id: Space ID (optional)
-            crew_id: Crew ID (optional)
-
-        Returns:
-            Optional[ConnectionPermission]: Permission or None
+        Get permission by connection, space, crew, and user.
         """
         query = select(ConnectionPermission).where(
             ConnectionPermission.connection_id == connection_id
@@ -89,8 +81,13 @@ class PermissionRepository(BaseRepository[ConnectionPermission]):
         else:
             query = query.where(ConnectionPermission.crew_id.is_(None))
 
+        if user_id:
+            query = query.where(ConnectionPermission.user_id == user_id)
+        else:
+            query = query.where(ConnectionPermission.user_id.is_(None))
+
         result = await self.db.execute(query)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
 
 class TableMemberPermissionRepository(BaseRepository[TableMemberPermission]):

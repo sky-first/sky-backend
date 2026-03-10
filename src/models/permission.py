@@ -34,6 +34,12 @@ class ConnectionPermission(Base):
         nullable=True,
         index=True,
     )
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     access_level = Column(String(50), nullable=False)  # full, read-only, custom
     table_access = Column(JSON, nullable=True)  # Array of table names (if access_level = 'custom')
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -48,12 +54,14 @@ class ConnectionPermission(Base):
     connection = relationship("DataConnection", back_populates="permissions")
     space = relationship("Space")
     crew = relationship("Crew")
+    user = relationship("User")
 
     __table_args__ = (
-        UniqueConstraint("connection_id", "space_id", "crew_id", name="uq_connection_permissions"),
+        UniqueConstraint("connection_id", "space_id", "crew_id", "user_id", name="uq_connection_permissions"),
         Index("idx_connection_permissions_connection_id", "connection_id"),
         Index("idx_connection_permissions_space_id", "space_id"),
         Index("idx_connection_permissions_crew_id", "crew_id"),
+        Index("idx_connection_permissions_user_id", "user_id"),
     )
 
     def __repr__(self) -> str:
