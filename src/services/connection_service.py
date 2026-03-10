@@ -423,7 +423,7 @@ class ConnectionService:
                     perm = await self.permission_repo.get_by_connection_and_space(
                         connection_id, space.id, None
                     )
-                    
+
                     # If perm exists and has restricted table access, only link those tables.
                     # If access_level is 'full', we link all.
                     restricted_tables = None
@@ -448,7 +448,7 @@ class ConnectionService:
                                 fully_qualified = f"{t_schema}.{t_name}" if t_schema else t_name
                                 # Match by base name, fully qualified name, or if the restricted name ends with .t_name
                                 match = (
-                                    t_name in restricted_tables 
+                                    t_name in restricted_tables
                                     or fully_qualified in restricted_tables
                                     or any(rt.endswith(f".{t_name}") for rt in restricted_tables)
                                 )

@@ -92,7 +92,7 @@ class StrategyCycle(Base):
     start_date = Column(DateTime(timezone=True), nullable=False)
     end_date = Column(DateTime(timezone=True), nullable=False)
     status = Column(String(50), nullable=True, default="active")
-    
+
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(

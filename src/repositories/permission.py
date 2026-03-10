@@ -62,7 +62,11 @@ class PermissionRepository(BaseRepository[ConnectionPermission]):
         return list(result.scalars().all())
 
     async def get_by_connection_and_space(
-        self, connection_id: UUID, space_id: Optional[UUID], crew_id: Optional[UUID], user_id: Optional[UUID] = None
+        self,
+        connection_id: UUID,
+        space_id: Optional[UUID],
+        crew_id: Optional[UUID],
+        user_id: Optional[UUID] = None,
     ) -> Optional[ConnectionPermission]:
         """
         Get permission by connection, space, crew, and user.
