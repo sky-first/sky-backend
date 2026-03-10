@@ -271,11 +271,11 @@ class AuthenticationService:
             ip_address=ip_address,
         )
         self.db.add(refresh_token_model)
-        
+
         # Flush to avoid greenlet issues when accessing attributes in sync function later
         await self.db.commit()
         await self.db.refresh(user)
- 
+
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
