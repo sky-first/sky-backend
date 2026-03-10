@@ -37,8 +37,8 @@ from src.schemas.ai import (
     ValidateSQLRequest,
     ValidateSQLResponse,
 )
-from src.utils.cache import CacheService, ai_response_cache_key
 from src.services.permission_service import PermissionService
+from src.utils.cache import CacheService, ai_response_cache_key
 
 logger = logging.getLogger(__name__)
 
@@ -484,6 +484,7 @@ class AIService:
                             thread_id=str(query.id),
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
+                            authorized_tables=list(authorized_tables),
                             instructions=configure_data.instructions,
                             response_format=configure_data.response_format,
                         )
@@ -846,6 +847,7 @@ class AIService:
                             thread_id=str(user_message.id),
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
+                            authorized_tables=list(authorized_tables),
                         )
 
                         answer = result.get("answer", "")

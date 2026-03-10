@@ -31,6 +31,7 @@ class RealAIService:
         thread_id: Optional[str] = None,
         is_personal: Optional[bool] = None,
         selected_datasets: Optional[List[str]] = None,
+        authorized_tables: Optional[List[str]] = None,
         instructions: Optional[str] = None,
         response_format: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -117,6 +118,7 @@ class RealAIService:
                 thread_id=thread_id,
                 is_personal=is_personal,
                 selected_datasets=selected_datasets,
+                authorized_tables=authorized_tables,
                 instructions=instructions,
                 response_format=response_format,
             )

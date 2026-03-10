@@ -289,7 +289,22 @@ async def chat_bootstrap(
                 current_user.id, resolved_space_id
             )
 
-        # 5) Call AI Engine
+        # 5) Mandatory Permission Filtering: Get authorized tables
+        permission_service = ai_service.permission_service
+        try:
+            from uuid import UUID
+
+            authorized_tables = await permission_service.get_authorized_tables(
+                user_id=current_user.id,
+                connection_id=UUID(connection_id),
+                space_id=UUID(resolved_space_id) if resolved_space_id else None,
+                crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+            )
+        except Exception as e:
+            logger.error(f"[chat_bootstrap] Error checking authorized tables: {e}", exc_info=True)
+            authorized_tables = []  # Fail closed
+
+        # 6) Call AI Engine
         client = AIServiceHTTPClient()
         payload = await client.chat_bootstrap(
             connection_id=connection_id,
@@ -299,9 +314,10 @@ async def chat_bootstrap(
             language=language,
             max_suggestions=max_suggestions,
             is_personal=is_personal,
+            authorized_tables=list(authorized_tables),
         )
 
-        # 6) Return as schema
+        # 7) Return as schema
         out = ChatBootstrapResponse.model_validate(payload)
         out.meta = {
             **(out.meta or {}),

@@ -33,6 +33,7 @@ class AIServiceHTTPClient:
         thread_id: Optional[str] = None,
         is_personal: Optional[bool] = None,
         selected_datasets: Optional[List[str]] = None,
+        authorized_tables: Optional[List[str]] = None,
         instructions: Optional[str] = None,
         response_format: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -58,12 +59,11 @@ class AIServiceHTTPClient:
             "space_id": space_id,
         }
 
-        if selected_datasets is not None:
-             # ABSOLUTE SANDBOX: Provide exact table whitelist to AI Engine
-             payload["authorized_tables"] = selected_datasets
-        elif crew_ids or space_id:
-             # Fail-Closed: if in collaborative mode but no tables allowed, pass empty list
-             payload["authorized_tables"] = []
+        # Envio correto de variáveis isoladas
+        if selected_datasets:
+            payload["selected_datasets"] = selected_datasets
+        if authorized_tables:
+            payload["authorized_tables"] = authorized_tables
 
         if crew_ids:
             payload["crew_ids"] = crew_ids
@@ -71,8 +71,6 @@ class AIServiceHTTPClient:
             payload["thread_id"] = thread_id
         if is_personal is not None:
             payload["is_personal"] = bool(is_personal)
-        if selected_datasets:
-            payload["selected_datasets"] = selected_datasets
         if instructions:
             payload["instructions"] = instructions
         if response_format:
@@ -192,6 +190,7 @@ class AIServiceHTTPClient:
         language: Optional[str] = None,
         max_suggestions: int = 4,
         is_personal: Optional[bool] = None,
+        authorized_tables: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Generate greeting + suggestion cards for a new chat session.
@@ -207,13 +206,10 @@ class AIServiceHTTPClient:
         }
         if crew_ids:
             payload["crew_ids"] = crew_ids
-        
-        # Security: always transmit authorized tables list if provided
-        if "selected_datasets" in payload:
-             payload["authorized_tables"] = payload.pop("selected_datasets")
-        elif crew_ids or space_id:
-             # Fail-closed
-             payload["authorized_tables"] = []
+
+        # Envio correto de variáveis isoladas
+        if authorized_tables:
+            payload["authorized_tables"] = authorized_tables
 
         if language:
             payload["language"] = language
@@ -247,6 +243,7 @@ class AIServiceHTTPClient:
         context_spaces: Optional[List[str]] = None,
         context_crews: Optional[List[str]] = None,
         context_tables: Optional[List[str]] = None,
+        authorized_tables: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Generate a dashboard plan ("Davinci") for a given connection.
@@ -265,13 +262,10 @@ class AIServiceHTTPClient:
         # AI service supports (and prefers) original_question to drive widget planning
         if original_question:
             payload["original_question"] = original_question
-        
-        # Security: always transmit authorized tables list
-        if "selected_datasets" in payload:
-             payload["authorized_tables"] = payload.pop("selected_datasets")
-        elif crew_ids or space_id:
-             # Fail-closed
-             payload["authorized_tables"] = []
+
+        # Envio correto de variáveis isoladas
+        if authorized_tables:
+            payload["authorized_tables"] = authorized_tables
 
         if crew_ids:
             payload["crew_ids"] = crew_ids
