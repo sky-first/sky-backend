@@ -280,6 +280,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     context_spaces=(ctx.get("context_spaces") if isinstance(ctx, dict) else None),
                     context_crews=(ctx.get("context_crews") if isinstance(ctx, dict) else None),
                     context_tables=(ctx.get("context_tables") if isinstance(ctx, dict) else None),
+                    authorized_tables=list(authorized_tables),
                 )
             # Preserve any pre-existing context stored in job.plan
             if isinstance(ctx, dict):

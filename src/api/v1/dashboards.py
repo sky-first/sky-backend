@@ -1,5 +1,4 @@
-"""Dashboard endpoints."""
-
+import logging
 import uuid
 from typing import List, Optional, cast
 from uuid import UUID
@@ -42,6 +41,7 @@ from src.services.dashboard_service import DashboardService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _get_textual_layout() -> list[dict]:
@@ -462,6 +462,19 @@ async def ai_plan_dashboard(
         logical_tables_override = None
         schema_summary_override = None
 
+    # Mandatory Permission Filtering: Get authorized tables
+    permission_service = ai_service.permission_service
+    try:
+        authorized_tables = await permission_service.get_authorized_tables(
+            user_id=current_user.id,
+            connection_id=UUID(connection_id),
+            space_id=UUID(resolved_space_id) if resolved_space_id else None,
+            crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+        )
+    except Exception as e:
+        logger.error(f"[ai_plan_dashboard] Error checking authorized tables: {e}", exc_info=True)
+        authorized_tables = []  # Fail closed
+
     payload = await client.dashboard_plan(
         connection_id=connection_id,
         user_id=str(current_user.id),
@@ -477,6 +490,7 @@ async def ai_plan_dashboard(
         context_spaces=body.context_spaces,
         context_crews=body.context_crews,
         context_tables=body.context_tables,
+        authorized_tables=list(authorized_tables),
     )
 
     # Validate / normalize into our schema
