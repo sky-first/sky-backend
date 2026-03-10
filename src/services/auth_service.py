@@ -1,8 +1,10 @@
 """Authentication service."""
 
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from uuid import UUID
 
+from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
@@ -61,6 +63,19 @@ def user_to_response_dict(user: User) -> dict:
     }
 
 
+async def perform_onboarding_task(user_id: UUID):
+    """Background task to ensure default planet and space for a user."""
+    from src.config.database import AsyncSessionLocal
+    from src.repositories.user import UserRepository
+    from src.services.onboarding_service import ensure_default_planet_and_space
+
+    async with AsyncSessionLocal() as db:
+        user_repo = UserRepository(db)
+        user = await user_repo.get_by_id(user_id)
+        if user:
+            await ensure_default_planet_and_space(db, user)
+
+
 class AuthenticationService:
     """Authentication service."""
 
@@ -74,7 +89,9 @@ class AuthenticationService:
         self.db = db
         self.user_repo = UserRepository(db)
 
-    async def register(self, user_data: UserCreate) -> UserResponse:
+    async def register(
+        self, user_data: UserCreate, background_tasks: Optional[BackgroundTasks] = None
+    ) -> UserResponse:
         """
         Register a new user.
 
@@ -102,18 +119,25 @@ class AuthenticationService:
         )
 
         await self.db.commit()
-        await self.db.refresh(user)  # Refresh to ensure all fields are loaded
+        await self.db.refresh(user)
+        # Note: redundant refresh removed due to expire_on_commit=False
 
         # Ensure default planet/space for new users
-        await ensure_default_planet_and_space(self.db, user)
+        if user.id:
+            if background_tasks:
+                background_tasks.add_task(perform_onboarding_task, UUID(str(user.id)))
+            else:
+                await ensure_default_planet_and_space(self.db, user)
 
-        return UserResponse.model_validate(user_to_response_dict(user))
+        user_response_data = user_to_response_dict(user)
+        return UserResponse.model_validate(user_response_data)
 
     async def register_with_tokens(
         self,
         register_data: RegisterRequest,
-        user_agent: str = None,
-        ip_address: str = None,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
     ) -> LoginResponse:
         """
         Register a new user and return tokens (auto-login after registration).
@@ -144,7 +168,7 @@ class AuthenticationService:
         )
 
         # Register user (this will check for existing email and create user)
-        user_response = await self.register(user_data)
+        user_response = await self.register(user_data, background_tasks=background_tasks)
 
         # Get the created user from database
         user = await self.user_repo.get_by_email(register_data.email)
@@ -179,8 +203,9 @@ class AuthenticationService:
         self,
         email: str,
         password: str,
-        user_agent: str = None,
-        ip_address: str = None,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
     ) -> LoginResponse:
         """
         Authenticate user and return tokens (hybrid: traditional, SSO, or invite).
@@ -217,16 +242,19 @@ class AuthenticationService:
                 )
 
         # Verify password (for traditional and completed invite users)
-        if not verify_password(password, user.password_hash):
+        if not user.password_hash or not verify_password(password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")
 
         # Update last login
         user.last_login_at = datetime.now(timezone.utc)
-        await self.db.commit()
-        await self.db.refresh(user)  # Refresh to ensure all fields are loaded
+        # Note: redundant refresh removed due to expire_on_commit=False
 
         # Ensure default planet/space exists (fallback for legacy users)
-        await ensure_default_planet_and_space(self.db, user)
+        if user.id:
+            if background_tasks:
+                background_tasks.add_task(perform_onboarding_task, UUID(str(user.id)))
+            else:
+                await ensure_default_planet_and_space(self.db, user)
 
         # Create tokens
         token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
@@ -243,8 +271,11 @@ class AuthenticationService:
             ip_address=ip_address,
         )
         self.db.add(refresh_token_model)
+        
+        # Flush to avoid greenlet issues when accessing attributes in sync function later
         await self.db.commit()
-
+        await self.db.refresh(user)
+ 
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -445,7 +476,7 @@ class AuthenticationService:
         if not user:
             raise UnauthorizedError("User not found")
 
-        if not verify_password(current_password, user.password_hash):
+        if not user.password_hash or not verify_password(current_password, user.password_hash):
             raise UnauthorizedError("Invalid current password")
 
         user.password_hash = get_password_hash(new_password)

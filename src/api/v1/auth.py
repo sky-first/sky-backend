@@ -4,7 +4,7 @@ from typing import List, Optional
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,6 +54,7 @@ router = APIRouter()
 async def register(
     register_data: RegisterRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
     """
@@ -74,6 +75,7 @@ async def register(
         register_data,
         user_agent=request.headers.get("user-agent"),
         ip_address=request.client.host if request.client else None,
+        background_tasks=background_tasks,
     )
 
 
@@ -88,6 +90,7 @@ async def register(
 async def login(
     login_data: LoginRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
     """
@@ -107,6 +110,7 @@ async def login(
             login_data.password,
             user_agent=request.headers.get("user-agent"),
             ip_address=request.client.host if request.client else None,
+            background_tasks=background_tasks,
         )
         return result
     except Exception as e:
@@ -363,7 +367,8 @@ async def get_sessions(
         List[SessionResponse]: List of active sessions
     """
     auth_service = AuthenticationService(db)
-    sessions = await auth_service.get_active_sessions(current_user.id)
+    assert current_user.id is not None
+    sessions = await auth_service.get_active_sessions(UUID(str(current_user.id)))
     return [SessionResponse(**s) for s in sessions]
 
 
@@ -390,7 +395,8 @@ async def revoke_all_sessions(
         SuccessResponse: Success message
     """
     auth_service = AuthenticationService(db)
-    await auth_service.revoke_all_tokens(current_user.id)
+    assert current_user.id is not None
+    await auth_service.revoke_all_tokens(UUID(str(current_user.id)))
     return SuccessResponse(message="All sessions revoked successfully")
 
 
@@ -419,8 +425,9 @@ async def change_password(
         SuccessResponse: Success message
     """
     auth_service = AuthenticationService(db)
+    assert current_user.id is not None
     await auth_service.change_password(
-        current_user.id, request_data.current_password, request_data.new_password
+        UUID(str(current_user.id)), request_data.current_password, request_data.new_password
     )
     return SuccessResponse(message="Password changed successfully")
 

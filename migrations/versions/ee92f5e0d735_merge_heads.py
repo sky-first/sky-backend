@@ -5,8 +5,6 @@ Revises: a1009ce57bec, add_sc_crew_id
 Create Date: 2026-03-10 11:55:20.627454
 
 """
-from alembic import op
-import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
