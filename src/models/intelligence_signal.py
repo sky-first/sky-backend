@@ -58,7 +58,7 @@ class IntelligenceSignal(Base):
     )
 
     # Relationships
-    planet: Any = relationship("Planet")
+    planet = relationship("Planet")
 
     def __repr__(self):
         return f"<IntelligenceSignal(id={self.id}, title={self.title}, category={self.category})>"
