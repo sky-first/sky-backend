@@ -176,26 +176,21 @@ async def get_current_user(
     if not user:
         raise UnauthorizedError("User not found")
 
-    # FIXME: Disabled to avoid lock contention on every request!
-    # Update user activity (throttled to avoid lock contention)
-    # try:
-    #     from datetime import datetime, timedelta, timezone
-    #
-    #     now = datetime.now(timezone.utc)
-    #     last_active = user.last_active_at
-    #     if last_active:
-    #         # Ensure it has timezone info for comparison
-    #         if last_active.tzinfo is None:
-    #             last_active = last_active.replace(tzinfo=timezone.utc)
-    #
-    #         # Only update if more than 5 minutes (300 seconds) have passed
-    #         if now - last_active > timedelta(seconds=300):
-    #             await user_repo.update(user.id, last_active_at=now, status="active")
-    #     else:
-    #         # First time activity
-    #         await user_repo.update(user.id, last_active_at=now, status="active")
-    # except Exception as e:
-    #     logger.warning(f"Failed to update user activity: {e}")
+    # Atomic activity tracking — fire-and-forget, does NOT block the request.
+    # The WHERE clause inside update_last_active_atomic() ensures only one
+    # concurrent writer wins (the rest skip silently). No lock storm possible.
+    import asyncio
+    from src.config.database import AsyncSessionLocal
+
+    async def _track_activity(uid: UUID) -> None:
+        try:
+            async with AsyncSessionLocal() as tracking_session:
+                repo = UserRepository(tracking_session)
+                await repo.update_last_active_atomic(uid, cooldown_seconds=60)
+        except Exception as exc:
+            logger.debug(f"Activity tracking skipped: {exc}")
+
+    asyncio.ensure_future(_track_activity(UUID(user_id)))
 
     return user
 
