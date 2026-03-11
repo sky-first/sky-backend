@@ -1,8 +1,9 @@
-
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
+
 
 class IntelligenceSignalBase(BaseModel):
     category: str = Field(..., description="now, smart, or explore")
@@ -19,8 +20,10 @@ class IntelligenceSignalBase(BaseModel):
     confidence: Optional[float] = 1.0
     space_id: Optional[str] = None
 
+
 class IntelligenceSignalCreate(IntelligenceSignalBase):
     planet_id: UUID
+
 
 class IntelligenceSignalUpdate(BaseModel):
     is_dismissed: Optional[datetime] = None
@@ -28,6 +31,7 @@ class IntelligenceSignalUpdate(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
     category: Optional[str] = None
+
 
 class IntelligenceSignalResponse(IntelligenceSignalBase):
     id: UUID

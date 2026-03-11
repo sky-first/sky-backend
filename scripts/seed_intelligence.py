@@ -1,16 +1,19 @@
 import asyncio
+
+
+from sqlalchemy import delete, select
+
 from src.config.database import AsyncSessionLocal
-from src.models.planet import Planet
 from src.models.intelligence_signal import IntelligenceSignal
-from sqlalchemy import select, delete
-import uuid
+from src.models.planet import Planet
+
 
 async def seed_intelligence():
     async with AsyncSessionLocal() as session:
         # Get all planets
         result = await session.execute(select(Planet))
         planets = result.scalars().all()
-        
+
         if not planets:
             print("❌ No planets found. Please seed planets first.")
             return
@@ -20,12 +23,12 @@ async def seed_intelligence():
         for planet in planets:
             planet_id = planet.id
             print(f"🪐 Seeding signals for planet: {planet.name} ({planet_id})")
-            
+
             # Clear existing signals for this planet
             await session.execute(
                 delete(IntelligenceSignal).where(IntelligenceSignal.planet_id == planet_id)
             )
-            
+
             signals = [
                 IntelligenceSignal(
                     planet_id=planet_id,
@@ -40,9 +43,9 @@ async def seed_intelligence():
                     chart_data={
                         "type": "line",
                         "series": [2400, 1398, 9800, 3908, 2800, 2400, 1300],
-                        "labels": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                        "labels": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
                     },
-                    confidence=0.92
+                    confidence=0.92,
                 ),
                 IntelligenceSignal(
                     planet_id=planet_id,
@@ -57,9 +60,9 @@ async def seed_intelligence():
                     chart_data={
                         "type": "bar",
                         "series": [45, 52, 38, 65, 48, 72],
-                        "labels": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
+                        "labels": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
                     },
-                    confidence=0.88
+                    confidence=0.88,
                 ),
                 IntelligenceSignal(
                     planet_id=planet_id,
@@ -74,10 +77,10 @@ async def seed_intelligence():
                     chart_data={
                         "type": "area",
                         "series": [100, 95, 80, 82, 60, 42],
-                        "labels": ["W1", "W2", "W3", "W4", "W5", "W6"]
+                        "labels": ["W1", "W2", "W3", "W4", "W5", "W6"],
                     },
-                    confidence=0.85
-                )
+                    confidence=0.85,
+                ),
             ]
 
             session.add_all(signals)
@@ -85,6 +88,7 @@ async def seed_intelligence():
 
         await session.commit()
         print("🚀 All planets seeded successfully!")
+
 
 if __name__ == "__main__":
     asyncio.run(seed_intelligence())
