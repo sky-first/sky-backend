@@ -13,6 +13,7 @@ from src.api.v1 import (
     datasets,
     enterprise_relationships,
     files,
+    intelligence_signals,
     notifications,
     permissions,
     planets,
@@ -94,6 +95,9 @@ api_router.include_router(comments.router, prefix="/comments", tags=["Comments"]
 
 # Signal Events endpoints
 api_router.include_router(signal_events.router, prefix="/signal-events", tags=["Signal Events"])
+
+# Intelligence Signals endpoints
+api_router.include_router(intelligence_signals.router, prefix="/intelligence/signals", tags=["Intelligence Signals"])
 
 # Strategy endpoints
 api_router.include_router(strategy.router, prefix="/strategy", tags=["Strategy"])

@@ -121,12 +121,8 @@ class Settings(BaseSettings):
 
         return self
 
-    DATABASE_POOL_SIZE: int = (
-        3  # Reduzido para 3 conexões por processo (recomendado para evitar "too many clients")
-    )
-    DATABASE_MAX_OVERFLOW: int = (
-        5  # Máximo de 5 conexões adicionais (total máximo: 8 conexões por processo)
-    )
+    DATABASE_POOL_SIZE: int = 20  # Aumentado de 3 para 20 para evitar exaustão de conexões
+    DATABASE_MAX_OVERFLOW: int = 10  # Aumentado de 5 para 10 (total máximo: 30 conexões)
     DATABASE_POOL_PRE_PING: bool = True
 
     # Redis

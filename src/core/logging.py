@@ -64,8 +64,9 @@ def configure_logging():
     root_logger.setLevel(settings.LOG_LEVEL.upper())
 
     # Mute noisy loggers
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
+    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+    logging.getLogger("uvicorn.error").setLevel(logging.INFO)
+    logging.getLogger("uvicorn").setLevel(logging.INFO)
 
 
 def get_logger(name: str):

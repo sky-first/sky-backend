@@ -9,6 +9,7 @@ from src.models.ai import (
     Pipeline,
     PipelineStep,
 )
+from src.models.intelligence_signal import IntelligenceSignal
 from src.models.comment import Comment
 from src.models.connection import ColumnMetadata, ConnectionMetadata, DataConnection, TableMetadata
 from src.models.crew import Crew, CrewMember
@@ -72,6 +73,7 @@ __all__ = [
     "Comment",
     "SignalEvent",
     "EnterpriseRelationship",
+    "IntelligenceSignal",
     "StrategicPillar",
     "StrategicObjective",
     "StrategyOKR",
