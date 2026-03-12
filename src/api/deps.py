@@ -180,6 +180,7 @@ async def get_current_user(
     # The WHERE clause inside update_last_active_atomic() ensures only one
     # concurrent writer wins (the rest skip silently). No lock storm possible.
     import asyncio
+
     from src.config.database import AsyncSessionLocal
 
     async def _track_activity(uid: UUID) -> None:

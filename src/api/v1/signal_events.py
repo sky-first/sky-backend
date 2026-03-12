@@ -1,4 +1,5 @@
 from typing import List
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -33,7 +34,7 @@ async def create_signal_event(
 
 @router.get("/{event_id}", response_model=SignalEventResponse)
 async def get_signal_event(
-    event_id: str,
+    event_id: UUID,
     current_user: User = Depends(get_current_user),
     repo: SignalEventRepository = Depends(get_signal_event_repo),
 ):
@@ -46,7 +47,7 @@ async def get_signal_event(
 
 @router.put("/{event_id}", response_model=SignalEventResponse)
 async def update_signal_event(
-    event_id: str,
+    event_id: UUID,
     event_in: SignalEventUpdate,
     current_user: User = Depends(get_current_user),
     repo: SignalEventRepository = Depends(get_signal_event_repo),
@@ -61,7 +62,7 @@ async def update_signal_event(
 
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_signal_event(
-    event_id: str,
+    event_id: UUID,
     current_user: User = Depends(get_current_user),
     repo: SignalEventRepository = Depends(get_signal_event_repo),
 ):

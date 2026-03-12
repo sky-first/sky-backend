@@ -18,7 +18,7 @@ class EnterpriseAPI(Base):
     name = Column(String(255), nullable=False)
     base_url = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    
+
     # Store endpoints and their schemas as JSON
     # endpoints: list of {path: string, method: string, description: string, fields: list of {name: string, type: string}}
     endpoints = Column(JSON, nullable=True, default=[])

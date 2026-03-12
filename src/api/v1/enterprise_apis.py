@@ -1,6 +1,7 @@
 """Enterprise API endpoints."""
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -31,10 +32,14 @@ router = APIRouter()
 async def list_apis(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> list[EnterpriseAPIResponse]:
+) -> Any:
     """List all registered APIs for the current user."""
-    service = EnterpriseAPIService(db)
-    return await service.list_apis(current_user)
+    try:
+        service = EnterpriseAPIService(db)
+        return await service.list_apis(current_user)
+    except Exception as e:
+        logger.error(f"Error listing APIs: {str(e)}", exc_info=True)
+        raise e
 
 
 @router.post(
@@ -47,7 +52,7 @@ async def create_api(
     data: EnterpriseAPICreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> EnterpriseAPIResponse:
+) -> Any:
     """Register a new API."""
     try:
         service = EnterpriseAPIService(db)
@@ -71,7 +76,7 @@ async def get_api(
     api_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> EnterpriseAPIResponse:
+) -> Any:
     """Get API details by ID."""
     try:
         service = EnterpriseAPIService(db)
@@ -94,7 +99,7 @@ async def update_api(
     data: EnterpriseAPIUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> EnterpriseAPIResponse:
+) -> Any:
     """Update API registration."""
     try:
         service = EnterpriseAPIService(db)

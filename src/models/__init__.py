@@ -9,14 +9,15 @@ from src.models.ai import (
     Pipeline,
     PipelineStep,
 )
-from src.models.intelligence_signal import IntelligenceSignal
 from src.models.comment import Comment
 from src.models.connection import ColumnMetadata, ConnectionMetadata, DataConnection, TableMetadata
 from src.models.crew import Crew, CrewMember
 from src.models.dashboard import Connection, Dashboard, Widget
 from src.models.dashboard_build_job import DashboardBuildJob
+from src.models.enterprise_api import EnterpriseAPI
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.file import FileUpload
+from src.models.intelligence_signal import IntelligenceSignal
 from src.models.notification import Notification
 from src.models.permission import APIKey, ConnectionPermission, Integration
 from src.models.planet import Planet, PlanetMember
@@ -73,6 +74,7 @@ __all__ = [
     "Comment",
     "SignalEvent",
     "EnterpriseRelationship",
+    "EnterpriseAPI",
     "IntelligenceSignal",
     "StrategicPillar",
     "StrategicObjective",

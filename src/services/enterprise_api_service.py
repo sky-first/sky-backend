@@ -113,7 +113,7 @@ class EnterpriseAPIService:
             raise ForbiddenError("Access denied to this API")
 
         update_data = api_data.model_dump(exclude_unset=True)
-        
+
         # Convert endpoints to dict if provided
         if "endpoints" in update_data and update_data["endpoints"]:
             update_data["endpoints"] = [e.model_dump() for e in api_data.endpoints]
