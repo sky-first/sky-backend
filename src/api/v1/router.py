@@ -11,6 +11,7 @@ from src.api.v1 import (
     crews,
     dashboards,
     datasets,
+    enterprise_apis,
     enterprise_relationships,
     files,
     intelligence_signals,
@@ -107,4 +108,11 @@ api_router.include_router(
     enterprise_relationships.router,
     prefix="/enterprise/relationships",
     tags=["Enterprise Relationships"],
+)
+
+# Enterprise API endpoints
+api_router.include_router(
+    enterprise_apis.router,
+    prefix="/enterprise/apis",
+    tags=["Enterprise APIs"],
 )
