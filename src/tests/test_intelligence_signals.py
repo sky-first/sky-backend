@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
+from uuid import uuid4
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid import uuid4
-from datetime import datetime, timezone
-from src.tests.test_all_endpoints import get_auth_headers, create_test_planet
+
+from src.tests.test_all_endpoints import create_test_planet, get_auth_headers
+
 
 @pytest.mark.asyncio
 class TestIntelligenceSignalsEndpoints:
@@ -16,22 +19,25 @@ class TestIntelligenceSignalsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        
+
         # Create a test signal directly in DB for listing
         from src.models.intelligence_signal import IntelligenceSignal
+
         signal = IntelligenceSignal(
-            id=uuid4(),
+            id=uuid4(),  # type: ignore
             planet_id=planet.id,
             category="now",
             title="Test Signal",
             content="Test content",
             created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
+            updated_at=datetime.now(timezone.utc),
         )
         db_session.add(signal)
         await db_session.commit()
 
-        response = await async_client.get(f"/api/v1/intelligence/signals/?planet_id={planet.id}", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/intelligence/signals/?planet_id={planet.id}", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -45,17 +51,19 @@ class TestIntelligenceSignalsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        
+
         payload = {
             "planet_id": str(planet.id),
             "category": "smart",
             "title": "New Smart Signal",
             "content": "Description of smart signal",
             "impact": "High",
-            "confidence": 0.95
+            "confidence": 0.95,
         }
-        
-        response = await async_client.post("/api/v1/intelligence/signals/", json=payload, headers=headers)
+
+        response = await async_client.post(
+            "/api/v1/intelligence/signals/", json=payload, headers=headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["title"] == payload["title"]
@@ -69,22 +77,25 @@ class TestIntelligenceSignalsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        
+
         # Create a test signal
         from src.models.intelligence_signal import IntelligenceSignal
+
         signal = IntelligenceSignal(
-            id=uuid4(),
+            id=uuid4(),  # type: ignore
             planet_id=planet.id,
             category="explore",
             title="Dismiss Me",
             content="Content",
             created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
+            updated_at=datetime.now(timezone.utc),
         )
         db_session.add(signal)
         await db_session.commit()
 
-        response = await async_client.patch(f"/api/v1/intelligence/signals/{signal.id}/dismiss", headers=headers)
+        response = await async_client.patch(
+            f"/api/v1/intelligence/signals/{signal.id}/dismiss", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["is_dismissed"] is not None
@@ -96,22 +107,25 @@ class TestIntelligenceSignalsEndpoints:
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        
+
         # Create a test signal
         from src.models.intelligence_signal import IntelligenceSignal
+
         signal = IntelligenceSignal(
-            id=uuid4(),
+            id=uuid4(),  # type: ignore
             planet_id=planet.id,
             category="now",
             title="Delete Me",
             content="Content",
             created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
+            updated_at=datetime.now(timezone.utc),
         )
         db_session.add(signal)
         await db_session.commit()
 
-        response = await async_client.delete(f"/api/v1/intelligence/signals/{signal.id}", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/intelligence/signals/{signal.id}", headers=headers
+        )
         assert response.status_code == 204
 
 
@@ -140,7 +154,7 @@ class TestSignalEventsEndpoints:
             "nature": "Event",
             "description": "Launch of the new AI module",
             "start_date": datetime.now(timezone.utc).isoformat(),
-            "confidence": "High"
+            "confidence": "High",
         }
         response = await async_client.post("/api/v1/signal-events/", json=payload, headers=headers)
         assert response.status_code == 201

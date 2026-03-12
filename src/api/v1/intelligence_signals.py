@@ -12,10 +12,7 @@ from src.repositories.intelligence_signal import (
     get_intelligence_signal_repo,
 )
 from src.repositories.planet import PlanetRepository
-from src.schemas.intelligence_signal import (
-    IntelligenceSignalCreate,
-    IntelligenceSignalResponse,
-)
+from src.schemas.intelligence_signal import IntelligenceSignalCreate, IntelligenceSignalResponse
 from src.services.rbac_service import RBACService
 
 router = APIRouter()

@@ -11,6 +11,7 @@ from src.api.v1 import (
     crews,
     dashboards,
     datasets,
+    enterprise_apis,
     enterprise_relationships,
     files,
     intelligence_signals,
@@ -97,7 +98,9 @@ api_router.include_router(comments.router, prefix="/comments", tags=["Comments"]
 api_router.include_router(signal_events.router, prefix="/signal-events", tags=["Signal Events"])
 
 # Intelligence Signals endpoints
-api_router.include_router(intelligence_signals.router, prefix="/intelligence/signals", tags=["Intelligence Signals"])
+api_router.include_router(
+    intelligence_signals.router, prefix="/intelligence/signals", tags=["Intelligence Signals"]
+)
 
 # Strategy endpoints
 api_router.include_router(strategy.router, prefix="/strategy", tags=["Strategy"])
@@ -107,4 +110,11 @@ api_router.include_router(
     enterprise_relationships.router,
     prefix="/enterprise/relationships",
     tags=["Enterprise Relationships"],
+)
+
+# Enterprise API endpoints
+api_router.include_router(
+    enterprise_apis.router,
+    prefix="/enterprise/apis",
+    tags=["Enterprise APIs"],
 )

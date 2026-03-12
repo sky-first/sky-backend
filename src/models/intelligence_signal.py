@@ -1,5 +1,4 @@
 import uuid
-from typing import Any
 from enum import Enum
 
 from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, String, Text, func, text
