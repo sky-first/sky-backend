@@ -2,7 +2,7 @@
 
 import time as _time
 from datetime import datetime, time, timedelta, timezone
-from typing import List, Optional
+from typing import List, Optional, cast
 from uuid import UUID
 
 import structlog
@@ -55,7 +55,7 @@ class ConnectionService:
         self.ai_client = AIServiceHTTPClient()
 
     async def _calculate_next_sync(
-        self, frequency: str, last_sync: Optional[datetime]
+        self, frequency: Optional[str], last_sync: Optional[datetime]
     ) -> Optional[datetime]:
         """
         Calculate next sync time based on frequency.
@@ -120,8 +120,9 @@ class ConnectionService:
         if connector_id:
             filters["connector_id"] = connector_id
 
+        assert user.id is not None
         connections = await self.connection_repo.get_by_user(
-            user.id, skip=skip, limit=limit, filters=filters
+            cast(UUID, user.id), skip=skip, limit=limit, filters=filters
         )
         return [ConnectionResponse.model_validate(c) for c in connections]
 
@@ -347,7 +348,7 @@ class ConnectionService:
                 error={"message": str(e), "timestamp": datetime.now(timezone.utc).isoformat()},
             )
             await self.db.commit()
-            return ConnectionTestResponse(success=False, message=f"Error: {str(e)}")
+            return ConnectionTestResponse(success=False, message=f"Error: {str(e)}", latency=None)
 
     async def sync_connection(self, connection_id: UUID, user: User) -> ConnectionSyncResponse:
         """
@@ -749,7 +750,7 @@ class ConnectionService:
             queries_count=queries_count,
             active_users=active_users,
             latency_ms=latency_ms,
-            uptime_pct=round(uptime_pct, 1),
+            uptime_pct=float(round(uptime_pct, 1)),
             satisfaction_pct=0.0,  # TODO: implement feedback aggregation
             ai_roi_hours=0.0,  # TODO: implement ROI calculation
             top_users=[],  # TODO: implement top users aggregation

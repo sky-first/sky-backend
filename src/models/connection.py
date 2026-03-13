@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from src.config.database import Base
 
 if TYPE_CHECKING:
-    pass
+    from src.models.permission import ConnectionPermission
 
 
 class DataConnection(Base):
@@ -21,7 +21,7 @@ class DataConnection(Base):
 
     __tablename__ = "data_connections"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     connector_id = Column(
         String(100), nullable=False
@@ -36,7 +36,7 @@ class DataConnection(Base):
     next_sync = Column(DateTime(timezone=True), nullable=True)
     last_metadata_update = Column(DateTime(timezone=True), nullable=True)
     error = Column(JSON, nullable=True)  # {message: string, timestamp: timestamp}
-    created_by = Column(
+    created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -50,13 +50,13 @@ class DataConnection(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    connection_metadata = relationship(
+    connection_metadata: Mapped["ConnectionMetadata"] = relationship(
         "ConnectionMetadata",
         back_populates="connection",
         uselist=False,
         cascade="all, delete-orphan",
     )
-    permissions = relationship(
+    permissions: Mapped[List["ConnectionPermission"]] = relationship(
         "ConnectionPermission", back_populates="connection", cascade="all, delete-orphan"
     )
 
@@ -82,8 +82,8 @@ class ConnectionMetadata(Base):
 
     __tablename__ = "connection_metadata"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    connection_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("data_connections.id", ondelete="CASCADE"),
         nullable=False,
@@ -107,7 +107,7 @@ class ConnectionMetadata(Base):
     )
 
     # Relationships
-    connection = relationship("DataConnection", back_populates="connection_metadata")
+    connection: Mapped["DataConnection"] = relationship("DataConnection", back_populates="connection_metadata")
 
     __table_args__ = (Index("idx_connection_metadata_connection_id", "connection_id"),)
 
