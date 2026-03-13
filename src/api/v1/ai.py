@@ -317,7 +317,27 @@ async def chat_bootstrap(
             authorized_tables=list(authorized_tables),
         )
 
-        # 7) Return as schema
+        # 7) Return as schema (enforce non-null keys if AI service is flaky)
+        if not payload or not isinstance(payload, dict):
+            logger.warning(f"[chat_bootstrap] AI service returned invalid payload: {payload}")
+            return ChatBootstrapResponse(
+                greeting="How can I help you today?",
+                suggestions=[
+                    {"title": "Available data", "kind": "question", "question": "What data do I have access to?"},
+                    {"title": "Examples", "kind": "question", "question": "Give me examples of questions I can ask."},
+                ][:max_suggestions],
+                meta={"enabled": True, "reason": "AI_SERVICE_EMPTY_PAYLOAD"}
+            )
+
+        # Ensure required fields are present even if payload is a dict
+        if "greeting" not in payload:
+            payload["greeting"] = "How can I help you today?"
+        if "suggestions" not in payload or not payload["suggestions"]:
+            payload["suggestions"] = [
+                {"title": "Available data", "kind": "question", "question": "What data do I have access to?"},
+                {"title": "Examples", "kind": "question", "question": "Give me examples of questions I can ask."},
+            ][:max_suggestions]
+
         out = ChatBootstrapResponse.model_validate(payload)
         out.meta = {
             **(out.meta or {}),
