@@ -551,6 +551,7 @@ class ConnectionService:
         return ConnectionMetadataResponse(
             tables=tables,
             schemas=metadata.schemas or [],
+            relationships=metadata.relationships or [],
             last_metadata_update=metadata.last_metadata_update,
         )
 
@@ -590,6 +591,8 @@ class ConnectionService:
             update_data["tables"] = metadata_update["tables"]
         if "schemas" in metadata_update:
             update_data["schemas"] = metadata_update["schemas"]
+        if "relationships" in metadata_update:
+            update_data["relationships"] = metadata_update["relationships"]
 
         # Update last_metadata_update timestamp
         update_data["last_metadata_update"] = datetime.now(timezone.utc)
@@ -608,7 +611,7 @@ class ConnectionService:
                     if name:
                         updated_table_names.append(name)
 
-            if updated_table_names:
+            if updated_table_names or "relationships" in metadata_update:
                 # Get all spaces linked to this connection to trigger background re-indexing
                 spaces = await self.space_repo.get_spaces_by_connection_id(connection_id)
                 for space in spaces:
@@ -617,7 +620,7 @@ class ConnectionService:
                             connection_id=str(connection_id),
                             space_id=str(space.id),
                             run_in_background=True,
-                            table_names=updated_table_names,
+                            table_names=updated_table_names if "relationships" not in metadata_update else None,
                         )
                     except Exception as space_error:
                         logger.warning(

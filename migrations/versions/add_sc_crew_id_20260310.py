@@ -8,7 +8,6 @@ Create Date: 2026-03-10
 
 import sqlalchemy as sa
 from alembic import op
-from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
@@ -19,8 +18,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Ensure vector extension exists
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    # Ensure vector extension exists - Removed to avoid pgvector dependency
+    # op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     bind = op.get_bind()
     inspector = sa.inspect(bind)
@@ -34,7 +33,7 @@ def upgrade() -> None:
             sa.Column("space_id", sa.String(), nullable=True),
             sa.Column("crew_id", sa.String(), nullable=True),
             sa.Column("question", sa.Text(), nullable=False),
-            sa.Column("embedding", Vector(768), nullable=False),
+            sa.Column("embedding", sa.JSON(), nullable=False),
             sa.Column("response_json", sa.JSON(), nullable=False),
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         )
