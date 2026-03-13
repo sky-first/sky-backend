@@ -45,11 +45,8 @@ class UserUpdate(BaseModel):
     preferences: Optional[dict] = None
     ai_tone: Optional[str] = None
     ai_style: Optional[str] = None
-    ai_tone: Optional[str] = None
-    ai_style: Optional[str] = None
     ai_context: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(active|away|offline)$")
-    onboarding_version: Optional[int] = None
 
 
 class OnboardingUpdate(BaseModel):
