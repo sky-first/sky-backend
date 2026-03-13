@@ -53,7 +53,7 @@ class AIServiceHTTPClient:
         """
         url = f"{self.base_url}/connections/{connection_id}/query"
 
-        payload = {
+        payload: Dict[str, Any] = {
             "question": question,
             "user_id": user_id,
             "space_id": space_id,
@@ -83,13 +83,14 @@ class AIServiceHTTPClient:
             )
             response = await client.post(url, json=payload)
             response.raise_for_status()
-            return response.json()
+            return response.json()  # type: ignore
 
     async def discover_connection(
         self,
         connection_id: str,
         space_id: str,
         run_in_background: Optional[bool] = None,
+        table_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Discover tables/metadata for a connection.
@@ -97,6 +98,8 @@ class AIServiceHTTPClient:
         Args:
             connection_id: Connection ID
             space_id: Space ID
+            run_in_background: Optional background execution flag
+            table_names: Optional list of table names to filter discovery
 
         Returns:
             Dict with discovery results
@@ -109,6 +112,8 @@ class AIServiceHTTPClient:
         params: Dict[str, Any] = {"space_id": space_id}
         if run_in_background is not None:
             params["run_in_background"] = bool(run_in_background)
+        if table_names:
+            params["table_names"] = table_names
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(
@@ -117,7 +122,7 @@ class AIServiceHTTPClient:
             )
             response = await client.post(url, params=params)
             response.raise_for_status()
-            return response.json()
+            return response.json()  # type: ignore
 
     async def list_tables(
         self,
@@ -151,7 +156,7 @@ class AIServiceHTTPClient:
             )
             response = await client.get(url, params=params)
             response.raise_for_status()
-            return response.json()
+            return response.json()  # type: ignore
 
     async def metadata_status(
         self,
@@ -179,7 +184,7 @@ class AIServiceHTTPClient:
             )
             response = await client.get(url, params=params)
             response.raise_for_status()
-            return response.json()
+            return response.json()  # type: ignore
 
     async def chat_bootstrap(
         self,
@@ -225,7 +230,7 @@ class AIServiceHTTPClient:
             )
             response = await client.post(url, json=payload)
             response.raise_for_status()
-            return response.json()
+            return response.json()  # type: ignore
 
     async def dashboard_plan(
         self,
@@ -291,7 +296,7 @@ class AIServiceHTTPClient:
             )
             response = await client.post(url, json=payload)
             response.raise_for_status()
-            return response.json()
+            return response.json()  # type: ignore
 
     async def validate_sql(
         self,
@@ -350,7 +355,7 @@ class AIServiceHTTPClient:
             )
             response = await client.post(url, json=payload)
             response.raise_for_status()
-            return response.json()
+            return response.json()  # type: ignore
 
     async def suggest_widget_title(
         self,
@@ -407,7 +412,7 @@ class AIServiceHTTPClient:
                     current_title or "N/A",
                     suggested_title,
                 )
-                return suggested_title
+                return str(suggested_title)
             except httpx.HTTPError as e:
                 logger.warning(
                     "Failed to suggest widget title: %s. Using current title.",
@@ -431,7 +436,7 @@ class AIServiceHTTPClient:
           POST /widgets/infographic
         """
         url = f"{self.base_url}/widgets/infographic"
-        payload = {
+        payload: Dict[str, Any] = {
             "question": question,
             "answer": answer,
             "language": language,
@@ -444,4 +449,4 @@ class AIServiceHTTPClient:
             logger.info(f"Calling AI generate infographic: {url}")
             response = await client.post(url, json=payload)
             response.raise_for_status()
-            return response.json()
+            return response.json()  # type: ignore

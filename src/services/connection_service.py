@@ -476,7 +476,7 @@ class ConnectionService:
                 for space in spaces:
                     try:
                         await self.ai_client.discover_connection(
-                            connection_id=connection_id, space_id=space.id, run_in_background=True
+                            connection_id=str(connection_id), space_id=space.id, run_in_background=True
                         )
                         logger.info(
                             "ai_service_notified",
@@ -598,6 +598,39 @@ class ConnectionService:
         await self.metadata_repo.update(existing_metadata.id, **update_data)
         await self.db.commit()
 
+        # === Notify AI Service for granular sync ===
+        try:
+            # Identify which tables were updated
+            updated_table_names = []
+            if "tables" in metadata_update and isinstance(metadata_update["tables"], list):
+                for t in metadata_update["tables"]:
+                    name = t.get("name") if isinstance(t, dict) else getattr(t, "name", None)
+                    if name:
+                        updated_table_names.append(name)
+
+            if updated_table_names:
+                # Get all spaces linked to this connection to trigger background re-indexing
+                spaces = await self.space_repo.get_spaces_by_connection_id(connection_id)
+                for space in spaces:
+                    try:
+                        await self.ai_client.discover_connection(
+                            connection_id=str(connection_id),
+                            space_id=str(space.id),
+                            run_in_background=True,
+                            table_names=updated_table_names,
+                        )
+                    except Exception as space_error:
+                        logger.warning(
+                            "ai_granular_notif_failed_for_space",
+                            connection_id=str(connection_id),
+                            space_id=str(space.id),
+                            error=str(space_error),
+                        )
+        except Exception as e:
+            logger.error(
+                "ai_granular_notification_failed", connection_id=str(connection_id), error=str(e)
+            )
+
         # Return updated metadata
         return await self.get_metadata(connection_id, user)
 
@@ -617,7 +650,7 @@ class ConnectionService:
             ForbiddenError: If user doesn't have access
         """
         metadata_response = await self.get_metadata(connection_id, user)
-        return metadata_response.tables
+        return list(metadata_response.tables)
 
     async def get_schemas(self, connection_id: UUID, user: User) -> List[str]:
         """
@@ -635,7 +668,7 @@ class ConnectionService:
             ForbiddenError: If user doesn't have access
         """
         metadata_response = await self.get_metadata(connection_id, user)
-        return metadata_response.schemas
+        return list(metadata_response.schemas)
 
     async def get_status(self, connection_id: UUID, user: User) -> ConnectionStatusResponse:
         """
