@@ -12,7 +12,7 @@ class ColumnMetadataSchema(BaseModel):
 
     name: str
     type: str
-    nullable: bool = True
+    nullable: Optional[bool] = True
     description: Optional[str] = None
 
 
@@ -47,9 +47,9 @@ class TableRelationshipSchema(BaseModel):
 class ConnectionMetadataResponse(BaseModel):
     """Connection metadata response schema."""
 
-    tables: List[TableMetadataSchema] = []
-    schemas: List[str] = []
-    relationships: List[TableRelationshipSchema] = []
+    tables: Optional[List[TableMetadataSchema]] = []
+    schemas: Optional[List[str]] = []
+    relationships: Optional[List[TableRelationshipSchema]] = []
     last_metadata_update: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -89,8 +89,8 @@ class ConnectionMetrics(BaseModel):
     uptime_pct: float = 0.0
     satisfaction_pct: float = 0.0
     ai_roi_hours: float = 0.0
-    top_users: List[Dict[str, Any]] = []
-    usage_history: List[Dict[str, Any]] = []
+    top_users: Optional[List[Dict[str, Any]]] = []
+    usage_history: Optional[List[Dict[str, Any]]] = []
 
 
 class ConnectionResponse(ConnectionBase):

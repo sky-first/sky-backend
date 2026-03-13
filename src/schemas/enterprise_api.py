@@ -16,14 +16,14 @@ class APIEndpoint(BaseModel):
     path: str
     method: str
     description: Optional[str] = None
-    fields: List[APIField]
+    fields: Optional[List[APIField]] = []
 
 
 class EnterpriseAPIBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     base_url: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
-    endpoints: List[APIEndpoint] = []
+    endpoints: Optional[List[APIEndpoint]] = []
 
 
 class EnterpriseAPICreate(EnterpriseAPIBase):
