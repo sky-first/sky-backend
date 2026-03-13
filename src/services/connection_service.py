@@ -598,6 +598,7 @@ class ConnectionService:
         update_data["last_metadata_update"] = datetime.now(timezone.utc)
 
         # Update metadata
+        assert existing_metadata.id is not None
         await self.metadata_repo.update(existing_metadata.id, **update_data)
         await self.db.commit()
 
