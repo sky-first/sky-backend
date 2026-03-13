@@ -32,11 +32,24 @@ class TableMetadataSchema(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class TableRelationshipSchema(BaseModel):
+    """Table relationship schema."""
+
+    from_table: str
+    from_column: str
+    to_table: str
+    to_column: str
+    join_type: str = "INNER"
+    label: Optional[str] = None
+    confidence: str = "explicit"
+
+
 class ConnectionMetadataResponse(BaseModel):
     """Connection metadata response schema."""
 
     tables: List[TableMetadataSchema] = []
     schemas: List[str] = []
+    relationships: List[TableRelationshipSchema] = []
     last_metadata_update: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)

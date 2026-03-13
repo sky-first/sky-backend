@@ -2,7 +2,7 @@
 
 import time as _time
 from datetime import datetime, time, timedelta, timezone
-from typing import List, Optional
+from typing import List, Optional, cast
 from uuid import UUID
 
 import structlog
@@ -55,7 +55,7 @@ class ConnectionService:
         self.ai_client = AIServiceHTTPClient()
 
     async def _calculate_next_sync(
-        self, frequency: str, last_sync: Optional[datetime]
+        self, frequency: Optional[str], last_sync: Optional[datetime]
     ) -> Optional[datetime]:
         """
         Calculate next sync time based on frequency.
@@ -120,8 +120,9 @@ class ConnectionService:
         if connector_id:
             filters["connector_id"] = connector_id
 
+        assert user.id is not None
         connections = await self.connection_repo.get_by_user(
-            user.id, skip=skip, limit=limit, filters=filters
+            cast(UUID, user.id), skip=skip, limit=limit, filters=filters
         )
         return [ConnectionResponse.model_validate(c) for c in connections]
 
@@ -347,7 +348,7 @@ class ConnectionService:
                 error={"message": str(e), "timestamp": datetime.now(timezone.utc).isoformat()},
             )
             await self.db.commit()
-            return ConnectionTestResponse(success=False, message=f"Error: {str(e)}")
+            return ConnectionTestResponse(success=False, message=f"Error: {str(e)}", latency=None)
 
     async def sync_connection(self, connection_id: UUID, user: User) -> ConnectionSyncResponse:
         """
@@ -551,6 +552,7 @@ class ConnectionService:
         return ConnectionMetadataResponse(
             tables=tables,
             schemas=metadata.schemas or [],
+            relationships=metadata.relationships or [],
             last_metadata_update=metadata.last_metadata_update,
         )
 
@@ -590,11 +592,14 @@ class ConnectionService:
             update_data["tables"] = metadata_update["tables"]
         if "schemas" in metadata_update:
             update_data["schemas"] = metadata_update["schemas"]
+        if "relationships" in metadata_update:
+            update_data["relationships"] = metadata_update["relationships"]
 
         # Update last_metadata_update timestamp
         update_data["last_metadata_update"] = datetime.now(timezone.utc)
 
         # Update metadata
+        assert existing_metadata.id is not None
         await self.metadata_repo.update(existing_metadata.id, **update_data)
         await self.db.commit()
 
@@ -608,7 +613,7 @@ class ConnectionService:
                     if name:
                         updated_table_names.append(name)
 
-            if updated_table_names:
+            if updated_table_names or "relationships" in metadata_update:
                 # Get all spaces linked to this connection to trigger background re-indexing
                 spaces = await self.space_repo.get_spaces_by_connection_id(connection_id)
                 for space in spaces:
@@ -617,7 +622,7 @@ class ConnectionService:
                             connection_id=str(connection_id),
                             space_id=str(space.id),
                             run_in_background=True,
-                            table_names=updated_table_names,
+                            table_names=updated_table_names if "relationships" not in metadata_update else None,
                         )
                     except Exception as space_error:
                         logger.warning(
@@ -745,7 +750,7 @@ class ConnectionService:
             queries_count=queries_count,
             active_users=active_users,
             latency_ms=latency_ms,
-            uptime_pct=round(uptime_pct, 1),
+            uptime_pct=float(round(uptime_pct, 1)),
             satisfaction_pct=0.0,  # TODO: implement feedback aggregation
             ai_roi_hours=0.0,  # TODO: implement ROI calculation
             top_users=[],  # TODO: implement top users aggregation
