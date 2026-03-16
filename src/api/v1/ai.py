@@ -323,10 +323,18 @@ async def chat_bootstrap(
             return ChatBootstrapResponse(
                 greeting="How can I help you today?",
                 suggestions=[
-                    {"title": "Available data", "kind": "question", "question": "What data do I have access to?"},
-                    {"title": "Examples", "kind": "question", "question": "Give me examples of questions I can ask."},
+                    {
+                        "title": "Available data",
+                        "kind": "question",
+                        "question": "What data do I have access to?",
+                    },
+                    {
+                        "title": "Examples",
+                        "kind": "question",
+                        "question": "Give me examples of questions I can ask.",
+                    },
                 ][:max_suggestions],
-                meta={"enabled": True, "reason": "AI_SERVICE_EMPTY_PAYLOAD"}
+                meta={"enabled": True, "reason": "AI_SERVICE_EMPTY_PAYLOAD"},
             )
 
         # Ensure required fields are present even if payload is a dict
@@ -334,8 +342,16 @@ async def chat_bootstrap(
             payload["greeting"] = "How can I help you today?"
         if "suggestions" not in payload or not payload["suggestions"]:
             payload["suggestions"] = [
-                {"title": "Available data", "kind": "question", "question": "What data do I have access to?"},
-                {"title": "Examples", "kind": "question", "question": "Give me examples of questions I can ask."},
+                {
+                    "title": "Available data",
+                    "kind": "question",
+                    "question": "What data do I have access to?",
+                },
+                {
+                    "title": "Examples",
+                    "kind": "question",
+                    "question": "Give me examples of questions I can ask.",
+                },
             ][:max_suggestions]
 
         out = ChatBootstrapResponse.model_validate(payload)

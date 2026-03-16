@@ -107,7 +107,9 @@ class ConnectionMetadata(Base):
     )
 
     # Relationships
-    connection: Mapped["DataConnection"] = relationship("DataConnection", back_populates="connection_metadata")
+    connection: Mapped["DataConnection"] = relationship(
+        "DataConnection", back_populates="connection_metadata"
+    )
 
     __table_args__ = (Index("idx_connection_metadata_connection_id", "connection_id"),)
 

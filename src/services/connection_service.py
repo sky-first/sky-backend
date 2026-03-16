@@ -477,7 +477,9 @@ class ConnectionService:
                 for space in spaces:
                     try:
                         await self.ai_client.discover_connection(
-                            connection_id=str(connection_id), space_id=space.id, run_in_background=True
+                            connection_id=str(connection_id),
+                            space_id=space.id,
+                            run_in_background=True,
                         )
                         logger.info(
                             "ai_service_notified",
@@ -622,7 +624,11 @@ class ConnectionService:
                             connection_id=str(connection_id),
                             space_id=str(space.id),
                             run_in_background=True,
-                            table_names=updated_table_names if "relationships" not in metadata_update else None,
+                            table_names=(
+                                updated_table_names
+                                if "relationships" not in metadata_update
+                                else None
+                            ),
                         )
                     except Exception as space_error:
                         logger.warning(
