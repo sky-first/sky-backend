@@ -81,22 +81,31 @@ async def idempotency_middleware(request: Request, call_next: Callable) -> Respo
             try:
                 logger.debug(f"Caching successful response for idempotency key: {idempotency_key}")
 
-                # Read body from iterator
-                # We use Any cast because body_iterator is not in base Response but present in StreamingResponse
+                # Safely read body from iterator
+                # We use Any cast because body_iterator is not in base Response
                 res_any = cast(Any, response)
-                response_body = [section async for section in res_any.body_iterator]
-                # Restore body iterator so background processing/FastAPI can still use it
-                res_any.body_iterator = iterate_in_threadpool(iter(response_body))
 
-                # Combine body parts
-                full_body_bytes = b"".join(response_body)
-                # Try to store as string if possible, or base64 if binary?
-                # Most of our responses are JSON (text).
+                if not hasattr(res_any, "body_iterator") or res_any.body_iterator is None:
+                    # If it has a .body property, use it directly (safer for some Response types)
+                    if hasattr(res_any, "body"):
+                        full_body_bytes = res_any.body
+                    else:
+                        return response
+                else:
+                    # Read body from iterator
+                    try:
+                        response_body = [section async for section in res_any.body_iterator]
+                        # Restore body iterator
+                        res_any.body_iterator = iterate_in_threadpool(iter(response_body))
+                        full_body_bytes = b"".join(response_body)
+                    except Exception as body_err:
+                        logger.warning(f"Could not iterate body for idempotency: {body_err}")
+                        return response
+
+                # Try to store as string if possible
                 try:
                     full_body = full_body_bytes.decode("utf-8")
                 except UnicodeDecodeError:
-                    # If binary, we might not want to cache it or we'd need base64
-                    # For now, we only care about API JSON mutations
                     return response
 
                 # Prepare metadata for caching
