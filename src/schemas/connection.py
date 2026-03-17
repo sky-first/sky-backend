@@ -30,6 +30,7 @@ class TableMetadataSchema(BaseModel):
     health: Optional[str] = "Healthy"
     usage_score: Optional[int] = 0
     tags: Optional[List[str]] = []
+    description: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 

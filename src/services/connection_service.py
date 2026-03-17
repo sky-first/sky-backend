@@ -406,17 +406,78 @@ class ConnectionService:
             existing_metadata = await self.metadata_repo.get_by_connection_id(
                 connection_id
             )
+
+            # Build a lookup of existing user-added data (descriptions, tags)
+            # keyed by "schema.name" or just "name" so we can merge them into
+            # the fresh connector data without losing user edits.
+            existing_user_data: dict = {}
+            if existing_metadata and existing_metadata.tables:
+                for existing_table in existing_metadata.tables:
+                    if isinstance(existing_table, dict):
+                        t_name = existing_table.get("name", "")
+                        t_schema = existing_table.get("schema") or existing_table.get("schema_name") or ""
+                        key = f"{t_schema}.{t_name}" if t_schema else t_name
+                        existing_user_data[key] = {
+                            "description": existing_table.get("description") or "",
+                            "tags": existing_table.get("tags") or [],
+                            "columns_meta": {
+                                col.get("name", ""): {
+                                    "description": col.get("description") or "",
+                                    "tags": col.get("tags") or [],
+                                }
+                                for col in (existing_table.get("columns") or [])
+                                if isinstance(col, dict)
+                            },
+                        }
+
+            # Merge fresh connector tables with preserved user data
+            fresh_tables = metadata.get("tables", [])
+            merged_tables = []
+            for fresh_table in fresh_tables:
+                if isinstance(fresh_table, dict):
+                    t_name = fresh_table.get("name", "")
+                    t_schema = fresh_table.get("schema") or fresh_table.get("schema_name") or ""
+                    key = f"{t_schema}.{t_name}" if t_schema else t_name
+                    user_data = existing_user_data.get(key, {})
+
+                    # Preserve description and tags from user edits
+                    merged = dict(fresh_table)
+                    if user_data.get("description"):
+                        merged["description"] = user_data["description"]
+                    if user_data.get("tags"):
+                        merged.setdefault("tags", user_data["tags"])
+
+                    # Merge column-level user data
+                    cols_meta = user_data.get("columns_meta", {})
+                    if cols_meta and isinstance(merged.get("columns"), list):
+                        merged_columns = []
+                        for col in merged["columns"]:
+                            if isinstance(col, dict):
+                                col_name = col.get("name", "")
+                                col_user = cols_meta.get(col_name, {})
+                                merged_col = dict(col)
+                                if col_user.get("description"):
+                                    merged_col["description"] = col_user["description"]
+                                merged_columns.append(merged_col)
+                            else:
+                                merged_columns.append(col)
+                        merged["columns"] = merged_columns
+
+                    merged_tables.append(merged)
+                else:
+                    merged_tables.append(fresh_table)
+
             if existing_metadata:
                 await self.metadata_repo.update(
                     existing_metadata.id,
-                    tables=metadata.get("tables", []),
+                    tables=merged_tables,
                     schemas=metadata.get("schemas", []),
                     last_metadata_update=datetime.now(timezone.utc),
                 )
             else:
                 await self.metadata_repo.create(
                     connection_id=connection_id,
-                    tables=metadata.get("tables", []),
+                    tables=merged_tables,
                     schemas=metadata.get("schemas", []),
                     last_metadata_update=datetime.now(timezone.utc),
                 )
