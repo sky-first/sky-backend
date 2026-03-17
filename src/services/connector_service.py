@@ -917,7 +917,9 @@ class ConnectorService:
             description=definition["description"],
             icon=definition.get("icon"),
             fields=[ConnectorField(**field) for field in definition.get("fields", [])],
-            auth_methods=[AuthMethod(**method) for method in definition.get("auth_methods", [])],
+            auth_methods=[
+                AuthMethod(**method) for method in definition.get("auth_methods", [])
+            ],
             config_schema=definition.get("config_schema", {}),
             sync_frequency=definition.get("sync_frequency"),
             metadata_schema=definition.get("metadata_schema"),

@@ -40,7 +40,9 @@ class Settings(BaseSettings):
         """Get CORS origins as a list."""
         if not self.CORS_ORIGINS:
             return ["http://localhost:3000", "http://localhost:3001"]
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        return [
+            origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
+        ]
 
     # Database - can be built from separate env vars or provided as full URL
     DATABASE_URL: str = Field(
@@ -53,7 +55,9 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = Field(default="", description="PostgreSQL password")
     POSTGRES_HOST: str = Field(default="localhost", description="PostgreSQL host")
     POSTGRES_PORT: int = Field(default=5432, description="PostgreSQL port")
-    POSTGRES_DB: str = Field(default="ai_saas_db", description="PostgreSQL database name")
+    POSTGRES_DB: str = Field(
+        default="ai_saas_db", description="PostgreSQL database name"
+    )
 
     @model_validator(mode="after")
     def build_database_url(self):
@@ -71,7 +75,9 @@ class Settings(BaseSettings):
 
         # If POSTGRES_PASSWORD is set as env var, always build URL from separate vars
         if os.getenv("POSTGRES_PASSWORD"):
-            encoded_password = quote_plus(postgres_password) if postgres_password else ""
+            encoded_password = (
+                quote_plus(postgres_password) if postgres_password else ""
+            )
             port_str = (
                 f":{postgres_port_env}"
                 if postgres_port_env
@@ -85,7 +91,11 @@ class Settings(BaseSettings):
                 "postgresql://", "postgresql+asyncpg://", 1
             )
 
-        if self.DATABASE_URL and "@" in self.DATABASE_URL and "asyncpg" in self.DATABASE_URL:
+        if (
+            self.DATABASE_URL
+            and "@" in self.DATABASE_URL
+            and "asyncpg" in self.DATABASE_URL
+        ):
             # Fix existing DATABASE_URL if password contains special characters
             import re
 
@@ -101,7 +111,9 @@ class Settings(BaseSettings):
 
                 try:
                     # Try to decode if it's already encoded
-                    decoded_password = unquote_plus(password) if "%" in password else password
+                    decoded_password = (
+                        unquote_plus(password) if "%" in password else password
+                    )
                     # Only re-encode if password contains special chars that need encoding
                     if (
                         any(
@@ -112,17 +124,19 @@ class Settings(BaseSettings):
                     ):
                         encoded_password = quote_plus(decoded_password)
                         port_part = f":{port}" if port else ""
-                        self.DATABASE_URL = (
-                            f"{scheme}://{username}:{encoded_password}@{host}{port_part}/{database}"
-                        )
+                        self.DATABASE_URL = f"{scheme}://{username}:{encoded_password}@{host}{port_part}/{database}"
                 except Exception:
                     # If any error in complex parsing, leave as is
                     pass
 
         return self
 
-    DATABASE_POOL_SIZE: int = 20  # Aumentado de 3 para 20 para evitar exaustão de conexões
-    DATABASE_MAX_OVERFLOW: int = 10  # Aumentado de 5 para 10 (total máximo: 30 conexões)
+    DATABASE_POOL_SIZE: int = (
+        20  # Aumentado de 3 para 20 para evitar exaustão de conexões
+    )
+    DATABASE_MAX_OVERFLOW: int = (
+        10  # Aumentado de 5 para 10 (total máximo: 30 conexões)
+    )
     DATABASE_POOL_PRE_PING: bool = True
 
     # Redis
@@ -153,7 +167,9 @@ class Settings(BaseSettings):
         if not self.REDIS_URL and redis_host:
             auth = f":{redis_password}@" if redis_password else ""
             self.REDIS_URL = f"redis://{auth}{redis_host}:{redis_port}/{redis_db}"
-        elif not self.REDIS_URL and not redis_host and self.ENVIRONMENT != "development":
+        elif (
+            not self.REDIS_URL and not redis_host and self.ENVIRONMENT != "development"
+        ):
             # Safety check for non-development environments
             import logging
 
@@ -278,7 +294,8 @@ class Settings(BaseSettings):
     AI_RATE_LIMIT_GLOBAL_USER_PER_HOUR: int = 80
 
     IDEMPOTENCY_TTL_SECONDS: int = Field(
-        default=86400, description="TTL in seconds for idempotency keys stored in Redis."
+        default=86400,
+        description="TTL in seconds for idempotency keys stored in Redis.",
     )
 
     @model_validator(mode="after")
@@ -342,7 +359,14 @@ class Settings(BaseSettings):
                 netloc += f":{parsed.port}"
 
             return urlunparse(
-                (scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+                (
+                    scheme,
+                    netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                )
             )
 
         # If no password, just remove +asyncpg

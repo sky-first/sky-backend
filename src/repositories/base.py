@@ -35,7 +35,9 @@ class BaseRepository(Generic[ModelType]):
         Returns:
             Optional[ModelType]: Entity or None
         """
-        result = await self.db.execute(select(self.model).where(cast(Any, self.model).id == id))
+        result = await self.db.execute(
+            select(self.model).where(cast(Any, self.model).id == id)
+        )
         return result.scalar_one_or_none()
 
     async def get_all(
@@ -131,7 +133,10 @@ class BaseRepository(Generic[ModelType]):
             kwargs["started_at"] = now
         if hasattr(self.model, "timestamp") and "timestamp" not in kwargs:
             kwargs["timestamp"] = now
-        if hasattr(self.model, "last_metadata_update") and "last_metadata_update" not in kwargs:
+        if (
+            hasattr(self.model, "last_metadata_update")
+            and "last_metadata_update" not in kwargs
+        ):
             # Only set if it's required (not nullable)
             # Check if column is nullable by inspecting the model
             col = getattr(self.model, "last_metadata_update", None)

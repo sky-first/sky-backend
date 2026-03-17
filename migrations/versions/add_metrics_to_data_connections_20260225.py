@@ -25,13 +25,12 @@ def upgrade() -> None:
         if col["name"] == "metrics":
             has_column = True
             break
-            
+
     if not has_column:
         op.add_column(
             "data_connections",
             sa.Column("metrics", postgresql.JSON(astext_type=sa.Text()), nullable=True),
         )
-
 
 
 def downgrade() -> None:

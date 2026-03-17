@@ -137,7 +137,9 @@ class RealAIService:
 
             # Use chosen_datasets from meta if available, otherwise fallback to chosen_table
             final_chosen_datasets = (
-                chosen_datasets if chosen_datasets else ([chosen_table] if chosen_table else [])
+                chosen_datasets
+                if chosen_datasets
+                else ([chosen_table] if chosen_table else [])
             )
 
             logger.info(f"Mapped to final_chosen_datasets: {final_chosen_datasets}")
@@ -207,7 +209,9 @@ class RealAIService:
             connection_id = knowledge[0]
             # This would need user_id and space_id from context
             # For now, return placeholder
-            return f"Generated answer for: '{question}' using connection {connection_id}"
+            return (
+                f"Generated answer for: '{question}' using connection {connection_id}"
+            )
 
         return f"Generated answer for: '{question}'"
 

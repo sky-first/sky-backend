@@ -38,8 +38,12 @@ def upgrade() -> None:
     # op.drop_index('idx_audit_timestamp', table_name='query_audit_log')
     # op.drop_index('idx_audit_user', table_name='query_audit_log')
     # op.drop_table('query_audit_log')
-    op.create_index(op.f("ix_ai_feedback_query_id"), "ai_feedback", ["query_id"], unique=False)
-    op.create_index(op.f("ix_ai_feedback_user_id"), "ai_feedback", ["user_id"], unique=False)
+    op.create_index(
+        op.f("ix_ai_feedback_query_id"), "ai_feedback", ["query_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_ai_feedback_user_id"), "ai_feedback", ["user_id"], unique=False
+    )
     # op.alter_column(
     #     "comments",
     #     "mentions",
@@ -65,12 +69,20 @@ def upgrade() -> None:
     # op.drop_constraint("notifications_space_id_fkey", "notifications", type_="foreignkey")
     # op.drop_column("notifications", "updated_at")
     # op.drop_column("notifications", "space_id")
-    op.add_column("refresh_tokens", sa.Column("user_agent", sa.String(length=255), nullable=True))
-    op.add_column("refresh_tokens", sa.Column("ip_address", sa.String(length=45), nullable=True))
+    op.add_column(
+        "refresh_tokens", sa.Column("user_agent", sa.String(length=255), nullable=True)
+    )
+    op.add_column(
+        "refresh_tokens", sa.Column("ip_address", sa.String(length=45), nullable=True)
+    )
     op.drop_constraint("role_permissions_role_key", "role_permissions", type_="unique")
     op.drop_index("idx_role_permissions_role", table_name="role_permissions")
-    op.create_index("idx_role_permissions_role", "role_permissions", ["role"], unique=False)
-    op.create_index(op.f("ix_role_permissions_role"), "role_permissions", ["role"], unique=True)
+    op.create_index(
+        "idx_role_permissions_role", "role_permissions", ["role"], unique=False
+    )
+    op.create_index(
+        op.f("ix_role_permissions_role"), "role_permissions", ["role"], unique=True
+    )
     op.alter_column(
         "users",
         "sso_metadata",
@@ -84,8 +96,12 @@ def upgrade() -> None:
     #     postgresql_where="((auth_provider_id IS NOT NULL) AND (deleted_at IS NULL))",
     # )
     op.create_index(op.f("ix_users_auth0_id"), "users", ["auth0_id"], unique=True)
-    op.create_index(op.f("ix_users_auth_provider_id"), "users", ["auth_provider_id"], unique=False)
-    op.create_index(op.f("ix_users_invite_token"), "users", ["invite_token"], unique=False)
+    op.create_index(
+        op.f("ix_users_auth_provider_id"), "users", ["auth_provider_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_users_invite_token"), "users", ["invite_token"], unique=False
+    )
     # ### end Alembic commands ###
 
 
@@ -110,19 +126,26 @@ def downgrade() -> None:
     )
     op.drop_index(op.f("ix_role_permissions_role"), table_name="role_permissions")
     op.drop_index("idx_role_permissions_role", table_name="role_permissions")
-    op.create_index("idx_role_permissions_role", "role_permissions", ["role"], unique=True)
-    op.create_unique_constraint("role_permissions_role_key", "role_permissions", ["role"])
+    op.create_index(
+        "idx_role_permissions_role", "role_permissions", ["role"], unique=True
+    )
+    op.create_unique_constraint(
+        "role_permissions_role_key", "role_permissions", ["role"]
+    )
     op.drop_column("refresh_tokens", "ip_address")
     op.drop_column("refresh_tokens", "user_agent")
     op.add_column(
-        "notifications", sa.Column("space_id", sa.UUID(), autoincrement=False, nullable=True)
+        "notifications",
+        sa.Column("space_id", sa.UUID(), autoincrement=False, nullable=True),
     )
     op.add_column(
         "notifications",
         sa.Column(
             "updated_at",
             postgresql.TIMESTAMP(timezone=True),
-            server_default=sa.text("'2026-01-15 12:05:49.364629+00'::timestamp with time zone"),
+            server_default=sa.text(
+                "'2026-01-15 12:05:49.364629+00'::timestamp with time zone"
+            ),
             autoincrement=False,
             nullable=False,
         ),
@@ -136,8 +159,12 @@ def downgrade() -> None:
         ondelete="CASCADE",
     )
     op.drop_index("idx_notifications_user_unread", table_name="notifications")
-    op.create_index("ix_notifications_space_id", "notifications", ["space_id"], unique=False)
-    op.create_index("ix_notifications_is_read", "notifications", ["is_read"], unique=False)
+    op.create_index(
+        "ix_notifications_space_id", "notifications", ["space_id"], unique=False
+    )
+    op.create_index(
+        "ix_notifications_is_read", "notifications", ["is_read"], unique=False
+    )
     op.alter_column(
         "notifications",
         "entity_id",
@@ -146,7 +173,10 @@ def downgrade() -> None:
         nullable=True,
     )
     op.alter_column(
-        "notifications", "entity_type", existing_type=sa.VARCHAR(length=50), nullable=True
+        "notifications",
+        "entity_type",
+        existing_type=sa.VARCHAR(length=50),
+        nullable=True,
     )
     op.alter_column(
         "comments",
@@ -168,17 +198,25 @@ def downgrade() -> None:
             nullable=True,
         ),
         sa.Column("connection_id", sa.UUID(), autoincrement=False, nullable=False),
-        sa.Column("user_id", sa.VARCHAR(length=255), autoincrement=False, nullable=True),
+        sa.Column(
+            "user_id", sa.VARCHAR(length=255), autoincrement=False, nullable=True
+        ),
         sa.Column("space_id", sa.UUID(), autoincrement=False, nullable=True),
-        sa.Column("crew_ids", postgresql.ARRAY(sa.TEXT()), autoincrement=False, nullable=True),
-        sa.Column("thread_id", sa.VARCHAR(length=255), autoincrement=False, nullable=True),
+        sa.Column(
+            "crew_ids", postgresql.ARRAY(sa.TEXT()), autoincrement=False, nullable=True
+        ),
+        sa.Column(
+            "thread_id", sa.VARCHAR(length=255), autoincrement=False, nullable=True
+        ),
         sa.Column("question", sa.TEXT(), autoincrement=False, nullable=False),
         sa.Column("sql_generated", sa.TEXT(), autoincrement=False, nullable=True),
         sa.Column("sql_executed", sa.TEXT(), autoincrement=False, nullable=True),
         sa.Column("sql_validated", sa.BOOLEAN(), autoincrement=False, nullable=True),
         sa.Column("validation_error", sa.TEXT(), autoincrement=False, nullable=True),
         sa.Column("num_rows", sa.INTEGER(), autoincrement=False, nullable=True),
-        sa.Column("execution_time_ms", sa.INTEGER(), autoincrement=False, nullable=True),
+        sa.Column(
+            "execution_time_ms", sa.INTEGER(), autoincrement=False, nullable=True
+        ),
         sa.Column("has_error", sa.BOOLEAN(), autoincrement=False, nullable=True),
         sa.Column("error_message", sa.TEXT(), autoincrement=False, nullable=True),
         sa.Column(
@@ -195,7 +233,9 @@ def downgrade() -> None:
             autoincrement=False,
             nullable=True,
         ),
-        sa.Column("prompt_injection_pattern", sa.TEXT(), autoincrement=False, nullable=True),
+        sa.Column(
+            "prompt_injection_pattern", sa.TEXT(), autoincrement=False, nullable=True
+        ),
         sa.Column(
             "progressive_escalation_score",
             sa.INTEGER(),
@@ -210,8 +250,18 @@ def downgrade() -> None:
             autoincrement=False,
             nullable=True,
         ),
-        sa.Column("detected_language", sa.VARCHAR(length=10), autoincrement=False, nullable=True),
-        sa.Column("chosen_tables", postgresql.ARRAY(sa.TEXT()), autoincrement=False, nullable=True),
+        sa.Column(
+            "detected_language",
+            sa.VARCHAR(length=10),
+            autoincrement=False,
+            nullable=True,
+        ),
+        sa.Column(
+            "chosen_tables",
+            postgresql.ARRAY(sa.TEXT()),
+            autoincrement=False,
+            nullable=True,
+        ),
         sa.Column("answer_preview", sa.TEXT(), autoincrement=False, nullable=True),
         sa.Column(
             "pii_detected_in_prompt",
@@ -227,10 +277,17 @@ def downgrade() -> None:
             autoincrement=False,
             nullable=True,
         ),
-        sa.Column("pii_types", postgresql.ARRAY(sa.TEXT()), autoincrement=False, nullable=True),
-        sa.Column("pii_severity", sa.VARCHAR(length=10), autoincrement=False, nullable=True),
         sa.Column(
-            "pii_patterns_matched", postgresql.ARRAY(sa.TEXT()), autoincrement=False, nullable=True
+            "pii_types", postgresql.ARRAY(sa.TEXT()), autoincrement=False, nullable=True
+        ),
+        sa.Column(
+            "pii_severity", sa.VARCHAR(length=10), autoincrement=False, nullable=True
+        ),
+        sa.Column(
+            "pii_patterns_matched",
+            postgresql.ARRAY(sa.TEXT()),
+            autoincrement=False,
+            nullable=True,
         ),
         sa.Column(
             "pii_blocked",
@@ -242,7 +299,9 @@ def downgrade() -> None:
         sa.PrimaryKeyConstraint("id", name="query_audit_log_pkey"),
     )
     op.create_index("idx_audit_user", "query_audit_log", ["user_id"], unique=False)
-    op.create_index("idx_audit_timestamp", "query_audit_log", ["timestamp"], unique=False)
+    op.create_index(
+        "idx_audit_timestamp", "query_audit_log", ["timestamp"], unique=False
+    )
     op.create_index("idx_audit_thread", "query_audit_log", ["thread_id"], unique=False)
     op.create_index("idx_audit_space", "query_audit_log", ["space_id"], unique=False)
     op.create_index(
@@ -273,7 +332,9 @@ def downgrade() -> None:
         unique=False,
         postgresql_where="(progressive_escalation_detected = true)",
     )
-    op.create_index("idx_audit_connection", "query_audit_log", ["connection_id"], unique=False)
+    op.create_index(
+        "idx_audit_connection", "query_audit_log", ["connection_id"], unique=False
+    )
     op.create_table(
         "prompt_security_audit",
         sa.Column("id", sa.UUID(), autoincrement=False, nullable=False),
@@ -285,12 +346,23 @@ def downgrade() -> None:
             nullable=True,
         ),
         sa.Column("connection_id", sa.UUID(), autoincrement=False, nullable=True),
-        sa.Column("user_id", sa.VARCHAR(length=255), autoincrement=False, nullable=True),
-        sa.Column("prompt_text_redacted", sa.TEXT(), autoincrement=False, nullable=True),
-        sa.Column("security_status", sa.VARCHAR(length=20), autoincrement=False, nullable=True),
-        sa.Column("blocked_by", sa.VARCHAR(length=50), autoincrement=False, nullable=True),
         sa.Column(
-            "risk_score", sa.DOUBLE_PRECISION(precision=53), autoincrement=False, nullable=True
+            "user_id", sa.VARCHAR(length=255), autoincrement=False, nullable=True
+        ),
+        sa.Column(
+            "prompt_text_redacted", sa.TEXT(), autoincrement=False, nullable=True
+        ),
+        sa.Column(
+            "security_status", sa.VARCHAR(length=20), autoincrement=False, nullable=True
+        ),
+        sa.Column(
+            "blocked_by", sa.VARCHAR(length=50), autoincrement=False, nullable=True
+        ),
+        sa.Column(
+            "risk_score",
+            sa.DOUBLE_PRECISION(precision=53),
+            autoincrement=False,
+            nullable=True,
         ),
         sa.Column(
             "scan_details",
@@ -300,15 +372,26 @@ def downgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name="prompt_security_audit_pkey"),
     )
-    op.create_index("idx_prompt_audit_user", "prompt_security_audit", ["user_id"], unique=False)
     op.create_index(
-        "idx_prompt_audit_timestamp", "prompt_security_audit", ["timestamp"], unique=False
+        "idx_prompt_audit_user", "prompt_security_audit", ["user_id"], unique=False
     )
     op.create_index(
-        "idx_prompt_audit_status", "prompt_security_audit", ["security_status"], unique=False
+        "idx_prompt_audit_timestamp",
+        "prompt_security_audit",
+        ["timestamp"],
+        unique=False,
     )
     op.create_index(
-        "idx_prompt_audit_connection", "prompt_security_audit", ["connection_id"], unique=False
+        "idx_prompt_audit_status",
+        "prompt_security_audit",
+        ["security_status"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_prompt_audit_connection",
+        "prompt_security_audit",
+        ["connection_id"],
+        unique=False,
     )
     op.create_table(
         "security_alerts",
@@ -320,16 +403,27 @@ def downgrade() -> None:
             autoincrement=False,
             nullable=True,
         ),
-        sa.Column("user_id", sa.VARCHAR(length=255), autoincrement=False, nullable=True),
-        sa.Column("connection_id", sa.UUID(), autoincrement=False, nullable=True),
-        sa.Column("alert_type", sa.VARCHAR(length=50), autoincrement=False, nullable=True),
-        sa.Column("severity", sa.VARCHAR(length=20), autoincrement=False, nullable=True),
         sa.Column(
-            "details", postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True
+            "user_id", sa.VARCHAR(length=255), autoincrement=False, nullable=True
+        ),
+        sa.Column("connection_id", sa.UUID(), autoincrement=False, nullable=True),
+        sa.Column(
+            "alert_type", sa.VARCHAR(length=50), autoincrement=False, nullable=True
+        ),
+        sa.Column(
+            "severity", sa.VARCHAR(length=20), autoincrement=False, nullable=True
+        ),
+        sa.Column(
+            "details",
+            postgresql.JSONB(astext_type=sa.Text()),
+            autoincrement=False,
+            nullable=True,
         ),
         sa.PrimaryKeyConstraint("id", name="security_alerts_pkey"),
     )
     op.create_index("idx_alerts_user", "security_alerts", ["user_id"], unique=False)
     op.create_index("idx_alerts_type", "security_alerts", ["alert_type"], unique=False)
-    op.create_index("idx_alerts_severity", "security_alerts", ["severity"], unique=False)
+    op.create_index(
+        "idx_alerts_severity", "security_alerts", ["severity"], unique=False
+    )
     # ### end Alembic commands ###

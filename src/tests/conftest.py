@@ -45,7 +45,9 @@ test_engine = create_async_engine(
     poolclass=StaticPool,
 )
 
-TestSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+TestSessionLocal = async_sessionmaker(
+    test_engine, class_=AsyncSession, expire_on_commit=False
+)
 
 
 @pytest_asyncio.fixture
@@ -126,7 +128,9 @@ async def test_user_with_tokens(db_session: AsyncSession, test_user: dict):
     refresh_token = create_refresh_token(token_data)
 
     # Save refresh token
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
+    )
     refresh_token_model = RefreshToken(
         user_id=user.id,
         token=refresh_token,

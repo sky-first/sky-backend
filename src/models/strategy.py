@@ -26,7 +26,9 @@ class StrategicPillar(Base):
     priority = Column(String(50), nullable=True)
 
     # Audit info
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -67,7 +69,9 @@ class StrategicObjective(Base):
     )
 
     # Audit info
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -77,7 +81,9 @@ class StrategicObjective(Base):
 
     # Relationships
     pillar = relationship("StrategicPillar", back_populates="objectives")
-    okrs = relationship("StrategyOKR", back_populates="objective", cascade="all, delete-orphan")
+    okrs = relationship(
+        "StrategyOKR", back_populates="objective", cascade="all, delete-orphan"
+    )
     assumptions = relationship("StrategyAssumption", back_populates="objective")
 
 
@@ -94,7 +100,9 @@ class StrategyCycle(Base):
     status = Column(String(50), nullable=True, default="active")
 
     # Audit info
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -123,7 +131,9 @@ class StrategyOKR(Base):
         nullable=True,
     )
     title = Column(String(255), nullable=False)
-    linked_kpi_id = Column(String(100), nullable=True)  # Reference to external metrics system
+    linked_kpi_id = Column(
+        String(100), nullable=True
+    )  # Reference to external metrics system
     baseline = Column(Float, nullable=True)
     target = Column(Float, nullable=True)
     deadline = Column(DateTime(timezone=True), nullable=True)
@@ -135,7 +145,9 @@ class StrategyOKR(Base):
     )
 
     # Audit info
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -169,7 +181,9 @@ class StrategyKeyResult(Base):
     unit = Column(String(50), nullable=True)
 
     # Audit info
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -204,7 +218,9 @@ class StrategyInitiative(Base):
     progress = Column(Integer, nullable=True, default=0)
 
     # Audit info
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -237,7 +253,9 @@ class StrategyAssumption(Base):
     )
 
     # Audit info
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,

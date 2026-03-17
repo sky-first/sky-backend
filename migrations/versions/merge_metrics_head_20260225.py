@@ -6,7 +6,6 @@ Create Date: 2026-02-25 11:20:00.000000
 
 """
 
-
 # revision identifiers, used by Alembic.
 revision = "merge_metrics_head_20260225"
 down_revision = ("7596a081b418", "add_metrics_20260225")

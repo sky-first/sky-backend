@@ -10,15 +10,18 @@ class MockAIService:
     """Mock implementation of AI processing for development and testing."""
 
     async def generate_answer(
-        self, question: str, knowledge: List[str], context: Optional[Dict[str, Any]] = None
+        self,
+        question: str,
+        knowledge: List[str],
+        context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Mock answer generation."""
         await asyncio.sleep(0.5)
-        return (
-            f"This is a mock answer for the question: '{question}' based on knowledge: {knowledge}"
-        )
+        return f"This is a mock answer for the question: '{question}' based on knowledge: {knowledge}"
 
-    async def process_query(self, query_id: str, configure_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_query(
+        self, query_id: str, configure_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Mock query processing."""
         await asyncio.sleep(1)
         return {
@@ -77,15 +80,23 @@ class MockAIService:
             "steps": steps,
         }
 
-    async def generate_sql(self, question: str, context: Optional[Dict[str, Any]] = None) -> str:
+    async def generate_sql(
+        self, question: str, context: Optional[Dict[str, Any]] = None
+    ) -> str:
         """Mock SQL generation."""
         await asyncio.sleep(0.3)
         return "SELECT count(*) FROM users WHERE created_at > '2025-01-01';"
 
-    async def analyze_question(self, question: str, knowledge: List[str]) -> Dict[str, Any]:
+    async def analyze_question(
+        self, question: str, knowledge: List[str]
+    ) -> Dict[str, Any]:
         """Mock question analysis."""
         await asyncio.sleep(0.2)
-        return {"intent": "query", "entities": ["users", "sales"], "complexity": "simple"}
+        return {
+            "intent": "query",
+            "entities": ["users", "sales"],
+            "complexity": "simple",
+        }
 
     async def generate_infographic(
         self,

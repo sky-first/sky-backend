@@ -16,7 +16,9 @@ class APIKeyRepository(BaseRepository[APIKey]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, APIKey)
 
-    async def get_by_user(self, user_id: UUID, skip: int = 0, limit: int = 100) -> List[APIKey]:
+    async def get_by_user(
+        self, user_id: UUID, skip: int = 0, limit: int = 100
+    ) -> List[APIKey]:
         """
         Get API keys by user.
 
@@ -67,7 +69,9 @@ class IntegrationRepository(BaseRepository[Integration]):
         )
         return list(result.scalars().all())
 
-    async def get_by_type(self, user_id: UUID, integration_type: str) -> Optional[Integration]:
+    async def get_by_type(
+        self, user_id: UUID, integration_type: str
+    ) -> Optional[Integration]:
         """
         Get integration by type.
 

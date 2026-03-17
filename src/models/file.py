@@ -91,7 +91,9 @@ class SyncLog(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )
     completed_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     # Relationships
     connection = relationship("DataConnection")

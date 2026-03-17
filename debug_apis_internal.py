@@ -8,7 +8,9 @@ from src.repositories.user import UserRepository
 
 async def debug_apis():
     engine = create_async_engine(settings.DATABASE_URL)
-    AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    AsyncSessionLocal = sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     async with AsyncSessionLocal() as db:
         try:

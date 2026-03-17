@@ -43,7 +43,10 @@ def sync_connection_metadata(connection_id: str):
 
     from src.config.database import AsyncSessionLocal
     from src.config.settings import settings
-    from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
+    from src.repositories.connection import (
+        ConnectionMetadataRepository,
+        ConnectionRepository,
+    )
     from src.services.connector_service import ConnectorService
     from src.utils.encryption import decrypt_dict
 
@@ -75,7 +78,9 @@ def sync_connection_metadata(connection_id: str):
                     return {"status": "error", "message": str(e)}
             else:
                 # Fallback/TODO for other connectors
-                logger.warning(f"Metadata sync not implemented for {connection.connector_id}")
+                logger.warning(
+                    f"Metadata sync not implemented for {connection.connector_id}"
+                )
                 return {"status": "skipped", "message": "Connector not supported"}
 
             # 3. Get existing metadata to preserve custom fields (health, tags, usage)

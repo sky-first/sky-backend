@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from src.api.deps import get_current_user
 from src.models.user import User
 from src.repositories.signal_event import SignalEventRepository, get_signal_event_repo
-from src.schemas.signal_event import SignalEventCreate, SignalEventResponse, SignalEventUpdate
+from src.schemas.signal_event import (
+    SignalEventCreate,
+    SignalEventResponse,
+    SignalEventUpdate,
+)
 
 router = APIRouter()
 
@@ -22,7 +26,9 @@ async def list_signal_events(
     return await repo.get_all(skip=skip, limit=limit, order_by="created_at")
 
 
-@router.post("/", response_model=SignalEventResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=SignalEventResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_signal_event(
     event_in: SignalEventCreate,
     current_user: User = Depends(get_current_user),

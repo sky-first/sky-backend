@@ -80,7 +80,9 @@ class DashboardService:
             from src.repositories.planet import PlanetMemberRepository
 
             member_repo = PlanetMemberRepository(self.db)
-            member = await member_repo.get_by_planet_and_user(dashboard_data.planet_id, user.id)
+            member = await member_repo.get_by_planet_and_user(
+                dashboard_data.planet_id, user.id
+            )
             if not member:
                 raise ForbiddenError("Access denied to this planet")
 
@@ -141,7 +143,9 @@ class DashboardService:
         Returns:
             List[DashboardResponse]: List of dashboards
         """
-        dashboards = await self.dashboard_repo.get_by_planet(planet_id, skip=skip, limit=limit)
+        dashboards = await self.dashboard_repo.get_by_planet(
+            planet_id, skip=skip, limit=limit
+        )
         return [DashboardResponse.model_validate(d) for d in dashboards]
 
     async def update_dashboard(
@@ -213,7 +217,9 @@ class DashboardService:
         await self.dashboard_repo.delete(dashboard_id)
         await self.db.commit()
 
-    async def create_widget(self, user: User, widget_data: WidgetCreate) -> WidgetResponse:
+    async def create_widget(
+        self, user: User, widget_data: WidgetCreate
+    ) -> WidgetResponse:
         """
         Create a new widget.
 
@@ -269,7 +275,9 @@ class DashboardService:
 
         return WidgetResponse.model_validate(widget)
 
-    async def get_dashboard_widgets(self, dashboard_id: UUID, user: User) -> List[WidgetResponse]:
+    async def get_dashboard_widgets(
+        self, dashboard_id: UUID, user: User
+    ) -> List[WidgetResponse]:
         """
         Get widgets by dashboard.
 
@@ -334,7 +342,11 @@ class DashboardService:
         await self.db.commit()
 
     async def list_dashboards(
-        self, user: User, planet_id: Optional[UUID] = None, skip: int = 0, limit: int = 100
+        self,
+        user: User,
+        planet_id: Optional[UUID] = None,
+        skip: int = 0,
+        limit: int = 100,
     ) -> List[DashboardResponse]:
         """
         List dashboards.
@@ -349,7 +361,9 @@ class DashboardService:
             List[DashboardResponse]: List of dashboards
         """
         if planet_id:
-            dashboards = await self.dashboard_repo.get_by_planet(planet_id, skip=skip, limit=limit)
+            dashboards = await self.dashboard_repo.get_by_planet(
+                planet_id, skip=skip, limit=limit
+            )
         else:
             # Get all dashboards user has access to (via planets)
             # For now, return empty list if no planet_id specified
@@ -420,7 +434,9 @@ class DashboardService:
             "size": widget.size,
             "data": widget.data,
             "config": widget.config,
-            "connection_id": str(widget.connection_id) if widget.connection_id else None,
+            "connection_id": str(widget.connection_id)
+            if widget.connection_id
+            else None,
             "query_id": str(widget.query_id) if widget.query_id else None,
             "exported_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -445,7 +461,9 @@ class DashboardService:
 
         return {
             "data": widget.data or {},
-            "last_updated": widget.updated_at.isoformat() if widget.updated_at else None,
+            "last_updated": widget.updated_at.isoformat()
+            if widget.updated_at
+            else None,
         }
 
     async def refresh_widget_data(self, widget_id: UUID, user: User) -> dict:
@@ -474,10 +492,14 @@ class DashboardService:
 
         return {
             "data": widget.data or {},
-            "last_updated": widget.updated_at.isoformat() if widget.updated_at else None,
+            "last_updated": widget.updated_at.isoformat()
+            if widget.updated_at
+            else None,
         }
 
-    async def export_dashboard(self, dashboard_id: UUID, user: User) -> DashboardExportResponse:
+    async def export_dashboard(
+        self, dashboard_id: UUID, user: User
+    ) -> DashboardExportResponse:
         """
         Export dashboard with all widgets and connections.
 
@@ -501,7 +523,9 @@ class DashboardService:
 
         # Get all connections
         connections = await self.connection_repo.get_by_dashboard(dashboard_id)
-        connection_responses = [ConnectionResponse.model_validate(c) for c in connections]
+        connection_responses = [
+            ConnectionResponse.model_validate(c) for c in connections
+        ]
 
         return DashboardExportResponse(
             dashboard=DashboardResponse.model_validate(dashboard),
@@ -585,7 +609,9 @@ class DashboardService:
                     else {"width": 400, "height": 300}
                 ),
                 data=original_widget.data.copy() if original_widget.data else None,
-                config=original_widget.config.copy() if original_widget.config else None,
+                config=original_widget.config.copy()
+                if original_widget.config
+                else None,
                 connection_id=original_widget.connection_id,
                 query_id=original_widget.query_id,
             )
@@ -621,7 +647,9 @@ class DashboardService:
 
         return DashboardResponse.model_validate(dashboard)
 
-    async def unlock_dashboard(self, dashboard_id: UUID, user: User) -> DashboardResponse:
+    async def unlock_dashboard(
+        self, dashboard_id: UUID, user: User
+    ) -> DashboardResponse:
         """
         Unlock dashboard.
 
@@ -669,7 +697,9 @@ class DashboardService:
             raise NotFoundError("Widget not found")
 
         # Check if user already voted
-        existing_feedback = await self.feedback_repo.get_by_widget_and_user(widget_id, user.id)
+        existing_feedback = await self.feedback_repo.get_by_widget_and_user(
+            widget_id, user.id
+        )
 
         if existing_feedback:
             # Update existing feedback

@@ -26,7 +26,9 @@ class Workspace(Base):
     )
     is_active = Column(Boolean, nullable=False, default=False, server_default="false")
     last_accessed = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -36,16 +38,24 @@ class Workspace(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    owner = relationship("User", foreign_keys=[owner_id], back_populates="owned_workspaces")
+    owner = relationship(
+        "User", foreign_keys=[owner_id], back_populates="owned_workspaces"
+    )
     members = relationship(
         "WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan"
     )
     # Note: Dashboards are related to Planets, not Workspaces directly
 
     __table_args__ = (
-        Index("idx_workspaces_owner_id", "owner_id", postgresql_where=deleted_at.is_(None)),
+        Index(
+            "idx_workspaces_owner_id", "owner_id", postgresql_where=deleted_at.is_(None)
+        ),
         Index("idx_workspaces_type", "type", postgresql_where=deleted_at.is_(None)),
-        Index("idx_workspaces_is_active", "is_active", postgresql_where=deleted_at.is_(None)),
+        Index(
+            "idx_workspaces_is_active",
+            "is_active",
+            postgresql_where=deleted_at.is_(None),
+        ),
         Index("idx_workspaces_last_accessed", "last_accessed"),
     )
 
@@ -72,8 +82,12 @@ class WorkspaceMember(Base):
         index=True,
     )
     role = Column(String(50), nullable=False)  # owner, admin, member, viewer
-    joined_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    joined_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     # Relationships
     workspace = relationship("Workspace", back_populates="members")

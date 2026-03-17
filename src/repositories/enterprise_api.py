@@ -25,5 +25,7 @@ class EnterpriseAPIRepository(BaseRepository[EnterpriseAPI]):
         Returns:
             List[EnterpriseAPI]: List of APIs
         """
-        result = await self.db.execute(select(self.model).where(self.model.created_by == user_id))
+        result = await self.db.execute(
+            select(self.model).where(self.model.created_by == user_id)
+        )
         return list(result.scalars().all())

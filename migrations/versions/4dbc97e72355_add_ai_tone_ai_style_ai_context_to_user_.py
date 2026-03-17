@@ -7,8 +7,8 @@ Create Date: 2026-01-23 11:02:48.488217
 """
 
 # revision identifiers, used by Alembic.
-revision = '4dbc97e72355'
-down_revision = 'ee8c60ac46f7'
+revision = "4dbc97e72355"
+down_revision = "ee8c60ac46f7"
 branch_labels = None
 depends_on = None
 
@@ -22,4 +22,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     # No schema change to revert.
     pass
-

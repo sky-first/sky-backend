@@ -451,7 +451,9 @@ class FileUploadService:
 
         # Delete physical file if local storage
         if file_upload.storage == "local":
-            file_path = self.upload_dir / str(file_upload.user_id) / file_upload.filename
+            file_path = (
+                self.upload_dir / str(file_upload.user_id) / file_upload.filename
+            )
             if file_path.exists():
                 file_path.unlink()
 

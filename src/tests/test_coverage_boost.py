@@ -26,7 +26,10 @@ from src.utils.cache import connection_metadata_cache_key as conn_cache_key
 from src.utils.cache import dashboard_cache_key, widget_cache_key, workspace_cache_key
 from src.workers.ai_worker import build_dashboard_job, process_ai_query
 from src.workers.cache_warming_worker import _warm_ai_response_cache_async
-from src.workers.celery_app import build_redis_url_from_env, encode_password_in_redis_url
+from src.workers.celery_app import (
+    build_redis_url_from_env,
+    encode_password_in_redis_url,
+)
 from src.workers.sync_worker import sync_connection, sync_connection_metadata
 
 # --- Tests for src/utils/cache.py ---
@@ -99,7 +102,9 @@ def test_sync_connection_task():
 def test_sync_connection_task_retry_branch():
     # `.run` is bound to the Celery Task instance, so we patch the Task's retry.
     with patch.object(sync_connection, "retry", side_effect=RuntimeError("retry")):
-        with patch("src.workers.sync_worker.logger.info", side_effect=RuntimeError("boom")):
+        with patch(
+            "src.workers.sync_worker.logger.info", side_effect=RuntimeError("boom")
+        ):
             with pytest.raises(RuntimeError, match="retry"):
                 sync_connection.run("conn_id")
 
@@ -145,13 +150,19 @@ def test_build_dashboard_job_task():
 
 
 def test_build_redis_url_from_env():
-    assert build_redis_url_from_env("redis", 6379, "pa/ss", 1) == "redis://:pa%2Fss@redis:6379/1"
+    assert (
+        build_redis_url_from_env("redis", 6379, "pa/ss", 1)
+        == "redis://:pa%2Fss@redis:6379/1"
+    )
     assert build_redis_url_from_env("redis", 6379, "", 2) == "redis://redis:6379/2"
 
 
 def test_encode_password_in_redis_url():
     assert encode_password_in_redis_url("") == ""
-    assert encode_password_in_redis_url("redis://localhost:6379/0") == "redis://localhost:6379/0"
+    assert (
+        encode_password_in_redis_url("redis://localhost:6379/0")
+        == "redis://localhost:6379/0"
+    )
     assert (
         encode_password_in_redis_url("redis://:pa/ss@redis:6379/0")
         == "redis://:pa%2Fss@redis:6379/0"
@@ -325,7 +336,9 @@ async def test_rbac_effective_permissions_merge_for_crew_role():
     user.role = "user"
 
     crew_id = uuid4()
-    svc.crew_members.get_by_crew_and_user = AsyncMock(return_value=MagicMock(role="explorer"))
+    svc.crew_members.get_by_crew_and_user = AsyncMock(
+        return_value=MagicMock(role="explorer")
+    )
     svc.role_perms.get_by_role = AsyncMock(
         return_value=MagicMock(permissions={"data.query.run": True})
     )
@@ -362,7 +375,9 @@ async def test_rbac_best_role_for_user_in_space():
     space_id = uuid4()
     crew1, crew2 = uuid4(), uuid4()
 
-    svc.crew_members.get_crew_ids_by_user_and_space = AsyncMock(return_value=[crew1, crew2])
+    svc.crew_members.get_crew_ids_by_user_and_space = AsyncMock(
+        return_value=[crew1, crew2]
+    )
 
     async def get_member(cid, _uid):
         if cid == crew1:
@@ -380,7 +395,9 @@ async def test_rbac_best_role_for_user_for_connection_owner_and_perms():
     conn_id = uuid4()
 
     # owner branch
-    svc.connection_repo.get_by_id = AsyncMock(return_value=MagicMock(created_by=user_id))
+    svc.connection_repo.get_by_id = AsyncMock(
+        return_value=MagicMock(created_by=user_id)
+    )
     assert await svc._best_role_for_user_for_connection(user_id, conn_id) == "commander"
 
     # perms branch
@@ -393,7 +410,9 @@ async def test_rbac_best_role_for_user_for_connection_owner_and_perms():
             MagicMock(crew_id=None, space_id=space_id),
         ]
     )
-    svc.crew_members.get_by_crew_and_user = AsyncMock(return_value=MagicMock(role="explorer"))
+    svc.crew_members.get_by_crew_and_user = AsyncMock(
+        return_value=MagicMock(role="explorer")
+    )
     svc._best_role_for_user_in_space = AsyncMock(return_value="navigator")
     assert await svc._best_role_for_user_for_connection(user_id, conn_id) == "navigator"
 
@@ -404,7 +423,9 @@ async def test_rbac_best_role_for_user_for_connection_owner_and_perms():
 def test_effective_permissions_helper():
     from src.services.rbac_service import EffectivePermissions
 
-    ep = EffectivePermissions(platform_role="user", crew_role="navigator", permissions={"a": True})
+    ep = EffectivePermissions(
+        platform_role="user", crew_role="navigator", permissions={"a": True}
+    )
     assert ep.permissions.get("a") is True
     assert ep.permissions.get("b", False) is False
 
@@ -425,7 +446,6 @@ async def test_onboarding_service_simple():
         patch("src.services.onboarding_service.PlanetRepository") as pr,
         patch("src.services.onboarding_service.SpaceRepository") as sr,  # noqa: F841
     ):
-
         pr.return_value.get_by_owner = AsyncMock(return_value=[MagicMock()])
         await ensure_default_planet_and_space(db, user)
 

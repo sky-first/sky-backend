@@ -34,7 +34,9 @@ class WorkspaceRepository(BaseRepository[Workspace]):
         result = await self.db.execute(
             select(Workspace)
             .where(Workspace.owner_id == owner_id, Workspace.deleted_at.is_(None))
-            .order_by(Workspace.last_accessed.desc().nulls_last(), Workspace.created_at.desc())
+            .order_by(
+                Workspace.last_accessed.desc().nulls_last(), Workspace.created_at.desc()
+            )
             .offset(skip)
             .limit(limit)
         )
@@ -58,7 +60,9 @@ class WorkspaceRepository(BaseRepository[Workspace]):
                 Workspace.is_active == True,  # noqa: E712
                 Workspace.deleted_at.is_(None),
             )
-            .options(selectinload(Workspace.members), selectinload(Workspace.dashboards))
+            .options(
+                selectinload(Workspace.members), selectinload(Workspace.dashboards)
+            )
         )
         workspace = result.scalar_one_or_none()
 
@@ -69,9 +73,13 @@ class WorkspaceRepository(BaseRepository[Workspace]):
         result = await self.db.execute(
             select(Workspace)
             .where(Workspace.owner_id == user_id, Workspace.deleted_at.is_(None))
-            .order_by(Workspace.last_accessed.desc().nulls_last(), Workspace.created_at.desc())
+            .order_by(
+                Workspace.last_accessed.desc().nulls_last(), Workspace.created_at.desc()
+            )
             .limit(1)
-            .options(selectinload(Workspace.members), selectinload(Workspace.dashboards))
+            .options(
+                selectinload(Workspace.members), selectinload(Workspace.dashboards)
+            )
         )
         return result.scalar_one_or_none()
 
@@ -87,7 +95,9 @@ class WorkspaceRepository(BaseRepository[Workspace]):
         """
         # Workspaces where user is owner
         owned_result = await self.db.execute(
-            select(Workspace).where(Workspace.owner_id == user_id, Workspace.deleted_at.is_(None))
+            select(Workspace).where(
+                Workspace.owner_id == user_id, Workspace.deleted_at.is_(None)
+            )
         )
         owned = list(owned_result.scalars().all())
 

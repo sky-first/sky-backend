@@ -49,7 +49,9 @@ class Auth0Service:
         if self._jwks_cache is None:
             try:
                 async with httpx.AsyncClient() as client:
-                    response = await client.get(self.settings.auth0_jwks_url, timeout=10.0)
+                    response = await client.get(
+                        self.settings.auth0_jwks_url, timeout=10.0
+                    )
                     response.raise_for_status()
                     self._jwks_cache = response.json()
                     logger.info("✅ Fetched Auth0 JWKS successfully")
@@ -137,7 +139,9 @@ class Auth0Service:
             logger.error(f"❌ Auth0 token verification failed: {str(e)}")
             raise UnauthorizedError(f"Invalid Auth0 token: {str(e)}")
 
-    async def get_user_from_auth0(self, auth0_id: str, provider: str = "auth0") -> Optional[User]:
+    async def get_user_from_auth0(
+        self, auth0_id: str, provider: str = "auth0"
+    ) -> Optional[User]:
         """
         Get or create user from Auth0 ID.
 
@@ -159,7 +163,9 @@ class Auth0Service:
         if provider != "auth0":
             user = await self.user_repo.get_by_auth_provider_id(auth0_id, provider)
             if user:
-                logger.debug(f"✅ Found existing user with provider {provider} and id: {auth0_id}")
+                logger.debug(
+                    f"✅ Found existing user with provider {provider} and id: {auth0_id}"
+                )
                 return user
 
         logger.debug(f"ℹ️ No user found with auth0_id: {auth0_id}, provider: {provider}")
@@ -341,10 +347,14 @@ class Auth0Service:
                 logger.debug(f"✅ Fetched user info from {provider}")
                 return user_info
         except httpx.HTTPStatusError as e:
-            logger.error(f"❌ Failed to fetch user info from {provider}: {e.response.status_code}")
+            logger.error(
+                f"❌ Failed to fetch user info from {provider}: {e.response.status_code}"
+            )
             raise UnauthorizedError(f"Failed to fetch user info from {provider}")
         except httpx.HTTPError as e:
-            logger.error(f"❌ Network error fetching user info from {provider}: {str(e)}")
+            logger.error(
+                f"❌ Network error fetching user info from {provider}: {str(e)}"
+            )
             raise UnauthorizedError(f"Network error: {str(e)}")
 
     async def handle_google_callback(self, code: str, redirect_uri: str) -> User:
@@ -500,7 +510,10 @@ class Auth0Service:
                         provider="azure",
                         provider_id=azure_id,
                         avatar=avatar,
-                        sso_metadata={"azure_id": azure_id, "job_title": user_info.get("jobTitle")},
+                        sso_metadata={
+                            "azure_id": azure_id,
+                            "job_title": user_info.get("jobTitle"),
+                        },
                     )
                 else:
                     # Sync user data
@@ -509,7 +522,10 @@ class Auth0Service:
                         email=email,
                         name=name,
                         avatar=avatar,
-                        sso_metadata={"azure_id": azure_id, "job_title": user_info.get("jobTitle")},
+                        sso_metadata={
+                            "azure_id": azure_id,
+                            "job_title": user_info.get("jobTitle"),
+                        },
                     )
 
                 logger.info(f"✅ Azure AD SSO authentication successful: {email}")
@@ -630,7 +646,9 @@ class Auth0Service:
         refresh_token = create_refresh_token(token_data)
 
         # Save refresh token
-        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)  # Effectively infinite
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=365 * 100
+        )  # Effectively infinite
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,

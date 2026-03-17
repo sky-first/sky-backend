@@ -60,10 +60,14 @@ class UserRepository(BaseRepository[User]):
         Returns:
             Optional[User]: User or None
         """
-        result = await self.db.execute(select(User).where(User.id == id, User.deleted_at.is_(None)))
+        result = await self.db.execute(
+            select(User).where(User.id == id, User.deleted_at.is_(None))
+        )
         return result.scalar_one_or_none()
 
-    async def update_last_active_atomic(self, user_id: UUID, cooldown_seconds: int = 60) -> None:
+    async def update_last_active_atomic(
+        self, user_id: UUID, cooldown_seconds: int = 60
+    ) -> None:
         """
         Atomically update last_active_at using a conditional SQL WHERE clause.
 
@@ -109,7 +113,9 @@ class UserRepository(BaseRepository[User]):
         )
         return result.scalar_one_or_none()
 
-    async def get_by_auth_provider_id(self, provider_id: str, provider: str) -> Optional[User]:
+    async def get_by_auth_provider_id(
+        self, provider_id: str, provider: str
+    ) -> Optional[User]:
         """
         Get user by auth provider ID.
 

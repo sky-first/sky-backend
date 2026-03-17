@@ -45,7 +45,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
     )
     op.create_index(
-        "idx_notifications_user_unread", "notifications", ["user_id", "is_read"], unique=False
+        "idx_notifications_user_unread",
+        "notifications",
+        ["user_id", "is_read"],
+        unique=False,
     )
 
     # ---- Crews ----
@@ -105,7 +108,10 @@ def upgrade() -> None:
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("role", sa.String(50), nullable=False),
         sa.Column(
-            "joined_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
+            "joined_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
         ),
         sa.Column(
             "created_at",
@@ -117,8 +123,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.UniqueConstraint("crew_id", "user_id", name="uq_crew_members_crew_user"),
     )
-    op.create_index("idx_crew_members_crew_id", "crew_members", ["crew_id"], unique=False)
-    op.create_index("idx_crew_members_user_id", "crew_members", ["user_id"], unique=False)
+    op.create_index(
+        "idx_crew_members_crew_id", "crew_members", ["crew_id"], unique=False
+    )
+    op.create_index(
+        "idx_crew_members_user_id", "crew_members", ["user_id"], unique=False
+    )
 
     # ---- Crew Connections ----
     op.create_table(
@@ -126,12 +136,19 @@ def upgrade() -> None:
         sa.Column("crew_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("connection_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.ForeignKeyConstraint(["crew_id"], ["crews.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["connection_id"], ["data_connections.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["connection_id"], ["data_connections.id"], ondelete="CASCADE"
+        ),
         sa.PrimaryKeyConstraint("crew_id", "connection_id"),
     )
-    op.create_index("idx_crew_connections_crew_id", "crew_connections", ["crew_id"], unique=False)
     op.create_index(
-        "idx_crew_connections_connection_id", "crew_connections", ["connection_id"], unique=False
+        "idx_crew_connections_crew_id", "crew_connections", ["crew_id"], unique=False
+    )
+    op.create_index(
+        "idx_crew_connections_connection_id",
+        "crew_connections",
+        ["connection_id"],
+        unique=False,
     )
 
     # ---- Comments ----
@@ -161,11 +178,15 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
         ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["dashboard_id"], ["dashboards.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["dashboard_id"], ["dashboards.id"], ondelete="CASCADE"
+        ),
         sa.ForeignKeyConstraint(["widget_id"], ["widgets.id"], ondelete="CASCADE"),
     )
     op.create_index("idx_comments_user_id", "comments", ["user_id"], unique=False)
-    op.create_index("idx_comments_dashboard_id", "comments", ["dashboard_id"], unique=False)
+    op.create_index(
+        "idx_comments_dashboard_id", "comments", ["dashboard_id"], unique=False
+    )
     op.create_index("idx_comments_widget_id", "comments", ["widget_id"], unique=False)
 
 

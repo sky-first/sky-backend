@@ -20,7 +20,9 @@ class TableMetadataSchema(BaseModel):
     """Table metadata schema."""
 
     name: str
-    schema_name: Optional[str] = Field(None, alias="schema", description="Database schema name")
+    schema_name: Optional[str] = Field(
+        None, alias="schema", description="Database schema name"
+    )
     row_count: Optional[int] = None
     columns: Optional[List[ColumnMetadataSchema]] = None
     last_updated: Optional[datetime] = None
@@ -59,15 +61,21 @@ class ConnectionBase(BaseModel):
     """Base connection schema."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    connector_id: str = Field(..., description="Connector type (postgresql, mysql, mongodb, etc)")
+    connector_id: str = Field(
+        ..., description="Connector type (postgresql, mysql, mongodb, etc)"
+    )
     description: Optional[str] = None
-    sync_frequency: Optional[str] = Field(None, description="Cron expression for sync frequency")
+    sync_frequency: Optional[str] = Field(
+        None, description="Cron expression for sync frequency"
+    )
 
 
 class ConnectionCreate(ConnectionBase):
     """Connection creation schema."""
 
-    config: Dict[str, Any] = Field(..., description="Connection configuration (credentials, etc)")
+    config: Dict[str, Any] = Field(
+        ..., description="Connection configuration (credentials, etc)"
+    )
 
 
 class ConnectionUpdate(BaseModel):

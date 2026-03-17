@@ -38,7 +38,11 @@ class CrewService:
         self.space_repo = SpaceRepository(db)
 
     async def list_crews(
-        self, user: User, space_id: Optional[UUID] = None, skip: int = 0, limit: int = 100
+        self,
+        user: User,
+        space_id: Optional[UUID] = None,
+        skip: int = 0,
+        limit: int = 100,
     ) -> List[CrewResponse]:
         """
         List crews.
@@ -124,7 +128,9 @@ class CrewService:
 
         return CrewResponse.model_validate(crew)
 
-    async def update_crew(self, crew_id: UUID, user: User, crew_data: CrewUpdate) -> CrewResponse:
+    async def update_crew(
+        self, crew_id: UUID, user: User, crew_data: CrewUpdate
+    ) -> CrewResponse:
         """
         Update crew.
 
@@ -202,7 +208,9 @@ class CrewService:
             # TODO: Replace with actual AI service call
             # ai_status = await self.ai_client.get_crew_tasks_status(crew_id)
 
-            logger.info(f"Getting status for crew {crew_id} (real data - no tasks running)")
+            logger.info(
+                f"Getting status for crew {crew_id} (real data - no tasks running)"
+            )
 
             # Mock response with running tasks for testing
 
@@ -295,7 +303,9 @@ class CrewService:
             f"🔴 [DELETE SERVICE] Crew {crew_id} soft-deleted successfully (deleted_at set)"
         )
 
-    async def get_crew_members(self, crew_id: UUID, user: User) -> List[CrewMemberResponse]:
+    async def get_crew_members(
+        self, crew_id: UUID, user: User
+    ) -> List[CrewMemberResponse]:
         """
         Get members for a crew.
 
@@ -369,7 +379,9 @@ class CrewService:
             raise ForbiddenError("Access denied to this crew")
 
         # Check if member already exists
-        existing = await self.member_repo.get_by_crew_and_user(crew_id, member_data.user_id)
+        existing = await self.member_repo.get_by_crew_and_user(
+            crew_id, member_data.user_id
+        )
         if existing:
             raise BadRequestError("User is already a member of this crew")
 
@@ -396,7 +408,9 @@ class CrewService:
         }
         return CrewMemberResponse.model_validate(member_data_dict)
 
-    async def remove_crew_member(self, crew_id: UUID, user_id: UUID, current_user: User) -> None:
+    async def remove_crew_member(
+        self, crew_id: UUID, user_id: UUID, current_user: User
+    ) -> None:
         """
         Remove member from crew.
 
@@ -426,7 +440,11 @@ class CrewService:
         await self.db.commit()
 
     async def update_crew_member_role(
-        self, crew_id: UUID, user_id: UUID, role_data: CrewMemberUpdate, current_user: User
+        self,
+        crew_id: UUID,
+        user_id: UUID,
+        role_data: CrewMemberUpdate,
+        current_user: User,
     ) -> CrewMemberResponse:
         """
         Update crew member role.
@@ -506,7 +524,8 @@ class CrewService:
 
         # Determine PII access based on some logic (e.g. if name contains 'Finance' or 'HR')
         is_sensitive = any(
-            kw in crew.name.lower() or (crew.description and kw in crew.description.lower())
+            kw in crew.name.lower()
+            or (crew.description and kw in crew.description.lower())
             for kw in ["finance", "hr", "salary", "legal", "restricted"]
         )
 

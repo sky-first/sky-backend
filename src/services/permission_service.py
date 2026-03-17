@@ -82,7 +82,10 @@ class PermissionService:
         return [PermissionResponse.model_validate(p) for p in permissions]
 
     async def create_connection_permission(
-        self, connection_id: UUID, user: User, permission_data: ConnectionPermissionCreate
+        self,
+        connection_id: UUID,
+        user: User,
+        permission_data: ConnectionPermissionCreate,
     ) -> PermissionResponse:
         """
         Create permission for a connection.
@@ -141,7 +144,8 @@ class PermissionService:
                     permission_data.space_id
                 )
                 connection_exists = any(
-                    str(sc.connection_id) == str(connection_id) for sc in existing_connections
+                    str(sc.connection_id) == str(connection_id)
+                    for sc in existing_connections
                 )
 
                 if not connection_exists:
@@ -156,7 +160,9 @@ class PermissionService:
                 # 2. Sync SpaceTable if tables are specified
                 if permission_data.table_access:
                     await self._sync_space_tables(
-                        permission_data.space_id, connection_id, permission_data.table_access
+                        permission_data.space_id,
+                        connection_id,
+                        permission_data.table_access,
                     )
 
             except Exception as e:
@@ -204,7 +210,9 @@ class PermissionService:
         # If space_id exists and table_access was updated, sync SpaceTable
         if permission.space_id and "table_access" in update_data:
             await self._sync_space_tables(
-                permission.space_id, permission.connection_id, update_data["table_access"]
+                permission.space_id,
+                permission.connection_id,
+                update_data["table_access"],
             )
 
         await self.db.commit()
@@ -236,7 +244,9 @@ class PermissionService:
         # If this was a space permission, we might want to clean up SpaceTable entries
         # so they don't linger without permission
         if permission.space_id:
-            await self._sync_space_tables(permission.space_id, permission.connection_id, [])
+            await self._sync_space_tables(
+                permission.space_id, permission.connection_id, []
+            )
 
         await self.permission_repo.delete(permission_id)
         await self.db.commit()
@@ -263,7 +273,9 @@ class PermissionService:
         for table_name in target_tables:
             if table_name not in existing_conn_tables:
                 await self.space_table_repo.create(
-                    space_id=space_id, connection_id=connection_id, table_name=table_name
+                    space_id=space_id,
+                    connection_id=connection_id,
+                    table_name=table_name,
                 )
 
         # Tables to remove
@@ -271,7 +283,9 @@ class PermissionService:
             if table_name not in target_tables:
                 await self.space_table_repo.delete(t_obj.id)
 
-    async def get_space_permissions(self, space_id: UUID, user: User) -> List[PermissionResponse]:
+    async def get_space_permissions(
+        self, space_id: UUID, user: User
+    ) -> List[PermissionResponse]:
         """
         Get permissions for a space.
 
@@ -290,7 +304,9 @@ class PermissionService:
         permissions = await self.permission_repo.get_by_space_id(space_id)
         return [PermissionResponse.model_validate(p) for p in permissions]
 
-    async def get_crew_permissions(self, crew_id: UUID, user: User) -> List[PermissionResponse]:
+    async def get_crew_permissions(
+        self, crew_id: UUID, user: User
+    ) -> List[PermissionResponse]:
         """
         Get permissions for a crew.
 
@@ -331,10 +347,14 @@ class PermissionService:
 
         # Check if user owns the connection
         if connection.created_by == validate_data.user_id:
-            return PermissionValidateResponse(allowed=True, reason="User owns the connection")
+            return PermissionValidateResponse(
+                allowed=True, reason="User owns the connection"
+            )
 
         # Check permissions
-        permissions = await self.permission_repo.get_by_connection_id(validate_data.connection_id)
+        permissions = await self.permission_repo.get_by_connection_id(
+            validate_data.connection_id
+        )
 
         # TODO: Check if user is member of space/crew with permission
         # For now, only check ownership
@@ -344,13 +364,17 @@ class PermissionService:
                 return PermissionValidateResponse(
                     allowed=True, reason="User has full access via permission"
                 )
-            elif permission.access_level == "read-only" and validate_data.action == "read":
+            elif (
+                permission.access_level == "read-only"
+                and validate_data.action == "read"
+            ):
                 return PermissionValidateResponse(
                     allowed=True, reason="User has read-only access via permission"
                 )
 
         return PermissionValidateResponse(
-            allowed=False, reason="User does not have permission to access this connection"
+            allowed=False,
+            reason="User does not have permission to access this connection",
         )
 
     async def get_table_member_permissions(
@@ -450,8 +474,12 @@ class PermissionService:
             raise BadRequestError("Member does not belong to the specified crew")
 
         # Check if permission already exists
-        existing = await self.table_member_permission_repo.get_by_connection_table_member(
-            permission_data.connection_id, permission_data.table_name, permission_data.member_id
+        existing = (
+            await self.table_member_permission_repo.get_by_connection_table_member(
+                permission_data.connection_id,
+                permission_data.table_name,
+                permission_data.member_id,
+            )
         )
         if existing:
             raise BadRequestError("Permission already exists for this table and member")
@@ -470,7 +498,10 @@ class PermissionService:
         return TableMemberPermissionResponse.model_validate(permission)
 
     async def update_table_member_permission(
-        self, permission_id: UUID, user: User, permission_data: TableMemberPermissionUpdate
+        self,
+        permission_id: UUID,
+        user: User,
+        permission_data: TableMemberPermissionUpdate,
     ) -> TableMemberPermissionResponse:
         """
         Update table member permission.
@@ -497,13 +528,17 @@ class PermissionService:
             raise ForbiddenError("Access denied to this permission")
 
         update_data = permission_data.model_dump(exclude_unset=True)
-        permission = await self.table_member_permission_repo.update(permission_id, **update_data)
+        permission = await self.table_member_permission_repo.update(
+            permission_id, **update_data
+        )
         await self.db.commit()
         await self.db.refresh(permission)
 
         return TableMemberPermissionResponse.model_validate(permission)
 
-    async def delete_table_member_permission(self, permission_id: UUID, user: User) -> None:
+    async def delete_table_member_permission(
+        self, permission_id: UUID, user: User
+    ) -> None:
         """
         Delete table member permission.
 
@@ -527,7 +562,9 @@ class PermissionService:
         await self.table_member_permission_repo.delete(permission_id)
         await self.db.commit()
 
-    async def get_all_role_permissions(self, user: User) -> List[RolePermissionResponse]:
+    async def get_all_role_permissions(
+        self, user: User
+    ) -> List[RolePermissionResponse]:
         """
         Get all role permissions.
 
@@ -571,7 +608,9 @@ class PermissionService:
 
         valid_roles = ["commander", "navigator", "explorer", "guest"]
         if role not in valid_roles:
-            raise BadRequestError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+            raise BadRequestError(
+                f"Invalid role. Must be one of: {', '.join(valid_roles)}"
+            )
 
         # Get existing role permission or create new one
         role_permission = await self.role_permission_repo.get_by_role(role)
@@ -639,7 +678,9 @@ class PermissionService:
 
             # Check explicit SpaceTable associations
             space_tables = await self.space_table_repo.get_space_tables(space_id)
-            linked_tables = {t.table_name for t in space_tables if t.connection_id == connection_id}
+            linked_tables = {
+                t.table_name for t in space_tables if t.connection_id == connection_id
+            }
 
             if perm:
                 if perm.access_level == "full":
