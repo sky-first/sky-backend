@@ -1,5 +1,6 @@
 """Base repository with common CRUD operations."""
 
+from datetime import datetime, timezone
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, cast
 from uuid import UUID
 
@@ -109,10 +110,9 @@ class BaseRepository(Generic[ModelType]):
         """
         # Set created_at, updated_at, and other timestamp fields if not provided and model has these fields
         # This is needed for SQLite which doesn't support server_default=func.now()
-        from datetime import datetime
 
         # Use naive utcnow to match existing pattern and avoid asyncpg aware/naive mismatch
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         # Ensure ALL datetime objects in kwargs are naive
         for key, value in kwargs.items():

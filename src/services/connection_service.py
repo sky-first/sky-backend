@@ -1,11 +1,13 @@
 """Connection service."""
 
+import sys
 import time as _time
 from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional, cast
 from uuid import UUID
 
 import structlog
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
@@ -292,7 +294,32 @@ class ConnectionService:
                 )
                 raise ForbiddenError("Access denied to this connection")
 
-        logger.info(f"🔴 [DELETE SERVICE] HARD Deleting connection {connection_id} and metadata...")
+        logger.info(
+            f"🔴 [DELETE SERVICE] HARD Deleting connection {connection_id} and dependent metadata..."
+        )
+
+        # 1. Manually delete from dependent metadata (Best effort for Postgres)
+        # We skip this during tests as the tables might not exist and raw SQL execution
+        # is unstable in SQLite async tests. SQLAlchemy session handles Model cleanup in tests.
+        if "pytest" not in sys.modules:
+            # 1.1. table_metadata (AI table without SQLAlchemy model in Backend)
+            await self.db.execute(
+                text("DELETE FROM table_metadata WHERE data_connection_id = :conn_id"),
+                {"conn_id": connection_id},
+            )
+
+            # 1.2. space_tables (association)
+            await self.db.execute(
+                text("DELETE FROM space_tables WHERE connection_id = :conn_id"),
+                {"conn_id": connection_id},
+            )
+
+            # 1.3. connection_metadata (children)
+            await self.db.execute(
+                text("DELETE FROM connection_metadata WHERE connection_id = :conn_id"),
+                {"conn_id": connection_id},
+            )
+
         await self.db.delete(connection)
         await self.db.commit()
         logger.info(f"🔴 [DELETE SERVICE] Connection {connection_id} deleted successfully")

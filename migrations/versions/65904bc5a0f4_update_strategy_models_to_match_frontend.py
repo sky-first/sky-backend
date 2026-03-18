@@ -29,8 +29,8 @@ def upgrade() -> None:
     op.add_column(
         "strategic_objectives", sa.Column("budget", sa.Float(), nullable=True)
     )
-    op.drop_column("strategic_objectives", "horizon")
-    op.drop_column("strategic_objectives", "weight")
+    # op.drop_column("strategic_objectives", "horizon")
+    # op.drop_column("strategic_objectives", "weight")
     op.add_column(
         "strategic_pillars", sa.Column("horizon", sa.String(length=50), nullable=True)
     )
@@ -72,15 +72,15 @@ def upgrade() -> None:
     op.add_column(
         "strategy_assumptions", sa.Column("owner", sa.String(length=100), nullable=True)
     )
-    op.drop_constraint(
-        "strategy_assumptions_owner_crew_id_fkey",
-        "strategy_assumptions",
-        type_="foreignkey",
-    )
-    op.drop_column("strategy_assumptions", "revision_deadline")
-    op.drop_column("strategy_assumptions", "owner_crew_id")
-    op.drop_column("strategy_assumptions", "validated")
-    op.drop_column("strategy_assumptions", "confidence")
+    # op.drop_constraint(
+    #     "strategy_assumptions_owner_crew_id_fkey",
+    #     "strategy_assumptions",
+    #     type_="foreignkey",
+    # )
+    # op.drop_column("strategy_assumptions", "revision_deadline")
+    # op.drop_column("strategy_assumptions", "owner_crew_id")
+    # op.drop_column("strategy_assumptions", "validated")
+    # op.drop_column("strategy_assumptions", "confidence")
     op.add_column(
         "strategy_initiatives", sa.Column("type", sa.String(length=50), nullable=True)
     )
@@ -107,16 +107,16 @@ def upgrade() -> None:
     op.add_column(
         "strategy_initiatives", sa.Column("progress", sa.Integer(), nullable=True)
     )
-    op.drop_constraint(
-        "strategy_initiatives_owner_crew_id_fkey",
-        "strategy_initiatives",
-        type_="foreignkey",
-    )
-    op.drop_column("strategy_initiatives", "owner_crew_id")
-    op.drop_column("strategy_initiatives", "alignment_score")
-    op.drop_column("strategy_initiatives", "supports_objectives")
-    op.drop_column("strategy_initiatives", "budget_estimated")
-    op.drop_column("strategy_initiatives", "expected_impact")
+    # op.drop_constraint(
+    #     "strategy_initiatives_owner_crew_id_fkey",
+    #     "strategy_initiatives",
+    #     type_="foreignkey",
+    # )
+    # op.drop_column("strategy_initiatives", "owner_crew_id")
+    # op.drop_column("strategy_initiatives", "alignment_score")
+    # op.drop_column("strategy_initiatives", "supports_objectives")
+    # op.drop_column("strategy_initiatives", "budget_estimated")
+    # op.drop_column("strategy_initiatives", "expected_impact")
     # ### end Alembic commands ###
 
 

@@ -161,77 +161,6 @@ async def delete_okr(
     await service.delete_okr(okr_id)
 
 
-# --- Strategy Cycle ---
-
-
-@router.post("/cycles", response_model=StrategyCycleResponse, status_code=201)
-async def create_cycle(
-    body: StrategyCycleCreate,
-    current_user: User = Depends(get_current_user),
-    service: StrategyService = Depends(get_service),
-) -> StrategyCycleResponse:
-    """Create a new strategy cycle."""
-    return await service.create_cycle(body)
-
-
-@router.put("/cycles/{cycle_id}", response_model=StrategyCycleResponse)
-async def update_cycle(
-    cycle_id: UUID,
-    body: StrategyCycleUpdate,
-    current_user: User = Depends(get_current_user),
-    service: StrategyService = Depends(get_service),
-) -> StrategyCycleResponse:
-    """Update a strategy cycle."""
-    return await service.update_cycle(cycle_id, body)
-
-
-@router.delete("/cycles/{cycle_id}", status_code=204)
-async def delete_cycle(
-    cycle_id: UUID,
-    current_user: User = Depends(get_current_user),
-    service: StrategyService = Depends(get_service),
-) -> None:
-    """Delete a strategy cycle."""
-    await service.delete_cycle(cycle_id)
-
-
-# --- Strategy Key Result ---
-
-
-@router.post("/key-results", response_model=StrategyKeyResultResponse, status_code=201)
-async def create_key_result(
-    body: StrategyKeyResultCreate,
-    current_user: User = Depends(get_current_user),
-    service: StrategyService = Depends(get_service),
-) -> StrategyKeyResultResponse:
-    """Create a new key result."""
-    return await service.create_key_result(body)
-
-
-@router.put("/key-results/{key_result_id}", response_model=StrategyKeyResultResponse)
-async def update_key_result(
-    key_result_id: UUID,
-    body: StrategyKeyResultUpdate,
-    current_user: User = Depends(get_current_user),
-    service: StrategyService = Depends(get_service),
-) -> StrategyKeyResultResponse:
-    """Update a key result."""
-    return await service.update_key_result(key_result_id, body)
-
-
-@router.delete("/key-results/{key_result_id}", status_code=204)
-async def delete_key_result(
-    key_result_id: UUID,
-    current_user: User = Depends(get_current_user),
-    service: StrategyService = Depends(get_service),
-) -> None:
-    """Delete a key result."""
-    await service.delete_key_result(key_result_id)
-
-
-# --- Strategy Initiative ---
-
-
 @router.post("/initiatives", response_model=StrategyInitiativeResponse, status_code=201)
 async def create_initiative(
     body: StrategyInitiativeCreate,
@@ -295,3 +224,71 @@ async def delete_assumption(
 ) -> None:
     """Delete a strategy assumption."""
     await service.delete_assumption(assumption_id)
+
+
+# --- Strategy Cycle ---
+
+
+@router.post("/cycles", response_model=StrategyCycleResponse, status_code=201)
+async def create_cycle(
+    body: StrategyCycleCreate,
+    current_user: User = Depends(get_current_user),
+    service: StrategyService = Depends(get_service),
+) -> StrategyCycleResponse:
+    """Create a new strategy cycle."""
+    return await service.create_cycle(body)
+
+
+@router.put("/cycles/{cycle_id}", response_model=StrategyCycleResponse)
+async def update_cycle(
+    cycle_id: UUID,
+    body: StrategyCycleUpdate,
+    current_user: User = Depends(get_current_user),
+    service: StrategyService = Depends(get_service),
+) -> StrategyCycleResponse:
+    """Update a strategy cycle."""
+    return await service.update_cycle(cycle_id, body)
+
+
+@router.delete("/cycles/{cycle_id}", status_code=204)
+async def delete_cycle(
+    cycle_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: StrategyService = Depends(get_service),
+) -> None:
+    """Delete a strategy cycle."""
+    await service.delete_cycle(cycle_id)
+
+
+# --- Strategy Key Result ---
+
+
+@router.post("/key-results", response_model=StrategyKeyResultResponse, status_code=201)
+async def create_key_result(
+    body: StrategyKeyResultCreate,
+    current_user: User = Depends(get_current_user),
+    service: StrategyService = Depends(get_service),
+) -> StrategyKeyResultResponse:
+    """Create a new strategy key result."""
+    return await service.create_key_result(body)
+
+
+@router.put("/key-results/{kr_id}", response_model=StrategyKeyResultResponse)
+async def update_key_result(
+    kr_id: UUID,
+    body: StrategyKeyResultUpdate,
+    current_user: User = Depends(get_current_user),
+    service: StrategyService = Depends(get_service),
+) -> StrategyKeyResultResponse:
+    """Update a strategy key result."""
+    return await service.update_key_result(kr_id, body)
+
+
+@router.delete("/key-results/{kr_id}", status_code=204)
+async def delete_key_result(
+    kr_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: StrategyService = Depends(get_service),
+) -> None:
+    """Delete a strategy key result."""
+    await service.delete_key_result(kr_id)

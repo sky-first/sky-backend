@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any, Dict, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,6 +16,8 @@ class SignalEventBase(BaseModel):
     impact_date: Optional[datetime] = None
     confidence: SignalConfidence
     relations: Optional[Dict[str, Any]] = None
+    space_id: Optional[UUID] = None
+    crew_id: Optional[UUID] = None
 
 
 class SignalEventCreate(SignalEventBase):
@@ -33,7 +36,7 @@ class SignalEventUpdate(BaseModel):
 
 
 class SignalEventResponse(SignalEventBase):
-    id: str
+    id: UUID
     created_at: datetime
     updated_at: datetime
 

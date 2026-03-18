@@ -28,6 +28,7 @@ from src.models.strategy import (
     StrategicObjective,
     StrategicPillar,
     StrategyAssumption,
+    StrategyCycle,
     StrategyInitiative,
     StrategyKeyResult,
     StrategyOKR,
@@ -79,7 +80,8 @@ __all__ = [
     "StrategicPillar",
     "StrategicObjective",
     "StrategyOKR",
-    "StrategyKeyResult",
     "StrategyInitiative",
     "StrategyAssumption",
+    "StrategyCycle",
+    "StrategyKeyResult",
 ]

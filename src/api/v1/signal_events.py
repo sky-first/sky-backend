@@ -1,75 +1,79 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user
+from src.api.deps import get_current_user, get_db
 from src.models.user import User
-from src.repositories.signal_event import SignalEventRepository, get_signal_event_repo
 from src.schemas.signal_event import SignalEventCreate, SignalEventResponse, SignalEventUpdate
+from src.services.signal_event_service import SignalEventService
 
 router = APIRouter()
 
 
+async def get_signal_event_service(
+    db: AsyncSession = Depends(get_db),
+) -> SignalEventService:
+    return SignalEventService(db)
+
+
 @router.get("/", response_model=List[SignalEventResponse])
 async def list_signal_events(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    space_id: Optional[UUID] = Query(None),
+    crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
-    repo: SignalEventRepository = Depends(get_signal_event_repo),
+    service: SignalEventService = Depends(get_signal_event_service),
 ):
-    """List all signal events."""
-    return await repo.get_all(skip=skip, limit=limit, order_by="created_at")
+    """List signal events with tenant filtering."""
+    return await service.list_events(space_id=space_id, crew_id=crew_id)
 
 
 @router.post("/", response_model=SignalEventResponse, status_code=status.HTTP_201_CREATED)
 async def create_signal_event(
     event_in: SignalEventCreate,
+    space_id: Optional[UUID] = Query(None),
+    crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
-    repo: SignalEventRepository = Depends(get_signal_event_repo),
+    service: SignalEventService = Depends(get_signal_event_service),
 ):
-    """Create a new signal event."""
-    return await repo.create(**event_in.model_dump())
+    """Create a new signal event within a tenant context."""
+    return await service.create_event(event_in, space_id=space_id, crew_id=crew_id)
 
 
 @router.get("/{event_id}", response_model=SignalEventResponse)
 async def get_signal_event(
     event_id: UUID,
+    space_id: Optional[UUID] = Query(None),
+    crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
-    repo: SignalEventRepository = Depends(get_signal_event_repo),
+    service: SignalEventService = Depends(get_signal_event_service),
 ):
-    """Get a specific signal event by ID."""
-    event = await repo.get_by_id(event_id)
-    if not event:
-        raise HTTPException(status_code=404, detail="Signal event not found")
-    return event
+    """Get a specific signal event by ID with tenant validation."""
+    return await service.get_event(event_id, space_id=space_id, crew_id=crew_id)
 
 
 @router.put("/{event_id}", response_model=SignalEventResponse)
 async def update_signal_event(
     event_id: UUID,
     event_in: SignalEventUpdate,
+    space_id: Optional[UUID] = Query(None),
+    crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
-    repo: SignalEventRepository = Depends(get_signal_event_repo),
+    service: SignalEventService = Depends(get_signal_event_service),
 ):
-    """Update a signal event."""
-    event = await repo.get_by_id(event_id)
-    if not event:
-        raise HTTPException(status_code=404, detail="Signal event not found")
-
-    return await repo.update(event_id, **event_in.model_dump(exclude_unset=True))
+    """Update a signal event with tenant validation."""
+    return await service.update_event(event_id, event_in, space_id=space_id, crew_id=crew_id)
 
 
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_signal_event(
     event_id: UUID,
+    space_id: Optional[UUID] = Query(None),
+    crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
-    repo: SignalEventRepository = Depends(get_signal_event_repo),
+    service: SignalEventService = Depends(get_signal_event_service),
 ):
-    """Delete a signal event."""
-    event = await repo.get_by_id(event_id)
-    if not event:
-        raise HTTPException(status_code=404, detail="Signal event not found")
-
-    await repo.delete(event_id)
+    """Delete a signal event with tenant validation."""
+    await service.delete_event(event_id, space_id=space_id, crew_id=crew_id)
     return None

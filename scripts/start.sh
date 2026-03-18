@@ -114,11 +114,11 @@ echo ""
 # Cria usuário de teste
 echo "👤 Verificando/Criando usuário de teste..."
 if [ -d "venv" ]; then
-    venv/bin/python create_user.py
+    venv/bin/python scripts/create-test-user.py
 elif [ -d ".venv" ]; then
-    .venv/bin/python create_user.py
+    .venv/bin/python scripts/create-test-user.py
 else
-    python3 create_user.py
+    python3 scripts/create-test-user.py
 fi
 echo ""
 

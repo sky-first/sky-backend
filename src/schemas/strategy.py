@@ -13,6 +13,8 @@ class StrategicPillarBase(BaseModel):
     owner: Optional[str] = None
     metrics: Optional[List[str]] = Field(default_factory=list)
     priority: Optional[str] = None
+    space_id: Optional[UUID] = None
+    crew_id: Optional[UUID] = None
 
 
 class StrategicPillarCreate(StrategicPillarBase):
@@ -23,6 +25,10 @@ class StrategicPillarUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     color: Optional[str] = None
+    horizon: Optional[str] = None
+    owner: Optional[str] = None
+    metrics: Optional[List[str]] = None
+    priority: Optional[str] = None
 
 
 class StrategicPillarResponse(StrategicPillarBase):
@@ -47,6 +53,8 @@ class StrategicObjectiveBase(BaseModel):
     owner: Optional[str] = None
     kpis: Optional[List[str]] = Field(default_factory=list)
     budget: Optional[float] = None
+    space_id: Optional[UUID] = None
+    crew_id: Optional[UUID] = None
 
 
 class StrategicObjectiveCreate(StrategicObjectiveBase):
@@ -58,10 +66,12 @@ class StrategicObjectiveUpdate(BaseModel):
     type: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
-    horizon: Optional[str] = None
-    area: Optional[str] = None
+    status: Optional[str] = None
     priority: Optional[str] = None
-    weight: Optional[float] = None
+    area: Optional[str] = None
+    owner: Optional[str] = None
+    kpis: Optional[List[str]] = None
+    budget: Optional[float] = None
     owner_crew_id: Optional[UUID] = None
 
 
@@ -86,6 +96,8 @@ class StrategyOKRBase(BaseModel):
     deadline: Optional[datetime] = None
     measurement_frequency: Optional[str] = None
     owner_crew_id: Optional[UUID] = None
+    space_id: Optional[UUID] = None
+    crew_id: Optional[UUID] = None
 
 
 class StrategyOKRCreate(StrategyOKRBase):
@@ -108,6 +120,7 @@ class StrategyOKRResponse(StrategyOKRBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+    key_results: List["StrategyKeyResultResponse"] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -117,7 +130,7 @@ class StrategyOKRResponse(StrategyOKRBase):
 
 class StrategyCycleBase(BaseModel):
     name: str
-    type: str  # quarterly, annual, monthly
+    type: str
     start_date: datetime
     end_date: datetime
     status: Optional[str] = "active"
@@ -151,7 +164,7 @@ class StrategyKeyResultBase(BaseModel):
     description: str
     baseline: Optional[float] = None
     target: Optional[float] = None
-    current_value: Optional[float] = 0.0
+    current_value: Optional[float] = None
     unit: Optional[str] = None
 
 
@@ -160,7 +173,6 @@ class StrategyKeyResultCreate(StrategyKeyResultBase):
 
 
 class StrategyKeyResultUpdate(BaseModel):
-    okr_id: Optional[UUID] = None
     description: Optional[str] = None
     baseline: Optional[float] = None
     target: Optional[float] = None
@@ -195,6 +207,8 @@ class StrategyInitiativeBase(BaseModel):
     risks: Optional[List[str]] = Field(default_factory=list)
     assumptions: Optional[List[str]] = Field(default_factory=list)
     progress: Optional[int] = 0
+    space_id: Optional[UUID] = None
+    crew_id: Optional[UUID] = None
 
 
 class StrategyInitiativeCreate(StrategyInitiativeBase):
@@ -204,14 +218,19 @@ class StrategyInitiativeCreate(StrategyInitiativeBase):
 class StrategyInitiativeUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    owner_crew_id: Optional[UUID] = None
-    budget_estimated: Optional[float] = None
-    expected_impact: Optional[str] = None
-    status: Optional[str] = None
+    type: Optional[str] = None
+    pillar_id: Optional[UUID] = None
+    objective_id: Optional[UUID] = None
+    unit: Optional[str] = None
+    owner: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    alignment_score: Optional[int] = None
-    supports_objectives: Optional[List[UUID]] = None
+    status: Optional[str] = None
+    impact: Optional[str] = None
+    budget: Optional[float] = None
+    risks: Optional[List[str]] = None
+    assumptions: Optional[List[str]] = None
+    progress: Optional[int] = None
 
 
 class StrategyInitiativeResponse(StrategyInitiativeBase):
@@ -238,6 +257,8 @@ class StrategyAssumptionBase(BaseModel):
     mitigation_plan: Optional[str] = None
     owner: Optional[str] = None
     linked_objective_id: Optional[UUID] = None
+    space_id: Optional[UUID] = None
+    crew_id: Optional[UUID] = None
 
 
 class StrategyAssumptionCreate(StrategyAssumptionBase):
@@ -247,10 +268,15 @@ class StrategyAssumptionCreate(StrategyAssumptionBase):
 class StrategyAssumptionUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    confidence: Optional[str] = None
-    validated: Optional[bool] = None
-    revision_deadline: Optional[datetime] = None
-    owner_crew_id: Optional[UUID] = None
+    category: Optional[str] = None
+    impact_score: Optional[int] = None
+    probability_score: Optional[int] = None
+    priority: Optional[str] = None
+    impacted_entities: Optional[List[str]] = None
+    source: Optional[str] = None
+    status: Optional[str] = None
+    mitigation_plan: Optional[str] = None
+    owner: Optional[str] = None
     linked_objective_id: Optional[UUID] = None
 
 
@@ -275,8 +301,7 @@ class StrategyHealthResponse(BaseModel):
 class StrategyTreeResponse(BaseModel):
     pillars: List[StrategicPillarResponse]
     objectives: List[StrategicObjectiveResponse]
-    cycles: List[StrategyCycleResponse] = Field(default_factory=list)
     okrs: List[StrategyOKRResponse]
-    key_results: List[StrategyKeyResultResponse] = Field(default_factory=list)
     initiatives: List[StrategyInitiativeResponse]
     assumptions: List[StrategyAssumptionResponse]
+    cycles: List[StrategyCycleResponse] = Field(default_factory=list)

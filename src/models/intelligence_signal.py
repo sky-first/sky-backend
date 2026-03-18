@@ -28,7 +28,12 @@ class IntelligenceSignal(Base):
         nullable=False,
         index=True,
     )
-    space_id = Column(String(100), nullable=True, index=True)  # Optional scoping to a space
+    space_id = Column(
+        UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    crew_id = Column(
+        UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     category = Column(String(50), nullable=False, index=True)  # now, smart, explore
     title = Column(String(255), nullable=False)
