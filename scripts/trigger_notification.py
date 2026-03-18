@@ -5,18 +5,18 @@ import sys
 # Add the src directory to the path
 sys.path.append(os.getcwd())
 
-from sqlalchemy import delete
-from sqlalchemy.future import select
+from sqlalchemy import delete  # noqa: E402
+from sqlalchemy.future import select  # noqa: E402
 
 # Trigger all models registration
-from src.config.database import get_db, init_db
-from src.models.dashboard import Dashboard
-from src.models.notification import Notification, NotificationType
-from src.models.user import User
-from src.schemas.comment import CommentCreate
-from src.schemas.notification import NotificationCreate
-from src.services.comment_service import CommentService
-from src.services.notification_service import NotificationService
+from src.config.database import get_db, init_db  # noqa: E402
+from src.models.dashboard import Dashboard  # noqa: E402
+from src.models.notification import Notification, NotificationType  # noqa: E402
+from src.models.user import User  # noqa: E402
+from src.schemas.comment import CommentCreate  # noqa: E402
+from src.schemas.notification import NotificationCreate  # noqa: E402
+from src.services.comment_service import CommentService  # noqa: E402
+from src.services.notification_service import NotificationService  # noqa: E402
 
 
 async def trigger_test_notification():
@@ -35,7 +35,9 @@ async def trigger_test_notification():
         # 2. Get a dashboard (optional, but good for deep linking)
         result = await db.execute(select(Dashboard).limit(1))
         dashboard = result.scalars().first()
-        dashboard_id = dashboard.id if dashboard else "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        dashboard_id = (
+            dashboard.id if dashboard else "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        )
 
         print(f"👤 Notifying User: {user.email} (ID: {user.id})")
         print(f"📊 Using Dashboard ID: {dashboard_id}")
@@ -66,12 +68,16 @@ async def trigger_test_notification():
             await comment_service.create(
                 user_id=user.id,  # As if they mentioned themselves
                 comment_data=CommentCreate(
-                    content="Check this out! @test", dashboard_id=dashboard.id, mentions=[user.id]
+                    content="Check this out! @test",
+                    dashboard_id=dashboard.id,
+                    mentions=[user.id],
                 ),
             )
             print("✅ Comment Mention triggered!")
 
-        print("\n✨ Done! Now check your Dashboard Bell 🔔 (you might need to refresh).")
+        print(
+            "\n✨ Done! Now check your Dashboard Bell 🔔 (you might need to refresh)."
+        )
         break
 
 

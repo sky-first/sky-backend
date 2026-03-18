@@ -37,7 +37,9 @@ class User(Base):
         default="user",
         server_default="user",
     )  # admin, user, viewer
-    email_verified = Column(Boolean, nullable=False, default=False, server_default="false")
+    email_verified = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
     onboarding_step = Column(Integer, nullable=True, default=0, server_default="0")
     onboarding_version = Column(Integer, nullable=False, default=0, server_default="0")
@@ -73,7 +75,9 @@ class User(Base):
     sso_metadata = Column(JSON, nullable=True)  # Store provider-specific data
 
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     updated_at = Column(
         DateTime(timezone=True),
@@ -87,21 +91,33 @@ class User(Base):
     refresh_tokens = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
     )
-    owned_planets = relationship("Planet", back_populates="owner", foreign_keys="Planet.owner_id")
+    owned_planets = relationship(
+        "Planet", back_populates="owner", foreign_keys="Planet.owner_id"
+    )
     planet_memberships = relationship("PlanetMember", back_populates="user")
     owned_workspaces = relationship(
         "Workspace", back_populates="owner", foreign_keys="Workspace.owner_id"
     )
     workspace_memberships = relationship("WorkspaceMember", back_populates="user")
-    starred_items = relationship("StarredItem", back_populates="user", cascade="all, delete-orphan")
+    starred_items = relationship(
+        "StarredItem", back_populates="user", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_users_email", "email", postgresql_where=deleted_at.is_(None)),
         Index("idx_users_role", "role", postgresql_where=deleted_at.is_(None)),
         Index("idx_users_created_at", "created_at"),
         Index("idx_users_auth0_id", "auth0_id", postgresql_where=deleted_at.is_(None)),
-        Index("idx_users_auth_provider", "auth_provider", postgresql_where=deleted_at.is_(None)),
-        Index("idx_users_invite_token", "invite_token", postgresql_where=invite_token.isnot(None)),
+        Index(
+            "idx_users_auth_provider",
+            "auth_provider",
+            postgresql_where=deleted_at.is_(None),
+        ),
+        Index(
+            "idx_users_invite_token",
+            "invite_token",
+            postgresql_where=invite_token.isnot(None),
+        ),
     )
 
     def __repr__(self) -> str:
@@ -125,7 +141,9 @@ class RefreshToken(Base):
     )  # Changed from String(255) to Text for JWT tokens
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     user_agent = Column(String(255), nullable=True)

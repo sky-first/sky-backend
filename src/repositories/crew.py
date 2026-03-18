@@ -16,7 +16,9 @@ class CrewRepository(BaseRepository[Crew]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, Crew)
 
-    async def get_by_space(self, space_id: UUID, skip: int = 0, limit: int = 100) -> List[Crew]:
+    async def get_by_space(
+        self, space_id: UUID, skip: int = 0, limit: int = 100
+    ) -> List[Crew]:
         """
         Get crews by space.
 
@@ -47,7 +49,9 @@ class CrewRepository(BaseRepository[Crew]):
             select(
                 Crew,
                 func.count(distinct(CrewMember.id)).label("member_count"),
-                func.count(distinct(CrewConnection.connection_id)).label("connection_count"),
+                func.count(distinct(CrewConnection.connection_id)).label(
+                    "connection_count"
+                ),
             )
             .outerjoin(CrewMember, Crew.id == CrewMember.crew_id)
             .outerjoin(CrewConnection, Crew.id == CrewConnection.crew_id)
@@ -75,7 +79,9 @@ class CrewRepository(BaseRepository[Crew]):
             select(
                 Crew,
                 func.count(distinct(CrewMember.id)).label("member_count"),
-                func.count(distinct(CrewConnection.connection_id)).label("connection_count"),
+                func.count(distinct(CrewConnection.connection_id)).label(
+                    "connection_count"
+                ),
             )
             .outerjoin(CrewMember, Crew.id == CrewMember.crew_id)
             .outerjoin(CrewConnection, Crew.id == CrewConnection.crew_id)
@@ -104,7 +110,9 @@ class CrewRepository(BaseRepository[Crew]):
             Optional[Crew]: Entity or None
         """
         result = await self.db.execute(
-            select(self.model).where(self.model.id == id, self.model.deleted_at.is_(None))
+            select(self.model).where(
+                self.model.id == id, self.model.deleted_at.is_(None)
+            )
         )
         return result.scalar_one_or_none()
 
@@ -188,7 +196,9 @@ class CrewMemberRepository(BaseRepository[CrewMember]):
         )
         return list(result.scalars().all())
 
-    async def get_by_crew_and_user(self, crew_id: UUID, user_id: UUID) -> Optional[CrewMember]:
+    async def get_by_crew_and_user(
+        self, crew_id: UUID, user_id: UUID
+    ) -> Optional[CrewMember]:
         """
         Get crew member by crew and user.
 
@@ -200,11 +210,15 @@ class CrewMemberRepository(BaseRepository[CrewMember]):
             Optional[CrewMember]: Crew member or None
         """
         result = await self.db.execute(
-            select(CrewMember).where(CrewMember.crew_id == crew_id, CrewMember.user_id == user_id)
+            select(CrewMember).where(
+                CrewMember.crew_id == crew_id, CrewMember.user_id == user_id
+            )
         )
         return result.scalar_one_or_none()
 
-    async def get_crew_ids_by_user_and_space(self, user_id: UUID, space_id: UUID) -> List[UUID]:
+    async def get_crew_ids_by_user_and_space(
+        self, user_id: UUID, space_id: UUID
+    ) -> List[UUID]:
         """
         Get crew IDs where user is a member and crew belongs to the specified space.
 

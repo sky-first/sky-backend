@@ -15,11 +15,17 @@ class StarredItem(Base):
     __tablename__ = "starred_items"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    item_id = Column(UUID(as_uuid=True), nullable=False)  # ID of the planet, space, or crew
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    item_id = Column(
+        UUID(as_uuid=True), nullable=False
+    )  # ID of the planet, space, or crew
     item_type = Column(String(50), nullable=False)  # planet, space, crew
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     updated_at = Column(
         DateTime(timezone=True),
@@ -33,9 +39,16 @@ class StarredItem(Base):
     user = relationship("User", back_populates="starred_items")
 
     __table_args__ = (
-        Index("idx_starred_items_user_id", "user_id", postgresql_where=deleted_at.is_(None)),
         Index(
-            "idx_starred_items_item", "item_id", "item_type", postgresql_where=deleted_at.is_(None)
+            "idx_starred_items_user_id",
+            "user_id",
+            postgresql_where=deleted_at.is_(None),
+        ),
+        Index(
+            "idx_starred_items_item",
+            "item_id",
+            "item_type",
+            postgresql_where=deleted_at.is_(None),
         ),
         # Note: Unique constraint is handled at application level to allow soft deletes
         # Multiple soft-deleted items can exist with same user_id, item_id, item_type

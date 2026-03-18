@@ -61,7 +61,10 @@ async def get_connection_metrics(
             "dataTransferred": {"value": ""},
             "avgSyncFrequency": {"value": ""},
         },
-        "valueMap": {"supportedProcesses": {"value": ""}, "dependentKpis": {"value": ""}},
+        "valueMap": {
+            "supportedProcesses": {"value": ""},
+            "dependentKpis": {"value": ""},
+        },
         "reliability": {
             "syncFailures": {"value": ""},
             "avgExecTime": {"value": ""},
@@ -83,7 +86,10 @@ async def get_space_metrics(
             "avgEngagement": {"value": ""},
             "interactionVolume": {"value": ""},
         },
-        "networkHealth": {"networkGrowth": {"value": ""}, "crossCollaboration": {"value": ""}},
+        "networkHealth": {
+            "networkGrowth": {"value": ""},
+            "crossCollaboration": {"value": ""},
+        },
     }
 
 
@@ -95,7 +101,10 @@ async def get_crew_metrics(
 ):
     """Get metrics for a specific crew."""
     return {
-        "engagement": {"usageFrequency": {"value": ""}, "activeSessions": {"value": ""}},
+        "engagement": {
+            "usageFrequency": {"value": ""},
+            "activeSessions": {"value": ""},
+        },
         "performance": {"avgResponseTime": {"value": ""}},
     }
 

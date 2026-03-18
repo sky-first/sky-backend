@@ -45,7 +45,9 @@ class SignalEvent(Base):
 
     start_date = Column(DateTime, nullable=False, default=datetime.utcnow)
     impact_date = Column(DateTime, nullable=True)
-    confidence = Column(SQLEnum(SignalConfidence), nullable=False, default=SignalConfidence.MEDIUM)
+    confidence = Column(
+        SQLEnum(SignalConfidence), nullable=False, default=SignalConfidence.MEDIUM
+    )
 
     # Store relations cleanly inside a JSON field
     # { "product": "...", "kpi": "...", "client": "..." }
@@ -55,7 +57,9 @@ class SignalEvent(Base):
     crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     # Note: Depending on your exact schema needs, if these events need to trace back to a specific workspace
     # or user, you might want to add a `workspace_id` or `user_id` here. For now it's global as per the UI.

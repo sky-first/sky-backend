@@ -84,7 +84,9 @@ class StrategyService:
 
     # --- Strategic Pillar ---
 
-    async def create_pillar(self, schema: StrategicPillarCreate) -> StrategicPillarResponse:
+    async def create_pillar(
+        self, schema: StrategicPillarCreate
+    ) -> StrategicPillarResponse:
         pillar = await self.repository.create_pillar(schema)
         await self.session.commit()
         await self.session.refresh(pillar)
@@ -96,7 +98,9 @@ class StrategyService:
     ) -> StrategicPillarResponse:
         pillar = await self.repository.get_pillar_by_id(pillar_id)
         if not pillar:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pillar not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Pillar not found"
+            )
         pillar = await self.repository.update_pillar(pillar, schema)
         await self.session.commit()
         await self.session.refresh(pillar)
@@ -106,7 +110,9 @@ class StrategyService:
     async def delete_pillar(self, pillar_id: UUID) -> None:
         pillar = await self.repository.get_pillar_by_id(pillar_id)
         if not pillar:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pillar not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Pillar not found"
+            )
         await self.repository.delete_pillar(pillar)
         await self.session.commit()
 
@@ -126,7 +132,9 @@ class StrategyService:
     ) -> StrategicObjectiveResponse:
         objective = await self.repository.get_objective_by_id(objective_id)
         if not objective:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Objective not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Objective not found"
+            )
         objective = await self.repository.update_objective(objective, schema)
         await self.session.commit()
         await self.session.refresh(objective)
@@ -136,7 +144,9 @@ class StrategyService:
     async def delete_objective(self, objective_id: UUID) -> None:
         objective = await self.repository.get_objective_by_id(objective_id)
         if not objective:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Objective not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Objective not found"
+            )
         await self.repository.delete_objective(objective)
         await self.session.commit()
 
@@ -149,10 +159,14 @@ class StrategyService:
         await self._trigger_ai_ingestion(okr, "strategy_okr")
         return okr
 
-    async def update_okr(self, okr_id: UUID, schema: StrategyOKRUpdate) -> StrategyOKRResponse:
+    async def update_okr(
+        self, okr_id: UUID, schema: StrategyOKRUpdate
+    ) -> StrategyOKRResponse:
         okr = await self.repository.get_okr_by_id(okr_id)
         if not okr:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found"
+            )
         okr = await self.repository.update_okr(okr, schema)
         await self.session.commit()
         await self.session.refresh(okr)
@@ -162,11 +176,11 @@ class StrategyService:
     async def delete_okr(self, okr_id: UUID) -> None:
         okr = await self.repository.get_okr_by_id(okr_id)
         if not okr:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found"
+            )
         await self.repository.delete_okr(okr)
         await self.session.commit()
-
-
 
     # --- Strategy Initiative ---
 
@@ -174,7 +188,6 @@ class StrategyService:
         self, schema: StrategyInitiativeCreate
     ) -> StrategyInitiativeResponse:
         initiative = await self.repository.create_initiative(schema)
-        # Compute progress initial (0) or from schema
         await self.session.commit()
         await self.session.refresh(initiative)
         await self._trigger_ai_ingestion(initiative, "strategy_initiative")
@@ -242,7 +255,9 @@ class StrategyService:
     async def update_cycle(self, cycle_id: UUID, schema: StrategyCycleUpdate) -> StrategyCycleResponse:
         cycle = await self.repository.get_cycle_by_id(cycle_id)
         if not cycle:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cycle not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Cycle not found"
+            )
         cycle = await self.repository.update_cycle(cycle, schema)
         await self.session.commit()
         await self.session.refresh(cycle)
@@ -251,7 +266,9 @@ class StrategyService:
     async def delete_cycle(self, cycle_id: UUID) -> None:
         cycle = await self.repository.get_cycle_by_id(cycle_id)
         if not cycle:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cycle not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Cycle not found"
+            )
         await self.repository.delete_cycle(cycle)
         await self.session.commit()
 
@@ -281,15 +298,7 @@ class StrategyService:
         await self.repository.delete_key_result(kr)
         await self.session.commit()
 
-
-
     # --- Business Logic ---
-
-    def _compute_alignment_score(self, supports_objectives: list) -> int:
-        if not supports_objectives:
-            return 0
-        # Simple logic: 20 points per objective supported, cap at 100
-        return min(len(supports_objectives) * 20, 100)
 
     async def get_strategy_health(self) -> StrategyHealthResponse:
         objectives = await self.repository.get_all_objectives()
@@ -306,17 +315,24 @@ class StrategyService:
             coverage = (len(objectives_with_okrs) / total_objectives) * 100
 
         # 2. Execution Velocity (Average progress of all initiatives)
-        total_progress = sum(init.progress for init in initiatives if init.progress is not None)
+        total_progress = sum(
+            init.progress for init in initiatives if init.progress is not None
+        )
         velocity = (total_progress / len(initiatives)) if initiatives else 100.0
 
-        # 3. Risk Exposure (Calculated from assumptions)
-        if assumptions:
-            total_impact = sum(a.impact_score * a.probability_score for a in assumptions)
-            risk_exposure = (total_impact / (len(assumptions) * 25)) * 100  # Max score is 5*5=25
-        else:
-            risk_exposure = 0
+        # 3. Risk Exposure (Sum of impact * probability of active assumptions as risks)
+        risk_exposure = 0
+        active_risks = [
+            r for r in assumptions if r.status in ["identified", "materialized"]
+        ]
+        if active_risks:
+            max_possible_risk = len(active_risks) * 25  # 5 * 5
+            total_current_risk = sum(
+                (r.impact_score or 0) * (r.probability_score or 0) for r in active_risks
+            )
+            risk_exposure = (total_current_risk / max_possible_risk) * 100
 
-        # 4. Cascade Depth (Completeness of links: Pillar -> Objective -> Initiative)
+        # 4. Cascade Depth (Completeness of links: Pillar -> Objective)
         cascade_depth = 0.0
         if total_objectives > 0:
             linked_count = sum(1 for obj in objectives if obj.pillar_id is not None)

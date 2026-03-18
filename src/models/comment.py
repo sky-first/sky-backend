@@ -37,7 +37,9 @@ class Comment(Base):
     mentions = Column(JSON, default=[], nullable=False)  # List of user_ids mentioned
 
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     updated_at = Column(
         DateTime(timezone=True),

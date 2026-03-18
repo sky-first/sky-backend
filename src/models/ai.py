@@ -60,7 +60,9 @@ class AIQuery(Base):
         nullable=False,
         index=True,
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -101,10 +103,16 @@ class AIHistory(Base):
     query = Column(Text, nullable=False)
     preview = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
-    date = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    date = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
     tags = Column(JSON, nullable=False, default=list, server_default="[]")
-    category = Column(String(50), nullable=True)  # Finance, Marketing, Sales, General, Logistics
-    pinned = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    category = Column(
+        String(50), nullable=True
+    )  # Finance, Marketing, Sales, General, Logistics
+    pinned = Column(
+        Boolean, nullable=False, default=False, server_default="false", index=True
+    )
     planet_id = Column(
         UUID(as_uuid=True),
         ForeignKey("planets.id", ondelete="CASCADE"),
@@ -114,7 +122,9 @@ class AIHistory(Base):
     # Collaborative context: used to scope history by active crew/space
     space_id = Column(String, nullable=True, index=True)
     crew_id = Column(String, nullable=True, index=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -157,7 +167,9 @@ class Pipeline(Base):
     status = Column(
         String(50), nullable=False, default="processing", server_default="processing"
     )  # processing, completed, error
-    steps = Column(JSON, nullable=False, default=list, server_default="[]")  # Array of PipelineStep
+    steps = Column(
+        JSON, nullable=False, default=list, server_default="[]"
+    )  # Array of PipelineStep
     current_step = Column(String(255), nullable=True)
     errors = Column(JSON, nullable=True)  # Array of errors
     logs = Column(Text, nullable=True)
@@ -165,7 +177,9 @@ class Pipeline(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )
     completed_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -183,7 +197,9 @@ class Pipeline(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Pipeline(id={self.id}, query_id={self.query_id}, status={self.status})>"
+        return (
+            f"<Pipeline(id={self.id}, query_id={self.query_id}, status={self.status})>"
+        )
 
 
 class PipelineStep:
@@ -233,7 +249,9 @@ class ChatMessage(Base):
     timestamp = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     # Relationships
     widget = relationship("Widget")
@@ -247,7 +265,9 @@ class ChatMessage(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<ChatMessage(id={self.id}, widget_id={self.widget_id}, type={self.type})>"
+        return (
+            f"<ChatMessage(id={self.id}, widget_id={self.widget_id}, type={self.type})>"
+        )
 
 
 class AIResponse(Base):
@@ -266,8 +286,12 @@ class AIResponse(Base):
     timestamp = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )
-    is_active = Column(Boolean, nullable=False, default=True, server_default="true", index=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    is_active = Column(
+        Boolean, nullable=False, default=True, server_default="true", index=True
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     # Relationships
     widget = relationship("Widget")
@@ -302,7 +326,9 @@ class AIFeedback(Base):
     )
     rating = Column(String(10), nullable=False)
     comment = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,

@@ -37,7 +37,9 @@ async def promote_test_user():
             print(f"✅ {TEST_EMAIL} is already admin.")
             return 0
 
-        await session.execute(update(User).where(User.email == TEST_EMAIL).values(role="admin"))
+        await session.execute(
+            update(User).where(User.email == TEST_EMAIL).values(role="admin")
+        )
         await session.commit()
 
         print(f"✅ Promoted {TEST_EMAIL} to role=admin")

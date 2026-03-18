@@ -29,7 +29,9 @@ class Space(Base):
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -43,11 +45,17 @@ class Space(Base):
     space_connections = relationship(
         "SpaceConnection", back_populates="space", cascade="all, delete-orphan"
     )
-    space_tables = relationship("SpaceTable", back_populates="space", cascade="all, delete-orphan")
-    members = relationship("SpaceMember", back_populates="space", cascade="all, delete-orphan")
+    space_tables = relationship(
+        "SpaceTable", back_populates="space", cascade="all, delete-orphan"
+    )
+    members = relationship(
+        "SpaceMember", back_populates="space", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
-        Index("idx_spaces_created_by", "created_by", postgresql_where=deleted_at.is_(None)),
+        Index(
+            "idx_spaces_created_by", "created_by", postgresql_where=deleted_at.is_(None)
+        ),
     )
 
     def __repr__(self) -> str:
@@ -103,7 +111,9 @@ class SpaceMember(Base):
         nullable=False,
         index=True,
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     # Relationships
     space = relationship("Space", back_populates="members")
@@ -142,7 +152,9 @@ class SpaceTable(Base):
     )
     table_name = Column(String(255), nullable=False)
     schema_name = Column(String(255), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     # Relationships
     space = relationship("Space", back_populates="space_tables")

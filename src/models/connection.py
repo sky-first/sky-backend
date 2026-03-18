@@ -21,7 +21,9 @@ class DataConnection(Base):
 
     __tablename__ = "data_connections"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     name = Column(String(255), nullable=False)
     connector_id = Column(
         String(100), nullable=False
@@ -37,9 +39,14 @@ class DataConnection(Base):
     last_metadata_update = Column(DateTime(timezone=True), nullable=True)
     error = Column(JSON, nullable=True)  # {message: string, timestamp: timestamp}
     created_by: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -57,7 +64,9 @@ class DataConnection(Base):
         cascade="all, delete-orphan",
     )
     permissions: Mapped[List["ConnectionPermission"]] = relationship(
-        "ConnectionPermission", back_populates="connection", cascade="all, delete-orphan"
+        "ConnectionPermission",
+        back_populates="connection",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (
@@ -66,9 +75,15 @@ class DataConnection(Base):
             "connector_id",
             postgresql_where=deleted_at.is_(None),
         ),
-        Index("idx_data_connections_status", "status", postgresql_where=deleted_at.is_(None)),
         Index(
-            "idx_data_connections_created_by", "created_by", postgresql_where=deleted_at.is_(None)
+            "idx_data_connections_status",
+            "status",
+            postgresql_where=deleted_at.is_(None),
+        ),
+        Index(
+            "idx_data_connections_created_by",
+            "created_by",
+            postgresql_where=deleted_at.is_(None),
         ),
         Index("idx_data_connections_last_sync", "last_sync"),
     )
@@ -82,7 +97,9 @@ class ConnectionMetadata(Base):
 
     __tablename__ = "connection_metadata"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     connection_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("data_connections.id", ondelete="CASCADE"),
@@ -98,7 +115,9 @@ class ConnectionMetadata(Base):
     last_metadata_update = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,

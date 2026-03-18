@@ -1,7 +1,17 @@
 import uuid
 from enum import Enum
 
-from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, String, Text, func, text
+from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -23,7 +33,10 @@ class IntelligenceSignal(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     planet_id = Column(
-        UUID(as_uuid=True), ForeignKey("planets.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("planets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
     crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
@@ -38,17 +51,25 @@ class IntelligenceSignal(Base):
     color = Column(String(50), nullable=True)  # red, orange, blue, purple
 
     cta_label = Column(String(255), nullable=True)  # Text on the action button
-    cta_action = Column(String(100), nullable=True)  # Type of action (e.g., 'open_chat')
-    cta_params = Column(JSON, nullable=True)  # Parameters for the action (e.g., initial query)
+    cta_action = Column(
+        String(100), nullable=True
+    )  # Type of action (e.g., 'open_chat')
+    cta_params = Column(
+        JSON, nullable=True
+    )  # Parameters for the action (e.g., initial query)
 
     chart_data = Column(JSON, nullable=True)  # Data for the preview chart
 
     confidence = Column(Float, nullable=True, default=1.0)
 
-    is_dismissed = Column(DateTime, nullable=True)  # Timestamp when the user dismissed the signal
+    is_dismissed = Column(
+        DateTime, nullable=True
+    )  # Timestamp when the user dismissed the signal
 
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     updated_at = Column(
         DateTime(timezone=True),

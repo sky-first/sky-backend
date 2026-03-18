@@ -15,10 +15,15 @@ class IntelligenceSignalRepository(BaseRepository[IntelligenceSignal]):
         super().__init__(db, IntelligenceSignal)
 
     async def get_by_planet(
-        self, planet_id: UUID, category: Optional[str] = None, include_dismissed: bool = False
+        self,
+        planet_id: UUID,
+        category: Optional[str] = None,
+        include_dismissed: bool = False,
     ) -> List[IntelligenceSignal]:
         """Fetch signals for a specific planet, optionally filtered by category."""
-        query = select(IntelligenceSignal).where(IntelligenceSignal.planet_id == planet_id)
+        query = select(IntelligenceSignal).where(
+            IntelligenceSignal.planet_id == planet_id
+        )
 
         if category:
             query = query.where(IntelligenceSignal.category == category)

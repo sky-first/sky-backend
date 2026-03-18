@@ -58,7 +58,9 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
             client_ip = request.client.host if request.client else "unknown"
 
         user_id = (
-            getattr(request.state, "user_id", None) if hasattr(request.state, "user_id") else None
+            getattr(request.state, "user_id", None)
+            if hasattr(request.state, "user_id")
+            else None
         )
 
         # Use user_id if available, otherwise use IP
@@ -111,7 +113,9 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         response = await call_next(request)
 
         # Add rate limit headers
-        response.headers["X-RateLimit-Limit-Minute"] = str(settings.RATE_LIMIT_PER_MINUTE)
+        response.headers["X-RateLimit-Limit-Minute"] = str(
+            settings.RATE_LIMIT_PER_MINUTE
+        )
         response.headers["X-RateLimit-Remaining-Minute"] = str(
             max(0, settings.RATE_LIMIT_PER_MINUTE - minute_count)
         )

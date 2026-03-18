@@ -54,7 +54,9 @@ class UserService:
             raise ForbiddenError("You don't have permission to list users")
 
         users = await self.user_repo.get_all(skip=skip, limit=limit)
-        return [UserResponse.model_validate(user_to_response_dict(user)) for user in users]
+        return [
+            UserResponse.model_validate(user_to_response_dict(user)) for user in users
+        ]
 
     async def get_user(self, user_id: UUID, current_user: User) -> UserResponse:
         """
@@ -72,7 +74,9 @@ class UserService:
             ForbiddenError: If user doesn't have permission
         """
         # Users can view their own profile, admins can view any
-        if user_id != current_user.id and not check_permission(current_user, "user", "read"):
+        if user_id != current_user.id and not check_permission(
+            current_user, "user", "read"
+        ):
             raise ForbiddenError("You don't have permission to view this user")
 
         user = await self.user_repo.get_by_id(user_id)
@@ -81,7 +85,9 @@ class UserService:
 
         return UserResponse.model_validate(user_to_response_dict(user))
 
-    async def create_user(self, user_data: UserCreate, current_user: User) -> UserResponse:
+    async def create_user(
+        self, user_data: UserCreate, current_user: User
+    ) -> UserResponse:
         """
         Create a new user.
 
@@ -173,7 +179,9 @@ class UserService:
             ForbiddenError: If user doesn't have permission
         """
         # Users can update their own profile (limited fields), admins can update any
-        if user_id != current_user.id and not check_permission(current_user, "user", "update"):
+        if user_id != current_user.id and not check_permission(
+            current_user, "user", "update"
+        ):
             raise ForbiddenError("You don't have permission to update this user")
 
         user = await self.user_repo.get_by_id(user_id)
@@ -224,7 +232,11 @@ class UserService:
         return UserResponse.model_validate(user_to_response_dict(user))
 
     async def update_onboarding(
-        self, user_id: UUID, step: Optional[int], version: Optional[int], current_user: User
+        self,
+        user_id: UUID,
+        step: Optional[int],
+        version: Optional[int],
+        current_user: User,
     ) -> UserResponse:
         """
         Update user onboarding progress.
@@ -300,8 +312,12 @@ class UserService:
             ForbiddenError: If user doesn't have permission
         """
         # Users can view their own permissions, admins can view any
-        if user_id != current_user.id and not check_permission(current_user, "user", "read"):
-            raise ForbiddenError("You don't have permission to view this user's permissions")
+        if user_id != current_user.id and not check_permission(
+            current_user, "user", "read"
+        ):
+            raise ForbiddenError(
+                "You don't have permission to view this user's permissions"
+            )
 
         user = await self.user_repo.get_by_id(user_id)
         if not user:

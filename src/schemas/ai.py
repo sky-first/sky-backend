@@ -32,7 +32,9 @@ class AIQueryRequest(BaseModel):
         default=False,
         description="Whether the query is in personal mode (access across all crews/spaces).",
     )
-    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
+    planet_id: Optional[UUID] = Field(
+        None, description="Planet ID for tenant isolation"
+    )
     # Collaborative mode: restrict AI data context to this specific crew
     crew_id: Optional[str] = Field(
         None,
@@ -78,7 +80,9 @@ class SuggestWidgetTitleRequest(BaseModel):
     data_sample: Optional[List[Dict[str, Any]]] = Field(
         default=None, description="Sample data for the widget (max 15 rows)"
     )
-    answer: Optional[str] = Field(default=None, description="Optional AI textual answer")
+    answer: Optional[str] = Field(
+        default=None, description="Optional AI textual answer"
+    )
     current_title: Optional[str] = Field(
         default=None, description="Current (fallback) title shown in the UI"
     )
@@ -107,11 +111,15 @@ class ChatMessageRequest(BaseModel):
 
     message: str = Field(..., min_length=1)
     widget_id: UUID
-    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
+    planet_id: Optional[UUID] = Field(
+        None, description="Planet ID for tenant isolation"
+    )
     context: Optional[Dict[str, Any]] = None
     # Explicit collaborative context fields (preferred over context dict)
     space_id: Optional[str] = Field(None, description="Space ID for context")
-    crew_id: Optional[str] = Field(None, description="Active crew ID (collaborative mode)")
+    crew_id: Optional[str] = Field(
+        None, description="Active crew ID (collaborative mode)"
+    )
     is_personal: Optional[bool] = Field(default=False, description="Personal mode flag")
 
 
@@ -153,7 +161,9 @@ class CreateHistoryRequest(BaseModel):
 
     query: str = Field(..., min_length=1)
     answer: str = Field(..., min_length=1)
-    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
+    planet_id: Optional[UUID] = Field(
+        None, description="Planet ID for tenant isolation"
+    )
     category: Optional[str] = None
     tags: Optional[List[str]] = Field(default_factory=list)
     # Collaborative context
@@ -235,7 +245,9 @@ class PipelineExecuteRequest(BaseModel):
     question: str = Field(..., min_length=1)
     knowledge: List[str] = Field(default_factory=list)
     configure_data: ConfigureData
-    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
+    planet_id: Optional[UUID] = Field(
+        None, description="Planet ID for tenant isolation"
+    )
 
 
 class PipelineExecuteResponse(BaseModel):
@@ -323,7 +335,9 @@ class ValidateSQLResponse(BaseModel):
 
     is_valid: bool = Field(..., description="Se o SQL é válido.")
     error: Optional[str] = Field(None, description="Mensagem de erro.")
-    preview_data: Optional[List[Dict[str, Any]]] = Field(None, description="Preview dos dados.")
+    preview_data: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Preview dos dados."
+    )
     num_rows: Optional[int] = Field(None, description="Número de linhas.")
     execution_time_ms: Optional[float] = Field(None, description="Tempo de execução.")
     columns: Optional[List[str]] = Field(None, description="Colunas retornadas.")

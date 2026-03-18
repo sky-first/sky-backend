@@ -10,7 +10,12 @@ from src.models.ai import (
     PipelineStep,
 )
 from src.models.comment import Comment
-from src.models.connection import ColumnMetadata, ConnectionMetadata, DataConnection, TableMetadata
+from src.models.connection import (
+    ColumnMetadata,
+    ConnectionMetadata,
+    DataConnection,
+    TableMetadata,
+)
 from src.models.crew import Crew, CrewMember
 from src.models.dashboard import Connection, Dashboard, Widget
 from src.models.dashboard_build_job import DashboardBuildJob

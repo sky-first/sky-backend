@@ -51,7 +51,9 @@ async def get_connection_permissions(
         List[PermissionResponse]: List of permissions
     """
     permission_service = PermissionService(db)
-    return await permission_service.get_connection_permissions(connection_id, current_user)
+    return await permission_service.get_connection_permissions(
+        connection_id, current_user
+    )
 
 
 @router.post(
@@ -124,7 +126,9 @@ async def update_permission(
         PermissionResponse: Updated permission
     """
     permission_service = PermissionService(db)
-    return await permission_service.update_permission(permission_id, current_user, permission_data)
+    return await permission_service.update_permission(
+        permission_id, current_user, permission_data
+    )
 
 
 @router.delete(
@@ -310,7 +314,9 @@ async def create_table_member_permission(
         TableMemberPermissionResponse: Created permission
     """
     permission_service = PermissionService(db)
-    return await permission_service.create_table_member_permission(current_user, permission_data)
+    return await permission_service.create_table_member_permission(
+        current_user, permission_data
+    )
 
 
 @router.put(
@@ -427,4 +433,6 @@ async def update_role_permission(
         RolePermissionResponse: Updated role permission
     """
     permission_service = PermissionService(db)
-    return await permission_service.update_role_permission(role, current_user, permission_data)
+    return await permission_service.update_role_permission(
+        role, current_user, permission_data
+    )
