@@ -24,6 +24,8 @@ class StrategicPillar(Base):
     owner = Column(String(100), nullable=True)
     metrics = Column(JSON, nullable=True, default=list)
     priority = Column(String(50), nullable=True)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -65,6 +67,8 @@ class StrategicObjective(Base):
         ForeignKey("crews.id", ondelete="SET NULL"),
         nullable=True,
     )
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -78,32 +82,9 @@ class StrategicObjective(Base):
     # Relationships
     pillar = relationship("StrategicPillar", back_populates="objectives")
     okrs = relationship("StrategyOKR", back_populates="objective", cascade="all, delete-orphan")
-    assumptions = relationship("StrategyAssumption", back_populates="objective")
-
-
-class StrategyCycle(Base):
-    """Strategy Cycle model (Quarterly, Annual, etc)."""
-
-    __tablename__ = "strategy_cycles"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(255), nullable=False)
-    type = Column(String(50), nullable=False)  # quarterly, annual, monthly
-    start_date = Column(DateTime(timezone=True), nullable=False)
-    end_date = Column(DateTime(timezone=True), nullable=False)
-    status = Column(String(50), nullable=True, default="active")
-
-    # Audit info
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=datetime.utcnow,
+    assumptions = relationship(
+        "StrategyAssumption", back_populates="objective", cascade="all, delete-orphan"
     )
-
-    # Relationships
-    okrs = relationship("StrategyOKR", back_populates="cycle")
 
 
 class StrategyOKR(Base):
@@ -122,6 +103,7 @@ class StrategyOKR(Base):
         ForeignKey("strategy_cycles.id", ondelete="SET NULL"),
         nullable=True,
     )
+
     title = Column(String(255), nullable=False)
     linked_kpi_id = Column(String(100), nullable=True)  # Reference to external metrics system
     baseline = Column(Float, nullable=True)
@@ -133,6 +115,8 @@ class StrategyOKR(Base):
         ForeignKey("crews.id", ondelete="SET NULL"),
         nullable=True,
     )
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -149,36 +133,6 @@ class StrategyOKR(Base):
     key_results = relationship(
         "StrategyKeyResult", back_populates="okr", cascade="all, delete-orphan"
     )
-
-
-class StrategyKeyResult(Base):
-    """Strategy Key Result model."""
-
-    __tablename__ = "strategy_key_results"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    okr_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("strategy_okrs.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    description = Column(Text, nullable=False)
-    baseline = Column(Float, nullable=True)
-    target = Column(Float, nullable=True)
-    current_value = Column(Float, nullable=True, default=0.0)
-    unit = Column(String(50), nullable=True)
-
-    # Audit info
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=datetime.utcnow,
-    )
-
-    # Relationships
-    okr = relationship("StrategyOKR", back_populates="key_results")
 
 
 class StrategyInitiative(Base):
@@ -202,6 +156,8 @@ class StrategyInitiative(Base):
     risks = Column(JSON, nullable=True, default=list)
     assumptions = Column(JSON, nullable=True, default=list)
     progress = Column(Integer, nullable=True, default=0)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -213,15 +169,46 @@ class StrategyInitiative(Base):
     )
 
 
+
+class StrategyCycle(Base):
+    """Strategy Cycle model."""
+
+    __tablename__ = "strategy_cycles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False)
+    type = Column(String(50), nullable=False)
+    start_date = Column(DateTime(timezone=True), nullable=False)
+    end_date = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String(50), nullable=True, default="active")
+
+    # Audit info
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=datetime.utcnow,
+    )
+
+    # Relationships
+    okrs = relationship("StrategyOKR", back_populates="cycle")
+
+
 class StrategyAssumption(Base):
     """Strategy Assumption model."""
 
     __tablename__ = "strategy_assumptions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    linked_objective_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("strategic_objectives.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    category = Column(String(100), nullable=True)
+    category = Column(String(50), nullable=True)
     impact_score = Column(Integer, nullable=True, default=3)
     probability_score = Column(Integer, nullable=True, default=3)
     priority = Column(String(50), nullable=True)
@@ -230,11 +217,8 @@ class StrategyAssumption(Base):
     status = Column(String(50), nullable=True, default="identified")
     mitigation_plan = Column(Text, nullable=True)
     owner = Column(String(100), nullable=True)
-    linked_objective_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("strategic_objectives.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -247,3 +231,33 @@ class StrategyAssumption(Base):
 
     # Relationships
     objective = relationship("StrategicObjective", back_populates="assumptions")
+
+
+class StrategyKeyResult(Base):
+    """Strategy Key Result model."""
+
+    __tablename__ = "strategy_key_results"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    okr_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("strategy_okrs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    description = Column(Text, nullable=False)
+    baseline = Column(Float, nullable=True)
+    target = Column(Float, nullable=True)
+    current_value = Column(Float, nullable=True)
+    unit = Column(String(50), nullable=True)
+
+    # Audit info
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=datetime.utcnow,
+    )
+
+    # Relationships
+    okr = relationship("StrategyOKR", back_populates="key_results")

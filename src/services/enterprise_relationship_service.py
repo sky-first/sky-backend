@@ -44,6 +44,29 @@ class EnterpriseRelationshipService:
         )
         await self.db.commit()
         await self.db.refresh(relationship)
+
+        # Notify AI Service for Knowledge Graph ingestion
+        try:
+            from src.ai.http_client import AIServiceHTTPClient
+            ai_client = AIServiceHTTPClient()
+            
+            # Formatar payload para a IA
+            payload = {
+                "id": str(relationship.id),
+                "name": relationship.name,
+                "description": relationship.description,
+                "sources": sources_data,
+                "target_id": str(relationship.target_id),
+                "target_type": relationship.target_type,
+                "target_details": relationship.target_details,
+                "relationship_type": relationship.relationship_type,
+                "space_id": str(relationship.space_id) if hasattr(relationship, 'space_id') and relationship.space_id else None,
+                "crew_id": str(relationship.crew_id) if hasattr(relationship, 'crew_id') and relationship.crew_id else None
+            }
+            await ai_client.ingest_knowledge_graph(payload)
+        except Exception as e:
+            logger.error(f"Failed to trigger AI ingestion for relationship {relationship.id}: {e}")
+
         return relationship
 
     async def update_relationship(
@@ -72,6 +95,28 @@ class EnterpriseRelationshipService:
         await self.db.commit()
         if updated_relationship:
             await self.db.refresh(updated_relationship)
+            
+            # Notify AI Service for Knowledge Graph ingestion (Update)
+            try:
+                from src.ai.http_client import AIServiceHTTPClient
+                ai_client = AIServiceHTTPClient()
+                
+                payload = {
+                    "id": str(updated_relationship.id),
+                    "name": updated_relationship.name,
+                    "description": updated_relationship.description,
+                    "sources": sources_data,
+                    "target_id": str(updated_relationship.target_id),
+                    "target_type": updated_relationship.target_type,
+                    "target_details": updated_relationship.target_details,
+                    "relationship_type": updated_relationship.relationship_type,
+                    "space_id": str(updated_relationship.space_id) if hasattr(updated_relationship, 'space_id') and updated_relationship.space_id else None,
+                    "crew_id": str(updated_relationship.crew_id) if hasattr(updated_relationship, 'crew_id') and updated_relationship.crew_id else None
+                }
+                await ai_client.ingest_knowledge_graph(payload)
+            except Exception as e:
+                logger.error(f"Failed to trigger AI ingestion for updated relationship {updated_relationship.id}: {e}")
+                
         return updated_relationship
 
     async def delete_relationship(self, relationship_id: UUID, user: User) -> None:

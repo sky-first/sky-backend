@@ -2,8 +2,9 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, DateTime
+from sqlalchemy import JSON, Column, DateTime, ForeignKey
 from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import String, Text
 
 from src.config.database import Base
@@ -35,7 +36,7 @@ class SignalEvent(Base):
 
     __tablename__ = "signal_events"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     category = Column(SQLEnum(SignalCategory), nullable=False)
     sub_type = Column(String(100), nullable=False)
@@ -49,6 +50,9 @@ class SignalEvent(Base):
     # Store relations cleanly inside a JSON field
     # { "product": "...", "kpi": "...", "client": "..." }
     relations = Column(JSON, nullable=True)
+
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
