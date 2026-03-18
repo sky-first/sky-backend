@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.connectors.base import BaseConnector
+
+logger = logging.getLogger(__name__)
 
 
 def _import_bigquery():
@@ -179,7 +182,7 @@ class BigQueryConnector(BaseConnector):
                         level = "Low"
                     usage_stats[row["table_id"]] = level
             except Exception as e:
-                print(f"Warning: Could not fetch usage stats: {e}")
+                logger.warning(f"Could not fetch usage stats: {e}")
 
             tables: Dict[str, Dict[str, Any]] = {}
             for row in columns_rows:
