@@ -50,13 +50,17 @@ def upgrade() -> None:
         sa.UniqueConstraint("query_id", "user_id", name="uq_ai_feedback_query_user"),
     )
 
-    op.create_index("idx_ai_feedback_query_id", "ai_feedback", ["query_id"], unique=False)
+    op.create_index(
+        "idx_ai_feedback_query_id", "ai_feedback", ["query_id"], unique=False
+    )
     op.create_index("idx_ai_feedback_user_id", "ai_feedback", ["user_id"], unique=False)
-    op.create_index("idx_ai_feedback_created_at", "ai_feedback", ["created_at"], unique=False)
+    op.create_index(
+        "idx_ai_feedback_created_at", "ai_feedback", ["created_at"], unique=False
+    )
 
 
 def downgrade() -> None:
+    pass
     op.drop_index("idx_ai_feedback_created_at", table_name="ai_feedback")
     op.drop_index("idx_ai_feedback_user_id", table_name="ai_feedback")
     op.drop_index("idx_ai_feedback_query_id", table_name="ai_feedback")
-    op.drop_table("ai_feedback")

@@ -26,6 +26,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.drop_index("ix_ai_history_crew_id", table_name="ai_history")
     op.drop_index("ix_ai_history_space_id", table_name="ai_history")
 
