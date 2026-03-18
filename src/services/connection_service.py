@@ -6,6 +6,7 @@ from typing import List, Optional, cast
 from uuid import UUID
 
 import structlog
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
@@ -300,8 +301,29 @@ class ConnectionService:
                 raise ForbiddenError("Access denied to this connection")
 
         logger.info(
-            f"🔴 [DELETE SERVICE] HARD Deleting connection {connection_id} and metadata..."
+            f"🔴 [DELETE SERVICE] HARD Deleting connection {connection_id} and dependent metadata..."
         )
+        
+        # 1. Manually delete from table_metadata (AI table without SQLAlchemy model in Backend)
+        # This prevents ForeignKeyViolationError (Error 500)
+        await self.db.execute(
+            text("DELETE FROM table_metadata WHERE data_connection_id = :conn_id"),
+            {"conn_id": connection_id}
+        )
+        
+        # 2. Manually delete from space_tables (association)
+        await self.db.execute(
+            text("DELETE FROM space_tables WHERE connection_id = :conn_id"),
+            {"conn_id": connection_id}
+        )
+        
+        # 3. Manually delete connection_metadata (children)
+        # Although it has cascade="all, delete-orphan", manual execution ensures safety
+        await self.db.execute(
+            text("DELETE FROM connection_metadata WHERE connection_id = :conn_id"),
+            {"conn_id": connection_id}
+        )
+
         await self.db.delete(connection)
         await self.db.commit()
         logger.info(
