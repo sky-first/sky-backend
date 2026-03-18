@@ -25,7 +25,7 @@ def upgrade() -> None:
         if col["name"] == "metrics":
             has_column = True
             break
-            
+
     if not has_column:
         op.add_column(
             "data_connections",
@@ -33,6 +33,6 @@ def upgrade() -> None:
         )
 
 
-
 def downgrade() -> None:
+    pass
     op.drop_column("data_connections", "metrics")

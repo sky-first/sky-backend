@@ -23,7 +23,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     # No-op: merge migration
     pass
-
-

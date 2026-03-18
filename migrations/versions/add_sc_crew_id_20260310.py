@@ -35,18 +35,36 @@ def upgrade() -> None:
             sa.Column("question", sa.Text(), nullable=False),
             sa.Column("embedding", sa.JSON(), nullable=False),
             sa.Column("response_json", sa.JSON(), nullable=False),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.text("now()"),
+                nullable=False,
+            ),
         )
-        op.create_index("ix_semantic_cache_connection_id", "semantic_cache", ["connection_id"], unique=False)
-        op.create_index("ix_semantic_cache_space_id", "semantic_cache", ["space_id"], unique=False)
-        op.create_index("ix_semantic_cache_crew_id", "semantic_cache", ["crew_id"], unique=False)
+        op.create_index(
+            "ix_semantic_cache_connection_id",
+            "semantic_cache",
+            ["connection_id"],
+            unique=False,
+        )
+        op.create_index(
+            "ix_semantic_cache_space_id", "semantic_cache", ["space_id"], unique=False
+        )
+        op.create_index(
+            "ix_semantic_cache_crew_id", "semantic_cache", ["crew_id"], unique=False
+        )
     else:
         # If table already exists, just add the missing crew_id column
         columns = [col["name"] for col in inspector.get_columns("semantic_cache")]
         if "crew_id" not in columns:
-            op.add_column("semantic_cache", sa.Column("crew_id", sa.String(), nullable=True))
-            op.create_index("ix_semantic_cache_crew_id", "semantic_cache", ["crew_id"], unique=False)
+            op.add_column(
+                "semantic_cache", sa.Column("crew_id", sa.String(), nullable=True)
+            )
+            op.create_index(
+                "ix_semantic_cache_crew_id", "semantic_cache", ["crew_id"], unique=False
+            )
 
 
 def downgrade() -> None:
-    op.drop_table("semantic_cache")
+    pass
