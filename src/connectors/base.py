@@ -32,9 +32,7 @@ class BaseConnector(ABC):
         """
 
     @abstractmethod
-    async def execute_query(
-        self, config: Dict[str, Any], query: str
-    ) -> List[Dict[str, Any]]:
+    async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
         """
         Execute query on data source.
 

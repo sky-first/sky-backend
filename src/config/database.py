@@ -33,9 +33,7 @@ if "sqlite" not in settings.DATABASE_URL.lower():
         # Worker uses asyncio.run() per task, which creates a new event loop each time.
         # Standard pooling binds connections to the creating loop, causing "Future attached to different loop" errors.
         # NullPool forces a new connection per session (per task), avoiding reuse across loops.
-        logger.info(
-            "🔧 Configurando NullPool para Celery Worker (compatibilidade async/solo)"
-        )
+        logger.info("🔧 Configurando NullPool para Celery Worker (compatibilidade async/solo)")
         engine_kwargs.update({"poolclass": NullPool})
     else:
         engine_kwargs.update(

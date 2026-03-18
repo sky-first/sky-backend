@@ -35,9 +35,7 @@ async def create_test_user():
         # Check if user already exists
         from sqlalchemy import select
 
-        result = await session.execute(
-            select(User).where(User.email == "test@example.com")
-        )
+        result = await session.execute(select(User).where(User.email == "test@example.com"))
         existing_user = result.scalar_one_or_none()
 
         if existing_user:

@@ -88,9 +88,7 @@ class TestProtectedRoutes:
         assert "Unauthorized" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_protected_route_invalid_header_format(
-        self, async_client: AsyncClient
-    ):
+    async def test_protected_route_invalid_header_format(self, async_client: AsyncClient):
         """Test protected route with invalid header format."""
         response = await async_client.get(
             "/api/v1/auth/me",

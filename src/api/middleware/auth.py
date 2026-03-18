@@ -26,9 +26,7 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         Response: HTTP response
     """
     # Log that middleware is executing
-    logger.info(
-        f"🚀 AUTH MIDDLEWARE START - Path: {request.url.path}, Method: {request.method}"
-    )
+    logger.info(f"🚀 AUTH MIDDLEWARE START - Path: {request.url.path}, Method: {request.method}")
 
     # Always allow CORS preflight requests through so CORSMiddleware can respond with 200.
     # Browsers send OPTIONS without Authorization; blocking it causes "preflight not OK" errors.
@@ -88,9 +86,7 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
 
     # Also try direct access (case-insensitive)
     if not authorization:
-        authorization = request.headers.get("Authorization") or request.headers.get(
-            "authorization"
-        )
+        authorization = request.headers.get("Authorization") or request.headers.get("authorization")
 
     # Debug: log all headers
     logger.info(f"🔍 All headers: {dict(request.headers)}")

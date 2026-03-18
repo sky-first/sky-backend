@@ -131,7 +131,9 @@ return {v, ttl}
         if scope == "tenant":
             return f"{self.key_prefix}:tenant:{tenant_key}:route:{route_key}:{window}"
         if scope == "user":
-            return f"{self.key_prefix}:tenant:{tenant_key}:user:{user_id}:route:{route_key}:{window}"
+            return (
+                f"{self.key_prefix}:tenant:{tenant_key}:user:{user_id}:route:{route_key}:{window}"
+            )
         # global_user
         return f"{self.key_prefix}:global:user:{user_id}:route:{route_key}:{window}"
 
@@ -176,9 +178,7 @@ return {v, ttl}
             int(bucket.window_seconds),
         )
 
-        ttl_int = (
-            int(ttl) if ttl is not None and int(ttl) >= 0 else bucket.window_seconds
-        )
+        ttl_int = int(ttl) if ttl is not None and int(ttl) >= 0 else bucket.window_seconds
         now = datetime.now(timezone.utc)
         reset_at = (now + timedelta(seconds=ttl_int)).isoformat()
         remaining = max(0, int(bucket.limit) - int(current))

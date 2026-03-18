@@ -6,7 +6,7 @@ Includes tenant filtering (W1) and UPPERCASE enums (Bug 4).
 """
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -15,10 +15,10 @@ from src.models.signal_event import SignalCategory, SignalConfidence, SignalNatu
 from src.schemas.signal_event import SignalEventCreate, SignalEventUpdate
 from src.services.signal_event_service import SignalEventService
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_event(**kwargs):
     """Return a MagicMock that mimics a SignalEvent ORM object."""
@@ -54,24 +54,28 @@ def _make_service(db=None):
 # list_events
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_list_events_returns_all_with_filters():
     svc = _make_service()
     events = [_make_event(), _make_event()]
     svc.repository.get_all = AsyncMock(return_value=events)
-    
+
     space_id = uuid4()
     crew_id = uuid4()
 
     result = await svc.list_events(space_id=space_id, crew_id=crew_id)
 
-    svc.repository.get_all.assert_awaited_once_with(filters={"space_id": space_id, "crew_id": crew_id})
+    svc.repository.get_all.assert_awaited_once_with(
+        filters={"space_id": space_id, "crew_id": crew_id}
+    )
     assert result == events
 
 
 # ---------------------------------------------------------------------------
 # get_event
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_get_event_found_with_tenant():
@@ -93,13 +97,14 @@ async def test_get_event_tenant_mismatch_raises_404():
     svc.repository.get_by_id = AsyncMock(return_value=ev)
 
     with pytest.raises(HTTPException) as exc_info:
-        await svc.get_event(ev.id, space_id=uuid4()) # Different space_id
+        await svc.get_event(ev.id, space_id=uuid4())  # Different space_id
     assert exc_info.value.status_code == 404
 
 
 # ---------------------------------------------------------------------------
 # create_event
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_create_event_success_with_ai_ingestion_and_tenant():
@@ -128,7 +133,7 @@ async def test_create_event_success_with_ai_ingestion_and_tenant():
     called_args = svc.repository.create.await_args.kwargs
     assert called_args["space_id"] == space_id
     assert called_args["crew_id"] == crew_id
-    
+
     svc.db.commit.assert_awaited_once()
     svc.ai_client.ingest_knowledge_graph.assert_awaited_once()
     assert result == ev
@@ -137,6 +142,7 @@ async def test_create_event_success_with_ai_ingestion_and_tenant():
 # ---------------------------------------------------------------------------
 # update_event
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_update_event_success_with_tenant_check():
@@ -163,17 +169,18 @@ async def test_update_event_success_with_tenant_check():
 # delete_event
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_delete_event_success_with_tenant():
     svc = _make_service()
     space_id = uuid4()
     ev = _make_event(space_id=space_id)
-    
+
     svc.repository.get_by_id = AsyncMock(return_value=ev)
     svc.repository.delete = AsyncMock(return_value=True)
     svc.db.commit = AsyncMock()
 
-    await svc.delete_event(ev.id, space_id=space_id) 
+    await svc.delete_event(ev.id, space_id=space_id)
 
     svc.repository.delete.assert_awaited_once_with(ev.id)
     svc.db.commit.assert_awaited_once()

@@ -61,9 +61,7 @@ class EnterpriseAPIService:
 
         return api
 
-    async def create_api(
-        self, user: User, api_data: EnterpriseAPICreate
-    ) -> EnterpriseAPI:
+    async def create_api(self, user: User, api_data: EnterpriseAPICreate) -> EnterpriseAPI:
         """
         Create a new API registry.
 

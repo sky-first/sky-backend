@@ -19,9 +19,7 @@ class SpaceRepository(BaseRepository[Space]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, Space)
 
-    async def get_by_user(
-        self, user_id: UUID, skip: int = 0, limit: int = 100
-    ) -> List[Space]:
+    async def get_by_user(self, user_id: UUID, skip: int = 0, limit: int = 100) -> List[Space]:
         """
         Get spaces by user.
 
@@ -53,9 +51,7 @@ class SpaceRepository(BaseRepository[Space]):
             Optional[Space]: Entity or None
         """
         result = await self.db.execute(
-            select(self.model).where(
-                self.model.id == id, self.model.deleted_at.is_(None)
-            )
+            select(self.model).where(self.model.id == id, self.model.deleted_at.is_(None))
         )
         return result.scalar_one_or_none()
 
@@ -144,9 +140,7 @@ class SpaceMemberRepository(BaseRepository[SpaceMember]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, SpaceMember)
 
-    async def get_by_space_and_user(
-        self, space_id: UUID, user_id: UUID
-    ) -> Optional[SpaceMember]:
+    async def get_by_space_and_user(self, space_id: UUID, user_id: UUID) -> Optional[SpaceMember]:
         """
         Get space member by space and user.
 
@@ -199,9 +193,7 @@ class SpaceTableRepository(BaseRepository[SpaceTable]):
         Returns:
             List[SpaceTable]: List of linked tables
         """
-        result = await self.db.execute(
-            select(SpaceTable).where(SpaceTable.space_id == space_id)
-        )
+        result = await self.db.execute(select(SpaceTable).where(SpaceTable.space_id == space_id))
         return list(result.scalars().all())
 
     async def get_space_table(

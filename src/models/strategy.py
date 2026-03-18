@@ -24,13 +24,15 @@ class StrategicPillar(Base):
     owner = Column(String(100), nullable=True)
     metrics = Column(JSON, nullable=True, default=list)
     priority = Column(String(50), nullable=True)
-    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
-    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
+    space_id = Column(
+        UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    crew_id = Column(
+        UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     # Audit info
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -69,13 +71,15 @@ class StrategicObjective(Base):
         ForeignKey("crews.id", ondelete="SET NULL"),
         nullable=True,
     )
-    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
-    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
+    space_id = Column(
+        UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    crew_id = Column(
+        UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     # Audit info
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -104,9 +108,7 @@ class StrategyCycle(Base):
     status = Column(String(50), nullable=True, default="active")
 
     # Audit info
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -136,9 +138,7 @@ class StrategyOKR(Base):
     )
 
     title = Column(String(255), nullable=False)
-    linked_kpi_id = Column(
-        String(100), nullable=True
-    )  # Reference to external metrics system
+    linked_kpi_id = Column(String(100), nullable=True)  # Reference to external metrics system
     baseline = Column(Float, nullable=True)
     target = Column(Float, nullable=True)
     deadline = Column(DateTime(timezone=True), nullable=True)
@@ -148,13 +148,15 @@ class StrategyOKR(Base):
         ForeignKey("crews.id", ondelete="SET NULL"),
         nullable=True,
     )
-    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
-    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
+    space_id = Column(
+        UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    crew_id = Column(
+        UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     # Audit info
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -188,9 +190,7 @@ class StrategyKeyResult(Base):
     unit = Column(String(50), nullable=True)
 
     # Audit info
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -211,8 +211,14 @@ class StrategyInitiative(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     type = Column(String(50), nullable=True)
-    pillar_id = Column(UUID(as_uuid=True), ForeignKey("strategic_pillars.id", ondelete="SET NULL"), nullable=True)
-    objective_id = Column(UUID(as_uuid=True), ForeignKey("strategic_objectives.id", ondelete="SET NULL"), nullable=True)
+    pillar_id = Column(
+        UUID(as_uuid=True), ForeignKey("strategic_pillars.id", ondelete="SET NULL"), nullable=True
+    )
+    objective_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("strategic_objectives.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     unit = Column(String(100), nullable=True)
     owner = Column(String(100), nullable=True)
     start_date = Column(DateTime(timezone=True), nullable=True)
@@ -223,13 +229,15 @@ class StrategyInitiative(Base):
     risks = Column(JSON, nullable=True, default=list)
     assumptions = Column(JSON, nullable=True, default=list)
     progress = Column(Integer, nullable=True, default=0)
-    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
-    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
+    space_id = Column(
+        UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    crew_id = Column(
+        UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     # Audit info
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -260,13 +268,15 @@ class StrategyAssumption(Base):
     status = Column(String(50), nullable=True, default="identified")
     mitigation_plan = Column(Text, nullable=True)
     owner = Column(String(100), nullable=True)
-    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
-    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
+    space_id = Column(
+        UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    crew_id = Column(
+        UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     # Audit info
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,

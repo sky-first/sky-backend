@@ -161,9 +161,6 @@ async def delete_okr(
     await service.delete_okr(okr_id)
 
 
-
-
-
 @router.post("/initiatives", response_model=StrategyInitiativeResponse, status_code=201)
 async def create_initiative(
     body: StrategyInitiativeCreate,
@@ -295,6 +292,3 @@ async def delete_key_result(
 ) -> None:
     """Delete a strategy key result."""
     await service.delete_key_result(kr_id)
-
-
-

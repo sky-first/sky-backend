@@ -52,9 +52,7 @@ class NotificationRepository:
         result = await self.db.execute(stmt)
         return result.scalar() or 0
 
-    async def mark_as_read(
-        self, notification_id: UUID, user_id: UUID
-    ) -> Optional[Notification]:
+    async def mark_as_read(self, notification_id: UUID, user_id: UUID) -> Optional[Notification]:
         """Mark a notification as read."""
         stmt = select(Notification).where(
             Notification.id == notification_id, Notification.user_id == user_id

@@ -54,9 +54,7 @@ async def idempotency_middleware(request: Request, call_next: Callable) -> Respo
                 # We skip certain hop-by-hop headers if they were cached
                 skip_headers = {"content-length", "connection", "keep-alive"}
                 resp_headers = {
-                    k: v
-                    for k, v in data["headers"].items()
-                    if k.lower() not in skip_headers
+                    k: v for k, v in data["headers"].items() if k.lower() not in skip_headers
                 }
                 resp_headers["X-Idempotency-Cache"] = "HIT"
 
@@ -81,18 +79,13 @@ async def idempotency_middleware(request: Request, call_next: Callable) -> Respo
         # 3. Cache successful (2xx) responses
         if 200 <= response.status_code < 300:
             try:
-                logger.debug(
-                    f"Caching successful response for idempotency key: {idempotency_key}"
-                )
+                logger.debug(f"Caching successful response for idempotency key: {idempotency_key}")
 
                 # Safely read body from iterator
                 # We use Any cast because body_iterator is not in base Response
                 res_any = cast(Any, response)
 
-                if (
-                    not hasattr(res_any, "body_iterator")
-                    or res_any.body_iterator is None
-                ):
+                if not hasattr(res_any, "body_iterator") or res_any.body_iterator is None:
                     # If it has a .body property, use it directly (safer for some Response types)
                     if hasattr(res_any, "body"):
                         full_body_bytes = res_any.body
@@ -101,18 +94,12 @@ async def idempotency_middleware(request: Request, call_next: Callable) -> Respo
                 else:
                     # Read body from iterator
                     try:
-                        response_body = [
-                            section async for section in res_any.body_iterator
-                        ]
+                        response_body = [section async for section in res_any.body_iterator]
                         # Restore body iterator
-                        res_any.body_iterator = iterate_in_threadpool(
-                            iter(response_body)
-                        )
+                        res_any.body_iterator = iterate_in_threadpool(iter(response_body))
                         full_body_bytes = b"".join(response_body)
                     except Exception as body_err:
-                        logger.warning(
-                            f"Could not iterate body for idempotency: {body_err}"
-                        )
+                        logger.warning(f"Could not iterate body for idempotency: {body_err}")
                         return response
 
                 # Try to store as string if possible
@@ -140,8 +127,6 @@ async def idempotency_middleware(request: Request, call_next: Callable) -> Respo
         return response
 
     except Exception as e:
-        logger.error(
-            f"Idempotency middleware error (continuing without idempotency): {str(e)}"
-        )
+        logger.error(f"Idempotency middleware error (continuing without idempotency): {str(e)}")
         # On middleware internal failure (before call_next), allow request to proceed
         return cast(Response, await call_next(request))

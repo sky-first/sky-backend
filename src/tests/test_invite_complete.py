@@ -55,9 +55,7 @@ async def test_invite_user_flow(db_session, faker):
         assert mock_email_instance.send_invite_email.called
 
         # Get the token from the user object in DB
-        result = await db_session.execute(
-            select(User).where(User.email == "invitee@example.com")
-        )
+        result = await db_session.execute(select(User).where(User.email == "invitee@example.com"))
         user_db = result.scalar_one()
 
         invite_token = user_db.invite_token
@@ -191,8 +189,6 @@ async def test_email_service_failure(faker):
             # configure mock to raise exception on sendmail
             mock_server.sendmail.side_effect = Exception("SMTP Connection Failed")
 
-            success = email_service.send_invite_email(
-                "test@example.com", "link", "Admin"
-            )
+            success = email_service.send_invite_email("test@example.com", "link", "Admin")
 
             assert success is False

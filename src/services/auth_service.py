@@ -168,9 +168,7 @@ class AuthenticationService:
         )
 
         # Register user (this will check for existing email and create user)
-        user_response = await self.register(
-            user_data, background_tasks=background_tasks
-        )
+        user_response = await self.register(user_data, background_tasks=background_tasks)
 
         # Get the created user from database
         user = await self.user_repo.get_by_email(register_data.email)
@@ -197,11 +195,7 @@ class AuthenticationService:
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_in=365
-            * 100
-            * 24
-            * 60
-            * 60,  # 100 years in seconds (effectively infinite)
+            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
             user=user_response,
         )
 
@@ -285,11 +279,7 @@ class AuthenticationService:
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_in=365
-            * 100
-            * 24
-            * 60
-            * 60,  # 100 years in seconds (effectively infinite)
+            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
             user=UserResponse.model_validate(user_to_response_dict(user)),
         )
 
@@ -379,11 +369,7 @@ class AuthenticationService:
         return RefreshTokenResponse(
             access_token=new_access_token,
             refresh_token=new_refresh_token,
-            expires_in=365
-            * 100
-            * 24
-            * 60
-            * 60,  # 100 years in seconds (effectively infinite)
+            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
         )
 
     async def logout(self, refresh_token: str) -> None:
@@ -490,9 +476,7 @@ class AuthenticationService:
         if not user:
             raise UnauthorizedError("User not found")
 
-        if not user.password_hash or not verify_password(
-            current_password, user.password_hash
-        ):
+        if not user.password_hash or not verify_password(current_password, user.password_hash):
             raise UnauthorizedError("Invalid current password")
 
         user.password_hash = get_password_hash(new_password)

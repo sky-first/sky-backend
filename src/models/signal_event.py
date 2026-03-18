@@ -2,10 +2,10 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey
+from sqlalchemy import JSON, Column, DateTime
 from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy import String, Text
 
 from src.config.database import Base
 
@@ -43,22 +43,31 @@ class SignalEvent(Base):
     nature = Column(SQLEnum(SignalNature), nullable=False, default=SignalNature.EVENT)
     description = Column(Text, nullable=False)
 
-    start_date = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
-    impact_date = Column(DateTime(timezone=True), nullable=True)
-    confidence = Column(
-        SQLEnum(SignalConfidence), nullable=False, default=SignalConfidence.MEDIUM
+    start_date = Column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
+    impact_date = Column(DateTime(timezone=True), nullable=True)
+    confidence = Column(SQLEnum(SignalConfidence), nullable=False, default=SignalConfidence.MEDIUM)
 
     # Store relations cleanly inside a JSON field
     # { "product": "...", "kpi": "...", "client": "..." }
     relations = Column(JSON, nullable=True)
 
-    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
-    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
+    space_id = Column(
+        UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    crew_id = Column(
+        UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
     updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )
 
     # Note: Depending on your exact schema needs, if these events need to trace back to a specific workspace

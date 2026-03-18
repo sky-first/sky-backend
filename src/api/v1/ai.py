@@ -148,9 +148,7 @@ async def process_query(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(
-            query_data.planet_id, current_user.id
-        )
+        await planet_service.get_user_planet_or_404(query_data.planet_id, current_user.id)
 
     return await ai_service.process_query(current_user.id, query_data)
 
@@ -172,9 +170,7 @@ async def chat_bootstrap(
         None,
         description="Active crew ID. When provided, the AI suggestions are scoped to that crew (collaborative mode).",
     ),
-    language: Optional[str] = Query(
-        None, description="Optional language hint (e.g. en, pt, es)"
-    ),
+    language: Optional[str] = Query(None, description="Optional language hint (e.g. en, pt, es)"),
     max_suggestions: int = Query(4, ge=1, le=8),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
@@ -305,9 +301,7 @@ async def chat_bootstrap(
                 crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
             )
         except Exception as e:
-            logger.error(
-                f"[chat_bootstrap] Error checking authorized tables: {e}", exc_info=True
-            )
+            logger.error(f"[chat_bootstrap] Error checking authorized tables: {e}", exc_info=True)
             authorized_tables = []  # Fail closed
 
         # 6) Call AI Engine
@@ -325,9 +319,7 @@ async def chat_bootstrap(
 
         # 7) Return as schema (enforce non-null keys if AI service is flaky)
         if not payload or not isinstance(payload, dict):
-            logger.warning(
-                f"[chat_bootstrap] AI service returned invalid payload: {payload}"
-            )
+            logger.warning(f"[chat_bootstrap] AI service returned invalid payload: {payload}")
             return ChatBootstrapResponse(
                 greeting="How can I help you today?",
                 suggestions=[
@@ -438,9 +430,7 @@ async def send_chat_message(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(
-            message_data.planet_id, current_user.id
-        )
+        await planet_service.get_user_planet_or_404(message_data.planet_id, current_user.id)
 
     ai_service = AIService(db)
     return await ai_service.send_chat_message(current_user.id, message_data)
@@ -550,9 +540,7 @@ async def create_history(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(
-            history_data.planet_id, current_user.id
-        )
+        await planet_service.get_user_planet_or_404(history_data.planet_id, current_user.id)
 
     ai_service = AIService(db)
     return await ai_service.create_history(current_user.id, history_data)
@@ -600,9 +588,7 @@ async def get_history_by_id(
         await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
 
     ai_service = AIService(db)
-    return await ai_service.get_history_by_id(
-        history_id, current_user.id, resolved_planet_id
-    )
+    return await ai_service.get_history_by_id(history_id, current_user.id, resolved_planet_id)
 
 
 @router.delete(
@@ -738,9 +724,7 @@ async def unpin_history(
         await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
 
     ai_service = AIService(db)
-    return await ai_service.unpin_history(
-        history_id, current_user.id, resolved_planet_id
-    )
+    return await ai_service.unpin_history(history_id, current_user.id, resolved_planet_id)
 
 
 @router.get(
@@ -959,9 +943,7 @@ async def generate_answer(
     from datetime import datetime, timezone
 
     ai_service = AIService(db)
-    answer = await ai_service.generate_answer(
-        request.question, request.knowledge, request.context
-    )
+    answer = await ai_service.generate_answer(request.question, request.knowledge, request.context)
     return GenerateAnswerResponse(answer=answer, timestamp=datetime.now(timezone.utc))
 
 
@@ -1029,9 +1011,7 @@ async def generate_infographic(
         if not infographic_data.title:
             infographic_data.title = "Analysis Result"
         if not infographic_data.summary and not infographic_data.mainValue:
-            infographic_data.summary = (
-                "Strategic analysis based on the provided query context."
-            )
+            infographic_data.summary = "Strategic analysis based on the provided query context."
 
         return GenerateInfographicResponse(
             data=infographic_data,

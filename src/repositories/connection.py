@@ -49,13 +49,9 @@ class ConnectionRepository(BaseRepository[DataConnection]):
             if "status" in filters:
                 query = query.where(DataConnection.status == filters["status"])
             if "connector_id" in filters:
-                query = query.where(
-                    DataConnection.connector_id == filters["connector_id"]
-                )
+                query = query.where(DataConnection.connector_id == filters["connector_id"])
 
-        query = (
-            query.order_by(DataConnection.created_at.desc()).offset(skip).limit(limit)
-        )
+        query = query.order_by(DataConnection.created_at.desc()).offset(skip).limit(limit)
 
         result = await self.db.execute(query)
         return list(result.scalars().all())
@@ -95,9 +91,7 @@ class ConnectionMetadataRepository(BaseRepository[ConnectionMetadata]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, ConnectionMetadata)
 
-    async def get_by_connection_id(
-        self, connection_id: UUID
-    ) -> Optional[ConnectionMetadata]:
+    async def get_by_connection_id(self, connection_id: UUID) -> Optional[ConnectionMetadata]:
         """
         Get metadata by connection ID.
 
@@ -108,8 +102,6 @@ class ConnectionMetadataRepository(BaseRepository[ConnectionMetadata]):
             Optional[ConnectionMetadata]: Metadata or None
         """
         result = await self.db.execute(
-            select(ConnectionMetadata).where(
-                ConnectionMetadata.connection_id == connection_id
-            )
+            select(ConnectionMetadata).where(ConnectionMetadata.connection_id == connection_id)
         )
         return result.scalar_one_or_none()

@@ -297,9 +297,7 @@ async def update_planet_member_role(
         PlanetMemberResponse: Updated member
     """
     planet_service = PlanetService(db)
-    return await planet_service.update_member_role(
-        planet_id, user_id, role_data.role, current_user
-    )
+    return await planet_service.update_member_role(planet_id, user_id, role_data.role, current_user)
 
 
 @router.get(

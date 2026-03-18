@@ -122,9 +122,7 @@ def test_chat_bootstrap(token: str) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-def test_query_endpoint(
-    token: str, question: str, question_num: int, total: int
-) -> Dict[str, Any]:
+def test_query_endpoint(token: str, question: str, question_num: int, total: int) -> Dict[str, Any]:
     """Testa POST /api/v1/ai/query"""
     print(f"\n{'=' * 80}")
     print(f"3️⃣.{question_num} TESTANDO POST /api/v1/ai/query")
@@ -162,16 +160,10 @@ def test_query_endpoint(
                 print(f"   Data sample: {len(data_sample)} linhas")
 
             # Verificar se é resposta real ou mock
-            is_mock = (
-                "mock" in answer.lower()
-                or "example" in answer.lower()
-                or len(answer) < 50
-            )
+            is_mock = "mock" in answer.lower() or "example" in answer.lower() or len(answer) < 50
 
             if is_mock:
-                print(
-                    "   ⚠️  Parece ser resposta MOCK (muito curta ou contém 'mock'/'example')"
-                )
+                print("   ⚠️  Parece ser resposta MOCK (muito curta ou contém 'mock'/'example')")
             else:
                 print("   ✅ Parece ser resposta REAL da AI")
 
@@ -190,9 +182,7 @@ def test_query_endpoint(
         return {"success": False, "error": str(e)}
 
 
-def test_chat_endpoint(
-    token: str, question: str, question_num: int, total: int
-) -> Dict[str, Any]:
+def test_chat_endpoint(token: str, question: str, question_num: int, total: int) -> Dict[str, Any]:
     """Testa POST /api/v1/ai/chat"""
     print(f"\n{'=' * 80}")
     print(f"4️⃣.{question_num} TESTANDO POST /api/v1/ai/chat")
@@ -224,16 +214,10 @@ def test_chat_endpoint(
             print(f"   Content preview: {content[:100]}...")
 
             # Verificar se é resposta real ou mock
-            is_mock = (
-                "mock" in content.lower()
-                or "example" in content.lower()
-                or len(content) < 50
-            )
+            is_mock = "mock" in content.lower() or "example" in content.lower() or len(content) < 50
 
             if is_mock:
-                print(
-                    "   ⚠️  Parece ser resposta MOCK (muito curta ou contém 'mock'/'example')"
-                )
+                print("   ⚠️  Parece ser resposta MOCK (muito curta ou contém 'mock'/'example')")
             else:
                 print("   ✅ Parece ser resposta REAL da AI")
 
@@ -270,17 +254,13 @@ def main():
     # Test query endpoint (primeira pergunta)
     query_results = []
     if TEST_QUESTIONS:
-        query_result = test_query_endpoint(
-            token, TEST_QUESTIONS[0], 1, len(TEST_QUESTIONS)
-        )
+        query_result = test_query_endpoint(token, TEST_QUESTIONS[0], 1, len(TEST_QUESTIONS))
         query_results.append(query_result)
 
     # Test chat endpoint (primeira pergunta)
     chat_results = []
     if TEST_QUESTIONS:
-        chat_result = test_chat_endpoint(
-            token, TEST_QUESTIONS[0], 1, len(TEST_QUESTIONS)
-        )
+        chat_result = test_chat_endpoint(token, TEST_QUESTIONS[0], 1, len(TEST_QUESTIONS))
         chat_results.append(chat_result)
 
     # Resumo

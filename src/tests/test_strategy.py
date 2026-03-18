@@ -14,9 +14,7 @@ async def test_create_pillar(async_client: AsyncClient, test_user_with_tokens: d
         "color": "#FF5733",
     }
 
-    response = await async_client.post(
-        "/api/v1/strategy/pillars", json=payload, headers=headers
-    )
+    response = await async_client.post("/api/v1/strategy/pillars", json=payload, headers=headers)
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "Innovation"
@@ -56,17 +54,13 @@ async def test_create_objective(async_client: AsyncClient, test_user_with_tokens
 
 
 @pytest.mark.asyncio
-async def test_get_strategy_tree(
-    async_client: AsyncClient, test_user_with_tokens: dict
-):
+async def test_get_strategy_tree(async_client: AsyncClient, test_user_with_tokens: dict):
     """Test fetching the full strategy tree."""
     token = test_user_with_tokens["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     # Create some data
-    await async_client.post(
-        "/api/v1/strategy/pillars", json={"name": "P1"}, headers=headers
-    )
+    await async_client.post("/api/v1/strategy/pillars", json={"name": "P1"}, headers=headers)
 
     response = await async_client.get("/api/v1/strategy/tree", headers=headers)
     assert response.status_code == 200
@@ -77,9 +71,7 @@ async def test_get_strategy_tree(
 
 
 @pytest.mark.asyncio
-async def test_get_strategy_health(
-    async_client: AsyncClient, test_user_with_tokens: dict
-):
+async def test_get_strategy_health(async_client: AsyncClient, test_user_with_tokens: dict):
     """Test fetching strategy health metrics."""
     token = test_user_with_tokens["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -87,10 +79,12 @@ async def test_get_strategy_health(
     response = await async_client.get("/api/v1/strategy/health", headers=headers)
     assert response.status_code == 200
     data = response.json()
+    assert "coverage_percentage" in data
+    assert "execution_gap" in data
+
+
 @pytest.mark.asyncio
-async def test_update_initiative_success(
-    async_client: AsyncClient, test_user_with_tokens: dict
-):
+async def test_update_initiative_success(async_client: AsyncClient, test_user_with_tokens: dict):
     """Test updating a strategy initiative with real fields (Bug 1)."""
     token = test_user_with_tokens["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -103,12 +97,7 @@ async def test_update_initiative_success(
     init_id = res.json()["id"]
 
     # 2. Update initiative with new fields
-    update_payload = {
-        "title": "Updated Title",
-        "budget": 5000.0,
-        "impact": "High",
-        "progress": 50
-    }
+    update_payload = {"title": "Updated Title", "budget": 5000.0, "impact": "High", "progress": 50}
     response = await async_client.put(
         f"/api/v1/strategy/initiatives/{init_id}", json=update_payload, headers=headers
     )
@@ -119,26 +108,18 @@ async def test_update_initiative_success(
 
 
 @pytest.mark.asyncio
-async def test_update_assumption_success(
-    async_client: AsyncClient, test_user_with_tokens: dict
-):
+async def test_update_assumption_success(async_client: AsyncClient, test_user_with_tokens: dict):
     """Test updating a strategy assumption with real fields (Bug 2)."""
     token = test_user_with_tokens["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     # 1. Create assumption
     ass_payload = {"title": "Market Stable", "category": "Market"}
-    res = await async_client.post(
-        "/api/v1/strategy/assumptions", json=ass_payload, headers=headers
-    )
+    res = await async_client.post("/api/v1/strategy/assumptions", json=ass_payload, headers=headers)
     ass_id = res.json()["id"]
 
     # 2. Update assumption
-    update_payload = {
-        "status": "validated",
-        "impact_score": 5,
-        "priority": "critical"
-    }
+    update_payload = {"status": "validated", "impact_score": 5, "priority": "critical"}
     response = await async_client.put(
         f"/api/v1/strategy/assumptions/{ass_id}", json=update_payload, headers=headers
     )
@@ -162,12 +143,10 @@ async def test_create_signal_event_enum_uppercase(
         "nature": "SIGNAL",
         "description": "Critical security signal",
         "confidence": "HIGH",
-        "start_date": "2026-03-18T12:00:00Z"
+        "start_date": "2026-03-18T12:00:00Z",
     }
 
-    response = await async_client.post(
-        "/api/v1/signal-events/", json=payload, headers=headers
-    )
+    response = await async_client.post("/api/v1/signal-events/", json=payload, headers=headers)
     # If this returns 201, the Enum mismatch is solved.
     assert response.status_code == 201
     data = response.json()

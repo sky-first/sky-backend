@@ -68,9 +68,7 @@ class TestNotificationAPI:
         )
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(
-            "/api/v1/notifications/unread-count", headers=headers
-        )
+        response = await async_client.get("/api/v1/notifications/unread-count", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert data["count"] >= 1
@@ -126,9 +124,7 @@ class TestNotificationAPI:
             )
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(
-            "/api/v1/notifications/read-all", headers=headers
-        )
+        response = await async_client.post("/api/v1/notifications/read-all", headers=headers)
         assert response.status_code == 200
         assert response.json()["updated"] >= 2
 
@@ -188,9 +184,7 @@ class TestCommentAPI:
             "mentions": [str(other_user.id)],
         }
 
-        response = await async_client.post(
-            "/api/v1/comments", json=comment_data, headers=headers
-        )
+        response = await async_client.post("/api/v1/comments", json=comment_data, headers=headers)
         assert response.status_code == 201
 
         # Verify notification was created for the mention

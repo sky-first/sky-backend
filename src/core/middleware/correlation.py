@@ -19,9 +19,7 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         self.header_name = header_name
         self.validate_uuid = validate_uuid
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         # Extract or generate correlation ID
         correlation_id = request.headers.get(self.header_name)
 

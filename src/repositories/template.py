@@ -54,8 +54,7 @@ class TemplateRepository(BaseRepository[Template]):
             List[Template]: List of templates
         """
         query = select(Template).where(
-            Template.name.ilike(f"%{search}%")
-            | Template.description.ilike(f"%{search}%")
+            Template.name.ilike(f"%{search}%") | Template.description.ilike(f"%{search}%")
         )
 
         query = query.order_by(Template.created_at.desc()).offset(skip).limit(limit)

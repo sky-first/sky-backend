@@ -9,15 +9,8 @@ from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.crew import Crew
 from src.models.space import SpaceConnection
 from src.models.user import User
-from src.repositories.connection import (
-    ConnectionMetadataRepository,
-    ConnectionRepository,
-)
-from src.repositories.space import (
-    SpaceMemberRepository,
-    SpaceRepository,
-    SpaceTableRepository,
-)
+from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
+from src.repositories.space import SpaceMemberRepository, SpaceRepository, SpaceTableRepository
 from src.schemas.space import (
     SpaceCreate,
     SpaceMemberCreate,
@@ -45,9 +38,7 @@ class SpaceService:
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.table_repo = SpaceTableRepository(db)
 
-    async def list_spaces(
-        self, user: User, skip: int = 0, limit: int = 100
-    ) -> List[SpaceResponse]:
+    async def list_spaces(self, user: User, skip: int = 0, limit: int = 100) -> List[SpaceResponse]:
         """
         List spaces.
 
@@ -96,9 +87,7 @@ class SpaceService:
                         # Restore original color value
                         space.color = original_color
                 except Exception as e:
-                    logger.error(
-                        f"Error validating space {space.id}: {str(e)}", exc_info=True
-                    )
+                    logger.error(f"Error validating space {space.id}: {str(e)}", exc_info=True)
                     # Try with color as None if validation fails
                     try:
                         original_color = space.color
@@ -117,9 +106,7 @@ class SpaceService:
                         continue
             return result
         except Exception as e:
-            logger.error(
-                f"Error listing spaces for user {user.id}: {str(e)}", exc_info=True
-            )
+            logger.error(f"Error listing spaces for user {user.id}: {str(e)}", exc_info=True)
             raise
 
     async def get_space(self, space_id: UUID, user: User) -> SpaceResponse:
@@ -268,9 +255,7 @@ class SpaceService:
         crews = await self.space_repo.get_space_crews(space_id)
         return crews
 
-    async def get_space_connections(
-        self, space_id: UUID, user: User
-    ) -> List[SpaceConnection]:
+    async def get_space_connections(self, space_id: UUID, user: User) -> List[SpaceConnection]:
         """
         Get connections for a space.
 
@@ -330,9 +315,7 @@ class SpaceService:
             return existing
 
         # Create association using the repository's helper or manually
-        space_connection = SpaceConnection(
-            space_id=space_id, connection_id=connection_id
-        )
+        space_connection = SpaceConnection(space_id=space_id, connection_id=connection_id)
         self.db.add(space_connection)
         await self.db.commit()
         await self.db.refresh(space_connection)
@@ -361,18 +344,14 @@ class SpaceService:
         if space.created_by != user.id:
             raise ForbiddenError("Access denied to this space")
 
-        association = await self.space_repo.get_space_connection(
-            space_id, connection_id
-        )
+        association = await self.space_repo.get_space_connection(space_id, connection_id)
         if not association:
             raise NotFoundError("Connection not linked to this space")
 
         await self.db.delete(association)
         await self.db.commit()
 
-    async def get_space_members(
-        self, space_id: UUID, user: User
-    ) -> List[SpaceMemberResponse]:
+    async def get_space_members(self, space_id: UUID, user: User) -> List[SpaceMemberResponse]:
         """
         Get all members of a space.
 
@@ -427,9 +406,7 @@ class SpaceService:
             raise ForbiddenError("Access denied to this space")
 
         # Check if member already exists
-        existing = await self.member_repo.get_by_space_and_user(
-            space_id, member_data.user_id
-        )
+        existing = await self.member_repo.get_by_space_and_user(space_id, member_data.user_id)
         if existing:
             raise BadRequestError("User is already a member of this space")
 
@@ -444,9 +421,7 @@ class SpaceService:
 
         return SpaceMemberResponse.model_validate(member)
 
-    async def remove_space_member(
-        self, space_id: UUID, user_id: UUID, current_user: User
-    ) -> None:
+    async def remove_space_member(self, space_id: UUID, user_id: UUID, current_user: User) -> None:
         """
         Remove member from space.
 
@@ -495,20 +470,28 @@ class SpaceService:
         # Get space connections
         space_connections = await self.space_repo.get_space_connections(space_id)
 
-        # Get explicitly selected tables
+        # Get explicitly selected tables, building a lookup set that covers
+        # both the canonical (conn_id, bare_name, schema) tuple AND the legacy
+        # format where the full "schema.table" name was stored as table_name.
         selected_tables_entities = await self.table_repo.get_space_tables(space_id)
-        selected_tables_map = {
-            (str(t.connection_id), t.table_name, t.schema_name): True
-            for t in selected_tables_entities
-        }
+        selected_tables_set: set = set()
+        for t in selected_tables_entities:
+            conn_str = str(t.connection_id)
+            # Canonical key: (conn_id, bare_table_name, schema_name)
+            selected_tables_set.add((conn_str, t.table_name, t.schema_name))
+            # Legacy: if someone previously stored "schema.table" as table_name,
+            # add a split variant so it can still match against metadata tuples
+            if "." in t.table_name:
+                parts = t.table_name.split(".", 1)
+                selected_tables_set.add((conn_str, parts[1], parts[0]))
+                # Also allow matching when schema is None in metadata
+                selected_tables_set.add((conn_str, parts[1], None))
 
         # Get tables from each connection
         tables = []
         for space_conn in space_connections:
             connection = space_conn.connection
-            metadata = await self.metadata_repo.get_by_connection_id(
-                space_conn.connection_id
-            )
+            metadata = await self.metadata_repo.get_by_connection_id(space_conn.connection_id)
             if not metadata or not metadata.tables:
                 continue
 
@@ -526,11 +509,12 @@ class SpaceService:
                     t_schema = getattr(table_data, "schema", None)
 
                 if t_name:
-                    is_selected = (
-                        str(space_conn.connection_id),
+                    conn_str = str(space_conn.connection_id)
+                    is_selected = (conn_str, t_name, t_schema) in selected_tables_set or (
+                        conn_str,
                         t_name,
-                        t_schema,
-                    ) in selected_tables_map
+                        None,
+                    ) in selected_tables_set
 
                     if only_selected and not is_selected:
                         continue
@@ -540,9 +524,7 @@ class SpaceService:
                             "id": f"{space_conn.connection_id}-{t_name}",
                             "connection_id": str(space_conn.connection_id),
                             "connection_name": connection.name,
-                            "connection_type": getattr(
-                                connection, "connector_id", None
-                            ),
+                            "connection_type": getattr(connection, "connector_id", None),
                             "table_name": t_name,
                             "name": t_name,
                             "schema": t_schema,

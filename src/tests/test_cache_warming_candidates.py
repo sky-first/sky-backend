@@ -43,9 +43,7 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
         created_at=now,
         updated_at=now,
     )
-    space = Space(
-        id=space_id, name="S1", created_by=user_id, created_at=now, updated_at=now
-    )
+    space = Space(id=space_id, name="S1", created_by=user_id, created_at=now, updated_at=now)
     sc = SpaceConnection(space_id=space_id, connection_id=conn_id)
 
     # Planet

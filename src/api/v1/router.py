@@ -48,19 +48,13 @@ api_router.include_router(dashboards.router, prefix="/dashboards", tags=["Dashbo
 api_router.include_router(widgets.router, prefix="/widgets", tags=["Widgets"])
 
 # Connection endpoints
-api_router.include_router(
-    connections.router, prefix="/connections", tags=["Connections"]
-)
+api_router.include_router(connections.router, prefix="/connections", tags=["Connections"])
 
 # Permission endpoints
-api_router.include_router(
-    permissions.router, prefix="/permissions", tags=["Permissions"]
-)
+api_router.include_router(permissions.router, prefix="/permissions", tags=["Permissions"])
 
 # Notification endpoints
-api_router.include_router(
-    notifications.router, prefix="/notifications", tags=["Notifications"]
-)
+api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 
 # Space endpoints
 api_router.include_router(spaces.router, prefix="/spaces", tags=["Spaces"])
@@ -101,9 +95,7 @@ api_router.include_router(starred.router, prefix="/starred", tags=["Starred"])
 api_router.include_router(comments.router, prefix="/comments", tags=["Comments"])
 
 # Signal Events endpoints
-api_router.include_router(
-    signal_events.router, prefix="/signal-events", tags=["Signal Events"]
-)
+api_router.include_router(signal_events.router, prefix="/signal-events", tags=["Signal Events"])
 
 # Intelligence Signals endpoints
 api_router.include_router(

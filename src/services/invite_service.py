@@ -9,11 +9,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, UnauthorizedError
-from src.core.security import (
-    create_access_token,
-    create_refresh_token,
-    get_password_hash,
-)
+from src.core.security import create_access_token, create_refresh_token, get_password_hash
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
 from src.services.onboarding_service import ensure_default_planet_and_space
@@ -54,9 +50,7 @@ class InviteService:
         # Actually, we should create a new user record with the invite_token
         # But for now, we'll return the token and let the caller handle storage
 
-        logger.info(
-            f"✅ Generated invite token for user {user_id}, expires in {expires_days} days"
-        )
+        logger.info(f"✅ Generated invite token for user {user_id}, expires in {expires_days} days")
         return token
 
     async def create_invite(
@@ -94,9 +88,7 @@ class InviteService:
 
         # Create user record with invite token (user will complete registration later)
         # We create a "pending" user with invite_token set
-        password_hash = get_password_hash(
-            secrets.token_urlsafe(32)
-        )  # Temporary password
+        password_hash = get_password_hash(secrets.token_urlsafe(32))  # Temporary password
 
         user = await self.user_repo.create(
             email=email,
@@ -281,9 +273,7 @@ class InviteService:
         refresh_token = create_refresh_token(token_data)
 
         # Save refresh token
-        expires_at = datetime.now(timezone.utc) + timedelta(
-            days=365 * 100
-        )  # Effectively infinite
+        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)  # Effectively infinite
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,

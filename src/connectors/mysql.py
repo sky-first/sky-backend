@@ -18,9 +18,7 @@ class MySQLConnector(BaseConnector):
         # TODO: Implement metadata extraction
         return {"tables": [], "schemas": []}
 
-    async def execute_query(
-        self, config: Dict[str, Any], query: str
-    ) -> List[Dict[str, Any]]:
+    async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
         """Execute MySQL query."""
         # TODO: Implement query execution
         return []

@@ -1,17 +1,13 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db
 from src.models.user import User
+from src.schemas.signal_event import SignalEventCreate, SignalEventResponse, SignalEventUpdate
 from src.services.signal_event_service import SignalEventService
-from src.schemas.signal_event import (
-    SignalEventCreate,
-    SignalEventResponse,
-    SignalEventUpdate,
-)
 
 router = APIRouter()
 
@@ -33,9 +29,7 @@ async def list_signal_events(
     return await service.list_events(space_id=space_id, crew_id=crew_id)
 
 
-@router.post(
-    "/", response_model=SignalEventResponse, status_code=status.HTTP_201_CREATED
-)
+@router.post("/", response_model=SignalEventResponse, status_code=status.HTTP_201_CREATED)
 async def create_signal_event(
     event_in: SignalEventCreate,
     space_id: Optional[UUID] = Query(None),
@@ -69,9 +63,7 @@ async def update_signal_event(
     service: SignalEventService = Depends(get_signal_event_service),
 ):
     """Update a signal event with tenant validation."""
-    return await service.update_event(
-        event_id, event_in, space_id=space_id, crew_id=crew_id
-    )
+    return await service.update_event(event_id, event_in, space_id=space_id, crew_id=crew_id)
 
 
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -47,9 +47,7 @@ def _apply_cors_headers(request: Request, response: Response) -> None:
             response.headers.add_vary_header("Origin")
         except Exception:
             existing = response.headers.get("Vary")
-            response.headers["Vary"] = (
-                "Origin" if not existing else f"{existing}, Origin"
-            )
+            response.headers["Vary"] = "Origin" if not existing else f"{existing}, Origin"
 
 
 async def error_handler_middleware(request: Request, call_next: Callable) -> Response:
@@ -132,9 +130,7 @@ async def error_handler_middleware(request: Request, call_next: Callable) -> Res
         return response
     except Exception as e:
         # Python 3.11+: ExceptionGroup inherits from Exception, so handle it here first.
-        if _BuiltinsBaseExceptionGroup is not None and isinstance(
-            e, _BuiltinsBaseExceptionGroup
-        ):
+        if _BuiltinsBaseExceptionGroup is not None and isinstance(e, _BuiltinsBaseExceptionGroup):
             eg = e  # type: ignore[assignment]
             exceptions = getattr(eg, "exceptions", []) or []
             logger.warning(f"ExceptionGroup caught: {len(exceptions)} exceptions")

@@ -144,7 +144,9 @@ class BigQueryConnector(BaseConnector):
             columns_rows = list(columns_job.result())
 
             # 2. Fetch Table Stats (row count, last modified)
-            stats_query = f"SELECT table_id, row_count, last_modified_time FROM `{full_dataset}.__TABLES__`"
+            stats_query = (
+                f"SELECT table_id, row_count, last_modified_time FROM `{full_dataset}.__TABLES__`"
+            )
             stats_job = client.query(stats_query)
             stats_rows = {row["table_id"]: row for row in stats_job.result()}
 
@@ -217,9 +219,7 @@ class BigQueryConnector(BaseConnector):
 
         return await asyncio.to_thread(_run)
 
-    async def execute_query(
-        self, config: Dict[str, Any], query: str
-    ) -> List[Dict[str, Any]]:
+    async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
         """
         Execute an arbitrary SQL query against BigQuery and return rows as dicts.
         """

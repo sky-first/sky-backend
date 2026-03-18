@@ -37,9 +37,7 @@ class DashboardRepository(BaseRepository[Dashboard]):
             .order_by(Dashboard.created_at.desc())
             .offset(skip)
             .limit(limit)
-            .options(
-                selectinload(Dashboard.widgets), selectinload(Dashboard.connections)
-            )
+            .options(selectinload(Dashboard.widgets), selectinload(Dashboard.connections))
         )
         return list(result.scalars().all())
 

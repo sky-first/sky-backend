@@ -20,9 +20,7 @@ from src.services.planet_service import PlanetService
 
 @pytest.mark.asyncio
 class TestDashboardServiceBoost:
-    async def test_dashboard_crud_full_success(
-        self, db_session: AsyncSession, test_user: dict
-    ):
+    async def test_dashboard_crud_full_success(self, db_session: AsyncSession, test_user: dict):
         user = test_user["user"]
         dash_service = DashboardService(db_session)
         planet_service = PlanetService(db_session)
@@ -140,9 +138,7 @@ class TestDashboardServiceBoost:
 
 @pytest.mark.asyncio
 class TestPlanetServiceBoost:
-    async def test_planet_crud_full_success(
-        self, db_session: AsyncSession, test_user: dict
-    ):
+    async def test_planet_crud_full_success(self, db_session: AsyncSession, test_user: dict):
         user = test_user["user"]
         service = PlanetService(db_session)
 
@@ -168,9 +164,7 @@ class TestPlanetServiceBoost:
         assert switched.is_active is True
 
         # 6. Add Member
-        other_user = User(
-            id=uuid4(), email="other@test.com", name="Other", password_hash="hash"
-        )
+        other_user = User(id=uuid4(), email="other@test.com", name="Other", password_hash="hash")
         db_session.add(other_user)
         await db_session.commit()
 
@@ -184,9 +178,7 @@ class TestPlanetServiceBoost:
         assert len(members) >= 2
 
         # 8. Update Member Role
-        updated_member = await service.update_member_role(
-            planet.id, other_user.id, "admin", user
-        )
+        updated_member = await service.update_member_role(planet.id, other_user.id, "admin", user)
         assert updated_member.role == "admin"
 
         # 9. Remove Member

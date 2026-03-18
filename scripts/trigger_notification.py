@@ -35,9 +35,7 @@ async def trigger_test_notification():
         # 2. Get a dashboard (optional, but good for deep linking)
         result = await db.execute(select(Dashboard).limit(1))
         dashboard = result.scalars().first()
-        dashboard_id = (
-            dashboard.id if dashboard else "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-        )
+        dashboard_id = dashboard.id if dashboard else "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 
         print(f"👤 Notifying User: {user.email} (ID: {user.id})")
         print(f"📊 Using Dashboard ID: {dashboard_id}")
@@ -75,9 +73,7 @@ async def trigger_test_notification():
             )
             print("✅ Comment Mention triggered!")
 
-        print(
-            "\n✨ Done! Now check your Dashboard Bell 🔔 (you might need to refresh)."
-        )
+        print("\n✨ Done! Now check your Dashboard Bell 🔔 (you might need to refresh).")
         break
 
 

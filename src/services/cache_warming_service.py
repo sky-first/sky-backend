@@ -37,9 +37,7 @@ def _normalize_question(question: str) -> str:
     return q
 
 
-async def _resolve_space_id_for_connection(
-    db: AsyncSession, connection_id: UUID
-) -> Optional[str]:
+async def _resolve_space_id_for_connection(db: AsyncSession, connection_id: UUID) -> Optional[str]:
     """Resolve a connection_id to a space_id via space_connections."""
     stmt = (
         select(SpaceConnection.space_id)
@@ -75,12 +73,8 @@ def _pick_top_n_per_connection(
     selected: List[Tuple[str, str, int, datetime, UUID, str]] = []
     for conn_id, items in by_conn.items():
         items.sort(key=lambda t: (-t[1], -t[2].timestamp()))
-        for norm_q, count, last_used, user_id, original_question in items[
-            :top_n_per_connection
-        ]:
-            selected.append(
-                (conn_id, norm_q, count, last_used, user_id, original_question)
-            )
+        for norm_q, count, last_used, user_id, original_question in items[:top_n_per_connection]:
+            selected.append((conn_id, norm_q, count, last_used, user_id, original_question))
 
     # Global ordering: most frequent first, then most recent
     selected.sort(key=lambda t: (-t[2], -t[3].timestamp()))
@@ -144,11 +138,7 @@ async def get_ai_cache_warm_candidates(
             knowledge = config_data.get("knowledge", [])
             if isinstance(knowledge, list):
                 for item in knowledge:
-                    if (
-                        isinstance(item, str)
-                        and len(item) == 36
-                        and item.count("-") == 4
-                    ):
+                    if isinstance(item, str) and len(item) == 36 and item.count("-") == 4:
                         try:
                             connection_uuid = UUID(item)
                             break
@@ -188,9 +178,7 @@ async def get_ai_cache_warm_candidates(
             else:
                 groups[key] = (new_count, last_used, uid, oq)
 
-    picked = _pick_top_n_per_connection(
-        groups, top_n_per_connection=top_n_per_connection
-    )
+    picked = _pick_top_n_per_connection(groups, top_n_per_connection=top_n_per_connection)
     if not picked:
         return []
 
@@ -221,9 +209,7 @@ async def get_ai_cache_warm_candidates(
                 stmt_space = (
                     select(Space.id)
                     .outerjoin(SpaceMember, SpaceMember.space_id == Space.id)
-                    .where(
-                        or_(Space.created_by == user_id, SpaceMember.user_id == user_id)
-                    )
+                    .where(or_(Space.created_by == user_id, SpaceMember.user_id == user_id))
                     .limit(1)
                 )
                 res_space = await db.scalar(stmt_space)

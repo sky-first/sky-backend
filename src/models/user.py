@@ -37,9 +37,7 @@ class User(Base):
         default="user",
         server_default="user",
     )  # admin, user, viewer
-    email_verified = Column(
-        Boolean, nullable=False, default=False, server_default="false"
-    )
+    email_verified = Column(Boolean, nullable=False, default=False, server_default="false")
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
     onboarding_step = Column(Integer, nullable=True, default=0, server_default="0")
     onboarding_version = Column(Integer, nullable=False, default=0, server_default="0")
@@ -91,17 +89,13 @@ class User(Base):
     refresh_tokens = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
     )
-    owned_planets = relationship(
-        "Planet", back_populates="owner", foreign_keys="Planet.owner_id"
-    )
+    owned_planets = relationship("Planet", back_populates="owner", foreign_keys="Planet.owner_id")
     planet_memberships = relationship("PlanetMember", back_populates="user")
     owned_workspaces = relationship(
         "Workspace", back_populates="owner", foreign_keys="Workspace.owner_id"
     )
     workspace_memberships = relationship("WorkspaceMember", back_populates="user")
-    starred_items = relationship(
-        "StarredItem", back_populates="user", cascade="all, delete-orphan"
-    )
+    starred_items = relationship("StarredItem", back_populates="user", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_users_email", "email", postgresql_where=deleted_at.is_(None)),

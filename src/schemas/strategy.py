@@ -241,7 +241,6 @@ class StrategyInitiativeResponse(StrategyInitiativeBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 # --- Strategy Assumption ---
 
 
@@ -306,4 +305,3 @@ class StrategyTreeResponse(BaseModel):
     initiatives: List[StrategyInitiativeResponse]
     assumptions: List[StrategyAssumptionResponse]
     cycles: List[StrategyCycleResponse] = Field(default_factory=list)
-

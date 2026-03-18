@@ -136,9 +136,7 @@ async def fix_dashboards_planet_id():
                     WHERE table_name = 'dashboards';
                 """
                 )
-                print(
-                    f"Available columns: {[row['column_name'] for row in all_columns]}"
-                )
+                print(f"Available columns: {[row['column_name'] for row in all_columns]}")
             else:
                 print("Table 'dashboards' does not exist.")
 

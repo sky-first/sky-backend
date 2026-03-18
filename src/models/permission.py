@@ -3,16 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import (
-    JSON,
-    Column,
-    DateTime,
-    ForeignKey,
-    Index,
-    String,
-    UniqueConstraint,
-    func,
-)
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -50,12 +41,8 @@ class ConnectionPermission(Base):
         index=True,
     )
     access_level = Column(String(50), nullable=False)  # full, read-only, custom
-    table_access = Column(
-        JSON, nullable=True
-    )  # Array of table names (if access_level = 'custom')
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    table_access = Column(JSON, nullable=True)  # Array of table names (if access_level = 'custom')
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -99,9 +86,7 @@ class TableMemberPermission(Base):
         nullable=False,
         index=True,
     )
-    table_name = Column(
-        String(255), nullable=False
-    )  # Table name (e.g., "users", "orders")
+    table_name = Column(String(255), nullable=False)  # Table name (e.g., "users", "orders")
     crew_id = Column(
         UUID(as_uuid=True),
         ForeignKey("crews.id", ondelete="CASCADE"),
@@ -117,9 +102,7 @@ class TableMemberPermission(Base):
     has_access = Column(
         String(10), nullable=False, default="true", server_default="true"
     )  # "true" or "false"
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -162,17 +145,13 @@ class APIKey(Base):
         index=True,
     )
     name = Column(String(255), nullable=False)
-    key_hash = Column(
-        String(255), nullable=False, unique=True, index=True
-    )  # Hashed API key
+    key_hash = Column(String(255), nullable=False, unique=True, index=True)  # Hashed API key
     key_prefix = Column(String(20), nullable=False)  # First characters for display
     permissions = Column(JSON, nullable=True)  # Array of permissions
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -209,9 +188,7 @@ class Integration(Base):
     type = Column(String(100), nullable=False)  # slack, webhook, email, etc.
     config = Column(JSON, nullable=False)  # Integration configuration
     enabled = Column(String(10), nullable=False, default="true", server_default="true")
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -240,12 +217,8 @@ class RolePermission(Base):
     role = Column(
         String(50), nullable=False, unique=True, index=True
     )  # commander, navigator, explorer, guest
-    permissions = Column(
-        JSON, nullable=False
-    )  # Dictionary of permission keys and boolean values
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    permissions = Column(JSON, nullable=False)  # Dictionary of permission keys and boolean values
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,

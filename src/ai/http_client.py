@@ -454,11 +454,11 @@ class AIServiceHTTPClient:
     async def ingest_knowledge_graph(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
         Ingest an entity into the Knowledge Graph.
-        
+
         Endpoint: POST /knowledge-graph/ingest
         """
         url = f"{self.base_url}/knowledge-graph/ingest"
-        
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(f"Ingesting into Knowledge Graph: {url} payload_id={payload.get('id')}")
             response = await client.post(url, json=payload)

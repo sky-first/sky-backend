@@ -209,9 +209,7 @@ async def get_me(
 async def get_effective_permissions(
     space_id: Optional[str] = Query(None, description="Space context (optional)"),
     crew_id: Optional[str] = Query(None, description="Crew context (optional)"),
-    connection_id: Optional[str] = Query(
-        None, description="Connection context (optional)"
-    ),
+    connection_id: Optional[str] = Query(None, description="Connection context (optional)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> EffectivePermissionsResponse:
@@ -260,9 +258,7 @@ async def forgot_password(
     """
     # TODO: Implement email sending
     # For now, just return success to prevent email enumeration
-    return SuccessResponse(
-        message="If the email exists, a password reset link has been sent"
-    )
+    return SuccessResponse(message="If the email exists, a password reset link has been sent")
 
 
 @router.post(
@@ -511,9 +507,7 @@ async def login_with_invite(
         UnauthorizedError: If password is incorrect
     """
     invite_service = InviteService(db)
-    login_response = await invite_service.login_with_invite(
-        login_data.token, login_data.password
-    )
+    login_response = await invite_service.login_with_invite(login_data.token, login_data.password)
     return LoginResponse(**login_response)
 
 
@@ -543,9 +537,7 @@ async def accept_invite_endpoint(
         BadRequestError: If token is invalid or expired
     """
     invite_service = InviteService(db)
-    login_response = await invite_service.accept_invite(
-        login_data.token, login_data.password
-    )
+    login_response = await invite_service.accept_invite(login_data.token, login_data.password)
     return LoginResponse(**login_response)
 
 
@@ -617,9 +609,7 @@ async def generate_invite(
 async def sso_login(
     provider: str,
     request: Request,
-    redirect_uri: Optional[str] = Query(
-        None, description="Redirect URI after authentication"
-    ),
+    redirect_uri: Optional[str] = Query(None, description="Redirect URI after authentication"),
     db: AsyncSession = Depends(get_db_session),
 ) -> RedirectResponse:
     """
@@ -706,9 +696,7 @@ async def sso_callback(
     provider: str,
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: Optional[str] = Query(None, description="State parameter from OAuth flow"),
-    redirect_uri: Optional[str] = Query(
-        None, description="Redirect URI used in authorization"
-    ),
+    redirect_uri: Optional[str] = Query(None, description="Redirect URI used in authorization"),
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
     """

@@ -12,10 +12,7 @@ from src.repositories.intelligence_signal import (
     get_intelligence_signal_repo,
 )
 from src.repositories.planet import PlanetRepository
-from src.schemas.intelligence_signal import (
-    IntelligenceSignalCreate,
-    IntelligenceSignalResponse,
-)
+from src.schemas.intelligence_signal import IntelligenceSignalCreate, IntelligenceSignalResponse
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
@@ -24,12 +21,8 @@ router = APIRouter()
 @router.get("/", response_model=List[IntelligenceSignalResponse])
 async def list_signals(
     planet_id: UUID = Query(..., description="Planet ID to filter signals"),
-    category: Optional[str] = Query(
-        None, description="Category filter (now, smart, explore)"
-    ),
-    include_dismissed: bool = Query(
-        False, description="Whether to include dismissed signals"
-    ),
+    category: Optional[str] = Query(None, description="Category filter (now, smart, explore)"),
+    include_dismissed: bool = Query(False, description="Whether to include dismissed signals"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     repo: IntelligenceSignalRepository = Depends(get_intelligence_signal_repo),
@@ -52,9 +45,7 @@ async def list_signals(
     )
 
 
-@router.post(
-    "/", response_model=IntelligenceSignalResponse, status_code=status.HTTP_201_CREATED
-)
+@router.post("/", response_model=IntelligenceSignalResponse, status_code=status.HTTP_201_CREATED)
 async def create_signal(
     signal_in: IntelligenceSignalCreate,
     current_user: User = Depends(get_current_user),
@@ -86,7 +77,9 @@ async def dismiss_signal(
     if not signal:
         raise HTTPException(status_code=404, detail="Signal not found")
 
-    return await repo.update(signal_id, is_dismissed=datetime.now(timezone.utc).replace(tzinfo=None))
+    return await repo.update(
+        signal_id, is_dismissed=datetime.now(timezone.utc).replace(tzinfo=None)
+    )
 
 
 @router.delete("/{signal_id}", status_code=status.HTTP_204_NO_CONTENT)
