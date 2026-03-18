@@ -1,6 +1,6 @@
 """Notification repository."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -64,7 +64,7 @@ class NotificationRepository:
 
         if db_notification:
             db_notification.is_read = True
-            db_notification.read_at = datetime.utcnow()
+            db_notification.read_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await self.db.commit()
             await self.db.refresh(db_notification)
 
@@ -75,7 +75,7 @@ class NotificationRepository:
         stmt = (
             update(Notification)
             .where(Notification.user_id == user_id, Notification.is_read == False)  # noqa: E712
-            .values(is_read=True, read_at=datetime.utcnow())
+            .values(is_read=True, read_at=datetime.now(timezone.utc).replace(tzinfo=None))
         )
         result = await self.db.execute(stmt)
         await self.db.commit()
