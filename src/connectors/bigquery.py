@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.connectors.base import BaseConnector
+
+logger = logging.getLogger(__name__)
 
 
 def _import_bigquery():
@@ -141,9 +144,7 @@ class BigQueryConnector(BaseConnector):
             columns_rows = list(columns_job.result())
 
             # 2. Fetch Table Stats (row count, last modified)
-            stats_query = (
-                f"SELECT table_id, row_count, last_modified_time FROM `{full_dataset}.__TABLES__`"
-            )
+            stats_query = f"SELECT table_id, row_count, last_modified_time FROM `{full_dataset}.__TABLES__`"
             stats_job = client.query(stats_query)
             stats_rows = {row["table_id"]: row for row in stats_job.result()}
 
@@ -181,7 +182,7 @@ class BigQueryConnector(BaseConnector):
                         level = "Low"
                     usage_stats[row["table_id"]] = level
             except Exception as e:
-                print(f"Warning: Could not fetch usage stats: {e}")
+                logger.warning(f"Could not fetch usage stats: {e}")
 
             tables: Dict[str, Dict[str, Any]] = {}
             for row in columns_rows:
@@ -216,7 +217,9 @@ class BigQueryConnector(BaseConnector):
 
         return await asyncio.to_thread(_run)
 
-    async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
+    async def execute_query(
+        self, config: Dict[str, Any], query: str
+    ) -> List[Dict[str, Any]]:
         """
         Execute an arbitrary SQL query against BigQuery and return rows as dicts.
         """
