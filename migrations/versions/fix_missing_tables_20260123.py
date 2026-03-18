@@ -191,8 +191,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("comments")
-    op.drop_table("crew_connections")
-    op.drop_table("crew_members")
-    op.drop_table("crews")
-    op.drop_table("notifications")
+    pass

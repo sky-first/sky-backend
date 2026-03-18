@@ -160,6 +160,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     # Drop foreign key
     op.drop_constraint("fk_users_invited_by", "users", type_="foreignkey")
 

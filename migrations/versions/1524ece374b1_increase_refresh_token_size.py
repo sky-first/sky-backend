@@ -28,6 +28,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     # Revert back to VARCHAR(255) - note: this may fail if tokens longer than 255 exist
     op.alter_column(
         "refresh_tokens",

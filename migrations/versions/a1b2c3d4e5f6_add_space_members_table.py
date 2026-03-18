@@ -88,6 +88,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     # Drop indexes and tables in reverse order
     # Drop indexes
     op.drop_index("idx_space_members_space_user", table_name="space_members")
@@ -95,6 +96,4 @@ def downgrade() -> None:
     op.drop_index("idx_space_members_space_id", table_name="space_members")
 
     # Drop table
-    op.drop_table("space_members")
     op.drop_index("idx_spaces_created_by", table_name="spaces")
-    op.drop_table("spaces")

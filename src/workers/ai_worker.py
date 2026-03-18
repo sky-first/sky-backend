@@ -625,9 +625,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         "isLoading": False,
                     }
 
-                    print(
-                        f"DEBUG: Processing widget {idx}, type={wtype}", file=sys.stderr
-                    )
+                    logger.debug(f"Processing widget {idx}, type={wtype}")
                     if wtype == "infographic":
                         # Generate structured infographic data
                         try:

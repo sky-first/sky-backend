@@ -90,6 +90,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.execute("ALTER TABLE users ALTER COLUMN onboarding_step DROP DEFAULT")
     op.execute(
         "ALTER TABLE users ALTER COLUMN onboarding_step TYPE VARCHAR(50) USING onboarding_step::text"

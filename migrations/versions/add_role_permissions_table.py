@@ -47,5 +47,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.drop_index("idx_role_permissions_role", table_name="role_permissions")
-    op.drop_table("role_permissions")

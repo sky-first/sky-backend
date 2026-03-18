@@ -121,6 +121,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     # Reverse the process
     op.drop_constraint(
         "uq_planet_members_planet_user", "planet_members", type_="unique"

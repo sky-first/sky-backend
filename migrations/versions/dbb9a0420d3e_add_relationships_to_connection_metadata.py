@@ -25,5 +25,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     # Remove relationships column from connection_metadata table
     op.drop_column("connection_metadata", "relationships")

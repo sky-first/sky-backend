@@ -54,6 +54,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     # 1. Drop index
     op.drop_index(
         "idx_connection_permissions_user_id", table_name="connection_permissions"

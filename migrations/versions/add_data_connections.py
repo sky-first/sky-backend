@@ -129,5 +129,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("connection_metadata")
-    op.drop_table("data_connections")
+    pass

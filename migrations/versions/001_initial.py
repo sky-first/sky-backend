@@ -293,9 +293,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("widgets")
-    op.drop_table("dashboards")
-    op.drop_table("workspace_members")
-    op.drop_table("workspaces")
-    op.drop_table("refresh_tokens")
-    op.drop_table("users")
+    pass

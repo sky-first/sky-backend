@@ -49,7 +49,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.drop_constraint("uq_user_datasets", "user_datasets", type_="unique")
     op.drop_index("idx_user_datasets_dataset_id", table_name="user_datasets")
     op.drop_index("idx_user_datasets_user_id", table_name="user_datasets")
-    op.drop_table("user_datasets")

@@ -123,6 +123,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     # --- chat_messages ---
     if _fk_exists("fk_chat_messages_planet_id_planets", "chat_messages"):
         op.drop_constraint(

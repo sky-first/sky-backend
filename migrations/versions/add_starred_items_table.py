@@ -67,7 +67,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.drop_constraint("uq_starred_items_user_item", "starred_items", type_="unique")
     op.drop_index("idx_starred_items_item", table_name="starred_items")
     op.drop_index("idx_starred_items_user_id", table_name="starred_items")
-    op.drop_table("starred_items")

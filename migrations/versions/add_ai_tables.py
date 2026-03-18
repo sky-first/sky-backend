@@ -252,31 +252,27 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.drop_index("idx_ai_responses_timestamp", table_name="ai_responses")
     op.drop_index("idx_ai_responses_is_active", table_name="ai_responses")
     op.drop_index("idx_ai_responses_widget_id", table_name="ai_responses")
-    op.drop_table("ai_responses")
 
     op.drop_index("idx_chat_messages_timestamp", table_name="chat_messages")
     op.drop_index("idx_chat_messages_widget_id", table_name="chat_messages")
-    op.drop_table("chat_messages")
 
     op.drop_constraint("fk_ai_queries_pipeline_id", "ai_queries", type_="foreignkey")
 
     op.drop_index("idx_pipelines_started_at", table_name="pipelines")
     op.drop_index("idx_pipelines_status", table_name="pipelines")
     op.drop_index("idx_pipelines_query_id", table_name="pipelines")
-    op.drop_table("pipelines")
 
     op.drop_index("idx_ai_queries_created_at", table_name="ai_queries")
     op.drop_index("idx_ai_queries_status", table_name="ai_queries")
     op.drop_index("idx_ai_queries_widget_id", table_name="ai_queries")
     op.drop_index("idx_ai_queries_user_id", table_name="ai_queries")
-    op.drop_table("ai_queries")
 
     op.drop_index("idx_ai_history_user_date", table_name="ai_history")
     op.drop_index("idx_ai_history_date", table_name="ai_history")
     op.drop_index("idx_ai_history_category", table_name="ai_history")
     op.drop_index("idx_ai_history_pinned", table_name="ai_history")
     op.drop_index("idx_ai_history_user_id", table_name="ai_history")
-    op.drop_table("ai_history")

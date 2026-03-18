@@ -60,7 +60,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.drop_index("idx_ai_feedback_created_at", table_name="ai_feedback")
     op.drop_index("idx_ai_feedback_user_id", table_name="ai_feedback")
     op.drop_index("idx_ai_feedback_query_id", table_name="ai_feedback")
-    op.drop_table("ai_feedback")

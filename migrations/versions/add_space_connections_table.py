@@ -43,6 +43,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.drop_index("idx_space_connections_connection_id", table_name="space_connections")
     op.drop_index("idx_space_connections_space_id", table_name="space_connections")
-    op.drop_table("space_connections")

@@ -34,4 +34,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.drop_column("data_connections", "metrics")

@@ -51,8 +51,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.drop_index(
         op.f("idx_user_enterprise_relationships_created_by"),
         table_name="user_enterprise_relationships",
     )
-    op.drop_table("user_enterprise_relationships")

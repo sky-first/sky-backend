@@ -20,5 +20,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     # No schema change to revert.
     pass

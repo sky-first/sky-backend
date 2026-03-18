@@ -115,6 +115,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     op.drop_index(
         "idx_dashboard_build_jobs_created_at", table_name="dashboard_build_jobs"
     )
@@ -135,4 +136,3 @@ def downgrade() -> None:
         "idx_dashboard_build_jobs_planet_id", table_name="dashboard_build_jobs"
     )
     op.drop_index("idx_dashboard_build_jobs_user_id", table_name="dashboard_build_jobs")
-    op.drop_table("dashboard_build_jobs")

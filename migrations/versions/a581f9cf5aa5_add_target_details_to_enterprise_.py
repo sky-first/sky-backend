@@ -25,5 +25,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    pass
     # Remove target_details column from user_enterprise_relationships
     op.drop_column("user_enterprise_relationships", "target_details")
