@@ -59,23 +59,15 @@ if not broker_url or not backend_url:
     # Fallback: build from Redis components (worker containers set REDIS_HOST/PORT/PASSWORD).
     redis_host = os.getenv("REDIS_HOST") or getattr(settings, "REDIS_HOST", "redis")
     try:
-        redis_port = int(
-            os.getenv("REDIS_PORT") or getattr(settings, "REDIS_PORT", 6379)
-        )
+        redis_port = int(os.getenv("REDIS_PORT") or getattr(settings, "REDIS_PORT", 6379))
     except (ValueError, TypeError):
         redis_port = 6379
-    redis_password = os.getenv("REDIS_PASSWORD") or getattr(
-        settings, "REDIS_PASSWORD", ""
-    )
+    redis_password = os.getenv("REDIS_PASSWORD") or getattr(settings, "REDIS_PASSWORD", "")
 
     # Prefer passing password via transport options, but URL-building is still safe here
     # because this path uses a dedicated REDIS_PASSWORD env (no raw slashes in URL).
-    broker_url = broker_url or build_redis_url_from_env(
-        redis_host, redis_port, redis_password, 1
-    )
-    backend_url = backend_url or build_redis_url_from_env(
-        redis_host, redis_port, redis_password, 2
-    )
+    broker_url = broker_url or build_redis_url_from_env(redis_host, redis_port, redis_password, 1)
+    backend_url = backend_url or build_redis_url_from_env(redis_host, redis_port, redis_password, 2)
 
 # Always sanitize (encode) env-provided URLs (password may include '/').
 broker_url = encode_password_in_redis_url(broker_url)

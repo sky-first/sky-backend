@@ -1,6 +1,5 @@
 import asyncio
 
-
 from sqlalchemy import delete, select
 
 from src.config.database import AsyncSessionLocal
@@ -26,9 +25,7 @@ async def seed_intelligence():
 
             # Clear existing signals for this planet
             await session.execute(
-                delete(IntelligenceSignal).where(
-                    IntelligenceSignal.planet_id == planet_id
-                )
+                delete(IntelligenceSignal).where(IntelligenceSignal.planet_id == planet_id)
             )
 
             signals = [
@@ -86,9 +83,7 @@ async def seed_intelligence():
             ]
 
             session.add_all(signals)
-            print(
-                f"   ✅ Successfully seeded 3 intelligence signals for {planet.name}."
-            )
+            print(f"   ✅ Successfully seeded 3 intelligence signals for {planet.name}.")
 
         await session.commit()
         print("🚀 All planets seeded successfully!")

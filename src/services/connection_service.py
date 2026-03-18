@@ -14,10 +14,7 @@ from src.connectors.registry import get_connector
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.user import User
 from src.repositories.ai import AIQueryRepository
-from src.repositories.connection import (
-    ConnectionMetadataRepository,
-    ConnectionRepository,
-)
+from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.file import SyncLogRepository
 from src.repositories.permission import PermissionRepository
 from src.repositories.space import SpaceRepository, SpaceTableRepository
@@ -129,9 +126,7 @@ class ConnectionService:
         )
         return [ConnectionResponse.model_validate(c) for c in connections]
 
-    async def get_connection(
-        self, connection_id: UUID, user: User
-    ) -> ConnectionResponse:
+    async def get_connection(self, connection_id: UUID, user: User) -> ConnectionResponse:
         """
         Get connection by ID.
 
@@ -176,15 +171,11 @@ class ConnectionService:
         try:
             get_connector(connection_data.connector_id)
         except Exception:
-            raise BadRequestError(
-                f"Invalid connector_id: {connection_data.connector_id}"
-            )
+            raise BadRequestError(f"Invalid connector_id: {connection_data.connector_id}")
 
         # TODO: Encrypt config before storing
         # Calculate initial next sync
-        next_sync = await self._calculate_next_sync(
-            connection_data.sync_frequency, None
-        )
+        next_sync = await self._calculate_next_sync(connection_data.sync_frequency, None)
 
         connection = await self.connection_repo.create(
             name=connection_data.name,
@@ -205,9 +196,7 @@ class ConnectionService:
         try:
             await self.sync_connection(connection.id, user)
             # Reload connection to include updated status/last_sync fields
-            connection = (
-                await self.connection_repo.get_by_id(connection.id) or connection
-            )
+            connection = await self.connection_repo.get_by_id(connection.id) or connection
         except Exception:
             # Swallow sync errors here; detailed error handling happens inside sync_connection
             pass
@@ -240,6 +229,10 @@ class ConnectionService:
             raise ForbiddenError("Access denied to this connection")
 
         update_data = connection_data.model_dump(exclude_unset=True)
+        # Handle metadata update if present
+        metadata_update = update_data.pop("metadata", None)
+        if metadata_update:
+            await self.update_metadata(connection_id, user, metadata_update)
 
         # If sync_frequency is updated, recalculate next_sync
         if "sync_frequency" in update_data:
@@ -299,18 +292,12 @@ class ConnectionService:
                 )
                 raise ForbiddenError("Access denied to this connection")
 
-        logger.info(
-            f"🔴 [DELETE SERVICE] HARD Deleting connection {connection_id} and metadata..."
-        )
+        logger.info(f"🔴 [DELETE SERVICE] HARD Deleting connection {connection_id} and metadata...")
         await self.db.delete(connection)
         await self.db.commit()
-        logger.info(
-            f"🔴 [DELETE SERVICE] Connection {connection_id} deleted successfully"
-        )
+        logger.info(f"🔴 [DELETE SERVICE] Connection {connection_id} deleted successfully")
 
-    async def test_connection(
-        self, connection_id: UUID, user: User
-    ) -> ConnectionTestResponse:
+    async def test_connection(self, connection_id: UUID, user: User) -> ConnectionTestResponse:
         """
         Test connection.
 
@@ -340,9 +327,7 @@ class ConnectionService:
 
             if success:
                 # Update status
-                await self.connection_repo.update(
-                    connection_id, status="active", error=None
-                )
+                await self.connection_repo.update(connection_id, status="active", error=None)
                 await self.db.commit()
                 return ConnectionTestResponse(
                     success=True, message="Connection successful", latency=latency
@@ -370,13 +355,9 @@ class ConnectionService:
                 },
             )
             await self.db.commit()
-            return ConnectionTestResponse(
-                success=False, message=f"Error: {str(e)}", latency=None
-            )
+            return ConnectionTestResponse(success=False, message=f"Error: {str(e)}", latency=None)
 
-    async def sync_connection(
-        self, connection_id: UUID, user: User
-    ) -> ConnectionSyncResponse:
+    async def sync_connection(self, connection_id: UUID, user: User) -> ConnectionSyncResponse:
         """
         Sync connection metadata.
 
@@ -403,9 +384,7 @@ class ConnectionService:
             metadata = await connector.get_metadata(connection.config)
 
             # Update or create metadata
-            existing_metadata = await self.metadata_repo.get_by_connection_id(
-                connection_id
-            )
+            existing_metadata = await self.metadata_repo.get_by_connection_id(connection_id)
 
             # Build a lookup of existing user-added data (descriptions, tags)
             # keyed by "schema.name" or just "name" so we can merge them into
@@ -415,7 +394,9 @@ class ConnectionService:
                 for existing_table in existing_metadata.tables:
                     if isinstance(existing_table, dict):
                         t_name = existing_table.get("name", "")
-                        t_schema = existing_table.get("schema") or existing_table.get("schema_name") or ""
+                        t_schema = (
+                            existing_table.get("schema") or existing_table.get("schema_name") or ""
+                        )
                         key = f"{t_schema}.{t_name}" if t_schema else t_name
                         existing_user_data[key] = {
                             "description": existing_table.get("description") or "",
@@ -433,19 +414,29 @@ class ConnectionService:
             # Merge fresh connector tables with preserved user data
             fresh_tables = metadata.get("tables", [])
             merged_tables = []
+            selected_tables = connection.config.get("selected_tables")
+
             for fresh_table in fresh_tables:
                 if isinstance(fresh_table, dict):
                     t_name = fresh_table.get("name", "")
-                    t_schema = fresh_table.get("schema") or fresh_table.get("schema_name") or ""
-                    key = f"{t_schema}.{t_name}" if t_schema else t_name
+                    t_schema = (
+                        fresh_table.get("schema") or fresh_table.get("schema_name") or "public"
+                    )
+                    key = f"{t_schema}.{t_name}"
+
+                    if isinstance(selected_tables, list):
+                        # Allow exactly matched full schema name, or just the table name
+                        if key not in selected_tables and t_name not in selected_tables:
+                            continue
+
                     user_data = existing_user_data.get(key, {})
 
                     # Preserve description and tags from user edits
                     merged = dict(fresh_table)
-                    if user_data.get("description"):
+                    if user_data.get("description") is not None:
                         merged["description"] = user_data["description"]
-                    if user_data.get("tags"):
-                        merged.setdefault("tags", user_data["tags"])
+                    if user_data.get("tags") is not None:
+                        merged["tags"] = user_data["tags"]
 
                     # Merge column-level user data
                     cols_meta = user_data.get("columns_meta", {})
@@ -456,8 +447,10 @@ class ConnectionService:
                                 col_name = col.get("name", "")
                                 col_user = cols_meta.get(col_name, {})
                                 merged_col = dict(col)
-                                if col_user.get("description"):
+                                if col_user.get("description") is not None:
                                     merged_col["description"] = col_user["description"]
+                                if col_user.get("tags") is not None:
+                                    merged_col["tags"] = col_user["tags"]
                                 merged_columns.append(merged_col)
                             else:
                                 merged_columns.append(col)
@@ -498,9 +491,7 @@ class ConnectionService:
             # === Notify AI Service for embedding generation ===
             try:
                 # Get all spaces linked to this connection
-                spaces = await self.space_repo.get_spaces_by_connection_id(
-                    connection_id
-                )
+                spaces = await self.space_repo.get_spaces_by_connection_id(connection_id)
 
                 logger.info(
                     "notifying_ai_service_for_connection_sync",
@@ -537,17 +528,12 @@ class ConnectionService:
                         if t_name:
                             # Skip if this table is not in the restricted list
                             if restricted_tables is not None:
-                                fully_qualified = (
-                                    f"{t_schema}.{t_name}" if t_schema else t_name
-                                )
+                                fully_qualified = f"{t_schema}.{t_name}" if t_schema else t_name
                                 # Match by base name, fully qualified name, or if the restricted name ends with .t_name
                                 match = (
                                     t_name in restricted_tables
                                     or fully_qualified in restricted_tables
-                                    or any(
-                                        rt.endswith(f".{t_name}")
-                                        for rt in restricted_tables
-                                    )
+                                    or any(rt.endswith(f".{t_name}") for rt in restricted_tables)
                                 )
                                 if not match:
                                     continue
@@ -613,13 +599,9 @@ class ConnectionService:
                 },
             )
             await self.db.commit()
-            return ConnectionSyncResponse(
-                success=False, message=f"Sync failed: {str(e)}"
-            )
+            return ConnectionSyncResponse(success=False, message=f"Sync failed: {str(e)}")
 
-    async def get_metadata(
-        self, connection_id: UUID, user: User
-    ) -> ConnectionMetadataResponse:
+    async def get_metadata(self, connection_id: UUID, user: User) -> ConnectionMetadataResponse:
         """
         Get connection metadata.
 
@@ -712,23 +694,15 @@ class ConnectionService:
         try:
             # Identify which tables were updated
             updated_table_names = []
-            if "tables" in metadata_update and isinstance(
-                metadata_update["tables"], list
-            ):
+            if "tables" in metadata_update and isinstance(metadata_update["tables"], list):
                 for t in metadata_update["tables"]:
-                    name = (
-                        t.get("name")
-                        if isinstance(t, dict)
-                        else getattr(t, "name", None)
-                    )
+                    name = t.get("name") if isinstance(t, dict) else getattr(t, "name", None)
                     if name:
                         updated_table_names.append(name)
 
             if updated_table_names or "relationships" in metadata_update:
                 # Get all spaces linked to this connection to trigger background re-indexing
-                spaces = await self.space_repo.get_spaces_by_connection_id(
-                    connection_id
-                )
+                spaces = await self.space_repo.get_spaces_by_connection_id(connection_id)
                 for space in spaces:
                     try:
                         await self.ai_client.discover_connection(
@@ -758,9 +732,7 @@ class ConnectionService:
         # Return updated metadata
         return await self.get_metadata(connection_id, user)
 
-    async def get_tables(
-        self, connection_id: UUID, user: User
-    ) -> List[TableMetadataSchema]:
+    async def get_tables(self, connection_id: UUID, user: User) -> List[TableMetadataSchema]:
         """
         Get connection tables.
 
@@ -796,9 +768,7 @@ class ConnectionService:
         metadata_response = await self.get_metadata(connection_id, user)
         return list(metadata_response.schemas)
 
-    async def get_status(
-        self, connection_id: UUID, user: User
-    ) -> ConnectionStatusResponse:
+    async def get_status(self, connection_id: UUID, user: User) -> ConnectionStatusResponse:
         """
         Get connection status.
 
@@ -847,17 +817,11 @@ class ConnectionService:
             raise ForbiddenError("Access denied to this connection")
 
         # 1. AI Queries metrics
-        queries_count = await self.ai_query_repo.count_queries_by_connection_id(
-            connection_id
-        )
-        active_users = await self.ai_query_repo.get_active_users_by_connection_id(
-            connection_id
-        )
+        queries_count = await self.ai_query_repo.count_queries_by_connection_id(connection_id)
+        active_users = await self.ai_query_repo.get_active_users_by_connection_id(connection_id)
 
         # 2. Sync metrics (Latency & Uptime)
-        sync_logs = await self.sync_log_repo.get_by_connection_id(
-            connection_id, limit=30
-        )
+        sync_logs = await self.sync_log_repo.get_by_connection_id(connection_id, limit=30)
 
         latency_ms = 0
         uptime_pct = 0.0
@@ -865,9 +829,7 @@ class ConnectionService:
         if sync_logs:
             # Average latency of successful syncs
             durations = [
-                log.duration
-                for log in sync_logs
-                if log.duration and log.status == "success"
+                log.duration for log in sync_logs if log.duration and log.status == "success"
             ]
             if durations:
                 latency_ms = int(sum(durations) / len(durations))

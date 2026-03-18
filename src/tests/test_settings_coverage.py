@@ -34,9 +34,7 @@ def test_build_redis_url_from_env_vars(monkeypatch):
 
 def test_settings_properties():
     """Test various helper properties in Settings."""
-    settings = Settings(
-        ENVIRONMENT="production", CORS_ORIGINS="http://a.com, http://b.com"
-    )
+    settings = Settings(ENVIRONMENT="production", CORS_ORIGINS="http://a.com, http://b.com")
     assert settings.is_production is True
     assert settings.is_development is False
     assert settings.cors_origins_list == ["http://a.com", "http://b.com"]

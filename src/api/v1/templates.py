@@ -147,9 +147,7 @@ async def update_template(
         TemplateResponse: Updated template
     """
     template_service = TemplateService(db)
-    return await template_service.update_template(
-        template_id, current_user, template_data
-    )
+    return await template_service.update_template(template_id, current_user, template_data)
 
 
 @router.delete(

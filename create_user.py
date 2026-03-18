@@ -27,9 +27,7 @@ async def create_test_user():
 
     async with AsyncSessionLocal() as session:
         # Check if user already exists
-        result = await session.execute(
-            select(User).where(User.email == "test@example.com")
-        )
+        result = await session.execute(select(User).where(User.email == "test@example.com"))
         existing_user = result.scalar_one_or_none()
 
         # New secure password: Test@2024!Secure

@@ -376,9 +376,7 @@ async def update_integration(
         IntegrationResponse: Updated integration
     """
     settings_service = SettingsService(db)
-    return await settings_service.update_integration(
-        integration_id, current_user, integration_data
-    )
+    return await settings_service.update_integration(integration_id, current_user, integration_data)
 
 
 @router.delete(

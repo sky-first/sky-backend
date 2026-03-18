@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.config.database import Base
 
@@ -21,9 +21,7 @@ class DataConnection(Base):
 
     __tablename__ = "data_connections"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     connector_id = Column(
         String(100), nullable=False
@@ -44,9 +42,7 @@ class DataConnection(Base):
         nullable=False,
         index=True,
     )
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -97,9 +93,7 @@ class ConnectionMetadata(Base):
 
     __tablename__ = "connection_metadata"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     connection_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("data_connections.id", ondelete="CASCADE"),
@@ -115,9 +109,7 @@ class ConnectionMetadata(Base):
     last_metadata_update = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,

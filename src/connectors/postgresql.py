@@ -107,9 +107,7 @@ class PostgreSQLConnector(BaseConnector):
         finally:
             await conn.close()
 
-    async def execute_query(
-        self, config: Dict[str, Any], query: str
-    ) -> List[Dict[str, Any]]:
+    async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
         """Execute PostgreSQL query."""
         conn = await asyncpg.connect(
             host=config.get("host"),

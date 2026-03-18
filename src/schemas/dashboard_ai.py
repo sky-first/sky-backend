@@ -9,9 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class DashboardAIPlanWidget(BaseModel):
-    widget_key: str = Field(
-        ..., description="Stable key within the plan (e.g., w1, w2)."
-    )
+    widget_key: str = Field(..., description="Stable key within the plan (e.g., w1, w2).")
     type: str = Field(..., pattern="^(chart|kpi|table|text|infographic)$")
     title: str
     question: str
@@ -27,9 +25,7 @@ class DashboardAIPlanRequest(BaseModel):
 
     # NOTE: prefer original_question over goal. We keep goal for backward-compat.
     goal: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    original_question: Optional[str] = Field(
-        default=None, min_length=1, max_length=4000
-    )
+    original_question: Optional[str] = Field(default=None, min_length=1, max_length=4000)
     language: str = Field(default="en", pattern="^(en|pt|es)$")
     # Temporary hard cap for auto dashboard creation.
     max_widgets: int = Field(default=8, ge=1, le=8)
@@ -74,9 +70,7 @@ class DashboardAIBuildRequest(BaseModel):
     plan: Optional[DashboardAIPlanResponse] = None
 
     goal: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    original_question: Optional[str] = Field(
-        default=None, min_length=1, max_length=4000
-    )
+    original_question: Optional[str] = Field(default=None, min_length=1, max_length=4000)
     language: str = Field(default="en", pattern="^(en|pt|es)$")
     # Temporary hard cap for auto dashboard creation.
     max_widgets: int = Field(default=8, ge=1, le=8)
@@ -129,9 +123,7 @@ class DashboardAIBuildAsyncRequest(BaseModel):
     connection_id: Optional[str] = None
 
     goal: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    original_question: Optional[str] = Field(
-        default=None, min_length=1, max_length=4000
-    )
+    original_question: Optional[str] = Field(default=None, min_length=1, max_length=4000)
     language: str = Field(default="en", pattern="^(en|pt|es)$")
     max_widgets: int = Field(default=8, ge=1, le=8)
 
@@ -154,9 +146,7 @@ class DashboardAIBuildAsyncRequest(BaseModel):
         )
         g = (self.goal or "").strip() if isinstance(self.goal, str) else ""
         if not oq and not g and self.plan is None:
-            raise ValueError(
-                "Either 'original_question', 'goal', or 'plan' must be provided."
-            )
+            raise ValueError("Either 'original_question', 'goal', or 'plan' must be provided.")
         self.goal = oq or g or self.goal
         return self
 

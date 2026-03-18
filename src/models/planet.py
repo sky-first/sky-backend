@@ -2,17 +2,7 @@
 
 import uuid
 
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    ForeignKey,
-    Index,
-    String,
-    Text,
-    func,
-    text,
-)
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -49,24 +39,14 @@ class Planet(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    owner = relationship(
-        "User", foreign_keys=[owner_id], back_populates="owned_planets"
-    )
-    members = relationship(
-        "PlanetMember", back_populates="planet", cascade="all, delete-orphan"
-    )
-    dashboards = relationship(
-        "Dashboard", back_populates="planet", cascade="all, delete-orphan"
-    )
+    owner = relationship("User", foreign_keys=[owner_id], back_populates="owned_planets")
+    members = relationship("PlanetMember", back_populates="planet", cascade="all, delete-orphan")
+    dashboards = relationship("Dashboard", back_populates="planet", cascade="all, delete-orphan")
 
     __table_args__ = (
-        Index(
-            "idx_planets_owner_id", "owner_id", postgresql_where=deleted_at.is_(None)
-        ),
+        Index("idx_planets_owner_id", "owner_id", postgresql_where=deleted_at.is_(None)),
         Index("idx_planets_type", "type", postgresql_where=deleted_at.is_(None)),
-        Index(
-            "idx_planets_is_active", "is_active", postgresql_where=deleted_at.is_(None)
-        ),
+        Index("idx_planets_is_active", "is_active", postgresql_where=deleted_at.is_(None)),
         Index("idx_planets_last_accessed", "last_accessed"),
     )
 
@@ -118,4 +98,6 @@ class PlanetMember(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<PlanetMember(planet_id={self.planet_id}, user_id={self.user_id}, role={self.role})>"
+        return (
+            f"<PlanetMember(planet_id={self.planet_id}, user_id={self.user_id}, role={self.role})>"
+        )

@@ -61,9 +61,7 @@ class TestAIFeedback:
 
         # 1. Create 'good' feedback
         fb_data = {"query_id": str(query.id), "feedback": "good"}
-        response = await async_client.post(
-            "/api/v1/ai/feedback", json=fb_data, headers=headers
-        )
+        response = await async_client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
         assert response.status_code == 200
         assert response.json()["message"] == "Feedback submitted successfully"
 
@@ -71,9 +69,7 @@ class TestAIFeedback:
         from sqlalchemy import select
 
         res = await db_session.execute(
-            select(AIFeedback).where(
-                AIFeedback.query_id == query.id, AIFeedback.user_id == user.id
-            )
+            select(AIFeedback).where(AIFeedback.query_id == query.id, AIFeedback.user_id == user.id)
         )
         row = res.scalar_one_or_none()
         assert row is not None
@@ -86,16 +82,12 @@ class TestAIFeedback:
             "feedback": "bad",
             "comment": "The count is actually 12.",
         }
-        response = await async_client.post(
-            "/api/v1/ai/feedback", json=fb_update, headers=headers
-        )
+        response = await async_client.post("/api/v1/ai/feedback", json=fb_update, headers=headers)
         assert response.status_code == 200
 
         # Verify update in DB
         res = await db_session.execute(
-            select(AIFeedback).where(
-                AIFeedback.query_id == query.id, AIFeedback.user_id == user.id
-            )
+            select(AIFeedback).where(AIFeedback.query_id == query.id, AIFeedback.user_id == user.id)
         )
         row = res.scalar_one_or_none()
         assert row is not None
@@ -116,9 +108,7 @@ class TestAIFeedback:
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fb_data = {"query_id": str(query.id), "feedback": "good"}
-        response = await async_client.post(
-            "/api/v1/ai/feedback", json=fb_data, headers=headers
-        )
+        response = await async_client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
         # Should return 404 (NotFoundError) as per implementation
         assert response.status_code == 404
 
@@ -129,9 +119,7 @@ class TestAIFeedback:
         """Test POST /api/v1/ai/feedback - invalid rating enum."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fb_data = {"query_id": str(uuid4()), "feedback": "not_good_or_bad"}
-        response = await async_client.post(
-            "/api/v1/ai/feedback", json=fb_data, headers=headers
-        )
+        response = await async_client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
         assert response.status_code == 422
 
     @pytest.mark.asyncio
@@ -141,8 +129,6 @@ class TestAIFeedback:
         """Test POST /api/v1/ai/feedback - deprecated flow still returns 200 (but does nothing)."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fb_data = {"message_id": "msg-123", "feedback": "good"}
-        response = await async_client.post(
-            "/api/v1/ai/feedback", json=fb_data, headers=headers
-        )
+        response = await async_client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
         assert response.status_code == 200
         assert response.json()["message"] == "Feedback submitted successfully"

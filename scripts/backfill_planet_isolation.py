@@ -43,11 +43,7 @@ async def backfill():
 
         for msg in messages:
             # Get widget's planet
-            stmt = (
-                select(Dashboard.planet_id)
-                .join(Widget)
-                .where(Widget.id == msg.widget_id)
-            )
+            stmt = select(Dashboard.planet_id).join(Widget).where(Widget.id == msg.widget_id)
             res = await db.execute(stmt)
             planet_id = res.scalar_one_or_none()
             if planet_id:

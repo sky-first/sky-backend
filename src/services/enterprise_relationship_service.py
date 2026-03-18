@@ -55,9 +55,7 @@ class EnterpriseRelationshipService:
             raise NotFoundError("Relationship not found")
 
         if relationship.created_by != user.id:
-            raise ForbiddenError(
-                "You don't have permission to update this relationship"
-            )
+            raise ForbiddenError("You don't have permission to update this relationship")
 
         sources_data = [s.model_dump() for s in data.sources]
 
@@ -83,9 +81,7 @@ class EnterpriseRelationshipService:
             raise NotFoundError("Relationship not found")
 
         if relationship.created_by != user.id:
-            raise ForbiddenError(
-                "You don't have permission to delete this relationship"
-            )
+            raise ForbiddenError("You don't have permission to delete this relationship")
 
         await self.relationship_repo.delete(relationship_id)
         await self.db.commit()

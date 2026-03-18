@@ -1,17 +1,7 @@
 import uuid
 from enum import Enum
 
-from sqlalchemy import (
-    JSON,
-    Column,
-    DateTime,
-    Float,
-    ForeignKey,
-    String,
-    Text,
-    func,
-    text,
-)
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -38,9 +28,7 @@ class IntelligenceSignal(Base):
         nullable=False,
         index=True,
     )
-    space_id = Column(
-        String(100), nullable=True, index=True
-    )  # Optional scoping to a space
+    space_id = Column(String(100), nullable=True, index=True)  # Optional scoping to a space
 
     category = Column(String(50), nullable=False, index=True)  # now, smart, explore
     title = Column(String(255), nullable=False)
@@ -52,20 +40,14 @@ class IntelligenceSignal(Base):
     color = Column(String(50), nullable=True)  # red, orange, blue, purple
 
     cta_label = Column(String(255), nullable=True)  # Text on the action button
-    cta_action = Column(
-        String(100), nullable=True
-    )  # Type of action (e.g., 'open_chat')
-    cta_params = Column(
-        JSON, nullable=True
-    )  # Parameters for the action (e.g., initial query)
+    cta_action = Column(String(100), nullable=True)  # Type of action (e.g., 'open_chat')
+    cta_params = Column(JSON, nullable=True)  # Parameters for the action (e.g., initial query)
 
     chart_data = Column(JSON, nullable=True)  # Data for the preview chart
 
     confidence = Column(Float, nullable=True, default=1.0)
 
-    is_dismissed = Column(
-        DateTime, nullable=True
-    )  # Timestamp when the user dismissed the signal
+    is_dismissed = Column(DateTime, nullable=True)  # Timestamp when the user dismissed the signal
 
     created_at = Column(
         DateTime(timezone=True),

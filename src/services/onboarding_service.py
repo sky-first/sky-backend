@@ -23,9 +23,7 @@ async def ensure_default_planet_and_space(db: AsyncSession, user: User) -> None:
         return
 
     # Create a default planet
-    planet_name = (
-        f"{user.name.split(' ')[0]}'s planet" if user.name else "My first planet"
-    )
+    planet_name = f"{user.name.split(' ')[0]}'s planet" if user.name else "My first planet"
     planet = await planet_repo.create(
         name=planet_name,
         description="Your first planet",

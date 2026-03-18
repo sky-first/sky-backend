@@ -62,15 +62,10 @@ def test_sync_worker_tasks_smoke():
 
 
 def test_celery_url_helpers():
-    from src.workers.celery_app import (
-        build_redis_url_from_env,
-        encode_password_in_redis_url,
-    )
+    from src.workers.celery_app import build_redis_url_from_env, encode_password_in_redis_url
 
     assert build_redis_url_from_env("redis", 6379, "", 0) == "redis://redis:6379/0"
-    assert build_redis_url_from_env("redis", 6379, "p@ss/word", 1).startswith(
-        "redis://:"
-    )
+    assert build_redis_url_from_env("redis", 6379, "p@ss/word", 1).startswith("redis://:")
 
     # encode_password_in_redis_url should be idempotent
     raw = "redis://:p@ss/word@redis:6379/0"

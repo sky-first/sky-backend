@@ -9,9 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 class SourceEntity(BaseModel):
     id: str
-    type: (
-        str  # pillar, goal, okr, initiative, risk, signal, database, api, table, column
-    )
+    type: str  # pillar, goal, okr, initiative, risk, signal, database, api, table, column
     details: Optional[Dict[str, str]] = None
 
 
@@ -20,13 +18,9 @@ class EnterpriseRelationshipBase(BaseModel):
     description: Optional[str] = None
     sources: List[SourceEntity]
     target_id: str
-    target_type: (
-        str  # pillar, goal, okr, initiative, risk, signal, database, api, table, column
-    )
+    target_type: str  # pillar, goal, okr, initiative, risk, signal, database, api, table, column
     target_details: Optional[Dict[str, str]] = None
-    relationship_type: (
-        str  # references, implementation_of, semantic_identity, synced_with
-    )
+    relationship_type: str  # references, implementation_of, semantic_identity, synced_with
 
 
 class EnterpriseRelationshipCreate(EnterpriseRelationshipBase):

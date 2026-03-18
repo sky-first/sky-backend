@@ -172,18 +172,14 @@ class InviteLoginRequest(BaseModel):
     """Invite login request schema."""
 
     token: str = Field(..., description="Invite token")
-    password: str = Field(
-        ..., min_length=8, max_length=100, description="User password"
-    )
+    password: str = Field(..., min_length=8, max_length=100, description="User password")
 
 
 class InviteGenerateRequest(BaseModel):
     """Invite generation request schema."""
 
     email: EmailStr = Field(..., description="Email of user to invite")
-    expires_days: int = Field(
-        default=7, ge=1, le=30, description="Days until invite expires"
-    )
+    expires_days: int = Field(default=7, ge=1, le=30, description="Days until invite expires")
     name: Optional[str] = Field(
         None, min_length=1, max_length=255, description="Optional name for invited user"
     )

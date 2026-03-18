@@ -23,9 +23,7 @@ class SyncLogRepository(BaseRepository[SyncLog]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, SyncLog)
 
-    async def get_by_connection_id(
-        self, connection_id: UUID, limit: int = 30
-    ) -> List[SyncLog]:
+    async def get_by_connection_id(self, connection_id: UUID, limit: int = 30) -> List[SyncLog]:
         """Get sync logs for a connection."""
         query = (
             select(SyncLog)

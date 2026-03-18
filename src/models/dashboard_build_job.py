@@ -3,17 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import (
-    JSON,
-    Column,
-    DateTime,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    func,
-)
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 
 from src.config.database import Base
@@ -81,9 +71,7 @@ class DashboardBuildJob(Base):
 
     error = Column(Text, nullable=True)
 
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,

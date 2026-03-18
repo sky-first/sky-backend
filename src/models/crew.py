@@ -3,16 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import (
-    Column,
-    DateTime,
-    ForeignKey,
-    Index,
-    String,
-    Text,
-    UniqueConstraint,
-    func,
-)
+from sqlalchemy import Column, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -36,9 +27,7 @@ class Crew(Base):
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -49,18 +38,14 @@ class Crew(Base):
 
     # Relationships
     space = relationship("Space", back_populates="crews")
-    members = relationship(
-        "CrewMember", back_populates="crew", cascade="all, delete-orphan"
-    )
+    members = relationship("CrewMember", back_populates="crew", cascade="all, delete-orphan")
     crew_connections = relationship(
         "CrewConnection", back_populates="crew", cascade="all, delete-orphan"
     )
 
     __table_args__ = (
         Index("idx_crews_space_id", "space_id", postgresql_where=deleted_at.is_(None)),
-        Index(
-            "idx_crews_created_by", "created_by", postgresql_where=deleted_at.is_(None)
-        ),
+        Index("idx_crews_created_by", "created_by", postgresql_where=deleted_at.is_(None)),
     )
 
     def __repr__(self) -> str:
@@ -86,12 +71,8 @@ class CrewMember(Base):
         index=True,
     )
     role = Column(String(50), nullable=False)  # commander, navigator, explorer, guest
-    joined_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    joined_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relationships
     crew = relationship("Crew", back_populates="members")

@@ -54,9 +54,7 @@ async def list_crews(
         List[CrewResponse]: List of crews
     """
     crew_service = CrewService(db)
-    return await crew_service.list_crews(
-        current_user, space_id=space_id, skip=skip, limit=limit
-    )
+    return await crew_service.list_crews(current_user, space_id=space_id, skip=skip, limit=limit)
 
 
 @router.get(
@@ -217,9 +215,7 @@ async def delete_crew(
     crew_service = CrewService(db)
     await crew_service.delete_crew(crew_id, current_user, force=force)
 
-    message = (
-        "Crew force deleted successfully" if force else "Crew deleted successfully"
-    )
+    message = "Crew force deleted successfully" if force else "Crew deleted successfully"
     logger.info(f"🔴 [DELETE API] {message}: crew_id={crew_id}")
 
     return SuccessResponse(message=message)
@@ -350,9 +346,7 @@ async def update_crew_member_role(
     await rbac.assert_permission(current_user, "crews.members.manage", crew_id=crew_id)
 
     crew_service = CrewService(db)
-    return await crew_service.update_crew_member_role(
-        crew_id, user_id, role_data, current_user
-    )
+    return await crew_service.update_crew_member_role(crew_id, user_id, role_data, current_user)
 
 
 @router.get(

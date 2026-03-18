@@ -263,8 +263,7 @@ async def get_space_connections(
     space_service = SpaceService(db)
     connections = await space_service.get_space_connections(space_id, current_user)
     return [
-        {"space_id": str(c.space_id), "connection_id": str(c.connection_id)}
-        for c in connections
+        {"space_id": str(c.space_id), "connection_id": str(c.connection_id)} for c in connections
     ]
 
 
@@ -456,9 +455,7 @@ async def get_space_tables(
         List[Dict[str, Any]]: List of tables
     """
     space_service = SpaceService(db)
-    return await space_service.get_space_tables(
-        space_id, current_user, only_selected=only_selected
-    )
+    return await space_service.get_space_tables(space_id, current_user, only_selected=only_selected)
 
 
 @router.post(

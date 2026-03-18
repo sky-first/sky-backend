@@ -182,9 +182,7 @@ async def update_dashboard(
     rbac = RBACService(db)
     await rbac.assert_permission(current_user, "editPlanets")
     dashboard_service = DashboardService(db)
-    return await dashboard_service.update_dashboard(
-        dashboard_id, current_user, dashboard_data
-    )
+    return await dashboard_service.update_dashboard(dashboard_id, current_user, dashboard_data)
 
 
 @router.delete(
@@ -406,9 +404,7 @@ async def ai_plan_dashboard(
         if spaces:
             resolved_space_id = str(spaces[0].id)
     if not resolved_space_id:
-        raise HTTPException(
-            status_code=400, detail="No space context available for this user."
-        )
+        raise HTTPException(status_code=400, detail="No space context available for this user.")
 
     ai_service = AIService(db)
     connection_id = (
@@ -418,9 +414,7 @@ async def ai_plan_dashboard(
         )
     )
     if not connection_id:
-        raise HTTPException(
-            status_code=400, detail="No active connection available for this user."
-        )
+        raise HTTPException(status_code=400, detail="No active connection available for this user.")
 
     # Personal mode: include ALL crews the user belongs to (across spaces),
     # otherwise the AI engine will only see public (crew_id IS NULL) metadata.
@@ -438,7 +432,9 @@ async def ai_plan_dashboard(
     logical_tables_override = None
     schema_summary_override = None
     try:
-        meta = await ai_service.metadata_repo.get_by_connection_id(UUID(connection_id))  # noqa: SLF001
+        meta = await ai_service.metadata_repo.get_by_connection_id(
+            UUID(connection_id)
+        )  # noqa: SLF001
         tables = (meta.tables or []) if meta else []
         logical_tables: list[str] = []
         schema_lines: list[str] = []
@@ -458,14 +454,10 @@ async def ai_plan_dashboard(
                     if isinstance(c, dict) and c.get("name"):
                         col_names.append(str(c["name"]))
             schema_lines.append(
-                f"- {logical} cols: {', '.join(col_names)}"
-                if col_names
-                else f"- {logical}"
+                f"- {logical} cols: {', '.join(col_names)}" if col_names else f"- {logical}"
             )
         seen = set()
-        logical_tables_override = [
-            x for x in logical_tables if not (x in seen or seen.add(x))
-        ]
+        logical_tables_override = [x for x in logical_tables if not (x in seen or seen.add(x))]
         schema_summary_override = "\n".join(schema_lines)
     except Exception:
         logical_tables_override = None
@@ -481,9 +473,7 @@ async def ai_plan_dashboard(
             crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
         )
     except Exception as e:
-        logger.error(
-            f"[ai_plan_dashboard] Error checking authorized tables: {e}", exc_info=True
-        )
+        logger.error(f"[ai_plan_dashboard] Error checking authorized tables: {e}", exc_info=True)
         authorized_tables = []  # Fail closed
 
     payload = await client.dashboard_plan(
@@ -550,9 +540,7 @@ async def ai_build_dashboard(
         if spaces:
             resolved_space_id = str(spaces[0].id)
     if not resolved_space_id:
-        raise HTTPException(
-            status_code=400, detail="No space context available for this user."
-        )
+        raise HTTPException(status_code=400, detail="No space context available for this user.")
 
     ai_service = AIService(db)
     connection_id = (
@@ -562,9 +550,7 @@ async def ai_build_dashboard(
         )
     )
     if not connection_id:
-        raise HTTPException(
-            status_code=400, detail="No active connection available for this user."
-        )
+        raise HTTPException(status_code=400, detail="No active connection available for this user.")
 
     # Get plan (either provided or generated)
     # Force textual/infographic mode for AI-built dashboards as requested by USER
@@ -704,9 +690,7 @@ async def ai_build_dashboard(
                 ),
             ),
         )
-        query_resp = await ai_service.process_query(
-            cast(UUID, current_user.id), query_req
-        )
+        query_resp = await ai_service.process_query(cast(UUID, current_user.id), query_req)
 
         widget_data = {
             "question": w.question,
@@ -754,11 +738,7 @@ async def ai_build_dashboard(
             # Simple heuristic for icon priority
             priority = "medium"
             answer_lower = (query_resp.answer or "").lower()
-            if (
-                "critical" in answer_lower
-                or "urgent" in answer_lower
-                or "fail" in answer_lower
-            ):
+            if "critical" in answer_lower or "urgent" in answer_lower or "fail" in answer_lower:
                 priority = "critical"
             elif (
                 "high" in answer_lower
@@ -864,9 +844,7 @@ async def ai_build_dashboard_async(
         if spaces:
             resolved_space_id = str(spaces[0].id)
     if not resolved_space_id:
-        raise HTTPException(
-            status_code=400, detail="No space context available for this user."
-        )
+        raise HTTPException(status_code=400, detail="No space context available for this user.")
 
     ai_service = AIService(db)
     connection_id = (
@@ -876,9 +854,7 @@ async def ai_build_dashboard_async(
         )
     )
     if not connection_id:
-        raise HTTPException(
-            status_code=400, detail="No active connection available for this user."
-        )
+        raise HTTPException(status_code=400, detail="No active connection available for this user.")
 
     # Detect textual format early to cap max_widgets if needed
     # Force textual/infographic mode for AI-built dashboards as requested by USER
@@ -995,9 +971,7 @@ async def duplicate_dashboard(
         DashboardResponse: Duplicated dashboard
     """
     dashboard_service = DashboardService(db)
-    return await dashboard_service.duplicate_dashboard(
-        dashboard_id, current_user, duplicate_data
-    )
+    return await dashboard_service.duplicate_dashboard(dashboard_id, current_user, duplicate_data)
 
 
 @router.post(

@@ -64,15 +64,11 @@ class SettingsService:
         return SettingsResponse(
             theme=preferences.get("theme", "light"),
             language=preferences.get("language", "en"),
-            notifications=preferences.get(
-                "notifications", {"email": True, "push": False}
-            ),
+            notifications=preferences.get("notifications", {"email": True, "push": False}),
             preferences=preferences,
         )
 
-    async def update_settings(
-        self, user: User, settings_data: SettingsUpdate
-    ) -> SettingsResponse:
+    async def update_settings(self, user: User, settings_data: SettingsUpdate) -> SettingsResponse:
         """
         Update user settings.
 
@@ -121,15 +117,11 @@ class SettingsService:
         return SettingsResponse(
             theme=current_preferences.get("theme", "light"),
             language=current_preferences.get("language", "en"),
-            notifications=current_preferences.get(
-                "notifications", {"email": True, "push": False}
-            ),
+            notifications=current_preferences.get("notifications", {"email": True, "push": False}),
             preferences=current_preferences,
         )
 
-    async def get_data_catalog_settings(
-        self, user: User
-    ) -> DataCatalogSettingsResponse:
+    async def get_data_catalog_settings(self, user: User) -> DataCatalogSettingsResponse:
         """
         Get data catalog settings.
 
@@ -242,9 +234,7 @@ class SettingsService:
         api_keys = await self.api_key_repo.get_by_user(user.id)
         return [APIKeyResponse.model_validate(key) for key in api_keys]
 
-    async def create_api_key(
-        self, user: User, api_key_data: APIKeyCreate
-    ) -> Dict[str, Any]:
+    async def create_api_key(self, user: User, api_key_data: APIKeyCreate) -> Dict[str, Any]:
         """
         Create API key.
 
@@ -317,10 +307,7 @@ class SettingsService:
             List[IntegrationResponse]: List of integrations
         """
         integrations = await self.integration_repo.get_by_user(user.id)
-        return [
-            IntegrationResponse.model_validate(integration)
-            for integration in integrations
-        ]
+        return [IntegrationResponse.model_validate(integration) for integration in integrations]
 
     async def create_integration(
         self, user: User, integration_data: IntegrationCreate
@@ -371,9 +358,7 @@ class SettingsService:
             raise NotFoundError("Integration not found")
 
         if integration.user_id != user.id:
-            raise ForbiddenError(
-                "You do not have permission to update this integration"
-            )
+            raise ForbiddenError("You do not have permission to update this integration")
 
         update_data = integration_data.model_dump(exclude_unset=True)
         if "enabled" in update_data:
@@ -402,9 +387,7 @@ class SettingsService:
             raise NotFoundError("Integration not found")
 
         if integration.user_id != user.id:
-            raise ForbiddenError(
-                "You do not have permission to delete this integration"
-            )
+            raise ForbiddenError("You do not have permission to delete this integration")
 
         await self.integration_repo.delete(integration_id)
         await self.db.commit()

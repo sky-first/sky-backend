@@ -14,16 +14,10 @@ class SpaceBase(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
-    color: Optional[str] = Field(
-        None
-    )  # Allow any string or None, validate in service if needed
+    color: Optional[str] = Field(None)  # Allow any string or None, validate in service if needed
     icon: Optional[str] = None
-    privacy: str = Field(
-        "private", description="public, private"
-    )  # Default can be 'private'
-    sensitivity: str = Field(
-        "internal", description="internal, confidential, restricted"
-    )
+    privacy: str = Field("private", description="public, private")  # Default can be 'private'
+    sensitivity: str = Field("internal", description="internal, confidential, restricted")
 
     @field_validator("color", mode="before")
     @classmethod
@@ -51,14 +45,10 @@ class SpaceUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
-    color: Optional[str] = Field(
-        None
-    )  # Allow any string or None, validate in service if needed
+    color: Optional[str] = Field(None)  # Allow any string or None, validate in service if needed
     icon: Optional[str] = None
     privacy: Optional[str] = Field(None, pattern="^(public|private)$")
-    sensitivity: Optional[str] = Field(
-        None, pattern="^(internal|confidential|restricted)$"
-    )
+    sensitivity: Optional[str] = Field(None, pattern="^(internal|confidential|restricted)$")
 
 
 class SpaceResponse(SpaceBase):

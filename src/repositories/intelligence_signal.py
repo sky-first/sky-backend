@@ -21,9 +21,7 @@ class IntelligenceSignalRepository(BaseRepository[IntelligenceSignal]):
         include_dismissed: bool = False,
     ) -> List[IntelligenceSignal]:
         """Fetch signals for a specific planet, optionally filtered by category."""
-        query = select(IntelligenceSignal).where(
-            IntelligenceSignal.planet_id == planet_id
-        )
+        query = select(IntelligenceSignal).where(IntelligenceSignal.planet_id == planet_id)
 
         if category:
             query = query.where(IntelligenceSignal.category == category)

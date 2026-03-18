@@ -1,16 +1,16 @@
 import asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+
 from src.config.settings import settings
-from src.services.enterprise_api_service import EnterpriseAPIService
 from src.repositories.user import UserRepository
+from src.services.enterprise_api_service import EnterpriseAPIService
 
 
 async def debug_apis():
     engine = create_async_engine(settings.DATABASE_URL)
-    AsyncSessionLocal = sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
+    AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with AsyncSessionLocal() as db:
         try:

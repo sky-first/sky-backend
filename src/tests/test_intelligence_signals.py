@@ -174,9 +174,7 @@ class TestSignalEventsEndpoints:
             "start_date": datetime.now(timezone.utc).isoformat(),
             "confidence": "High",
         }
-        response = await async_client.post(
-            "/api/v1/signal-events/", json=payload, headers=headers
-        )
+        response = await async_client.post("/api/v1/signal-events/", json=payload, headers=headers)
         assert response.status_code == 201
         data = response.json()
         assert data["sub_type"] == payload["sub_type"]

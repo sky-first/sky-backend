@@ -25,9 +25,7 @@ class EnterpriseRelationship(Base):
     target_type = Column(String(50), nullable=False)  # connection, dataset, table
     target_details = Column(JSON, nullable=True)
 
-    relationship_type = Column(
-        String(50), nullable=False
-    )  # maps_to, derived_from, etc.
+    relationship_type = Column(String(50), nullable=False)  # maps_to, derived_from, etc.
 
     created_by = Column(
         UUID(as_uuid=True),
@@ -35,9 +33,7 @@ class EnterpriseRelationship(Base):
         nullable=False,
         index=True,
     )
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,

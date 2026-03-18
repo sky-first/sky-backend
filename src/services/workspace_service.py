@@ -89,9 +89,7 @@ class WorkspaceService:
 
         # Check access
         if workspace.owner_id != user.id:
-            member = await self.member_repo.get_by_workspace_and_user(
-                workspace_id, user.id
-            )
+            member = await self.member_repo.get_by_workspace_and_user(workspace_id, user.id)
             if not member:
                 raise ForbiddenError("Access denied to this workspace")
 
@@ -134,9 +132,7 @@ class WorkspaceService:
 
         # Check permission (only owner or admin can update)
         if workspace.owner_id != user.id:
-            member = await self.member_repo.get_by_workspace_and_user(
-                workspace_id, user.id
-            )
+            member = await self.member_repo.get_by_workspace_and_user(workspace_id, user.id)
             if not member or member.role not in ["owner", "admin"]:
                 raise ForbiddenError("Permission denied")
 
@@ -170,9 +166,7 @@ class WorkspaceService:
         await self.workspace_repo.delete(workspace_id)
         await self.db.commit()
 
-    async def switch_workspace(
-        self, workspace_id: UUID, user: User
-    ) -> WorkspaceResponse:
+    async def switch_workspace(self, workspace_id: UUID, user: User) -> WorkspaceResponse:
         """
         Switch active workspace.
 
@@ -193,9 +187,7 @@ class WorkspaceService:
 
         # Check access
         if workspace.owner_id != user.id:
-            member = await self.member_repo.get_by_workspace_and_user(
-                workspace_id, user.id
-            )
+            member = await self.member_repo.get_by_workspace_and_user(workspace_id, user.id)
             if not member:
                 raise ForbiddenError("Access denied to this workspace")
 
@@ -240,9 +232,7 @@ class WorkspaceService:
 
         # Check permission (only owner or admin can add members)
         if workspace.owner_id != user.id:
-            member = await self.member_repo.get_by_workspace_and_user(
-                workspace_id, user.id
-            )
+            member = await self.member_repo.get_by_workspace_and_user(workspace_id, user.id)
             if not member or member.role not in ["owner", "admin"]:
                 raise ForbiddenError("Permission denied")
 
@@ -263,9 +253,7 @@ class WorkspaceService:
 
         return WorkspaceMemberResponse.model_validate(member)
 
-    async def remove_member(
-        self, workspace_id: UUID, user_id: UUID, current_user: User
-    ) -> None:
+    async def remove_member(self, workspace_id: UUID, user_id: UUID, current_user: User) -> None:
         """
         Remove member from workspace.
 
@@ -284,9 +272,7 @@ class WorkspaceService:
 
         # Check permission (only owner or admin can remove members)
         if workspace.owner_id != current_user.id:
-            member = await self.member_repo.get_by_workspace_and_user(
-                workspace_id, current_user.id
-            )
+            member = await self.member_repo.get_by_workspace_and_user(workspace_id, current_user.id)
             if not member or member.role not in ["owner", "admin"]:
                 raise ForbiddenError("Permission denied")
 
@@ -324,9 +310,7 @@ class WorkspaceService:
 
         # Check access (must be member or owner)
         if workspace.owner_id != user.id:
-            member = await self.member_repo.get_by_workspace_and_user(
-                workspace_id, user.id
-            )
+            member = await self.member_repo.get_by_workspace_and_user(workspace_id, user.id)
             if not member:
                 raise ForbiddenError("Access denied to this workspace")
 
@@ -358,9 +342,7 @@ class WorkspaceService:
 
         # Check permission (only owner or admin can update roles)
         if workspace.owner_id != current_user.id:
-            member = await self.member_repo.get_by_workspace_and_user(
-                workspace_id, current_user.id
-            )
+            member = await self.member_repo.get_by_workspace_and_user(workspace_id, current_user.id)
             if not member or member.role not in ["owner", "admin"]:
                 raise ForbiddenError("Permission denied")
 

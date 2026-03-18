@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from sqlalchemy import select, update  # noqa: E402
+
 from src.config.database import AsyncSessionLocal, engine  # noqa: E402
 from src.core.security import get_password_hash  # noqa: E402
 from src.models.user import User  # noqa: E402
@@ -17,9 +18,7 @@ async def update_password():
     """Update test user password."""
     async with AsyncSessionLocal() as session:
         # Find user
-        result = await session.execute(
-            select(User).where(User.email == "test@example.com")
-        )
+        result = await session.execute(select(User).where(User.email == "test@example.com"))
         user = result.scalar_one_or_none()
 
         if not user:

@@ -47,9 +47,7 @@ class TestLoginEndpoint:
         assert "message" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_login_invalid_password(
-        self, async_client: AsyncClient, test_user: dict
-    ):
+    async def test_login_invalid_password(self, async_client: AsyncClient, test_user: dict):
         """Test login with incorrect password."""
         response = await async_client.post(
             "/api/v1/auth/login",
@@ -78,9 +76,7 @@ class TestLoginEndpoint:
         assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_login_empty_password(
-        self, async_client: AsyncClient, test_user: dict
-    ):
+    async def test_login_empty_password(self, async_client: AsyncClient, test_user: dict):
         """Test login with empty password."""
         response = await async_client.post(
             "/api/v1/auth/login",
@@ -107,9 +103,7 @@ class TestLogoutEndpoint:
     """Tests for POST /api/v1/auth/logout."""
 
     @pytest.mark.asyncio
-    async def test_logout_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict
-    ):
+    async def test_logout_success(self, async_client: AsyncClient, test_user_with_tokens: dict):
         """Test successful logout."""
         refresh_token = test_user_with_tokens["refresh_token"]
 
@@ -121,10 +115,7 @@ class TestLogoutEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert "message" in data
-        assert (
-            "success" in data["message"].lower()
-            or "logged out" in data["message"].lower()
-        )
+        assert "success" in data["message"].lower() or "logged out" in data["message"].lower()
 
         # Verify token was revoked by trying to refresh it
         refresh_response = await async_client.post(
@@ -149,9 +140,7 @@ class TestRefreshEndpoint:
     """Tests for POST /api/v1/auth/refresh."""
 
     @pytest.mark.asyncio
-    async def test_refresh_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict
-    ):
+    async def test_refresh_success(self, async_client: AsyncClient, test_user_with_tokens: dict):
         """Test successful token refresh."""
         old_refresh_token = test_user_with_tokens["refresh_token"]
 
@@ -189,9 +178,7 @@ class TestRefreshEndpoint:
         assert "error" in data
 
     @pytest.mark.asyncio
-    async def test_refresh_expired_token(
-        self, async_client: AsyncClient, test_user: dict
-    ):
+    async def test_refresh_expired_token(self, async_client: AsyncClient, test_user: dict):
         """Test refresh with expired token."""
         # Use an invalid/expired token format
         # The actual expiration check happens in the service layer
@@ -229,9 +216,7 @@ class TestMeEndpoint:
     """Tests for GET /api/v1/auth/me."""
 
     @pytest.mark.asyncio
-    async def test_me_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict
-    ):
+    async def test_me_success(self, async_client: AsyncClient, test_user_with_tokens: dict):
         """Test getting current user data."""
         access_token = test_user_with_tokens["access_token"]
 
@@ -270,9 +255,7 @@ class TestSessionEndpoint:
     """Tests for GET /api/v1/auth/session."""
 
     @pytest.mark.asyncio
-    async def test_session_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict
-    ):
+    async def test_session_success(self, async_client: AsyncClient, test_user_with_tokens: dict):
         """Test getting current session."""
         access_token = test_user_with_tokens["access_token"]
 
@@ -346,9 +329,7 @@ class TestForgotPasswordEndpoint:
     """Tests for POST /api/v1/auth/forgot-password."""
 
     @pytest.mark.asyncio
-    async def test_forgot_password_success(
-        self, async_client: AsyncClient, test_user: dict
-    ):
+    async def test_forgot_password_success(self, async_client: AsyncClient, test_user: dict):
         """Test forgot password with existing email."""
         response = await async_client.post(
             "/api/v1/auth/forgot-password",
@@ -360,9 +341,7 @@ class TestForgotPasswordEndpoint:
         assert "message" in data
 
     @pytest.mark.asyncio
-    async def test_forgot_password_nonexistent_email(
-        self, async_client: AsyncClient, faker
-    ):
+    async def test_forgot_password_nonexistent_email(self, async_client: AsyncClient, faker):
         """Test forgot password with non-existent email (should still return 200)."""
         response = await async_client.post(
             "/api/v1/auth/forgot-password",
@@ -375,9 +354,7 @@ class TestForgotPasswordEndpoint:
         assert "message" in data
 
     @pytest.mark.asyncio
-    async def test_forgot_password_invalid_email_format(
-        self, async_client: AsyncClient
-    ):
+    async def test_forgot_password_invalid_email_format(self, async_client: AsyncClient):
         """Test forgot password with invalid email format."""
         response = await async_client.post(
             "/api/v1/auth/forgot-password",

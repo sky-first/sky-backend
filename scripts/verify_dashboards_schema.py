@@ -40,9 +40,7 @@ async def verify_schema():
     """
     )
     for row in cols:
-        print(
-            f"  {row['column_name']}: {row['data_type']} (nullable: {row['is_nullable']})"
-        )
+        print(f"  {row['column_name']}: {row['data_type']} (nullable: {row['is_nullable']})")
 
     print("\n=== CHECKING FOR workspace_id ===")
     workspace_id_check = await conn.fetch(
@@ -89,9 +87,7 @@ async def verify_schema():
     """
     )
     for row in fks:
-        print(
-            f"  {row['column_name']} -> {row['foreign_table_name']}.{row['foreign_column_name']}"
-        )
+        print(f"  {row['column_name']} -> {row['foreign_table_name']}.{row['foreign_column_name']}")
 
     await conn.close()
 

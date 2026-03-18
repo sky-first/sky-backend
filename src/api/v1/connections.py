@@ -29,22 +29,16 @@ from src.services.rbac_service import RBACService
 router = APIRouter()
 
 _logger = logging.getLogger(__name__)
-_logger.info(
-    "🔴 [CONNECTIONS ROUTER] Module loaded, DELETE endpoint will be registered"
-)
+_logger.info("🔴 [CONNECTIONS ROUTER] Module loaded, DELETE endpoint will be registered")
 
 
-async def _resolve_user_crew_ids(
-    db: AsyncSession, user_id: UUID, space_id: UUID
-) -> List[str]:
+async def _resolve_user_crew_ids(db: AsyncSession, user_id: UUID, space_id: UUID) -> List[str]:
     """
     Resolve crew_ids for the current user in a given space.
     Mirrors the logic used by AIService.process_query to keep permissions consistent.
     """
     repo = CrewMemberRepository(db)
-    crew_ids = await repo.get_crew_ids_by_user_and_space(
-        user_id=user_id, space_id=space_id
-    )
+    crew_ids = await repo.get_crew_ids_by_user_and_space(user_id=user_id, space_id=space_id)
     return [str(cid) for cid in crew_ids]
 
 
@@ -57,9 +51,7 @@ async def _resolve_user_crew_ids(
     description="Get list of data connections",
 )
 async def list_connections(
-    status: Optional[str] = Query(
-        None, description="Filter by status (active, inactive, error)"
-    ),
+    status: Optional[str] = Query(None, description="Filter by status (active, inactive, error)"),
     connector_id: Optional[str] = Query(None, description="Filter by connector type"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
@@ -178,9 +170,7 @@ async def delete_connection(
 
     try:
         rbac = RBACService(db)
-        await rbac.assert_permission(
-            current_user, "manageConnections", connection_id=connection_id
-        )
+        await rbac.assert_permission(current_user, "manageConnections", connection_id=connection_id)
 
         connection_service = ConnectionService(db)
         await connection_service.delete_connection(connection_id, current_user)
@@ -223,14 +213,10 @@ async def update_connection(
         ConnectionResponse: Updated connection
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(
-        current_user, "connections.edit", connection_id=connection_id
-    )
+    await rbac.assert_permission(current_user, "connections.edit", connection_id=connection_id)
 
     connection_service = ConnectionService(db)
-    return await connection_service.update_connection(
-        connection_id, current_user, connection_data
-    )
+    return await connection_service.update_connection(connection_id, current_user, connection_data)
 
 
 @router.post(
@@ -344,9 +330,7 @@ async def update_connection_metadata(
         ConnectionMetadataResponse: Updated connection metadata
     """
     connection_service = ConnectionService(db)
-    return await connection_service.update_metadata(
-        connection_id, current_user, metadata_update
-    )
+    return await connection_service.update_metadata(connection_id, current_user, metadata_update)
 
 
 @router.get(
@@ -614,9 +598,7 @@ async def list_ai_catalog_tables(
     return {
         "connection_id": str(connection_id),
         "space_id": space_id,
-        "tables": metadata.tables
-        if metadata and getattr(metadata, "tables", None)
-        else [],
+        "tables": metadata.tables if metadata and getattr(metadata, "tables", None) else [],
         "total_tables": len(getattr(metadata, "tables", []) or []) if metadata else 0,
         "source": "backend_connection_metadata",
         "note": "Crew-level filtering is enforced by backend permissions when querying; catalog listing is best-effort.",

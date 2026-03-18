@@ -82,9 +82,7 @@ async def test_build_dashboard_job_async_success(monkeypatch):
 
     class FakeAIService:
         def __init__(self, _db):
-            self.metadata_repo = SimpleNamespace(
-                get_by_connection_id=AsyncMock(return_value=None)
-            )
+            self.metadata_repo = SimpleNamespace(get_by_connection_id=AsyncMock(return_value=None))
 
         async def _get_user_crew_ids(self, *_args, **_kwargs):  # noqa: ANN001
             return []
@@ -129,9 +127,7 @@ async def test_build_dashboard_job_async_success(monkeypatch):
         async def create_dashboard(self, **_kwargs):  # noqa: ANN003
             return SimpleNamespace(id=uuid4())
 
-    monkeypatch.setattr(
-        dashboard_service_module, "DashboardService", FakeDashboardService
-    )
+    monkeypatch.setattr(dashboard_service_module, "DashboardService", FakeDashboardService)
 
     class FakeWidgetRepo:
         def __init__(self, _db):
@@ -253,9 +249,7 @@ async def test_build_dashboard_job_async_missing_ids_sets_failed(monkeypatch):
         "AIService",
         lambda _db: SimpleNamespace(
             _get_user_crew_ids=AsyncMock(return_value=[]),
-            metadata_repo=SimpleNamespace(
-                get_by_connection_id=AsyncMock(return_value=None)
-            ),
+            metadata_repo=SimpleNamespace(get_by_connection_id=AsyncMock(return_value=None)),
         ),
     )
 

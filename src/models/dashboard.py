@@ -40,9 +40,7 @@ class Dashboard(Base):
         ForeignKey("templates.id", ondelete="SET NULL"),
         nullable=True,
     )
-    canvas_settings = Column(
-        JSON, nullable=True
-    )  # {scale, position, snapToGrid, gridSize}
+    canvas_settings = Column(JSON, nullable=True)  # {scale, position, snapToGrid, gridSize}
     is_locked = Column(Boolean, nullable=False, default=False, server_default="false")
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -62,9 +60,7 @@ class Dashboard(Base):
 
     # Relationships
     planet = relationship("Planet", back_populates="dashboards")
-    widgets = relationship(
-        "Widget", back_populates="dashboard", cascade="all, delete-orphan"
-    )
+    widgets = relationship("Widget", back_populates="dashboard", cascade="all, delete-orphan")
     connections = relationship(
         "Connection", back_populates="dashboard", cascade="all, delete-orphan"
     )
@@ -85,9 +81,7 @@ class Dashboard(Base):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<Dashboard(id={self.id}, name={self.name}, planet_id={self.planet_id})>"
-        )
+        return f"<Dashboard(id={self.id}, name={self.name}, planet_id={self.planet_id})>"
 
 
 class Widget(Base):
@@ -231,9 +225,7 @@ class WidgetFeedback(Base):
     )
 
     # Relationships
-    widget = relationship(
-        "Widget", backref=backref("feedback", cascade="all, delete-orphan")
-    )
+    widget = relationship("Widget", backref=backref("feedback", cascade="all, delete-orphan"))
     user = relationship("User", foreign_keys=[user_id])
 
     __table_args__ = (

@@ -88,9 +88,7 @@ async def get_current_user(
                                 auth0_id = payload.get("sub")
                                 if auth0_id:
                                     # Get user from Auth0 ID
-                                    user = await auth0_service.get_user_from_auth0(
-                                        auth0_id
-                                    )
+                                    user = await auth0_service.get_user_from_auth0(auth0_id)
                                     if user:
                                         user_id = str(user.id)
                                         auth_type = "auth0"
@@ -111,9 +109,7 @@ async def get_current_user(
                             logger.warning("request.state doesn't exist, creating it")
                         # Store in request.state for other middlewares/dependencies
                         request.state.user_id = str(user_id)
-                        request.state.user_role = (
-                            payload.get("role", "user") if payload else "user"
-                        )
+                        request.state.user_role = payload.get("role", "user") if payload else "user"
                         request.state.auth_type = auth_type
                         logger.debug(
                             f"🔍 Validated token and set user_id in state: {user_id}, auth_type: {auth_type}"
@@ -144,9 +140,7 @@ async def get_current_user(
 
                     if auth0_settings.is_auth0_enabled:
                         auth0_service = Auth0Service(db)
-                        payload = await auth0_service.verify_auth0_token(
-                            credentials.credentials
-                        )
+                        payload = await auth0_service.verify_auth0_token(credentials.credentials)
                         auth0_id = payload.get("sub")
                         if auth0_id:
                             user = await auth0_service.get_user_from_auth0(auth0_id)
@@ -161,9 +155,7 @@ async def get_current_user(
 
             if user_id:
                 request.state.user_id = str(user_id)
-                request.state.user_role = (
-                    payload.get("role", "user") if payload else "user"
-                )
+                request.state.user_role = payload.get("role", "user") if payload else "user"
                 request.state.auth_type = auth_type
                 logger.debug(
                     f"🔍 Validated token from credentials and set user_id: {user_id}, auth_type: {auth_type}"

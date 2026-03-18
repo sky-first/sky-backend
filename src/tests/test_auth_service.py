@@ -52,9 +52,7 @@ class TestAuthenticationServiceLogin:
 
         assert "Invalid email or password" in str(exc_info.value)
 
-    async def test_login_invalid_password(
-        self, db_session: AsyncSession, test_user: dict
-    ):
+    async def test_login_invalid_password(self, db_session: AsyncSession, test_user: dict):
         """Test login with incorrect password."""
         auth_service = AuthenticationService(db_session)
 
@@ -109,9 +107,7 @@ class TestAuthenticationServiceRefreshToken:
 
         assert "Invalid refresh token" in str(exc_info.value)
 
-    async def test_refresh_token_expired(
-        self, db_session: AsyncSession, test_user: dict
-    ):
+    async def test_refresh_token_expired(self, db_session: AsyncSession, test_user: dict):
         """Test refresh with expired token."""
         from src.core.security import create_refresh_token
 
@@ -161,9 +157,7 @@ class TestAuthenticationServiceRefreshToken:
 class TestAuthenticationServiceLogout:
     """Tests for logout functionality."""
 
-    async def test_logout_success(
-        self, db_session: AsyncSession, test_user_with_tokens: dict
-    ):
+    async def test_logout_success(self, db_session: AsyncSession, test_user_with_tokens: dict):
         """Test successful logout."""
         auth_service = AuthenticationService(db_session)
         refresh_token = test_user_with_tokens["refresh_token"]
@@ -197,9 +191,7 @@ class TestAuthenticationServiceLogout:
 class TestAuthenticationServiceRevokeAllTokens:
     """Tests for revoke all tokens functionality."""
 
-    async def test_revoke_all_tokens_success(
-        self, db_session: AsyncSession, test_user: dict
-    ):
+    async def test_revoke_all_tokens_success(self, db_session: AsyncSession, test_user: dict):
         """Test revoking all tokens for a user."""
         from src.core.security import create_refresh_token
 
@@ -266,9 +258,7 @@ class TestAuthenticationServiceRevokeAllTokens:
 class TestAuthenticationServiceGetCurrentUser:
     """Tests for get current user functionality."""
 
-    async def test_get_current_user_success(
-        self, db_session: AsyncSession, test_user: dict
-    ):
+    async def test_get_current_user_success(self, db_session: AsyncSession, test_user: dict):
         """Test getting current user."""
         auth_service = AuthenticationService(db_session)
         user = test_user["user"]
