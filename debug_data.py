@@ -46,7 +46,9 @@ async def check_data():
                     print("      No metadata found")
 
             # Check selected tables
-            res_tabs = await db.execute(select(SpaceTable).where(SpaceTable.space_id == s.id))
+            res_tabs = await db.execute(
+                select(SpaceTable).where(SpaceTable.space_id == s.id)
+            )
             tabs = res_tabs.scalars().all()
             print(f"  Selected Tables: {len(tabs)}")
 

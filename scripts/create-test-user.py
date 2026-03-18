@@ -24,7 +24,8 @@ async def create_test_user():
 
     # Database URL from environment or default
     database_url = os.getenv(
-        "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db"
+        "DATABASE_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db",
     )
 
     engine = create_async_engine(database_url, echo=False)
@@ -34,7 +35,9 @@ async def create_test_user():
         # Check if user already exists
         from sqlalchemy import select
 
-        result = await session.execute(select(User).where(User.email == "test@example.com"))
+        result = await session.execute(
+            select(User).where(User.email == "test@example.com")
+        )
         existing_user = result.scalar_one_or_none()
 
         if existing_user:

@@ -10,7 +10,9 @@ from pydantic import BaseModel, ConfigDict
 class NotificationBase(BaseModel):
     """Base schema for Notification."""
 
-    type: str = "DASHBOARD_UPDATED"  # Using simple string for now to avoid enum complexity
+    type: str = (
+        "DASHBOARD_UPDATED"  # Using simple string for now to avoid enum complexity
+    )
     title: str
     description: Optional[str] = None
     entity_type: str

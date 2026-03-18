@@ -48,7 +48,9 @@ class DashboardResponse(DashboardBase):
 class WidgetBase(BaseModel):
     """Base widget schema."""
 
-    type: str = Field(..., pattern="^(chart|kpi|table|ai-box|text|insight|infographic)$")
+    type: str = Field(
+        ..., pattern="^(chart|kpi|table|ai-box|text|insight|infographic)$"
+    )
     title: str = Field(..., min_length=1, max_length=255)
     position: Dict[str, float] = Field(..., description="Position {x, y}")
     size: Dict[str, float] = Field(..., description="Size {width, height}")
@@ -157,7 +159,8 @@ class DashboardDuplicateRequest(BaseModel):
         description="Name for duplicated dashboard (defaults to '{original_name} (Copy)')",
     )
     planet_id: Optional[UUID] = Field(
-        None, description="Planet ID for duplicated dashboard (defaults to original planet)"
+        None,
+        description="Planet ID for duplicated dashboard (defaults to original planet)",
     )
 
 

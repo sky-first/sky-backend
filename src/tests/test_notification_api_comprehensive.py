@@ -22,7 +22,10 @@ class TestNotificationAPI:
     """Tests for notification API endpoints."""
 
     async def test_list_notifications(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
         service = NotificationService(db_session)
@@ -46,7 +49,10 @@ class TestNotificationAPI:
         assert data[0]["title"] == "Update"
 
     async def test_unread_count(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
         service = NotificationService(db_session)
@@ -62,13 +68,18 @@ class TestNotificationAPI:
         )
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/notifications/unread-count", headers=headers)
+        response = await async_client.get(
+            "/api/v1/notifications/unread-count", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["count"] >= 1
 
     async def test_mark_as_read(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
         service = NotificationService(db_session)
@@ -95,7 +106,10 @@ class TestNotificationAPI:
         assert updated_notif.is_read is True
 
     async def test_mark_all_as_read(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
         service = NotificationService(db_session)
@@ -112,7 +126,9 @@ class TestNotificationAPI:
             )
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post("/api/v1/notifications/read-all", headers=headers)
+        response = await async_client.post(
+            "/api/v1/notifications/read-all", headers=headers
+        )
         assert response.status_code == 200
         assert response.json()["updated"] >= 2
 
@@ -122,7 +138,10 @@ class TestCommentAPI:
     """Tests for comment API endpoints."""
 
     async def test_create_comment_and_trigger_notification(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
 
@@ -130,7 +149,10 @@ class TestCommentAPI:
         from src.models.user import User
 
         other_user = User(
-            id=uuid4(), email="other@example.com", name="Other User", password_hash="hash"
+            id=uuid4(),
+            email="other@example.com",
+            name="Other User",
+            password_hash="hash",
         )
         db_session.add(other_user)
         await db_session.commit()
@@ -166,7 +188,9 @@ class TestCommentAPI:
             "mentions": [str(other_user.id)],
         }
 
-        response = await async_client.post("/api/v1/comments", json=comment_data, headers=headers)
+        response = await async_client.post(
+            "/api/v1/comments", json=comment_data, headers=headers
+        )
         assert response.status_code == 201
 
         # Verify notification was created for the mention
@@ -189,7 +213,10 @@ class TestCommentAPI:
         assert "mentioned" in notif.title.lower()
 
     async def test_get_dashboard_comments(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
 

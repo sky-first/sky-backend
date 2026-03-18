@@ -34,7 +34,11 @@ def _make_ai_service(real_ai=None):
             "sections": [
                 {"id": "header", "type": "header", "title": "Mock"},
                 {"id": "summary", "type": "text", "body": "Mock body"},
-                {"id": "chart", "type": "chart", "data": kwargs.get("data_sample") or []},
+                {
+                    "id": "chart",
+                    "type": "chart",
+                    "data": kwargs.get("data_sample") or [],
+                },
             ],
             "meta": {"mock": True},
         }
@@ -95,7 +99,9 @@ async def test_generate_infographic_uses_real_ai_when_configured():
 async def test_generate_infographic_falls_back_when_real_ai_raises():
     """If real_ai.generate_infographic raises, should fall back to mock."""
     real_ai = MagicMock()
-    real_ai.generate_infographic = AsyncMock(side_effect=RuntimeError("AI engine unreachable"))
+    real_ai.generate_infographic = AsyncMock(
+        side_effect=RuntimeError("AI engine unreachable")
+    )
 
     svc = _make_ai_service(real_ai=real_ai)
     result = await svc.generate_infographic(
@@ -241,7 +247,12 @@ def _patch_worker_deps(monkeypatch, job, plan_from_http=None, widget_answer="ok"
                 "dashboard_name": "HTTP Plan",
                 "description": "From HTTP",
                 "widgets": [
-                    {"type": "text", "title": "T", "question": "Q?", "viz": {"content": "hi"}},
+                    {
+                        "type": "text",
+                        "title": "T",
+                        "question": "Q?",
+                        "viz": {"content": "hi"},
+                    },
                 ],
             }
 
@@ -254,7 +265,9 @@ def _patch_worker_deps(monkeypatch, job, plan_from_http=None, widget_answer="ok"
         ai_service_module,
         "AIService",
         lambda _db: SimpleNamespace(
-            metadata_repo=SimpleNamespace(get_by_connection_id=AsyncMock(return_value=None)),
+            metadata_repo=SimpleNamespace(
+                get_by_connection_id=AsyncMock(return_value=None)
+            ),
             _get_user_crew_ids=AsyncMock(return_value=[]),
             process_query=AsyncMock(
                 return_value=SimpleNamespace(
@@ -304,7 +317,9 @@ async def test_plan_bypass_uses_existing_plan_without_http_call(monkeypatch):
 
     await ai_worker._build_dashboard_job_async(job_id)
 
-    assert http_called["n"] == 0, "HTTP plan should NOT have been called when pre-built plan exists"
+    assert http_called["n"] == 0, (
+        "HTTP plan should NOT have been called when pre-built plan exists"
+    )
     assert job.status == "succeeded"
 
 
@@ -318,12 +333,16 @@ async def test_plan_bypass_falls_through_to_http_when_no_plan(monkeypatch):
 
     await ai_worker._build_dashboard_job_async(job_id)
 
-    assert http_called["n"] == 1, "HTTP plan SHOULD have been called when no pre-built plan"
+    assert http_called["n"] == 1, (
+        "HTTP plan SHOULD have been called when no pre-built plan"
+    )
     assert job.status == "succeeded"
 
 
 @pytest.mark.asyncio
-async def test_plan_bypass_falls_through_to_http_when_plan_has_empty_widgets(monkeypatch):
+async def test_plan_bypass_falls_through_to_http_when_plan_has_empty_widgets(
+    monkeypatch,
+):
     """job.plan with empty widgets list is NOT a valid bypass — must call HTTP."""
     job_id, job = _make_base_job(plan={"dashboard_name": "X", "widgets": []})
     http_called = _patch_worker_deps(monkeypatch, job)
@@ -332,7 +351,9 @@ async def test_plan_bypass_falls_through_to_http_when_plan_has_empty_widgets(mon
 
     await ai_worker._build_dashboard_job_async(job_id)
 
-    assert http_called["n"] == 1, "HTTP plan SHOULD have been called when widgets list is empty"
+    assert http_called["n"] == 1, (
+        "HTTP plan SHOULD have been called when widgets list is empty"
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -376,7 +397,12 @@ async def test_filters_saved_to_canvas_settings(monkeypatch):
                 {"label": "Year", "field": "year", "type": "range"},
             ],
             "widgets": [
-                {"type": "text", "title": "Intro", "question": "Q?", "viz": {"content": "Hi"}}
+                {
+                    "type": "text",
+                    "title": "Intro",
+                    "question": "Q?",
+                    "viz": {"content": "Hi"},
+                }
             ],
         },
         error=None,
@@ -412,7 +438,9 @@ async def test_filters_saved_to_canvas_settings(monkeypatch):
         ai_service_module,
         "AIService",
         lambda _db: SimpleNamespace(
-            metadata_repo=SimpleNamespace(get_by_connection_id=AsyncMock(return_value=None)),
+            metadata_repo=SimpleNamespace(
+                get_by_connection_id=AsyncMock(return_value=None)
+            ),
             _get_user_crew_ids=AsyncMock(return_value=[]),
             process_query=AsyncMock(
                 return_value=SimpleNamespace(
@@ -539,7 +567,9 @@ async def test_layout_from_plan_overrides_textual_layout(monkeypatch):
         ai_service_module,
         "AIService",
         lambda _db: SimpleNamespace(
-            metadata_repo=SimpleNamespace(get_by_connection_id=AsyncMock(return_value=None)),
+            metadata_repo=SimpleNamespace(
+                get_by_connection_id=AsyncMock(return_value=None)
+            ),
             _get_user_crew_ids=AsyncMock(return_value=[]),
             process_query=AsyncMock(
                 return_value=SimpleNamespace(
@@ -597,7 +627,10 @@ def test_dashboard_ai_build_async_request_accepts_plan_without_goal():
     from src.schemas.dashboard_ai import DashboardAIBuildAsyncRequest
 
     req = DashboardAIBuildAsyncRequest(
-        plan={"dashboard_name": "X", "widgets": [{"type": "text", "title": "T", "question": "Q"}]}
+        plan={
+            "dashboard_name": "X",
+            "widgets": [{"type": "text", "title": "T", "question": "Q"}],
+        }
     )
     assert req.plan is not None
 
@@ -635,4 +668,6 @@ def test_dashboard_ai_plan_widget_invalid_type():
     from src.schemas.dashboard_ai import DashboardAIPlanWidget
 
     with pytest.raises(Exception):
-        DashboardAIPlanWidget(widget_key="w1", type="unsupported_type", title="T", question="Q?")
+        DashboardAIPlanWidget(
+            widget_key="w1", type="unsupported_type", title="T", question="Q?"
+        )

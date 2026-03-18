@@ -36,15 +36,21 @@ class Dashboard(Base):
         index=True,
     )
     template_id = Column(
-        UUID(as_uuid=True), ForeignKey("templates.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("templates.id", ondelete="SET NULL"),
+        nullable=True,
     )
-    canvas_settings = Column(JSON, nullable=True)  # {scale, position, snapToGrid, gridSize}
+    canvas_settings = Column(
+        JSON, nullable=True
+    )  # {scale, position, snapToGrid, gridSize}
     is_locked = Column(Boolean, nullable=False, default=False, server_default="false")
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     updated_at = Column(
         DateTime(timezone=True),
@@ -56,20 +62,32 @@ class Dashboard(Base):
 
     # Relationships
     planet = relationship("Planet", back_populates="dashboards")
-    widgets = relationship("Widget", back_populates="dashboard", cascade="all, delete-orphan")
+    widgets = relationship(
+        "Widget", back_populates="dashboard", cascade="all, delete-orphan"
+    )
     connections = relationship(
         "Connection", back_populates="dashboard", cascade="all, delete-orphan"
     )
     template = relationship("Template", foreign_keys=[template_id])
 
     __table_args__ = (
-        Index("idx_dashboards_planet_id", "planet_id", postgresql_where=deleted_at.is_(None)),
-        Index("idx_dashboards_created_by", "created_by", postgresql_where=deleted_at.is_(None)),
+        Index(
+            "idx_dashboards_planet_id",
+            "planet_id",
+            postgresql_where=deleted_at.is_(None),
+        ),
+        Index(
+            "idx_dashboards_created_by",
+            "created_by",
+            postgresql_where=deleted_at.is_(None),
+        ),
         Index("idx_dashboards_created_at", "created_at"),
     )
 
     def __repr__(self) -> str:
-        return f"<Dashboard(id={self.id}, name={self.name}, planet_id={self.planet_id})>"
+        return (
+            f"<Dashboard(id={self.id}, name={self.name}, planet_id={self.planet_id})>"
+        )
 
 
 class Widget(Base):
@@ -103,7 +121,9 @@ class Widget(Base):
         index=True,
     )
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     updated_at = Column(
         DateTime(timezone=True),
@@ -153,7 +173,9 @@ class Connection(Base):
     from_anchor = Column(String(10), nullable=False)  # top, right, bottom, left
     to_anchor = Column(String(10), nullable=False)  # top, right, bottom, left
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
 
     # Relationships
@@ -197,7 +219,9 @@ class WidgetFeedback(Base):
     reason = Column(Text, nullable=True)
     context = Column(String(50), nullable=True)  # 'personal' or 'collaborative'
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     updated_at = Column(
         DateTime(timezone=True),
@@ -207,7 +231,9 @@ class WidgetFeedback(Base):
     )
 
     # Relationships
-    widget = relationship("Widget", backref=backref("feedback", cascade="all, delete-orphan"))
+    widget = relationship(
+        "Widget", backref=backref("feedback", cascade="all, delete-orphan")
+    )
     user = relationship("User", foreign_keys=[user_id])
 
     __table_args__ = (

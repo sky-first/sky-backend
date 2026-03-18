@@ -46,12 +46,15 @@ class NotificationRepository:
     async def get_unread_count(self, user_id: UUID) -> int:
         """Get unread notification count for a user."""
         stmt = select(func.count(Notification.id)).where(
-            Notification.user_id == user_id, Notification.is_read == False  # noqa: E712
+            Notification.user_id == user_id,
+            Notification.is_read == False,  # noqa: E712
         )
         result = await self.db.execute(stmt)
         return result.scalar() or 0
 
-    async def mark_as_read(self, notification_id: UUID, user_id: UUID) -> Optional[Notification]:
+    async def mark_as_read(
+        self, notification_id: UUID, user_id: UUID
+    ) -> Optional[Notification]:
         """Mark a notification as read."""
         stmt = select(Notification).where(
             Notification.id == notification_id, Notification.user_id == user_id

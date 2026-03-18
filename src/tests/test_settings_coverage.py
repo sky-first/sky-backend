@@ -4,7 +4,11 @@ from src.config.settings import Settings
 def test_build_redis_url_manual_components():
     """Test that REDIS_URL is built from individual components when empty."""
     settings = Settings(
-        REDIS_URL="", REDIS_HOST="myredis", REDIS_PORT=6379, REDIS_DB=5, REDIS_PASSWORD="mypassword"
+        REDIS_URL="",
+        REDIS_HOST="myredis",
+        REDIS_PORT=6379,
+        REDIS_DB=5,
+        REDIS_PASSWORD="mypassword",
     )
     # The validator runs automatically on init
     assert settings.REDIS_URL == "redis://:mypassword@myredis:6379/5"
@@ -30,7 +34,9 @@ def test_build_redis_url_from_env_vars(monkeypatch):
 
 def test_settings_properties():
     """Test various helper properties in Settings."""
-    settings = Settings(ENVIRONMENT="production", CORS_ORIGINS="http://a.com, http://b.com")
+    settings = Settings(
+        ENVIRONMENT="production", CORS_ORIGINS="http://a.com, http://b.com"
+    )
     assert settings.is_production is True
     assert settings.is_development is False
     assert settings.cors_origins_list == ["http://a.com", "http://b.com"]

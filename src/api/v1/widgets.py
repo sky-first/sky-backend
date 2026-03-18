@@ -222,4 +222,6 @@ async def add_widget_feedback(
         WidgetFeedbackResponse: Created/Updated feedback
     """
     dashboard_service = DashboardService(db)
-    return await dashboard_service.add_widget_feedback(widget_id, current_user, feedback_data)
+    return await dashboard_service.add_widget_feedback(
+        widget_id, current_user, feedback_data
+    )

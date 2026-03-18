@@ -13,7 +13,10 @@ class TestIntelligenceSignalsEndpoints:
     """Tests for /api/v1/intelligence/signals endpoints."""
 
     async def test_list_signals_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/intelligence/signals - list signals."""
         user = test_user_with_tokens["user"]
@@ -45,7 +48,10 @@ class TestIntelligenceSignalsEndpoints:
         assert data[0]["title"] == "Test Signal"
 
     async def test_create_signal_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/intelligence/signals/ - create signal."""
         user = test_user_with_tokens["user"]
@@ -71,7 +77,10 @@ class TestIntelligenceSignalsEndpoints:
         assert "id" in data
 
     async def test_dismiss_signal_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test PATCH /api/v1/intelligence/signals/{id}/dismiss."""
         user = test_user_with_tokens["user"]
@@ -101,7 +110,10 @@ class TestIntelligenceSignalsEndpoints:
         assert data["is_dismissed"] is not None
 
     async def test_delete_signal_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test DELETE /api/v1/intelligence/signals/{id}."""
         user = test_user_with_tokens["user"]
@@ -134,7 +146,10 @@ class TestSignalEventsEndpoints:
     """Tests for /api/v1/signal-events endpoints."""
 
     async def test_list_signal_events_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/signal-events/."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -144,7 +159,10 @@ class TestSignalEventsEndpoints:
         assert isinstance(data, list)
 
     async def test_create_signal_event_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/signal-events/."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -156,7 +174,9 @@ class TestSignalEventsEndpoints:
             "start_date": datetime.now(timezone.utc).isoformat(),
             "confidence": "High",
         }
-        response = await async_client.post("/api/v1/signal-events/", json=payload, headers=headers)
+        response = await async_client.post(
+            "/api/v1/signal-events/", json=payload, headers=headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["sub_type"] == payload["sub_type"]

@@ -59,11 +59,15 @@ class TemplateService:
             List[TemplateResponse]: List of templates
         """
         if search:
-            templates = await self.template_repo.search_templates(search, skip=skip, limit=limit)
+            templates = await self.template_repo.search_templates(
+                search, skip=skip, limit=limit
+            )
         elif popular:
             templates = await self.template_repo.get_popular(skip=skip, limit=limit)
         elif category:
-            templates = await self.template_repo.get_by_category(category, skip=skip, limit=limit)
+            templates = await self.template_repo.get_by_category(
+                category, skip=skip, limit=limit
+            )
         else:
             templates = await self.template_repo.get_all(skip=skip, limit=limit)
 
@@ -89,7 +93,9 @@ class TemplateService:
 
         return TemplateResponse.model_validate(template)
 
-    async def create_template(self, user: User, template_data: TemplateCreate) -> TemplateResponse:
+    async def create_template(
+        self, user: User, template_data: TemplateCreate
+    ) -> TemplateResponse:
         """
         Create a new template.
 

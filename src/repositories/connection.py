@@ -18,7 +18,11 @@ class ConnectionRepository(BaseRepository[DataConnection]):
         super().__init__(db, DataConnection)
 
     async def get_by_user(
-        self, user_id: UUID, skip: int = 0, limit: int = 100, filters: Optional[dict] = None
+        self,
+        user_id: UUID,
+        skip: int = 0,
+        limit: int = 100,
+        filters: Optional[dict] = None,
     ) -> List[DataConnection]:
         """
         Get connections by user.
@@ -35,16 +39,23 @@ class ConnectionRepository(BaseRepository[DataConnection]):
         query = (
             select(DataConnection)
             .options(joinedload(DataConnection.connection_metadata))
-            .where(DataConnection.created_by == user_id, DataConnection.deleted_at.is_(None))
+            .where(
+                DataConnection.created_by == user_id,
+                DataConnection.deleted_at.is_(None),
+            )
         )
 
         if filters:
             if "status" in filters:
                 query = query.where(DataConnection.status == filters["status"])
             if "connector_id" in filters:
-                query = query.where(DataConnection.connector_id == filters["connector_id"])
+                query = query.where(
+                    DataConnection.connector_id == filters["connector_id"]
+                )
 
-        query = query.order_by(DataConnection.created_at.desc()).offset(skip).limit(limit)
+        query = (
+            query.order_by(DataConnection.created_at.desc()).offset(skip).limit(limit)
+        )
 
         result = await self.db.execute(query)
         return list(result.scalars().all())
@@ -84,7 +95,9 @@ class ConnectionMetadataRepository(BaseRepository[ConnectionMetadata]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, ConnectionMetadata)
 
-    async def get_by_connection_id(self, connection_id: UUID) -> Optional[ConnectionMetadata]:
+    async def get_by_connection_id(
+        self, connection_id: UUID
+    ) -> Optional[ConnectionMetadata]:
         """
         Get metadata by connection ID.
 
@@ -95,6 +108,8 @@ class ConnectionMetadataRepository(BaseRepository[ConnectionMetadata]):
             Optional[ConnectionMetadata]: Metadata or None
         """
         result = await self.db.execute(
-            select(ConnectionMetadata).where(ConnectionMetadata.connection_id == connection_id)
+            select(ConnectionMetadata).where(
+                ConnectionMetadata.connection_id == connection_id
+            )
         )
         return result.scalar_one_or_none()

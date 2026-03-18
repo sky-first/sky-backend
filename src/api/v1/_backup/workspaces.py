@@ -129,7 +129,9 @@ async def update_workspace(
         WorkspaceResponse: Updated workspace
     """
     workspace_service = WorkspaceService(db)
-    return await workspace_service.update_workspace(workspace_id, current_user, workspace_data)
+    return await workspace_service.update_workspace(
+        workspace_id, current_user, workspace_data
+    )
 
 
 @router.delete(

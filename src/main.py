@@ -85,7 +85,9 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(api_router, prefix="/api")
 
 # Observability: Prometheus metrics (Golden Signals)
-Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+Instrumentator().instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=False
+)
 
 
 # Override the openapi() function - simplified for clean start
@@ -170,7 +172,9 @@ async def monitoring_connections(db=Depends(get_db)):
     }
 
 
-def _get_connection_recommendations(pool_stats: dict, db_connections: dict) -> list[dict[str, str]]:
+def _get_connection_recommendations(
+    pool_stats: dict, db_connections: dict
+) -> list[dict[str, str]]:
     """Generate recommendations based on connection statistics."""
     recommendations: list[dict[str, str]] = []
 

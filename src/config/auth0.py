@@ -115,7 +115,11 @@ class Auth0Settings(BaseSettings):
     @property
     def is_google_enabled(self) -> bool:
         """Check if Google SSO is properly configured."""
-        return self.ENABLE_SSO and bool(self.GOOGLE_CLIENT_ID) and bool(self.GOOGLE_CLIENT_SECRET)
+        return (
+            self.ENABLE_SSO
+            and bool(self.GOOGLE_CLIENT_ID)
+            and bool(self.GOOGLE_CLIENT_SECRET)
+        )
 
     @property
     def is_azure_enabled(self) -> bool:

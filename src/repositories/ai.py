@@ -27,7 +27,9 @@ class AIQueryRepository(BaseRepository[AIQuery]):
         query = (
             select(func.count())
             .select_from(AIQuery)
-            .where(cast(AIQuery.configure_data, JSONB)["knowledge"].contains([conn_str]))
+            .where(
+                cast(AIQuery.configure_data, JSONB)["knowledge"].contains([conn_str])
+            )
         )
         result = await self.db.execute(query)
         return result.scalar() or 0
@@ -40,7 +42,9 @@ class AIQueryRepository(BaseRepository[AIQuery]):
         query = (
             select(func.count(func.distinct(AIQuery.user_id)))
             .select_from(AIQuery)
-            .where(cast(AIQuery.configure_data, JSONB)["knowledge"].contains([conn_str]))
+            .where(
+                cast(AIQuery.configure_data, JSONB)["knowledge"].contains([conn_str])
+            )
         )
         result = await self.db.execute(query)
         return result.scalar() or 0
@@ -70,7 +74,9 @@ class AIQueryRepository(BaseRepository[AIQuery]):
         result = await self.db.execute(query)
         return result.scalar() or 0
 
-    async def get_active_users_by_connection_ids(self, connection_ids: list[UUID]) -> int:
+    async def get_active_users_by_connection_ids(
+        self, connection_ids: list[UUID]
+    ) -> int:
         """
         Count unique users who queried any of the specified connections.
         """

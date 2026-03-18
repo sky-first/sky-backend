@@ -26,7 +26,9 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         Response: HTTP response
     """
     # Log that middleware is executing
-    logger.info(f"🚀 AUTH MIDDLEWARE START - Path: {request.url.path}, Method: {request.method}")
+    logger.info(
+        f"🚀 AUTH MIDDLEWARE START - Path: {request.url.path}, Method: {request.method}"
+    )
 
     # Always allow CORS preflight requests through so CORSMiddleware can respond with 200.
     # Browsers send OPTIONS without Authorization; blocking it causes "preflight not OK" errors.
@@ -86,7 +88,9 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
 
     # Also try direct access (case-insensitive)
     if not authorization:
-        authorization = request.headers.get("Authorization") or request.headers.get("authorization")
+        authorization = request.headers.get("Authorization") or request.headers.get(
+            "authorization"
+        )
 
     # Debug: log all headers
     logger.info(f"🔍 All headers: {dict(request.headers)}")
@@ -96,7 +100,10 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         logger.warning(f"⚠️ No authorization header for path: {request.url.path}")
         response = JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"error": "Unauthorized", "message": "Missing authorization header"},
+            content={
+                "error": "Unauthorized",
+                "message": "Missing authorization header",
+            },
         )
         # Ensure CORS headers are present even when we short-circuit before CORSMiddleware runs
         origin = request.headers.get("Origin")
@@ -117,7 +124,10 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     except ValueError:
         response = JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"error": "Unauthorized", "message": "Invalid authorization header format"},
+            content={
+                "error": "Unauthorized",
+                "message": "Invalid authorization header format",
+            },
         )
         origin = request.headers.get("Origin")
         if origin and origin in settings.cors_origins_list:

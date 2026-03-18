@@ -52,7 +52,10 @@ async def create_test_planet(db_session: AsyncSession, user, name: str = "Test P
     """Helper to create a test planet."""
     planet_service = PlanetService(db_session)
     planet_data = PlanetCreate(
-        name=name, description="Test planet description", type="personal", color="#3B82F6"
+        name=name,
+        description="Test planet description",
+        type="personal",
+        color="#3B82F6",
     )
     return await planet_service.create_planet(user, planet_data)
 
@@ -105,7 +108,9 @@ async def create_test_widget(db_session: AsyncSession, user, dashboard_id):
     return widget
 
 
-async def create_test_connection(db_session: AsyncSession, user, name: str = "Test Connection"):
+async def create_test_connection(
+    db_session: AsyncSession, user, name: str = "Test Connection"
+):
     """Helper to create a test connection."""
     from src.repositories.connection import ConnectionRepository
 
@@ -145,7 +150,9 @@ async def create_test_space(db_session: AsyncSession, user, name: str = "Test Sp
     return space
 
 
-async def create_test_crew(db_session: AsyncSession, user, space_id, name: str = "Test Crew"):
+async def create_test_crew(
+    db_session: AsyncSession, user, space_id, name: str = "Test Crew"
+):
     """Helper to create a test crew."""
     from src.repositories.crew import CrewRepository
 
@@ -173,7 +180,10 @@ async def create_test_user(db_session: AsyncSession, admin_user, email: str = No
     faker = Faker()
     user_service = UserService(db_session)
     user_data = UserCreate(
-        email=email or faker.email(), password="test_password_123", name=faker.name(), role="user"
+        email=email or faker.email(),
+        password="test_password_123",
+        name=faker.name(),
+        role="user",
     )
     return await user_service.create_user(admin_user, user_data)
 
@@ -203,7 +213,9 @@ class TestPlanetsEndpoints:
     ):
         """Test GET /api/v1/planets?type=personal."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/planets?type=personal", headers=headers)
+        response = await async_client.get(
+            "/api/v1/planets?type=personal", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -216,7 +228,10 @@ class TestPlanetsEndpoints:
 
     @pytest.mark.asyncio
     async def test_create_planet_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/planets - create planet."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -226,7 +241,9 @@ class TestPlanetsEndpoints:
             "type": "personal",
             "color": "#3B82F6",
         }
-        response = await async_client.post("/api/v1/planets", json=planet_data, headers=headers)
+        response = await async_client.post(
+            "/api/v1/planets", json=planet_data, headers=headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == planet_data["name"]
@@ -239,8 +256,14 @@ class TestPlanetsEndpoints:
     ):
         """Test POST /api/v1/planets with invalid type."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        planet_data = {"name": "Test Planet", "type": "invalid_type", "color": "#3B82F6"}
-        response = await async_client.post("/api/v1/planets", json=planet_data, headers=headers)
+        planet_data = {
+            "name": "Test Planet",
+            "type": "invalid_type",
+            "color": "#3B82F6",
+        }
+        response = await async_client.post(
+            "/api/v1/planets", json=planet_data, headers=headers
+        )
         assert response.status_code == 422
 
     @pytest.mark.asyncio
@@ -254,18 +277,25 @@ class TestPlanetsEndpoints:
             "type": "personal",
             "color": "blue",  # Should be hex format
         }
-        response = await async_client.post("/api/v1/planets", json=planet_data, headers=headers)
+        response = await async_client.post(
+            "/api/v1/planets", json=planet_data, headers=headers
+        )
         assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_get_planet_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/planets/{id}."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/planets/{planet.id}", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/planets/{planet.id}", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == str(planet.id)
@@ -283,7 +313,10 @@ class TestPlanetsEndpoints:
 
     @pytest.mark.asyncio
     async def test_update_planet_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test PUT /api/v1/planets/{id}."""
         user = test_user_with_tokens["user"]
@@ -299,26 +332,36 @@ class TestPlanetsEndpoints:
 
     @pytest.mark.asyncio
     async def test_delete_planet_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test DELETE /api/v1/planets/{id}."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/planets/{planet.id}", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/planets/{planet.id}", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert "message" in data
 
     @pytest.mark.asyncio
     async def test_get_planet_members(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/planets/{id}/members."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/planets/{planet.id}/members", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/planets/{planet.id}/members", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -327,7 +370,10 @@ class TestPlanetsEndpoints:
 
     @pytest.mark.asyncio
     async def test_add_planet_member(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/planets/{id}/members."""
         user = test_user_with_tokens["user"]
@@ -360,13 +406,18 @@ class TestPlanetsEndpoints:
 
     @pytest.mark.asyncio
     async def test_switch_planet(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/planets/{id}/switch."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(f"/api/v1/planets/{planet.id}/switch", headers=headers)
+        response = await async_client.post(
+            f"/api/v1/planets/{planet.id}/switch", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == str(planet.id)
@@ -374,7 +425,10 @@ class TestPlanetsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_planet_dashboards(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/planets/{id}/dashboards."""
         user = test_user_with_tokens["user"]
@@ -398,7 +452,10 @@ class TestDashboardsEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_dashboards_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/dashboards."""
         user = test_user_with_tokens["user"]
@@ -413,7 +470,10 @@ class TestDashboardsEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_dashboards_with_planet_filter(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/dashboards?planet_id={id}."""
         user = test_user_with_tokens["user"]
@@ -430,7 +490,10 @@ class TestDashboardsEndpoints:
 
     @pytest.mark.asyncio
     async def test_create_dashboard_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/dashboards."""
         user = test_user_with_tokens["user"]
@@ -452,7 +515,10 @@ class TestDashboardsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_dashboard_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/dashboards/{id}."""
         user = test_user_with_tokens["user"]
@@ -460,14 +526,19 @@ class TestDashboardsEndpoints:
         dashboard = await create_test_dashboard(db_session, user, planet.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/dashboards/{dashboard.id}", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/dashboards/{dashboard.id}", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == str(dashboard.id)
 
     @pytest.mark.asyncio
     async def test_update_dashboard_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test PUT /api/v1/dashboards/{id}."""
         user = test_user_with_tokens["user"]
@@ -485,7 +556,10 @@ class TestDashboardsEndpoints:
 
     @pytest.mark.asyncio
     async def test_delete_dashboard_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test DELETE /api/v1/dashboards/{id}."""
         user = test_user_with_tokens["user"]
@@ -493,12 +567,17 @@ class TestDashboardsEndpoints:
         dashboard = await create_test_dashboard(db_session, user, planet.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/dashboards/{dashboard.id}", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/dashboards/{dashboard.id}", headers=headers
+        )
         assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_get_dashboard_widgets(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/dashboards/{id}/widgets."""
         user = test_user_with_tokens["user"]
@@ -516,7 +595,10 @@ class TestDashboardsEndpoints:
 
     @pytest.mark.asyncio
     async def test_create_widget_in_dashboard(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/dashboards/{id}/widgets."""
         user = test_user_with_tokens["user"]
@@ -532,7 +614,9 @@ class TestDashboardsEndpoints:
             "size": {"width": 300, "height": 200},
         }
         response = await async_client.post(
-            f"/api/v1/dashboards/{dashboard.id}/widgets", json=widget_data, headers=headers
+            f"/api/v1/dashboards/{dashboard.id}/widgets",
+            json=widget_data,
+            headers=headers,
         )
         assert response.status_code == 201
         data = response.json()
@@ -541,7 +625,10 @@ class TestDashboardsEndpoints:
 
     @pytest.mark.asyncio
     async def test_export_dashboard(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/dashboards/{id}/export."""
         user = test_user_with_tokens["user"]
@@ -561,7 +648,10 @@ class TestDashboardsEndpoints:
 
     @pytest.mark.asyncio
     async def test_duplicate_dashboard(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/dashboards/{id}/duplicate."""
         user = test_user_with_tokens["user"]
@@ -579,7 +669,10 @@ class TestDashboardsEndpoints:
 
     @pytest.mark.asyncio
     async def test_lock_dashboard(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/dashboards/{id}/lock."""
         user = test_user_with_tokens["user"]
@@ -596,7 +689,10 @@ class TestDashboardsEndpoints:
 
     @pytest.mark.asyncio
     async def test_unlock_dashboard(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/dashboards/{id}/unlock."""
         user = test_user_with_tokens["user"]
@@ -626,7 +722,10 @@ class TestWidgetsEndpoints:
 
     @pytest.mark.asyncio
     async def test_update_widget_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test PUT /api/v1/widgets/{id}."""
         user = test_user_with_tokens["user"]
@@ -645,7 +744,10 @@ class TestWidgetsEndpoints:
 
     @pytest.mark.asyncio
     async def test_delete_widget_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test DELETE /api/v1/widgets/{id}."""
         user = test_user_with_tokens["user"]
@@ -654,12 +756,17 @@ class TestWidgetsEndpoints:
         widget = await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/widgets/{widget.id}", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/widgets/{widget.id}", headers=headers
+        )
         assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_duplicate_widget(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/widgets/{id}/duplicate."""
         user = test_user_with_tokens["user"]
@@ -678,7 +785,10 @@ class TestWidgetsEndpoints:
 
     @pytest.mark.asyncio
     async def test_export_widget(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/widgets/{id}/export."""
         user = test_user_with_tokens["user"]
@@ -687,7 +797,9 @@ class TestWidgetsEndpoints:
         widget = await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(f"/api/v1/widgets/{widget.id}/export", headers=headers)
+        response = await async_client.post(
+            f"/api/v1/widgets/{widget.id}/export", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert "id" in data
@@ -695,7 +807,10 @@ class TestWidgetsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_widget_data(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/widgets/{id}/data."""
         user = test_user_with_tokens["user"]
@@ -704,14 +819,19 @@ class TestWidgetsEndpoints:
         widget = await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/widgets/{widget.id}/data", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/widgets/{widget.id}/data", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert "data" in data
 
     @pytest.mark.asyncio
     async def test_refresh_widget_data(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/widgets/{id}/refresh."""
         user = test_user_with_tokens["user"]
@@ -720,7 +840,9 @@ class TestWidgetsEndpoints:
         widget = await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(f"/api/v1/widgets/{widget.id}/refresh", headers=headers)
+        response = await async_client.post(
+            f"/api/v1/widgets/{widget.id}/refresh", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert "data" in data
@@ -736,7 +858,10 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_connections_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/connections."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -747,7 +872,10 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_create_connection_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/connections."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -767,20 +895,28 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_connection_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/connections/{id}."""
         user = test_user_with_tokens["user"]
         connection = await create_test_connection(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/connections/{connection.id}", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/connections/{connection.id}", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == str(connection.id)
 
     @pytest.mark.asyncio
     async def test_update_connection_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test PUT /api/v1/connections/{id}."""
         user = test_user_with_tokens["user"]
@@ -796,7 +932,10 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_delete_connection_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test DELETE /api/v1/connections/{id}."""
         user = test_user_with_tokens["user"]
@@ -809,7 +948,10 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_test_connection(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/connections/{id}/test."""
         user = test_user_with_tokens["user"]
@@ -832,12 +974,17 @@ class TestConnectionsEndpoints:
         """Test POST /api/v1/connections/{id}/test - Connection not found."""
         fake_id = str(uuid4())
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(f"/api/v1/connections/{fake_id}/test", headers=headers)
+        response = await async_client.post(
+            f"/api/v1/connections/{fake_id}/test", headers=headers
+        )
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_test_connection_no_auth(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/connections/{id}/test - No authentication."""
         user = test_user_with_tokens["user"]
@@ -847,7 +994,10 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_sync_connection(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/connections/{id}/sync."""
         user = test_user_with_tokens["user"]
@@ -860,7 +1010,10 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_connection_metadata(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/connections/{id}/metadata."""
         user = test_user_with_tokens["user"]
@@ -873,7 +1026,10 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_connection_status(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/connections/{id}/status."""
         user = test_user_with_tokens["user"]
@@ -888,7 +1044,10 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_validate_connection(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/connections/{id}/validate."""
         user = test_user_with_tokens["user"]
@@ -901,7 +1060,10 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_connection_tables(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/connections/{id}/tables."""
         user = test_user_with_tokens["user"]
@@ -914,14 +1076,18 @@ class TestConnectionsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_connection_table_schema(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/connections/{id}/tables/{table_name}/schema."""
         user = test_user_with_tokens["user"]
         connection = await create_test_connection(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get(
-            f"/api/v1/connections/{connection.id}/tables/test_table/schema", headers=headers
+            f"/api/v1/connections/{connection.id}/tables/test_table/schema",
+            headers=headers,
         )
         assert response.status_code in [200, 400, 404, 500]
 
@@ -951,7 +1117,9 @@ class TestTemplatesEndpoints:
     ):
         """Test GET /api/v1/templates?category=analytics."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/templates?category=analytics", headers=headers)
+        response = await async_client.get(
+            "/api/v1/templates?category=analytics", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -962,7 +1130,9 @@ class TestTemplatesEndpoints:
     ):
         """Test GET /api/v1/templates/categories."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/templates/categories", headers=headers)
+        response = await async_client.get(
+            "/api/v1/templates/categories", headers=headers
+        )
         # May return 200 or 422 if not implemented
         assert response.status_code in [200, 422]
         if response.status_code == 200:
@@ -976,12 +1146,17 @@ class TestTemplatesEndpoints:
         """Test GET /api/v1/templates/{id} with non-existent ID."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.get(f"/api/v1/templates/{fake_id}", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/templates/{fake_id}", headers=headers
+        )
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_apply_template(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/templates/{id}/apply."""
         user = test_user_with_tokens["user"]
@@ -1002,14 +1177,20 @@ class TestTemplatesEndpoints:
         """Test GET /api/v1/templates/{id}/preview with non-existent ID."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.get(f"/api/v1/templates/{fake_id}/preview", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/templates/{fake_id}/preview", headers=headers
+        )
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
-    async def test_search_templates(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_search_templates(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/templates?search=test."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/templates?search=test", headers=headers)
+        response = await async_client.get(
+            "/api/v1/templates?search=test", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -1030,17 +1211,23 @@ class TestAIEndpoints:
         """Test POST /api/v1/ai/query."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         query_data = {"question": "What is the total sales?", "knowledge": ["sales"]}
-        response = await async_client.post("/api/v1/ai/query", json=query_data, headers=headers)
+        response = await async_client.post(
+            "/api/v1/ai/query", json=query_data, headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert "answer" in data or "response" in data
 
     @pytest.mark.asyncio
-    async def test_send_chat_message(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_send_chat_message(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/ai/chat."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         message_data = {"widget_id": str(uuid4()), "message": "Hello, AI!"}
-        response = await async_client.post("/api/v1/ai/chat", json=message_data, headers=headers)
+        response = await async_client.post(
+            "/api/v1/ai/chat", json=message_data, headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         # Response has id, type, content, timestamp
@@ -1048,7 +1235,9 @@ class TestAIEndpoints:
         assert "content" in data
 
     @pytest.mark.asyncio
-    async def test_get_history(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_get_history(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/ai/history."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get("/api/v1/ai/history", headers=headers)
@@ -1062,7 +1251,9 @@ class TestAIEndpoints:
     ):
         """Test GET /api/v1/ai/history?filter=pinned."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/ai/history?filter=pinned", headers=headers)
+        response = await async_client.get(
+            "/api/v1/ai/history?filter=pinned", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -1074,7 +1265,9 @@ class TestAIEndpoints:
         """Test GET /api/v1/ai/history/{id} with non-existent ID."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.get(f"/api/v1/ai/history/{fake_id}", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/ai/history/{fake_id}", headers=headers
+        )
         assert response.status_code == 404
 
     @pytest.mark.asyncio
@@ -1084,27 +1277,39 @@ class TestAIEndpoints:
         """Test DELETE /api/v1/ai/history/{id}."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.delete(f"/api/v1/ai/history/{fake_id}", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/ai/history/{fake_id}", headers=headers
+        )
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
-    async def test_pin_history_item(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_pin_history_item(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/ai/history/{id}/pin."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.post(f"/api/v1/ai/history/{fake_id}/pin", headers=headers)
+        response = await async_client.post(
+            f"/api/v1/ai/history/{fake_id}/pin", headers=headers
+        )
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
-    async def test_unpin_history_item(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_unpin_history_item(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/ai/history/{id}/unpin."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.post(f"/api/v1/ai/history/{fake_id}/unpin", headers=headers)
+        response = await async_client.post(
+            f"/api/v1/ai/history/{fake_id}/unpin", headers=headers
+        )
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
-    async def test_export_history(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_export_history(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/ai/history/export."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get("/api/v1/ai/history/export", headers=headers)
@@ -1112,12 +1317,16 @@ class TestAIEndpoints:
         assert response.status_code in [200, 400, 422]
 
     @pytest.mark.asyncio
-    async def test_generate_sql(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_generate_sql(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/ai/generate-sql."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         sql_data = {
             "question": "Show me all users",
-            "knowledge": ["users_table"],  # Fixed: knowledge is required (List[str], min_items=1)
+            "knowledge": [
+                "users_table"
+            ],  # Fixed: knowledge is required (List[str], min_items=1)
         }
         response = await async_client.post(
             "/api/v1/ai/generate-sql", json=sql_data, headers=headers
@@ -1125,13 +1334,17 @@ class TestAIEndpoints:
         assert response.status_code in [200, 400]
 
     @pytest.mark.asyncio
-    async def test_generate_answer(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_generate_answer(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/ai/generate-answer."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         answer_data = {
             "question": "What is the total sales?",  # Fixed: question is required
             "knowledge": ["sales"],  # Fixed: knowledge is required (List[str])
-            "context": {"widget_id": str(uuid4())},  # Fixed: context should be Dict, not str
+            "context": {
+                "widget_id": str(uuid4())
+            },  # Fixed: context should be Dict, not str
         }
         response = await async_client.post(
             "/api/v1/ai/generate-answer", json=answer_data, headers=headers
@@ -1139,7 +1352,9 @@ class TestAIEndpoints:
         assert response.status_code in [200, 400]
 
     @pytest.mark.asyncio
-    async def test_analyze_question(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_analyze_question(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/ai/analyze-question."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         question_data = {"question": "What is the total sales?"}
@@ -1151,7 +1366,9 @@ class TestAIEndpoints:
         assert "intent" in data or "analysis" in data
 
     @pytest.mark.asyncio
-    async def test_execute_pipeline(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_execute_pipeline(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/ai/pipeline/execute."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         pipeline_data = {
@@ -1174,20 +1391,29 @@ class TestAIEndpoints:
         """Test GET /api/v1/ai/pipeline/{id}/status."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.get(f"/api/v1/ai/pipeline/{fake_id}/status", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/ai/pipeline/{fake_id}/status", headers=headers
+        )
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
-    async def test_get_pipeline_logs(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_get_pipeline_logs(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/ai/pipeline/{id}/logs."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.get(f"/api/v1/ai/pipeline/{fake_id}/logs", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/ai/pipeline/{fake_id}/logs", headers=headers
+        )
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
     async def test_validate_sql(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/validate-sql."""
         user = test_user_with_tokens["user"]
@@ -1212,7 +1438,9 @@ class TestAIEndpoints:
     async def test_validate_sql_no_auth(self, async_client: AsyncClient):
         """Test POST /api/v1/ai/validate-sql without authentication."""
         validate_data = {"connection_id": str(uuid4()), "sql": "SELECT 1"}
-        response = await async_client.post("/api/v1/ai/validate-sql", json=validate_data)
+        response = await async_client.post(
+            "/api/v1/ai/validate-sql", json=validate_data
+        )
         assert response.status_code == 401
 
     @pytest.mark.asyncio
@@ -1222,12 +1450,17 @@ class TestAIEndpoints:
         """Test POST /api/v1/ai/validate-sql with invalid request."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         # Missing required fields
-        response = await async_client.post("/api/v1/ai/validate-sql", json={}, headers=headers)
+        response = await async_client.post(
+            "/api/v1/ai/validate-sql", json={}, headers=headers
+        )
         assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_validate_sql_with_space_id(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/validate-sql with space_id provided."""
         user = test_user_with_tokens["user"]
@@ -1252,7 +1485,10 @@ class TestAIEndpoints:
 
     @pytest.mark.asyncio
     async def test_validate_sql_without_space_id(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/validate-sql without space_id (should try to resolve)."""
         user = test_user_with_tokens["user"]
@@ -1276,7 +1512,10 @@ class TestAIEndpoints:
 
     @pytest.mark.asyncio
     async def test_validate_sql_with_connection_linked_to_space(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/validate-sql with connection linked to space (tests _resolve_space_id_for_connection)."""
         user = test_user_with_tokens["user"]
@@ -1286,7 +1525,9 @@ class TestAIEndpoints:
         # Link connection to space directly in database
         from src.models.space import SpaceConnection
 
-        space_connection = SpaceConnection(space_id=space.id, connection_id=connection.id)
+        space_connection = SpaceConnection(
+            space_id=space.id, connection_id=connection.id
+        )
         db_session.add(space_connection)
         await db_session.commit()
 
@@ -1308,7 +1549,10 @@ class TestAIEndpoints:
 
     @pytest.mark.asyncio
     async def test_validate_sql_empty_sql(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/validate-sql with empty SQL."""
         user = test_user_with_tokens["user"]
@@ -1316,7 +1560,11 @@ class TestAIEndpoints:
         connection = await create_test_connection(db_session, user)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        validate_data = {"connection_id": str(connection.id), "sql": "", "space_id": str(space.id)}
+        validate_data = {
+            "connection_id": str(connection.id),
+            "sql": "",
+            "space_id": str(space.id),
+        }
         response = await async_client.post(
             "/api/v1/ai/validate-sql", json=validate_data, headers=headers
         )
@@ -1325,7 +1573,10 @@ class TestAIEndpoints:
 
     @pytest.mark.asyncio
     async def test_validate_sql_with_crew_ids(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/validate-sql with crew_ids provided."""
         user = test_user_with_tokens["user"]
@@ -1353,7 +1604,10 @@ class TestAIEndpoints:
 
     @pytest.mark.asyncio
     async def test_validate_sql_no_space_id_cannot_resolve(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/validate-sql without space_id when connection is not linked to any space (should return 400)."""
         user = test_user_with_tokens["user"]
@@ -1374,12 +1628,17 @@ class TestAIEndpoints:
         if response.status_code == 400:
             data = response.json()
             error_data = data.get("error", {})
-            message = error_data.get("message", "").lower() or data.get("detail", "").lower()
+            message = (
+                error_data.get("message", "").lower() or data.get("detail", "").lower()
+            )
             assert "space_id is required" in message or "space_id" in message
 
     @pytest.mark.asyncio
     async def test_validate_sql_with_space_member(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/validate-sql with connection linked to space where user is a member (not creator)."""
         user = test_user_with_tokens["user"]
@@ -1406,7 +1665,9 @@ class TestAIEndpoints:
         # Link connection to space
         from src.models.space import SpaceConnection, SpaceMember
 
-        space_connection = SpaceConnection(space_id=space.id, connection_id=connection.id)
+        space_connection = SpaceConnection(
+            space_id=space.id, connection_id=connection.id
+        )
         db_session.add(space_connection)
 
         # Add user as member of space (not creator)
@@ -1434,7 +1695,10 @@ class TestAIEndpoints:
 
     @pytest.mark.asyncio
     async def test_validate_sql_with_is_personal(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/validate-sql with is_personal=True."""
         user = test_user_with_tokens["user"]
@@ -1467,7 +1731,10 @@ class TestSpacesEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_spaces_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/spaces."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -1478,7 +1745,10 @@ class TestSpacesEndpoints:
 
     @pytest.mark.asyncio
     async def test_create_space_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/spaces."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -1486,7 +1756,9 @@ class TestSpacesEndpoints:
             "name": "Test Space",
             "description": "Test space description",
         }
-        response = await async_client.post("/api/v1/spaces", json=space_data, headers=headers)
+        response = await async_client.post(
+            "/api/v1/spaces", json=space_data, headers=headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == space_data["name"]
@@ -1494,7 +1766,10 @@ class TestSpacesEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_space_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/spaces/{id}."""
         user = test_user_with_tokens["user"]
@@ -1507,7 +1782,10 @@ class TestSpacesEndpoints:
 
     @pytest.mark.asyncio
     async def test_update_space_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test PUT /api/v1/spaces/{id}."""
         user = test_user_with_tokens["user"]
@@ -1523,31 +1801,44 @@ class TestSpacesEndpoints:
 
     @pytest.mark.asyncio
     async def test_delete_space_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test DELETE /api/v1/spaces/{id}."""
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/spaces/{space.id}", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/spaces/{space.id}", headers=headers
+        )
         assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_get_space_members(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/spaces/{id}/members."""
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/spaces/{space.id}/members", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/spaces/{space.id}/members", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
 
     @pytest.mark.asyncio
     async def test_add_space_member(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/spaces/{id}/members."""
         user = test_user_with_tokens["user"]
@@ -1579,33 +1870,46 @@ class TestSpacesEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_space_crews(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/spaces/{id}/crews."""
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/spaces/{space.id}/crews", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/spaces/{space.id}/crews", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
 
     @pytest.mark.asyncio
     async def test_get_space_connections(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/spaces/{id}/connections."""
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/spaces/{space.id}/connections", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/spaces/{space.id}/connections", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
 
     @pytest.mark.asyncio
     async def test_add_space_connection(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/spaces/{id}/connections."""
         # Note: This endpoint doesn't exist in the backend (only GET exists)
@@ -1616,7 +1920,9 @@ class TestSpacesEndpoints:
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         connection_data = {"connection_id": str(connection.id)}
         response = await async_client.post(
-            f"/api/v1/spaces/{space.id}/connections", json=connection_data, headers=headers
+            f"/api/v1/spaces/{space.id}/connections",
+            json=connection_data,
+            headers=headers,
         )
         # Endpoint only supports GET, so POST should return 405
         assert response.status_code == 405
@@ -1632,7 +1938,10 @@ class TestCrewsEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_crews_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/crews."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -1643,7 +1952,10 @@ class TestCrewsEndpoints:
 
     @pytest.mark.asyncio
     async def test_create_crew_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/crews."""
         user = test_user_with_tokens["user"]
@@ -1654,7 +1966,9 @@ class TestCrewsEndpoints:
             "description": "Test crew description",
             "space_id": str(space.id),
         }
-        response = await async_client.post("/api/v1/crews", json=crew_data, headers=headers)
+        response = await async_client.post(
+            "/api/v1/crews", json=crew_data, headers=headers
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == crew_data["name"]
@@ -1662,7 +1976,10 @@ class TestCrewsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_crew_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/crews/{id}."""
         user = test_user_with_tokens["user"]
@@ -1676,7 +1993,10 @@ class TestCrewsEndpoints:
 
     @pytest.mark.asyncio
     async def test_update_crew_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test PUT /api/v1/crews/{id}."""
         user = test_user_with_tokens["user"]
@@ -1693,33 +2013,46 @@ class TestCrewsEndpoints:
 
     @pytest.mark.asyncio
     async def test_delete_crew_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test DELETE /api/v1/crews/{id}."""
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         crew = await create_test_crew(db_session, user, space.id)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/crews/{crew.id}?force=true", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/crews/{crew.id}?force=true", headers=headers
+        )
         assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_get_crew_members(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/crews/{id}/members."""
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         crew = await create_test_crew(db_session, user, space.id)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/crews/{crew.id}/members", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/crews/{crew.id}/members", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
 
     @pytest.mark.asyncio
     async def test_add_crew_member(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/crews/{id}/members."""
         user = test_user_with_tokens["user"]
@@ -1742,7 +2075,10 @@ class TestCrewsEndpoints:
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        member_data = {"user_id": str(new_user.id), "role": "explorer"}  # Fixed: use valid role
+        member_data = {
+            "user_id": str(new_user.id),
+            "role": "explorer",
+        }  # Fixed: use valid role
         response = await async_client.post(
             f"/api/v1/crews/{crew.id}/members", json=member_data, headers=headers
         )
@@ -1752,7 +2088,10 @@ class TestCrewsEndpoints:
 
     @pytest.mark.asyncio
     async def test_update_crew_member_role(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test PUT /api/v1/crews/{id}/members/{member_id}/role."""
         user = test_user_with_tokens["user"]
@@ -1772,7 +2111,10 @@ class TestCrewsEndpoints:
 
     @pytest.mark.asyncio
     async def test_remove_crew_member(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test DELETE /api/v1/crews/{id}/members/{member_id}."""
         user = test_user_with_tokens["user"]
@@ -1805,7 +2147,9 @@ class TestUsersEndpoints:
         assert response.status_code in [200, 403]
 
     @pytest.mark.asyncio
-    async def test_get_user_success(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_get_user_success(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/users/{id}."""
         user = test_user_with_tokens["user"]
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -1815,7 +2159,9 @@ class TestUsersEndpoints:
         assert data["id"] == str(user.id)
 
     @pytest.mark.asyncio
-    async def test_get_user_not_found(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_get_user_not_found(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/users/{id} with non-existent ID."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
@@ -1834,7 +2180,9 @@ class TestUsersEndpoints:
             "name": "New User",
             "role": "user",
         }
-        response = await async_client.post("/api/v1/users", json=user_data, headers=headers)
+        response = await async_client.post(
+            "/api/v1/users", json=user_data, headers=headers
+        )
         # Regular users may get 403
         assert response.status_code in [201, 403]
 
@@ -1858,7 +2206,9 @@ class TestUsersEndpoints:
         """Test DELETE /api/v1/users/{id} (requires admin)."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.delete(f"/api/v1/users/{fake_id}", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/users/{fake_id}", headers=headers
+        )
         assert response.status_code in [200, 403, 404]
 
     @pytest.mark.asyncio
@@ -1868,7 +2218,9 @@ class TestUsersEndpoints:
         """Test GET /api/v1/users/{id}/permissions."""
         user = test_user_with_tokens["user"]
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/users/{user.id}/permissions", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/users/{user.id}/permissions", headers=headers
+        )
         assert response.status_code in [200, 403]
 
     @pytest.mark.asyncio
@@ -1878,14 +2230,20 @@ class TestUsersEndpoints:
         """Test PUT /api/v1/users/{id}/permissions."""
         user = test_user_with_tokens["user"]
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        permissions_data = {"role": "user"}  # Fixed: schema expects role, not permissions
+        permissions_data = {
+            "role": "user"
+        }  # Fixed: schema expects role, not permissions
         response = await async_client.put(
-            f"/api/v1/users/{user.id}/permissions", json=permissions_data, headers=headers
+            f"/api/v1/users/{user.id}/permissions",
+            json=permissions_data,
+            headers=headers,
         )
         assert response.status_code in [200, 403]
 
     @pytest.mark.asyncio
-    async def test_invite_user(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_invite_user(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/users/{id}/invite."""
         user = test_user_with_tokens["user"]
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -1929,7 +2287,9 @@ class TestPermissionsEndpoints:
             "table_access": None,
         }
         response = await async_client.post(
-            f"/api/v1/permissions/connections/{fake_id}", json=permission_data, headers=headers
+            f"/api/v1/permissions/connections/{fake_id}",
+            json=permission_data,
+            headers=headers,
         )
         assert response.status_code in [200, 201, 400, 404, 422]
 
@@ -1940,7 +2300,9 @@ class TestPermissionsEndpoints:
         """Test GET /api/v1/permissions/spaces/{space_id}."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.get(f"/api/v1/permissions/spaces/{fake_id}", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/permissions/spaces/{fake_id}", headers=headers
+        )
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
@@ -1953,7 +2315,9 @@ class TestPermissionsEndpoints:
         fake_id = str(uuid4())
         permission_data = {"user_id": str(uuid4()), "permission": "read"}
         response = await async_client.post(
-            f"/api/v1/permissions/spaces/{fake_id}", json=permission_data, headers=headers
+            f"/api/v1/permissions/spaces/{fake_id}",
+            json=permission_data,
+            headers=headers,
         )
         # Endpoint only supports GET, so POST should return 405
         assert response.status_code == 405
@@ -1965,7 +2329,9 @@ class TestPermissionsEndpoints:
         """Test GET /api/v1/permissions/crews/{crew_id}."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.get(f"/api/v1/permissions/crews/{fake_id}", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/permissions/crews/{fake_id}", headers=headers
+        )
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
@@ -1978,7 +2344,9 @@ class TestPermissionsEndpoints:
         fake_id = str(uuid4())
         permission_data = {"user_id": str(uuid4()), "permission": "read"}
         response = await async_client.post(
-            f"/api/v1/permissions/crews/{fake_id}", json=permission_data, headers=headers
+            f"/api/v1/permissions/crews/{fake_id}",
+            json=permission_data,
+            headers=headers,
         )
         # Endpoint only supports GET, so POST should return 405
         assert response.status_code == 405
@@ -2011,7 +2379,9 @@ class TestSettingsEndpoints:
     """Tests for /api/v1/settings endpoints."""
 
     @pytest.mark.asyncio
-    async def test_get_settings(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_get_settings(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/settings."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get("/api/v1/settings", headers=headers)
@@ -2020,11 +2390,15 @@ class TestSettingsEndpoints:
         assert "theme" in data or "language" in data or "notifications" in data
 
     @pytest.mark.asyncio
-    async def test_update_settings(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_update_settings(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test PUT /api/v1/settings."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         settings_data = {"theme": "dark"}
-        response = await async_client.put("/api/v1/settings", json=settings_data, headers=headers)
+        response = await async_client.put(
+            "/api/v1/settings", json=settings_data, headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert data.get("theme") == "dark" or "theme" in data
@@ -2035,7 +2409,9 @@ class TestSettingsEndpoints:
     ):
         """Test GET /api/v1/settings/data-catalog."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/settings/data-catalog", headers=headers)
+        response = await async_client.get(
+            "/api/v1/settings/data-catalog", headers=headers
+        )
         assert response.status_code == 200
 
     @pytest.mark.asyncio
@@ -2048,14 +2424,18 @@ class TestSettingsEndpoints:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_get_crews_settings(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_get_crews_settings(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/settings/crews."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get("/api/v1/settings/crews", headers=headers)
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_get_users_settings(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_get_users_settings(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/settings/users."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get("/api/v1/settings/users", headers=headers)
@@ -2067,12 +2447,16 @@ class TestSettingsEndpoints:
     ):
         """Test GET /api/v1/settings/permissions."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/settings/permissions", headers=headers)
+        response = await async_client.get(
+            "/api/v1/settings/permissions", headers=headers
+        )
         # Requires admin, so regular users get 403
         assert response.status_code in [200, 403]
 
     @pytest.mark.asyncio
-    async def test_list_api_keys(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_list_api_keys(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/settings/api-keys."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get("/api/v1/settings/api-keys", headers=headers)
@@ -2081,7 +2465,9 @@ class TestSettingsEndpoints:
         assert isinstance(data, list)
 
     @pytest.mark.asyncio
-    async def test_create_api_key(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_create_api_key(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/settings/api-keys."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         api_key_data = {"name": "Test API Key", "expires_at": None}
@@ -2094,7 +2480,9 @@ class TestSettingsEndpoints:
             assert "key" in data or "api_key" in data
 
     @pytest.mark.asyncio
-    async def test_delete_api_key(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_delete_api_key(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test DELETE /api/v1/settings/api-keys/{key_id}."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
@@ -2104,16 +2492,22 @@ class TestSettingsEndpoints:
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
-    async def test_list_integrations(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_list_integrations(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/settings/integrations."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/settings/integrations", headers=headers)
+        response = await async_client.get(
+            "/api/v1/settings/integrations", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
 
     @pytest.mark.asyncio
-    async def test_create_integration(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_create_integration(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/settings/integrations."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         integration_data = {
@@ -2127,18 +2521,24 @@ class TestSettingsEndpoints:
         assert response.status_code in [200, 201]
 
     @pytest.mark.asyncio
-    async def test_update_integration(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_update_integration(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test PUT /api/v1/settings/integrations/{integration_id}."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
         integration_data = {"config": {"webhook_url": "https://updated.com/webhook"}}
         response = await async_client.put(
-            f"/api/v1/settings/integrations/{fake_id}", json=integration_data, headers=headers
+            f"/api/v1/settings/integrations/{fake_id}",
+            json=integration_data,
+            headers=headers,
         )
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
-    async def test_delete_integration(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_delete_integration(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test DELETE /api/v1/settings/integrations/{integration_id}."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
@@ -2157,28 +2557,38 @@ class TestFilesEndpoints:
     """Tests for /api/v1/files endpoints."""
 
     @pytest.mark.asyncio
-    async def test_upload_file(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_upload_file(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/files/upload."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         # Create a simple text file
         files = {"file": ("test.txt", "Hello, World!", "text/plain")}
-        response = await async_client.post("/api/v1/files/upload", files=files, headers=headers)
+        response = await async_client.post(
+            "/api/v1/files/upload", files=files, headers=headers
+        )
         assert response.status_code in [200, 201]
         if response.status_code in [200, 201]:
             data = response.json()
             assert "id" in data or "file_id" in data
 
     @pytest.mark.asyncio
-    async def test_upload_csv(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_upload_csv(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/files/upload/csv."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         csv_content = "name,age\nJohn,30\nJane,25"
         files = {"file": ("test.csv", csv_content, "text/csv")}
-        response = await async_client.post("/api/v1/files/upload/csv", files=files, headers=headers)
+        response = await async_client.post(
+            "/api/v1/files/upload/csv", files=files, headers=headers
+        )
         assert response.status_code in [200, 201, 400]
 
     @pytest.mark.asyncio
-    async def test_upload_excel(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_upload_excel(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/files/upload/excel."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         # Excel files are binary, so we'll just test the endpoint exists
@@ -2195,7 +2605,9 @@ class TestFilesEndpoints:
         assert response.status_code in [200, 201, 400]
 
     @pytest.mark.asyncio
-    async def test_upload_image(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_upload_image(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/files/upload/image."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         # Create a simple image file (fake PNG)
@@ -2206,15 +2618,21 @@ class TestFilesEndpoints:
         assert response.status_code in [200, 201, 400]
 
     @pytest.mark.asyncio
-    async def test_upload_pdf(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_upload_pdf(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/files/upload/pdf."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         files = {"file": ("test.pdf", b"fake pdf content", "application/pdf")}
-        response = await async_client.post("/api/v1/files/upload/pdf", files=files, headers=headers)
+        response = await async_client.post(
+            "/api/v1/files/upload/pdf", files=files, headers=headers
+        )
         assert response.status_code in [200, 201, 400]
 
     @pytest.mark.asyncio
-    async def test_get_file_info(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_get_file_info(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/files/{file_id}."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
@@ -2222,11 +2640,15 @@ class TestFilesEndpoints:
         assert response.status_code in [200, 404]
 
     @pytest.mark.asyncio
-    async def test_delete_file(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_delete_file(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test DELETE /api/v1/files/{file_id}."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.delete(f"/api/v1/files/{fake_id}", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/files/{fake_id}", headers=headers
+        )
         assert response.status_code in [200, 404]
 
 
@@ -2239,7 +2661,9 @@ class TestConnectorsEndpoints:
     """Tests for /api/v1/connectors endpoints."""
 
     @pytest.mark.asyncio
-    async def test_list_connectors(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_list_connectors(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/connectors."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get("/api/v1/connectors", headers=headers)
@@ -2251,13 +2675,19 @@ class TestConnectorsEndpoints:
         assert "postgresql" in connector_ids or "mysql" in connector_ids
 
     @pytest.mark.asyncio
-    async def test_get_connector(self, async_client: AsyncClient, test_user_with_tokens: dict):
+    async def test_get_connector(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test GET /api/v1/connectors/{connector_id}."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/connectors/postgresql", headers=headers)
+        response = await async_client.get(
+            "/api/v1/connectors/postgresql", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
-        assert data.get("id") == "postgresql" or data.get("connector_id") == "postgresql"
+        assert (
+            data.get("id") == "postgresql" or data.get("connector_id") == "postgresql"
+        )
         assert "name" in data
         assert "config_schema" in data
 
@@ -2267,7 +2697,9 @@ class TestConnectorsEndpoints:
     ):
         """Test GET /api/v1/connectors/{connector_id} with non-existent connector."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/connectors/nonexistent", headers=headers)
+        response = await async_client.get(
+            "/api/v1/connectors/nonexistent", headers=headers
+        )
         assert response.status_code == 404
 
 
@@ -2281,7 +2713,10 @@ class TestStarredEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_starred_items_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/starred - list starred items."""
         user = test_user_with_tokens["user"]
@@ -2301,12 +2736,16 @@ class TestStarredEndpoints:
         assert isinstance(data, list)
         assert len(data) > 0
         assert any(
-            item["item_id"] == str(planet.id) and item["item_type"] == "planet" for item in data
+            item["item_id"] == str(planet.id) and item["item_type"] == "planet"
+            for item in data
         )
 
     @pytest.mark.asyncio
     async def test_list_starred_items_with_filter(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/starred?item_type=planet."""
         user = test_user_with_tokens["user"]
@@ -2320,7 +2759,9 @@ class TestStarredEndpoints:
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/starred?item_type=planet", headers=headers)
+        response = await async_client.get(
+            "/api/v1/starred?item_type=planet", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -2334,7 +2775,10 @@ class TestStarredEndpoints:
 
     @pytest.mark.asyncio
     async def test_check_starred_item_true(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/starred/check/{item_id} - item is starred."""
         user = test_user_with_tokens["user"]
@@ -2359,7 +2803,10 @@ class TestStarredEndpoints:
 
     @pytest.mark.asyncio
     async def test_check_starred_item_false(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test GET /api/v1/starred/check/{item_id} - item is not starred."""
         user = test_user_with_tokens["user"]
@@ -2398,14 +2845,19 @@ class TestPlanetsStarEndpoints:
 
     @pytest.mark.asyncio
     async def test_star_planet_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/planets/{planet_id}/star."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(f"/api/v1/planets/{planet.id}/star", headers=headers)
+        response = await async_client.post(
+            f"/api/v1/planets/{planet.id}/star", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert "message" in data
@@ -2418,12 +2870,17 @@ class TestPlanetsStarEndpoints:
         """Test POST /api/v1/planets/{planet_id}/star with non-existent planet."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.post(f"/api/v1/planets/{fake_id}/star", headers=headers)
+        response = await async_client.post(
+            f"/api/v1/planets/{fake_id}/star", headers=headers
+        )
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_unstar_planet_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test DELETE /api/v1/planets/{planet_id}/star."""
         user = test_user_with_tokens["user"]
@@ -2437,7 +2894,9 @@ class TestPlanetsStarEndpoints:
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/planets/{planet.id}/star", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/planets/{planet.id}/star", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert "message" in data
@@ -2445,14 +2904,19 @@ class TestPlanetsStarEndpoints:
 
     @pytest.mark.asyncio
     async def test_unstar_planet_idempotent(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test DELETE /api/v1/planets/{planet_id}/star when not starred (idempotent)."""
         user = test_user_with_tokens["user"]
         planet = await create_test_planet(db_session, user)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/planets/{planet.id}/star", headers=headers)
+        response = await async_client.delete(
+            f"/api/v1/planets/{planet.id}/star", headers=headers
+        )
         # Should succeed even if not starred (idempotent)
         assert response.status_code == 200
 
@@ -2475,28 +2939,36 @@ class TestSSOEndpoints:
     @pytest.mark.asyncio
     async def test_sso_login_google_not_configured(self, async_client: AsyncClient):
         """Test GET /api/v1/auth/sso/google/login - Google not configured."""
-        response = await async_client.get("/api/v1/auth/sso/google/login", follow_redirects=False)
+        response = await async_client.get(
+            "/api/v1/auth/sso/google/login", follow_redirects=False
+        )
         # Should return 400 if not configured, or 302 redirect if configured
         assert response.status_code in [400, 302]
 
     @pytest.mark.asyncio
     async def test_sso_login_azure_not_configured(self, async_client: AsyncClient):
         """Test GET /api/v1/auth/sso/azure/login - Azure not configured."""
-        response = await async_client.get("/api/v1/auth/sso/azure/login", follow_redirects=False)
+        response = await async_client.get(
+            "/api/v1/auth/sso/azure/login", follow_redirects=False
+        )
         # Should return 400 if not configured, or 302 redirect if configured
         assert response.status_code in [400, 302]
 
     @pytest.mark.asyncio
     async def test_sso_login_okta_not_configured(self, async_client: AsyncClient):
         """Test GET /api/v1/auth/sso/okta/login - Okta not configured."""
-        response = await async_client.get("/api/v1/auth/sso/okta/login", follow_redirects=False)
+        response = await async_client.get(
+            "/api/v1/auth/sso/okta/login", follow_redirects=False
+        )
         # Should return 400 if not configured, or 302 redirect if configured
         assert response.status_code in [400, 302]
 
     @pytest.mark.asyncio
     async def test_sso_login_unsupported_provider(self, async_client: AsyncClient):
         """Test GET /api/v1/auth/sso/invalid/login - Unsupported provider."""
-        response = await async_client.get("/api/v1/auth/sso/invalid/login", follow_redirects=False)
+        response = await async_client.get(
+            "/api/v1/auth/sso/invalid/login", follow_redirects=False
+        )
         assert response.status_code == 400
         data = response.json()
         error_info = data.get("error", {})
@@ -2606,7 +3078,10 @@ class TestInviteEndpoints:
 
     @pytest.mark.asyncio
     async def test_generate_invite_not_admin(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/auth/invite/generate - User is not admin."""
         from sqlalchemy import update
@@ -2615,7 +3090,9 @@ class TestInviteEndpoints:
         from src.models.user import User
 
         user = test_user_with_tokens["user"]
-        await db_session.execute(update(User).where(User.id == user.id).values(role="user"))
+        await db_session.execute(
+            update(User).where(User.id == user.id).values(role="user")
+        )
         await db_session.commit()
 
         # New token with correct role
@@ -2624,7 +3101,9 @@ class TestInviteEndpoints:
 
         headers = get_auth_headers(access_token)
         response = await async_client.post(
-            "/api/v1/auth/invite/generate", json={"email": "test@example.com"}, headers=headers
+            "/api/v1/auth/invite/generate",
+            json={"email": "test@example.com"},
+            headers=headers,
         )
         assert response.status_code == 403
         data = response.json()
@@ -2632,7 +3111,10 @@ class TestInviteEndpoints:
 
     @pytest.mark.asyncio
     async def test_validate_invite_token_expired(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/auth/invite/validate - Expired token."""
         from datetime import datetime, timedelta, timezone
@@ -2660,14 +3142,19 @@ class TestInviteEndpoints:
         db_session.add(expired_user)
         await db_session.commit()
 
-        response = await async_client.post("/api/v1/auth/invite/validate", json={"token": token})
+        response = await async_client.post(
+            "/api/v1/auth/invite/validate", json={"token": token}
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["valid"] is False
 
     @pytest.mark.asyncio
     async def test_validate_invite_token_valid(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/auth/invite/validate - Valid token."""
         from src.services.invite_service import InviteService
@@ -2685,7 +3172,9 @@ class TestInviteEndpoints:
             name="Valid Invite User",
         )
 
-        response = await async_client.post("/api/v1/auth/invite/validate", json={"token": token})
+        response = await async_client.post(
+            "/api/v1/auth/invite/validate", json={"token": token}
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["valid"] is True

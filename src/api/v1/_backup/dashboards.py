@@ -131,7 +131,9 @@ async def update_dashboard(
         DashboardResponse: Updated dashboard
     """
     dashboard_service = DashboardService(db)
-    return await dashboard_service.update_dashboard(dashboard_id, current_user, dashboard_data)
+    return await dashboard_service.update_dashboard(
+        dashboard_id, current_user, dashboard_data
+    )
 
 
 @router.delete(

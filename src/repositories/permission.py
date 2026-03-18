@@ -6,7 +6,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.permission import ConnectionPermission, RolePermission, TableMemberPermission
+from src.models.permission import (
+    ConnectionPermission,
+    RolePermission,
+    TableMemberPermission,
+)
 from src.repositories.base import BaseRepository
 
 
@@ -16,7 +20,9 @@ class PermissionRepository(BaseRepository[ConnectionPermission]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, ConnectionPermission)
 
-    async def get_by_connection_id(self, connection_id: UUID) -> List[ConnectionPermission]:
+    async def get_by_connection_id(
+        self, connection_id: UUID
+    ) -> List[ConnectionPermission]:
         """
         Get permissions by connection ID.
 
@@ -27,7 +33,9 @@ class PermissionRepository(BaseRepository[ConnectionPermission]):
             List[ConnectionPermission]: List of permissions
         """
         result = await self.db.execute(
-            select(ConnectionPermission).where(ConnectionPermission.connection_id == connection_id)
+            select(ConnectionPermission).where(
+                ConnectionPermission.connection_id == connection_id
+            )
         )
         return list(result.scalars().all())
 
@@ -42,7 +50,9 @@ class PermissionRepository(BaseRepository[ConnectionPermission]):
             List[ConnectionPermission]: List of permissions
         """
         result = await self.db.execute(
-            select(ConnectionPermission).where(ConnectionPermission.space_id == space_id)
+            select(ConnectionPermission).where(
+                ConnectionPermission.space_id == space_id
+            )
         )
         return list(result.scalars().all())
 
@@ -141,7 +151,9 @@ class TableMemberPermissionRepository(BaseRepository[TableMemberPermission]):
             List[TableMemberPermission]: List of permissions
         """
         result = await self.db.execute(
-            select(TableMemberPermission).where(TableMemberPermission.member_id == member_id)
+            select(TableMemberPermission).where(
+                TableMemberPermission.member_id == member_id
+            )
         )
         return list(result.scalars().all())
 
@@ -185,7 +197,9 @@ class RolePermissionRepository(BaseRepository[RolePermission]):
         Returns:
             Optional[RolePermission]: Role permission or None
         """
-        result = await self.db.execute(select(RolePermission).where(RolePermission.role == role))
+        result = await self.db.execute(
+            select(RolePermission).where(RolePermission.role == role)
+        )
         return result.scalar_one_or_none()
 
     async def get_all(self) -> List[RolePermission]:

@@ -17,7 +17,9 @@ class PlanetRepository(BaseRepository[Planet]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, Planet)
 
-    async def get_by_owner(self, owner_id: UUID, skip: int = 0, limit: int = 100) -> List[Planet]:
+    async def get_by_owner(
+        self, owner_id: UUID, skip: int = 0, limit: int = 100
+    ) -> List[Planet]:
         """
         Get planets by owner.
 
@@ -32,7 +34,9 @@ class PlanetRepository(BaseRepository[Planet]):
         result = await self.db.execute(
             select(Planet)
             .where(Planet.owner_id == owner_id, Planet.deleted_at.is_(None))
-            .order_by(Planet.last_accessed.desc().nulls_last(), Planet.created_at.desc())
+            .order_by(
+                Planet.last_accessed.desc().nulls_last(), Planet.created_at.desc()
+            )
             .offset(skip)
             .limit(limit)
         )
@@ -67,7 +71,9 @@ class PlanetRepository(BaseRepository[Planet]):
         result = await self.db.execute(
             select(Planet)
             .where(Planet.owner_id == user_id, Planet.deleted_at.is_(None))
-            .order_by(Planet.last_accessed.desc().nulls_last(), Planet.created_at.desc())
+            .order_by(
+                Planet.last_accessed.desc().nulls_last(), Planet.created_at.desc()
+            )
             .limit(1)
             .options(selectinload(Planet.members), selectinload(Planet.dashboards))
         )
@@ -85,7 +91,9 @@ class PlanetRepository(BaseRepository[Planet]):
         """
         # Planets where user is owner
         owned_result = await self.db.execute(
-            select(Planet).where(Planet.owner_id == user_id, Planet.deleted_at.is_(None))
+            select(Planet).where(
+                Planet.owner_id == user_id, Planet.deleted_at.is_(None)
+            )
         )
         owned = list(owned_result.scalars().all())
 

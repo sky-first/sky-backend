@@ -14,7 +14,9 @@ async def test_create_pillar(async_client: AsyncClient, test_user_with_tokens: d
         "color": "#FF5733",
     }
 
-    response = await async_client.post("/api/v1/strategy/pillars", json=payload, headers=headers)
+    response = await async_client.post(
+        "/api/v1/strategy/pillars", json=payload, headers=headers
+    )
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "Innovation"
@@ -54,13 +56,17 @@ async def test_create_objective(async_client: AsyncClient, test_user_with_tokens
 
 
 @pytest.mark.asyncio
-async def test_get_strategy_tree(async_client: AsyncClient, test_user_with_tokens: dict):
+async def test_get_strategy_tree(
+    async_client: AsyncClient, test_user_with_tokens: dict
+):
     """Test fetching the full strategy tree."""
     token = test_user_with_tokens["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     # Create some data
-    await async_client.post("/api/v1/strategy/pillars", json={"name": "P1"}, headers=headers)
+    await async_client.post(
+        "/api/v1/strategy/pillars", json={"name": "P1"}, headers=headers
+    )
 
     response = await async_client.get("/api/v1/strategy/tree", headers=headers)
     assert response.status_code == 200
@@ -71,7 +77,9 @@ async def test_get_strategy_tree(async_client: AsyncClient, test_user_with_token
 
 
 @pytest.mark.asyncio
-async def test_get_strategy_health(async_client: AsyncClient, test_user_with_tokens: dict):
+async def test_get_strategy_health(
+    async_client: AsyncClient, test_user_with_tokens: dict
+):
     """Test fetching strategy health metrics."""
     token = test_user_with_tokens["access_token"]
     headers = {"Authorization": f"Bearer {token}"}

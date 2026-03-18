@@ -16,7 +16,10 @@ from src.core.exceptions import NotFoundError
 from src.models.ai import AIFeedback, AIHistory, AIQuery, ChatMessage, Pipeline
 from src.models.user import User
 from src.repositories.base import BaseRepository
-from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
+from src.repositories.connection import (
+    ConnectionMetadataRepository,
+    ConnectionRepository,
+)
 from src.repositories.crew import CrewMemberRepository
 from src.repositories.planet import PlanetMemberRepository, PlanetRepository
 from src.schemas.ai import (
@@ -89,7 +92,9 @@ class AIService:
                 return str(connections[0].id)
             return None
         except Exception as e:
-            logger.error(f"Error getting first active connection: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error getting first active connection: {str(e)}", exc_info=True
+            )
             # Ensure the session isn't left in a broken transaction state
             try:
                 await self.db.rollback()
@@ -169,7 +174,9 @@ class AIService:
 
                 # Check if any of the requested tables exist in this connection
                 connection_table_names = [
-                    table.get("name") if isinstance(table, dict) else getattr(table, "name", None)
+                    table.get("name")
+                    if isinstance(table, dict)
+                    else getattr(table, "name", None)
                     for table in metadata.tables
                 ]
 
@@ -195,7 +202,9 @@ class AIService:
             )
             return None
         except Exception as e:
-            logger.error(f"Error resolving connection_id from tables: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error resolving connection_id from tables: {str(e)}", exc_info=True
+            )
             return None
 
     async def _get_user_crew_ids(
@@ -226,7 +235,9 @@ class AIService:
                     # (user will only see global data, crew_id IS NULL)
                     return []
 
-                space_uuid = UUIDType(space_id) if isinstance(space_id, str) else space_id
+                space_uuid = (
+                    UUIDType(space_id) if isinstance(space_id, str) else space_id
+                )
                 crew_ids = await self.crew_member_repo.get_crew_ids_by_user_and_space(
                     user_id, space_uuid
                 )
@@ -271,7 +282,9 @@ class AIService:
             stmt = (
                 select(SpaceConnection.space_id)
                 .join(Space, Space.id == SpaceConnection.space_id)
-                .outerjoin(SpaceMember, SpaceMember.space_id == SpaceConnection.space_id)
+                .outerjoin(
+                    SpaceMember, SpaceMember.space_id == SpaceConnection.space_id
+                )
                 .where(SpaceConnection.connection_id == conn_uuid)
                 .where(or_(Space.created_by == user_id, SpaceMember.user_id == user_id))
                 .limit(1)
@@ -285,7 +298,9 @@ class AIService:
             )
             return None
 
-    async def process_query(self, user_id: UUID, query_data: AIQueryRequest) -> AIQueryResponse:
+    async def process_query(
+        self, user_id: UUID, query_data: AIQueryRequest
+    ) -> AIQueryResponse:
         """
         Process AI query.
 
@@ -337,8 +352,10 @@ class AIService:
 
                     # If no UUID found, try to resolve table names to connection_id
                     if not connection_id and table_names:
-                        resolved_connection_id = await self._resolve_connection_id_from_tables(
-                            table_names, user_id
+                        resolved_connection_id = (
+                            await self._resolve_connection_id_from_tables(
+                                table_names, user_id
+                            )
                         )
                         if resolved_connection_id:
                             connection_id = resolved_connection_id
@@ -347,8 +364,10 @@ class AIService:
                 if not connection_id:
                     space_id = getattr(query_data, "space_id", None)
                     if space_id:
-                        connection_id = await self._get_first_active_connection_for_space(
-                            user_id, space_id
+                        connection_id = (
+                            await self._get_first_active_connection_for_space(
+                                user_id, space_id
+                            )
                         )
                     else:
                         connection_id = await self._get_first_active_connection(user_id)
@@ -420,7 +439,9 @@ class AIService:
                             )
                         elif active_crew_id:
                             # Collaborative mode: validate membership and restrict to this crew
-                            user_crew_ids = await self._get_user_crew_ids(user_id, space_id)
+                            user_crew_ids = await self._get_user_crew_ids(
+                                user_id, space_id
+                            )
                             if active_crew_id in user_crew_ids:
                                 crew_ids = [active_crew_id]
                             else:
@@ -435,14 +456,20 @@ class AIService:
                         # --- MANDATORY PERMISSION FILTERING ---
                         # 1. Get truly authorized tables for this context (space/crew/user)
                         try:
-                            authorized_tables = await self.permission_service.get_authorized_tables(
-                                user_id=user_id,
-                                connection_id=UUID(connection_id),
-                                space_id=UUID(space_id) if space_id else None,
-                                crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+                            authorized_tables = (
+                                await self.permission_service.get_authorized_tables(
+                                    user_id=user_id,
+                                    connection_id=UUID(connection_id),
+                                    space_id=UUID(space_id) if space_id else None,
+                                    crew_ids=[UUID(cid) for cid in crew_ids]
+                                    if crew_ids
+                                    else None,
+                                )
                             )
                         except Exception as e:
-                            logger.error(f"Error checking authorized tables: {e}", exc_info=True)
+                            logger.error(
+                                f"Error checking authorized tables: {e}", exc_info=True
+                            )
                             authorized_tables = []  # Fail closed
 
                         # 2. Forward user-selected datasets/tables from configure_data.knowledge,
@@ -508,10 +535,17 @@ class AIService:
                             f"result_keys={list(result.keys())}"
                         )
 
-                        if chosen_table or chosen_datasets or dynamic_title or detected_language:
+                        if (
+                            chosen_table
+                            or chosen_datasets
+                            or dynamic_title
+                            or detected_language
+                        ):
                             # Get current config and ensure it's a dict
                             current_config = (
-                                dict(query.configure_data) if query.configure_data else {}
+                                dict(query.configure_data)
+                                if query.configure_data
+                                else {}
                             )
 
                             if chosen_table:
@@ -731,7 +765,11 @@ class AIService:
                 if knowledge:
                     for item in knowledge:
                         # Check if it looks like a UUID (connection_id)
-                        if isinstance(item, str) and len(item) == 36 and item.count("-") == 4:
+                        if (
+                            isinstance(item, str)
+                            and len(item) == 36
+                            and item.count("-") == 4
+                        ):
                             connection_id = item
                             break
                         elif isinstance(item, str):
@@ -740,8 +778,10 @@ class AIService:
 
                     # If no UUID found, try to resolve table names to connection_id
                     if not connection_id and table_names:
-                        resolved_connection_id = await self._resolve_connection_id_from_tables(
-                            table_names, user_id
+                        resolved_connection_id = (
+                            await self._resolve_connection_id_from_tables(
+                                table_names, user_id
+                            )
                         )
                         if resolved_connection_id:
                             connection_id = resolved_connection_id
@@ -749,10 +789,14 @@ class AIService:
                 # If still no connection_id, try to get first active connection
                 if not connection_id:
                     # Try to get space_id from context
-                    space_id = context.get("space_id") or configure_data_dict.get("space_id")
+                    space_id = context.get("space_id") or configure_data_dict.get(
+                        "space_id"
+                    )
                     if space_id:
-                        connection_id = await self._get_first_active_connection_for_space(
-                            user_id, space_id
+                        connection_id = (
+                            await self._get_first_active_connection_for_space(
+                                user_id, space_id
+                            )
                         )
                     else:
                         connection_id = await self._get_first_active_connection(user_id)
@@ -763,7 +807,9 @@ class AIService:
 
                 if connection_id:
                     # Get space_id from context or resolve from connection
-                    space_id = context.get("space_id") or configure_data_dict.get("space_id")
+                    space_id = context.get("space_id") or configure_data_dict.get(
+                        "space_id"
+                    )
                     if not space_id:
                         space_id = await self._resolve_space_id_for_connection(
                             user_id, connection_id
@@ -783,7 +829,9 @@ class AIService:
                                 user_id, space_id, all_spaces=True
                             )
                         elif active_crew_id:
-                            user_crew_ids = await self._get_user_crew_ids(user_id, space_id)
+                            user_crew_ids = await self._get_user_crew_ids(
+                                user_id, space_id
+                            )
                             crew_ids = (
                                 [active_crew_id]
                                 if active_crew_id in user_crew_ids
@@ -795,11 +843,15 @@ class AIService:
                         # --- MANDATORY PERMISSION FILTERING ---
                         # 1. Get truly authorized tables for this context
                         try:
-                            authorized_tables = await self.permission_service.get_authorized_tables(
-                                user_id=user_id,
-                                connection_id=UUID(connection_id),
-                                space_id=UUID(space_id) if space_id else None,
-                                crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+                            authorized_tables = (
+                                await self.permission_service.get_authorized_tables(
+                                    user_id=user_id,
+                                    connection_id=UUID(connection_id),
+                                    space_id=UUID(space_id) if space_id else None,
+                                    crew_ids=[UUID(cid) for cid in crew_ids]
+                                    if crew_ids
+                                    else None,
+                                )
                             )
                         except Exception as e:
                             logger.error(
@@ -882,10 +934,13 @@ class AIService:
                 )
         except Exception as e:
             logger.error(
-                f"[send_chat_message] Error calling real AI service: {str(e)}", exc_info=True
+                f"[send_chat_message] Error calling real AI service: {str(e)}",
+                exc_info=True,
             )
             # Fallback to mock on error
-            answer = await self.mock_ai.generate_answer(message_data.message, knowledge, context)
+            answer = await self.mock_ai.generate_answer(
+                message_data.message, knowledge, context
+            )
 
         # Save AI response
         ai_message = await self.chat_repo.create(
@@ -1004,7 +1059,8 @@ class AIService:
             history_items = [
                 item
                 for item in history_items
-                if search.lower() in item.query.lower() or search.lower() in item.preview.lower()
+                if search.lower() in item.query.lower()
+                or search.lower() in item.preview.lower()
             ]
 
         return [AIHistoryItem.model_validate(item) for item in history_items]
@@ -1067,7 +1123,9 @@ class AIService:
             pipeline.status = "completed"
         except Exception as e:
             pipeline.status = "error"
-            pipeline.errors = [{"message": str(e), "timestamp": str(datetime.now(timezone.utc))}]
+            pipeline.errors = [
+                {"message": str(e), "timestamp": str(datetime.now(timezone.utc))}
+            ]
 
         await self.db.commit()
 
@@ -1115,7 +1173,9 @@ class AIService:
 
         return AIHistoryItem.model_validate(history)
 
-    async def delete_history(self, history_id: UUID, user_id: UUID, planet_id: UUID) -> None:
+    async def delete_history(
+        self, history_id: UUID, user_id: UUID, planet_id: UUID
+    ) -> None:
         """
         Delete history item.
 
@@ -1134,7 +1194,9 @@ class AIService:
         await self.history_repo.delete(history_id)
         await self.db.commit()
 
-    async def pin_history(self, history_id: UUID, user_id: UUID, planet_id: UUID) -> AIHistoryItem:
+    async def pin_history(
+        self, history_id: UUID, user_id: UUID, planet_id: UUID
+    ) -> AIHistoryItem:
         """
         Pin history item.
 
@@ -1260,7 +1322,9 @@ class AIService:
 
         return AIHistoryItem.model_validate(history)
 
-    async def submit_feedback(self, user_id: UUID, feedback_data: FeedbackRequest) -> None:
+    async def submit_feedback(
+        self, user_id: UUID, feedback_data: FeedbackRequest
+    ) -> None:
         """
         Submit feedback for AI response.
 
@@ -1345,7 +1409,10 @@ class AIService:
         return pipeline.logs or ""
 
     async def generate_answer(
-        self, question: str, knowledge: List[str], context: Optional[Dict[str, Any]] = None
+        self,
+        question: str,
+        knowledge: List[str],
+        context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Generate answer from question.
@@ -1361,7 +1428,9 @@ class AIService:
         answer = await self.mock_ai.generate_answer(question, knowledge, context or {})
         return answer
 
-    async def analyze_question(self, question: str, knowledge: List[str]) -> Dict[str, Any]:
+    async def analyze_question(
+        self, question: str, knowledge: List[str]
+    ) -> Dict[str, Any]:
         """
         Analyze question.
 
@@ -1381,7 +1450,9 @@ class AIService:
             "confidence": 0.85,
         }
 
-    async def validate_sql(self, request: ValidateSQLRequest, user: User) -> ValidateSQLResponse:
+    async def validate_sql(
+        self, request: ValidateSQLRequest, user: User
+    ) -> ValidateSQLResponse:
         """
         Validate SQL by calling AI Engine.
 
@@ -1400,7 +1471,8 @@ class AIService:
 
         if not self.real_ai:
             raise HTTPException(
-                status_code=503, detail="AI service is not available (not configured as 'real')"
+                status_code=503,
+                detail="AI service is not available (not configured as 'real')",
             )
 
         try:
@@ -1440,9 +1512,13 @@ class AIService:
             )
         except httpx.TimeoutException as e:
             logger.error(f"AI service timeout: {e}")
-            raise HTTPException(status_code=504, detail=f"AI service timeout: {e.request.url}")
+            raise HTTPException(
+                status_code=504, detail=f"AI service timeout: {e.request.url}"
+            )
         except httpx.HTTPStatusError as e:
-            logger.error(f"AI service HTTP error: {e.response.status_code} - {e.response.text}")
+            logger.error(
+                f"AI service HTTP error: {e.response.status_code} - {e.response.text}"
+            )
             raise HTTPException(
                 status_code=502,
                 detail=f"AI service error ({e.response.status_code}): {e.response.text}",
@@ -1450,4 +1526,6 @@ class AIService:
         except Exception as e:
             error_msg = str(e) or repr(e) or "Unknown error"
             logger.error(f"Error validating SQL: {error_msg}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error validating SQL: {error_msg}")
+            raise HTTPException(
+                status_code=500, detail=f"Error validating SQL: {error_msg}"
+            )

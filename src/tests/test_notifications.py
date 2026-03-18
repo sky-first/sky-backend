@@ -28,7 +28,11 @@ async def test_user(db_session):
 @pytest.fixture
 async def test_planet(db_session, test_user):
     planet = Planet(
-        id=uuid4(), name="Test Planet", owner_id=test_user.id, type="team", color="#000000"
+        id=uuid4(),
+        name="Test Planet",
+        owner_id=test_user.id,
+        type="team",
+        color="#000000",
     )
     db_session.add(planet)
     await db_session.commit()
@@ -38,7 +42,10 @@ async def test_planet(db_session, test_user):
 @pytest.fixture
 async def test_dashboard(db_session, test_user, test_planet):
     dashboard = Dashboard(
-        id=uuid4(), name="Test Dashboard", created_by=test_user.id, planet_id=test_planet.id
+        id=uuid4(),
+        name="Test Dashboard",
+        created_by=test_user.id,
+        planet_id=test_planet.id,
     )
     db_session.add(dashboard)
     await db_session.commit()
@@ -143,8 +150,12 @@ async def test_comment_mention_trigger(db_session, test_user, test_dashboard):
 async def test_get_comments_by_dashboard(db_session, test_dashboard):
     service = CommentService(db_session)
     user_id = uuid4()
-    await service.create(user_id, CommentCreate(content="C1", dashboard_id=test_dashboard.id))
-    await service.create(user_id, CommentCreate(content="C2", dashboard_id=test_dashboard.id))
+    await service.create(
+        user_id, CommentCreate(content="C1", dashboard_id=test_dashboard.id)
+    )
+    await service.create(
+        user_id, CommentCreate(content="C2", dashboard_id=test_dashboard.id)
+    )
 
     comments = await service.get_by_dashboard(test_dashboard.id)
     assert len(comments) == 2
