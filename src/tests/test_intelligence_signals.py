@@ -167,12 +167,12 @@ class TestSignalEventsEndpoints:
         """Test POST /api/v1/signal-events/."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         payload = {
-            "category": "internal",
+            "category": "INTERNAL",
             "sub_type": "Product Launch",
-            "nature": "Event",
+            "nature": "EVENT",
             "description": "Launch of the new AI module",
             "start_date": datetime.now(timezone.utc).isoformat(),
-            "confidence": "High",
+            "confidence": "HIGH",
         }
         response = await async_client.post(
             "/api/v1/signal-events/", json=payload, headers=headers

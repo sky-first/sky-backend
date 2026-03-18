@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -86,7 +86,7 @@ async def dismiss_signal(
     if not signal:
         raise HTTPException(status_code=404, detail="Signal not found")
 
-    return await repo.update(signal_id, is_dismissed=datetime.utcnow())
+    return await repo.update(signal_id, is_dismissed=datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 @router.delete("/{signal_id}", status_code=status.HTTP_204_NO_CONTENT)

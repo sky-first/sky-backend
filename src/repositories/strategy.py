@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.models.strategy import (
     StrategicObjective,
@@ -104,7 +105,9 @@ class StrategyRepository:
     # --- Strategy OKR ---
 
     async def get_all_okrs(self) -> List[StrategyOKR]:
-        result = await self.session.execute(select(StrategyOKR))
+        result = await self.session.execute(
+            select(StrategyOKR).options(selectinload(StrategyOKR.key_results))
+        )
         return result.scalars().all()
 
     async def get_okr_by_id(self, okr_id: UUID) -> Optional[StrategyOKR]:

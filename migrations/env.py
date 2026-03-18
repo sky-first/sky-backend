@@ -40,6 +40,26 @@ else:
 config.set_main_option("sqlalchemy.url", sync_url)
 
 # Add your model's MetaData object here
+# list of tables to ignore (managed by sky-poc-ai or langgraph)
+IGNORED_TABLES = {
+    "table_metadata",
+    "chat_history", 
+    "semantic_cache",
+    "embeddings",
+    "checkpoint_migrations",
+    "checkpoints",
+    "checkpoint_blobs",
+    "user_permissions",
+    "pipeline_jobs",
+    "checkpoint_writes",
+    "dashboards"
+}
+
+def include_object(obj, name, type_, reflected, compare_to):
+    if type_ == "table" and name in IGNORED_TABLES:
+        return False
+    return True
+
 target_metadata = Base.metadata
 
 
@@ -54,6 +74,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -85,7 +106,11 @@ def run_migrations_online() -> None:
     connectable = create_engine(sync_url, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection, 
+            target_metadata=target_metadata,
+            include_object=include_object
+        )
 
         with context.begin_transaction():
             context.run_migrations()

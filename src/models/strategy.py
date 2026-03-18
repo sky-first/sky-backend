@@ -1,7 +1,7 @@
 """Strategy models."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -24,6 +24,8 @@ class StrategicPillar(Base):
     owner = Column(String(100), nullable=True)
     metrics = Column(JSON, nullable=True, default=list)
     priority = Column(String(50), nullable=True)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Audit info
     created_at = Column(
@@ -33,7 +35,7 @@ class StrategicPillar(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
@@ -67,6 +69,8 @@ class StrategicObjective(Base):
         ForeignKey("crews.id", ondelete="SET NULL"),
         nullable=True,
     )
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Audit info
     created_at = Column(
@@ -76,15 +80,15 @@ class StrategicObjective(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
     pillar = relationship("StrategicPillar", back_populates="objectives")
-    okrs = relationship(
-        "StrategyOKR", back_populates="objective", cascade="all, delete-orphan"
+    okrs = relationship("StrategyOKR", back_populates="objective", cascade="all, delete-orphan")
+    assumptions = relationship(
+        "StrategyAssumption", back_populates="objective", cascade="all, delete-orphan"
     )
-    assumptions = relationship("StrategyAssumption", back_populates="objective")
 
 
 class StrategyCycle(Base):
@@ -107,7 +111,7 @@ class StrategyCycle(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
@@ -130,6 +134,7 @@ class StrategyOKR(Base):
         ForeignKey("strategy_cycles.id", ondelete="SET NULL"),
         nullable=True,
     )
+
     title = Column(String(255), nullable=False)
     linked_kpi_id = Column(
         String(100), nullable=True
@@ -143,6 +148,8 @@ class StrategyOKR(Base):
         ForeignKey("crews.id", ondelete="SET NULL"),
         nullable=True,
     )
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Audit info
     created_at = Column(
@@ -152,7 +159,7 @@ class StrategyOKR(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
@@ -188,7 +195,7 @@ class StrategyKeyResult(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
@@ -204,8 +211,8 @@ class StrategyInitiative(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     type = Column(String(50), nullable=True)
-    pillar_id = Column(UUID(as_uuid=True), nullable=True)
-    objective_id = Column(UUID(as_uuid=True), nullable=True)
+    pillar_id = Column(UUID(as_uuid=True), ForeignKey("strategic_pillars.id", ondelete="SET NULL"), nullable=True)
+    objective_id = Column(UUID(as_uuid=True), ForeignKey("strategic_objectives.id", ondelete="SET NULL"), nullable=True)
     unit = Column(String(100), nullable=True)
     owner = Column(String(100), nullable=True)
     start_date = Column(DateTime(timezone=True), nullable=True)
@@ -216,6 +223,8 @@ class StrategyInitiative(Base):
     risks = Column(JSON, nullable=True, default=list)
     assumptions = Column(JSON, nullable=True, default=list)
     progress = Column(Integer, nullable=True, default=0)
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Audit info
     created_at = Column(
@@ -225,7 +234,7 @@ class StrategyInitiative(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 
@@ -235,9 +244,14 @@ class StrategyAssumption(Base):
     __tablename__ = "strategy_assumptions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    linked_objective_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("strategic_objectives.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    category = Column(String(100), nullable=True)
+    category = Column(String(50), nullable=True)
     impact_score = Column(Integer, nullable=True, default=3)
     probability_score = Column(Integer, nullable=True, default=3)
     priority = Column(String(50), nullable=True)
@@ -246,11 +260,8 @@ class StrategyAssumption(Base):
     status = Column(String(50), nullable=True, default="identified")
     mitigation_plan = Column(Text, nullable=True)
     owner = Column(String(100), nullable=True)
-    linked_objective_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("strategic_objectives.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    space_id = Column(UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Audit info
     created_at = Column(
@@ -260,7 +271,7 @@ class StrategyAssumption(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
