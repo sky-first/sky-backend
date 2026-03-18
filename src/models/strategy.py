@@ -1,7 +1,7 @@
 """Strategy models."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -35,7 +35,7 @@ class StrategicPillar(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
@@ -80,7 +80,7 @@ class StrategicObjective(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
@@ -111,7 +111,7 @@ class StrategyCycle(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
@@ -159,7 +159,7 @@ class StrategyOKR(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
@@ -195,7 +195,7 @@ class StrategyKeyResult(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships
@@ -211,8 +211,8 @@ class StrategyInitiative(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     type = Column(String(50), nullable=True)
-    pillar_id = Column(UUID(as_uuid=True), nullable=True)
-    objective_id = Column(UUID(as_uuid=True), nullable=True)
+    pillar_id = Column(UUID(as_uuid=True), ForeignKey("strategic_pillars.id", ondelete="SET NULL"), nullable=True)
+    objective_id = Column(UUID(as_uuid=True), ForeignKey("strategic_objectives.id", ondelete="SET NULL"), nullable=True)
     unit = Column(String(100), nullable=True)
     owner = Column(String(100), nullable=True)
     start_date = Column(DateTime(timezone=True), nullable=True)
@@ -234,7 +234,7 @@ class StrategyInitiative(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 
@@ -271,7 +271,7 @@ class StrategyAssumption(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        onupdate=datetime.utcnow,
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
     # Relationships

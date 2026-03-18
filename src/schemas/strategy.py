@@ -25,6 +25,10 @@ class StrategicPillarUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     color: Optional[str] = None
+    horizon: Optional[str] = None
+    owner: Optional[str] = None
+    metrics: Optional[List[str]] = None
+    priority: Optional[str] = None
 
 
 class StrategicPillarResponse(StrategicPillarBase):
@@ -62,10 +66,12 @@ class StrategicObjectiveUpdate(BaseModel):
     type: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
-    horizon: Optional[str] = None
-    area: Optional[str] = None
+    status: Optional[str] = None
     priority: Optional[str] = None
-    weight: Optional[float] = None
+    area: Optional[str] = None
+    owner: Optional[str] = None
+    kpis: Optional[List[str]] = None
+    budget: Optional[float] = None
     owner_crew_id: Optional[UUID] = None
 
 
@@ -212,14 +218,19 @@ class StrategyInitiativeCreate(StrategyInitiativeBase):
 class StrategyInitiativeUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    owner_crew_id: Optional[UUID] = None
-    budget_estimated: Optional[float] = None
-    expected_impact: Optional[str] = None
-    status: Optional[str] = None
+    type: Optional[str] = None
+    pillar_id: Optional[UUID] = None
+    objective_id: Optional[UUID] = None
+    unit: Optional[str] = None
+    owner: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    alignment_score: Optional[int] = None
-    supports_objectives: Optional[List[UUID]] = None
+    status: Optional[str] = None
+    impact: Optional[str] = None
+    budget: Optional[float] = None
+    risks: Optional[List[str]] = None
+    assumptions: Optional[List[str]] = None
+    progress: Optional[int] = None
 
 
 class StrategyInitiativeResponse(StrategyInitiativeBase):
@@ -258,10 +269,15 @@ class StrategyAssumptionCreate(StrategyAssumptionBase):
 class StrategyAssumptionUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    confidence: Optional[str] = None
-    validated: Optional[bool] = None
-    revision_deadline: Optional[datetime] = None
-    owner_crew_id: Optional[UUID] = None
+    category: Optional[str] = None
+    impact_score: Optional[int] = None
+    probability_score: Optional[int] = None
+    priority: Optional[str] = None
+    impacted_entities: Optional[List[str]] = None
+    source: Optional[str] = None
+    status: Optional[str] = None
+    mitigation_plan: Optional[str] = None
+    owner: Optional[str] = None
     linked_objective_id: Optional[UUID] = None
 
 
