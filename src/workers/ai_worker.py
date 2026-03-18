@@ -42,7 +42,9 @@ def build_dashboard_job(self, job_id: str):
         asyncio.run(_build_dashboard_job_async(job_id))
         return {"status": "success", "job_id": job_id}
     except Exception as exc:
-        logger.error(f"Dashboard build job failed for job_id={job_id}: {exc}", exc_info=True)
+        logger.error(
+            f"Dashboard build job failed for job_id={job_id}: {exc}", exc_info=True
+        )
         raise self.retry(exc=exc, countdown=30)
 
 
@@ -153,7 +155,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         space_id=space_id,
                         is_personal=True,
                     )
-                    rl_limiter = RedisFixedWindowRateLimiter(enabled=True, key_prefix="rl:v1")
+                    rl_limiter = RedisFixedWindowRateLimiter(
+                        enabled=True, key_prefix="rl:v1"
+                    )
                     rl_buckets = default_buckets_for_request(
                         tenant_key=tenant_key,
                         user_id=str(user_id),
@@ -173,14 +177,18 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             # 1. Get truly authorized tables for this context
             authorized_tables = []
             try:
-                authorized_tables = await ai_service.permission_service.get_authorized_tables(
-                    user_id=user_id,
-                    connection_id=UUID(connection_id),
-                    space_id=UUID(space_id) if space_id else None,
-                    crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+                authorized_tables = (
+                    await ai_service.permission_service.get_authorized_tables(
+                        user_id=user_id,
+                        connection_id=UUID(connection_id),
+                        space_id=UUID(space_id) if space_id else None,
+                        crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+                    )
                 )
             except Exception as e:
-                logger.error(f"Error checking authorized tables in worker: {e}", exc_info=True)
+                logger.error(
+                    f"Error checking authorized tables in worker: {e}", exc_info=True
+                )
                 authorized_tables = []
 
             # 2. Build a compact schema summary from backend connection_metadata,
@@ -188,7 +196,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             logical_tables_override = None
             schema_summary_override = None
             try:
-                meta = await ai_service.metadata_repo.get_by_connection_id(UUID(connection_id))
+                meta = await ai_service.metadata_repo.get_by_connection_id(
+                    UUID(connection_id)
+                )
                 tables = (meta.tables or []) if meta else []
                 logical_tables: list[str] = []
                 schema_lines: list[str] = []
@@ -214,7 +224,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                             if isinstance(c, dict) and c.get("name"):
                                 col_names.append(str(c["name"]))
                     schema_lines.append(
-                        f"- {logical} cols: {', '.join(col_names)}" if col_names else f"- {logical}"
+                        f"- {logical} cols: {', '.join(col_names)}"
+                        if col_names
+                        else f"- {logical}"
                     )
 
                 # unique preserving order, limit to 12 tables to keep planning prompt small
@@ -235,7 +247,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             # so it is available in both the bypass and the re-plan branches.
             ctx = None
             try:
-                if isinstance(job.plan, dict) and isinstance(job.plan.get("_context"), dict):
+                if isinstance(job.plan, dict) and isinstance(
+                    job.plan.get("_context"), dict
+                ):
                     ctx = job.plan.get("_context")
             except Exception:
                 ctx = None
@@ -269,17 +283,30 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     language=language,
                     goal=goal,
                     original_question=(
-                        (ctx.get("original_question") if isinstance(ctx, dict) else None) or goal
+                        (
+                            ctx.get("original_question")
+                            if isinstance(ctx, dict)
+                            else None
+                        )
+                        or goal
                     ),
                     max_widgets=max_widgets,
                     logical_tables_override=logical_tables_override,
                     schema_summary_override=schema_summary_override,
                     initial_ai_response=(
-                        ctx.get("initial_ai_response") if isinstance(ctx, dict) else None
+                        ctx.get("initial_ai_response")
+                        if isinstance(ctx, dict)
+                        else None
                     ),
-                    context_spaces=(ctx.get("context_spaces") if isinstance(ctx, dict) else None),
-                    context_crews=(ctx.get("context_crews") if isinstance(ctx, dict) else None),
-                    context_tables=(ctx.get("context_tables") if isinstance(ctx, dict) else None),
+                    context_spaces=(
+                        ctx.get("context_spaces") if isinstance(ctx, dict) else None
+                    ),
+                    context_crews=(
+                        ctx.get("context_crews") if isinstance(ctx, dict) else None
+                    ),
+                    context_tables=(
+                        ctx.get("context_tables") if isinstance(ctx, dict) else None
+                    ),
                     authorized_tables=list(authorized_tables),
                 )
             # Preserve any pre-existing context stored in job.plan
@@ -385,7 +412,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         x,
                         y,
                     )
-                elif is_textual and idx < len(textual_layout) and wtype != "infographic":
+                elif (
+                    is_textual and idx < len(textual_layout) and wtype != "infographic"
+                ):
                     # Fallback to hardcoded textual layout (skipped for infographic widgets)
                     pos_info = textual_layout[idx]
                     x, y = pos_info["x"], pos_info["y"]
@@ -407,7 +436,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     "isPlaceholder": True,
                     "placeholderMode": "auto",
                     "question": w.get("question") or "",
-                    "isInsight": True if (is_textual and wtype != "infographic") else False,
+                    "isInsight": True
+                    if (is_textual and wtype != "infographic")
+                    else False,
                 }
                 # Keep chart type/mapping if known (useful once we "bring it to life")
                 if wtype == "chart" and isinstance(viz, dict):
@@ -436,11 +467,17 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             await db.refresh(job)
 
             # 2) Fill each widget and update in-place (placeholder -> real)
-            from src.schemas.ai import AIQueryRequest, ConfigureData, GenerateInfographicRequest
+            from src.schemas.ai import (
+                AIQueryRequest,
+                ConfigureData,
+                GenerateInfographicRequest,
+            )
 
             # Get additional context for the AI engine
             ctx = {}
-            if isinstance(job.plan, dict) and isinstance(job.plan.get("_context"), dict):
+            if isinstance(job.plan, dict) and isinstance(
+                job.plan.get("_context"), dict
+            ):
                 ctx = job.plan.get("_context")
 
             context_tables = ctx.get("context_tables") or []
@@ -475,7 +512,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                             )
                             try:
                                 safe_title = w.get("title") or (
-                                    wtype.capitalize() if isinstance(wtype, str) else "Widget"
+                                    wtype.capitalize()
+                                    if isinstance(wtype, str)
+                                    else "Widget"
                                 )
                                 await widget_repo.update(
                                     widget_id,
@@ -503,7 +542,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
 
                     if wtype == "text":
                         content = ""
-                        if isinstance(viz, dict) and isinstance(viz.get("content"), str):
+                        if isinstance(viz, dict) and isinstance(
+                            viz.get("content"), str
+                        ):
                             content = viz.get("content") or ""
                         if not content:
                             content = w.get("title") or ""
@@ -530,9 +571,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     # Construct rich context instructions for the AI
                     context_instructions = f"CONTEXT: You are building a widget for a dashboard with the goal: '{goal}'.\n"
                     if initial_ai_response:
-                        context_instructions += (
-                            f"The user previously received this answer: '{initial_ai_response}'.\n"
-                        )
+                        context_instructions += f"The user previously received this answer: '{initial_ai_response}'.\n"
 
                     if context_tables:
                         context_instructions += f"Relevant tables identified in the conversation: {', '.join(context_tables)}.\n"
@@ -586,7 +625,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         "isLoading": False,
                     }
 
-                    print(f"DEBUG: Processing widget {idx}, type={wtype}", file=sys.stderr)
+                    logger.debug(f"Processing widget {idx}, type={wtype}")
                     if wtype == "infographic":
                         # Generate structured infographic data
                         try:
@@ -616,7 +655,9 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     elif wtype == "insight":
                         # Map query result to Insight data structure
                         # Wide widgets get text_beside_chart, tall get text_above_chart
-                        layout_type = "text_beside_chart" if idx < 2 else "text_above_chart"
+                        layout_type = (
+                            "text_beside_chart" if idx < 2 else "text_above_chart"
+                        )
 
                         # Simple heuristic for icon priority
                         priority = "medium"
@@ -648,7 +689,8 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                                 "content": {
                                     "text_block": {
                                         "title": "Analysis",
-                                        "body": query_resp.answer or "No insight generated.",
+                                        "body": query_resp.answer
+                                        or "No insight generated.",
                                         "priority": priority,
                                     },
                                     "chart_block": {
@@ -772,9 +814,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                 logger.error(f"Failed to create notification for job {job_id}: {e}")
 
             if failed_count > 0:
-                job.error = (
-                    f"{failed_count} widget(s) failed; ids={','.join(failed_widget_ids[:10])}"
-                )
+                job.error = f"{failed_count} widget(s) failed; ids={','.join(failed_widget_ids[:10])}"
             job.finished_at = datetime.now(timezone.utc)
             await db.commit()
         except Exception as exc:
