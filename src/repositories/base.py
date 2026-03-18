@@ -1,6 +1,7 @@
 """Base repository with common CRUD operations."""
 
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, cast
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -111,7 +112,6 @@ class BaseRepository(Generic[ModelType]):
         """
         # Set created_at, updated_at, and other timestamp fields if not provided and model has these fields
         # This is needed for SQLite which doesn't support server_default=func.now()
-        from datetime import datetime, timezone
 
         # Use naive utcnow to match existing pattern and avoid asyncpg aware/naive mismatch
         now = datetime.now(timezone.utc).replace(tzinfo=None)
