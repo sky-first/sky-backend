@@ -14,28 +14,31 @@ class PostgreSQLConnector(BaseConnector):
         """Normalize connection parameters from config."""
         return {
             "host": config.get("host"),
-            "port": int(config.get("port", 5432)),
+            "port": int(config.get("port") or 5432),
             "user": config.get("username"),
             "password": config.get("password"),
             "database": config.get("database"),
-            "timeout": 5.0,
+            "timeout": float(config.get("timeout", 5.0)),
         }
 
     async def test_connection(self, config: Dict[str, Any]) -> bool:
-        """Test PostgreSQL connection."""
+        """Test PostgreSQL connection using a context manager."""
         params = self._get_connection_params(config)
         try:
-            conn = await asyncpg.connect(**params)
-            await conn.close()
+            async with asyncpg.connect(**params):
+                pass
             return True
         except Exception:
             return False
 
     async def get_metadata(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Get PostgreSQL metadata including comments."""
+        """
+        Get PostgreSQL metadata including comments.
+
+        Note: row_count is an estimate based on reltuples from pg_class for performance.
+        """
         params = self._get_connection_params(config)
-        conn = await asyncpg.connect(**params)
-        try:
+        async with asyncpg.connect(**params) as conn:
             # Better query using pg_catalog to get comments (descriptions)
             tables_query = """
                 SELECT
@@ -60,8 +63,8 @@ class PostgreSQLConnector(BaseConnector):
                 row_count = int(table["row_count"]) if table["row_count"] else 0
                 schemas.add(schema)
 
-                # Fetch columns with comments
-                columns_query = f"""
+                # Fetch columns with comments using parameterized query ($1, $2)
+                columns_query = """
                     SELECT
                         a.attname AS column_name,
                         format_type(a.atttypid, a.atttypmod) AS data_type,
@@ -70,12 +73,12 @@ class PostgreSQLConnector(BaseConnector):
                     FROM pg_attribute a
                     JOIN pg_class c ON c.oid = a.attrelid
                     JOIN pg_namespace n ON n.oid = c.relnamespace
-                    WHERE n.nspname = '{schema}'
-                    AND c.relname = '{name}'
+                    WHERE n.nspname = $1
+                    AND c.relname = $2
                     AND a.attnum > 0
                     AND NOT a.attisdropped
                 """
-                columns = await conn.fetch(columns_query)
+                columns = await conn.fetch(columns_query, schema, name)
 
                 column_data = []
                 for col in columns:
@@ -103,18 +106,13 @@ class PostgreSQLConnector(BaseConnector):
                 )
 
             return {"tables": result_tables, "schemas": list(schemas)}
-        finally:
-            await conn.close()
 
     async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
-        """Execute PostgreSQL query."""
+        """Execute PostgreSQL query using a context manager."""
         params = self._get_connection_params(config)
-        conn = await asyncpg.connect(**params)
-        try:
+        async with asyncpg.connect(**params) as conn:
             rows = await conn.fetch(query)
             return [dict(row) for row in rows]
-        finally:
-            await conn.close()
 
     async def sync_data(
         self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None
