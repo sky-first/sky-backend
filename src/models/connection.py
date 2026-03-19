@@ -136,6 +136,7 @@ class TableMetadata:
         self,
         name: str,
         schema: Optional[str] = None,
+        description: Optional[str] = None,
         row_count: Optional[int] = None,
         columns: Optional[List["ColumnMetadata"]] = None,
         last_updated: Optional[datetime] = None,
@@ -145,6 +146,7 @@ class TableMetadata:
     ):
         self.name = name
         self.schema = schema
+        self.description = description
         self.row_count = row_count
         self.columns = columns or []
         self.last_updated = last_updated

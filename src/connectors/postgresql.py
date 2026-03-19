@@ -10,44 +10,43 @@ from src.connectors.base import BaseConnector
 class PostgreSQLConnector(BaseConnector):
     """PostgreSQL connector."""
 
+    def _get_connection_params(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize connection parameters from config."""
+        return {
+            "host": config.get("host"),
+            "port": int(config.get("port", 5432)),
+            "user": config.get("username"),
+            "password": config.get("password"),
+            "database": config.get("database"),
+            "timeout": 5.0,
+        }
+
     async def test_connection(self, config: Dict[str, Any]) -> bool:
         """Test PostgreSQL connection."""
+        params = self._get_connection_params(config)
         try:
-            conn = await asyncpg.connect(
-                host=config.get("host"),
-                port=config.get("port", 5432),
-                user=config.get("username"),
-                password=config.get("password"),
-                database=config.get("database"),
-                timeout=2.0,
-            )
+            conn = await asyncpg.connect(**params)
             await conn.close()
             return True
         except Exception:
             return False
 
     async def get_metadata(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Get PostgreSQL metadata."""
-        conn = await asyncpg.connect(
-            host=config.get("host"),
-            port=config.get("port", 5432),
-            user=config.get("username"),
-            password=config.get("password"),
-            database=config.get("database"),
-            timeout=2.0,
-        )
+        """Get PostgreSQL metadata including comments."""
+        params = self._get_connection_params(config)
+        conn = await asyncpg.connect(**params)
         try:
-            # Queries to fetch tables, columns, and row counts
-            # This is a simplified version; production might need more robust handling
+            # Better query using pg_catalog to get comments (descriptions)
             tables_query = """
                 SELECT
-                    table_schema,
-                    table_name
-                FROM
-                    information_schema.tables
-                WHERE
-                    table_schema NOT IN ('information_schema', 'pg_catalog')
-                    AND table_type = 'BASE TABLE'
+                    n.nspname AS schema_name,
+                    c.relname AS table_name,
+                    obj_description(c.oid) AS description,
+                    c.reltuples AS row_count
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname NOT IN ('information_schema', 'pg_catalog')
+                AND c.relkind = 'r'
             """
             tables = await conn.fetch(tables_query)
 
@@ -55,21 +54,26 @@ class PostgreSQLConnector(BaseConnector):
             schemas = set()
 
             for table in tables:
-                schema = table["table_schema"]
+                schema = table["schema_name"]
                 name = table["table_name"]
+                description = table["description"]
+                row_count = int(table["row_count"]) if table["row_count"] else 0
                 schemas.add(schema)
 
-                # Fetch columns
+                # Fetch columns with comments
                 columns_query = f"""
                     SELECT
-                        column_name,
-                        data_type,
-                        is_nullable
-                    FROM
-                        information_schema.columns
-                    WHERE
-                        table_schema = '{schema}'
-                        AND table_name = '{name}'
+                        a.attname AS column_name,
+                        format_type(a.atttypid, a.atttypmod) AS data_type,
+                        NOT a.attnotnull AS is_nullable,
+                        col_description(c.oid, a.attnum) AS description
+                    FROM pg_attribute a
+                    JOIN pg_class c ON c.oid = a.attrelid
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = '{schema}'
+                    AND c.relname = '{name}'
+                    AND a.attnum > 0
+                    AND NOT a.attisdropped
                 """
                 columns = await conn.fetch(columns_query)
 
@@ -79,27 +83,22 @@ class PostgreSQLConnector(BaseConnector):
                         {
                             "name": col["column_name"],
                             "type": col["data_type"],
-                            "nullable": col["is_nullable"] == "YES",
-                            "description": None,  # Postgre doesn't store descriptions in information_schema easily
+                            "nullable": col["is_nullable"],
+                            "description": col["description"],
                         }
                     )
-
-                # Fetch row count (approximate or exact)
-                # Using count(*) can be slow on large tables; using pg_class for approximation
-                # row_count_query = f"SELECT count(*) FROM {schema}.{name}"
-                # row_count_result = await conn.fetchval(row_count_query)
-                row_count_result = 0  # Placeholder for now to avoid performance hit
 
                 result_tables.append(
                     {
                         "name": name,
                         "schema": schema,
-                        "row_count": row_count_result,
+                        "description": description,
+                        "row_count": row_count,
                         "columns": column_data,
-                        "last_updated": None,  # Database doesn't track this by default
-                        "health": "Healthy",  # Default
-                        "usage_score": 0,  # Default
-                        "tags": [],  # Default
+                        "last_updated": None,
+                        "health": "Healthy",
+                        "usage_score": 0,
+                        "tags": [],
                     }
                 )
 
@@ -109,14 +108,8 @@ class PostgreSQLConnector(BaseConnector):
 
     async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
         """Execute PostgreSQL query."""
-        conn = await asyncpg.connect(
-            host=config.get("host"),
-            port=config.get("port", 5432),
-            user=config.get("username"),
-            password=config.get("password"),
-            database=config.get("database"),
-            timeout=2.0,
-        )
+        params = self._get_connection_params(config)
+        conn = await asyncpg.connect(**params)
         try:
             rows = await conn.fetch(query)
             return [dict(row) for row in rows]
