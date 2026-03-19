@@ -62,16 +62,11 @@ def upgrade() -> None:
 
     # 2. Fix Dashboards
     dashboard_columns = [c["name"] for c in inspector.get_columns("dashboards")]
-    if "template_id" not in dashboard_columns:
-        # Assuming template_id column is missing but we want to add FK after
-        # If it's missing, we skip the FK as well for this check
-        pass
     
     # Check indexes on dashboards
     dashboard_indexes = [idx["name"] for idx in inspector.get_indexes("dashboards")]
     
     # Try to add template_id FK if not exists
-    # (Note: we use a try-except block here for maximum robustness in damaged envs)
     try:
         op.create_foreign_key(
             "fk_dashboards_templates",
@@ -235,4 +230,30 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    pass
+    # 1. Reverse templates and dashboard FK
+    try:
+        op.drop_index("idx_dashboards_template_id", "dashboards")
+        op.drop_constraint("fk_dashboards_templates", "dashboards", type_="foreignkey")
+    except Exception:
+        pass
+        
+    try:
+        op.drop_table("templates")
+    except Exception:
+        pass
+
+    # 2. Strategy column drops
+    for table in [
+        "strategic_pillars",
+        "strategic_objectives",
+        "strategy_okrs",
+        "strategy_assumptions",
+        "strategy_initiatives",
+        "intelligence_signals",
+        "signal_events",
+    ]:
+        try:
+            op.drop_column(table, "crew_id")
+            op.drop_column(table, "space_id")
+        except Exception:
+            pass
