@@ -155,23 +155,31 @@ async def test_postgresql_connector(monkeypatch):
         fetch=AsyncMock(return_value=[{"a": 1}, {"b": 2}]),
     )
 
-    async def fake_connect(**_kwargs):
-        return conn
-
     # success test_connection
-    monkeypatch.setattr(pg_mod.asyncpg, "connect", fake_connect)
+    class AsyncContextManagerMock:
+        async def __aenter__(self):
+            return conn
+
+        async def __aexit__(self, exc_type, exc, tb):
+            await conn.close()
+
+    monkeypatch.setattr(pg_mod.asyncpg, "connect", lambda **_kwargs: AsyncContextManagerMock())
     assert await connector.test_connection(cfg) is True
     conn.close.assert_awaited()
 
     # failure test_connection
-    async def fail_connect(**_kwargs):
-        raise RuntimeError("no")
+    class FailContextManagerMock:
+        async def __aenter__(self):
+            raise RuntimeError("no")
 
-    monkeypatch.setattr(pg_mod.asyncpg, "connect", fail_connect)
+        async def __aexit__(self, exc_type, exc, tb):
+            pass
+
+    monkeypatch.setattr(pg_mod.asyncpg, "connect", lambda **_kwargs: FailContextManagerMock())
     assert await connector.test_connection(cfg) is False
 
     # execute_query closes conn in finally
-    monkeypatch.setattr(pg_mod.asyncpg, "connect", fake_connect)
+    monkeypatch.setattr(pg_mod.asyncpg, "connect", lambda **_kwargs: AsyncContextManagerMock())
     rows = await connector.execute_query(cfg, "select 1")
     assert rows == [{"a": 1}, {"b": 2}]
     assert conn.close.await_count >= 2

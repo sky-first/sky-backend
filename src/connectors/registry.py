@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional, Type
 
 from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
+from src.connectors.mysql import MySQLConnector
+from src.connectors.postgresql import PostgreSQLConnector
 
 
 # Mock connectors for now - will be implemented later
@@ -31,8 +33,8 @@ class MockConnector(BaseConnector):
 
 # Registry of available connectors
 CONNECTORS: Dict[str, Type[BaseConnector]] = {
-    "postgresql": MockConnector,
-    "mysql": MockConnector,
+    "postgresql": PostgreSQLConnector,
+    "mysql": MySQLConnector,
     "mongodb": MockConnector,
     "google-sheets": MockConnector,
     "rest-api": MockConnector,
