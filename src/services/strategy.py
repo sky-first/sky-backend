@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -31,6 +33,8 @@ from src.schemas.strategy import (
     StrategyTreeResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class StrategyService:
     def __init__(self, session: AsyncSession):
@@ -40,8 +44,8 @@ class StrategyService:
 
         self.ai_client = AIServiceHTTPClient()
 
-    async def _trigger_ai_ingestion(self, entity: Any, entity_type: str):
-        """Helper to trigger AI ingestion for an entity."""
+    def _trigger_ai_ingestion(self, entity: Any, entity_type: str):
+        """Helper to trigger AI ingestion for an entity in the background without blocking."""
         try:
             payload = {
                 "id": str(entity.id),
@@ -69,10 +73,8 @@ class StrategyService:
                     str(entity.pillar_id) if entity.pillar_id else None
                 )
 
-            await self.ai_client.ingest_knowledge_graph(payload)
+            asyncio.create_task(self.ai_client.ingest_knowledge_graph(payload))
         except Exception as e:
-            from src.services.enterprise_relationship_service import logger
-
             logger.error(f"Failed to trigger AI ingestion for {entity_type} {entity.id}: {e}")
 
     async def get_strategy_tree(self) -> StrategyTreeResponse:
@@ -98,7 +100,7 @@ class StrategyService:
         pillar = await self.repository.create_pillar(schema)
         await self.session.commit()
         await self.session.refresh(pillar)
-        await self._trigger_ai_ingestion(pillar, "strategic_pillar")
+        self._trigger_ai_ingestion(pillar, "strategic_pillar")
         return pillar
 
     async def update_pillar(
@@ -110,7 +112,7 @@ class StrategyService:
         pillar = await self.repository.update_pillar(pillar, schema)
         await self.session.commit()
         await self.session.refresh(pillar)
-        await self._trigger_ai_ingestion(pillar, "strategic_pillar")
+        self._trigger_ai_ingestion(pillar, "strategic_pillar")
         return pillar
 
     async def delete_pillar(self, pillar_id: UUID) -> None:
@@ -128,7 +130,7 @@ class StrategyService:
         objective = await self.repository.create_objective(schema)
         await self.session.commit()
         await self.session.refresh(objective)
-        await self._trigger_ai_ingestion(objective, "strategic_objective")
+        self._trigger_ai_ingestion(objective, "strategic_objective")
         return objective
 
     async def update_objective(
@@ -140,7 +142,7 @@ class StrategyService:
         objective = await self.repository.update_objective(objective, schema)
         await self.session.commit()
         await self.session.refresh(objective)
-        await self._trigger_ai_ingestion(objective, "strategic_objective")
+        self._trigger_ai_ingestion(objective, "strategic_objective")
         return objective
 
     async def delete_objective(self, objective_id: UUID) -> None:
@@ -155,8 +157,8 @@ class StrategyService:
     async def create_okr(self, schema: StrategyOKRCreate) -> StrategyOKRResponse:
         okr = await self.repository.create_okr(schema)
         await self.session.commit()
-        await self.session.refresh(okr)
-        await self._trigger_ai_ingestion(okr, "strategy_okr")
+        okr = await self.repository.get_okr_by_id(okr.id)
+        self._trigger_ai_ingestion(okr, "strategy_okr")
         return okr
 
     async def update_okr(self, okr_id: UUID, schema: StrategyOKRUpdate) -> StrategyOKRResponse:
@@ -165,8 +167,8 @@ class StrategyService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found")
         okr = await self.repository.update_okr(okr, schema)
         await self.session.commit()
-        await self.session.refresh(okr)
-        await self._trigger_ai_ingestion(okr, "strategy_okr")
+        okr = await self.repository.get_okr_by_id(okr.id)
+        self._trigger_ai_ingestion(okr, "strategy_okr")
         return okr
 
     async def delete_okr(self, okr_id: UUID) -> None:
@@ -184,7 +186,7 @@ class StrategyService:
         initiative = await self.repository.create_initiative(schema)
         await self.session.commit()
         await self.session.refresh(initiative)
-        await self._trigger_ai_ingestion(initiative, "strategy_initiative")
+        self._trigger_ai_ingestion(initiative, "strategy_initiative")
         return initiative
 
     async def update_initiative(
@@ -198,7 +200,7 @@ class StrategyService:
         initiative = await self.repository.update_initiative(initiative, schema)
         await self.session.commit()
         await self.session.refresh(initiative)
-        await self._trigger_ai_ingestion(initiative, "strategy_initiative")
+        self._trigger_ai_ingestion(initiative, "strategy_initiative")
         return initiative
 
     async def delete_initiative(self, initiative_id: UUID) -> None:
@@ -218,7 +220,7 @@ class StrategyService:
         assumption = await self.repository.create_assumption(schema)
         await self.session.commit()
         await self.session.refresh(assumption)
-        await self._trigger_ai_ingestion(assumption, "strategy_assumption")
+        self._trigger_ai_ingestion(assumption, "strategy_assumption")
         return assumption
 
     async def update_assumption(
@@ -232,7 +234,7 @@ class StrategyService:
         assumption = await self.repository.update_assumption(assumption, schema)
         await self.session.commit()
         await self.session.refresh(assumption)
-        await self._trigger_ai_ingestion(assumption, "strategy_assumption")
+        self._trigger_ai_ingestion(assumption, "strategy_assumption")
         return assumption
 
     async def delete_assumption(self, assumption_id: UUID) -> None:
@@ -250,6 +252,7 @@ class StrategyService:
         cycle = await self.repository.create_cycle(schema)
         await self.session.commit()
         await self.session.refresh(cycle)
+        self._trigger_ai_ingestion(cycle, "strategy_cycle")
         return cycle
 
     async def update_cycle(
@@ -261,6 +264,7 @@ class StrategyService:
         cycle = await self.repository.update_cycle(cycle, schema)
         await self.session.commit()
         await self.session.refresh(cycle)
+        self._trigger_ai_ingestion(cycle, "strategy_cycle")
         return cycle
 
     async def delete_cycle(self, cycle_id: UUID) -> None:
@@ -276,6 +280,7 @@ class StrategyService:
         kr = await self.repository.create_key_result(schema)
         await self.session.commit()
         await self.session.refresh(kr)
+        self._trigger_ai_ingestion(kr, "strategy_key_result")
         return kr
 
     async def update_key_result(
@@ -289,6 +294,7 @@ class StrategyService:
         kr = await self.repository.update_key_result(kr, schema)
         await self.session.commit()
         await self.session.refresh(kr)
+        self._trigger_ai_ingestion(kr, "strategy_key_result")
         return kr
 
     async def delete_key_result(self, kr_id: UUID) -> None:

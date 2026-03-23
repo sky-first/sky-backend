@@ -1,5 +1,7 @@
 """Space service."""
 
+import asyncio
+import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -19,6 +21,9 @@ from src.schemas.space import (
     SpaceTableCreate,
     SpaceUpdate,
 )
+from src.ai.http_client import AIServiceHTTPClient
+
+logger = logging.getLogger(__name__)
 
 
 class SpaceService:
@@ -37,6 +42,7 @@ class SpaceService:
         self.member_repo = SpaceMemberRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.table_repo = SpaceTableRepository(db)
+        self.ai_client = AIServiceHTTPClient()
 
     async def list_spaces(self, user: User, skip: int = 0, limit: int = 100) -> List[SpaceResponse]:
         """
@@ -319,6 +325,20 @@ class SpaceService:
         self.db.add(space_connection)
         await self.db.commit()
         await self.db.refresh(space_connection)
+
+        # Trigger AI discovery for the connection in the background
+        try:
+            asyncio.create_task(
+                self.ai_client.discover_connection(
+                    connection_id=str(connection_id),
+                    space_id=str(space_id),
+                    run_in_background=True,
+                )
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to trigger auto-discovery for space {space_id} and connection {connection_id}: {str(e)}"
+            )
 
         return space_connection
 
