@@ -296,7 +296,9 @@ async def add_space_connection(
         dict: Success message and linked IDs
     """
     space_service = SpaceService(db)
-    await space_service.add_space_connection(space_id, connection_id, current_user, background_tasks)
+    await space_service.add_space_connection(
+        space_id, connection_id, current_user, background_tasks
+    )
     return {
         "message": "Connection linked successfully",
         "space_id": str(space_id),
