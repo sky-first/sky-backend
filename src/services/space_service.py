@@ -328,19 +328,26 @@ class SpaceService:
         await self.db.refresh(space_connection)
 
         # Trigger AI discovery for the connection in the background using BackgroundTasks abstraction
+        background_tasks.add_task(
+            self._trigger_ai_discovery,
+            connection_id=str(connection_id),
+            space_id=str(space_id),
+        )
+
+        return space_connection
+
+    async def _trigger_ai_discovery(self, connection_id: str, space_id: str) -> None:
+        """Helper to trigger AI discovery with proper error handling for BackgroundTasks."""
         try:
-            background_tasks.add_task(
-                self.ai_client.discover_connection,
-                connection_id=str(connection_id),
-                space_id=str(space_id),
+            await self.ai_client.discover_connection(
+                connection_id=connection_id,
+                space_id=space_id,
                 run_in_background=True,
             )
         except Exception as e:
             logger.error(
-                f"Failed to trigger auto-discovery for space {space_id} and connection {connection_id}: {str(e)}"
+                f"Background task failed: Auto-discovery for space {space_id} and connection {connection_id} failed: {str(e)}"
             )
-
-        return space_connection
 
     async def remove_space_connection(
         self, space_id: UUID, connection_id: UUID, user: User

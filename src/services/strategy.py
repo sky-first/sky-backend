@@ -72,9 +72,16 @@ class StrategyService:
                     str(entity.pillar_id) if entity.pillar_id else None
                 )
 
-            background_tasks.add_task(self.ai_client.ingest_knowledge_graph, payload)
+            background_tasks.add_task(self._background_ingest_task, payload, entity_type, str(entity.id))
         except Exception as e:
-            logger.error(f"Failed to trigger AI ingestion for {entity_type} {entity.id}: {e}")
+            logger.error(f"Failed to schedule AI ingestion for {entity_type} {entity.id}: {e}")
+
+    async def _background_ingest_task(self, payload: dict, entity_type: str, entity_id: str) -> None:
+        """Helper to ingest entity into Knowledge Graph with proper error handling for BackgroundTasks."""
+        try:
+            await self.ai_client.ingest_knowledge_graph(payload)
+        except Exception as e:
+            logger.error(f"Background task failed: AI ingestion for {entity_type} {entity_id} failed: {e}")
 
     async def get_strategy_tree(self) -> StrategyTreeResponse:
         pillars = await self.repository.get_all_pillars()
