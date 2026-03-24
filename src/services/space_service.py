@@ -1,5 +1,6 @@
 """Space service."""
 
+import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -19,6 +20,10 @@ from src.schemas.space import (
     SpaceTableCreate,
     SpaceUpdate,
 )
+from fastapi import BackgroundTasks
+from src.ai.http_client import AIServiceHTTPClient
+
+logger = logging.getLogger(__name__)
 
 
 class SpaceService:
@@ -37,6 +42,7 @@ class SpaceService:
         self.member_repo = SpaceMemberRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.table_repo = SpaceTableRepository(db)
+        self.ai_client = AIServiceHTTPClient()
 
     async def list_spaces(self, user: User, skip: int = 0, limit: int = 100) -> List[SpaceResponse]:
         """
@@ -281,7 +287,7 @@ class SpaceService:
         return connections
 
     async def add_space_connection(
-        self, space_id: UUID, connection_id: UUID, user: User
+        self, space_id: UUID, connection_id: UUID, user: User, background_tasks: BackgroundTasks
     ) -> SpaceConnection:
         """
         Add a connection to a space.
@@ -290,6 +296,7 @@ class SpaceService:
             space_id: Space ID
             connection_id: Connection ID
             user: Current user
+            background_tasks: FastAPI BackgroundTasks object
 
         Returns:
             SpaceConnection: The created association
@@ -320,7 +327,27 @@ class SpaceService:
         await self.db.commit()
         await self.db.refresh(space_connection)
 
+        # Trigger AI discovery for the connection in the background using BackgroundTasks abstraction
+        background_tasks.add_task(
+            self._trigger_ai_discovery,
+            connection_id=str(connection_id),
+            space_id=str(space_id),
+        )
+
         return space_connection
+
+    async def _trigger_ai_discovery(self, connection_id: str, space_id: str) -> None:
+        """Helper to trigger AI discovery with proper error handling for BackgroundTasks."""
+        try:
+            await self.ai_client.discover_connection(
+                connection_id=connection_id,
+                space_id=space_id,
+                run_in_background=True,
+            )
+        except Exception as e:
+            logger.error(
+                f"Background task failed: Auto-discovery for space {space_id} and connection {connection_id} failed: {str(e)}"
+            )
 
     async def remove_space_connection(
         self, space_id: UUID, connection_id: UUID, user: User
