@@ -1,9 +1,9 @@
 """Space service."""
-
 import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
@@ -20,7 +20,6 @@ from src.schemas.space import (
     SpaceTableCreate,
     SpaceUpdate,
 )
-from fastapi import BackgroundTasks
 from src.ai.http_client import AIServiceHTTPClient
 
 logger = logging.getLogger(__name__)
