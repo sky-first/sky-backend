@@ -1,9 +1,8 @@
-import asyncio
 import logging
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import BackgroundTasks, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.repositories.strategy import StrategyRepository
@@ -44,8 +43,8 @@ class StrategyService:
 
         self.ai_client = AIServiceHTTPClient()
 
-    def _trigger_ai_ingestion(self, entity: Any, entity_type: str):
-        """Helper to trigger AI ingestion for an entity in the background without blocking."""
+    def _trigger_ai_ingestion(self, entity: Any, entity_type: str, background_tasks: BackgroundTasks):
+        """Helper to trigger AI ingestion for an entity in the background using BackgroundTasks."""
         try:
             payload = {
                 "id": str(entity.id),
@@ -73,7 +72,7 @@ class StrategyService:
                     str(entity.pillar_id) if entity.pillar_id else None
                 )
 
-            asyncio.create_task(self.ai_client.ingest_knowledge_graph(payload))
+            background_tasks.add_task(self.ai_client.ingest_knowledge_graph, payload)
         except Exception as e:
             logger.error(f"Failed to trigger AI ingestion for {entity_type} {entity.id}: {e}")
 
@@ -96,15 +95,17 @@ class StrategyService:
 
     # --- Strategic Pillar ---
 
-    async def create_pillar(self, schema: StrategicPillarCreate) -> StrategicPillarResponse:
+    async def create_pillar(
+        self, schema: StrategicPillarCreate, background_tasks: BackgroundTasks
+    ) -> StrategicPillarResponse:
         pillar = await self.repository.create_pillar(schema)
         await self.session.commit()
         await self.session.refresh(pillar)
-        self._trigger_ai_ingestion(pillar, "strategic_pillar")
+        self._trigger_ai_ingestion(pillar, "strategic_pillar", background_tasks)
         return pillar
 
     async def update_pillar(
-        self, pillar_id: UUID, schema: StrategicPillarUpdate
+        self, pillar_id: UUID, schema: StrategicPillarUpdate, background_tasks: BackgroundTasks
     ) -> StrategicPillarResponse:
         pillar = await self.repository.get_pillar_by_id(pillar_id)
         if not pillar:
@@ -112,7 +113,7 @@ class StrategyService:
         pillar = await self.repository.update_pillar(pillar, schema)
         await self.session.commit()
         await self.session.refresh(pillar)
-        self._trigger_ai_ingestion(pillar, "strategic_pillar")
+        self._trigger_ai_ingestion(pillar, "strategic_pillar", background_tasks)
         return pillar
 
     async def delete_pillar(self, pillar_id: UUID) -> None:
@@ -125,16 +126,16 @@ class StrategyService:
     # --- Strategic Objective ---
 
     async def create_objective(
-        self, schema: StrategicObjectiveCreate
+        self, schema: StrategicObjectiveCreate, background_tasks: BackgroundTasks
     ) -> StrategicObjectiveResponse:
         objective = await self.repository.create_objective(schema)
         await self.session.commit()
         await self.session.refresh(objective)
-        self._trigger_ai_ingestion(objective, "strategic_objective")
+        self._trigger_ai_ingestion(objective, "strategic_objective", background_tasks)
         return objective
 
     async def update_objective(
-        self, objective_id: UUID, schema: StrategicObjectiveUpdate
+        self, objective_id: UUID, schema: StrategicObjectiveUpdate, background_tasks: BackgroundTasks
     ) -> StrategicObjectiveResponse:
         objective = await self.repository.get_objective_by_id(objective_id)
         if not objective:
@@ -142,7 +143,7 @@ class StrategyService:
         objective = await self.repository.update_objective(objective, schema)
         await self.session.commit()
         await self.session.refresh(objective)
-        self._trigger_ai_ingestion(objective, "strategic_objective")
+        self._trigger_ai_ingestion(objective, "strategic_objective", background_tasks)
         return objective
 
     async def delete_objective(self, objective_id: UUID) -> None:
@@ -154,21 +155,25 @@ class StrategyService:
 
     # --- Strategy OKR ---
 
-    async def create_okr(self, schema: StrategyOKRCreate) -> StrategyOKRResponse:
+    async def create_okr(
+        self, schema: StrategyOKRCreate, background_tasks: BackgroundTasks
+    ) -> StrategyOKRResponse:
         okr = await self.repository.create_okr(schema)
         await self.session.commit()
         okr = await self.repository.get_okr_by_id(okr.id)
-        self._trigger_ai_ingestion(okr, "strategy_okr")
+        self._trigger_ai_ingestion(okr, "strategy_okr", background_tasks)
         return okr
 
-    async def update_okr(self, okr_id: UUID, schema: StrategyOKRUpdate) -> StrategyOKRResponse:
+    async def update_okr(
+        self, okr_id: UUID, schema: StrategyOKRUpdate, background_tasks: BackgroundTasks
+    ) -> StrategyOKRResponse:
         okr = await self.repository.get_okr_by_id(okr_id)
         if not okr:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found")
         okr = await self.repository.update_okr(okr, schema)
         await self.session.commit()
         okr = await self.repository.get_okr_by_id(okr.id)
-        self._trigger_ai_ingestion(okr, "strategy_okr")
+        self._trigger_ai_ingestion(okr, "strategy_okr", background_tasks)
         return okr
 
     async def delete_okr(self, okr_id: UUID) -> None:
@@ -181,16 +186,16 @@ class StrategyService:
     # --- Strategy Initiative ---
 
     async def create_initiative(
-        self, schema: StrategyInitiativeCreate
+        self, schema: StrategyInitiativeCreate, background_tasks: BackgroundTasks
     ) -> StrategyInitiativeResponse:
         initiative = await self.repository.create_initiative(schema)
         await self.session.commit()
         await self.session.refresh(initiative)
-        self._trigger_ai_ingestion(initiative, "strategy_initiative")
+        self._trigger_ai_ingestion(initiative, "strategy_initiative", background_tasks)
         return initiative
 
     async def update_initiative(
-        self, initiative_id: UUID, schema: StrategyInitiativeUpdate
+        self, initiative_id: UUID, schema: StrategyInitiativeUpdate, background_tasks: BackgroundTasks
     ) -> StrategyInitiativeResponse:
         initiative = await self.repository.get_initiative_by_id(initiative_id)
         if not initiative:
@@ -200,7 +205,7 @@ class StrategyService:
         initiative = await self.repository.update_initiative(initiative, schema)
         await self.session.commit()
         await self.session.refresh(initiative)
-        self._trigger_ai_ingestion(initiative, "strategy_initiative")
+        self._trigger_ai_ingestion(initiative, "strategy_initiative", background_tasks)
         return initiative
 
     async def delete_initiative(self, initiative_id: UUID) -> None:
@@ -215,16 +220,16 @@ class StrategyService:
     # --- Strategy Assumption ---
 
     async def create_assumption(
-        self, schema: StrategyAssumptionCreate
+        self, schema: StrategyAssumptionCreate, background_tasks: BackgroundTasks
     ) -> StrategyAssumptionResponse:
         assumption = await self.repository.create_assumption(schema)
         await self.session.commit()
         await self.session.refresh(assumption)
-        self._trigger_ai_ingestion(assumption, "strategy_assumption")
+        self._trigger_ai_ingestion(assumption, "strategy_assumption", background_tasks)
         return assumption
 
     async def update_assumption(
-        self, assumption_id: UUID, schema: StrategyAssumptionUpdate
+        self, assumption_id: UUID, schema: StrategyAssumptionUpdate, background_tasks: BackgroundTasks
     ) -> StrategyAssumptionResponse:
         assumption = await self.repository.get_assumption_by_id(assumption_id)
         if not assumption:
@@ -234,7 +239,7 @@ class StrategyService:
         assumption = await self.repository.update_assumption(assumption, schema)
         await self.session.commit()
         await self.session.refresh(assumption)
-        self._trigger_ai_ingestion(assumption, "strategy_assumption")
+        self._trigger_ai_ingestion(assumption, "strategy_assumption", background_tasks)
         return assumption
 
     async def delete_assumption(self, assumption_id: UUID) -> None:
@@ -248,15 +253,17 @@ class StrategyService:
 
     # --- Strategy Cycle ---
 
-    async def create_cycle(self, schema: StrategyCycleCreate) -> StrategyCycleResponse:
+    async def create_cycle(
+        self, schema: StrategyCycleCreate, background_tasks: BackgroundTasks
+    ) -> StrategyCycleResponse:
         cycle = await self.repository.create_cycle(schema)
         await self.session.commit()
         await self.session.refresh(cycle)
-        self._trigger_ai_ingestion(cycle, "strategy_cycle")
+        self._trigger_ai_ingestion(cycle, "strategy_cycle", background_tasks)
         return cycle
 
     async def update_cycle(
-        self, cycle_id: UUID, schema: StrategyCycleUpdate
+        self, cycle_id: UUID, schema: StrategyCycleUpdate, background_tasks: BackgroundTasks
     ) -> StrategyCycleResponse:
         cycle = await self.repository.get_cycle_by_id(cycle_id)
         if not cycle:
@@ -264,7 +271,7 @@ class StrategyService:
         cycle = await self.repository.update_cycle(cycle, schema)
         await self.session.commit()
         await self.session.refresh(cycle)
-        self._trigger_ai_ingestion(cycle, "strategy_cycle")
+        self._trigger_ai_ingestion(cycle, "strategy_cycle", background_tasks)
         return cycle
 
     async def delete_cycle(self, cycle_id: UUID) -> None:
@@ -276,15 +283,17 @@ class StrategyService:
 
     # --- Strategy Key Result ---
 
-    async def create_key_result(self, schema: StrategyKeyResultCreate) -> StrategyKeyResultResponse:
+    async def create_key_result(
+        self, schema: StrategyKeyResultCreate, background_tasks: BackgroundTasks
+    ) -> StrategyKeyResultResponse:
         kr = await self.repository.create_key_result(schema)
         await self.session.commit()
         await self.session.refresh(kr)
-        self._trigger_ai_ingestion(kr, "strategy_key_result")
+        self._trigger_ai_ingestion(kr, "strategy_key_result", background_tasks)
         return kr
 
     async def update_key_result(
-        self, kr_id: UUID, schema: StrategyKeyResultUpdate
+        self, kr_id: UUID, schema: StrategyKeyResultUpdate, background_tasks: BackgroundTasks
     ) -> StrategyKeyResultResponse:
         kr = await self.repository.get_key_result_by_id(kr_id)
         if not kr:
@@ -294,7 +303,7 @@ class StrategyService:
         kr = await self.repository.update_key_result(kr, schema)
         await self.session.commit()
         await self.session.refresh(kr)
-        self._trigger_ai_ingestion(kr, "strategy_key_result")
+        self._trigger_ai_ingestion(kr, "strategy_key_result", background_tasks)
         return kr
 
     async def delete_key_result(self, kr_id: UUID) -> None:

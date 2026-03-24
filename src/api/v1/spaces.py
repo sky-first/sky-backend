@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
@@ -278,6 +278,7 @@ async def get_space_connections(
 async def add_space_connection(
     space_id: UUID,
     connection_id: UUID,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
@@ -287,6 +288,7 @@ async def add_space_connection(
     Args:
         space_id: Space ID
         connection_id: Connection ID
+        background_tasks: FastAPI BackgroundTasks object
         current_user: Current authenticated user
         db: Database session
 
@@ -294,7 +296,7 @@ async def add_space_connection(
         dict: Success message and linked IDs
     """
     space_service = SpaceService(db)
-    await space_service.add_space_connection(space_id, connection_id, current_user)
+    await space_service.add_space_connection(space_id, connection_id, current_user, background_tasks)
     return {
         "message": "Connection linked successfully",
         "space_id": str(space_id),

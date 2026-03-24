@@ -1,6 +1,5 @@
 """Space service."""
 
-import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -21,6 +20,7 @@ from src.schemas.space import (
     SpaceTableCreate,
     SpaceUpdate,
 )
+from fastapi import BackgroundTasks
 from src.ai.http_client import AIServiceHTTPClient
 
 logger = logging.getLogger(__name__)
@@ -287,7 +287,7 @@ class SpaceService:
         return connections
 
     async def add_space_connection(
-        self, space_id: UUID, connection_id: UUID, user: User
+        self, space_id: UUID, connection_id: UUID, user: User, background_tasks: BackgroundTasks
     ) -> SpaceConnection:
         """
         Add a connection to a space.
@@ -296,6 +296,7 @@ class SpaceService:
             space_id: Space ID
             connection_id: Connection ID
             user: Current user
+            background_tasks: FastAPI BackgroundTasks object
 
         Returns:
             SpaceConnection: The created association
@@ -326,14 +327,13 @@ class SpaceService:
         await self.db.commit()
         await self.db.refresh(space_connection)
 
-        # Trigger AI discovery for the connection in the background
+        # Trigger AI discovery for the connection in the background using BackgroundTasks abstraction
         try:
-            asyncio.create_task(
-                self.ai_client.discover_connection(
-                    connection_id=str(connection_id),
-                    space_id=str(space_id),
-                    run_in_background=True,
-                )
+            background_tasks.add_task(
+                self.ai_client.discover_connection,
+                connection_id=str(connection_id),
+                space_id=str(space_id),
+                run_in_background=True,
             )
         except Exception as e:
             logger.error(
