@@ -10,6 +10,7 @@ from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.planet import Planet
 from src.models.user import User
 from src.repositories.planet import PlanetMemberRepository, PlanetRepository
+from src.services.rbac_service import RBACService
 from src.schemas.planet import (
     PlanetCreate,
     PlanetMemberCreate,
@@ -32,6 +33,7 @@ class PlanetService:
         self.db = db
         self.planet_repo = PlanetRepository(db)
         self.member_repo = PlanetMemberRepository(db)
+        self.rbac = RBACService(db)
 
     async def create_planet(self, user: User, planet_data: PlanetCreate) -> PlanetResponse:
         """
@@ -85,11 +87,8 @@ class PlanetService:
         if not planet or planet.deleted_at:
             raise NotFoundError("Planet not found")
 
-        # Check access
-        if planet.owner_id != user.id:
-            member = await self.member_repo.get_by_planet_and_user(planet_id, user.id)
-            if not member:
-                raise ForbiddenError("Access denied to this planet")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(user, "viewPlanets", planet_id=planet_id)
 
         return PlanetResponse.model_validate(planet)
 
@@ -128,11 +127,8 @@ class PlanetService:
         if not planet or planet.deleted_at:
             raise NotFoundError("Planet not found")
 
-        # Check permission (only owner or admin can update)
-        if planet.owner_id != user.id:
-            member = await self.member_repo.get_by_planet_and_user(planet_id, user.id)
-            if not member or member.role not in ["owner", "admin"]:
-                raise ForbiddenError("Permission denied")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(user, "editPlanets", planet_id=planet_id)
 
         update_data = planet_data.model_dump(exclude_unset=True)
         planet = await self.planet_repo.update(planet_id, **update_data)
@@ -157,9 +153,8 @@ class PlanetService:
         if not planet or planet.deleted_at:
             raise NotFoundError("Planet not found")
 
-        # Only owner can delete
-        if planet.owner_id != user.id:
-            raise ForbiddenError("Only planet owner can delete")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(user, "deletePlanets", planet_id=planet_id)
 
         await self.planet_repo.delete(planet_id)
         await self.db.commit()
@@ -183,11 +178,8 @@ class PlanetService:
         if not planet or planet.deleted_at:
             raise NotFoundError("Planet not found")
 
-        # Check access
-        if planet.owner_id != user.id:
-            member = await self.member_repo.get_by_planet_and_user(planet_id, user.id)
-            if not member:
-                raise ForbiddenError("Access denied to this planet")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(user, "viewPlanets", planet_id=planet_id)
 
         # Deactivate all other planets for this user
         from sqlalchemy import update
@@ -228,11 +220,8 @@ class PlanetService:
         if not planet or planet.deleted_at:
             raise NotFoundError("Planet not found")
 
-        # Check permission (only owner or admin can add members)
-        if planet.owner_id != user.id:
-            member = await self.member_repo.get_by_planet_and_user(planet_id, user.id)
-            if not member or member.role not in ["owner", "admin"]:
-                raise ForbiddenError("Permission denied")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(user, "admin.users.manage", planet_id=planet_id)
 
         # Check if member already exists
         existing = await self.member_repo.get_by_planet_and_user(planet_id, member_data.user_id)
@@ -266,11 +255,8 @@ class PlanetService:
         if not planet or planet.deleted_at:
             raise NotFoundError("Planet not found")
 
-        # Check permission (only owner or admin can remove members)
-        if planet.owner_id != current_user.id:
-            member = await self.member_repo.get_by_planet_and_user(planet_id, current_user.id)
-            if not member or member.role not in ["owner", "admin"]:
-                raise ForbiddenError("Permission denied")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(current_user, "admin.users.manage", planet_id=planet_id)
 
         member = await self.member_repo.get_by_planet_and_user(planet_id, user_id)
         if not member:
@@ -302,11 +288,8 @@ class PlanetService:
         if not planet or planet.deleted_at:
             raise NotFoundError("Planet not found")
 
-        # Check access (must be member or owner)
-        if planet.owner_id != user.id:
-            member = await self.member_repo.get_by_planet_and_user(planet_id, user.id)
-            if not member:
-                raise ForbiddenError("Access denied to this planet")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(user, "viewPlanets", planet_id=planet_id)
 
         members = await self.member_repo.get_planet_members(planet_id)
         return [PlanetMemberResponse.model_validate(m) for m in members]
@@ -334,11 +317,8 @@ class PlanetService:
         if not planet or planet.deleted_at:
             raise NotFoundError("Planet not found")
 
-        # Check permission (only owner or admin can update roles)
-        if planet.owner_id != current_user.id:
-            member = await self.member_repo.get_by_planet_and_user(planet_id, current_user.id)
-            if not member or member.role not in ["owner", "admin"]:
-                raise ForbiddenError("Permission denied")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(current_user, "admin.users.manage", planet_id=planet_id)
 
         member = await self.member_repo.get_by_planet_and_user(planet_id, user_id)
         if not member:
@@ -358,14 +338,14 @@ class PlanetService:
 
         return PlanetMemberResponse.model_validate(member)
 
-    async def get_user_planet_or_404(self, planet_id: UUID, user_id: UUID) -> Planet:
+    async def get_user_planet_or_404(self, planet_id: UUID, user: User) -> Planet:
         """
         Get planet by ID and verify user access.
         Used for backend validation of tenant isolation.
 
         Args:
             planet_id: Planet ID
-            user_id: User ID
+            user: Current user
 
         Returns:
             Planet: Planet model
@@ -378,13 +358,11 @@ class PlanetService:
         if not planet or planet.deleted_at:
             raise NotFoundError("Planet not found")
 
-        # Check if user is owner or member
-        if planet.owner_id != user_id:
-            member = await self.member_repo.get_by_planet_and_user(planet_id, user_id)
-            if not member:
-                # We return 404 instead of 403 to prevent ID enumeration
-                # but for internal service logic, ForbiddenError might be clearer.
-                # However, the plan says 404 to avoid enumeration.
-                raise NotFoundError("Planet not found")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        try:
+            await self.rbac.assert_permission(user, "viewPlanets", planet_id=planet_id)
+        except ForbiddenError:
+            # We return 404 instead of 403 to prevent ID enumeration (Bug 7)
+            raise NotFoundError("Planet not found")
 
         return planet

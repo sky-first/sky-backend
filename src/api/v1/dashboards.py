@@ -147,8 +147,6 @@ async def create_dashboard(
     Returns:
         DashboardResponse: Created dashboard
     """
-    rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "createPlanets")
     dashboard_service = DashboardService(db)
     return await dashboard_service.create_dashboard(current_user, dashboard_data)
 

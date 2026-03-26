@@ -148,7 +148,7 @@ async def process_query(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(query_data.planet_id, current_user.id)
+        await planet_service.get_user_planet_or_404(query_data.planet_id, current_user)
 
     return await ai_service.process_query(current_user.id, query_data)
 
@@ -430,7 +430,7 @@ async def send_chat_message(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(message_data.planet_id, current_user.id)
+        await planet_service.get_user_planet_or_404(message_data.planet_id, current_user)
 
     ai_service = AIService(db)
     return await ai_service.send_chat_message(current_user.id, message_data)
@@ -487,7 +487,7 @@ async def get_history(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user)
 
     ai_service = AIService(db)
     return await ai_service.get_history(
@@ -540,7 +540,7 @@ async def create_history(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(history_data.planet_id, current_user.id)
+        await planet_service.get_user_planet_or_404(history_data.planet_id, current_user)
 
     ai_service = AIService(db)
     return await ai_service.create_history(current_user.id, history_data)
@@ -585,7 +585,7 @@ async def get_history_by_id(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user)
 
     ai_service = AIService(db)
     return await ai_service.get_history_by_id(history_id, current_user.id, resolved_planet_id)
@@ -630,7 +630,7 @@ async def delete_history(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user)
 
     ai_service = AIService(db)
     await ai_service.delete_history(history_id, current_user.id, resolved_planet_id)
@@ -676,7 +676,7 @@ async def pin_history(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user)
 
     ai_service = AIService(db)
     return await ai_service.pin_history(history_id, current_user.id, resolved_planet_id)
@@ -721,7 +721,7 @@ async def unpin_history(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user)
 
     ai_service = AIService(db)
     return await ai_service.unpin_history(history_id, current_user.id, resolved_planet_id)
@@ -763,7 +763,7 @@ async def export_history(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user)
 
     ai_service = AIService(db)
     csv_content = await ai_service.export_history(current_user.id, resolved_planet_id)
@@ -812,7 +812,7 @@ async def execute_pipeline(
         from src.services.planet_service import PlanetService
 
         planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(request.planet_id, current_user.id)
+        await planet_service.get_user_planet_or_404(request.planet_id, current_user)
 
     ai_service = AIService(db)
     return await ai_service.execute_pipeline(current_user.id, request)

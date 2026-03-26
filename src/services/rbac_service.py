@@ -17,6 +17,7 @@ from src.models.user import User
 from src.repositories.connection import ConnectionRepository
 from src.repositories.crew import CrewMemberRepository
 from src.repositories.permission import PermissionRepository, RolePermissionRepository
+from src.repositories.planet import PlanetMemberRepository
 
 CrewRole = str  # commander | navigator | explorer | guest
 
@@ -118,6 +119,7 @@ class RBACService:
         self.role_perms = RolePermissionRepository(db)
         self.connection_repo = ConnectionRepository(db)
         self.connection_perms = PermissionRepository(db)
+        self.planet_members = PlanetMemberRepository(db)
 
     async def get_effective_permissions(
         self,
@@ -126,6 +128,7 @@ class RBACService:
         crew_id: Optional[UUID] = None,
         space_id: Optional[UUID] = None,
         connection_id: Optional[UUID] = None,
+        planet_id: Optional[UUID] = None,
     ) -> EffectivePermissions:
         # Platform admins can do everything.
         if user.role == "admin":
@@ -138,7 +141,11 @@ class RBACService:
             )
 
         crew_role = await self._resolve_context_crew_role(
-            user.id, crew_id=crew_id, space_id=space_id, connection_id=connection_id
+            user.id,
+            crew_id=crew_id,
+            space_id=space_id,
+            connection_id=connection_id,
+            planet_id=planet_id,
         )
 
         defaults = DEFAULT_ROLE_PERMISSIONS.get(crew_role, DEFAULT_ROLE_PERMISSIONS["guest"])
@@ -160,14 +167,23 @@ class RBACService:
         crew_id: Optional[UUID] = None,
         space_id: Optional[UUID] = None,
         connection_id: Optional[UUID] = None,
+        planet_id: Optional[UUID] = None,
     ) -> None:
         # Platform admins bypass.
         if user.role == "admin":
             return
 
         eff = await self.get_effective_permissions(
-            user, crew_id=crew_id, space_id=space_id, connection_id=connection_id
+            user,
+            crew_id=crew_id,
+            space_id=space_id,
+            connection_id=connection_id,
+            planet_id=planet_id,
         )
+
+        # Platform users can always create planets (to avoid circular dependency)
+        if permission_key == "createPlanets" and user.role == "user":
+            return
 
         if not eff.permissions.get(permission_key, False):
             raise ForbiddenError(f"Permission denied: {permission_key}")
@@ -179,11 +195,26 @@ class RBACService:
         crew_id: Optional[UUID],
         space_id: Optional[UUID],
         connection_id: Optional[UUID],
+        planet_id: Optional[UUID] = None,
     ) -> CrewRole:
         # Most specific: crew_id
         if crew_id:
             member = await self.crew_members.get_by_crew_and_user(crew_id, user_id)
             return member.role if member and member.role else "guest"  # type: ignore[return-value]
+
+        # Next: planet_id (if specifically checking a planet)
+        if planet_id:
+            pm = await self.planet_members.get_by_planet_and_user(planet_id, user_id)
+            if pm:
+                # Map PlanetMember role to CrewRole
+                mapping = {
+                    "owner": "commander",
+                    "admin": "commander",
+                    "member": "navigator",
+                    "viewer": "guest",
+                }
+                return mapping.get(pm.role, "guest")
+            return "guest"
 
         # Next: resolve from space_id (best role among crews in that space)
         if space_id:

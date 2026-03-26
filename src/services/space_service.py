@@ -20,6 +20,7 @@ from src.schemas.space import (
     SpaceTableCreate,
     SpaceUpdate,
 )
+from src.services.rbac_service import RBACService
 from src.ai.http_client import AIServiceHTTPClient
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class SpaceService:
         self.member_repo = SpaceMemberRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.table_repo = SpaceTableRepository(db)
+        self.rbac = RBACService(db)
         self.ai_client = AIServiceHTTPClient()
 
     async def list_spaces(self, user: User, skip: int = 0, limit: int = 100) -> List[SpaceResponse]:
@@ -133,9 +135,8 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        # Check access (only owner for now)
-        if space.created_by != user.id:
-            raise ForbiddenError("Access denied to this space")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(user, "viewPlanets", space_id=space_id)
 
         return SpaceResponse.model_validate(space)
 
@@ -185,8 +186,8 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
-            raise ForbiddenError("Access denied to this space")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(user, "spaces.members.manage", space_id=space_id)
 
         update_data = space_data.model_dump(exclude_unset=True)
         space = await self.space_repo.update(space_id, **update_data)
@@ -217,19 +218,9 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        settings = get_settings()
-
-        # In development, allow any user to delete any space
-        # In production, only admin or owner can delete
-        if settings.is_development:
-            # Development mode: allow any authenticated user to delete
-            logger.info(
-                f"🔴 [DELETE SPACE SERVICE] Development mode: Allowing user {user.id} to delete space {space_id} (created by {space.created_by})"
-            )
-        else:
-            # Production mode: only admin or owner can delete
-            if user.role != "admin" and space.created_by != user.id:
-                raise ForbiddenError("Access denied to this space")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        # Only commanders or admins can delete spaces
+        await self.rbac.assert_permission(user, "admin.users.manage", space_id=space_id)
 
         await self.space_repo.delete(space_id)
         await self.db.commit()
@@ -254,7 +245,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if user.role != "admin" and space.created_by != user.id:
             raise ForbiddenError("Access denied to this space")
 
         crews = await self.space_repo.get_space_crews(space_id)
@@ -279,7 +270,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if user.role != "admin" and space.created_by != user.id:
             raise ForbiddenError("Access denied to this space")
 
         connections = await self.space_repo.get_space_connections(space_id)
@@ -308,7 +299,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if user.role != "admin" and space.created_by != user.id:
             raise ForbiddenError("Access denied to this space")
 
         connection = await self.connection_repo.get_by_id(connection_id)
@@ -367,7 +358,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if user.role != "admin" and space.created_by != user.id:
             raise ForbiddenError("Access denied to this space")
 
         association = await self.space_repo.get_space_connection(space_id, connection_id)
@@ -396,7 +387,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if user.role != "admin" and space.created_by != user.id:
             raise ForbiddenError("Access denied to this space")
 
         members = await self.member_repo.get_space_members(space_id)
@@ -428,7 +419,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if user.role != "admin" and space.created_by != user.id:
             raise ForbiddenError("Access denied to this space")
 
         # Check if member already exists
@@ -464,7 +455,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != current_user.id:
+        if current_user.role != "admin" and space.created_by != current_user.id:
             raise ForbiddenError("Access denied to this space")
 
         # Check if member exists

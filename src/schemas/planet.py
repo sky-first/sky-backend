@@ -13,7 +13,7 @@ class PlanetBase(BaseModel):
     """Base planet schema."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=1000)
     type: str = Field(..., pattern="^(personal|team)$")
     color: str = Field(..., pattern="^#[0-9A-Fa-f]{6}$")
     icon: Optional[str] = None
@@ -27,7 +27,7 @@ class PlanetUpdate(BaseModel):
     """Planet update schema."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=1000)
     type: Optional[str] = Field(None, pattern="^(personal|team)$")
     color: Optional[str] = Field(None, pattern="^#[0-9A-Fa-f]{6}$")
     icon: Optional[str] = None

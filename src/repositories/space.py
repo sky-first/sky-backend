@@ -31,9 +31,20 @@ class SpaceRepository(BaseRepository[Space]):
         Returns:
             List[Space]: List of spaces
         """
+        from sqlalchemy import or_
+        from src.models.space import SpaceMember
+
         result = await self.db.execute(
             select(Space)
-            .where(Space.created_by == user_id, Space.deleted_at.is_(None))
+            .outerjoin(SpaceMember, Space.id == SpaceMember.space_id)
+            .where(
+                or_(
+                    Space.created_by == user_id,
+                    SpaceMember.user_id == user_id,
+                ),
+                Space.deleted_at.is_(None),
+            )
+            .distinct()
             .order_by(Space.created_at.desc())
             .offset(skip)
             .limit(limit)

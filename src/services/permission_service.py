@@ -623,6 +623,61 @@ class PermissionService:
 
         return RolePermissionResponse.model_validate(role_permission)
 
+    async def inherit_crew_table_permissions(
+        self, crew_id: UUID, target_member_id: UUID
+    ) -> None:
+        """
+        Inherit table permissions from existing crew members.
+        This ensures Bug 10 is resolved by giving new members the same granular
+        table access that other members of the crew already have.
+
+        Args:
+            crew_id: Crew ID
+            target_member_id: New member ID to receive permissions
+        """
+        # Get all existing permissions for this crew
+        # Note: we use distinct table_name/connection_id to avoid duplicates
+        # and we pick 'has_access' if at least one member has it set.
+        stmt = (
+            select(
+                self.table_member_permission_repo.model.connection_id,
+                self.table_member_permission_repo.model.table_name,
+                self.table_member_permission_repo.model.has_access,
+            )
+            .where(
+                self.table_member_permission_repo.model.crew_id == crew_id,
+                self.table_member_permission_repo.model.member_id != target_member_id,
+            )
+            .distinct(
+                self.table_member_permission_repo.model.connection_id,
+                self.table_member_permission_repo.model.table_name,
+            )
+            .order_by(
+                self.table_member_permission_repo.model.connection_id,
+                self.table_member_permission_repo.model.table_name,
+                self.table_member_permission_repo.model.has_access.desc(),
+            )
+        )
+
+        res = await self.db.execute(stmt)
+        perms_to_copy = res.all()
+
+        for conn_id, t_name, access in perms_to_copy:
+            # Check if already exists (safeguard)
+            existing = await self.table_member_permission_repo.get_by_connection_table_member(
+                conn_id, t_name, target_member_id
+            )
+            if not existing:
+                await self.table_member_permission_repo.create(
+                    connection_id=conn_id,
+                    table_name=t_name,
+                    crew_id=crew_id,
+                    member_id=target_member_id,
+                    has_access=access,
+                )
+
+        await self.db.commit()
+
     async def get_authorized_tables(
         self,
         user_id: UUID,

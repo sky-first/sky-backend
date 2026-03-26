@@ -633,6 +633,31 @@ class AIService:
         await self.db.commit()
         await self.db.refresh(query)
 
+        # Bug 1 Fix: Always create a history entry after a successful query (completed status)
+        if query.status == "completed" and query.answer:
+            try:
+                from src.schemas.ai import CreateHistoryRequest
+                
+                # Resolve context for history
+                conf = query.configure_data or {}
+                h_space_id = conf.get("space_id")
+                h_crew_id = conf.get("crew_id")
+                
+                await self.create_history(
+                    user_id=user_id,
+                    history_data=CreateHistoryRequest(
+                        query=query.question,
+                        answer=query.answer,
+                        planet_id=query.planet_id,
+                        space_id=str(h_space_id) if h_space_id else None,
+                        crew_id=str(h_crew_id) if h_crew_id else None,
+                        category="general",
+                    )
+                )
+                logger.info(f"[AIService] AI History entry created for query {query.id}")
+            except Exception as e:
+                logger.warning(f"[AIService] Failed to create history entry: {e}", exc_info=True)
+
         # Build response with chosen datasets from configure_data
         response_dict = query.__dict__.copy()
 
@@ -898,6 +923,26 @@ class AIService:
 
         await self.db.commit()
         await self.db.refresh(ai_message)
+
+        # Bug 1 Fix: Also create a history entry for chat messages if they are not just "No answer"
+        if answer and answer != "No answer generated":
+            try:
+                from src.schemas.ai import CreateHistoryRequest
+                
+                await self.create_history(
+                    user_id=user_id,
+                    history_data=CreateHistoryRequest(
+                        query=message_data.message,
+                        answer=answer,
+                        planet_id=message_data.planet_id,
+                        space_id=str(space_id) if space_id else None,
+                        crew_id=str(crew_ids[0]) if crew_ids and len(crew_ids) > 0 else None,
+                        category="chat",
+                    )
+                )
+                logger.info(f"[AIService] AI History entry created for chat message {ai_message.id}")
+            except Exception as e:
+                logger.warning(f"[AIService] Failed to create history entry for chat: {e}", exc_info=True)
 
         return ChatMessageResponse.model_validate(ai_message)
 

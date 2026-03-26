@@ -9,6 +9,7 @@ from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.user import User
 from src.repositories.crew import CrewMemberRepository, CrewRepository
 from src.repositories.space import SpaceRepository
+from src.services.rbac_service import RBACService
 from src.schemas.crew import (
     CrewCreate,
     CrewMemberCreate,
@@ -20,6 +21,7 @@ from src.schemas.crew import (
     CrewUpdate,
 )
 from src.services.auth_service import user_to_response_dict
+from src.services.permission_service import PermissionService
 
 
 class CrewService:
@@ -36,6 +38,8 @@ class CrewService:
         self.crew_repo = CrewRepository(db)
         self.member_repo = CrewMemberRepository(db)
         self.space_repo = SpaceRepository(db)
+        self.rbac = RBACService(db)
+        self.permission_service = PermissionService(db)
 
     async def list_crews(
         self,
@@ -86,10 +90,8 @@ class CrewService:
         if not crew_data:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew_data["space_id"])
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(user, "viewPlanets", space_id=crew_data["space_id"])
 
         return CrewResponse.model_validate(crew_data)
 
@@ -108,13 +110,8 @@ class CrewService:
             NotFoundError: If space not found
             ForbiddenError: If user doesn't have access to space
         """
-        # Verify space exists and user has access
-        space = await self.space_repo.get_by_id(crew_data.space_id)
-        if not space:
-            raise NotFoundError("Space not found")
-
-        if space.created_by != user.id:
-            raise ForbiddenError("Access denied to this space")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(user, "crews.create", space_id=crew_data.space_id)
 
         crew = await self.crew_repo.create(
             name=crew_data.name,
@@ -150,7 +147,7 @@ class CrewService:
 
         # Check access via current space
         current_space = await self.space_repo.get_by_id(crew.space_id)
-        if not current_space or current_space.created_by != user.id:
+        if not current_space or (user.role != "admin" and current_space.created_by != user.id):
             raise ForbiddenError("Access denied to this crew")
 
         update_data = crew_data.model_dump(exclude_unset=True)
@@ -160,7 +157,7 @@ class CrewService:
             target_space = await self.space_repo.get_by_id(update_data["space_id"])
             if not target_space:
                 raise NotFoundError("Target space not found")
-            if target_space.created_by != user.id:
+            if target_space.created_by != user.id and user.role != "admin":
                 raise ForbiddenError("Access denied to target space")
 
         crew = await self.crew_repo.update(crew_id, **update_data)
@@ -197,7 +194,7 @@ class CrewService:
 
         # Check access via space
         space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
+        if not space or (user.role != "admin" and space.created_by != user.id):
             raise ForbiddenError("Access denied to this crew")
 
         # Query AI service for running tasks
@@ -269,7 +266,7 @@ class CrewService:
         else:
             # Production mode: only admin or owner can delete
             space = await self.space_repo.get_by_id(crew.space_id)
-            if not space or space.created_by != user.id:
+            if not space or (user.role != "admin" and space.created_by != user.id):
                 raise ForbiddenError("Access denied to this crew")
 
         # Check for running tasks if not forcing
@@ -320,7 +317,7 @@ class CrewService:
 
         # Check access via space
         space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
+        if not space or (user.role != "admin" and space.created_by != user.id):
             raise ForbiddenError("Access denied to this crew")
 
         members = await self.member_repo.get_by_crew(crew_id)
@@ -369,7 +366,7 @@ class CrewService:
 
         # Check access via space
         space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
+        if not space or (user.role != "admin" and space.created_by != user.id):
             raise ForbiddenError("Access denied to this crew")
 
         # Check if member already exists
@@ -384,11 +381,18 @@ class CrewService:
         )
 
         await self.db.commit()
+
+        # Inherit table permissions from crew (Bug 10)
+        try:
+            await self.permission_service.inherit_crew_table_permissions(crew_id, member.id)
+        except Exception as e:
+            # Don't fail the whole member addition if just inheritance fails, but log it
+            logging.getLogger(__name__).error(f"Error inheriting permissions: {str(e)}")
+
         # Load user relationship (similar to SpaceService)
         await self.db.refresh(member, ["user"])
 
         # Convert user to dict if present (CrewMemberResponse expects Optional[dict])
-
         member_data_dict = {
             "id": member.id,
             "crew_id": member.crew_id,
@@ -417,10 +421,8 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != current_user.id:
-            raise ForbiddenError("Access denied to this crew")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(current_user, "crews.members.manage", space_id=crew.space_id)
 
         member = await self.member_repo.get_by_crew_and_user(crew_id, user_id)
         if not member:
@@ -456,10 +458,8 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != current_user.id:
-            raise ForbiddenError("Access denied to this crew")
+        # Use RBAC for authorization - ensures Bug 7 isolation
+        await self.rbac.assert_permission(current_user, "crews.members.manage", space_id=crew.space_id)
 
         member = await self.member_repo.get_by_crew_and_user(crew_id, user_id)
         if not member:
@@ -505,7 +505,7 @@ class CrewService:
 
         # Check access via space
         space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
+        if not space or (user.role != "admin" and space.created_by != user.id):
             raise ForbiddenError("Access denied to this crew")
 
         # In a real app, these would come from the database/analytics service

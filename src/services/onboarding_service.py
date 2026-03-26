@@ -50,5 +50,23 @@ async def ensure_default_planet_and_space(db: AsyncSession, user: User) -> None:
         created_by=user.id,
     )
 
+    # Create a default dashboard for the new planet
+    from src.repositories.dashboard import DashboardRepository
+
+    dashboard_repo = DashboardRepository(db)
+    await dashboard_repo.create(
+        name="My Dashboard",
+        description="Your first dashboard",
+        planet_id=planet.id,
+        created_by=user.id,
+        canvas_settings={
+            "scale": 1,
+            "position": {"x": 0, "y": 0},
+            "snapToGrid": False,
+            "gridSize": 24,
+        },
+        is_locked=False,
+    )
+
     await db.commit()
     await db.refresh(planet)

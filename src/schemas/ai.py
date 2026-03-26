@@ -10,20 +10,20 @@ from pydantic import BaseModel, ConfigDict, Field
 class ConfigureData(BaseModel):
     """AI configuration data schema."""
 
-    question: str
-    description: Optional[str] = None
-    instructions: Optional[str] = None
-    response_format: Optional[str] = None
+    question: str = Field(..., max_length=4000)
+    description: Optional[str] = Field(None, max_length=1000)
+    instructions: Optional[str] = Field(None, max_length=2000)
+    response_format: Optional[str] = Field(None, max_length=500)
     creativity: int = Field(default=50, ge=0, le=100)
     length: int = Field(default=50, ge=0, le=100)
     knowledge: List[str] = Field(default_factory=list)  # Connection IDs or table names
-    sql_instructions: Optional[str] = None
+    sql_instructions: Optional[str] = Field(None, max_length=2000)
 
 
 class AIQueryRequest(BaseModel):
     """AI query request schema."""
 
-    question: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1, max_length=4000)
     widget_id: Optional[UUID] = None
     knowledge: Optional[List[str]] = None
     configure_data: Optional[ConfigureData] = None
@@ -105,7 +105,7 @@ class SuggestWidgetTitleResponse(BaseModel):
 class ChatMessageRequest(BaseModel):
     """Chat message request schema."""
 
-    message: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1, max_length=4000)
     widget_id: UUID
     planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
     context: Optional[Dict[str, Any]] = None
@@ -151,8 +151,8 @@ class AIHistoryItem(BaseModel):
 class CreateHistoryRequest(BaseModel):
     """Create history request schema."""
 
-    query: str = Field(..., min_length=1)
-    answer: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1, max_length=4000)
+    answer: str = Field(..., min_length=1, max_length=10000)
     planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
     category: Optional[str] = None
     tags: Optional[List[str]] = Field(default_factory=list)

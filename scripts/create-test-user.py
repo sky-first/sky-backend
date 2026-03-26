@@ -18,55 +18,62 @@ from src.models.user import User
 from src.models.workspace import Workspace  # noqa: F401
 
 
-async def create_test_user():
-    """Create a test user."""
+async def create_users():
+    """Create test users."""
     import os
+    import uuid
+    from sqlalchemy import text, select
 
-    # Database URL from environment or default
     database_url = os.getenv(
         "DATABASE_URL",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db",
+        "postgresql+asyncpg://postgres:09SQUOARD5OvNCXd8KRjUse0qq0DLvACGN%2BO2XwriDY%3D@localhost:5433/ai_saas_db",
     )
 
     engine = create_async_engine(database_url, echo=False)
     async_session = async_sessionmaker(engine, expire_on_commit=False)
 
+    users_to_create = [
+        {"email": "admin@example.com", "name": "Admin User", "role": "admin"},
+        {"email": "viewer@example.com", "name": "Viewer User", "role": "user"},
+    ]
+
     async with async_session() as session:
-        # Check if user already exists
-        from sqlalchemy import select
+        for u_data in users_to_create:
+            # Raw SQL select to check if exists
+            result = await session.execute(
+                text("SELECT id FROM users WHERE email = :email"),
+                {"email": u_data["email"]}
+            )
+            existing_user_id = result.scalar()
 
-        result = await session.execute(select(User).where(User.email == "test@example.com"))
-        existing_user = result.scalar_one_or_none()
+            if existing_user_id:
+                await session.execute(
+                    text("UPDATE users SET password_hash = :pw_hash, role = :role WHERE id = :id"),
+                    {
+                        "pw_hash": get_password_hash("password123"),
+                        "role": u_data["role"],
+                        "id": existing_user_id
+                    }
+                )
+                print(f"✅ User {u_data['email']} updated.")
+            else:
+                user_id = uuid.uuid4()
+                await session.execute(
+                    text("INSERT INTO users (id, email, password_hash, name, role) VALUES (:id, :email, :pw_hash, :name, :role)"),
+                    {
+                        "id": user_id,
+                        "email": u_data["email"],
+                        "pw_hash": get_password_hash("password123"),
+                        "name": u_data["name"],
+                        "role": u_data["role"]
+                    }
+                )
+                print(f"✅ User {u_data['email']} created.")
 
-        if existing_user:
-            # Update password to ensure it matches current reference
-            existing_user.password_hash = get_password_hash("Test@2024!Secure")
-            session.add(existing_user)
             await session.commit()
-            print("✅ Test user already exists (password refreshed).")
-            print("   Email: test@example.com")
-            print("   Password: Test@2024!Secure")
-            return
-
-        # Create test user
-        test_user = User(
-            email="test@example.com",
-            password_hash=get_password_hash("Test@2024!Secure"),
-            name="Test User",
-            role="user",
-            email_verified=True,
-            has_completed_onboarding=True,
-        )
-
-        session.add(test_user)
-        await session.commit()
-
-        print("✅ Test user created successfully!")
-        print("   Email: test@example.com")
-        print("   Password: Test@2024!Secure")
-
+            
     await engine.dispose()
 
 
 if __name__ == "__main__":
-    asyncio.run(create_test_user())
+    asyncio.run(create_users())
