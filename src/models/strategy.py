@@ -229,8 +229,8 @@ class StrategyInitiative(Base):
     risks = Column(JSON, nullable=True, default=list)
     assumptions = Column(JSON, nullable=True, default=list)
     progress = Column(Integer, nullable=True, default=0)
-    space_ids = Column(JSONB, nullable=True, default=list)
-    crew_ids = Column(JSONB, nullable=True, default=list)
+    space_ids = Column(JSON, nullable=True, default=list)
+    crew_ids = Column(JSON, nullable=True, default=list)
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

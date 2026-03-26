@@ -152,3 +152,36 @@ async def test_create_signal_event_enum_uppercase(
     data = response.json()
     assert data["category"] == "INTERNAL"
     assert data["nature"] == "SIGNAL"
+
+
+@pytest.mark.asyncio
+async def test_create_initiative_multi_assignment(async_client: AsyncClient, test_user_with_tokens: dict):
+    """Test creating an initiative with multiple space/crew IDs."""
+    from uuid import uuid4
+    token = test_user_with_tokens["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    space1 = uuid4()
+    space2 = uuid4()
+    crew1 = uuid4()
+
+    payload = {
+        "title": "Multi-assignment Initiative",
+        "description": "desc",
+        "space_ids": [str(space1), str(space2)],
+        "crew_ids": [str(crew1)],
+        "status": "planned"
+    }
+
+    # 1. Create initiative
+    response = await async_client.post("/api/v1/strategy/initiatives", json=payload, headers=headers)
+    assert response.status_code == 201
+    data = response.json()
+    assert len(data["space_ids"]) == 2
+    
+    # 2. Test filtering by one of the spaces via tree endpoint
+    filter_res = await async_client.get(f"/api/v1/strategy/tree?space_id={space1}", headers=headers)
+    assert filter_res.status_code == 200
+    tree_data = filter_res.json()
+    found = any(i["title"] == "Multi-assignment Initiative" for i in tree_data.get("initiatives", []))
+    assert found is True

@@ -211,10 +211,17 @@ class StrategyRepository:
     async def get_all_initiatives(self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None) -> List[StrategyInitiative]:
         query = select(StrategyInitiative)
         if space_id:
-            # Check if space_id is in space_ids list (JSON column)
-            query = query.where(StrategyInitiative.space_ids.contains([str(space_id)]))
+            if self.session.bind.dialect.name == 'postgresql':
+                query = query.where(StrategyInitiative.space_ids.contains([str(space_id)]))
+            else:
+                # SQLite fallback for tests: search for the UUID in the JSON string
+                query = query.where(StrategyInitiative.space_ids.like(f"%{space_id}%"))
         if crew_id:
-            query = query.where(StrategyInitiative.crew_ids.contains([str(crew_id)]))
+            if self.session.bind.dialect.name == 'postgresql':
+                query = query.where(StrategyInitiative.crew_ids.contains([str(crew_id)]))
+            else:
+                # SQLite fallback
+                query = query.where(StrategyInitiative.crew_ids.like(f"%{crew_id}%"))
         result = await self.session.execute(query)
         return result.scalars().all()
 

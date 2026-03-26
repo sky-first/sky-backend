@@ -213,7 +213,9 @@ class StrategyService:
                 "entity_type": "strategy_initiative",
                 "name": initiative.title,
                 "description": initiative.description,
-                "status": "in_progress"
+                "status": "in_progress",
+                "space_id": str(initiative.space_ids[0]) if initiative.space_ids and len(initiative.space_ids) > 0 else None,
+                "crew_id": str(initiative.crew_ids[0]) if initiative.crew_ids and len(initiative.crew_ids) > 0 else None
             }
             background_tasks.add_task(self.ai_client.ingest_knowledge_graph, payload)
         except Exception as e:
