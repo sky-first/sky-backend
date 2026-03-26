@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import BackgroundTasks, HTTPException, status
@@ -46,19 +46,26 @@ class StrategyService:
     def _trigger_ai_ingestion(self, entity: Any, entity_type: str, background_tasks: BackgroundTasks):
         """Helper to trigger AI ingestion for an entity in the background using BackgroundTasks."""
         try:
+            # Handle list vs single space_id/crew_id
+            space_val = None
+            if hasattr(entity, "space_ids") and entity.space_ids:
+                space_val = entity.space_ids[0] if isinstance(entity.space_ids, list) and len(entity.space_ids) > 0 else None
+            elif hasattr(entity, "space_id") and entity.space_id:
+                space_val = str(entity.space_id)
+                
+            crew_val = None
+            if hasattr(entity, "crew_ids") and entity.crew_ids:
+                crew_val = entity.crew_ids[0] if isinstance(entity.crew_ids, list) and len(entity.crew_ids) > 0 else None
+            elif hasattr(entity, "crew_id") and entity.crew_id:
+                crew_val = str(entity.crew_id)
+
             payload = {
                 "id": str(entity.id),
                 "entity_type": entity_type,
                 "name": getattr(entity, "name", getattr(entity, "title", None)),
                 "description": getattr(entity, "description", None),
-                "space_id": (
-                    str(entity.space_id)
-                    if hasattr(entity, "space_id") and entity.space_id
-                    else None
-                ),
-                "crew_id": (
-                    str(entity.crew_id) if hasattr(entity, "crew_id") and entity.crew_id else None
-                ),
+                "space_id": space_val,
+                "crew_id": crew_val,
                 "entity_details": {
                     "status": getattr(entity, "status", None),
                     "priority": getattr(entity, "priority", None),
@@ -83,12 +90,14 @@ class StrategyService:
         except Exception as e:
             logger.error(f"Background task failed: AI ingestion for {entity_type} {entity_id} failed: {e}")
 
-    async def get_strategy_tree(self) -> StrategyTreeResponse:
-        pillars = await self.repository.get_all_pillars()
-        objectives = await self.repository.get_all_objectives()
-        okrs = await self.repository.get_all_okrs()
-        initiatives = await self.repository.get_all_initiatives()
-        assumptions = await self.repository.get_all_assumptions()
+    async def get_strategy_tree(
+        self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None
+    ) -> StrategyTreeResponse:
+        pillars = await self.repository.get_all_pillars(space_id=space_id, crew_id=crew_id)
+        objectives = await self.repository.get_all_objectives(space_id=space_id, crew_id=crew_id)
+        okrs = await self.repository.get_all_okrs(space_id=space_id, crew_id=crew_id)
+        initiatives = await self.repository.get_all_initiatives(space_id=space_id, crew_id=crew_id)
+        assumptions = await self.repository.get_all_assumptions(space_id=space_id, crew_id=crew_id)
         cycles = await self.repository.get_all_cycles()
 
         return StrategyTreeResponse(
@@ -197,8 +206,18 @@ class StrategyService:
     ) -> StrategyInitiativeResponse:
         initiative = await self.repository.create_initiative(schema)
         await self.session.commit()
-        await self.session.refresh(initiative)
-        self._trigger_ai_ingestion(initiative, "strategy_initiative", background_tasks)
+        # Trigger ingestion manually to skip refresh wait if possible
+        try:
+            payload = {
+                "id": str(initiative.id),
+                "entity_type": "strategy_initiative",
+                "name": initiative.title,
+                "description": initiative.description,
+                "status": "in_progress"
+            }
+            background_tasks.add_task(self.ai_client.ingest_knowledge_graph, payload)
+        except Exception as e:
+            logger.error(f"Failed to trigger initial ingestion for initiative: {e}")
         return initiative
 
     async def update_initiative(
@@ -324,11 +343,13 @@ class StrategyService:
 
     # --- Business Logic ---
 
-    async def get_strategy_health(self) -> StrategyHealthResponse:
-        objectives = await self.repository.get_all_objectives()
-        okrs = await self.repository.get_all_okrs()
-        initiatives = await self.repository.get_all_initiatives()
-        assumptions = await self.repository.get_all_assumptions()
+    async def get_strategy_health(
+        self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None
+    ) -> StrategyHealthResponse:
+        objectives = await self.repository.get_all_objectives(space_id=space_id, crew_id=crew_id)
+        okrs = await self.repository.get_all_okrs(space_id=space_id, crew_id=crew_id)
+        initiatives = await self.repository.get_all_initiatives(space_id=space_id, crew_id=crew_id)
+        assumptions = await self.repository.get_all_assumptions(space_id=space_id, crew_id=crew_id)
 
         # 1. Coverage Percentage (% objectives with at least one OKR)
         total_objectives = len(objectives)

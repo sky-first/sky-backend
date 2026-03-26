@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
 
@@ -229,12 +229,8 @@ class StrategyInitiative(Base):
     risks = Column(JSON, nullable=True, default=list)
     assumptions = Column(JSON, nullable=True, default=list)
     progress = Column(Integer, nullable=True, default=0)
-    space_id = Column(
-        UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True
-    )
-    crew_id = Column(
-        UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
-    )
+    space_ids = Column(JSONB, nullable=True, default=list)
+    crew_ids = Column(JSONB, nullable=True, default=list)
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -207,8 +207,8 @@ class StrategyInitiativeBase(BaseModel):
     risks: Optional[List[str]] = Field(default_factory=list)
     assumptions: Optional[List[str]] = Field(default_factory=list)
     progress: Optional[int] = 0
-    space_id: Optional[UUID] = None
-    crew_id: Optional[UUID] = None
+    space_ids: Optional[List[UUID]] = Field(default_factory=list)
+    crew_ids: Optional[List[UUID]] = Field(default_factory=list)
 
 
 class StrategyInitiativeCreate(StrategyInitiativeBase):
@@ -231,6 +231,8 @@ class StrategyInitiativeUpdate(BaseModel):
     risks: Optional[List[str]] = None
     assumptions: Optional[List[str]] = None
     progress: Optional[int] = None
+    space_ids: Optional[List[UUID]] = None
+    crew_ids: Optional[List[UUID]] = None
 
 
 class StrategyInitiativeResponse(StrategyInitiativeBase):
