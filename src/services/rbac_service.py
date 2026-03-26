@@ -18,6 +18,7 @@ from src.repositories.connection import ConnectionRepository
 from src.repositories.crew import CrewMemberRepository
 from src.repositories.permission import PermissionRepository, RolePermissionRepository
 from src.repositories.planet import PlanetMemberRepository
+from src.repositories.space import SpaceMemberRepository
 
 CrewRole = str  # commander | navigator | explorer | guest
 
@@ -120,6 +121,7 @@ class RBACService:
         self.connection_repo = ConnectionRepository(db)
         self.connection_perms = PermissionRepository(db)
         self.planet_members = PlanetMemberRepository(db)
+        self.space_members = SpaceMemberRepository(db)
 
     async def get_effective_permissions(
         self,
@@ -231,10 +233,15 @@ class RBACService:
         crew_ids = await self.crew_members.get_crew_ids_by_user_and_space(
             user_id=user_id, space_id=space_id
         )
-        if not crew_ids:
+        
+        # Check if user is a direct member of the space (inheritance)
+        is_space_member = await self.space_members.get_by_space_and_user(space_id, user_id)
+        
+        if not crew_ids and not is_space_member:
             return "guest"
 
-        best_role = "guest"
+        # If they are a space member, they start with 'explorer' instead of 'guest'
+        best_role = "explorer" if is_space_member else "guest"
         best_score = ROLE_PRECEDENCE[best_role]
         for cid in crew_ids:
             member = await self.crew_members.get_by_crew_and_user(cid, user_id)
