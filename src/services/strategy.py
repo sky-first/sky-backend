@@ -46,18 +46,22 @@ class StrategyService:
     def _trigger_ai_ingestion(self, entity: Any, entity_type: str, background_tasks: BackgroundTasks):
         """Helper to trigger AI ingestion for an entity in the background using BackgroundTasks."""
         try:
-            # Handle list vs single space_id/crew_id
+            # Handle M2M objects vs single space_id/crew_id
             space_val = None
-            if hasattr(entity, "space_ids") and entity.space_ids:
-                space_val = entity.space_ids[0] if isinstance(entity.space_ids, list) and len(entity.space_ids) > 0 else None
+            if hasattr(entity, "spaces") and entity.spaces:
+                space_val = str(entity.spaces[0].id)
             elif hasattr(entity, "space_id") and entity.space_id:
                 space_val = str(entity.space_id)
+            elif hasattr(entity, "space_ids") and entity.space_ids:
+                space_val = str(entity.space_ids[0])
                 
             crew_val = None
-            if hasattr(entity, "crew_ids") and entity.crew_ids:
-                crew_val = entity.crew_ids[0] if isinstance(entity.crew_ids, list) and len(entity.crew_ids) > 0 else None
+            if hasattr(entity, "crews") and entity.crews:
+                crew_val = str(entity.crews[0].id)
             elif hasattr(entity, "crew_id") and entity.crew_id:
                 crew_val = str(entity.crew_id)
+            elif hasattr(entity, "crew_ids") and entity.crew_ids:
+                crew_val = str(entity.crew_ids[0])
 
             payload = {
                 "id": str(entity.id),
@@ -214,8 +218,8 @@ class StrategyService:
                 "name": initiative.title,
                 "description": initiative.description,
                 "status": "in_progress",
-                "space_id": str(initiative.space_ids[0]) if initiative.space_ids and len(initiative.space_ids) > 0 else None,
-                "crew_id": str(initiative.crew_ids[0]) if initiative.crew_ids and len(initiative.crew_ids) > 0 else None
+                "space_id": str(initiative.spaces[0].id) if hasattr(initiative, "spaces") and initiative.spaces else None,
+                "crew_id": str(initiative.crews[0].id) if hasattr(initiative, "crews") and initiative.crews else None
             }
             background_tasks.add_task(self.ai_client.ingest_knowledge_graph, payload)
         except Exception as e:
@@ -232,8 +236,9 @@ class StrategyService:
             )
         initiative = await self.repository.update_initiative(initiative, schema)
         await self.session.commit()
-        await self.session.refresh(initiative)
-        self._trigger_ai_ingestion(initiative, "strategy_initiative", background_tasks)
+        # We don't refresh to avoid losing M2M objects that were selectinloaded
+        # but we do refresh basic fields if needed.
+        # However, the repo already returned the fresh object.
         return initiative
 
     async def delete_initiative(self, initiative_id: UUID) -> None:
