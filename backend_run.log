@@ -1,0 +1,119 @@
+🚀 Iniciando Backend na porta 8000...
+📦 Verificando dependências...
+WARNING: authlib 1.6.9 does not provide the extra 'starlette'
+WARNING: You are using pip version 21.2.4; however, version 26.0.1 is available.
+You should consider upgrading via the '/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/bin/python3 -m pip install --upgrade pip' command.
+✅ Variáveis de ambiente configuradas
+   DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db
+   REDIS_URL: redis://localhost:6379/0
+   AI_SERVICE_URL: http://localhost:8001
+   CACHE_WARMING: false (Interval: 60s)
+
+Cannot connect to the Docker daemon at unix:///Users/thedatafirst/.docker/run/docker.sock. Is the docker daemon running?
+⚠️  Infraestrutura não está rodando.
+   Execute: cd ../../deploy && ./start.sh
+   Continuando...
+🔄 Executando migrações do banco de dados...
+Traceback (most recent call last):
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 146, in __init__
+    self._dbapi_connection = engine.raw_connection()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 3302, in raw_connection
+    return self.pool.connect()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 449, in connect
+    return _ConnectionFairy._checkout(self)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 1263, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 712, in checkout
+    rec = pool._do_get()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/impl.py", line 308, in _do_get
+    return self._create_connection()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 390, in _create_connection
+    return _ConnectionRecord(self)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 674, in __init__
+    self.__connect()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 901, in __connect
+    pool.logger.debug("Error on connect(): %s", e)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/util/langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 896, in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/create.py", line 643, in connect
+    return dialect.connect(*cargs, **cparams)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/default.py", line 621, in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/psycopg2/__init__.py", line 122, in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+psycopg2.OperationalError: connection to server at "localhost" (127.0.0.1), port 5432 failed: FATAL:  role "postgres" does not exist
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/runpy.py", line 197, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/alembic/__main__.py", line 4, in <module>
+    main(prog="alembic")
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/alembic/config.py", line 641, in main
+    CommandLine(prog=prog).main(argv=argv)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/alembic/config.py", line 631, in main
+    self.run_cmd(cfg, options)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/alembic/config.py", line 608, in run_cmd
+    fn(
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/alembic/command.py", line 403, in upgrade
+    script.run_env()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/alembic/script/base.py", line 583, in run_env
+    util.load_python_file(self.dir, "env.py")
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/alembic/util/pyfiles.py", line 95, in load_python_file
+    module = load_module_py(module_id, path)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/alembic/util/pyfiles.py", line 113, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "migrations/env.py", line 122, in <module>
+    run_migrations_online()
+  File "migrations/env.py", line 108, in run_migrations_online
+    with connectable.connect() as connection:
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 3278, in connect
+    return self._connection_cls(self)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 148, in __init__
+    Connection._handle_dbapi_exception_noconnection(
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 2442, in _handle_dbapi_exception_noconnection
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 146, in __init__
+    self._dbapi_connection = engine.raw_connection()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 3302, in raw_connection
+    return self.pool.connect()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 449, in connect
+    return _ConnectionFairy._checkout(self)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 1263, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 712, in checkout
+    rec = pool._do_get()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/impl.py", line 308, in _do_get
+    return self._create_connection()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 390, in _create_connection
+    return _ConnectionRecord(self)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 674, in __init__
+    self.__connect()
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 901, in __connect
+    pool.logger.debug("Error on connect(): %s", e)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/util/langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/pool/base.py", line 896, in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/create.py", line 643, in connect
+    return dialect.connect(*cargs, **cparams)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/sqlalchemy/engine/default.py", line 621, in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)
+  File "/Users/thedatafirst/Documents/repositorios/sky-poc-backend/venv/lib/python3.9/site-packages/psycopg2/__init__.py", line 122, in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) connection to server at "localhost" (127.0.0.1), port 5432 failed: FATAL:  role "postgres" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+⚠️  Falha nas migrações. Verificando se há revisões órfãs...
+❌ Falha crítica nas migrações. Por favor, verifique os logs acima.
+
+🛑 Desligando Celery Worker e Beat...
+✅ Processos encerrados.

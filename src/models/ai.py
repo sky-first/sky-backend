@@ -99,7 +99,7 @@ class AIHistory(Base):
         index=True,
     )
     query = Column(Text, nullable=False)
-    preview = Column(Text, nullable=False)
+    preview = Column(Text, nullable=True)
     answer = Column(Text, nullable=False)
     date = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
     tags = Column(JSON, nullable=False, default=list, server_default="[]")

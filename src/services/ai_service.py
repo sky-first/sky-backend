@@ -1026,8 +1026,12 @@ class AIService:
             query = query.where(AIHistory.pinned.is_(True))
         # "all" or None: no date filter, show everything
 
+        from sqlalchemy import or_
         # Apply category filter
-        if category:
+        if category == "Chat":
+            # Para o filtro de Chat, incluímos também itens sem categoria (mensagens legadas do chatbox)
+            query = query.where(or_(AIHistory.category == "Chat", AIHistory.category.is_(None)))
+        elif category:
             query = query.where(AIHistory.category == category)
 
         # Apply collaborative context filters
