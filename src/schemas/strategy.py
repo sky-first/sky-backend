@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrategicPillarBase(BaseModel):
@@ -207,8 +207,8 @@ class StrategyInitiativeBase(BaseModel):
     risks: Optional[List[str]] = Field(default_factory=list)
     assumptions: Optional[List[str]] = Field(default_factory=list)
     progress: Optional[int] = 0
-    space_id: Optional[UUID] = None
-    crew_id: Optional[UUID] = None
+    space_ids: Optional[List[UUID]] = Field(default_factory=list)
+    crew_ids: Optional[List[UUID]] = Field(default_factory=list)
 
 
 class StrategyInitiativeCreate(StrategyInitiativeBase):
@@ -231,6 +231,8 @@ class StrategyInitiativeUpdate(BaseModel):
     risks: Optional[List[str]] = None
     assumptions: Optional[List[str]] = None
     progress: Optional[int] = None
+    space_ids: Optional[List[UUID]] = None
+    crew_ids: Optional[List[UUID]] = None
 
 
 class StrategyInitiativeResponse(StrategyInitiativeBase):
@@ -239,6 +241,42 @@ class StrategyInitiativeResponse(StrategyInitiativeBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_m2m(cls, data: Any) -> Any:
+        """Map ORM M2M relationships to ID lists securely."""
+        if not isinstance(data, dict) and hasattr(data, "id"):
+            # Use SQLAlchemy inspection to avoid lazy-loading triggers during validation
+            try:
+                from sqlalchemy import inspect
+                state = inspect(data)
+                
+                # Copy attributes manually to a dict to be safe
+                result = {}
+                for field in cls.model_fields.keys():
+                    if field in ["space_ids", "crew_ids"]:
+                        continue
+                    if hasattr(data, field):
+                        result[field] = getattr(data, field)
+
+                # Map M2M IDs only if they are already loaded
+                if "spaces" not in state.unloaded:
+                    result["space_ids"] = [s.id for s in data.spaces]
+                if "crews" not in state.unloaded:
+                    result["crew_ids"] = [c.id for c in data.crews]
+                
+                # Fill missing keys for Pydantic
+                if "space_ids" not in result:
+                    result["space_ids"] = []
+                if "crew_ids" not in result:
+                    result["crew_ids"] = []
+                    
+                return result
+            except Exception:
+                # Fallback to defaults or existing object if inspection fails
+                pass
+        return data
 
 
 # --- Strategy Assumption ---

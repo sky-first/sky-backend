@@ -38,8 +38,13 @@ class StrategyRepository:
 
     # --- Strategic Pillar ---
 
-    async def get_all_pillars(self) -> List[StrategicPillar]:
-        result = await self.session.execute(select(StrategicPillar))
+    async def get_all_pillars(self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None) -> List[StrategicPillar]:
+        query = select(StrategicPillar)
+        if space_id:
+            query = query.where(StrategicPillar.space_id == space_id)
+        if crew_id:
+            query = query.where(StrategicPillar.crew_id == crew_id)
+        result = await self.session.execute(query)
         return result.scalars().all()
 
     async def get_pillar_by_id(self, pillar_id: UUID) -> Optional[StrategicPillar]:
@@ -69,8 +74,13 @@ class StrategyRepository:
 
     # --- Strategic Objective ---
 
-    async def get_all_objectives(self) -> List[StrategicObjective]:
-        result = await self.session.execute(select(StrategicObjective))
+    async def get_all_objectives(self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None) -> List[StrategicObjective]:
+        query = select(StrategicObjective)
+        if space_id:
+            query = query.where(StrategicObjective.space_id == space_id)
+        if crew_id:
+            query = query.where(StrategicObjective.crew_id == crew_id)
+        result = await self.session.execute(query)
         return result.scalars().all()
 
     async def get_objective_by_id(self, objective_id: UUID) -> Optional[StrategicObjective]:
@@ -100,10 +110,13 @@ class StrategyRepository:
 
     # --- Strategy OKR ---
 
-    async def get_all_okrs(self) -> List[StrategyOKR]:
-        result = await self.session.execute(
-            select(StrategyOKR).options(selectinload(StrategyOKR.key_results))
-        )
+    async def get_all_okrs(self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None) -> List[StrategyOKR]:
+        query = select(StrategyOKR).options(selectinload(StrategyOKR.key_results))
+        if space_id:
+            query = query.where(StrategyOKR.space_id == space_id)
+        if crew_id:
+            query = query.where(StrategyOKR.crew_id == crew_id)
+        result = await self.session.execute(query)
         return result.scalars().all()
 
     async def get_okr_by_id(self, okr_id: UUID) -> Optional[StrategyOKR]:
@@ -194,31 +207,98 @@ class StrategyRepository:
         await self.session.flush()
 
     # --- Strategy Initiative ---
+    async def get_all_initiatives(
+        self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None
+    ) -> List[StrategyInitiative]:
+        from src.models.crew import Crew
+        from src.models.space import Space
 
-    async def get_all_initiatives(self) -> List[StrategyInitiative]:
-        result = await self.session.execute(select(StrategyInitiative))
-        return result.scalars().all()
+        query = (
+            select(StrategyInitiative)
+            .options(
+                selectinload(StrategyInitiative.spaces),
+                selectinload(StrategyInitiative.crews)
+            )
+        )
+        if space_id:
+            query = query.join(StrategyInitiative.spaces).where(Space.id == space_id)
+        if crew_id:
+            query = query.join(StrategyInitiative.crews).where(Crew.id == crew_id)
+            
+        result = await self.session.execute(query.distinct())
+        return list(result.scalars().all())
 
     async def get_initiative_by_id(self, initiative_id: UUID) -> Optional[StrategyInitiative]:
         result = await self.session.execute(
-            select(StrategyInitiative).where(StrategyInitiative.id == initiative_id)
+            select(StrategyInitiative)
+            .options(
+                selectinload(StrategyInitiative.spaces),
+                selectinload(StrategyInitiative.crews)
+            )
+            .where(StrategyInitiative.id == initiative_id)
         )
         return result.scalar_one_or_none()
 
     async def create_initiative(self, schema: StrategyInitiativeCreate) -> StrategyInitiative:
-        initiative = StrategyInitiative(**schema.model_dump())
+        from src.models.crew import Crew
+        from src.models.space import Space
+
+        data = schema.model_dump(exclude={"space_ids", "crew_ids"})
+        initiative = StrategyInitiative(**data)
+        
+        # Load and associate spaces
+        if schema.space_ids:
+            res = await self.session.execute(select(Space).where(Space.id.in_(schema.space_ids)))
+            initiative.spaces = list(res.scalars().all())
+            
+        # Load and associate crews
+        if schema.crew_ids:
+            res = await self.session.execute(select(Crew).where(Crew.id.in_(schema.crew_ids)))
+            initiative.crews = list(res.scalars().all())
+
         self.session.add(initiative)
         await self.session.flush()
-        return initiative
+        # Reload with relationships for the response schema
+        res = await self.session.execute(
+            select(StrategyInitiative)
+            .options(
+                selectinload(StrategyInitiative.spaces),
+                selectinload(StrategyInitiative.crews)
+            )
+            .where(StrategyInitiative.id == initiative.id)
+        )
+        return res.scalar_one()
 
     async def update_initiative(
         self, initiative: StrategyInitiative, schema: StrategyInitiativeUpdate
     ) -> StrategyInitiative:
-        update_data = schema.model_dump(exclude_unset=True)
+        from src.models.crew import Crew
+        from src.models.space import Space
+
+        update_data = schema.model_dump(exclude_unset=True, exclude={"space_ids", "crew_ids"})
         for key, value in update_data.items():
             setattr(initiative, key, value)
+            
+        # Update M2M relationships if provided
+        if schema.space_ids is not None:
+            res = await self.session.execute(select(Space).where(Space.id.in_(schema.space_ids)))
+            initiative.spaces = list(res.scalars().all())
+            
+        if schema.crew_ids is not None:
+            res = await self.session.execute(select(Crew).where(Crew.id.in_(schema.crew_ids)))
+            initiative.crews = list(res.scalars().all())
+
         await self.session.flush()
-        return initiative
+        # Reload with relationships for the response schema
+        res = await self.session.execute(
+            select(StrategyInitiative)
+            .options(
+                selectinload(StrategyInitiative.spaces),
+                selectinload(StrategyInitiative.crews)
+            )
+            .where(StrategyInitiative.id == initiative.id)
+        )
+        return res.scalar_one()
 
     async def delete_initiative(self, initiative: StrategyInitiative) -> None:
         await self.session.delete(initiative)
@@ -226,8 +306,13 @@ class StrategyRepository:
 
     # --- Strategy Assumption ---
 
-    async def get_all_assumptions(self) -> List[StrategyAssumption]:
-        result = await self.session.execute(select(StrategyAssumption))
+    async def get_all_assumptions(self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None) -> List[StrategyAssumption]:
+        query = select(StrategyAssumption)
+        if space_id:
+            query = query.where(StrategyAssumption.space_id == space_id)
+        if crew_id:
+            query = query.where(StrategyAssumption.crew_id == crew_id)
+        result = await self.session.execute(query)
         return result.scalars().all()
 
     async def get_assumption_by_id(self, assumption_id: UUID) -> Optional[StrategyAssumption]:

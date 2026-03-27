@@ -1,5 +1,6 @@
 """Strategy API router."""
 
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends
@@ -43,20 +44,24 @@ def get_service(db: AsyncSession = Depends(get_db)) -> StrategyService:
 
 @router.get("/tree", response_model=StrategyTreeResponse)
 async def get_strategy_tree(
+    space_id: Optional[UUID] = None,
+    crew_id: Optional[UUID] = None,
     current_user: User = Depends(get_current_user),
     service: StrategyService = Depends(get_service),
 ) -> StrategyTreeResponse:
     """Get the full strategy tree."""
-    return await service.get_strategy_tree()
+    return await service.get_strategy_tree(space_id=space_id, crew_id=crew_id)
 
 
 @router.get("/health", response_model=StrategyHealthResponse)
 async def get_strategy_health(
+    space_id: Optional[UUID] = None,
+    crew_id: Optional[UUID] = None,
     current_user: User = Depends(get_current_user),
     service: StrategyService = Depends(get_service),
 ) -> StrategyHealthResponse:
     """Get strategy health metrics."""
-    return await service.get_strategy_health()
+    return await service.get_strategy_health(space_id=space_id, crew_id=crew_id)
 
 
 # --- Strategic Pillar ---

@@ -2,6 +2,8 @@
 
 import logging
 import sys
+import json
+from uuid import UUID
 from typing import Any, AsyncGenerator, Dict
 
 from sqlalchemy import text
@@ -13,11 +15,18 @@ from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+def custom_json_serializer(obj):
+    """Custom JSON serializer to handle UUID objects."""
+    if isinstance(obj, UUID):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
 # Create async engine
 # SQLite doesn't support pool_size and max_overflow
 engine_kwargs = {
     "echo": settings.DEBUG,
     "future": True,
+    "json_serializer": lambda obj: json.dumps(obj, default=custom_json_serializer),
 }
 
 # Check if we are running in a Celery worker context

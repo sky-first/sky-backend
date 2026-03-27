@@ -61,7 +61,6 @@ def upgrade() -> None:
         op.create_index("idx_templates_enterprise", "templates", ["enterprise"])
 
     # 2. Fix Dashboards
-    dashboard_columns = [c["name"] for c in inspector.get_columns("dashboards")]
     
     # Check indexes on dashboards
     dashboard_indexes = [idx["name"] for idx in inspector.get_indexes("dashboards")]

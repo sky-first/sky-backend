@@ -3,12 +3,48 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Table, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
 
 from src.config.database import Base
+
+
+# Association tables for Many-to-Many
+strategy_initiative_spaces = Table(
+    "strategy_initiative_spaces",
+    Base.metadata,
+    Column(
+        "initiative_id",
+        UUID(as_uuid=True),
+        ForeignKey("strategy_initiatives.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "space_id",
+        UUID(as_uuid=True),
+        ForeignKey("spaces.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+strategy_initiative_crews = Table(
+    "strategy_initiative_crews",
+    Base.metadata,
+    Column(
+        "initiative_id",
+        UUID(as_uuid=True),
+        ForeignKey("strategy_initiatives.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "crew_id",
+        UUID(as_uuid=True),
+        ForeignKey("crews.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
 
 
 class StrategicPillar(Base):
@@ -229,12 +265,6 @@ class StrategyInitiative(Base):
     risks = Column(JSON, nullable=True, default=list)
     assumptions = Column(JSON, nullable=True, default=list)
     progress = Column(Integer, nullable=True, default=0)
-    space_id = Column(
-        UUID(as_uuid=True), ForeignKey("spaces.id", ondelete="CASCADE"), nullable=True, index=True
-    )
-    crew_id = Column(
-        UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
-    )
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -244,6 +274,10 @@ class StrategyInitiative(Base):
         server_default=func.now(),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+    # Relationships
+    spaces = relationship("Space", secondary=strategy_initiative_spaces, lazy="selectin")
+    crews = relationship("Crew", secondary=strategy_initiative_crews, lazy="selectin")
 
 
 class StrategyAssumption(Base):
