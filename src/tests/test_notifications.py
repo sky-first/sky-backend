@@ -4,7 +4,7 @@ import pytest
 
 from src.models.dashboard import Dashboard
 from src.models.notification import NotificationType
-from src.models.planet import Planet
+from src.models.page import Page
 from src.models.user import User
 from src.schemas.comment import CommentCreate
 from src.schemas.notification import NotificationCreate
@@ -26,26 +26,26 @@ async def test_user(db_session):
 
 
 @pytest.fixture
-async def test_planet(db_session, test_user):
-    planet = Planet(
+async def test_page(db_session, test_user):
+    page = Page(
         id=uuid4(),
-        name="Test Planet",
+        name="Test Page",
         owner_id=test_user.id,
         type="team",
         color="#000000",
     )
-    db_session.add(planet)
+    db_session.add(page)
     await db_session.commit()
-    return planet
+    return page
 
 
 @pytest.fixture
-async def test_dashboard(db_session, test_user, test_planet):
+async def test_dashboard(db_session, test_user, test_page):
     dashboard = Dashboard(
         id=uuid4(),
         name="Test Dashboard",
         created_by=test_user.id,
-        planet_id=test_planet.id,
+        page_id=test_page.id,
     )
     db_session.add(dashboard)
     await db_session.commit()

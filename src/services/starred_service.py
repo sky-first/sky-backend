@@ -25,18 +25,18 @@ class StarredItemService:
 
     async def star_item(self, user: User, item_id: UUID, item_type: str) -> None:
         """
-        Star an item (planet, space, or crew).
+        Star an item (page, space, or crew).
 
         Args:
             user: Current user
             item_id: Item ID to star
-            item_type: Item type (planet, space, or crew)
+            item_type: Item type (page, space, or crew)
 
         Raises:
             BadRequestError: If item is already starred or invalid item type
         """
         # Validate item type
-        if item_type not in ["planet", "space", "crew"]:
+        if item_type not in ["page", "space", "crew"]:
             raise BadRequestError(f"Invalid item type: {item_type}")
 
         # Check if already starred
@@ -51,18 +51,18 @@ class StarredItemService:
 
     async def unstar_item(self, user: User, item_id: UUID, item_type: str) -> None:
         """
-        Unstar an item (planet, space, or crew).
+        Unstar an item (page, space, or crew).
 
         Args:
             user: Current user
             item_id: Item ID to unstar
-            item_type: Item type (planet, space, or crew)
+            item_type: Item type (page, space, or crew)
 
         Raises:
             NotFoundError: If item is not starred
         """
         # Validate item type
-        if item_type not in ["planet", "space", "crew"]:
+        if item_type not in ["page", "space", "crew"]:
             raise BadRequestError(f"Invalid item type: {item_type}")
 
         # Find starred item
@@ -81,7 +81,7 @@ class StarredItemService:
 
         Args:
             user: Current user
-            item_type: Optional filter by item type (planet, space, or crew)
+            item_type: Optional filter by item type (page, space, or crew)
 
         Returns:
             List[dict]: List of starred items with item_id and item_type
@@ -103,7 +103,7 @@ class StarredItemService:
         Args:
             user: Current user
             item_id: Item ID to check
-            item_type: Item type (planet, space, or crew)
+            item_type: Item type (page, space, or crew)
 
         Returns:
             bool: True if item is starred, False otherwise

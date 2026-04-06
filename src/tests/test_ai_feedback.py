@@ -16,24 +16,24 @@ def get_auth_headers(access_token: str) -> dict:
     return {"Authorization": f"Bearer {access_token}"}
 
 
-async def create_test_query(db_session: AsyncSession, user_id, planet_id=None):
+async def create_test_query(db_session: AsyncSession, user_id, page_id=None):
     """Helper to create a test AI query."""
-    from src.repositories.planet import PlanetRepository
+    from src.repositories.page import PageRepository
 
-    if not planet_id:
-        planet_repo = PlanetRepository(db_session)
-        planets = await planet_repo.get_by_owner(user_id, limit=1)
-        if not planets:
-            # Fallback for tests if no planet exists
-            planet_id = uuid4()
+    if not page_id:
+        page_repo = PageRepository(db_session)
+        pages = await page_repo.get_by_owner(user_id, limit=1)
+        if not pages:
+            # Fallback for tests if no page exists
+            page_id = uuid4()
         else:
-            planet_id = planets[0].id
+            page_id = pages[0].id
 
     query_repo = BaseRepository(db_session, AIQuery)
     now = datetime.now(timezone.utc)
     query = await query_repo.create(
         user_id=user_id,
-        planet_id=planet_id,
+        page_id=page_id,
         question="How many users?",
         answer="There are 10 users.",
         status="completed",

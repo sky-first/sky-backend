@@ -29,9 +29,9 @@ class Dashboard(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    planet_id = Column(
+    page_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("planets.id", ondelete="CASCADE"),
+        ForeignKey("pages.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -59,7 +59,7 @@ class Dashboard(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    planet = relationship("Planet", back_populates="dashboards")
+    page = relationship("Page", back_populates="dashboards")
     widgets = relationship("Widget", back_populates="dashboard", cascade="all, delete-orphan")
     connections = relationship(
         "Connection", back_populates="dashboard", cascade="all, delete-orphan"
@@ -68,8 +68,8 @@ class Dashboard(Base):
 
     __table_args__ = (
         Index(
-            "idx_dashboards_planet_id",
-            "planet_id",
+            "idx_dashboards_page_id",
+            "page_id",
             postgresql_where=deleted_at.is_(None),
         ),
         Index(
@@ -81,7 +81,7 @@ class Dashboard(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Dashboard(id={self.id}, name={self.name}, planet_id={self.planet_id})>"
+        return f"<Dashboard(id={self.id}, name={self.name}, page_id={self.page_id})>"
 
 
 class Widget(Base):

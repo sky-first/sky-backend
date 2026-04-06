@@ -63,31 +63,31 @@ class DashboardService:
             DashboardResponse: Created dashboard
 
         Raises:
-            NotFoundError: If planet not found
-            ForbiddenError: If user doesn't have access to planet
+            NotFoundError: If page not found
+            ForbiddenError: If user doesn't have access to page
         """
-        # Verify planet exists and user has access
-        from src.repositories.planet import PlanetRepository
+        # Verify page exists and user has access
+        from src.repositories.page import PageRepository
 
-        planet_repo = PlanetRepository(self.db)
-        planet = await planet_repo.get_by_id(dashboard_data.planet_id)
+        page_repo = PageRepository(self.db)
+        page = await page_repo.get_by_id(dashboard_data.page_id)
 
-        if not planet or planet.deleted_at:
-            raise NotFoundError(f"Planet with id {dashboard_data.planet_id} not found")
+        if not page or page.deleted_at:
+            raise NotFoundError(f"Page with id {dashboard_data.page_id} not found")
 
-        # Check if user has access to this planet
-        if planet.owner_id != user.id:
-            from src.repositories.planet import PlanetMemberRepository
+        # Check if user has access to this page
+        if page.owner_id != user.id:
+            from src.repositories.page import PageMemberRepository
 
-            member_repo = PlanetMemberRepository(self.db)
-            member = await member_repo.get_by_planet_and_user(dashboard_data.planet_id, user.id)
+            member_repo = PageMemberRepository(self.db)
+            member = await member_repo.get_by_page_and_user(dashboard_data.page_id, user.id)
             if not member:
-                raise ForbiddenError("Access denied to this planet")
+                raise ForbiddenError("Access denied to this page")
 
         dashboard = await self.dashboard_repo.create(
             name=dashboard_data.name,
             description=dashboard_data.description,
-            planet_id=dashboard_data.planet_id,
+            page_id=dashboard_data.page_id,
             template_id=dashboard_data.template_id,
             created_by=user.id,
             canvas_settings={
@@ -122,18 +122,18 @@ class DashboardService:
         if not dashboard or dashboard.deleted_at:
             raise NotFoundError("Dashboard not found")
 
-        # TODO: Check planet access
+        # TODO: Check page access
 
         return DashboardResponse.model_validate(dashboard)
 
-    async def get_planet_dashboards(
-        self, planet_id: UUID, user: User, skip: int = 0, limit: int = 100
+    async def get_page_dashboards(
+        self, page_id: UUID, user: User, skip: int = 0, limit: int = 100
     ) -> List[DashboardResponse]:
         """
-        Get dashboards by planet.
+        Get dashboards by page.
 
         Args:
-            planet_id: Planet ID
+            page_id: Page ID
             user: Current user
             skip: Number of records to skip
             limit: Maximum number of records
@@ -141,7 +141,7 @@ class DashboardService:
         Returns:
             List[DashboardResponse]: List of dashboards
         """
-        dashboards = await self.dashboard_repo.get_by_planet(planet_id, skip=skip, limit=limit)
+        dashboards = await self.dashboard_repo.get_by_page(page_id, skip=skip, limit=limit)
         return [DashboardResponse.model_validate(d) for d in dashboards]
 
     async def update_dashboard(
@@ -178,7 +178,7 @@ class DashboardService:
                 await self.notification_service.create(
                     NotificationCreate(
                         user_id=dashboard.created_by,
-                        space_id=None,  # Optimization: fetch space/planet if needed
+                        space_id=None,  # Optimization: fetch space/page if needed
                         type=NotificationType.DASHBOARD_EDITED_BY_OTHER,
                         title="Dashboard Edited",
                         description=f"User {user.email or user.id} edited your dashboard '{dashboard.name}'",
@@ -336,7 +336,7 @@ class DashboardService:
     async def list_dashboards(
         self,
         user: User,
-        planet_id: Optional[UUID] = None,
+        page_id: Optional[UUID] = None,
         skip: int = 0,
         limit: int = 100,
     ) -> List[DashboardResponse]:
@@ -345,19 +345,19 @@ class DashboardService:
 
         Args:
             user: Current user
-            planet_id: Optional planet ID to filter
+            page_id: Optional page ID to filter
             skip: Number of records to skip
             limit: Maximum number of records
 
         Returns:
             List[DashboardResponse]: List of dashboards
         """
-        if planet_id:
-            dashboards = await self.dashboard_repo.get_by_planet(planet_id, skip=skip, limit=limit)
+        if page_id:
+            dashboards = await self.dashboard_repo.get_by_page(page_id, skip=skip, limit=limit)
         else:
-            # Get all dashboards user has access to (via planets)
-            # For now, return empty list if no planet_id specified
-            # TODO: Implement proper planet-based filtering
+            # Get all dashboards user has access to (via pages)
+            # For now, return empty list if no page_id specified
+            # TODO: Implement proper page-based filtering
             dashboards = []
 
         return [DashboardResponse.model_validate(d) for d in dashboards]
@@ -546,18 +546,18 @@ class DashboardService:
             else f"{original_dashboard.name} (Copy)"
         )
 
-        # Determine planet_id
-        new_planet_id = (
-            duplicate_data.planet_id
-            if duplicate_data and duplicate_data.planet_id
-            else original_dashboard.planet_id
+        # Determine page_id
+        new_page_id = (
+            duplicate_data.page_id
+            if duplicate_data and duplicate_data.page_id
+            else original_dashboard.page_id
         )
 
         # Create new dashboard
         new_dashboard = await self.dashboard_repo.create(
             name=new_name,
             description=original_dashboard.description,
-            planet_id=new_planet_id,
+            page_id=new_page_id,
             template_id=original_dashboard.template_id,
             created_by=user.id,
             canvas_settings=(
@@ -617,7 +617,7 @@ class DashboardService:
         if not dashboard or dashboard.deleted_at:
             raise NotFoundError("Dashboard not found")
 
-        # TODO: Check planet access
+        # TODO: Check page access
 
         dashboard = await self.dashboard_repo.update(dashboard_id, is_locked=True)
         await self.db.commit()
@@ -643,7 +643,7 @@ class DashboardService:
         if not dashboard or dashboard.deleted_at:
             raise NotFoundError("Dashboard not found")
 
-        # TODO: Check planet access
+        # TODO: Check page access
 
         dashboard = await self.dashboard_repo.update(dashboard_id, is_locked=False)
         await self.db.commit()

@@ -89,8 +89,8 @@ class User(Base):
     refresh_tokens = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
     )
-    owned_planets = relationship("Planet", back_populates="owner", foreign_keys="Planet.owner_id")
-    planet_memberships = relationship("PlanetMember", back_populates="user")
+    owned_pages = relationship("Page", back_populates="owner", foreign_keys="Page.owner_id")
+    page_memberships = relationship("PageMember", back_populates="user")
     owned_workspaces = relationship(
         "Workspace", back_populates="owner", foreign_keys="Workspace.owner_id"
     )

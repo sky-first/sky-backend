@@ -16,8 +16,8 @@ class StarredItem(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    item_id = Column(UUID(as_uuid=True), nullable=False)  # ID of the planet, space, or crew
-    item_type = Column(String(50), nullable=False)  # planet, space, crew
+    item_id = Column(UUID(as_uuid=True), nullable=False)  # ID of the page, space, or crew
+    item_type = Column(String(50), nullable=False)  # page, space, crew
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

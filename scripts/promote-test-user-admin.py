@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy import select, update  # noqa: E402
 
 from src.config.database import AsyncSessionLocal, engine  # noqa: E402
-from src.models.planet import Planet  # noqa: F401, E402
+from src.models.page import Page  # noqa: F401, E402
 from src.models.user import User  # noqa: E402
 
 # Import related models to register relationships (avoid mapper lookup errors)

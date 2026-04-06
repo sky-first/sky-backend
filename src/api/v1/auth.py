@@ -13,7 +13,7 @@ from src.api.deps import (  # get_current_user usado em outros endpoints
     get_db_session,
 )
 from src.config.auth0 import auth0_settings
-from src.core.exceptions import BadRequestError
+from src.core.exceptions import BadRequestError, ForbiddenError
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.permission import EffectivePermissionsResponse
@@ -57,26 +57,8 @@ async def register(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
-    """
-    Register endpoint.
-
-    Args:
-        register_data: Registration data (email, password, optional name and token)
-        db: Database session
-
-    Returns:
-        LoginResponse: Access token, refresh token, and user data
-
-    Raises:
-        BadRequestError: If email already exists or validation fails
-    """
-    auth_service = AuthenticationService(db)
-    return await auth_service.register_with_tokens(
-        register_data,
-        user_agent=request.headers.get("user-agent"),
-        ip_address=request.client.host if request.client else None,
-        background_tasks=background_tasks,
-    )
+    """Self-registration is disabled. Access is granted via SSO or admin invite."""
+    raise ForbiddenError("Self-registration is disabled. Please sign in with your company account via SSO.")
 
 
 @router.post(
@@ -103,24 +85,7 @@ async def login(
     Returns:
         LoginResponse: Access token, refresh token, and user data
     """
-    try:
-        auth_service = AuthenticationService(db)
-        result = await auth_service.login(
-            login_data.email,
-            login_data.password,
-            user_agent=request.headers.get("user-agent"),
-            ip_address=request.client.host if request.client else None,
-            background_tasks=background_tasks,
-        )
-        return result
-    except Exception as e:
-        # Log the error for debugging
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"Login error: {str(e)}", exc_info=True)
-        # Re-raise to let FastAPI handle it properly
-        raise
+    raise ForbiddenError("Password login is disabled. Please sign in with your company account via SSO.")
 
 
 @router.post(
@@ -256,9 +221,7 @@ async def forgot_password(
     Returns:
         SuccessResponse: Success message (always returns success for security)
     """
-    # TODO: Implement email sending
-    # For now, just return success to prevent email enumeration
-    return SuccessResponse(message="If the email exists, a password reset link has been sent")
+    raise ForbiddenError("Password reset is disabled. Please sign in with your company account via SSO.")
 
 
 @router.post(
@@ -286,9 +249,7 @@ async def reset_password(
     Raises:
         BadRequestError: If token is invalid
     """
-    # TODO: Implement password reset token validation
-    # For now, return error
-    raise BadRequestError("Password reset not implemented yet")
+    raise ForbiddenError("Password reset is disabled. Please sign in with your company account via SSO.")
 
 
 @router.post(
@@ -316,9 +277,7 @@ async def verify_email(
     Raises:
         BadRequestError: If token is invalid
     """
-    # TODO: Implement email verification
-    # For now, return error
-    raise BadRequestError("Email verification not implemented yet")
+    raise ForbiddenError("Email verification is not applicable. Authentication is handled via SSO.")
 
 
 @router.get(
@@ -424,14 +383,7 @@ async def change_password(
     Returns:
         SuccessResponse: Success message
     """
-    auth_service = AuthenticationService(db)
-    assert current_user.id is not None
-    await auth_service.change_password(
-        UUID(str(current_user.id)),
-        request_data.current_password,
-        request_data.new_password,
-    )
-    return SuccessResponse(message="Password changed successfully")
+    raise ForbiddenError("Password management is disabled. Authentication is handled via SSO.")
 
 
 # Invite Endpoints
@@ -694,6 +646,7 @@ async def sso_login(
 )
 async def sso_callback(
     provider: str,
+    request: Request,
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: Optional[str] = Query(None, description="State parameter from OAuth flow"),
     redirect_uri: Optional[str] = Query(None, description="Redirect URI used in authorization"),
@@ -720,10 +673,10 @@ async def sso_callback(
 
     auth0_service = Auth0Service(db)
 
-    # Get redirect URI if not provided
-    # Note: redirect_uri should be provided by the frontend
+    # Build redirect URI from request base URL if not explicitly provided
     if not redirect_uri:
-        redirect_uri = "http://localhost:3000/login/sso/callback"
+        base_url = str(request.base_url)
+        redirect_uri = f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
 
     # Handle callback based on provider
     if provider == "google":

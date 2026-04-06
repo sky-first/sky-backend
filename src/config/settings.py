@@ -175,8 +175,7 @@ class Settings(BaseSettings):
 
     # JWT
     JWT_SECRET_KEY: str = Field(
-        default="your-secret-key-change-in-production",
-        description="JWT secret key",
+        description="JWT secret key — must be set via environment variable",
     )
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30

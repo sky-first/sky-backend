@@ -12,7 +12,7 @@ from src.core.exceptions import BadRequestError, UnauthorizedError
 from src.core.security import create_access_token, create_refresh_token, get_password_hash
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
-from src.services.onboarding_service import ensure_default_planet_and_space
+from src.services.onboarding_service import ensure_default_page_and_space
 
 logger = logging.getLogger(__name__)
 
@@ -207,8 +207,8 @@ class InviteService:
         await self.db.commit()
         await self.db.refresh(user)
 
-        # Ensure default planet/space for new users
-        await ensure_default_planet_and_space(self.db, user)
+        # Ensure default page/space for new users
+        await ensure_default_page_and_space(self.db, user)
 
         logger.info(f"✅ User created from invite: {user.email}")
         return user
@@ -335,8 +335,8 @@ class InviteService:
         await self.db.commit()
         await self.db.refresh(user)
 
-        # Ensure default planet/space
-        await ensure_default_planet_and_space(self.db, user)
+        # Ensure default page/space
+        await ensure_default_page_and_space(self.db, user)
 
         # Create tokens
         from src.schemas.user import UserResponse

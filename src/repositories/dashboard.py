@@ -17,14 +17,14 @@ class DashboardRepository(BaseRepository[Dashboard]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, Dashboard)
 
-    async def get_by_planet(
-        self, planet_id: UUID, skip: int = 0, limit: int = 100
+    async def get_by_page(
+        self, page_id: UUID, skip: int = 0, limit: int = 100
     ) -> List[Dashboard]:
         """
-        Get dashboards by planet.
+        Get dashboards by page.
 
         Args:
-            planet_id: Planet ID
+            page_id: Page ID
             skip: Number of records to skip
             limit: Maximum number of records
 
@@ -33,7 +33,7 @@ class DashboardRepository(BaseRepository[Dashboard]):
         """
         result = await self.db.execute(
             select(Dashboard)
-            .where(Dashboard.planet_id == planet_id, Dashboard.deleted_at.is_(None))
+            .where(Dashboard.page_id == page_id, Dashboard.deleted_at.is_(None))
             .order_by(Dashboard.created_at.desc())
             .offset(skip)
             .limit(limit)

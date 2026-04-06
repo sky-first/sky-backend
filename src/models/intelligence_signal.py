@@ -22,9 +22,9 @@ class IntelligenceSignal(Base):
     __tablename__ = "intelligence_signals"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    planet_id = Column(
+    page_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("planets.id", ondelete="CASCADE"),
+        ForeignKey("pages.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -67,7 +67,7 @@ class IntelligenceSignal(Base):
     )
 
     # Relationships
-    planet = relationship("Planet")
+    page = relationship("Page")
 
     def __repr__(self):
         return f"<IntelligenceSignal(id={self.id}, title={self.title}, category={self.category})>"

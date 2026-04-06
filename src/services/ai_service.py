@@ -18,7 +18,7 @@ from src.models.user import User
 from src.repositories.base import BaseRepository
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.crew import CrewMemberRepository
-from src.repositories.planet import PlanetMemberRepository, PlanetRepository
+from src.repositories.page import PageMemberRepository, PageRepository
 from src.schemas.ai import (
     AIHistoryItem,
     AIQueryRequest,
@@ -64,8 +64,8 @@ class AIService:
         self.connection_repo = ConnectionRepository(db)
         self.metadata_repo = ConnectionMetadataRepository(db)
         self.crew_member_repo = CrewMemberRepository(db)
-        self.planet_repo = PlanetRepository(db)
-        self.member_repo = PlanetMemberRepository(db)
+        self.page_repo = PageRepository(db)
+        self.member_repo = PageMemberRepository(db)
         self.permission_service = PermissionService(db)
 
     async def _get_first_active_connection(self, user_id: UUID) -> Optional[str]:
@@ -303,7 +303,7 @@ class AIService:
 
         query = await self.query_repo.create(
             user_id=user_id,
-            planet_id=query_data.planet_id,
+            page_id=query_data.page_id,
             widget_id=query_data.widget_id,
             question=query_data.question,
             configure_data=configure_data.model_dump(),
@@ -702,7 +702,7 @@ class AIService:
         # Save user message
         user_message = await self.chat_repo.create(
             widget_id=message_data.widget_id,
-            planet_id=message_data.planet_id,
+            page_id=message_data.page_id,
             type="user",
             content=message_data.message,
         )
@@ -891,7 +891,7 @@ class AIService:
         # Save AI response
         ai_message = await self.chat_repo.create(
             widget_id=message_data.widget_id,
-            planet_id=message_data.planet_id,
+            page_id=message_data.page_id,
             type="assistant",
             content=answer or "No answer generated",
         )
@@ -936,7 +936,7 @@ class AIService:
     async def get_history(
         self,
         user_id: UUID,
-        planet_id: UUID,
+        page_id: UUID,
         filter_type: Optional[str] = None,
         search: Optional[str] = None,
         category: Optional[str] = None,
@@ -963,7 +963,7 @@ class AIService:
 
         # Build base query
         query = select(AIHistory).where(
-            AIHistory.planet_id == planet_id, AIHistory.user_id == user_id
+            AIHistory.page_id == page_id, AIHistory.user_id == user_id
         )
 
         # Apply date filters
@@ -1042,7 +1042,7 @@ class AIService:
         # Create query
         query = await self.query_repo.create(
             user_id=user_id,
-            planet_id=request.planet_id,
+            page_id=request.page_id,
             question=request.question,
             configure_data=request.configure_data.model_dump(),
             status="processing",
@@ -1094,7 +1094,7 @@ class AIService:
         return PipelineResponse.model_validate(pipeline)
 
     async def get_history_by_id(
-        self, history_id: UUID, user_id: UUID, planet_id: UUID
+        self, history_id: UUID, user_id: UUID, page_id: UUID
     ) -> AIHistoryItem:
         """
         Get history item by ID.
@@ -1102,7 +1102,7 @@ class AIService:
         Args:
             history_id: History ID
             user_id: User ID
-            planet_id: Planet ID
+            page_id: Page ID
 
         Returns:
             AIHistoryItem: History item
@@ -1111,38 +1111,38 @@ class AIService:
             NotFoundError: If history not found
         """
         history = await self.history_repo.get_by_id(history_id)
-        if not history or history.user_id != user_id or history.planet_id != planet_id:
+        if not history or history.user_id != user_id or history.page_id != page_id:
             raise NotFoundError("History not found")
 
         return AIHistoryItem.model_validate(history)
 
-    async def delete_history(self, history_id: UUID, user_id: UUID, planet_id: UUID) -> None:
+    async def delete_history(self, history_id: UUID, user_id: UUID, page_id: UUID) -> None:
         """
         Delete history item.
 
         Args:
             history_id: History ID
             user_id: User ID
-            planet_id: Planet ID
+            page_id: Page ID
 
         Raises:
             NotFoundError: If history not found
         """
         history = await self.history_repo.get_by_id(history_id)
-        if not history or history.user_id != user_id or history.planet_id != planet_id:
+        if not history or history.user_id != user_id or history.page_id != page_id:
             raise NotFoundError("History not found")
 
         await self.history_repo.delete(history_id)
         await self.db.commit()
 
-    async def pin_history(self, history_id: UUID, user_id: UUID, planet_id: UUID) -> AIHistoryItem:
+    async def pin_history(self, history_id: UUID, user_id: UUID, page_id: UUID) -> AIHistoryItem:
         """
         Pin history item.
 
         Args:
             history_id: History ID
             user_id: User ID
-            planet_id: Planet ID
+            page_id: Page ID
 
         Returns:
             AIHistoryItem: Updated history item
@@ -1151,7 +1151,7 @@ class AIService:
             NotFoundError: If history not found
         """
         history = await self.history_repo.get_by_id(history_id)
-        if not history or history.user_id != user_id or history.planet_id != planet_id:
+        if not history or history.user_id != user_id or history.page_id != page_id:
             raise NotFoundError("History not found")
 
         history = await self.history_repo.update(history_id, pinned=True)
@@ -1161,7 +1161,7 @@ class AIService:
         return AIHistoryItem.model_validate(history)
 
     async def unpin_history(
-        self, history_id: UUID, user_id: UUID, planet_id: UUID
+        self, history_id: UUID, user_id: UUID, page_id: UUID
     ) -> AIHistoryItem:
         """
         Unpin history item.
@@ -1169,7 +1169,7 @@ class AIService:
         Args:
             history_id: History ID
             user_id: User ID
-            planet_id: Planet ID
+            page_id: Page ID
 
         Returns:
             AIHistoryItem: Updated history item
@@ -1178,7 +1178,7 @@ class AIService:
             NotFoundError: If history not found
         """
         history = await self.history_repo.get_by_id(history_id)
-        if not history or history.user_id != user_id or history.planet_id != planet_id:
+        if not history or history.user_id != user_id or history.page_id != page_id:
             raise NotFoundError("History not found")
 
         history = await self.history_repo.update(history_id, pinned=False)
@@ -1187,13 +1187,13 @@ class AIService:
 
         return AIHistoryItem.model_validate(history)
 
-    async def export_history(self, user_id: UUID, planet_id: UUID) -> str:
+    async def export_history(self, user_id: UUID, page_id: UUID) -> str:
         """
         Export history as CSV.
 
         Args:
             user_id: User ID
-            planet_id: Planet ID
+            page_id: Page ID
 
         Returns:
             str: CSV content
@@ -1202,7 +1202,7 @@ class AIService:
         from io import StringIO
 
         history_items = await self.history_repo.get_all(
-            filters={"user_id": user_id, "planet_id": planet_id}
+            filters={"user_id": user_id, "page_id": page_id}
         )
 
         output = StringIO()
@@ -1245,7 +1245,7 @@ class AIService:
 
         history = await self.history_repo.create(
             user_id=user_id,
-            planet_id=history_data.planet_id,
+            page_id=history_data.page_id,
             query=history_data.query,
             preview=preview,
             answer=history_data.answer,

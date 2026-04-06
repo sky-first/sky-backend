@@ -1,7 +1,7 @@
 """HTTP client for AI service."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import httpx
 
@@ -84,6 +84,36 @@ class AIServiceHTTPClient:
             response = await client.post(url, json=payload)
             response.raise_for_status()
             return response.json()  # type: ignore
+
+    async def stream_query_connection(
+        self,
+        connection_id: str,
+        question: str,
+        user_id: str,
+        space_id: str,
+        instructions: Optional[str] = None,
+    ) -> AsyncIterator[str]:
+        """
+        Stream a query to the AI service via SSE.
+        Yields raw SSE lines (data: {...}) as they arrive.
+        """
+        url = f"{self.base_url}/connections/{connection_id}/query/stream"
+
+        payload: Dict[str, Any] = {
+            "question": question,
+            "user_id": user_id,
+            "space_id": space_id,
+        }
+        if instructions:
+            payload["instructions"] = instructions
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            logger.info(f"Streaming AI service: {url} for connection {connection_id}")
+            async with client.stream("POST", url, json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        yield line
 
     async def discover_connection(
         self,

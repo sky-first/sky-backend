@@ -1,4 +1,4 @@
-"""Planet schemas."""
+"""Page schemas."""
 
 from datetime import datetime
 from typing import Optional
@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.schemas.user import UserResponse
 
 
-class PlanetBase(BaseModel):
-    """Base planet schema."""
+class PageBase(BaseModel):
+    """Base page schema."""
 
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
@@ -19,12 +19,12 @@ class PlanetBase(BaseModel):
     icon: Optional[str] = None
 
 
-class PlanetCreate(PlanetBase):
-    """Planet creation schema."""
+class PageCreate(PageBase):
+    """Page creation schema."""
 
 
-class PlanetUpdate(BaseModel):
-    """Planet update schema."""
+class PageUpdate(BaseModel):
+    """Page update schema."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
@@ -33,8 +33,8 @@ class PlanetUpdate(BaseModel):
     icon: Optional[str] = None
 
 
-class PlanetResponse(PlanetBase):
-    """Planet response schema."""
+class PageResponse(PageBase):
+    """Page response schema."""
 
     id: UUID
     owner_id: UUID
@@ -46,23 +46,23 @@ class PlanetResponse(PlanetBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class PlanetMemberBase(BaseModel):
-    """Base planet member schema."""
+class PageMemberBase(BaseModel):
+    """Base page member schema."""
 
     role: str = Field(..., pattern="^(owner|admin|member|viewer)$")
 
 
-class PlanetMemberCreate(PlanetMemberBase):
-    """Planet member creation schema."""
+class PageMemberCreate(PageMemberBase):
+    """Page member creation schema."""
 
     user_id: UUID
 
 
-class PlanetMemberResponse(PlanetMemberBase):
-    """Planet member response schema."""
+class PageMemberResponse(PageMemberBase):
+    """Page member response schema."""
 
     id: UUID
-    planet_id: UUID
+    page_id: UUID
     user_id: UUID
     user: Optional[UserResponse] = None
     joined_at: datetime
@@ -71,13 +71,13 @@ class PlanetMemberResponse(PlanetMemberBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class PlanetSwitchRequest(BaseModel):
-    """Planet switch request schema."""
+class PageSwitchRequest(BaseModel):
+    """Page switch request schema."""
 
-    planet_id: UUID
+    page_id: UUID
 
 
-class PlanetMemberRoleUpdate(BaseModel):
-    """Planet member role update schema."""
+class PageMemberRoleUpdate(BaseModel):
+    """Page member role update schema."""
 
     role: str = Field(..., pattern="^(admin|member|viewer)$")
