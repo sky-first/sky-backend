@@ -32,7 +32,7 @@ class AIQueryRequest(BaseModel):
         default=False,
         description="Whether the query is in personal mode (access across all crews/spaces).",
     )
-    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
+    page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
     # Collaborative mode: restrict AI data context to this specific crew
     crew_id: Optional[str] = Field(
         None,
@@ -64,7 +64,7 @@ class AIQueryResponse(BaseModel):
     )
     # NEW: extra meta returned by the AI execution engine (e.g., dynamic widget title)
     meta: Optional[Dict[str, Any]] = None
-    planet_id: UUID
+    page_id: UUID
     created_at: datetime
     updated_at: datetime
 
@@ -107,7 +107,7 @@ class ChatMessageRequest(BaseModel):
 
     message: str = Field(..., min_length=1)
     widget_id: UUID
-    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
+    page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
     context: Optional[Dict[str, Any]] = None
     # Explicit collaborative context fields (preferred over context dict)
     space_id: Optional[str] = Field(None, description="Space ID for context")
@@ -121,7 +121,7 @@ class ChatMessageResponse(BaseModel):
     id: UUID
     type: str  # user, assistant
     content: str
-    planet_id: UUID
+    page_id: UUID
     timestamp: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -138,7 +138,7 @@ class AIHistoryItem(BaseModel):
     tags: List[str] = Field(default_factory=list)
     category: Optional[str] = None
     pinned: bool = False
-    planet_id: UUID
+    page_id: UUID
     created_at: datetime
     updated_at: datetime
     # Collaborative context filters
@@ -153,7 +153,7 @@ class CreateHistoryRequest(BaseModel):
 
     query: str = Field(..., min_length=1)
     answer: str = Field(..., min_length=1)
-    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
+    page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
     category: Optional[str] = None
     tags: Optional[List[str]] = Field(default_factory=list)
     # Collaborative context
@@ -235,7 +235,7 @@ class PipelineExecuteRequest(BaseModel):
     question: str = Field(..., min_length=1)
     knowledge: List[str] = Field(default_factory=list)
     configure_data: ConfigureData
-    planet_id: Optional[UUID] = Field(None, description="Planet ID for tenant isolation")
+    page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
 
 
 class PipelineExecuteResponse(BaseModel):

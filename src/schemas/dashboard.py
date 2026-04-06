@@ -17,7 +17,7 @@ class DashboardBase(BaseModel):
 class DashboardCreate(DashboardBase):
     """Dashboard creation schema."""
 
-    planet_id: UUID
+    page_id: UUID
     template_id: Optional[UUID] = None
 
 
@@ -34,7 +34,7 @@ class DashboardResponse(DashboardBase):
     """Dashboard response schema."""
 
     id: UUID
-    planet_id: UUID
+    page_id: UUID
     template_id: Optional[UUID] = None
     canvas_settings: Optional[Dict[str, Any]] = None
     is_locked: bool
@@ -156,9 +156,9 @@ class DashboardDuplicateRequest(BaseModel):
         max_length=255,
         description="Name for duplicated dashboard (defaults to '{original_name} (Copy)')",
     )
-    planet_id: Optional[UUID] = Field(
+    page_id: Optional[UUID] = Field(
         None,
-        description="Planet ID for duplicated dashboard (defaults to original planet)",
+        description="Page ID for duplicated dashboard (defaults to original page)",
     )
 
 

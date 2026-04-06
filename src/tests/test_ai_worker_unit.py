@@ -24,14 +24,14 @@ async def test_build_dashboard_job_async_success(monkeypatch):
 
     job_id = str(uuid4())
     user_id = uuid4()
-    planet_id = uuid4()
+    page_id = uuid4()
     space_id = uuid4()
     connection_id = uuid4()
 
     job = SimpleNamespace(
         id=UUID(job_id),
         user_id=user_id,
-        planet_id=planet_id,
+        page_id=page_id,
         space_id=space_id,
         connection_id=connection_id,
         goal="Build me a dashboard",
@@ -196,7 +196,7 @@ async def test_build_dashboard_job_async_missing_ids_sets_failed(monkeypatch):
     job = SimpleNamespace(
         id=UUID(job_id),
         user_id=uuid4(),
-        planet_id=uuid4(),
+        page_id=uuid4(),
         space_id=None,
         connection_id=None,
         goal="g",

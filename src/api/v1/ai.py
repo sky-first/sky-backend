@@ -18,7 +18,7 @@ from src.rate_limit.core import (
     default_buckets_for_request,
     resolve_tenant_key,
 )
-from src.repositories.planet import PlanetRepository
+from src.repositories.page import PageRepository
 from src.repositories.space import SpaceRepository
 from src.schemas.ai import (
     AIHistoryItem,
@@ -135,20 +135,20 @@ async def process_query(
                 response.headers.add_vary_header("Origin")
             return response  # type: ignore[return-value]
 
-    # Resolve and validate planet_id
-    if not query_data.planet_id:
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        if not active_planet:
+    # Resolve and validate page_id
+    if not query_data.page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
             from src.core.exceptions import NotFoundError
 
-            raise NotFoundError("No active planet found for user")
-        query_data.planet_id = active_planet.id
+            raise NotFoundError("No active page found for user")
+        query_data.page_id = active_page.id
     else:
-        from src.services.planet_service import PlanetService
+        from src.services.page_service import PageService
 
-        planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(query_data.planet_id, current_user.id)
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(query_data.page_id, current_user.id)
 
     return await ai_service.process_query(current_user.id, query_data)
 
@@ -179,17 +179,17 @@ async def chat_bootstrap(
     Returns greeting + suggestion cards for a new chat session.
 
     Current behavior:
-    - Only enabled when the active planet is in Personal mode (planet.type == 'personal').
+    - Only enabled when the active page is in Personal mode (page.type == 'personal').
     - Uses the first active DataConnection for the user (Option A).
     """
     try:
         # 1) Mode hint (Personal mode is a client-side toggle today).
         # We don't hard-block here because the frontend is the source of truth for the
         # current "work mode" and we still need to return suggestions even if the
-        # active planet in DB isn't synced yet.
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        is_personal = getattr(active_planet, "type", None) == "personal"
+        # active page in DB isn't synced yet.
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        is_personal = getattr(active_page, "type", None) == "personal"
 
         # 2) Ensure we have a space_id (fallback: first space owned by user)
         resolved_space_id = space_id
@@ -227,7 +227,7 @@ async def chat_bootstrap(
                 meta={
                     "enabled": True,
                     "reason": "NO_SPACE_CONTEXT",
-                    "active_planet_type": getattr(active_planet, "type", None),
+                    "active_page_type": getattr(active_page, "type", None),
                 },
             )
 
@@ -266,7 +266,7 @@ async def chat_bootstrap(
                     "enabled": True,
                     "space_id": resolved_space_id,
                     "reason": "NO_ACTIVE_CONNECTION",
-                    "active_planet_type": getattr(active_planet, "type", None),
+                    "active_page_type": getattr(active_page, "type", None),
                 },
             )
 
@@ -357,7 +357,7 @@ async def chat_bootstrap(
         out = ChatBootstrapResponse.model_validate(payload)
         out.meta = {
             **(out.meta or {}),
-            "active_planet_type": getattr(active_planet, "type", None),
+            "active_page_type": getattr(active_page, "type", None),
         }
         return out
     except Exception as e:
@@ -417,20 +417,20 @@ async def send_chat_message(
     Returns:
         ChatMessageResponse: Chat response
     """
-    # Resolve and validate planet_id
-    if not message_data.planet_id:
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        if not active_planet:
+    # Resolve and validate page_id
+    if not message_data.page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
             from src.core.exceptions import NotFoundError
 
-            raise NotFoundError("No active planet found for user")
-        message_data.planet_id = active_planet.id
+            raise NotFoundError("No active page found for user")
+        message_data.page_id = active_page.id
     else:
-        from src.services.planet_service import PlanetService
+        from src.services.page_service import PageService
 
-        planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(message_data.planet_id, current_user.id)
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(message_data.page_id, current_user.id)
 
     ai_service = AIService(db)
     return await ai_service.send_chat_message(current_user.id, message_data)
@@ -454,7 +454,7 @@ async def get_history(
     space_id: Optional[str] = Query(None, description="Filter history by space"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
-    planet_id: Optional[UUID] = Query(None, description="Planet ID for filtering"),
+    page_id: Optional[UUID] = Query(None, description="Page ID for filtering"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[AIHistoryItem]:
@@ -473,26 +473,26 @@ async def get_history(
     Returns:
         List[AIHistoryItem]: History items
     """
-    # Resolve and validate planet_id
-    resolved_planet_id = planet_id
-    if not resolved_planet_id:
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        if not active_planet:
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
             from src.core.exceptions import NotFoundError
 
-            raise NotFoundError("No active planet found for user")
-        resolved_planet_id = active_planet.id
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
     else:
-        from src.services.planet_service import PlanetService
+        from src.services.page_service import PageService
 
-        planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
 
     ai_service = AIService(db)
     return await ai_service.get_history(
         current_user.id,
-        planet_id=resolved_planet_id,
+        page_id=resolved_page_id,
         filter_type=filter,
         search=search,
         category=category,
@@ -527,20 +527,20 @@ async def create_history(
     Returns:
         AIHistoryItem: Created history item
     """
-    # Resolve and validate planet_id
-    if not history_data.planet_id:
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        if not active_planet:
+    # Resolve and validate page_id
+    if not history_data.page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
             from src.core.exceptions import NotFoundError
 
-            raise NotFoundError("No active planet found for user")
-        history_data.planet_id = active_planet.id
+            raise NotFoundError("No active page found for user")
+        history_data.page_id = active_page.id
     else:
-        from src.services.planet_service import PlanetService
+        from src.services.page_service import PageService
 
-        planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(history_data.planet_id, current_user.id)
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(history_data.page_id, current_user.id)
 
     ai_service = AIService(db)
     return await ai_service.create_history(current_user.id, history_data)
@@ -556,7 +556,7 @@ async def create_history(
 )
 async def get_history_by_id(
     history_id: UUID,
-    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
+    page_id: Optional[UUID] = Query(None, description="Page ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -571,24 +571,24 @@ async def get_history_by_id(
     Returns:
         AIHistoryItem: History item
     """
-    # Resolve and validate planet_id
-    resolved_planet_id = planet_id
-    if not resolved_planet_id:
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        if not active_planet:
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
             from src.core.exceptions import NotFoundError
 
-            raise NotFoundError("No active planet found for user")
-        resolved_planet_id = active_planet.id
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
     else:
-        from src.services.planet_service import PlanetService
+        from src.services.page_service import PageService
 
-        planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
 
     ai_service = AIService(db)
-    return await ai_service.get_history_by_id(history_id, current_user.id, resolved_planet_id)
+    return await ai_service.get_history_by_id(history_id, current_user.id, resolved_page_id)
 
 
 @router.delete(
@@ -601,7 +601,7 @@ async def get_history_by_id(
 )
 async def delete_history(
     history_id: UUID,
-    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
+    page_id: Optional[UUID] = Query(None, description="Page ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
@@ -616,24 +616,24 @@ async def delete_history(
     Returns:
         SuccessResponse: Success message
     """
-    # Resolve and validate planet_id
-    resolved_planet_id = planet_id
-    if not resolved_planet_id:
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        if not active_planet:
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
             from src.core.exceptions import NotFoundError
 
-            raise NotFoundError("No active planet found for user")
-        resolved_planet_id = active_planet.id
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
     else:
-        from src.services.planet_service import PlanetService
+        from src.services.page_service import PageService
 
-        planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
 
     ai_service = AIService(db)
-    await ai_service.delete_history(history_id, current_user.id, resolved_planet_id)
+    await ai_service.delete_history(history_id, current_user.id, resolved_page_id)
     return SuccessResponse(message="History item deleted successfully")
 
 
@@ -647,7 +647,7 @@ async def delete_history(
 )
 async def pin_history(
     history_id: UUID,
-    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
+    page_id: Optional[UUID] = Query(None, description="Page ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -662,24 +662,24 @@ async def pin_history(
     Returns:
         AIHistoryItem: Updated history item
     """
-    # Resolve and validate planet_id
-    resolved_planet_id = planet_id
-    if not resolved_planet_id:
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        if not active_planet:
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
             from src.core.exceptions import NotFoundError
 
-            raise NotFoundError("No active planet found for user")
-        resolved_planet_id = active_planet.id
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
     else:
-        from src.services.planet_service import PlanetService
+        from src.services.page_service import PageService
 
-        planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
 
     ai_service = AIService(db)
-    return await ai_service.pin_history(history_id, current_user.id, resolved_planet_id)
+    return await ai_service.pin_history(history_id, current_user.id, resolved_page_id)
 
 
 @router.post(
@@ -692,7 +692,7 @@ async def pin_history(
 )
 async def unpin_history(
     history_id: UUID,
-    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
+    page_id: Optional[UUID] = Query(None, description="Page ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -707,24 +707,24 @@ async def unpin_history(
     Returns:
         AIHistoryItem: Updated history item
     """
-    # Resolve and validate planet_id
-    resolved_planet_id = planet_id
-    if not resolved_planet_id:
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        if not active_planet:
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
             from src.core.exceptions import NotFoundError
 
-            raise NotFoundError("No active planet found for user")
-        resolved_planet_id = active_planet.id
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
     else:
-        from src.services.planet_service import PlanetService
+        from src.services.page_service import PageService
 
-        planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
 
     ai_service = AIService(db)
-    return await ai_service.unpin_history(history_id, current_user.id, resolved_planet_id)
+    return await ai_service.unpin_history(history_id, current_user.id, resolved_page_id)
 
 
 @router.get(
@@ -735,7 +735,7 @@ async def unpin_history(
     description="Export history as CSV",
 )
 async def export_history(
-    planet_id: Optional[UUID] = Query(None, description="Planet ID for isolation"),
+    page_id: Optional[UUID] = Query(None, description="Page ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> StreamingResponse:
@@ -749,24 +749,24 @@ async def export_history(
     Returns:
         StreamingResponse: CSV file
     """
-    # Resolve and validate planet_id
-    resolved_planet_id = planet_id
-    if not resolved_planet_id:
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        if not active_planet:
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
             from src.core.exceptions import NotFoundError
 
-            raise NotFoundError("No active planet found for user")
-        resolved_planet_id = active_planet.id
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
     else:
-        from src.services.planet_service import PlanetService
+        from src.services.page_service import PageService
 
-        planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(resolved_planet_id, current_user.id)
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
 
     ai_service = AIService(db)
-    csv_content = await ai_service.export_history(current_user.id, resolved_planet_id)
+    csv_content = await ai_service.export_history(current_user.id, resolved_page_id)
 
     return StreamingResponse(
         iter([csv_content]),
@@ -799,20 +799,20 @@ async def execute_pipeline(
     Returns:
         PipelineExecuteResponse: Pipeline response
     """
-    # Resolve and validate planet_id
-    if not request.planet_id:
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        if not active_planet:
+    # Resolve and validate page_id
+    if not request.page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
             from src.core.exceptions import NotFoundError
 
-            raise NotFoundError("No active planet found for user")
-        request.planet_id = active_planet.id
+            raise NotFoundError("No active page found for user")
+        request.page_id = active_page.id
     else:
-        from src.services.planet_service import PlanetService
+        from src.services.page_service import PageService
 
-        planet_service = PlanetService(db)
-        await planet_service.get_user_planet_or_404(request.planet_id, current_user.id)
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(request.page_id, current_user.id)
 
     ai_service = AIService(db)
     return await ai_service.execute_pipeline(current_user.id, request)

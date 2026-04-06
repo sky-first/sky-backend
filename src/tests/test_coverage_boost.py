@@ -314,7 +314,7 @@ async def test_rbac_admin_effective_permissions():
     eff = await svc.get_effective_permissions(user)
     assert eff.platform_role == "admin"
     assert eff.crew_role == "commander"
-    assert eff.permissions.get("viewPlanets") is True
+    assert eff.permissions.get("viewPages") is True
 
 
 @pytest.mark.asyncio
@@ -414,7 +414,7 @@ def test_effective_permissions_helper():
 
 @pytest.mark.asyncio
 async def test_onboarding_service_simple():
-    from src.services.onboarding_service import ensure_default_planet_and_space
+    from src.services.onboarding_service import ensure_default_page_and_space
 
     db = AsyncMock()
     user = MagicMock()
@@ -422,11 +422,11 @@ async def test_onboarding_service_simple():
     user.name = "Test User"
 
     with (
-        patch("src.services.onboarding_service.PlanetRepository") as pr,
+        patch("src.services.onboarding_service.PageRepository") as pr,
         patch("src.services.onboarding_service.SpaceRepository") as sr,  # noqa: F841
     ):
         pr.return_value.get_by_owner = AsyncMock(return_value=[MagicMock()])
-        await ensure_default_planet_and_space(db, user)
+        await ensure_default_page_and_space(db, user)
 
 
 # --- Tests for src/services/starred_service.py ---
@@ -446,5 +446,5 @@ async def test_starred_service_simple():
     service.starred_repo.create_starred_item = AsyncMock()
     service.starred_repo.get_by_user = AsyncMock(return_value=[])
 
-    await service.star_item(user, uuid4(), "planet")
-    await service.get_user_starred_items(user, "planet")
+    await service.star_item(user, uuid4(), "page")
+    await service.get_user_starred_items(user, "page")

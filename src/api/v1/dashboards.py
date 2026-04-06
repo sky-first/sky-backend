@@ -11,7 +11,7 @@ from src.api.deps import get_current_user, get_db_session
 from src.models.dashboard_build_job import DashboardBuildJob
 from src.models.user import User
 from src.repositories.base import BaseRepository
-from src.repositories.planet import PlanetRepository
+from src.repositories.page import PageRepository
 from src.repositories.space import SpaceRepository
 from src.schemas.ai import AIQueryRequest, ConfigureData
 from src.schemas.common import ErrorResponse, SuccessResponse
@@ -66,7 +66,7 @@ def _get_textual_layout() -> list[dict]:
     description="Get list of dashboards (optionally filtered by workspace)",
 )
 async def list_dashboards(
-    planet_id: Optional[UUID] = Query(None, description="Filter by planet ID"),
+    page_id: Optional[UUID] = Query(None, description="Filter by page ID"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -76,7 +76,7 @@ async def list_dashboards(
     List dashboards.
 
     Args:
-        planet_id: Optional planet ID to filter
+        page_id: Optional page ID to filter
         skip: Number of records to skip
         limit: Maximum number of records to return
         current_user: Current authenticated user
@@ -86,10 +86,10 @@ async def list_dashboards(
         List[DashboardResponse]: List of dashboards
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "viewPlanets")
+    await rbac.assert_permission(current_user, "viewPages")
     dashboard_service = DashboardService(db)
     return await dashboard_service.list_dashboards(
-        current_user, planet_id=planet_id, skip=skip, limit=limit
+        current_user, page_id=page_id, skip=skip, limit=limit
     )
 
 
@@ -118,7 +118,7 @@ async def get_dashboard(
         DashboardResponse: Dashboard data
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "viewPlanets")
+    await rbac.assert_permission(current_user, "viewPages")
     dashboard_service = DashboardService(db)
     return await dashboard_service.get_dashboard(dashboard_id, current_user)
 
@@ -148,7 +148,7 @@ async def create_dashboard(
         DashboardResponse: Created dashboard
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "createPlanets")
+    await rbac.assert_permission(current_user, "createPages")
     dashboard_service = DashboardService(db)
     return await dashboard_service.create_dashboard(current_user, dashboard_data)
 
@@ -180,7 +180,7 @@ async def update_dashboard(
         DashboardResponse: Updated dashboard
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "editPlanets")
+    await rbac.assert_permission(current_user, "editPages")
     dashboard_service = DashboardService(db)
     return await dashboard_service.update_dashboard(dashboard_id, current_user, dashboard_data)
 
@@ -210,7 +210,7 @@ async def delete_dashboard(
         SuccessResponse: Success message
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "deletePlanets")
+    await rbac.assert_permission(current_user, "deletePages")
     dashboard_service = DashboardService(db)
     await dashboard_service.delete_dashboard(dashboard_id, current_user)
     return SuccessResponse(message="Dashboard deleted successfully")
@@ -388,9 +388,9 @@ async def ai_plan_dashboard(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> DashboardAIPlanResponse:
-    planet_repo = PlanetRepository(db)
-    active_planet = await planet_repo.get_active_planet(current_user.id)
-    if not active_planet or getattr(active_planet, "type", None) != "personal":
+    page_repo = PageRepository(db)
+    active_page = await page_repo.get_active_page(current_user.id)
+    if not active_page or getattr(active_page, "type", None) != "personal":
         raise HTTPException(
             status_code=400,
             detail="Dashboard AI planning is available in Personal mode only.",
@@ -504,7 +504,7 @@ async def ai_plan_dashboard(
             **(payload.get("meta") or {}),
             "space_id": resolved_space_id,
             "connection_id": connection_id,
-            "active_planet_type": getattr(active_planet, "type", None),
+            "active_page_type": getattr(active_page, "type", None),
         },
     )
 
@@ -522,15 +522,15 @@ async def ai_build_dashboard(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> DashboardAIBuildResponse:
-    planet_repo = PlanetRepository(db)
-    active_planet = await planet_repo.get_active_planet(current_user.id)
-    if not active_planet or getattr(active_planet, "type", None) != "personal":
+    page_repo = PageRepository(db)
+    active_page = await page_repo.get_active_page(current_user.id)
+    if not active_page or getattr(active_page, "type", None) != "personal":
         raise HTTPException(
             status_code=400,
             detail="Dashboard AI build is available in Personal mode only.",
         )
 
-    active_planet_id = cast(UUID, active_planet.id)
+    active_page_id = cast(UUID, active_page.id)
 
     # Resolve space context (required by AI engine)
     resolved_space_id = body.space_id
@@ -584,7 +584,7 @@ async def ai_build_dashboard(
         DashboardCreate(
             name=plan.dashboard_name,
             description=plan.description,
-            planet_id=active_planet_id,
+            page_id=active_page_id,
         ),
     )
 
@@ -807,7 +807,7 @@ async def ai_build_dashboard(
         meta={
             "space_id": resolved_space_id,
             "connection_id": connection_id,
-            "active_planet_type": getattr(active_planet, "type", None),
+            "active_page_type": getattr(active_page, "type", None),
         },
     )
 
@@ -825,16 +825,16 @@ async def ai_build_dashboard_async(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> DashboardAIBuildAsyncResponse:
-    planet_repo = PlanetRepository(db)
-    active_planet = await planet_repo.get_active_planet(current_user.id)
-    if not active_planet or getattr(active_planet, "type", None) != "personal":
+    page_repo = PageRepository(db)
+    active_page = await page_repo.get_active_page(current_user.id)
+    if not active_page or getattr(active_page, "type", None) != "personal":
         raise HTTPException(
             status_code=400,
             detail="Dashboard AI build is available in Personal mode only.",
         )
 
     user_id = cast(UUID, current_user.id)
-    active_planet_id = cast(UUID, active_planet.id)
+    active_page_id = cast(UUID, active_page.id)
 
     # Resolve space context (required by AI engine)
     resolved_space_id = body.space_id
@@ -877,7 +877,7 @@ async def ai_build_dashboard_async(
         }
     job = await job_repo.create(
         user_id=user_id,
-        planet_id=active_planet_id,
+        page_id=active_page_id,
         space_id=UUID(resolved_space_id),
         connection_id=UUID(connection_id),
         goal=body.original_question or body.goal,

@@ -126,6 +126,10 @@ try:
                 "task": "src.workers.cache_warming_worker.warm_ai_response_cache",
                 "schedule": timedelta(seconds=interval),
             },
+            "schedule-agents": {
+                "task": "src.workers.agent_worker.schedule_agents",
+                "schedule": timedelta(minutes=5),
+            },
         }
 except Exception:
     # Fail-open: do not block worker startup if schedule can't be built.

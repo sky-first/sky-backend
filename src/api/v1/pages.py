@@ -1,4 +1,4 @@
-"""Planet endpoints."""
+"""Page endpoints."""
 
 from typing import List, Optional
 from uuid import UUID
@@ -10,16 +10,16 @@ from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.dashboard import DashboardResponse
-from src.schemas.planet import (
-    PlanetCreate,
-    PlanetMemberCreate,
-    PlanetMemberResponse,
-    PlanetMemberRoleUpdate,
-    PlanetResponse,
-    PlanetUpdate,
+from src.schemas.page import (
+    PageCreate,
+    PageMemberCreate,
+    PageMemberResponse,
+    PageMemberRoleUpdate,
+    PageResponse,
+    PageUpdate,
 )
 from src.services.dashboard_service import DashboardService
-from src.services.planet_service import PlanetService
+from src.services.page_service import PageService
 from src.services.starred_service import StarredItemService
 
 router = APIRouter()
@@ -27,235 +27,235 @@ router = APIRouter()
 
 @router.get(
     "",
-    response_model=List[PlanetResponse],
+    response_model=List[PageResponse],
     status_code=status.HTTP_200_OK,
     responses={401: {"model": ErrorResponse}},
-    summary="List planets",
-    description="Get list of planets for the current user",
+    summary="List pages",
+    description="Get list of pages for the current user",
 )
-async def list_planets(
+async def list_pages(
     type: Optional[str] = Query(None, pattern="^(personal|team)$"),
     search: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> List[PlanetResponse]:
+) -> List[PageResponse]:
     """
-    List all planets for the current user.
+    List all pages for the current user.
 
     Args:
-        type: Filter by planet type (personal|team)
-        search: Search term for planet name
+        type: Filter by page type (personal|team)
+        search: Search term for page name
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        List[PlanetResponse]: List of planets
+        List[PageResponse]: List of pages
     """
-    planet_service = PlanetService(db)
-    planets = await planet_service.get_user_planets(current_user)
+    page_service = PageService(db)
+    pages = await page_service.get_user_pages(current_user)
 
     # Apply filters
     if type:
-        planets = [w for w in planets if w.type == type]
+        pages = [w for w in pages if w.type == type]
     if search:
         search_lower = search.lower()
-        planets = [w for w in planets if search_lower in w.name.lower()]
+        pages = [w for w in pages if search_lower in w.name.lower()]
 
-    return planets
+    return pages
 
 
 @router.get(
-    "/{planet_id}",
-    response_model=PlanetResponse,
+    "/{page_id}",
+    response_model=PageResponse,
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Get planet",
-    description="Get planet by ID",
+    summary="Get page",
+    description="Get page by ID",
 )
-async def get_planet(
-    planet_id: UUID,
+async def get_page(
+    page_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> PlanetResponse:
+) -> PageResponse:
     """
-    Get planet by ID.
+    Get page by ID.
 
     Args:
-        planet_id: Planet ID
+        page_id: Page ID
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        PlanetResponse: Planet data
+        PageResponse: Page data
     """
-    planet_service = PlanetService(db)
-    return await planet_service.get_planet(planet_id, current_user)
+    page_service = PageService(db)
+    return await page_service.get_page(page_id, current_user)
 
 
 @router.post(
     "",
-    response_model=PlanetResponse,
+    response_model=PageResponse,
     status_code=status.HTTP_201_CREATED,
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
-    summary="Create planet",
-    description="Create a new planet",
+    summary="Create page",
+    description="Create a new page",
 )
-async def create_planet(
-    planet_data: PlanetCreate,
+async def create_page(
+    page_data: PageCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> PlanetResponse:
+) -> PageResponse:
     """
-    Create a new planet.
+    Create a new page.
 
     Args:
-        planet_data: Planet creation data
+        page_data: Page creation data
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        PlanetResponse: Created planet
+        PageResponse: Created page
     """
-    planet_service = PlanetService(db)
-    return await planet_service.create_planet(current_user, planet_data)
+    page_service = PageService(db)
+    return await page_service.create_page(current_user, page_data)
 
 
 @router.put(
-    "/{planet_id}",
-    response_model=PlanetResponse,
+    "/{page_id}",
+    response_model=PageResponse,
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Update planet",
-    description="Update planet information",
+    summary="Update page",
+    description="Update page information",
 )
-async def update_planet(
-    planet_id: UUID,
-    planet_data: PlanetUpdate,
+async def update_page(
+    page_id: UUID,
+    page_data: PageUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> PlanetResponse:
+) -> PageResponse:
     """
-    Update planet.
+    Update page.
 
     Args:
-        planet_id: Planet ID
-        planet_data: Planet update data
+        page_id: Page ID
+        page_data: Page update data
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        PlanetResponse: Updated planet
+        PageResponse: Updated page
     """
-    planet_service = PlanetService(db)
-    return await planet_service.update_planet(planet_id, current_user, planet_data)
+    page_service = PageService(db)
+    return await page_service.update_page(page_id, current_user, page_data)
 
 
 @router.delete(
-    "/{planet_id}",
+    "/{page_id}",
     response_model=SuccessResponse,
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Delete planet",
-    description="Delete planet (soft delete, owner only)",
+    summary="Delete page",
+    description="Delete page (soft delete, owner only)",
 )
-async def delete_planet(
-    planet_id: UUID,
+async def delete_page(
+    page_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
-    Delete planet.
+    Delete page.
 
     Args:
-        planet_id: Planet ID
+        page_id: Page ID
         current_user: Current authenticated user
         db: Database session
 
     Returns:
         SuccessResponse: Success message
     """
-    planet_service = PlanetService(db)
-    await planet_service.delete_planet(planet_id, current_user)
-    return SuccessResponse(message="Planet deleted successfully")
+    page_service = PageService(db)
+    await page_service.delete_page(page_id, current_user)
+    return SuccessResponse(message="Page deleted successfully")
 
 
 @router.get(
-    "/{planet_id}/members",
-    response_model=List[PlanetMemberResponse],
+    "/{page_id}/members",
+    response_model=List[PageMemberResponse],
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Get planet members",
-    description="Get all members of a planet",
+    summary="Get page members",
+    description="Get all members of a page",
 )
-async def get_planet_members(
-    planet_id: UUID,
+async def get_page_members(
+    page_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> List[PlanetMemberResponse]:
+) -> List[PageMemberResponse]:
     """
-    Get all members of a planet.
+    Get all members of a page.
 
     Args:
-        planet_id: Planet ID
+        page_id: Page ID
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        List[PlanetMemberResponse]: List of planet members
+        List[PageMemberResponse]: List of page members
     """
-    planet_service = PlanetService(db)
-    return await planet_service.get_planet_members(planet_id, current_user)
+    page_service = PageService(db)
+    return await page_service.get_page_members(page_id, current_user)
 
 
 @router.post(
-    "/{planet_id}/members",
-    response_model=PlanetMemberResponse,
+    "/{page_id}/members",
+    response_model=PageMemberResponse,
     status_code=status.HTTP_201_CREATED,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Add planet member",
-    description="Add a member to the planet",
+    summary="Add page member",
+    description="Add a member to the page",
 )
-async def add_planet_member(
-    planet_id: UUID,
-    member_data: PlanetMemberCreate,
+async def add_page_member(
+    page_id: UUID,
+    member_data: PageMemberCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> PlanetMemberResponse:
+) -> PageMemberResponse:
     """
-    Add a member to the planet.
+    Add a member to the page.
 
     Args:
-        planet_id: Planet ID
+        page_id: Page ID
         member_data: Member creation data
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        PlanetMemberResponse: Created member
+        PageMemberResponse: Created member
     """
-    planet_service = PlanetService(db)
-    return await planet_service.add_member(planet_id, current_user, member_data)
+    page_service = PageService(db)
+    return await page_service.add_member(page_id, current_user, member_data)
 
 
 @router.delete(
-    "/{planet_id}/members/{user_id}",
+    "/{page_id}/members/{user_id}",
     response_model=SuccessResponse,
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Remove planet member",
-    description="Remove a member from the planet",
+    summary="Remove page member",
+    description="Remove a member from the page",
 )
-async def remove_planet_member(
-    planet_id: UUID,
+async def remove_page_member(
+    page_id: UUID,
     user_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
-    Remove a member from the planet.
+    Remove a member from the page.
 
     Args:
-        planet_id: Planet ID
+        page_id: Page ID
         user_id: User ID to remove
         current_user: Current authenticated user
         db: Database session
@@ -263,63 +263,63 @@ async def remove_planet_member(
     Returns:
         SuccessResponse: Success message
     """
-    planet_service = PlanetService(db)
-    await planet_service.remove_member(planet_id, user_id, current_user)
+    page_service = PageService(db)
+    await page_service.remove_member(page_id, user_id, current_user)
     return SuccessResponse(message="Member removed successfully")
 
 
 @router.put(
-    "/{planet_id}/members/{user_id}/role",
-    response_model=PlanetMemberResponse,
+    "/{page_id}/members/{user_id}/role",
+    response_model=PageMemberResponse,
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Update planet member role",
-    description="Update the role of a planet member",
+    summary="Update page member role",
+    description="Update the role of a page member",
 )
-async def update_planet_member_role(
-    planet_id: UUID,
+async def update_page_member_role(
+    page_id: UUID,
     user_id: UUID,
-    role_data: PlanetMemberRoleUpdate,
+    role_data: PageMemberRoleUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> PlanetMemberResponse:
+) -> PageMemberResponse:
     """
-    Update the role of a planet member.
+    Update the role of a page member.
 
     Args:
-        planet_id: Planet ID
+        page_id: Page ID
         user_id: User ID to update
         role_data: Role update data
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        PlanetMemberResponse: Updated member
+        PageMemberResponse: Updated member
     """
-    planet_service = PlanetService(db)
-    return await planet_service.update_member_role(planet_id, user_id, role_data.role, current_user)
+    page_service = PageService(db)
+    return await page_service.update_member_role(page_id, user_id, role_data.role, current_user)
 
 
 @router.get(
-    "/{planet_id}/dashboards",
+    "/{page_id}/dashboards",
     response_model=List[DashboardResponse],
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Get planet dashboards",
-    description="Get all dashboards in a planet",
+    summary="Get page dashboards",
+    description="Get all dashboards in a page",
 )
-async def get_planet_dashboards(
-    planet_id: UUID,
+async def get_page_dashboards(
+    page_id: UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[DashboardResponse]:
     """
-    Get all dashboards in a planet.
+    Get all dashboards in a page.
 
     Args:
-        planet_id: Planet ID
+        page_id: Page ID
         skip: Number of records to skip
         limit: Maximum number of records to return
         current_user: Current authenticated user
@@ -328,106 +328,106 @@ async def get_planet_dashboards(
     Returns:
         List[DashboardResponse]: List of dashboards
     """
-    # Verify planet access
-    planet_service = PlanetService(db)
-    await planet_service.get_planet(planet_id, current_user)
+    # Verify page access
+    page_service = PageService(db)
+    await page_service.get_page(page_id, current_user)
 
     # Get dashboards
     dashboard_service = DashboardService(db)
-    return await dashboard_service.get_planet_dashboards(
-        planet_id, current_user, skip=skip, limit=limit
+    return await dashboard_service.get_page_dashboards(
+        page_id, current_user, skip=skip, limit=limit
     )
 
 
 @router.post(
-    "/{planet_id}/switch",
-    response_model=PlanetResponse,
+    "/{page_id}/switch",
+    response_model=PageResponse,
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Switch active planet",
-    description="Switch the active planet for the current user",
+    summary="Switch active page",
+    description="Switch the active page for the current user",
 )
-async def switch_planet(
-    planet_id: UUID,
+async def switch_page(
+    page_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> PlanetResponse:
+) -> PageResponse:
     """
-    Switch the active planet for the current user.
+    Switch the active page for the current user.
 
     Args:
-        planet_id: Planet ID to switch to
+        page_id: Page ID to switch to
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        PlanetResponse: Active planet
+        PageResponse: Active page
     """
-    planet_service = PlanetService(db)
-    return await planet_service.switch_planet(planet_id, current_user)
+    page_service = PageService(db)
+    return await page_service.switch_page(page_id, current_user)
 
 
 @router.post(
-    "/{planet_id}/star",
+    "/{page_id}/star",
     response_model=SuccessResponse,
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
-    summary="Star planet",
-    description="Star a planet for the current user",
+    summary="Star page",
+    description="Star a page for the current user",
 )
-async def star_planet(
-    planet_id: UUID,
+async def star_page(
+    page_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
-    Star a planet for the current user.
+    Star a page for the current user.
 
     Args:
-        planet_id: Planet ID to star
+        page_id: Page ID to star
         current_user: Current authenticated user
         db: Database session
 
     Returns:
         SuccessResponse: Success message
     """
-    # Verify planet exists and user has access
-    planet_service = PlanetService(db)
-    await planet_service.get_planet(planet_id, current_user)
+    # Verify page exists and user has access
+    page_service = PageService(db)
+    await page_service.get_page(page_id, current_user)
 
-    # Star the planet
+    # Star the page
     starred_service = StarredItemService(db)
-    await starred_service.star_item(current_user, planet_id, "planet")
+    await starred_service.star_item(current_user, page_id, "page")
 
-    return SuccessResponse(message="Planet starred successfully")
+    return SuccessResponse(message="Page starred successfully")
 
 
 @router.delete(
-    "/{planet_id}/star",
+    "/{page_id}/star",
     response_model=SuccessResponse,
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}},
-    summary="Unstar planet",
-    description="Unstar a planet for the current user",
+    summary="Unstar page",
+    description="Unstar a page for the current user",
 )
-async def unstar_planet(
-    planet_id: UUID,
+async def unstar_page(
+    page_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
-    Unstar a planet for the current user.
+    Unstar a page for the current user.
 
     Args:
-        planet_id: Planet ID to unstar
+        page_id: Page ID to unstar
         current_user: Current authenticated user
         db: Database session
 
     Returns:
         SuccessResponse: Success message
     """
-    # Unstar the planet (idempotent - won't error if not starred)
+    # Unstar the page (idempotent - won't error if not starred)
     starred_service = StarredItemService(db)
-    await starred_service.unstar_item(current_user, planet_id, "planet")
+    await starred_service.unstar_item(current_user, page_id, "page")
 
-    return SuccessResponse(message="Planet unstarred successfully")
+    return SuccessResponse(message="Page unstarred successfully")

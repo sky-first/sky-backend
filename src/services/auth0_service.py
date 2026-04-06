@@ -240,10 +240,10 @@ class Auth0Service:
 
         logger.info(f"✅ Created new user from Auth0: {email}, provider: {provider}")
 
-        # Ensure default planet/space for new users
-        from src.services.onboarding_service import ensure_default_planet_and_space
+        # Ensure default page/space for new users
+        from src.services.onboarding_service import ensure_default_page_and_space
 
-        await ensure_default_planet_and_space(self.db, user)
+        await ensure_default_page_and_space(self.db, user)
 
         return user
 
@@ -427,9 +427,17 @@ class Auth0Service:
                         },
                     )
 
+                # Ensure default page exists (idempotent — safe for new and existing users)
+                from src.services.onboarding_service import ensure_default_page_and_space
+                await ensure_default_page_and_space(self.db, user)
+
                 logger.info(f"✅ Google SSO authentication successful: {email}")
                 return user
 
+        except httpx.HTTPStatusError as e:
+            body = e.response.text if e.response is not None else "(no body)"
+            logger.error(f"❌ Google OAuth callback failed: {e.response.status_code} — {body}")
+            raise BadRequestError(f"Google OAuth callback failed: {body}")
         except httpx.HTTPError as e:
             logger.error(f"❌ Google OAuth callback failed: {str(e)}")
             raise BadRequestError(f"Google OAuth callback failed: {str(e)}")
@@ -517,6 +525,9 @@ class Auth0Service:
                             "job_title": user_info.get("jobTitle"),
                         },
                     )
+
+                from src.services.onboarding_service import ensure_default_page_and_space
+                await ensure_default_page_and_space(self.db, user)
 
                 logger.info(f"✅ Azure AD SSO authentication successful: {email}")
                 return user
@@ -607,6 +618,9 @@ class Auth0Service:
                             "email_verified": user_info.get("email_verified"),
                         },
                     )
+
+                from src.services.onboarding_service import ensure_default_page_and_space
+                await ensure_default_page_and_space(self.db, user)
 
                 logger.info(f"✅ Okta SSO authentication successful: {email}")
                 return user

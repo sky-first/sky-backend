@@ -1,5 +1,6 @@
 """SQLAlchemy models."""
 
+from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.ai import (
     AIFeedback,
     AIHistory,
@@ -20,7 +21,7 @@ from src.models.file import FileUpload
 from src.models.intelligence_signal import IntelligenceSignal
 from src.models.notification import Notification
 from src.models.permission import APIKey, ConnectionPermission, Integration
-from src.models.planet import Planet, PlanetMember
+from src.models.page import Page, PageMember
 from src.models.signal_event import SignalEvent
 from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable
 from src.models.starred import StarredItem
@@ -38,10 +39,13 @@ from src.models.user import RefreshToken, User
 from src.models.workspace import Workspace, WorkspaceMember
 
 __all__ = [
+    "Agent",
+    "AgentFinding",
+    "AgentExecution",
     "User",
     "RefreshToken",
-    "Planet",
-    "PlanetMember",
+    "Page",
+    "PageMember",
     "StarredItem",
     "Dashboard",
     "Widget",

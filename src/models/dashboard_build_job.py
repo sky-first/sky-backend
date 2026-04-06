@@ -27,9 +27,9 @@ class DashboardBuildJob(Base):
         nullable=False,
         index=True,
     )
-    planet_id = Column(
+    page_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("planets.id", ondelete="CASCADE"),
+        ForeignKey("pages.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

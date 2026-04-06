@@ -181,7 +181,7 @@ def _make_base_job(plan=None, space_id=None, connection_id=None):
     return job_id, SimpleNamespace(
         id=UUID(job_id),
         user_id=uuid4(),
-        planet_id=uuid4(),
+        page_id=uuid4(),
         space_id=space_id or uuid4(),
         connection_id=connection_id or uuid4(),
         goal="Test goal",
@@ -366,7 +366,7 @@ async def test_filters_saved_to_canvas_settings(monkeypatch):
     job = SimpleNamespace(
         id=UUID(job_id),
         user_id=uuid4(),
-        planet_id=uuid4(),
+        page_id=uuid4(),
         space_id=uuid4(),
         connection_id=uuid4(),
         goal="Filter test",
@@ -490,7 +490,7 @@ async def test_layout_from_plan_overrides_textual_layout(monkeypatch):
     job = SimpleNamespace(
         id=UUID(job_id),
         user_id=uuid4(),
-        planet_id=uuid4(),
+        page_id=uuid4(),
         space_id=uuid4(),
         connection_id=uuid4(),
         goal="Layout test",

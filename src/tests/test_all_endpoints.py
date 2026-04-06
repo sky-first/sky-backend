@@ -2,7 +2,7 @@
 Comprehensive tests for all API endpoints.
 
 This file tests all endpoints across all modules:
-- Planets (13 endpoints - includes star/unstar)
+- Pages (13 endpoints - includes star/unstar)
 - Dashboards (12 endpoints)
 - Widgets (6 endpoints)
 - Connections (12 endpoints)
@@ -33,10 +33,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.schemas.planet import PlanetCreate
+from src.schemas.page import PageCreate
 from src.schemas.user import UserCreate
 from src.services.dashboard_service import DashboardService
-from src.services.planet_service import PlanetService
+from src.services.page_service import PageService
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -48,20 +48,20 @@ def get_auth_headers(access_token: str) -> dict:
     return {"Authorization": f"Bearer {access_token}"}
 
 
-async def create_test_planet(db_session: AsyncSession, user, name: str = "Test Planet"):
-    """Helper to create a test planet."""
-    planet_service = PlanetService(db_session)
-    planet_data = PlanetCreate(
+async def create_test_page(db_session: AsyncSession, user, name: str = "Test Page"):
+    """Helper to create a test page."""
+    page_service = PageService(db_session)
+    page_data = PageCreate(
         name=name,
-        description="Test planet description",
+        description="Test page description",
         type="personal",
         color="#3B82F6",
     )
-    return await planet_service.create_planet(user, planet_data)
+    return await page_service.create_page(user, page_data)
 
 
 async def create_test_dashboard(
-    db_session: AsyncSession, user, planet_id, name: str = "Test Dashboard"
+    db_session: AsyncSession, user, page_id, name: str = "Test Dashboard"
 ):
     """Helper to create a test dashboard."""
     from src.repositories.dashboard import DashboardRepository
@@ -72,7 +72,7 @@ async def create_test_dashboard(
     dashboard = await dashboard_repo.create(
         name=name,
         description="Test dashboard",
-        planet_id=planet_id,
+        page_id=page_id,
         created_by=user.id,
         canvas_settings={
             "scale": 1,
@@ -189,161 +189,161 @@ async def create_test_user(db_session: AsyncSession, admin_user, email: str = No
 # ============================================================================
 
 
-class TestPlanetsEndpoints:
-    """Tests for /api/v1/planets endpoints."""
+class TestPagesEndpoints:
+    """Tests for /api/v1/pages endpoints."""
 
     @pytest.mark.asyncio
-    async def test_list_planets_success(
+    async def test_list_pages_success(
         self, async_client: AsyncClient, test_user_with_tokens: dict
     ):
-        """Test GET /api/v1/planets - list planets."""
+        """Test GET /api/v1/pages - list pages."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/planets", headers=headers)
+        response = await async_client.get("/api/v1/pages", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
 
     @pytest.mark.asyncio
-    async def test_list_planets_with_type_filter(
+    async def test_list_pages_with_type_filter(
         self, async_client: AsyncClient, test_user_with_tokens: dict
     ):
-        """Test GET /api/v1/planets?type=personal."""
+        """Test GET /api/v1/pages?type=personal."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/planets?type=personal", headers=headers)
+        response = await async_client.get("/api/v1/pages?type=personal", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
 
     @pytest.mark.asyncio
-    async def test_list_planets_no_auth(self, async_client: AsyncClient):
-        """Test GET /api/v1/planets without authentication."""
-        response = await async_client.get("/api/v1/planets")
+    async def test_list_pages_no_auth(self, async_client: AsyncClient):
+        """Test GET /api/v1/pages without authentication."""
+        response = await async_client.get("/api/v1/pages")
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_create_planet_success(
+    async def test_create_page_success(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test POST /api/v1/planets - create planet."""
+        """Test POST /api/v1/pages - create page."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        planet_data = {
-            "name": "My Test Planet",
+        page_data = {
+            "name": "My Test Page",
             "description": "Test description",
             "type": "personal",
             "color": "#3B82F6",
         }
-        response = await async_client.post("/api/v1/planets", json=planet_data, headers=headers)
+        response = await async_client.post("/api/v1/pages", json=page_data, headers=headers)
         assert response.status_code == 201
         data = response.json()
-        assert data["name"] == planet_data["name"]
-        assert data["type"] == planet_data["type"]
+        assert data["name"] == page_data["name"]
+        assert data["type"] == page_data["type"]
         assert "id" in data
 
     @pytest.mark.asyncio
-    async def test_create_planet_invalid_type(
+    async def test_create_page_invalid_type(
         self, async_client: AsyncClient, test_user_with_tokens: dict
     ):
-        """Test POST /api/v1/planets with invalid type."""
+        """Test POST /api/v1/pages with invalid type."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        planet_data = {
-            "name": "Test Planet",
+        page_data = {
+            "name": "Test Page",
             "type": "invalid_type",
             "color": "#3B82F6",
         }
-        response = await async_client.post("/api/v1/planets", json=planet_data, headers=headers)
+        response = await async_client.post("/api/v1/pages", json=page_data, headers=headers)
         assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_create_planet_invalid_color(
+    async def test_create_page_invalid_color(
         self, async_client: AsyncClient, test_user_with_tokens: dict
     ):
-        """Test POST /api/v1/planets with invalid color format."""
+        """Test POST /api/v1/pages with invalid color format."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        planet_data = {
-            "name": "Test Planet",
+        page_data = {
+            "name": "Test Page",
             "type": "personal",
             "color": "blue",  # Should be hex format
         }
-        response = await async_client.post("/api/v1/planets", json=planet_data, headers=headers)
+        response = await async_client.post("/api/v1/pages", json=page_data, headers=headers)
         assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_get_planet_success(
+    async def test_get_page_success(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test GET /api/v1/planets/{id}."""
+        """Test GET /api/v1/pages/{id}."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/planets/{planet.id}", headers=headers)
+        response = await async_client.get(f"/api/v1/pages/{page.id}", headers=headers)
         assert response.status_code == 200
         data = response.json()
-        assert data["id"] == str(planet.id)
-        assert data["name"] == planet.name
+        assert data["id"] == str(page.id)
+        assert data["name"] == page.name
 
     @pytest.mark.asyncio
-    async def test_get_planet_not_found(
+    async def test_get_page_not_found(
         self, async_client: AsyncClient, test_user_with_tokens: dict
     ):
-        """Test GET /api/v1/planets/{id} with non-existent ID."""
+        """Test GET /api/v1/pages/{id} with non-existent ID."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.get(f"/api/v1/planets/{fake_id}", headers=headers)
+        response = await async_client.get(f"/api/v1/pages/{fake_id}", headers=headers)
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_update_planet_success(
+    async def test_update_page_success(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test PUT /api/v1/planets/{id}."""
+        """Test PUT /api/v1/pages/{id}."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        update_data = {"name": "Updated Planet Name"}
+        update_data = {"name": "Updated Page Name"}
         response = await async_client.put(
-            f"/api/v1/planets/{planet.id}", json=update_data, headers=headers
+            f"/api/v1/pages/{page.id}", json=update_data, headers=headers
         )
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == update_data["name"]
 
     @pytest.mark.asyncio
-    async def test_delete_planet_success(
+    async def test_delete_page_success(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test DELETE /api/v1/planets/{id}."""
+        """Test DELETE /api/v1/pages/{id}."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/planets/{planet.id}", headers=headers)
+        response = await async_client.delete(f"/api/v1/pages/{page.id}", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert "message" in data
 
     @pytest.mark.asyncio
-    async def test_get_planet_members(
+    async def test_get_page_members(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test GET /api/v1/planets/{id}/members."""
+        """Test GET /api/v1/pages/{id}/members."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/planets/{planet.id}/members", headers=headers)
+        response = await async_client.get(f"/api/v1/pages/{page.id}/members", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -351,15 +351,15 @@ class TestPlanetsEndpoints:
         assert len(data) >= 1
 
     @pytest.mark.asyncio
-    async def test_add_planet_member(
+    async def test_add_page_member(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test POST /api/v1/planets/{id}/members."""
+        """Test POST /api/v1/pages/{id}/members."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         # Create another user to add as member
         from faker import Faker
 
@@ -379,7 +379,7 @@ class TestPlanetsEndpoints:
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         member_data = {"user_id": str(new_user.id), "role": "member"}
         response = await async_client.post(
-            f"/api/v1/planets/{planet.id}/members", json=member_data, headers=headers
+            f"/api/v1/pages/{page.id}/members", json=member_data, headers=headers
         )
         assert response.status_code == 201
         data = response.json()
@@ -387,35 +387,35 @@ class TestPlanetsEndpoints:
         assert data["role"] == "member"
 
     @pytest.mark.asyncio
-    async def test_switch_planet(
+    async def test_switch_page(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test POST /api/v1/planets/{id}/switch."""
+        """Test POST /api/v1/pages/{id}/switch."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(f"/api/v1/planets/{planet.id}/switch", headers=headers)
+        response = await async_client.post(f"/api/v1/pages/{page.id}/switch", headers=headers)
         assert response.status_code == 200
         data = response.json()
-        assert data["id"] == str(planet.id)
+        assert data["id"] == str(page.id)
         assert data["is_active"] is True
 
     @pytest.mark.asyncio
-    async def test_get_planet_dashboards(
+    async def test_get_page_dashboards(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test GET /api/v1/planets/{id}/dashboards."""
+        """Test GET /api/v1/pages/{id}/dashboards."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get(
-            f"/api/v1/planets/{planet.id}/dashboards", headers=headers
+            f"/api/v1/pages/{page.id}/dashboards", headers=headers
         )
         assert response.status_code == 200
         data = response.json()
@@ -439,8 +439,8 @@ class TestDashboardsEndpoints:
     ):
         """Test GET /api/v1/dashboards."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        await create_test_dashboard(db_session, user, page.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get("/api/v1/dashboards", headers=headers)
@@ -449,20 +449,20 @@ class TestDashboardsEndpoints:
         assert isinstance(data, list)
 
     @pytest.mark.asyncio
-    async def test_list_dashboards_with_planet_filter(
+    async def test_list_dashboards_with_page_filter(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test GET /api/v1/dashboards?planet_id={id}."""
+        """Test GET /api/v1/dashboards?page_id={id}."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        await create_test_dashboard(db_session, user, page.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get(
-            f"/api/v1/dashboards?planet_id={planet.id}", headers=headers
+            f"/api/v1/dashboards?page_id={page.id}", headers=headers
         )
         assert response.status_code == 200
         data = response.json()
@@ -477,13 +477,13 @@ class TestDashboardsEndpoints:
     ):
         """Test POST /api/v1/dashboards."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         dashboard_data = {
             "name": "My Dashboard",
             "description": "Test dashboard",
-            "planet_id": str(planet.id),
+            "page_id": str(page.id),
         }
         response = await async_client.post(
             "/api/v1/dashboards", json=dashboard_data, headers=headers
@@ -502,8 +502,8 @@ class TestDashboardsEndpoints:
     ):
         """Test GET /api/v1/dashboards/{id}."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get(f"/api/v1/dashboards/{dashboard.id}", headers=headers)
@@ -520,8 +520,8 @@ class TestDashboardsEndpoints:
     ):
         """Test PUT /api/v1/dashboards/{id}."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         update_data = {"name": "Updated Dashboard"}
@@ -541,8 +541,8 @@ class TestDashboardsEndpoints:
     ):
         """Test DELETE /api/v1/dashboards/{id}."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.delete(f"/api/v1/dashboards/{dashboard.id}", headers=headers)
@@ -557,8 +557,8 @@ class TestDashboardsEndpoints:
     ):
         """Test GET /api/v1/dashboards/{id}/widgets."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
         await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -578,8 +578,8 @@ class TestDashboardsEndpoints:
     ):
         """Test POST /api/v1/dashboards/{id}/widgets."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         widget_data = {
@@ -608,8 +608,8 @@ class TestDashboardsEndpoints:
     ):
         """Test GET /api/v1/dashboards/{id}/export."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get(
@@ -631,8 +631,8 @@ class TestDashboardsEndpoints:
     ):
         """Test POST /api/v1/dashboards/{id}/duplicate."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.post(
@@ -652,8 +652,8 @@ class TestDashboardsEndpoints:
     ):
         """Test POST /api/v1/dashboards/{id}/lock."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.post(
@@ -672,8 +672,8 @@ class TestDashboardsEndpoints:
     ):
         """Test POST /api/v1/dashboards/{id}/unlock."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
 
         # Lock first
         dashboard_service = DashboardService(db_session)
@@ -705,8 +705,8 @@ class TestWidgetsEndpoints:
     ):
         """Test PUT /api/v1/widgets/{id}."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -727,8 +727,8 @@ class TestWidgetsEndpoints:
     ):
         """Test DELETE /api/v1/widgets/{id}."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -744,8 +744,8 @@ class TestWidgetsEndpoints:
     ):
         """Test POST /api/v1/widgets/{id}/duplicate."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -766,8 +766,8 @@ class TestWidgetsEndpoints:
     ):
         """Test POST /api/v1/widgets/{id}/export."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -786,8 +786,8 @@ class TestWidgetsEndpoints:
     ):
         """Test GET /api/v1/widgets/{id}/data."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -805,8 +805,8 @@ class TestWidgetsEndpoints:
     ):
         """Test POST /api/v1/widgets/{id}/refresh."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, planet.id)
+        page = await create_test_page(db_session, user)
+        dashboard = await create_test_dashboard(db_session, user, page.id)
         widget = await create_test_widget(db_session, user, dashboard.id)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -1118,10 +1118,10 @@ class TestTemplatesEndpoints:
     ):
         """Test POST /api/v1/templates/{id}/apply."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        apply_data = {"planet_id": str(planet.id)}
+        apply_data = {"page_id": str(page.id)}
         response = await async_client.post(
             f"/api/v1/templates/{fake_id}/apply", json=apply_data, headers=headers
         )
@@ -2524,13 +2524,13 @@ class TestStarredEndpoints:
     ):
         """Test GET /api/v1/starred - list starred items."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
 
-        # Star the planet first
+        # Star the page first
         from src.services.starred_service import StarredItemService
 
         starred_service = StarredItemService(db_session)
-        await starred_service.star_item(user, planet.id, "planet")
+        await starred_service.star_item(user, page.id, "page")
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
@@ -2540,7 +2540,7 @@ class TestStarredEndpoints:
         assert isinstance(data, list)
         assert len(data) > 0
         assert any(
-            item["item_id"] == str(planet.id) and item["item_type"] == "planet" for item in data
+            item["item_id"] == str(page.id) and item["item_type"] == "page" for item in data
         )
 
     @pytest.mark.asyncio
@@ -2550,23 +2550,23 @@ class TestStarredEndpoints:
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test GET /api/v1/starred?item_type=planet."""
+        """Test GET /api/v1/starred?item_type=page."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
 
-        # Star the planet
+        # Star the page
         from src.services.starred_service import StarredItemService
 
         starred_service = StarredItemService(db_session)
-        await starred_service.star_item(user, planet.id, "planet")
+        await starred_service.star_item(user, page.id, "page")
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/starred?item_type=planet", headers=headers)
+        response = await async_client.get("/api/v1/starred?item_type=page", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
-        assert all(item["item_type"] == "planet" for item in data)
+        assert all(item["item_type"] == "page" for item in data)
 
     @pytest.mark.asyncio
     async def test_list_starred_items_no_auth(self, async_client: AsyncClient):
@@ -2583,24 +2583,24 @@ class TestStarredEndpoints:
     ):
         """Test GET /api/v1/starred/check/{item_id} - item is starred."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
 
-        # Star the planet
+        # Star the page
         from src.services.starred_service import StarredItemService
 
         starred_service = StarredItemService(db_session)
-        await starred_service.star_item(user, planet.id, "planet")
+        await starred_service.star_item(user, page.id, "page")
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get(
-            f"/api/v1/starred/check/{planet.id}?item_type=planet", headers=headers
+            f"/api/v1/starred/check/{page.id}?item_type=page", headers=headers
         )
         assert response.status_code == 200
         data = response.json()
         assert data["is_starred"] is True
-        assert data["item_id"] == str(planet.id)
-        assert data["item_type"] == "planet"
+        assert data["item_id"] == str(page.id)
+        assert data["item_type"] == "page"
 
     @pytest.mark.asyncio
     async def test_check_starred_item_false(
@@ -2611,17 +2611,17 @@ class TestStarredEndpoints:
     ):
         """Test GET /api/v1/starred/check/{item_id} - item is not starred."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get(
-            f"/api/v1/starred/check/{planet.id}?item_type=planet", headers=headers
+            f"/api/v1/starred/check/{page.id}?item_type=page", headers=headers
         )
         assert response.status_code == 200
         data = response.json()
         assert data["is_starred"] is False
-        assert data["item_id"] == str(planet.id)
-        assert data["item_type"] == "planet"
+        assert data["item_id"] == str(page.id)
+        assert data["item_type"] == "page"
 
     @pytest.mark.asyncio
     async def test_check_starred_item_invalid_type(
@@ -2641,83 +2641,83 @@ class TestStarredEndpoints:
 # ============================================================================
 
 
-class TestPlanetsStarEndpoints:
-    """Tests for planet star/unstar endpoints."""
+class TestPagesStarEndpoints:
+    """Tests for page star/unstar endpoints."""
 
     @pytest.mark.asyncio
-    async def test_star_planet_success(
+    async def test_star_page_success(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test POST /api/v1/planets/{planet_id}/star."""
+        """Test POST /api/v1/pages/{page_id}/star."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(f"/api/v1/planets/{planet.id}/star", headers=headers)
+        response = await async_client.post(f"/api/v1/pages/{page.id}/star", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert "message" in data
         assert "starred" in data["message"].lower()
 
     @pytest.mark.asyncio
-    async def test_star_planet_not_found(
+    async def test_star_page_not_found(
         self, async_client: AsyncClient, test_user_with_tokens: dict
     ):
-        """Test POST /api/v1/planets/{planet_id}/star with non-existent planet."""
+        """Test POST /api/v1/pages/{page_id}/star with non-existent page."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_id = str(uuid4())
-        response = await async_client.post(f"/api/v1/planets/{fake_id}/star", headers=headers)
+        response = await async_client.post(f"/api/v1/pages/{fake_id}/star", headers=headers)
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_unstar_planet_success(
+    async def test_unstar_page_success(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test DELETE /api/v1/planets/{planet_id}/star."""
+        """Test DELETE /api/v1/pages/{page_id}/star."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
 
         # Star first
         from src.services.starred_service import StarredItemService
 
         starred_service = StarredItemService(db_session)
-        await starred_service.star_item(user, planet.id, "planet")
+        await starred_service.star_item(user, page.id, "page")
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/planets/{planet.id}/star", headers=headers)
+        response = await async_client.delete(f"/api/v1/pages/{page.id}/star", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert "message" in data
         assert "unstarred" in data["message"].lower()
 
     @pytest.mark.asyncio
-    async def test_unstar_planet_idempotent(
+    async def test_unstar_page_idempotent(
         self,
         async_client: AsyncClient,
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test DELETE /api/v1/planets/{planet_id}/star when not starred (idempotent)."""
+        """Test DELETE /api/v1/pages/{page_id}/star when not starred (idempotent)."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/planets/{planet.id}/star", headers=headers)
+        response = await async_client.delete(f"/api/v1/pages/{page.id}/star", headers=headers)
         # Should succeed even if not starred (idempotent)
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_star_planet_no_auth(self, async_client: AsyncClient):
-        """Test POST /api/v1/planets/{planet_id}/star without authentication."""
+    async def test_star_page_no_auth(self, async_client: AsyncClient):
+        """Test POST /api/v1/pages/{page_id}/star without authentication."""
         fake_id = str(uuid4())
-        response = await async_client.post(f"/api/v1/planets/{fake_id}/star")
+        response = await async_client.post(f"/api/v1/pages/{fake_id}/star")
         assert response.status_code == 401
 
 

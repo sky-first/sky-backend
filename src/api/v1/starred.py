@@ -23,7 +23,7 @@ router = APIRouter()
     description="Get list of all starred items for the current user",
 )
 async def list_starred_items(
-    item_type: Optional[str] = Query(None, pattern="^(planet|space|crew)$"),
+    item_type: Optional[str] = Query(None, pattern="^(page|space|crew)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[dict]:
@@ -31,7 +31,7 @@ async def list_starred_items(
     List all starred items for the current user.
 
     Args:
-        item_type: Optional filter by item type (planet, space, or crew)
+        item_type: Optional filter by item type (page, space, or crew)
         current_user: Current authenticated user
         db: Database session
 
@@ -52,7 +52,7 @@ async def list_starred_items(
 )
 async def check_starred(
     item_id: UUID,
-    item_type: str = Query(..., pattern="^(planet|space|crew)$"),
+    item_type: str = Query(..., pattern="^(page|space|crew)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
@@ -61,7 +61,7 @@ async def check_starred(
 
     Args:
         item_id: Item ID to check
-        item_type: Item type (planet, space, or crew)
+        item_type: Item type (page, space, or crew)
         current_user: Current authenticated user
         db: Database session
 

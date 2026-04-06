@@ -5,7 +5,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.tests.test_all_endpoints import create_test_planet, get_auth_headers
+from src.tests.test_all_endpoints import create_test_page, get_auth_headers
 
 
 @pytest.mark.asyncio
@@ -20,7 +20,7 @@ class TestIntelligenceSignalsEndpoints:
     ):
         """Test GET /api/v1/intelligence/signals - list signals."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
 
         # Create a test signal directly in DB for listing
@@ -28,7 +28,7 @@ class TestIntelligenceSignalsEndpoints:
 
         signal = IntelligenceSignal(
             id=uuid4(),  # type: ignore
-            planet_id=planet.id,
+            page_id=page.id,
             category="now",
             title="Test Signal",
             content="Test content",
@@ -39,7 +39,7 @@ class TestIntelligenceSignalsEndpoints:
         await db_session.commit()
 
         response = await async_client.get(
-            f"/api/v1/intelligence/signals/?planet_id={planet.id}", headers=headers
+            f"/api/v1/intelligence/signals/?page_id={page.id}", headers=headers
         )
         assert response.status_code == 200
         data = response.json()
@@ -55,11 +55,11 @@ class TestIntelligenceSignalsEndpoints:
     ):
         """Test POST /api/v1/intelligence/signals/ - create signal."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
 
         payload = {
-            "planet_id": str(planet.id),
+            "page_id": str(page.id),
             "category": "smart",
             "title": "New Smart Signal",
             "content": "Description of smart signal",
@@ -84,7 +84,7 @@ class TestIntelligenceSignalsEndpoints:
     ):
         """Test PATCH /api/v1/intelligence/signals/{id}/dismiss."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
 
         # Create a test signal
@@ -92,7 +92,7 @@ class TestIntelligenceSignalsEndpoints:
 
         signal = IntelligenceSignal(
             id=uuid4(),  # type: ignore
-            planet_id=planet.id,
+            page_id=page.id,
             category="explore",
             title="Dismiss Me",
             content="Content",
@@ -117,7 +117,7 @@ class TestIntelligenceSignalsEndpoints:
     ):
         """Test DELETE /api/v1/intelligence/signals/{id}."""
         user = test_user_with_tokens["user"]
-        planet = await create_test_planet(db_session, user)
+        page = await create_test_page(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
 
         # Create a test signal
@@ -125,7 +125,7 @@ class TestIntelligenceSignalsEndpoints:
 
         signal = IntelligenceSignal(
             id=uuid4(),  # type: ignore
-            planet_id=planet.id,
+            page_id=page.id,
             category="now",
             title="Delete Me",
             content="Content",

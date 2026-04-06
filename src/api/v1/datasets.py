@@ -93,11 +93,11 @@ async def get_excluded_datasets(
     response_model=List[Dict[str, Any]],
     status_code=status.HTTP_200_OK,
     summary="List datasets",
-    description="Get list of available datasets (tables and files) across all planets",
+    description="Get list of available datasets (tables and files) across all pages",
 )
 async def list_datasets(
     connection_id: Optional[str] = Query(None),
-    planet_id: Optional[str] = Query(None),
+    page_id: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -111,7 +111,7 @@ async def list_datasets(
 
     Args:
         connection_id: Optional connection filter
-        planet_id: Optional planet filter
+        page_id: Optional page filter
         skip: Pagination offset
         limit: Pagination limit
         current_user: Current authenticated user

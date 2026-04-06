@@ -11,7 +11,7 @@ from src.repositories.intelligence_signal import (
     IntelligenceSignalRepository,
     get_intelligence_signal_repo,
 )
-from src.repositories.planet import PlanetRepository
+from src.repositories.page import PageRepository
 from src.schemas.intelligence_signal import IntelligenceSignalCreate, IntelligenceSignalResponse
 from src.services.rbac_service import RBACService
 
@@ -20,28 +20,28 @@ router = APIRouter()
 
 @router.get("/", response_model=List[IntelligenceSignalResponse])
 async def list_signals(
-    planet_id: UUID = Query(..., description="Planet ID to filter signals"),
+    page_id: UUID = Query(..., description="Page ID to filter signals"),
     category: Optional[str] = Query(None, description="Category filter (now, smart, explore)"),
     include_dismissed: bool = Query(False, description="Whether to include dismissed signals"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     repo: IntelligenceSignalRepository = Depends(get_intelligence_signal_repo),
 ):
-    """List intelligence signals for a planet."""
+    """List intelligence signals for a page."""
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "viewPlanets")
+    await rbac.assert_permission(current_user, "viewPages")
 
-    # Check if user has access to the planet
-    planet_repo = PlanetRepository(db)
-    planet = await planet_repo.get_by_id(planet_id)
-    if not planet:
-        raise HTTPException(status_code=404, detail="Planet not found")
+    # Check if user has access to the page
+    page_repo = PageRepository(db)
+    page = await page_repo.get_by_id(page_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Page not found")
 
-    # In a real scenario, we'd check if user is a member of the planet via RBAC or PlanetMember repo
+    # In a real scenario, we'd check if user is a member of the page via RBAC or PageMember repo
     # For now, following the simple pattern used in dashboards.py
 
-    return await repo.get_by_planet(
-        planet_id, category=category, include_dismissed=include_dismissed
+    return await repo.get_by_page(
+        page_id, category=category, include_dismissed=include_dismissed
     )
 
 
@@ -54,10 +54,10 @@ async def create_signal(
 ):
     """
     Create a new intelligence signal.
-    Typically called by the AI service. Requires editPlanets permission.
+    Typically called by the AI service. Requires editPages permission.
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "editPlanets")
+    await rbac.assert_permission(current_user, "editPages")
 
     return await repo.create(**signal_in.model_dump())
 
@@ -71,7 +71,7 @@ async def dismiss_signal(
 ):
     """Mark a signal as dismissed."""
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "viewPlanets")
+    await rbac.assert_permission(current_user, "viewPages")
 
     signal = await repo.get_by_id(signal_id)
     if not signal:
@@ -91,7 +91,7 @@ async def delete_signal(
 ):
     """Delete a signal."""
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "editPlanets")
+    await rbac.assert_permission(current_user, "editPages")
 
     signal = await repo.get_by_id(signal_id)
     if not signal:

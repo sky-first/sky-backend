@@ -25,7 +25,7 @@ from src.schemas.user import (
     UserCreate,
     UserResponse,
 )
-from src.services.onboarding_service import ensure_default_planet_and_space
+from src.services.onboarding_service import ensure_default_page_and_space
 
 
 def user_to_response_dict(user: User) -> dict:
@@ -64,16 +64,16 @@ def user_to_response_dict(user: User) -> dict:
 
 
 async def perform_onboarding_task(user_id: UUID):
-    """Background task to ensure default planet and space for a user."""
+    """Background task to ensure default page and space for a user."""
     from src.config.database import AsyncSessionLocal
     from src.repositories.user import UserRepository
-    from src.services.onboarding_service import ensure_default_planet_and_space
+    from src.services.onboarding_service import ensure_default_page_and_space
 
     async with AsyncSessionLocal() as db:
         user_repo = UserRepository(db)
         user = await user_repo.get_by_id(user_id)
         if user:
-            await ensure_default_planet_and_space(db, user)
+            await ensure_default_page_and_space(db, user)
 
 
 class AuthenticationService:
@@ -122,12 +122,12 @@ class AuthenticationService:
         await self.db.refresh(user)
         # Note: redundant refresh removed due to expire_on_commit=False
 
-        # Ensure default planet/space for new users
+        # Ensure default page/space for new users
         if user.id:
             if background_tasks:
                 background_tasks.add_task(perform_onboarding_task, UUID(str(user.id)))
             else:
-                await ensure_default_planet_and_space(self.db, user)
+                await ensure_default_page_and_space(self.db, user)
 
         user_response_data = user_to_response_dict(user)
         return UserResponse.model_validate(user_response_data)
@@ -181,7 +181,7 @@ class AuthenticationService:
         refresh_token = create_refresh_token(token_data)
 
         # Save refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,
@@ -195,7 +195,7 @@ class AuthenticationService:
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
+            expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
             user=user_response,
         )
 
@@ -249,12 +249,12 @@ class AuthenticationService:
         user.last_login_at = datetime.now(timezone.utc)
         # Note: redundant refresh removed due to expire_on_commit=False
 
-        # Ensure default planet/space exists (fallback for legacy users)
+        # Ensure default page/space exists (fallback for legacy users)
         if user.id:
             if background_tasks:
                 background_tasks.add_task(perform_onboarding_task, UUID(str(user.id)))
             else:
-                await ensure_default_planet_and_space(self.db, user)
+                await ensure_default_page_and_space(self.db, user)
 
         # Create tokens
         token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
@@ -262,7 +262,7 @@ class AuthenticationService:
         refresh_token = create_refresh_token(token_data)
 
         # Save refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,
@@ -279,7 +279,7 @@ class AuthenticationService:
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
+            expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
             user=UserResponse.model_validate(user_to_response_dict(user)),
         )
 
@@ -357,7 +357,7 @@ class AuthenticationService:
         new_refresh_token = create_refresh_token(token_data)
 
         # Save new refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
         new_token_model = RefreshToken(
             user_id=user.id,
             token=new_refresh_token,
@@ -369,7 +369,7 @@ class AuthenticationService:
         return RefreshTokenResponse(
             access_token=new_access_token,
             refresh_token=new_refresh_token,
-            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
+            expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         )
 
     async def logout(self, refresh_token: str) -> None:

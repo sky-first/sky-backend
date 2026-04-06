@@ -22,7 +22,7 @@ class IntelligenceSignalBase(BaseModel):
 
 
 class IntelligenceSignalCreate(IntelligenceSignalBase):
-    planet_id: UUID
+    page_id: UUID
 
 
 class IntelligenceSignalUpdate(BaseModel):
@@ -35,7 +35,7 @@ class IntelligenceSignalUpdate(BaseModel):
 
 class IntelligenceSignalResponse(IntelligenceSignalBase):
     id: UUID
-    planet_id: UUID
+    page_id: UUID
     is_dismissed: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

@@ -1,32 +1,32 @@
-"""Onboarding helpers to ensure default planet/space for new users."""
+"""Onboarding helpers to ensure default page/space for new users."""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.user import User
-from src.repositories.planet import PlanetMemberRepository, PlanetRepository
+from src.repositories.page import PageMemberRepository, PageRepository
 from src.repositories.space import SpaceRepository
 
 
-async def ensure_default_planet_and_space(db: AsyncSession, user: User) -> None:
+async def ensure_default_page_and_space(db: AsyncSession, user: User) -> None:
     """
-    Ensure a user has at least one planet and a default space.
+    Ensure a user has at least one page and a default space.
 
-    Idempotent: if the user already owns a planet, it does nothing.
+    Idempotent: if the user already owns a page, it does nothing.
     """
-    planet_repo = PlanetRepository(db)
+    page_repo = PageRepository(db)
     space_repo = SpaceRepository(db)
-    planet_member_repo = PlanetMemberRepository(db)
+    page_member_repo = PageMemberRepository(db)
 
-    # Already has planet? Do nothing.
-    existing_planets = await planet_repo.get_by_owner(user.id, limit=1)
-    if existing_planets:
+    # Already has page? Do nothing.
+    existing_pages = await page_repo.get_by_owner(user.id, limit=1)
+    if existing_pages:
         return
 
-    # Create a default planet
-    planet_name = f"{user.name.split(' ')[0]}'s planet" if user.name else "My first planet"
-    planet = await planet_repo.create(
-        name=planet_name,
-        description="Your first planet",
+    # Create a default page
+    page_name = f"{user.name.split(' ')[0]}'s page" if user.name else "My first page"
+    page = await page_repo.create(
+        name=page_name,
+        description="Your first page",
         type="personal",
         color="#3B82F6",  # default blue
         icon=None,
@@ -35,8 +35,8 @@ async def ensure_default_planet_and_space(db: AsyncSession, user: User) -> None:
     )
 
     # Add the user as owner/member
-    await planet_member_repo.create(
-        planet_id=planet.id,
+    await page_member_repo.create(
+        page_id=page.id,
         user_id=user.id,
         role="owner",
     )
@@ -51,4 +51,4 @@ async def ensure_default_planet_and_space(db: AsyncSession, user: User) -> None:
     )
 
     await db.commit()
-    await db.refresh(planet)
+    await db.refresh(page)

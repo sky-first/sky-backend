@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.comment import Comment
 from src.models.dashboard import Dashboard
 from src.models.notification import Notification, NotificationType
-from src.models.planet import Planet
+from src.models.page import Page
 from src.schemas.notification import NotificationCreate
 from src.services.notification_service import NotificationService
 
@@ -153,24 +153,24 @@ class TestCommentAPI:
         db_session.add(other_user)
         await db_session.commit()
 
-        # Setup: Planet and Dashboard
-        planet = Planet(
+        # Setup: Page and Dashboard
+        page = Page(
             id=uuid4(),
-            name="Test Planet",
+            name="Test Page",
             owner_id=user.id,
             type="team",
             color="#000000",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        db_session.add(planet)
+        db_session.add(page)
         await db_session.commit()
 
         dashboard = Dashboard(
             id=uuid4(),
             name="Test Dash",
             created_by=user.id,
-            planet_id=planet.id,
+            page_id=page.id,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -214,24 +214,24 @@ class TestCommentAPI:
     ):
         user = test_user_with_tokens["user"]
 
-        # Setup: Planet and Dashboard
-        planet = Planet(
+        # Setup: Page and Dashboard
+        page = Page(
             id=uuid4(),
-            name="Test Planet",
+            name="Test Page",
             owner_id=user.id,
             type="team",
             color="#000000",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        db_session.add(planet)
+        db_session.add(page)
         await db_session.commit()
 
         dashboard = Dashboard(
             id=uuid4(),
             name="Test Dash",
             created_by=user.id,
-            planet_id=planet.id,
+            page_id=page.id,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )

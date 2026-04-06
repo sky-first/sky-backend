@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from src.api.v1 import (
+    agents,
     ai,
     auth,
     comments,
@@ -17,7 +18,7 @@ from src.api.v1 import (
     intelligence_signals,
     notifications,
     permissions,
-    planets,
+    pages,
     settings,
     settings_metrics,
     signal_events,
@@ -38,8 +39,8 @@ api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 # User endpoints
 api_router.include_router(users.router, prefix="/users", tags=["Users"])
 
-# Planet endpoints
-api_router.include_router(planets.router, prefix="/planets", tags=["Planets"])
+# Page endpoints
+api_router.include_router(pages.router, prefix="/pages", tags=["Pages"])
 
 # Dashboard endpoints
 api_router.include_router(dashboards.router, prefix="/dashboards", tags=["Dashboards"])
@@ -120,3 +121,6 @@ api_router.include_router(
     prefix="/enterprise/apis",
     tags=["Enterprise APIs"],
 )
+
+# Agent endpoints
+api_router.include_router(agents.router, prefix="/agents", tags=["Agents"])

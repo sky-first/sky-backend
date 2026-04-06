@@ -20,15 +20,15 @@ async def test_ai_service_simple_coverage():
 
 
 @pytest.mark.asyncio
-async def test_planet_service_coverage():
-    from src.services.planet_service import PlanetService
+async def test_page_service_coverage():
+    from src.services.page_service import PageService
 
     db = AsyncMock()
-    service = PlanetService(db)
-    service.planet_repo = MagicMock()
-    service.planet_repo.get_user_planets = AsyncMock(return_value=[])
+    service = PageService(db)
+    service.page_repo = MagicMock()
+    service.page_repo.get_user_pages = AsyncMock(return_value=[])
     mock_user = MagicMock(id=uuid4())
-    res = await service.get_user_planets(mock_user)
+    res = await service.get_user_pages(mock_user)
     assert res == []
 
 

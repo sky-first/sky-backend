@@ -296,7 +296,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     dashboard_data=DashboardCreate(
                         name=str(plan_payload.get("dashboard_name") or goal),
                         description=plan_payload.get("description"),
-                        planet_id=job.planet_id,
+                        page_id=job.page_id,
                     ),
                 )
                 job.dashboard_id = dashboard.id

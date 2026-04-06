@@ -14,14 +14,14 @@ class IntelligenceSignalRepository(BaseRepository[IntelligenceSignal]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, IntelligenceSignal)
 
-    async def get_by_planet(
+    async def get_by_page(
         self,
-        planet_id: UUID,
+        page_id: UUID,
         category: Optional[str] = None,
         include_dismissed: bool = False,
     ) -> List[IntelligenceSignal]:
-        """Fetch signals for a specific planet, optionally filtered by category."""
-        query = select(IntelligenceSignal).where(IntelligenceSignal.planet_id == planet_id)
+        """Fetch signals for a specific page, optionally filtered by category."""
+        query = select(IntelligenceSignal).where(IntelligenceSignal.page_id == page_id)
 
         if category:
             query = query.where(IntelligenceSignal.category == category)

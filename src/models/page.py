@@ -1,4 +1,4 @@
-"""Planet models."""
+"""Page models."""
 
 import uuid
 
@@ -9,10 +9,10 @@ from sqlalchemy.orm import relationship
 from src.config.database import Base
 
 
-class Planet(Base):
-    """Planet model."""
+class Page(Base):
+    """Page model."""
 
-    __tablename__ = "planets"
+    __tablename__ = "pages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
@@ -39,30 +39,30 @@ class Planet(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    owner = relationship("User", foreign_keys=[owner_id], back_populates="owned_planets")
-    members = relationship("PlanetMember", back_populates="planet", cascade="all, delete-orphan")
-    dashboards = relationship("Dashboard", back_populates="planet", cascade="all, delete-orphan")
+    owner = relationship("User", foreign_keys=[owner_id], back_populates="owned_pages")
+    members = relationship("PageMember", back_populates="page", cascade="all, delete-orphan")
+    dashboards = relationship("Dashboard", back_populates="page", cascade="all, delete-orphan")
 
     __table_args__ = (
-        Index("idx_planets_owner_id", "owner_id", postgresql_where=deleted_at.is_(None)),
-        Index("idx_planets_type", "type", postgresql_where=deleted_at.is_(None)),
-        Index("idx_planets_is_active", "is_active", postgresql_where=deleted_at.is_(None)),
-        Index("idx_planets_last_accessed", "last_accessed"),
+        Index("idx_pages_owner_id", "owner_id", postgresql_where=deleted_at.is_(None)),
+        Index("idx_pages_type", "type", postgresql_where=deleted_at.is_(None)),
+        Index("idx_pages_is_active", "is_active", postgresql_where=deleted_at.is_(None)),
+        Index("idx_pages_last_accessed", "last_accessed"),
     )
 
     def __repr__(self) -> str:
-        return f"<Planet(id={self.id}, name={self.name}, type={self.type})>"
+        return f"<Page(id={self.id}, name={self.name}, type={self.type})>"
 
 
-class PlanetMember(Base):
-    """Planet member model."""
+class PageMember(Base):
+    """Page member model."""
 
-    __tablename__ = "planet_members"
+    __tablename__ = "page_members"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    planet_id = Column(
+    page_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("planets.id", ondelete="CASCADE"),
+        ForeignKey("pages.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -85,13 +85,13 @@ class PlanetMember(Base):
     )
 
     # Relationships
-    planet = relationship("Planet", back_populates="members")
-    user = relationship("User", back_populates="planet_memberships")
+    page = relationship("Page", back_populates="members")
+    user = relationship("User", back_populates="page_memberships")
 
     __table_args__ = (
         Index(
-            "idx_planet_members_planet_user",
-            "planet_id",
+            "idx_page_members_page_user",
+            "page_id",
             "user_id",
             unique=True,
         ),
@@ -99,5 +99,5 @@ class PlanetMember(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<PlanetMember(planet_id={self.planet_id}, user_id={self.user_id}, role={self.role})>"
+            f"<PageMember(page_id={self.page_id}, user_id={self.user_id}, role={self.role})>"
         )
