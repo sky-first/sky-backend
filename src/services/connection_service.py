@@ -36,6 +36,14 @@ from src.schemas.connection import (
 logger = structlog.get_logger(__name__)
 
 
+def _decrypt_config(config: dict | None) -> dict:
+    """Decrypt connection config in memory. Handles legacy plaintext gracefully."""
+    if not config:
+        return {}
+    from src.utils.encryption import decrypt_dict
+    return decrypt_dict(config)
+
+
 class ConnectionService:
     """Connection service."""
 
@@ -192,7 +200,11 @@ class ConnectionService:
         except Exception:
             raise BadRequestError(f"Invalid connector_id: {connection_data.connector_id}")
 
-        # TODO: Encrypt config before storing
+        # Encrypt config before storing (uses ENCRYPTION_KEY env if set)
+        from src.utils.encryption import encrypt_dict
+
+        encrypted_config = encrypt_dict(connection_data.config) if connection_data.config else {}
+
         # Calculate initial next sync
         next_sync = await self._calculate_next_sync(connection_data.sync_frequency, None)
 
@@ -200,7 +212,7 @@ class ConnectionService:
             name=connection_data.name,
             connector_id=connection_data.connector_id,
             description=connection_data.description,
-            config=connection_data.config,
+            config=encrypted_config,
             sync_frequency=connection_data.sync_frequency,
             next_sync=next_sync,
             status="inactive",
@@ -366,7 +378,7 @@ class ConnectionService:
         try:
             connector = get_connector(connection.connector_id)
             start_time = _time.time()
-            success = await connector.test_connection(connection.config)
+            success = await connector.test_connection(_decrypt_config(connection.config))
             latency = int((_time.time() - start_time) * 1000)
 
             if success:
@@ -425,7 +437,7 @@ class ConnectionService:
 
         try:
             connector = get_connector(connection.connector_id)
-            metadata = await connector.get_metadata(connection.config)
+            metadata = await connector.get_metadata(_decrypt_config(connection.config))
 
             # Update or create metadata
             existing_metadata = await self.metadata_repo.get_by_connection_id(connection_id)
