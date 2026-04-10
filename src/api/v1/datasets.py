@@ -11,6 +11,7 @@ from src.core.exceptions import NotFoundError
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.services.dataset_service import DatasetService
+from src.services.rbac_service import RBACService
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ async def delete_dataset(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
+    await RBACService(db).assert_permission(current_user, "manageConnections")
     Delete dataset.
 
     Args:
@@ -75,6 +77,7 @@ async def get_excluded_datasets(
     db: AsyncSession = Depends(get_db_session),
 ) -> list[str]:
     """
+    await RBACService(db).assert_permission(current_user, "viewConnections")
     Get excluded datasets.
 
     Args:
@@ -104,6 +107,7 @@ async def list_datasets(
     db: AsyncSession = Depends(get_db_session),
 ) -> List[Dict[str, Any]]:
     """
+    await RBACService(db).assert_permission(current_user, "viewConnections")
     List all available datasets.
 
     For now, returns an empty list as a placeholder to satisfy frontend requirements.

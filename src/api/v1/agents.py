@@ -25,6 +25,7 @@ from src.schemas.agent import (
     AgentUpdate,
 )
 from src.services.agent_service import AgentService
+from src.services.rbac_service import RBACService
 
 router = APIRouter()
 
@@ -41,6 +42,7 @@ async def list_agents(
     service: AgentService = Depends(get_agent_service),
 ):
     """List agents. Filter by scope/scope_id or get all accessible agents."""
+    await RBACService(db).assert_permission(current_user, "crews.create")
     return await service.list_agents(scope=scope, scope_id=scope_id, created_by=None)
 
 
@@ -51,6 +53,7 @@ async def create_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Create a new agent."""
+    await RBACService(db).assert_permission(current_user, "crews.members.manage")
     return await service.create_agent(data, user_id=current_user.id)
 
 
@@ -61,6 +64,7 @@ async def get_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Get agent detail with findings."""
+    await RBACService(db).assert_permission(current_user, "crews.create")
     return await service.get_agent(agent_id)
 
 
@@ -72,6 +76,7 @@ async def update_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Update agent configuration."""
+    await RBACService(db).assert_permission(current_user, "crews.members.manage")
     return await service.update_agent(agent_id, data)
 
 
@@ -82,6 +87,7 @@ async def delete_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Delete an agent and all its findings."""
+    await RBACService(db).assert_permission(current_user, "crews.members.manage")
     await service.delete_agent(agent_id)
     return None
 
@@ -93,6 +99,7 @@ async def pause_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Pause an active agent."""
+    await RBACService(db).assert_permission(current_user, "crews.members.manage")
     return await service.pause_agent(agent_id)
 
 
@@ -103,6 +110,7 @@ async def resume_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Resume a paused agent."""
+    await RBACService(db).assert_permission(current_user, "crews.members.manage")
     return await service.resume_agent(agent_id)
 
 
@@ -113,6 +121,7 @@ async def run_agent_now(
     db: AsyncSession = Depends(get_db),
 ):
     """Trigger an immediate execution of the agent."""
+    await RBACService(db).assert_permission(current_user, "crews.members.manage")
     import logging
     from sqlalchemy import select
     from src.models.agent import Agent
@@ -138,6 +147,7 @@ async def run_agent_stream(
     db: AsyncSession = Depends(get_db),
 ):
     """
+    await RBACService(db).assert_permission(current_user, "crews.members.manage")
     Execute an agent with SSE streaming — shows live progress as AI analyzes data.
     Returns Server-Sent Events with types: progress, datasets_selected, sql_generated, chunk, meta, done.
     """
@@ -285,6 +295,7 @@ async def list_all_insights(
     db: AsyncSession = Depends(get_db),
 ):
     """List all insights across all agents, optionally filtered by scope."""
+    await RBACService(db).assert_permission(current_user, "crews.create")
     from sqlalchemy.orm import selectinload
 
     query = select(Agent)
@@ -315,6 +326,7 @@ async def list_findings(
     service: AgentService = Depends(get_agent_service),
 ):
     """List findings for an agent."""
+    await RBACService(db).assert_permission(current_user, "crews.create")
     return await service.list_findings(agent_id, include_dismissed=include_dismissed)
 
 
@@ -326,4 +338,5 @@ async def dismiss_finding(
     service: AgentService = Depends(get_agent_service),
 ):
     """Dismiss a finding."""
+    await RBACService(db).assert_permission(current_user, "crews.members.manage")
     return await service.dismiss_finding(finding_id)

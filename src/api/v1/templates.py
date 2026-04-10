@@ -17,6 +17,7 @@ from src.schemas.template import (
     TemplateUpdate,
 )
 from src.services.template_service import TemplateService
+from src.services.rbac_service import RBACService
 
 router = APIRouter()
 
@@ -39,6 +40,7 @@ async def list_templates(
     db: AsyncSession = Depends(get_db_session),
 ) -> List[TemplateResponse]:
     """
+    await RBACService(db).assert_permission(current_user, "viewPages")
     List templates.
 
     Args:
@@ -78,6 +80,7 @@ async def get_template(
     db: AsyncSession = Depends(get_db_session),
 ) -> TemplateResponse:
     """
+    await RBACService(db).assert_permission(current_user, "viewPages")
     Get template by ID.
 
     Args:
@@ -106,6 +109,7 @@ async def create_template(
     db: AsyncSession = Depends(get_db_session),
 ) -> TemplateResponse:
     """
+    await RBACService(db).assert_permission(current_user, "editPages")
     Create a new template.
 
     Args:
@@ -135,6 +139,7 @@ async def update_template(
     db: AsyncSession = Depends(get_db_session),
 ) -> TemplateResponse:
     """
+    await RBACService(db).assert_permission(current_user, "editPages")
     Update template.
 
     Args:
@@ -164,6 +169,7 @@ async def delete_template(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
+    await RBACService(db).assert_permission(current_user, "editPages")
     Delete template.
 
     Args:
@@ -192,6 +198,7 @@ async def get_categories(
     db: AsyncSession = Depends(get_db_session),
 ) -> List[str]:
     """
+    await RBACService(db).assert_permission(current_user, "viewPages")
     Get template categories.
 
     Args:
@@ -220,6 +227,7 @@ async def apply_template(
     db: AsyncSession = Depends(get_db_session),
 ) -> TemplateApplyResponse:
     """
+    await RBACService(db).assert_permission(current_user, "editPages")
     Apply template to a dashboard.
 
     Args:

@@ -8,6 +8,7 @@ from src.api.deps import get_current_user, get_db
 from src.models.user import User
 from src.schemas.signal_event import SignalEventCreate, SignalEventResponse, SignalEventUpdate
 from src.services.signal_event_service import SignalEventService
+from src.services.rbac_service import RBACService
 
 router = APIRouter()
 
@@ -26,6 +27,7 @@ async def list_signal_events(
     service: SignalEventService = Depends(get_signal_event_service),
 ):
     """List signal events with tenant filtering."""
+    await RBACService(db).assert_permission(current_user, "viewConnections")
     return await service.list_events(space_id=space_id, crew_id=crew_id)
 
 
@@ -38,6 +40,7 @@ async def create_signal_event(
     service: SignalEventService = Depends(get_signal_event_service),
 ):
     """Create a new signal event within a tenant context."""
+    await RBACService(db).assert_permission(current_user, "manageConnections")
     return await service.create_event(event_in, space_id=space_id, crew_id=crew_id)
 
 
@@ -50,6 +53,7 @@ async def get_signal_event(
     service: SignalEventService = Depends(get_signal_event_service),
 ):
     """Get a specific signal event by ID with tenant validation."""
+    await RBACService(db).assert_permission(current_user, "viewConnections")
     return await service.get_event(event_id, space_id=space_id, crew_id=crew_id)
 
 
@@ -63,6 +67,7 @@ async def update_signal_event(
     service: SignalEventService = Depends(get_signal_event_service),
 ):
     """Update a signal event with tenant validation."""
+    await RBACService(db).assert_permission(current_user, "manageConnections")
     return await service.update_event(event_id, event_in, space_id=space_id, crew_id=crew_id)
 
 
@@ -75,5 +80,6 @@ async def delete_signal_event(
     service: SignalEventService = Depends(get_signal_event_service),
 ):
     """Delete a signal event with tenant validation."""
+    await RBACService(db).assert_permission(current_user, "manageConnections")
     await service.delete_event(event_id, space_id=space_id, crew_id=crew_id)
     return None

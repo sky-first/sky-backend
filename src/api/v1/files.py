@@ -16,6 +16,7 @@ from src.schemas.file import (
     FileUploadResponse,
 )
 from src.services.file_upload_service import FileUploadService
+from src.services.rbac_service import RBACService
 
 router = APIRouter()
 
@@ -35,6 +36,7 @@ async def upload_file(
     db: AsyncSession = Depends(get_db_session),
 ) -> FileUploadResponse:
     """
+    await RBACService(db).assert_permission(current_user, "editPages")
     Upload a generic file.
 
     Args:
@@ -64,6 +66,7 @@ async def upload_csv(
     db: AsyncSession = Depends(get_db_session),
 ) -> CSVUploadResponse:
     """
+    await RBACService(db).assert_permission(current_user, "editPages")
     Upload and parse CSV file.
 
     Args:
@@ -92,6 +95,7 @@ async def upload_excel(
     db: AsyncSession = Depends(get_db_session),
 ) -> ExcelUploadResponse:
     """
+    await RBACService(db).assert_permission(current_user, "editPages")
     Upload and parse Excel file.
 
     Args:
@@ -121,6 +125,7 @@ async def upload_image(
     db: AsyncSession = Depends(get_db_session),
 ) -> FileUploadResponse:
     """
+    await RBACService(db).assert_permission(current_user, "editPages")
     Upload an image file.
 
     Args:
@@ -151,6 +156,7 @@ async def upload_pdf(
     db: AsyncSession = Depends(get_db_session),
 ) -> FileUploadResponse:
     """
+    await RBACService(db).assert_permission(current_user, "editPages")
     Upload a PDF file.
 
     Args:
@@ -180,6 +186,7 @@ async def get_file(
     db: AsyncSession = Depends(get_db_session),
 ) -> FileResponse:
     """
+    await RBACService(db).assert_permission(current_user, "viewPages")
     Get file by ID.
 
     Args:
@@ -208,6 +215,7 @@ async def delete_file(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
+    await RBACService(db).assert_permission(current_user, "editPages")
     Delete file.
 
     Args:

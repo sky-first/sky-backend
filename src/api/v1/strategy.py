@@ -34,6 +34,7 @@ from src.schemas.strategy import (
     StrategyTreeResponse,
 )
 from src.services.strategy import StrategyService
+from src.services.rbac_service import RBACService
 
 router = APIRouter()
 
@@ -50,6 +51,7 @@ async def get_strategy_tree(
     service: StrategyService = Depends(get_service),
 ) -> StrategyTreeResponse:
     """Get the full strategy tree."""
+    await RBACService(db).assert_permission(current_user, "viewPages")
     return await service.get_strategy_tree(space_id=space_id, crew_id=crew_id)
 
 
@@ -61,6 +63,7 @@ async def get_strategy_health(
     service: StrategyService = Depends(get_service),
 ) -> StrategyHealthResponse:
     """Get strategy health metrics."""
+    await RBACService(db).assert_permission(current_user, "viewPages")
     return await service.get_strategy_health(space_id=space_id, crew_id=crew_id)
 
 
@@ -75,6 +78,7 @@ async def create_pillar(
     service: StrategyService = Depends(get_service),
 ) -> StrategicPillarResponse:
     """Create a new strategic pillar."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.create_pillar(body, background_tasks)
 
 
@@ -87,6 +91,7 @@ async def update_pillar(
     service: StrategyService = Depends(get_service),
 ) -> StrategicPillarResponse:
     """Update a strategic pillar."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.update_pillar(pillar_id, body, background_tasks)
 
 
@@ -97,6 +102,7 @@ async def delete_pillar(
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategic pillar."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     await service.delete_pillar(pillar_id)
 
 
@@ -111,6 +117,7 @@ async def create_objective(
     service: StrategyService = Depends(get_service),
 ) -> StrategicObjectiveResponse:
     """Create a new strategic objective."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.create_objective(body, background_tasks)
 
 
@@ -123,6 +130,7 @@ async def update_objective(
     service: StrategyService = Depends(get_service),
 ) -> StrategicObjectiveResponse:
     """Update a strategic objective."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.update_objective(objective_id, body, background_tasks)
 
 
@@ -133,6 +141,7 @@ async def delete_objective(
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategic objective."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     await service.delete_objective(objective_id)
 
 
@@ -147,6 +156,7 @@ async def create_okr(
     service: StrategyService = Depends(get_service),
 ) -> StrategyOKRResponse:
     """Create a new strategy OKR."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.create_okr(body, background_tasks)
 
 
@@ -159,6 +169,7 @@ async def update_okr(
     service: StrategyService = Depends(get_service),
 ) -> StrategyOKRResponse:
     """Update a strategy OKR."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.update_okr(okr_id, body, background_tasks)
 
 
@@ -169,6 +180,7 @@ async def delete_okr(
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategy OKR."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     await service.delete_okr(okr_id)
 
 
@@ -180,6 +192,7 @@ async def create_initiative(
     service: StrategyService = Depends(get_service),
 ) -> StrategyInitiativeResponse:
     """Create a new strategy initiative."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.create_initiative(body, background_tasks)
 
 
@@ -192,6 +205,7 @@ async def update_initiative(
     service: StrategyService = Depends(get_service),
 ) -> StrategyInitiativeResponse:
     """Update a strategy initiative."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.update_initiative(initiative_id, body, background_tasks)
 
 
@@ -202,6 +216,7 @@ async def delete_initiative(
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategy initiative."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     await service.delete_initiative(initiative_id)
 
 
@@ -216,6 +231,7 @@ async def create_assumption(
     service: StrategyService = Depends(get_service),
 ) -> StrategyAssumptionResponse:
     """Create a new strategy assumption."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.create_assumption(body, background_tasks)
 
 
@@ -228,6 +244,7 @@ async def update_assumption(
     service: StrategyService = Depends(get_service),
 ) -> StrategyAssumptionResponse:
     """Update a strategy assumption."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.update_assumption(assumption_id, body, background_tasks)
 
 
@@ -238,6 +255,7 @@ async def delete_assumption(
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategy assumption."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     await service.delete_assumption(assumption_id)
 
 
@@ -252,6 +270,7 @@ async def create_cycle(
     service: StrategyService = Depends(get_service),
 ) -> StrategyCycleResponse:
     """Create a new strategy cycle."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.create_cycle(body, background_tasks)
 
 
@@ -264,6 +283,7 @@ async def update_cycle(
     service: StrategyService = Depends(get_service),
 ) -> StrategyCycleResponse:
     """Update a strategy cycle."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.update_cycle(cycle_id, body, background_tasks)
 
 
@@ -274,6 +294,7 @@ async def delete_cycle(
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategy cycle."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     await service.delete_cycle(cycle_id)
 
 
@@ -288,6 +309,7 @@ async def create_key_result(
     service: StrategyService = Depends(get_service),
 ) -> StrategyKeyResultResponse:
     """Create a new strategy key result."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.create_key_result(body, background_tasks)
 
 
@@ -300,6 +322,7 @@ async def update_key_result(
     service: StrategyService = Depends(get_service),
 ) -> StrategyKeyResultResponse:
     """Update a strategy key result."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     return await service.update_key_result(kr_id, body, background_tasks)
 
 
@@ -310,4 +333,5 @@ async def delete_key_result(
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategy key result."""
+    await RBACService(db).assert_permission(current_user, "editPages")
     await service.delete_key_result(kr_id)

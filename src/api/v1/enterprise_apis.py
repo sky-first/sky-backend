@@ -17,6 +17,7 @@ from src.schemas.enterprise_api import (
     EnterpriseAPIUpdate,
 )
 from src.services.enterprise_api_service import EnterpriseAPIService
+from src.services.rbac_service import RBACService
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ async def list_apis(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """List all registered APIs for the current user."""
+    await RBACService(db).assert_permission(current_user, "viewConnections")
     try:
         service = EnterpriseAPIService(db)
         return await service.list_apis(current_user)
@@ -54,6 +56,7 @@ async def create_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Register a new API."""
+    await RBACService(db).assert_permission(current_user, "manageConnections")
     try:
         service = EnterpriseAPIService(db)
         return await service.create_api(current_user, data)
@@ -78,6 +81,7 @@ async def get_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Get API details by ID."""
+    await RBACService(db).assert_permission(current_user, "viewConnections")
     try:
         service = EnterpriseAPIService(db)
         return await service.get_api(api_id, current_user)
@@ -101,6 +105,7 @@ async def update_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Update API registration."""
+    await RBACService(db).assert_permission(current_user, "manageConnections")
     try:
         service = EnterpriseAPIService(db)
         return await service.update_api(api_id, current_user, data)
@@ -129,6 +134,7 @@ async def delete_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """Delete API registration."""
+    await RBACService(db).assert_permission(current_user, "manageConnections")
     try:
         service = EnterpriseAPIService(db)
         await service.delete_api(api_id, current_user)
