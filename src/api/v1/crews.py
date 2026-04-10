@@ -53,6 +53,7 @@ async def list_crews(
     Returns:
         List[CrewResponse]: List of crews
     """
+    await RBACService(db).assert_permission(current_user, "crews.create")
     crew_service = CrewService(db)
     return await crew_service.list_crews(current_user, space_id=space_id, skip=skip, limit=limit)
 
@@ -81,6 +82,7 @@ async def get_crew(
     Returns:
         CrewResponse: Crew data
     """
+    await RBACService(db).assert_permission(current_user, "crews.create", crew_id=crew_id)
     crew_service = CrewService(db)
     return await crew_service.get_crew(crew_id, current_user)
 
@@ -113,6 +115,7 @@ async def create_crew(
     Returns:
         CrewResponse: Created crew
     """
+    await RBACService(db).assert_permission(current_user, "crews.create")
     crew_service = CrewService(db)
     return await crew_service.create_crew(current_user, crew_data)
 
@@ -143,6 +146,7 @@ async def update_crew(
     Returns:
         CrewResponse: Updated crew
     """
+    await RBACService(db).assert_permission(current_user, "crews.members.manage", crew_id=crew_id)
     crew_service = CrewService(db)
     return await crew_service.update_crew(crew_id, current_user, crew_data)
 
@@ -171,6 +175,7 @@ async def get_crew_status(
     Returns:
         CrewStatusResponse: Crew status with running tasks info
     """
+    await RBACService(db).assert_permission(current_user, "crews.create", crew_id=crew_id)
     crew_service = CrewService(db)
     return await crew_service.get_crew_status(crew_id, current_user)
 
@@ -212,6 +217,7 @@ async def delete_crew(
     logger.info(
         f"🔴 [DELETE API] Delete crew endpoint called: crew_id={crew_id}, user_id={current_user.id}, force={force}"
     )
+    await RBACService(db).assert_permission(current_user, "crews.members.manage", crew_id=crew_id)
     crew_service = CrewService(db)
     await crew_service.delete_crew(crew_id, current_user, force=force)
 
@@ -245,6 +251,7 @@ async def get_crew_members(
     Returns:
         List[CrewMemberResponse]: List of crew members
     """
+    await RBACService(db).assert_permission(current_user, "crews.create", crew_id=crew_id)
     crew_service = CrewService(db)
     return await crew_service.get_crew_members(crew_id, current_user)
 
@@ -279,6 +286,7 @@ async def add_crew_member(
     Returns:
         CrewMemberResponse: Created member
     """
+    await RBACService(db).assert_permission(current_user, "crews.members.manage", crew_id=crew_id)
     crew_service = CrewService(db)
     return await crew_service.add_crew_member(crew_id, current_user, member_data)
 
@@ -309,6 +317,7 @@ async def remove_crew_member(
     Returns:
         SuccessResponse: Success message
     """
+    await RBACService(db).assert_permission(current_user, "crews.members.manage", crew_id=crew_id)
     crew_service = CrewService(db)
     await crew_service.remove_crew_member(crew_id, user_id, current_user)
     return SuccessResponse(message="Member removed successfully")

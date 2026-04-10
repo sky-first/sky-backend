@@ -201,6 +201,7 @@ async def delete_space(
     Returns:
         SuccessResponse: Success message
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     logger.info(
         "[spaces:delete] request user_id=%s space_id=%s",
@@ -304,6 +305,7 @@ async def add_space_connection(
     Returns:
         dict: Success message and linked IDs
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     await space_service.add_space_connection(
         space_id, connection_id, current_user, background_tasks
@@ -341,6 +343,7 @@ async def remove_space_connection(
     Returns:
         SuccessResponse: Success message
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     await space_service.remove_space_connection(space_id, connection_id, current_user)
     return SuccessResponse(message="Connection unlinked successfully")
@@ -404,6 +407,7 @@ async def add_space_member(
     Returns:
         SpaceMemberResponse: Created member
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     return await space_service.add_space_member(space_id, current_user, member_data)
 
@@ -434,6 +438,7 @@ async def remove_space_member(
     Returns:
         SuccessResponse: Success message
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     await space_service.remove_space_member(space_id, user_id, current_user)
     return SuccessResponse(message="Member removed successfully")
@@ -488,6 +493,7 @@ async def add_space_table(
     """
     Link a specific table to a space.
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     return await space_service.add_space_table(space_id, table_data, current_user)
 
@@ -511,6 +517,7 @@ async def remove_space_table(
     """
     Unlink a specific table from a space.
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     await space_service.remove_space_table(
         space_id, connection_id, table_name, schema_name, current_user
