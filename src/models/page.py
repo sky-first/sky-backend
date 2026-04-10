@@ -23,6 +23,12 @@ class Page(Base):
     owner_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    crew_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("crews.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="NULL = personal page; non-NULL = collaborative crew page",
+    )
     is_active = Column(Boolean, nullable=False, default=False, server_default="false")
     last_accessed = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(

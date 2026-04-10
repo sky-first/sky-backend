@@ -3,10 +3,11 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.models.crew import CrewMember
 from src.models.page import Page, PageMember
 from src.repositories.base import BaseRepository
 
@@ -75,34 +76,47 @@ class PageRepository(BaseRepository[Page]):
 
     async def get_user_pages(self, user_id: UUID) -> List[Page]:
         """
-        Get all pages user has access to (as owner or member).
+        Get all pages user has access to.
+
+        Access rules (matching the 4-level model):
+          1. Personal pages: owner_id = user (crew_id IS NULL)
+          2. Explicit member: user is in page_members for this page
+          3. Crew collaborative: page.crew_id is set AND user is a member
+             of that crew (via crew_members table)
 
         Args:
             user_id: User ID
 
         Returns:
-            List[Page]: List of pages
+            List[Page]: List of pages (deduplicated, ordered by most recent)
         """
-        # Pages where user is owner
-        owned_result = await self.db.execute(
-            select(Page).where(Page.owner_id == user_id, Page.deleted_at.is_(None))
-        )
-        owned = list(owned_result.scalars().all())
+        # Sub-query: crew IDs the user is a member of
+        user_crew_ids = (
+            select(CrewMember.crew_id).where(CrewMember.user_id == user_id)
+        ).scalar_subquery()
 
-        # Pages where user is member
-        member_result = await self.db.execute(
+        result = await self.db.execute(
             select(Page)
-            .join(PageMember)
+            .outerjoin(PageMember, PageMember.page_id == Page.id)
             .where(
-                PageMember.user_id == user_id,
                 Page.deleted_at.is_(None),
+                or_(
+                    # Rule 1: personal pages owned by the user
+                    Page.owner_id == user_id,
+                    # Rule 2: user is an explicit page member
+                    PageMember.user_id == user_id,
+                    # Rule 3: collaborative page in a crew the user belongs to
+                    Page.crew_id.in_(user_crew_ids),
+                ),
             )
+            .order_by(Page.updated_at.desc())
         )
-        member_pages = list(member_result.scalars().all())
-
-        # Combine and deduplicate
-        all_pages = {p.id: p for p in owned + member_pages}
-        return list(all_pages.values())
+        # Deduplicate (a page can match multiple OR branches)
+        seen: dict = {}
+        for page in result.scalars().all():
+            if page.id not in seen:
+                seen[page.id] = page
+        return list(seen.values())
 
 
 class PageMemberRepository(BaseRepository[PageMember]):

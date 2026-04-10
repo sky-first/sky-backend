@@ -22,6 +22,12 @@ class PageBase(BaseModel):
 class PageCreate(PageBase):
     """Page creation schema."""
 
+    crew_id: Optional[UUID] = Field(
+        None,
+        description="Set to a crew UUID for collaborative pages visible to all "
+        "crew members. Leave null/omit for personal pages (owner-only).",
+    )
+
 
 class PageUpdate(BaseModel):
     """Page update schema."""
@@ -38,6 +44,7 @@ class PageResponse(PageBase):
 
     id: UUID
     owner_id: UUID
+    crew_id: Optional[UUID] = None
     is_active: bool
     last_accessed: Optional[datetime] = None
     created_at: datetime

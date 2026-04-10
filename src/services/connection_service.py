@@ -147,9 +147,26 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        # Check access (only owner for now)
+        # Check access: owner OR member of a space that has this connection
         if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+            from sqlalchemy import select
+
+            from src.models.space import SpaceConnection, SpaceMember
+
+            result = await self.db.execute(
+                select(SpaceConnection.space_id)
+                .join(
+                    SpaceMember,
+                    SpaceMember.space_id == SpaceConnection.space_id,
+                )
+                .where(
+                    SpaceConnection.connection_id == connection_id,
+                    SpaceMember.user_id == user.id,
+                )
+                .limit(1)
+            )
+            if not result.scalar_one_or_none():
+                raise ForbiddenError("Access denied to this connection")
 
         return ConnectionResponse.model_validate(connection)
 
@@ -839,9 +856,23 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        # Check access (only owner for now)
+        # Check access: owner OR member of a space that has this connection
         if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+            from sqlalchemy import select
+
+            from src.models.space import SpaceConnection, SpaceMember
+
+            result = await self.db.execute(
+                select(SpaceConnection.space_id)
+                .join(SpaceMember, SpaceMember.space_id == SpaceConnection.space_id)
+                .where(
+                    SpaceConnection.connection_id == connection_id,
+                    SpaceMember.user_id == user.id,
+                )
+                .limit(1)
+            )
+            if not result.scalar_one_or_none():
+                raise ForbiddenError("Access denied to this connection")
 
         # 1. AI Queries metrics
         queries_count = await self.ai_query_repo.count_queries_by_connection_id(connection_id)

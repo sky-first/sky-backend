@@ -44,6 +44,31 @@ class PageService:
         Returns:
             PageResponse: Created page
         """
+        crew_id = getattr(page_data, "crew_id", None)
+
+        # P0 fix: validate crew membership before creating collaborative page
+        if crew_id:
+            # Reject personal type with crew_id
+            if page_data.type == "personal":
+                raise ForbiddenError(
+                    "Personal pages cannot be assigned to a crew. "
+                    "Use type='team' for collaborative pages."
+                )
+            # Verify the crew exists and user is a member
+            from src.repositories.crew import CrewMemberRepository, CrewRepository
+
+            crew_repo = CrewRepository(self.db)
+            crew = await crew_repo.get_by_id(crew_id)
+            if not crew:
+                raise NotFoundError("Crew not found")
+            crew_member_repo = CrewMemberRepository(self.db)
+            member = await crew_member_repo.get_by_crew_and_user(crew_id, user.id)
+            # Allow if user is admin (admin bypass) or crew member
+            if not member and user.role != "admin":
+                raise ForbiddenError(
+                    "You must be a member of this crew to create collaborative pages"
+                )
+
         page = await self.page_repo.create(
             name=page_data.name,
             description=page_data.description,
@@ -51,6 +76,7 @@ class PageService:
             color=page_data.color,
             icon=page_data.icon,
             owner_id=user.id,
+            crew_id=crew_id,
             is_active=False,
         )
 
@@ -89,7 +115,18 @@ class PageService:
         if page.owner_id != user.id:
             member = await self.member_repo.get_by_page_and_user(page_id, user.id)
             if not member:
-                raise ForbiddenError("Access denied to this page")
+                # Check crew membership for collaborative pages
+                if page.crew_id:
+                    from src.repositories.crew import CrewMemberRepository
+
+                    crew_member_repo = CrewMemberRepository(self.db)
+                    crew_member = await crew_member_repo.get_by_crew_and_user(
+                        page.crew_id, user.id
+                    )
+                    if not crew_member:
+                        raise NotFoundError("Page not found")
+                else:
+                    raise NotFoundError("Page not found")
 
         return PageResponse.model_validate(page)
 
@@ -187,7 +224,18 @@ class PageService:
         if page.owner_id != user.id:
             member = await self.member_repo.get_by_page_and_user(page_id, user.id)
             if not member:
-                raise ForbiddenError("Access denied to this page")
+                # Check crew membership for collaborative pages
+                if page.crew_id:
+                    from src.repositories.crew import CrewMemberRepository
+
+                    crew_member_repo = CrewMemberRepository(self.db)
+                    crew_member = await crew_member_repo.get_by_crew_and_user(
+                        page.crew_id, user.id
+                    )
+                    if not crew_member:
+                        raise NotFoundError("Page not found")
+                else:
+                    raise NotFoundError("Page not found")
 
         # Deactivate all other pages for this user
         from sqlalchemy import update
@@ -306,7 +354,18 @@ class PageService:
         if page.owner_id != user.id:
             member = await self.member_repo.get_by_page_and_user(page_id, user.id)
             if not member:
-                raise ForbiddenError("Access denied to this page")
+                # Check crew membership for collaborative pages
+                if page.crew_id:
+                    from src.repositories.crew import CrewMemberRepository
+
+                    crew_member_repo = CrewMemberRepository(self.db)
+                    crew_member = await crew_member_repo.get_by_crew_and_user(
+                        page.crew_id, user.id
+                    )
+                    if not crew_member:
+                        raise NotFoundError("Page not found")
+                else:
+                    raise NotFoundError("Page not found")
 
         members = await self.member_repo.get_page_members(page_id)
         return [PageMemberResponse.model_validate(m) for m in members]

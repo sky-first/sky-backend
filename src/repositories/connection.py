@@ -3,11 +3,12 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from src.models.connection import ConnectionMetadata, DataConnection
+from src.models.space import SpaceConnection, SpaceMember
 from src.repositories.base import BaseRepository
 
 
@@ -36,12 +37,27 @@ class ConnectionRepository(BaseRepository[DataConnection]):
         Returns:
             List[DataConnection]: List of connections
         """
+        # Connections visible to the user:
+        #   1. User created the connection (owner)
+        #   2. Connection is linked to a space where user is a member
+        #      (via space_connections + space_members)
+        user_space_ids = (
+            select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
+        ).scalar_subquery()
+        space_conn_ids = (
+            select(SpaceConnection.connection_id)
+            .where(SpaceConnection.space_id.in_(user_space_ids))
+        ).scalar_subquery()
+
         query = (
             select(DataConnection)
             .options(joinedload(DataConnection.connection_metadata))
             .where(
-                DataConnection.created_by == user_id,
                 DataConnection.deleted_at.is_(None),
+                or_(
+                    DataConnection.created_by == user_id,
+                    DataConnection.id.in_(space_conn_ids),
+                ),
             )
         )
 
