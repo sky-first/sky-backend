@@ -20,6 +20,7 @@ from src.api.v1 import (
     notifications,
     permissions,
     privacy,
+    support,
     pages,
     settings,
     settings_metrics,
@@ -61,6 +62,9 @@ api_router.include_router(audit.router, prefix="/audit", tags=["Audit"])
 
 # Privacy endpoints (GDPR DSAR)
 api_router.include_router(privacy.router, prefix="/privacy", tags=["Privacy"])
+
+# Sky Support JIT endpoints
+api_router.include_router(support.router, prefix="/support", tags=["Support"])
 
 # Notification endpoints
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
