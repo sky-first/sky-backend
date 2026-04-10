@@ -19,6 +19,7 @@ from src.api.v1 import (
     intelligence_signals,
     notifications,
     permissions,
+    privacy,
     pages,
     settings,
     settings_metrics,
@@ -57,6 +58,9 @@ api_router.include_router(permissions.router, prefix="/permissions", tags=["Perm
 
 # Audit endpoints
 api_router.include_router(audit.router, prefix="/audit", tags=["Audit"])
+
+# Privacy endpoints (GDPR DSAR)
+api_router.include_router(privacy.router, prefix="/privacy", tags=["Privacy"])
 
 # Notification endpoints
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])

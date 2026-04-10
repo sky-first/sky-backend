@@ -137,6 +137,15 @@ class CrewService:
             created_by=user.id,
         )
 
+        # Auto-create a service principal for this crew (agent identity)
+        from src.models.service_principal import ServicePrincipal
+
+        sp = ServicePrincipal(
+            crew_id=crew.id,
+            name=f"sa-crew-{str(crew.id)[:8]}",
+        )
+        self.db.add(sp)
+
         await self.db.commit()
         await self.db.refresh(crew)
 
