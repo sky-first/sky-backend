@@ -34,6 +34,7 @@ class RealAIService:
         authorized_tables: Optional[List[str]] = None,
         instructions: Optional[str] = None,
         response_format: Optional[str] = None,
+        security_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Process a query using the real AI service.
@@ -121,6 +122,7 @@ class RealAIService:
                 authorized_tables=authorized_tables,
                 instructions=instructions,
                 response_format=response_format,
+                security_config=security_config,
             )
 
             # Map response from AI service to our format

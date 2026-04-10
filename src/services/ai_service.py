@@ -471,6 +471,19 @@ class AIService:
                             # We still pass an empty list or None to the AI engine so it can report "no access"
                             selected_datasets = []
 
+                        # Build security config for row/column masking in AI service
+                        from src.services.security_config_builder import build_security_config
+
+                        sec_config = None
+                        try:
+                            sec_config = await build_security_config(
+                                db=self.db,
+                                user_id=user_id,
+                                connection_id=UUID(connection_id),
+                            )
+                        except Exception as sec_err:
+                            logger.warning("security_config.build_failed: %s", sec_err)
+
                         logger.info(
                             f"Calling real AI service with connection_id={connection_id}, "
                             f"space_id={space_id}, crew_ids={crew_ids}, question='{str(configure_data.question)[:50]}...'"
@@ -487,6 +500,7 @@ class AIService:
                             authorized_tables=list(authorized_tables),
                             instructions=configure_data.instructions,
                             response_format=configure_data.response_format,
+                            security_config=sec_config,
                         )
 
                         # Update query with real AI results
