@@ -206,6 +206,33 @@ class RBACService:
             platform_role=user.role, crew_role=crew_role, permissions=merged
         )
 
+    async def _audit_decision(
+        self,
+        user: User,
+        permission_key: str,
+        decision: str,
+        reason: str,
+        resource_kind: Optional[str] = None,
+        resource_id: Optional[str] = None,
+    ) -> None:
+        """Fire-and-forget audit log write. Never blocks the request."""
+        try:
+            from src.services.audit_service import AuditService
+
+            audit = AuditService(self.db)
+            await audit.log_event(
+                actor_kind="sky_support" if getattr(user, "is_sky_operator", False) else "user",
+                actor_id=getattr(user, "id", None),
+                actor_email=getattr(user, "email", None),
+                action=permission_key,
+                resource_kind=resource_kind,
+                resource_id=resource_id,
+                decision=decision,
+                decision_reason=reason,
+            )
+        except Exception as exc:
+            logger.debug("audit.write_skipped action=%s error=%s", permission_key, exc)
+
     async def assert_permission(
         self,
         user: User,
@@ -215,28 +242,18 @@ class RBACService:
         space_id: Optional[UUID] = None,
         connection_id: Optional[UUID] = None,
     ) -> None:
+        resource_id = str(crew_id or space_id or connection_id or "")
+
         # Sky operator without active JIT session: hard deny.
         if _is_sky_operator_without_jit(user):
-            logger.warning(
-                "rbac.deny_sky_operator_no_jit assert_permission user_id=%s key=%s",
-                getattr(user, "id", None),
-                permission_key,
-            )
+            await self._audit_decision(user, permission_key, "deny", "sky_support_no_jit")
             raise ForbiddenError(
                 "Sky support access requires an active JIT consent session"
             )
 
-        # Customer admins bypass. Logged so we have a paper trail until the
-        # Sky Support JIT flow lands and replaces this branch.
+        # Customer admins bypass.
         if user.role == "admin":
-            logger.info(
-                "rbac.admin_bypass.assert_permission user_id=%s key=%s crew_id=%s space_id=%s connection_id=%s",
-                getattr(user, "id", None),
-                permission_key,
-                crew_id,
-                space_id,
-                connection_id,
-            )
+            await self._audit_decision(user, permission_key, "allow", "admin_bypass", resource_id=resource_id)
             return
 
         eff = await self.get_effective_permissions(
@@ -244,7 +261,10 @@ class RBACService:
         )
 
         if not eff.permissions.get(permission_key, False):
+            await self._audit_decision(user, permission_key, "deny", f"role={eff.crew_role}", resource_id=resource_id)
             raise ForbiddenError(f"Permission denied: {permission_key}")
+
+        await self._audit_decision(user, permission_key, "allow", f"role={eff.crew_role}", resource_id=resource_id)
 
     async def _resolve_context_crew_role(
         self,

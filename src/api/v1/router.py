@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from src.api.v1 import (
     agents,
     ai,
+    audit,
     auth,
     comments,
     connections,
@@ -53,6 +54,9 @@ api_router.include_router(connections.router, prefix="/connections", tags=["Conn
 
 # Permission endpoints
 api_router.include_router(permissions.router, prefix="/permissions", tags=["Permissions"])
+
+# Audit endpoints
+api_router.include_router(audit.router, prefix="/audit", tags=["Audit"])
 
 # Notification endpoints
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
