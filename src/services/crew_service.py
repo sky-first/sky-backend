@@ -108,13 +108,27 @@ class CrewService:
             NotFoundError: If space not found
             ForbiddenError: If user doesn't have access to space
         """
-        # Verify space exists and user has access
+        # Verify space exists and user is a member (or admin/creator)
         space = await self.space_repo.get_by_id(crew_data.space_id)
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
-            raise ForbiddenError("Access denied to this space")
+        if user.role != "admin" and space.created_by != user.id:
+            # Check space membership for non-admin, non-creator users
+            from sqlalchemy import select
+
+            from src.models.space import SpaceMember
+
+            result = await self.db.execute(
+                select(SpaceMember.id)
+                .where(
+                    SpaceMember.space_id == crew_data.space_id,
+                    SpaceMember.user_id == user.id,
+                )
+                .limit(1)
+            )
+            if not result.scalar_one_or_none():
+                raise ForbiddenError("You must be a member of this space to create crews")
 
         crew = await self.crew_repo.create(
             name=crew_data.name,

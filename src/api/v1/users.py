@@ -18,6 +18,7 @@ from src.schemas.user import (
     UserResponse,
     UserUpdate,
 )
+from src.services.rbac_service import RBACService
 from src.services.user_service import UserService
 
 router = APIRouter()
@@ -49,6 +50,12 @@ async def list_users(
     Returns:
         List[UserResponse]: List of users
     """
+    # Users list is needed by anyone who manages crew/space members.
+    # admin.users.manage is false for all roles by default (reserved for
+    # platform-level user admin). For listing, we allow any authenticated
+    # user with a non-guest role — the service layer filters appropriately.
+    # The RBAC gate here just blocks guest/viewer from listing all users.
+    await RBACService(db).assert_permission(current_user, "crews.members.manage")
     user_service = UserService(db)
     return await user_service.list_users(current_user, skip=skip, limit=limit)
 
