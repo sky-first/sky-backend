@@ -53,12 +53,23 @@ def register_exception_handlers(app: FastAPI):
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         logger.warning("validation_error", errors=exc.errors())
+        # SECURITY FIX (Phase 0): Pydantic v2 validation errors include the
+        # raw `input` dict in each error detail. This means a malformed
+        # connection-creation request echoes back the credential payload
+        # (`config.password`, `config.secret`, etc.) in the 422 response.
+        # We strip the `input` key from every error detail before returning
+        # it to the client. The `input` is still available in the logger
+        # line above for debugging.
+        sanitized = []
+        for err in exc.errors():
+            safe = {k: v for k, v in err.items() if k != "input"}
+            sanitized.append(safe)
         return _json_response(
             request=request,
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             code="VALIDATION_ERROR",
             message="Invalid request format.",
-            details=exc.errors(),
+            details=sanitized,
             correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
 

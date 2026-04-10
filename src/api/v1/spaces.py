@@ -20,6 +20,7 @@ from src.schemas.space import (
     SpaceTableCreate,
     SpaceUpdate,
 )
+from src.services.rbac_service import RBACService
 from src.services.space_service import SpaceService
 
 router = APIRouter()
@@ -52,6 +53,11 @@ async def list_spaces(
     Returns:
         List[SpaceResponse]: List of spaces
     """
+    # Phase 0 note: GET list relies on service-layer membership filter.
+    # A dedicated "spaces.read" permission key will be added in Phase 1
+    # (RBAC catalog migration). For now the service already filters by
+    # the user's space membership, which is sufficient for intra-deploy
+    # isolation. The gap is documented in RBAC_GOVERNANCE_PLAN.md.
     space_service = SpaceService(db)
     return await space_service.list_spaces(current_user, skip=skip, limit=limit)
 
@@ -80,6 +86,7 @@ async def get_space(
     Returns:
         SpaceResponse: Space data
     """
+    # Phase 0 note: GET by-id relies on service-layer membership filter.
     space_service = SpaceService(db)
     return await space_service.get_space(space_id, current_user)
 
@@ -108,6 +115,8 @@ async def create_space(
     Returns:
         SpaceResponse: Created space
     """
+    # Phase 0 RBAC: viewer / guest cannot create spaces.
+    await RBACService(db).assert_permission(current_user, "spaces.create")
     space_service = SpaceService(db)
     logger.info(
         "[spaces:create] request user_id=%s name=%r description=%r",
