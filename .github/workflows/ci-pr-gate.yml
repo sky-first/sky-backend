@@ -116,11 +116,17 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov pytest-timeout
 
       - name: Run Tests
+        # Per-test timeout via pytest-timeout prevents a single hanging
+        # async test from pinning the whole job. `--timeout-method=thread`
+        # also works for asyncio coroutines (signal method fails inside
+        # non-main threads). Job-level timeout is a second safety net in
+        # case the test runner itself deadlocks before pytest-timeout fires.
+        timeout-minutes: 15
         run: |
-          pytest --cov=src --cov-report=xml
+          pytest --cov=src --cov-report=xml --timeout=120 --timeout-method=thread -v
 
   docker-build-verify:
     name: Docker Build Verification
