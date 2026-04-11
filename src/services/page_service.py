@@ -1,7 +1,7 @@
 """Page service."""
 
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,6 +69,8 @@ class PageService:
                     "You must be a member of this crew to create collaborative pages"
                 )
 
+        space_id = getattr(page_data, "space_id", None)
+
         page = await self.page_repo.create(
             name=page_data.name,
             description=page_data.description,
@@ -77,6 +79,7 @@ class PageService:
             icon=page_data.icon,
             owner_id=user.id,
             crew_id=crew_id,
+            space_id=space_id,
             is_active=False,
         )
 
@@ -130,17 +133,28 @@ class PageService:
 
         return PageResponse.model_validate(page)
 
-    async def get_user_pages(self, user: User) -> List[PageResponse]:
+    async def get_user_pages(
+        self,
+        user: User,
+        context: str = "all",
+        space_id: Optional[UUID] = None,
+        crew_id: Optional[UUID] = None,
+    ) -> List[PageResponse]:
         """
-        Get all pages for user.
+        Get pages filtered by navigation context.
 
         Args:
             user: Current user
+            context: "personal", "space", "crew", or "all"
+            space_id: Required when context="space"
+            crew_id: Required when context="crew"
 
         Returns:
-            List[PageResponse]: List of pages
+            List[PageResponse]: Filtered pages
         """
-        pages = await self.page_repo.get_user_pages(user.id)
+        pages = await self.page_repo.get_user_pages(
+            user.id, context=context, space_id=space_id, crew_id=crew_id
+        )
         return [PageResponse.model_validate(w) for w in pages]
 
     async def update_page(

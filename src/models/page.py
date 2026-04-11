@@ -27,7 +27,13 @@ class Page(Base):
         UUID(as_uuid=True),
         ForeignKey("crews.id", ondelete="SET NULL"),
         nullable=True,
-        comment="NULL = personal page; non-NULL = collaborative crew page",
+        comment="Set = crew-level page (only crew members see)",
+    )
+    space_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("spaces.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Set = space-level page (all space members see, no crew required)",
     )
     is_active = Column(Boolean, nullable=False, default=False, server_default="false")
     last_accessed = Column(DateTime(timezone=True), nullable=True)

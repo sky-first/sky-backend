@@ -24,8 +24,11 @@ class PageCreate(PageBase):
 
     crew_id: Optional[UUID] = Field(
         None,
-        description="Set to a crew UUID for collaborative pages visible to all "
-        "crew members. Leave null/omit for personal pages (owner-only).",
+        description="Set for crew-level pages (only crew members see).",
+    )
+    space_id: Optional[UUID] = Field(
+        None,
+        description="Set for space-level pages (all space members see, no crew required).",
     )
 
 
@@ -45,6 +48,7 @@ class PageResponse(PageBase):
     id: UUID
     owner_id: UUID
     crew_id: Optional[UUID] = None
+    space_id: Optional[UUID] = None
     is_active: bool
     last_accessed: Optional[datetime] = None
     created_at: datetime
