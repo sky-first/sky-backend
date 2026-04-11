@@ -30,7 +30,8 @@ class ServicePrincipal(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        # CURRENT_TIMESTAMP is SQL standard; works on both PostgreSQL and SQLite.
+        server_default=text("CURRENT_TIMESTAMP"),
     )
 
     def __repr__(self) -> str:

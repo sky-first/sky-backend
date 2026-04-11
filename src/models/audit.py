@@ -20,7 +20,9 @@ class AuditEvent(Base):
     __tablename__ = "audit_events"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    occurred_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    # CURRENT_TIMESTAMP is SQL standard and works on both PostgreSQL and SQLite.
+    # now() is PostgreSQL-specific and breaks the sqlite test fixture.
+    occurred_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
     # Who
     actor_kind = Column(String(50), nullable=False)  # user, api_token, service_principal, sky_support, system
