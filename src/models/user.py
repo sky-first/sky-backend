@@ -55,6 +55,9 @@ class User(Base):
     )  # active, away, offline
     preferences = Column(JSON, nullable=True, default={}, server_default=text("'{}'"))
 
+    # Sky Support operator flag
+    is_sky_operator = Column(Boolean, nullable=False, default=False, server_default="false")
+
     # Auth0 Integration
     auth0_id = Column(String(255), unique=True, nullable=True, index=True)
     auth_provider = Column(

@@ -37,17 +37,36 @@ from src.repositories.permission import PermissionRepository, RolePermissionRepo
 logger = logging.getLogger(__name__)
 
 
-def _is_sky_operator_without_jit(user: User) -> bool:
+async def _is_sky_operator_without_jit(user: User, db: AsyncSession) -> bool:
     """Reject Sky operators that lack an active JIT consent session.
 
-    `is_sky_operator` and `has_active_jit_session` will be added to the User
-    model in the Sky Support JIT migration. Until then `getattr` defaults to
-    False, so this branch is a no-op for ordinary users — and the moment we
-    add the columns, the protection turns on without any other code change.
+    Checks the `support_sessions` table for an active (non-revoked, non-expired)
+    session for this operator. If none found, they are blocked.
     """
     if not getattr(user, "is_sky_operator", False):
         return False
-    return not getattr(user, "has_active_jit_session", False)
+
+    # Check for active JIT session in the database
+    try:
+        from datetime import datetime, timezone
+
+        from sqlalchemy import text
+
+        result = await db.execute(
+            text("""
+                SELECT id FROM support_sessions
+                WHERE operator_id = :uid
+                AND revoked_at IS NULL
+                AND expires_at > :now
+                LIMIT 1
+            """),
+            {"uid": user.id, "now": datetime.now(timezone.utc)},
+        )
+        has_active_session = result.scalar_one_or_none() is not None
+        return not has_active_session
+    except Exception:
+        # If support_sessions doesn't exist yet, fall back to denying
+        return True
 
 CrewRole = str  # commander | navigator | explorer | guest
 
@@ -160,7 +179,7 @@ class RBACService:
     ) -> EffectivePermissions:
         # Sky operator without active JIT session: deny everything (Phase 0
         # forward-compatible guard rail; columns ship in the JIT migration).
-        if _is_sky_operator_without_jit(user):
+        if await _is_sky_operator_without_jit(user, self.db):
             logger.warning(
                 "rbac.deny_sky_operator_no_jit user_id=%s",
                 getattr(user, "id", None),
@@ -245,7 +264,7 @@ class RBACService:
         resource_id = str(crew_id or space_id or connection_id or "")
 
         # Sky operator without active JIT session: hard deny.
-        if _is_sky_operator_without_jit(user):
+        if await _is_sky_operator_without_jit(user, self.db):
             await self._audit_decision(user, permission_key, "deny", "sky_support_no_jit")
             raise ForbiddenError(
                 "Sky support access requires an active JIT consent session"
