@@ -1,6 +1,6 @@
 """Audit event model — append-only with hash chain."""
 
-from sqlalchemy import BigInteger, Column, DateTime, String, Text, text
+from sqlalchemy import BigInteger, Column, DateTime, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.types import JSON
 
@@ -13,13 +13,22 @@ from src.config.database import Base
 _INET_OR_STRING = INET().with_variant(String(45), "sqlite")
 _JSONB_OR_JSON = JSONB().with_variant(JSON(), "sqlite")
 
+# SQLite only treats a primary-key column as the auto-incrementing ROWID alias
+# when the declared type is literally `INTEGER`. `BIGINT PRIMARY KEY` becomes a
+# normal NOT NULL column with no autogen, which is exactly what blew up the
+# unit-test matrix: every INSERT into audit_events failed with
+# `NOT NULL constraint failed: audit_events.id`, the session rolled back, and
+# the rate-limit middleware then deadlocked the asyncio loop on a poisoned
+# connection. Variant swap keeps BIGINT on PostgreSQL, INTEGER on SQLite.
+_BIGINT_OR_INT_PK = BigInteger().with_variant(Integer(), "sqlite")
+
 
 class AuditEvent(Base):
     """Immutable audit log entry. INSERT only — UPDATE and DELETE blocked by DB triggers."""
 
     __tablename__ = "audit_events"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(_BIGINT_OR_INT_PK, primary_key=True, autoincrement=True)
     # CURRENT_TIMESTAMP is SQL standard and works on both PostgreSQL and SQLite.
     # now() is PostgreSQL-specific and breaks the sqlite test fixture.
     occurred_at = Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
