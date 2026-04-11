@@ -2,8 +2,16 @@
 
 from sqlalchemy import BigInteger, Column, DateTime, String, Text, text
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
+from sqlalchemy.types import JSON
 
 from src.config.database import Base
+
+# SQLite (used in test fixtures) has no INET or JSONB types, so the schema
+# compiler errors out at test collection time. Give each a SQLite-specific
+# variant that falls back to a compatible type. Production (PostgreSQL) still
+# uses the native type — zero migration, zero performance change.
+_INET_OR_STRING = INET().with_variant(String(45), "sqlite")
+_JSONB_OR_JSON = JSONB().with_variant(JSON(), "sqlite")
 
 
 class AuditEvent(Base):
@@ -30,7 +38,7 @@ class AuditEvent(Base):
 
     # Request context
     request_id = Column(UUID(as_uuid=True), nullable=True)
-    ip = Column(INET, nullable=True)
+    ip = Column(_INET_OR_STRING, nullable=True)
     user_agent = Column(Text, nullable=True)
 
     # Sky Support context
@@ -38,7 +46,7 @@ class AuditEvent(Base):
     sky_ticket_id = Column(String(100), nullable=True)
 
     # Extra
-    extra_data = Column("metadata", JSONB, nullable=True)
+    extra_data = Column("metadata", _JSONB_OR_JSON, nullable=True)
 
     # Hash chain for tamper detection
     prev_hash = Column(String(64), nullable=True)
