@@ -28,7 +28,7 @@ async def list_connectors(
     db: AsyncSession = Depends(get_db_session),
 ) -> List[ConnectorResponse]:
     """
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     List all available connectors.
 
     Args:
@@ -56,7 +56,7 @@ async def get_connector(
     db: AsyncSession = Depends(get_db_session),
 ) -> ConnectorResponse:
     """
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     Get connector by ID.
 
     Args:
@@ -84,7 +84,7 @@ async def get_categories(
     db: AsyncSession = Depends(get_db_session),
 ) -> List[str]:
     """
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     Get connector categories.
 
     Args:

@@ -37,7 +37,7 @@ async def update_widget(
     db: AsyncSession = Depends(get_db_session),
 ) -> WidgetResponse:
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     Update widget.
 
     Args:
@@ -67,7 +67,7 @@ async def delete_widget(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     Delete widget.
 
     Args:
@@ -97,7 +97,7 @@ async def duplicate_widget(
     db: AsyncSession = Depends(get_db_session),
 ) -> WidgetResponse:
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     Duplicate widget.
 
     Args:
@@ -126,7 +126,7 @@ async def export_widget(
     db: AsyncSession = Depends(get_db_session),
 ) -> WidgetExportResponse:
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     Export widget data.
 
     Args:
@@ -156,7 +156,7 @@ async def get_widget_data(
     db: AsyncSession = Depends(get_db_session),
 ) -> WidgetDataResponse:
     """
-    await RBACService(db).assert_permission(current_user, "viewPages")
+    await RBACService(db).assert_permission(current_user, "pages.view")
     Get widget data.
 
     Args:
@@ -186,7 +186,7 @@ async def refresh_widget_data(
     db: AsyncSession = Depends(get_db_session),
 ) -> WidgetDataResponse:
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     Refresh widget data.
 
     Args:
@@ -217,7 +217,7 @@ async def add_widget_feedback(
     db: AsyncSession = Depends(get_db_session),
 ) -> WidgetFeedbackResponse:
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     Add widget feedback.
 
     Args:

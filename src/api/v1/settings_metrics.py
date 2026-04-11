@@ -22,7 +22,7 @@ async def get_global_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get global platform metrics."""
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     return {
         "usage": {
             "totalQueries": {"value": ""},
@@ -57,7 +57,7 @@ async def get_connection_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get metrics for a specific connection."""
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     return {
         "usage": {
             "queriesProcessed": {"value": ""},
@@ -83,7 +83,7 @@ async def get_space_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get metrics for a specific space."""
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     return {
         "usageVolume": {
             "activityPerSpace": {"value": ""},
@@ -104,7 +104,7 @@ async def get_crew_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get metrics for a specific crew."""
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     return {
         "engagement": {
             "usageFrequency": {"value": ""},
@@ -121,7 +121,7 @@ async def get_user_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get metrics for a specific user."""
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     return {
         "individualPatterns": {
             "queriesPerPeriod": {"value": ""},
@@ -137,7 +137,7 @@ async def get_ai_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get AI effectiveness metrics."""
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     return {
         "engineEffectiveness": {
             "perceivedAccuracy": {"value": ""},

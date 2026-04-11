@@ -40,7 +40,7 @@ async def list_templates(
     db: AsyncSession = Depends(get_db_session),
 ) -> List[TemplateResponse]:
     """
-    await RBACService(db).assert_permission(current_user, "viewPages")
+    await RBACService(db).assert_permission(current_user, "pages.view")
     List templates.
 
     Args:
@@ -80,7 +80,7 @@ async def get_template(
     db: AsyncSession = Depends(get_db_session),
 ) -> TemplateResponse:
     """
-    await RBACService(db).assert_permission(current_user, "viewPages")
+    await RBACService(db).assert_permission(current_user, "pages.view")
     Get template by ID.
 
     Args:
@@ -109,7 +109,7 @@ async def create_template(
     db: AsyncSession = Depends(get_db_session),
 ) -> TemplateResponse:
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     Create a new template.
 
     Args:
@@ -139,7 +139,7 @@ async def update_template(
     db: AsyncSession = Depends(get_db_session),
 ) -> TemplateResponse:
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     Update template.
 
     Args:
@@ -169,7 +169,7 @@ async def delete_template(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     Delete template.
 
     Args:
@@ -198,7 +198,7 @@ async def get_categories(
     db: AsyncSession = Depends(get_db_session),
 ) -> List[str]:
     """
-    await RBACService(db).assert_permission(current_user, "viewPages")
+    await RBACService(db).assert_permission(current_user, "pages.view")
     Get template categories.
 
     Args:
@@ -227,7 +227,7 @@ async def apply_template(
     db: AsyncSession = Depends(get_db_session),
 ) -> TemplateApplyResponse:
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     Apply template to a dashboard.
 
     Args:

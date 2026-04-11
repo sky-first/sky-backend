@@ -33,7 +33,7 @@ async def list_relationships(
     db: AsyncSession = Depends(get_db_session),
 ) -> list[EnterpriseRelationshipResponse]:
     """List all relationships for the current user."""
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     service = EnterpriseRelationshipService(db)
     return await service.list_relationships(current_user)
 
@@ -50,7 +50,7 @@ async def create_relationship(
     db: AsyncSession = Depends(get_db_session),
 ) -> EnterpriseRelationshipResponse:
     """Create a new relationship."""
-    await RBACService(db).assert_permission(current_user, "manageConnections")
+    await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseRelationshipService(db)
         return await service.create_relationship(data, current_user)
@@ -76,7 +76,7 @@ async def update_relationship(
     db: AsyncSession = Depends(get_db_session),
 ) -> EnterpriseRelationshipResponse:
     """Update a relationship."""
-    await RBACService(db).assert_permission(current_user, "manageConnections")
+    await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseRelationshipService(db)
         return await service.update_relationship(relationship_id, data, current_user)
@@ -105,7 +105,7 @@ async def delete_relationship(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """Delete a relationship."""
-    await RBACService(db).assert_permission(current_user, "manageConnections")
+    await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseRelationshipService(db)
         await service.delete_relationship(relationship_id, current_user)

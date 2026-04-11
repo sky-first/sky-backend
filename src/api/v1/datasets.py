@@ -36,7 +36,7 @@ async def delete_dataset(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
-    await RBACService(db).assert_permission(current_user, "manageConnections")
+    await RBACService(db).assert_permission(current_user, "connections.edit")
     Delete dataset.
 
     Args:
@@ -77,7 +77,7 @@ async def get_excluded_datasets(
     db: AsyncSession = Depends(get_db_session),
 ) -> list[str]:
     """
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     Get excluded datasets.
 
     Args:
@@ -107,7 +107,7 @@ async def list_datasets(
     db: AsyncSession = Depends(get_db_session),
 ) -> List[Dict[str, Any]]:
     """
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     List all available datasets.
 
     For now, returns an empty list as a placeholder to satisfy frontend requirements.

@@ -74,7 +74,7 @@ async def list_connections(
     """
     # Phase 0 RBAC: gate the read at the route, not just at the service-layer
     # `created_by` filter (closes SIGN_OFF_TRACKER X.18 cross-space leak risk).
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     connection_service = ConnectionService(db)
     return await connection_service.list_connections(
         current_user, status=status, connector_id=connector_id, skip=skip, limit=limit
@@ -106,7 +106,7 @@ async def get_connection(
         ConnectionResponse: Connection data
     """
     await RBACService(db).assert_permission(
-        current_user, "viewConnections", connection_id=connection_id
+        current_user, "connections.view", connection_id=connection_id
     )
     connection_service = ConnectionService(db)
     return await connection_service.get_connection(connection_id, current_user)
@@ -137,7 +137,7 @@ async def create_connection(
         ConnectionResponse: Created connection
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "manageConnections")
+    await rbac.assert_permission(current_user, "connections.edit")
 
     connection_service = ConnectionService(db)
     return await connection_service.create_connection(current_user, connection_data)
@@ -176,7 +176,7 @@ async def delete_connection(
 
     try:
         rbac = RBACService(db)
-        await rbac.assert_permission(current_user, "manageConnections", connection_id=connection_id)
+        await rbac.assert_permission(current_user, "connections.edit", connection_id=connection_id)
 
         connection_service = ConnectionService(db)
         await connection_service.delete_connection(connection_id, current_user)
@@ -306,7 +306,7 @@ async def get_connection_metadata(
         ConnectionMetadataResponse: Connection metadata
     """
     await RBACService(db).assert_permission(
-        current_user, "viewConnections", connection_id=connection_id
+        current_user, "connections.view", connection_id=connection_id
     )
     connection_service = ConnectionService(db)
     return await connection_service.get_metadata(connection_id, current_user)
@@ -367,7 +367,7 @@ async def get_connection_tables(
         List[TableMetadataSchema]: List of tables
     """
     await RBACService(db).assert_permission(
-        current_user, "viewConnections", connection_id=connection_id
+        current_user, "connections.view", connection_id=connection_id
     )
     connection_service = ConnectionService(db)
     tables = await connection_service.get_tables(connection_id, current_user)
@@ -399,7 +399,7 @@ async def get_connection_schemas(
         List[str]: List of schemas
     """
     await RBACService(db).assert_permission(
-        current_user, "viewConnections", connection_id=connection_id
+        current_user, "connections.view", connection_id=connection_id
     )
     connection_service = ConnectionService(db)
     return await connection_service.get_schemas(connection_id, current_user)
@@ -430,7 +430,7 @@ async def get_connection_status(
         ConnectionStatusResponse: Connection status
     """
     await RBACService(db).assert_permission(
-        current_user, "viewConnections", connection_id=connection_id
+        current_user, "connections.view", connection_id=connection_id
     )
     connection_service = ConnectionService(db)
     return await connection_service.get_status(connection_id, current_user)
@@ -456,7 +456,7 @@ async def get_connection_metrics(
     Returns zeros for metrics that haven't been recorded yet.
     """
     await RBACService(db).assert_permission(
-        current_user, "viewConnections", connection_id=connection_id
+        current_user, "connections.view", connection_id=connection_id
     )
     connection_service = ConnectionService(db)
     return await connection_service.get_metrics(connection_id, current_user)
@@ -509,7 +509,7 @@ async def get_ai_catalog_status(
 ) -> Dict[str, Any]:
     # Ensure user has access to this connection
     await RBACService(db).assert_permission(
-        current_user, "viewConnections", connection_id=connection_id
+        current_user, "connections.view", connection_id=connection_id
     )
     connection_service = ConnectionService(db)
     await connection_service.get_connection(connection_id, current_user)
@@ -603,7 +603,7 @@ async def list_ai_catalog_tables(
 ) -> Dict[str, Any]:
     # Ensure user has access to this connection
     await RBACService(db).assert_permission(
-        current_user, "viewConnections", connection_id=connection_id
+        current_user, "connections.view", connection_id=connection_id
     )
     connection_service = ConnectionService(db)
     await connection_service.get_connection(connection_id, current_user)

@@ -86,7 +86,7 @@ async def list_dashboards(
         List[DashboardResponse]: List of dashboards
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "viewPages")
+    await rbac.assert_permission(current_user, "pages.view")
     dashboard_service = DashboardService(db)
     return await dashboard_service.list_dashboards(
         current_user, page_id=page_id, skip=skip, limit=limit
@@ -118,7 +118,7 @@ async def get_dashboard(
         DashboardResponse: Dashboard data
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "viewPages")
+    await rbac.assert_permission(current_user, "pages.view")
     dashboard_service = DashboardService(db)
     return await dashboard_service.get_dashboard(dashboard_id, current_user)
 
@@ -148,7 +148,7 @@ async def create_dashboard(
         DashboardResponse: Created dashboard
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "createPages")
+    await rbac.assert_permission(current_user, "pages.create")
     dashboard_service = DashboardService(db)
     return await dashboard_service.create_dashboard(current_user, dashboard_data)
 
@@ -180,7 +180,7 @@ async def update_dashboard(
         DashboardResponse: Updated dashboard
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "editPages")
+    await rbac.assert_permission(current_user, "pages.edit")
     dashboard_service = DashboardService(db)
     return await dashboard_service.update_dashboard(dashboard_id, current_user, dashboard_data)
 
@@ -210,7 +210,7 @@ async def delete_dashboard(
         SuccessResponse: Success message
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "deletePages")
+    await rbac.assert_permission(current_user, "pages.delete")
     dashboard_service = DashboardService(db)
     await dashboard_service.delete_dashboard(dashboard_id, current_user)
     return SuccessResponse(message="Dashboard deleted successfully")

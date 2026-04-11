@@ -35,7 +35,7 @@ async def list_apis(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """List all registered APIs for the current user."""
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     try:
         service = EnterpriseAPIService(db)
         return await service.list_apis(current_user)
@@ -56,7 +56,7 @@ async def create_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Register a new API."""
-    await RBACService(db).assert_permission(current_user, "manageConnections")
+    await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseAPIService(db)
         return await service.create_api(current_user, data)
@@ -81,7 +81,7 @@ async def get_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Get API details by ID."""
-    await RBACService(db).assert_permission(current_user, "viewConnections")
+    await RBACService(db).assert_permission(current_user, "connections.view")
     try:
         service = EnterpriseAPIService(db)
         return await service.get_api(api_id, current_user)
@@ -105,7 +105,7 @@ async def update_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Update API registration."""
-    await RBACService(db).assert_permission(current_user, "manageConnections")
+    await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseAPIService(db)
         return await service.update_api(api_id, current_user, data)
@@ -134,7 +134,7 @@ async def delete_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """Delete API registration."""
-    await RBACService(db).assert_permission(current_user, "manageConnections")
+    await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseAPIService(db)
         await service.delete_api(api_id, current_user)

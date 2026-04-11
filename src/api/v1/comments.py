@@ -22,7 +22,7 @@ async def create_comment(
     db=Depends(get_db),
 ):
     """Create a new comment."""
-    await RBACService(db).assert_permission(current_user, "viewPages")
+    await RBACService(db).assert_permission(current_user, "pages.view")
     service = CommentService(db)
     return await service.create(current_user.id, comment_data)
 
@@ -34,6 +34,6 @@ async def list_comments(
     db=Depends(get_db),
 ):
     """List comments for a dashboard."""
-    await RBACService(db).assert_permission(current_user, "viewPages")
+    await RBACService(db).assert_permission(current_user, "pages.view")
     service = CommentService(db)
     return await service.get_by_dashboard(dashboard_id)

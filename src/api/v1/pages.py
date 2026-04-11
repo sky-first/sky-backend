@@ -52,7 +52,7 @@ async def list_pages(
     Returns:
         List[PageResponse]: List of pages
     """
-    await RBACService(db).assert_permission(current_user, "viewPages")
+    await RBACService(db).assert_permission(current_user, "pages.view")
     page_service = PageService(db)
     pages = await page_service.get_user_pages(current_user)
 
@@ -90,7 +90,7 @@ async def get_page(
     Returns:
         PageResponse: Page data
     """
-    await RBACService(db).assert_permission(current_user, "viewPages")
+    await RBACService(db).assert_permission(current_user, "pages.view")
     page_service = PageService(db)
     return await page_service.get_page(page_id, current_user)
 
@@ -119,7 +119,7 @@ async def create_page(
     Returns:
         PageResponse: Created page
     """
-    await RBACService(db).assert_permission(current_user, "createPages")
+    await RBACService(db).assert_permission(current_user, "pages.create")
     page_service = PageService(db)
     return await page_service.create_page(current_user, page_data)
 
@@ -150,7 +150,7 @@ async def update_page(
     Returns:
         PageResponse: Updated page
     """
-    await RBACService(db).assert_permission(current_user, "editPages")
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     page_service = PageService(db)
     return await page_service.update_page(page_id, current_user, page_data)
 
@@ -179,7 +179,7 @@ async def delete_page(
     Returns:
         SuccessResponse: Success message
     """
-    await RBACService(db).assert_permission(current_user, "deletePages")
+    await RBACService(db).assert_permission(current_user, "pages.delete")
     page_service = PageService(db)
     await page_service.delete_page(page_id, current_user)
     return SuccessResponse(message="Page deleted successfully")
@@ -209,7 +209,7 @@ async def get_page_members(
     Returns:
         List[PageMemberResponse]: List of page members
     """
-    await RBACService(db).assert_permission(current_user, "viewPages")
+    await RBACService(db).assert_permission(current_user, "pages.view")
     page_service = PageService(db)
     return await page_service.get_page_members(page_id, current_user)
 
