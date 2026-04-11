@@ -98,24 +98,8 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "crews.members.manage": True,
     },
     "navigator": {
-        "createPages": True,
-        "viewPages": True,
-        "editPages": True,
-        "deletePages": False,
-        "sharePages": True,
-        "manageCrew": False,
-        "viewConnections": True,
-        "manageConnections": False,
-        "connections.edit": True,
-        "data.query.run": True,
-        "data.table.read": True,
-        "admin.users.manage": False,
-        "spaces.create": True,
-        "spaces.members.manage": True,
-        "crews.create": True,
-        "crews.members.manage": True,
-    },
-    "explorer": {
+        # Navigator = active user. Can USE the platform (AI, queries, explore data)
+        # but CANNOT create/edit/delete pages or manage anything.
         "createPages": False,
         "viewPages": True,
         "editPages": False,
@@ -125,8 +109,27 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "viewConnections": True,
         "manageConnections": False,
         "connections.edit": False,
-        "data.query.run": False,
-        "data.table.read": True,
+        "data.query.run": True,  # Can run queries
+        "data.table.read": True,  # Can read table data
+        "admin.users.manage": False,
+        "spaces.create": False,
+        "spaces.members.manage": False,
+        "crews.create": False,
+        "crews.members.manage": False,
+    },
+    "explorer": {
+        # Explorer = observer. Can only VIEW. No queries, no AI, no creation.
+        "createPages": False,
+        "viewPages": True,
+        "editPages": False,
+        "deletePages": False,
+        "sharePages": False,
+        "manageCrew": False,
+        "viewConnections": True,  # Can see connections exist (metadata)
+        "manageConnections": False,
+        "connections.edit": False,
+        "data.query.run": False,  # Cannot run queries
+        "data.table.read": False,  # Cannot read table data
         "admin.users.manage": False,
         "spaces.create": False,
         "spaces.members.manage": False,
