@@ -79,80 +79,304 @@ ROLE_PRECEDENCE: Dict[str, int] = {
 
 
 DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
+    # ═══════════════════════════════════════════════════════════════
+    # Commander = Manager. Can do everything within their scope.
+    # Manages people, creates structure, full CRUD on resources.
+    # CANNOT do org-level admin things.
+    # ═══════════════════════════════════════════════════════════════
     "commander": {
-        "createPages": True,
-        "viewPages": True,
-        "editPages": True,
-        "deletePages": True,
-        "sharePages": True,
-        "manageCrew": True,
-        "viewConnections": True,
-        "manageConnections": True,
-        "connections.edit": True,
-        "data.query.run": True,
-        "data.table.read": True,
-        "admin.users.manage": False,
-        "spaces.create": True,
-        "spaces.members.manage": True,
-        "crews.create": True,
-        "crews.members.manage": True,
+        # Pages & Dashboards
+        "pages.view": True, "pages.create": True, "pages.edit": True,
+        "pages.edit.others": True, "pages.delete": True, "pages.share": True,
+        "pages.duplicate": True, "pages.members.view": True, "pages.members.manage": True,
+        "pages.star": True,
+        "dashboards.view": True, "dashboards.create": True, "dashboards.edit": True,
+        "dashboards.delete": True, "dashboards.export": True, "dashboards.lock": True,
+        "dashboards.duplicate": True,
+        # Widgets
+        "widgets.view": True, "widgets.create": True, "widgets.edit": True,
+        "widgets.delete": True, "widgets.duplicate": True, "widgets.export": True,
+        "widgets.refresh": True, "widgets.feedback": True,
+        # Connections
+        "connections.view": True, "connections.metadata.view": True,
+        "connections.tables.view": True, "connections.schemas.view": True,
+        "connections.status.view": True, "connections.metrics.view": True,
+        "connections.create": True, "connections.edit": True, "connections.delete": True,
+        "connections.test": True, "connections.sync": True, "connections.validate": True,
+        # AI & Queries
+        "ai.chat": True, "ai.query": True, "ai.history.view": True,
+        "ai.history.delete": True, "ai.history.pin": True, "ai.history.export": True,
+        "ai.generate": True, "ai.feedback": True, "ai.pipeline": True, "ai.davinci": True,
+        # Spaces
+        "spaces.view": True, "spaces.create": True, "spaces.edit": True, "spaces.delete": True,
+        "spaces.members.view": True, "spaces.members.manage": True,
+        "spaces.connections.view": True, "spaces.connections.manage": True,
+        "spaces.crews.view": True, "spaces.tables.view": True, "spaces.stats.view": True,
+        # Crews
+        "crews.view": True, "crews.create": True, "crews.edit": True, "crews.delete": True,
+        "crews.members.view": True, "crews.members.manage": True, "crews.stats.view": True,
+        # Users
+        "users.view": True, "users.permissions.view": True, "users.self.edit": True,
+        "users.self.permissions": True,
+        # Agents
+        "agents.view": True, "agents.create": True, "agents.edit": True, "agents.delete": True,
+        "agents.run": True, "agents.manage": True,
+        "agents.findings.view": True, "agents.findings.dismiss": True,
+        # Strategy
+        "strategy.view": True,
+        "strategy.pillars.create": True, "strategy.pillars.edit": True, "strategy.pillars.delete": True,
+        "strategy.objectives.create": True, "strategy.objectives.edit": True, "strategy.objectives.delete": True,
+        "strategy.okrs.create": True, "strategy.okrs.edit": True, "strategy.okrs.delete": True,
+        "strategy.keyresults.create": True, "strategy.keyresults.edit": True, "strategy.keyresults.delete": True,
+        "strategy.initiatives.create": True, "strategy.initiatives.edit": True, "strategy.initiatives.delete": True,
+        "strategy.assumptions.create": True, "strategy.assumptions.edit": True, "strategy.assumptions.delete": True,
+        "strategy.cycles.create": True, "strategy.cycles.edit": True, "strategy.cycles.delete": True,
+        # Events & Intelligence
+        "events.view": True, "events.create": True, "events.edit": True, "events.delete": True,
+        "intelligence.view": True, "intelligence.create": True, "intelligence.dismiss": True, "intelligence.delete": True,
+        # Other
+        "comments.view": True, "comments.create": True,
+        "notifications.view": True, "notifications.read": True,
+        "starred.view": True, "starred.manage": True,
+        "files.upload": True, "files.view": True, "files.delete": True,
+        "templates.view": True, "templates.create": True, "templates.apply": True,
+        "templates.edit": True, "templates.delete": True,
+        "enterprise.view": True, "enterprise.create": True, "enterprise.edit": True, "enterprise.delete": True,
+        "enterprise.apis.view": True, "enterprise.apis.create": True,
+        "connectors.view": True,
+        "datasets.view": True, "datasets.delete": True,
+        "settings.view": True, "permissions.view": True,
+        "apikeys.manage": True, "integrations.manage": True,
+        "metrics.view": True,
+        # Admin-only (commander cannot)
+        "admin.users.manage": False, "users.invite": False, "users.edit": False, "users.delete": False,
+        "users.permissions.edit": False, "settings.edit": False, "permissions.edit": False,
+        "audit.view": False, "audit.verify": False,
+        "privacy.export": False, "privacy.delete": False,
+        "support.settings": False, "support.revoke": False,
     },
+
+    # ═══════════════════════════════════════════════════════════════
+    # Navigator = Senior Developer. Can create, edit, use AI, share.
+    # Cannot manage people or structure. Cannot delete.
+    # ═══════════════════════════════════════════════════════════════
     "navigator": {
-        # Navigator = active user. Can USE the platform (AI, queries, explore data)
-        # but CANNOT create/edit/delete pages or manage anything.
-        "createPages": False,
-        "viewPages": True,
-        "editPages": False,
-        "deletePages": False,
-        "sharePages": False,
-        "manageCrew": False,
-        "viewConnections": True,
-        "manageConnections": False,
-        "connections.edit": False,
-        "data.query.run": True,  # Can run queries
-        "data.table.read": True,  # Can read table data
-        "admin.users.manage": False,
-        "spaces.create": False,
-        "spaces.members.manage": False,
-        "crews.create": False,
-        "crews.members.manage": False,
+        # Pages & Dashboards
+        "pages.view": True, "pages.create": True, "pages.edit": True,
+        "pages.edit.others": True, "pages.delete": False, "pages.share": True,
+        "pages.duplicate": True, "pages.members.view": True, "pages.members.manage": True,
+        "pages.star": True,
+        "dashboards.view": True, "dashboards.create": True, "dashboards.edit": True,
+        "dashboards.delete": False, "dashboards.export": True, "dashboards.lock": False,
+        "dashboards.duplicate": True,
+        # Widgets
+        "widgets.view": True, "widgets.create": True, "widgets.edit": True,
+        "widgets.delete": False, "widgets.duplicate": True, "widgets.export": True,
+        "widgets.refresh": True, "widgets.feedback": True,
+        # Connections (view only, cannot manage)
+        "connections.view": True, "connections.metadata.view": True,
+        "connections.tables.view": True, "connections.schemas.view": True,
+        "connections.status.view": True, "connections.metrics.view": True,
+        "connections.create": False, "connections.edit": False, "connections.delete": False,
+        "connections.test": False, "connections.sync": False, "connections.validate": False,
+        # AI & Queries
+        "ai.chat": True, "ai.query": True, "ai.history.view": True,
+        "ai.history.delete": True, "ai.history.pin": True, "ai.history.export": True,
+        "ai.generate": True, "ai.feedback": True, "ai.pipeline": True, "ai.davinci": True,
+        # Spaces (view only)
+        "spaces.view": True, "spaces.create": False, "spaces.edit": False, "spaces.delete": False,
+        "spaces.members.view": True, "spaces.members.manage": False,
+        "spaces.connections.view": True, "spaces.connections.manage": False,
+        "spaces.crews.view": True, "spaces.tables.view": True, "spaces.stats.view": True,
+        # Crews (view only)
+        "crews.view": True, "crews.create": False, "crews.edit": False, "crews.delete": False,
+        "crews.members.view": True, "crews.members.manage": False, "crews.stats.view": True,
+        # Users
+        "users.view": False, "users.permissions.view": False, "users.self.edit": True,
+        "users.self.permissions": True,
+        # Agents
+        "agents.view": True, "agents.create": False, "agents.edit": False, "agents.delete": False,
+        "agents.run": True, "agents.manage": False,
+        "agents.findings.view": True, "agents.findings.dismiss": True,
+        # Strategy
+        "strategy.view": True,
+        "strategy.pillars.create": True, "strategy.pillars.edit": True, "strategy.pillars.delete": False,
+        "strategy.objectives.create": True, "strategy.objectives.edit": True, "strategy.objectives.delete": False,
+        "strategy.okrs.create": True, "strategy.okrs.edit": True, "strategy.okrs.delete": False,
+        "strategy.keyresults.create": True, "strategy.keyresults.edit": True, "strategy.keyresults.delete": False,
+        "strategy.initiatives.create": True, "strategy.initiatives.edit": True, "strategy.initiatives.delete": False,
+        "strategy.assumptions.create": True, "strategy.assumptions.edit": True, "strategy.assumptions.delete": False,
+        "strategy.cycles.create": False, "strategy.cycles.edit": False, "strategy.cycles.delete": False,
+        # Events & Intelligence
+        "events.view": True, "events.create": False, "events.edit": False, "events.delete": False,
+        "intelligence.view": True, "intelligence.create": False, "intelligence.dismiss": True, "intelligence.delete": False,
+        # Other
+        "comments.view": True, "comments.create": True,
+        "notifications.view": True, "notifications.read": True,
+        "starred.view": True, "starred.manage": True,
+        "files.upload": True, "files.view": True, "files.delete": False,
+        "templates.view": True, "templates.create": False, "templates.apply": True,
+        "templates.edit": False, "templates.delete": False,
+        "enterprise.view": True, "enterprise.create": False, "enterprise.edit": False, "enterprise.delete": False,
+        "enterprise.apis.view": True, "enterprise.apis.create": False,
+        "connectors.view": True,
+        "datasets.view": True, "datasets.delete": False,
+        "settings.view": True, "permissions.view": False,
+        "apikeys.manage": False, "integrations.manage": False,
+        "metrics.view": True,
+        "admin.users.manage": False, "users.invite": False, "users.edit": False, "users.delete": False,
+        "users.permissions.edit": False, "settings.edit": False, "permissions.edit": False,
+        "audit.view": False, "audit.verify": False,
+        "privacy.export": False, "privacy.delete": False,
+        "support.settings": False, "support.revoke": False,
     },
+
+    # ═══════════════════════════════════════════════════════════════
+    # Explorer = Developer. Creates own pages, uses AI, runs queries.
+    # Cannot edit others' work. Cannot manage or delete.
+    # ═══════════════════════════════════════════════════════════════
     "explorer": {
-        # Explorer = observer. Can only VIEW. No queries, no AI, no creation.
-        "createPages": False,
-        "viewPages": True,
-        "editPages": False,
-        "deletePages": False,
-        "sharePages": False,
-        "manageCrew": False,
-        "viewConnections": True,  # Can see connections exist (metadata)
-        "manageConnections": False,
-        "connections.edit": False,
-        "data.query.run": False,  # Cannot run queries
-        "data.table.read": False,  # Cannot read table data
-        "admin.users.manage": False,
-        "spaces.create": False,
-        "spaces.members.manage": False,
-        "crews.create": False,
-        "crews.members.manage": False,
+        # Pages & Dashboards
+        "pages.view": True, "pages.create": True, "pages.edit": True,
+        "pages.edit.others": False, "pages.delete": False, "pages.share": False,
+        "pages.duplicate": True, "pages.members.view": True, "pages.members.manage": False,
+        "pages.star": True,
+        "dashboards.view": True, "dashboards.create": True, "dashboards.edit": True,
+        "dashboards.delete": False, "dashboards.export": True, "dashboards.lock": False,
+        "dashboards.duplicate": True,
+        # Widgets
+        "widgets.view": True, "widgets.create": True, "widgets.edit": True,
+        "widgets.delete": False, "widgets.duplicate": True, "widgets.export": True,
+        "widgets.refresh": True, "widgets.feedback": True,
+        # Connections (view only)
+        "connections.view": True, "connections.metadata.view": True,
+        "connections.tables.view": True, "connections.schemas.view": True,
+        "connections.status.view": True, "connections.metrics.view": False,
+        "connections.create": False, "connections.edit": False, "connections.delete": False,
+        "connections.test": False, "connections.sync": False, "connections.validate": False,
+        # AI & Queries
+        "ai.chat": True, "ai.query": True, "ai.history.view": True,
+        "ai.history.delete": True, "ai.history.pin": True, "ai.history.export": False,
+        "ai.generate": True, "ai.feedback": True, "ai.pipeline": False, "ai.davinci": True,
+        # Spaces (view only)
+        "spaces.view": True, "spaces.create": False, "spaces.edit": False, "spaces.delete": False,
+        "spaces.members.view": True, "spaces.members.manage": False,
+        "spaces.connections.view": True, "spaces.connections.manage": False,
+        "spaces.crews.view": True, "spaces.tables.view": True, "spaces.stats.view": False,
+        # Crews (view only)
+        "crews.view": True, "crews.create": False, "crews.edit": False, "crews.delete": False,
+        "crews.members.view": True, "crews.members.manage": False, "crews.stats.view": False,
+        # Users
+        "users.view": False, "users.permissions.view": False, "users.self.edit": True,
+        "users.self.permissions": True,
+        # Agents
+        "agents.view": True, "agents.create": False, "agents.edit": False, "agents.delete": False,
+        "agents.run": False, "agents.manage": False,
+        "agents.findings.view": True, "agents.findings.dismiss": False,
+        # Strategy
+        "strategy.view": True,
+        "strategy.pillars.create": False, "strategy.pillars.edit": False, "strategy.pillars.delete": False,
+        "strategy.objectives.create": False, "strategy.objectives.edit": False, "strategy.objectives.delete": False,
+        "strategy.okrs.create": False, "strategy.okrs.edit": False, "strategy.okrs.delete": False,
+        "strategy.keyresults.create": False, "strategy.keyresults.edit": False, "strategy.keyresults.delete": False,
+        "strategy.initiatives.create": False, "strategy.initiatives.edit": False, "strategy.initiatives.delete": False,
+        "strategy.assumptions.create": False, "strategy.assumptions.edit": False, "strategy.assumptions.delete": False,
+        "strategy.cycles.create": False, "strategy.cycles.edit": False, "strategy.cycles.delete": False,
+        # Events & Intelligence
+        "events.view": True, "events.create": False, "events.edit": False, "events.delete": False,
+        "intelligence.view": True, "intelligence.create": False, "intelligence.dismiss": False, "intelligence.delete": False,
+        # Other
+        "comments.view": True, "comments.create": True,
+        "notifications.view": True, "notifications.read": True,
+        "starred.view": True, "starred.manage": True,
+        "files.upload": True, "files.view": True, "files.delete": False,
+        "templates.view": True, "templates.create": False, "templates.apply": True,
+        "templates.edit": False, "templates.delete": False,
+        "enterprise.view": True, "enterprise.create": False, "enterprise.edit": False, "enterprise.delete": False,
+        "enterprise.apis.view": True, "enterprise.apis.create": False,
+        "connectors.view": True,
+        "datasets.view": True, "datasets.delete": False,
+        "settings.view": True, "permissions.view": False,
+        "apikeys.manage": False, "integrations.manage": False,
+        "metrics.view": False,
+        "admin.users.manage": False, "users.invite": False, "users.edit": False, "users.delete": False,
+        "users.permissions.edit": False, "settings.edit": False, "permissions.edit": False,
+        "audit.view": False, "audit.verify": False,
+        "privacy.export": False, "privacy.delete": False,
+        "support.settings": False, "support.revoke": False,
     },
+    # ═══════════════════════════════════════════════════════════════
+    # Guest/Viewer = Stakeholder. Sees everything shared with them.
+    # Cannot create, edit, delete, or interact beyond viewing.
+    # ═══════════════════════════════════════════════════════════════
     "guest": {
-        "createPages": False,
-        "viewPages": True,
-        "editPages": False,
-        "deletePages": False,
-        "sharePages": False,
-        "manageCrew": False,
-        "viewConnections": False,
-        "manageConnections": False,
-        "connections.edit": False,
-        "data.query.run": False,
-        "data.table.read": False,
-        "admin.users.manage": False,
-        "spaces.create": False,
-        "spaces.members.manage": False,
-        "crews.create": False,
-        "crews.members.manage": False,
+        # Pages & Dashboards — view only
+        "pages.view": True, "pages.create": False, "pages.edit": False,
+        "pages.edit.others": False, "pages.delete": False, "pages.share": False,
+        "pages.duplicate": False, "pages.members.view": True, "pages.members.manage": False,
+        "pages.star": True,
+        "dashboards.view": True, "dashboards.create": False, "dashboards.edit": False,
+        "dashboards.delete": False, "dashboards.export": False, "dashboards.lock": False,
+        "dashboards.duplicate": False,
+        # Widgets — view only
+        "widgets.view": True, "widgets.create": False, "widgets.edit": False,
+        "widgets.delete": False, "widgets.duplicate": False, "widgets.export": False,
+        "widgets.refresh": False, "widgets.feedback": True,
+        # Connections — view only
+        "connections.view": True, "connections.metadata.view": True,
+        "connections.tables.view": True, "connections.schemas.view": True,
+        "connections.status.view": True, "connections.metrics.view": False,
+        "connections.create": False, "connections.edit": False, "connections.delete": False,
+        "connections.test": False, "connections.sync": False, "connections.validate": False,
+        # AI — no queries
+        "ai.chat": False, "ai.query": False, "ai.history.view": True,
+        "ai.history.delete": False, "ai.history.pin": False, "ai.history.export": False,
+        "ai.generate": False, "ai.feedback": True, "ai.pipeline": False, "ai.davinci": False,
+        # Spaces & Crews — view only
+        "spaces.view": True, "spaces.create": False, "spaces.edit": False, "spaces.delete": False,
+        "spaces.members.view": True, "spaces.members.manage": False,
+        "spaces.connections.view": True, "spaces.connections.manage": False,
+        "spaces.crews.view": True, "spaces.tables.view": True, "spaces.stats.view": False,
+        "crews.view": True, "crews.create": False, "crews.edit": False, "crews.delete": False,
+        "crews.members.view": True, "crews.members.manage": False, "crews.stats.view": False,
+        # Users
+        "users.view": False, "users.permissions.view": False, "users.self.edit": True,
+        "users.self.permissions": True,
+        # Agents — view only
+        "agents.view": True, "agents.create": False, "agents.edit": False, "agents.delete": False,
+        "agents.run": False, "agents.manage": False,
+        "agents.findings.view": True, "agents.findings.dismiss": False,
+        # Strategy — view only
+        "strategy.view": True,
+        "strategy.pillars.create": False, "strategy.pillars.edit": False, "strategy.pillars.delete": False,
+        "strategy.objectives.create": False, "strategy.objectives.edit": False, "strategy.objectives.delete": False,
+        "strategy.okrs.create": False, "strategy.okrs.edit": False, "strategy.okrs.delete": False,
+        "strategy.keyresults.create": False, "strategy.keyresults.edit": False, "strategy.keyresults.delete": False,
+        "strategy.initiatives.create": False, "strategy.initiatives.edit": False, "strategy.initiatives.delete": False,
+        "strategy.assumptions.create": False, "strategy.assumptions.edit": False, "strategy.assumptions.delete": False,
+        "strategy.cycles.create": False, "strategy.cycles.edit": False, "strategy.cycles.delete": False,
+        # Events & Intelligence — view only
+        "events.view": True, "events.create": False, "events.edit": False, "events.delete": False,
+        "intelligence.view": True, "intelligence.create": False, "intelligence.dismiss": False, "intelligence.delete": False,
+        # Other
+        "comments.view": True, "comments.create": False,
+        "notifications.view": True, "notifications.read": True,
+        "starred.view": True, "starred.manage": True,
+        "files.upload": False, "files.view": True, "files.delete": False,
+        "templates.view": True, "templates.create": False, "templates.apply": False,
+        "templates.edit": False, "templates.delete": False,
+        "enterprise.view": True, "enterprise.create": False, "enterprise.edit": False, "enterprise.delete": False,
+        "enterprise.apis.view": True, "enterprise.apis.create": False,
+        "connectors.view": True,
+        "datasets.view": True, "datasets.delete": False,
+        "settings.view": True, "permissions.view": False,
+        "apikeys.manage": False, "integrations.manage": False,
+        "metrics.view": False,
+        "admin.users.manage": False, "users.invite": False, "users.edit": False, "users.delete": False,
+        "users.permissions.edit": False, "settings.edit": False, "permissions.edit": False,
+        "audit.view": False, "audit.verify": False,
+        "privacy.export": False, "privacy.delete": False,
+        "support.settings": False, "support.revoke": False,
     },
 }
 
