@@ -98,6 +98,12 @@ jobs:
     env:
       # REDIS_HOST REMOVED from here to avoid conflict with constructor tests
       TESTING: "True"
+      # Required by pydantic_settings validation in src/config/settings.py.
+      # Tests never sign real tokens with this value — conftest.py injects
+      # its own test keys where needed — but the Settings() constructor
+      # still requires the field to be present to load.
+      JWT_SECRET_KEY: "ci-test-only-never-used-for-real-tokens"
+      DATABASE_URL: "sqlite+aiosqlite:///:memory:"
     steps:
       - uses: actions/checkout@v4
 
