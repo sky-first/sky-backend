@@ -120,7 +120,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "users.self.permissions": True,
         # Agents
         "agents.view": True, "agents.create": True, "agents.edit": True, "agents.delete": True,
-        "agents.run": True, "agents.manage": True,
+        "agents.run": True, "agents.pause": True, "agents.resume": True, "agents.manage": True,
         "agents.findings.view": True, "agents.findings.dismiss": True,
         # Strategy
         "strategy.view": True,
@@ -194,9 +194,9 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         # Users
         "users.view": False, "users.permissions.view": False, "users.self.edit": True,
         "users.self.permissions": True,
-        # Agents
+        # Agents (navigator can run/pause/resume own runs, no create/edit/delete)
         "agents.view": True, "agents.create": False, "agents.edit": False, "agents.delete": False,
-        "agents.run": True, "agents.manage": False,
+        "agents.run": True, "agents.pause": True, "agents.resume": True, "agents.manage": False,
         "agents.findings.view": True, "agents.findings.dismiss": True,
         # Strategy
         "strategy.view": True,
@@ -269,9 +269,9 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         # Users
         "users.view": False, "users.permissions.view": False, "users.self.edit": True,
         "users.self.permissions": True,
-        # Agents
+        # Agents (explorer = view-only; no run/pause/resume)
         "agents.view": True, "agents.create": False, "agents.edit": False, "agents.delete": False,
-        "agents.run": False, "agents.manage": False,
+        "agents.run": False, "agents.pause": False, "agents.resume": False, "agents.manage": False,
         "agents.findings.view": True, "agents.findings.dismiss": False,
         # Strategy
         "strategy.view": True,
@@ -342,9 +342,9 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         # Users
         "users.view": False, "users.permissions.view": False, "users.self.edit": True,
         "users.self.permissions": True,
-        # Agents — view only
+        # Agents — view only (guest can't run/pause/resume)
         "agents.view": True, "agents.create": False, "agents.edit": False, "agents.delete": False,
-        "agents.run": False, "agents.manage": False,
+        "agents.run": False, "agents.pause": False, "agents.resume": False, "agents.manage": False,
         "agents.findings.view": True, "agents.findings.dismiss": False,
         # Strategy — view only
         "strategy.view": True,
