@@ -410,6 +410,26 @@ class CrewService:
         # Load user relationship (similar to SpaceService)
         await self.db.refresh(member, ["user"])
 
+        # Notify the new member they've been added to the crew
+        try:
+            from src.schemas.notification import NotificationCreate
+            from src.services.notification_service import NotificationService
+
+            notif_svc = NotificationService(self.db)
+            await notif_svc.create(
+                NotificationCreate(
+                    user_id=member_data.user_id,
+                    type="crew_member_added",
+                    title=f"You were added to crew '{crew.name}'",
+                    description=f"{user.name or user.email} added you as {member_data.role}",
+                    entity_type="crew",
+                    entity_id=str(crew_id),
+                    deep_link=f"/dashboard?crew={crew_id}",
+                )
+            )
+        except Exception:
+            pass  # Non-fatal
+
         # Convert user to dict if present (CrewMemberResponse expects Optional[dict])
 
         member_data_dict = {

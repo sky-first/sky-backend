@@ -26,7 +26,7 @@ from src.models.enterprise_api import EnterpriseAPI
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.file import FileUpload
 from src.models.intelligence_signal import IntelligenceSignal
-from src.models.notification import Notification
+from src.models.notification import Notification, NotificationPreference
 from src.models.permission import APIKey, ConnectionPermission, Integration
 from src.models.page import Page, PageMember
 from src.models.signal_event import SignalEvent
@@ -85,6 +85,7 @@ __all__ = [
     "Workspace",
     "WorkspaceMember",
     "Notification",
+    "NotificationPreference",
     "Comment",
     "SignalEvent",
     "EnterpriseRelationship",
