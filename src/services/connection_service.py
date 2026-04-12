@@ -36,6 +36,14 @@ from src.schemas.connection import (
 logger = structlog.get_logger(__name__)
 
 
+def _decrypt_config(config: dict | None) -> dict:
+    """Decrypt connection config in memory. Handles legacy plaintext gracefully."""
+    if not config:
+        return {}
+    from src.utils.encryption import decrypt_dict
+    return decrypt_dict(config)
+
+
 class ConnectionService:
     """Connection service."""
 
@@ -147,9 +155,26 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        # Check access (only owner for now)
+        # Check access: owner OR member of a space that has this connection
         if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+            from sqlalchemy import select
+
+            from src.models.space import SpaceConnection, SpaceMember
+
+            result = await self.db.execute(
+                select(SpaceConnection.space_id)
+                .join(
+                    SpaceMember,
+                    SpaceMember.space_id == SpaceConnection.space_id,
+                )
+                .where(
+                    SpaceConnection.connection_id == connection_id,
+                    SpaceMember.user_id == user.id,
+                )
+                .limit(1)
+            )
+            if not result.scalar_one_or_none():
+                raise ForbiddenError("Access denied to this connection")
 
         return ConnectionResponse.model_validate(connection)
 
@@ -175,7 +200,11 @@ class ConnectionService:
         except Exception:
             raise BadRequestError(f"Invalid connector_id: {connection_data.connector_id}")
 
-        # TODO: Encrypt config before storing
+        # Encrypt config before storing (uses ENCRYPTION_KEY env if set)
+        from src.utils.encryption import encrypt_dict
+
+        encrypted_config = encrypt_dict(connection_data.config) if connection_data.config else {}
+
         # Calculate initial next sync
         next_sync = await self._calculate_next_sync(connection_data.sync_frequency, None)
 
@@ -183,7 +212,7 @@ class ConnectionService:
             name=connection_data.name,
             connector_id=connection_data.connector_id,
             description=connection_data.description,
-            config=connection_data.config,
+            config=encrypted_config,
             sync_frequency=connection_data.sync_frequency,
             next_sync=next_sync,
             status="inactive",
@@ -349,7 +378,7 @@ class ConnectionService:
         try:
             connector = get_connector(connection.connector_id)
             start_time = _time.time()
-            success = await connector.test_connection(connection.config)
+            success = await connector.test_connection(_decrypt_config(connection.config))
             latency = int((_time.time() - start_time) * 1000)
 
             if success:
@@ -408,7 +437,7 @@ class ConnectionService:
 
         try:
             connector = get_connector(connection.connector_id)
-            metadata = await connector.get_metadata(connection.config)
+            metadata = await connector.get_metadata(_decrypt_config(connection.config))
 
             # Update or create metadata
             existing_metadata = await self.metadata_repo.get_by_connection_id(connection_id)
@@ -839,9 +868,23 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        # Check access (only owner for now)
+        # Check access: owner OR member of a space that has this connection
         if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+            from sqlalchemy import select
+
+            from src.models.space import SpaceConnection, SpaceMember
+
+            result = await self.db.execute(
+                select(SpaceConnection.space_id)
+                .join(SpaceMember, SpaceMember.space_id == SpaceConnection.space_id)
+                .where(
+                    SpaceConnection.connection_id == connection_id,
+                    SpaceMember.user_id == user.id,
+                )
+                .limit(1)
+            )
+            if not result.scalar_one_or_none():
+                raise ForbiddenError("Access denied to this connection")
 
         # 1. AI Queries metrics
         queries_count = await self.ai_query_repo.count_queries_by_connection_id(connection_id)

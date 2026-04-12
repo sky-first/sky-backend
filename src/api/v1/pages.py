@@ -20,6 +20,7 @@ from src.schemas.page import (
 )
 from src.services.dashboard_service import DashboardService
 from src.services.page_service import PageService
+from src.services.rbac_service import RBACService
 from src.services.starred_service import StarredItemService
 
 router = APIRouter()
@@ -36,25 +37,32 @@ router = APIRouter()
 async def list_pages(
     type: Optional[str] = Query(None, pattern="^(personal|team)$"),
     search: Optional[str] = Query(None),
+    context: Optional[str] = Query(None, pattern="^(personal|space|crew|all)$",
+                                    description="Navigation context: personal, space, crew, or all"),
+    space_id: Optional[UUID] = Query(None, description="Required when context=space"),
+    crew_id: Optional[UUID] = Query(None, description="Required when context=crew"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[PageResponse]:
     """
-    List all pages for the current user.
+    List pages filtered by navigation context.
 
-    Args:
-        type: Filter by page type (personal|team)
-        search: Search term for page name
-        current_user: Current authenticated user
-        db: Database session
-
-    Returns:
-        List[PageResponse]: List of pages
+    Contexts:
+        personal — only personal pages (owner=me, no crew, no space)
+        space — space-level pages (all space members see, not crew-specific)
+        crew — crew-level pages (only crew members see)
+        all — everything the user can access (default)
     """
+    await RBACService(db).assert_permission(current_user, "pages.view")
     page_service = PageService(db)
-    pages = await page_service.get_user_pages(current_user)
+    pages = await page_service.get_user_pages(
+        current_user,
+        context=context or "all",
+        space_id=space_id,
+        crew_id=crew_id,
+    )
 
-    # Apply filters
+    # Apply additional filters
     if type:
         pages = [w for w in pages if w.type == type]
     if search:
@@ -88,6 +96,7 @@ async def get_page(
     Returns:
         PageResponse: Page data
     """
+    await RBACService(db).assert_permission(current_user, "pages.view")
     page_service = PageService(db)
     return await page_service.get_page(page_id, current_user)
 
@@ -116,6 +125,7 @@ async def create_page(
     Returns:
         PageResponse: Created page
     """
+    await RBACService(db).assert_permission(current_user, "pages.create")
     page_service = PageService(db)
     return await page_service.create_page(current_user, page_data)
 
@@ -146,6 +156,7 @@ async def update_page(
     Returns:
         PageResponse: Updated page
     """
+    await RBACService(db).assert_permission(current_user, "pages.edit")
     page_service = PageService(db)
     return await page_service.update_page(page_id, current_user, page_data)
 
@@ -174,6 +185,7 @@ async def delete_page(
     Returns:
         SuccessResponse: Success message
     """
+    await RBACService(db).assert_permission(current_user, "pages.delete")
     page_service = PageService(db)
     await page_service.delete_page(page_id, current_user)
     return SuccessResponse(message="Page deleted successfully")
@@ -203,6 +215,7 @@ async def get_page_members(
     Returns:
         List[PageMemberResponse]: List of page members
     """
+    await RBACService(db).assert_permission(current_user, "pages.view")
     page_service = PageService(db)
     return await page_service.get_page_members(page_id, current_user)
 

@@ -4,8 +4,17 @@ from enum import Enum
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import JSON
 
 from src.config.database import Base
+
+# SQLite has no native ARRAY type, so the test suite (which uses
+# sqlite+aiosqlite in memory) fails to create these tables with CompileError.
+# Give every ARRAY column a variant that falls back to JSON on SQLite — the
+# production dialect (PostgreSQL) still uses the native ARRAY type, so this
+# is a zero-migration change.
+def _array_with_sqlite_variant(inner_type):
+    return ARRAY(inner_type).with_variant(JSON(), "sqlite")
 
 
 class AgentScope(str, Enum):
@@ -70,15 +79,15 @@ class Agent(Base):
     depth = Column(String(20), nullable=True, default="standard")  # quick, standard, deep
 
     # Data sources this agent monitors
-    connection_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=False, default=[])
-    table_ids = Column(ARRAY(String), nullable=True)  # Granular table selection
+    connection_ids = Column(_array_with_sqlite_variant(UUID(as_uuid=True)), nullable=False, default=[])
+    table_ids = Column(_array_with_sqlite_variant(String), nullable=True)  # Granular table selection
 
     # Previous execution answer for comparison
     last_answer = Column(Text, nullable=True)
 
     # Organization scope: spaces to traverse + relationship types
-    space_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=True)
-    relationship_types = Column(ARRAY(String), nullable=True)
+    space_ids = Column(_array_with_sqlite_variant(UUID(as_uuid=True)), nullable=True)
+    relationship_types = Column(_array_with_sqlite_variant(String), nullable=True)
 
     # Execution tracking
     last_execution_at = Column(DateTime(timezone=True), nullable=True)
@@ -144,7 +153,7 @@ class AgentFinding(Base):
     evidence = Column(Text, nullable=True)  # Raw data/evidence
     reasoning = Column(Text, nullable=True)  # Step-by-step reasoning
     recommendation = Column(Text, nullable=True)  # Recommended action
-    data_sources = Column(ARRAY(String), nullable=True)  # tables/columns analyzed
+    data_sources = Column(_array_with_sqlite_variant(String), nullable=True)  # tables/columns analyzed
 
     # Context
     connection_id = Column(UUID(as_uuid=True), nullable=True)

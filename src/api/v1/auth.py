@@ -359,6 +359,41 @@ async def revoke_all_sessions(
     return SuccessResponse(message="All sessions revoked successfully")
 
 
+@router.delete(
+    "/sessions/{session_id}",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    summary="Revoke specific session",
+    description="Revoke a specific session by ID",
+)
+async def revoke_session(
+    session_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """Revoke a specific session."""
+    from src.models.auth import RefreshToken
+    from sqlalchemy import update
+
+    result = await db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.id == session_id,
+            RefreshToken.user_id == current_user.id,
+            RefreshToken.revoked == False,
+        )
+        .values(revoked=True)
+    )
+    await db.commit()
+
+    if result.rowcount == 0:  # type: ignore[attr-defined]
+        from src.core.exceptions import NotFoundError
+        raise NotFoundError("Session not found or already revoked")
+
+    return SuccessResponse(message="Session revoked successfully")
+
+
 @router.post(
     "/change-password",
     response_model=SuccessResponse,

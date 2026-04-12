@@ -20,6 +20,7 @@ from src.schemas.space import (
     SpaceTableCreate,
     SpaceUpdate,
 )
+from src.services.rbac_service import RBACService
 from src.services.space_service import SpaceService
 
 router = APIRouter()
@@ -52,6 +53,11 @@ async def list_spaces(
     Returns:
         List[SpaceResponse]: List of spaces
     """
+    # Phase 0 note: GET list relies on service-layer membership filter.
+    # A dedicated "spaces.read" permission key will be added in Phase 1
+    # (RBAC catalog migration). For now the service already filters by
+    # the user's space membership, which is sufficient for intra-deploy
+    # isolation. The gap is documented in RBAC_GOVERNANCE_PLAN.md.
     space_service = SpaceService(db)
     return await space_service.list_spaces(current_user, skip=skip, limit=limit)
 
@@ -80,6 +86,7 @@ async def get_space(
     Returns:
         SpaceResponse: Space data
     """
+    # Phase 0 note: GET by-id relies on service-layer membership filter.
     space_service = SpaceService(db)
     return await space_service.get_space(space_id, current_user)
 
@@ -108,6 +115,8 @@ async def create_space(
     Returns:
         SpaceResponse: Created space
     """
+    # Phase 0 RBAC: viewer / guest cannot create spaces.
+    await RBACService(db).assert_permission(current_user, "spaces.create")
     space_service = SpaceService(db)
     logger.info(
         "[spaces:create] request user_id=%s name=%r description=%r",
@@ -192,6 +201,7 @@ async def delete_space(
     Returns:
         SuccessResponse: Success message
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     logger.info(
         "[spaces:delete] request user_id=%s space_id=%s",
@@ -295,6 +305,7 @@ async def add_space_connection(
     Returns:
         dict: Success message and linked IDs
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     await space_service.add_space_connection(
         space_id, connection_id, current_user, background_tasks
@@ -332,6 +343,7 @@ async def remove_space_connection(
     Returns:
         SuccessResponse: Success message
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     await space_service.remove_space_connection(space_id, connection_id, current_user)
     return SuccessResponse(message="Connection unlinked successfully")
@@ -395,6 +407,7 @@ async def add_space_member(
     Returns:
         SpaceMemberResponse: Created member
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     return await space_service.add_space_member(space_id, current_user, member_data)
 
@@ -425,6 +438,7 @@ async def remove_space_member(
     Returns:
         SuccessResponse: Success message
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     await space_service.remove_space_member(space_id, user_id, current_user)
     return SuccessResponse(message="Member removed successfully")
@@ -479,6 +493,7 @@ async def add_space_table(
     """
     Link a specific table to a space.
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     return await space_service.add_space_table(space_id, table_data, current_user)
 
@@ -502,6 +517,7 @@ async def remove_space_table(
     """
     Unlink a specific table from a space.
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     await space_service.remove_space_table(
         space_id, connection_id, table_name, schema_name, current_user

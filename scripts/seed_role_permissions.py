@@ -23,81 +23,11 @@ from sqlalchemy.orm import sessionmaker
 from src.config.settings import get_settings
 from src.models.permission import RolePermission
 
-# Default permissions from rbac_service.py
-DEFAULT_ROLE_PERMISSIONS = {
-    "commander": {
-        "createPlanets": True,
-        "viewPlanets": True,
-        "editPlanets": True,
-        "deletePlanets": True,
-        "sharePlanets": True,
-        "manageCrew": True,
-        "viewConnections": True,
-        "manageConnections": True,
-        "connections.edit": True,
-        "data.query.run": True,
-        "data.table.read": True,
-        "admin.users.manage": False,
-        "spaces.create": True,
-        "spaces.members.manage": True,
-        "crews.create": True,
-        "crews.members.manage": True,
-    },
-    "navigator": {
-        "createPlanets": True,
-        "viewPlanets": True,
-        "editPlanets": True,
-        "deletePlanets": False,
-        "sharePlanets": True,
-        "manageCrew": False,
-        "viewConnections": True,
-        "manageConnections": False,
-        "connections.edit": True,
-        "data.query.run": True,
-        "data.table.read": True,
-        "admin.users.manage": False,
-        "spaces.create": True,
-        "spaces.members.manage": True,
-        "crews.create": True,
-        "crews.members.manage": True,
-    },
-    "explorer": {
-        "createPlanets": False,
-        "viewPlanets": True,
-        "editPlanets": False,
-        "deletePlanets": False,
-        "sharePlanets": False,
-        "manageCrew": False,
-        "viewConnections": True,
-        "manageConnections": False,
-        "connections.edit": False,
-        "data.query.run": False,
-        "data.table.read": True,
-        "admin.users.manage": False,
-        "spaces.create": False,
-        "spaces.members.manage": False,
-        "crews.create": False,
-        "crews.members.manage": False,
-    },
-    "guest": {
-        "createPlanets": False,
-        "viewPlanets": True,
-        "editPlanets": False,
-        "deletePlanets": False,
-        "sharePlanets": False,
-        "manageCrew": False,
-        "viewConnections": False,
-        "manageConnections": False,
-        "connections.edit": False,
-        "data.query.run": False,
-        "data.table.read": False,
-        "admin.users.manage": False,
-        "spaces.create": False,
-        "spaces.members.manage": False,
-        "crews.create": False,
-        "crews.members.manage": False,
-    },
-}
+# Default permissions are now sourced directly from rbac_service.py so this
+# script and the runtime stay in sync. Previously the dictionary was inlined
+# here and drifted out of date (still referenced legacy "createPlanets" keys
+# while the runtime moved to "pages.create"/"agents.run"/etc.).
+from src.services.rbac_service import DEFAULT_ROLE_PERMISSIONS  # noqa: E402
 
 
 async def seed_role_permissions():

@@ -1,6 +1,13 @@
 """SQLAlchemy models."""
 
+# IMPORTANT: every model must be imported here so that it registers itself with
+# `Base.metadata`. The test fixture calls `Base.metadata.create_all` on an
+# in-memory SQLite to provision the schema, and any model not in the registry
+# at that point will be missing its table — causing `sqlite3.OperationalError:
+# no such table: <name>` at runtime when the service layer queries it.
 from src.models.agent import Agent, AgentExecution, AgentFinding
+from src.models.audit import AuditEvent
+from src.models.service_principal import ServicePrincipal
 from src.models.ai import (
     AIFeedback,
     AIHistory,
@@ -42,6 +49,8 @@ __all__ = [
     "Agent",
     "AgentFinding",
     "AgentExecution",
+    "AuditEvent",
+    "ServicePrincipal",
     "User",
     "RefreshToken",
     "Page",

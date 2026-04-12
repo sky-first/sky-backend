@@ -3,11 +3,13 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.models.crew import CrewMember
 from src.models.page import Page, PageMember
+from src.models.space import SpaceMember
 from src.repositories.base import BaseRepository
 
 
@@ -73,36 +75,71 @@ class PageRepository(BaseRepository[Page]):
         )
         return result.scalar_one_or_none()
 
-    async def get_user_pages(self, user_id: UUID) -> List[Page]:
+    async def get_user_pages(
+        self,
+        user_id: UUID,
+        *,
+        context: str = "all",
+        space_id: Optional[UUID] = None,
+        crew_id: Optional[UUID] = None,
+    ) -> List[Page]:
         """
-        Get all pages user has access to (as owner or member).
+        Get pages filtered by navigation context.
 
-        Args:
-            user_id: User ID
+        Contexts:
+          "personal" → only personal pages (space_id=NULL, crew_id=NULL, owner=me)
+          "space"    → space-level pages (space_id=X, crew_id=NULL) + requires space_id
+          "crew"     → crew-level pages (crew_id=Y) + requires crew_id
+          "all"      → everything the user can access (default, legacy behavior)
 
-        Returns:
-            List[Page]: List of pages
+        Access rules:
+          1. Personal: owner_id = user AND crew_id IS NULL AND space_id IS NULL
+          2. Space-level: space_id is set AND user is member of that space
+          3. Crew-level: crew_id is set AND user is member of that crew
+          4. Explicit page_members
         """
-        # Pages where user is owner
-        owned_result = await self.db.execute(
-            select(Page).where(Page.owner_id == user_id, Page.deleted_at.is_(None))
+        user_crew_ids = (
+            select(CrewMember.crew_id).where(CrewMember.user_id == user_id)
+        ).scalar_subquery()
+
+        user_space_ids = (
+            select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
+        ).scalar_subquery()
+
+        base = select(Page).outerjoin(PageMember, PageMember.page_id == Page.id).where(
+            Page.deleted_at.is_(None)
         )
-        owned = list(owned_result.scalars().all())
 
-        # Pages where user is member
-        member_result = await self.db.execute(
-            select(Page)
-            .join(PageMember)
-            .where(
-                PageMember.user_id == user_id,
-                Page.deleted_at.is_(None),
+        if context == "personal":
+            base = base.where(
+                Page.owner_id == user_id,
+                Page.crew_id.is_(None),
+                Page.space_id.is_(None),
             )
-        )
-        member_pages = list(member_result.scalars().all())
+        elif context == "space" and space_id:
+            base = base.where(
+                Page.space_id == space_id,
+                Page.crew_id.is_(None),
+            )
+        elif context == "crew" and crew_id:
+            base = base.where(Page.crew_id == crew_id)
+        else:
+            # "all" — everything the user can access
+            base = base.where(
+                or_(
+                    Page.owner_id == user_id,
+                    PageMember.user_id == user_id,
+                    Page.crew_id.in_(user_crew_ids),
+                    Page.space_id.in_(user_space_ids),
+                ),
+            )
 
-        # Combine and deduplicate
-        all_pages = {p.id: p for p in owned + member_pages}
-        return list(all_pages.values())
+        result = await self.db.execute(base.order_by(Page.updated_at.desc()))
+        seen: dict = {}
+        for page in result.scalars().all():
+            if page.id not in seen:
+                seen[page.id] = page
+        return list(seen.values())
 
 
 class PageMemberRepository(BaseRepository[PageMember]):

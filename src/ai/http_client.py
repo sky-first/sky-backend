@@ -36,6 +36,7 @@ class AIServiceHTTPClient:
         authorized_tables: Optional[List[str]] = None,
         instructions: Optional[str] = None,
         response_format: Optional[str] = None,
+        security_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Query a connection using the AI service.
@@ -75,6 +76,8 @@ class AIServiceHTTPClient:
             payload["instructions"] = instructions
         if response_format:
             payload["response_format"] = response_format
+        if security_config:
+            payload["security_config"] = security_config
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(

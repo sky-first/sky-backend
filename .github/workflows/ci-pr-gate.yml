@@ -98,6 +98,12 @@ jobs:
     env:
       # REDIS_HOST REMOVED from here to avoid conflict with constructor tests
       TESTING: "True"
+      # Required by pydantic_settings validation in src/config/settings.py.
+      # Tests never sign real tokens with this value — conftest.py injects
+      # its own test keys where needed — but the Settings() constructor
+      # still requires the field to be present to load.
+      JWT_SECRET_KEY: "ci-test-only-never-used-for-real-tokens"
+      DATABASE_URL: "sqlite+aiosqlite:///:memory:"
     steps:
       - uses: actions/checkout@v4
 
@@ -110,11 +116,17 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov pytest-timeout
 
       - name: Run Tests
+        # Per-test timeout via pytest-timeout prevents a single hanging
+        # async test from pinning the whole job. `--timeout-method=thread`
+        # also works for asyncio coroutines (signal method fails inside
+        # non-main threads). Job-level timeout is a second safety net in
+        # case the test runner itself deadlocks before pytest-timeout fires.
+        timeout-minutes: 15
         run: |
-          pytest --cov=src --cov-report=xml
+          pytest --cov=src --cov-report=xml --timeout=120 --timeout-method=thread -v
 
   docker-build-verify:
     name: Docker Build Verification

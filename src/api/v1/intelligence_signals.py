@@ -29,7 +29,7 @@ async def list_signals(
 ):
     """List intelligence signals for a page."""
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "viewPages")
+    await rbac.assert_permission(current_user, "pages.view")
 
     # Check if user has access to the page
     page_repo = PageRepository(db)
@@ -57,7 +57,7 @@ async def create_signal(
     Typically called by the AI service. Requires editPages permission.
     """
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "editPages")
+    await rbac.assert_permission(current_user, "pages.edit")
 
     return await repo.create(**signal_in.model_dump())
 
@@ -71,7 +71,7 @@ async def dismiss_signal(
 ):
     """Mark a signal as dismissed."""
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "viewPages")
+    await rbac.assert_permission(current_user, "pages.view")
 
     signal = await repo.get_by_id(signal_id)
     if not signal:
@@ -91,7 +91,7 @@ async def delete_signal(
 ):
     """Delete a signal."""
     rbac = RBACService(db)
-    await rbac.assert_permission(current_user, "editPages")
+    await rbac.assert_permission(current_user, "pages.edit")
 
     signal = await repo.get_by_id(signal_id)
     if not signal:
