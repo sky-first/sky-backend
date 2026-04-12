@@ -763,6 +763,6 @@ class TestNotificationCatalog:
             )
 
     def test_category_values_are_known(self):
-        known = {"agents", "dashboards", "pages", "mentions", "collaboration", "connections", "strategy", "system"}
+        known = {"agents", "dashboards", "pages", "mentions", "collaboration", "connections", "events", "strategy", "system"}
         for ntype, category in NOTIFICATION_CATEGORY.items():
             assert category in known, f"Unknown category '{category}' for type '{ntype}'"
