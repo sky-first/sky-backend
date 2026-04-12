@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_current_user, get_db_session
 from src.models.notification import NOTIFICATION_CATEGORY
 from src.models.user import User
-from src.schemas.notification import NotificationCount, NotificationResponse
+from src.schemas.notification import NotificationCount, NotificationCreate, NotificationResponse
 from src.schemas.notification_preference import (
     NotificationPreferenceBatchUpdate,
     NotificationPreferenceResponse,
@@ -24,6 +24,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Notification CRUD
 # ---------------------------------------------------------------------------
+
 
 @router.get("", response_model=List[NotificationResponse])
 async def get_notifications(

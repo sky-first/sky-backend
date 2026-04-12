@@ -68,6 +68,10 @@ class NotificationType(str, Enum):
     CONNECTION_SYNC_RESTORED = "connection_sync_restored"
     CONNECTION_NEW_TABLE_DISCOVERED = "connection_new_table_discovered"
 
+    # --- Events / Signals ---
+    SIGNAL_EVENT_CREATED = "signal_event_created"
+    HIGH_CONFIDENCE_SIGNAL = "high_confidence_signal"
+
     # --- Strategy ---
     OKR_UPDATED = "okr_updated"
     INITIATIVE_STATUS_CHANGED = "initiative_status_changed"
@@ -107,6 +111,10 @@ NOTIFICATION_CATEGORY: dict[str, str] = {
     "crew_member_removed": "collaboration",
     "role_changed": "collaboration",
     "invite_received": "collaboration",
+
+    # Events / Signals
+    "signal_event_created": "events",
+    "high_confidence_signal": "events",
 
     # Connections
     "connection_sync_failed": "connections",
