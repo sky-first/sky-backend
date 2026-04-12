@@ -314,7 +314,10 @@ async def test_rbac_admin_effective_permissions():
     eff = await svc.get_effective_permissions(user)
     assert eff.platform_role == "admin"
     assert eff.crew_role == "commander"
-    assert eff.permissions.get("viewPages") is True
+    # Catalog was migrated from legacy short keys (`viewPages`) to canonical
+    # `<domain>.<action>` keys (`pages.view`) as part of the RBAC unification
+    # with the backend rbac_service. Admin-bypass should grant the canonical key.
+    assert eff.permissions.get("pages.view") is True
 
 
 @pytest.mark.asyncio

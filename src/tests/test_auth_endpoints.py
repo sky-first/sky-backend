@@ -7,9 +7,14 @@ from httpx import AsyncClient
 class TestLoginEndpoint:
     """Tests for POST /api/v1/auth/login."""
 
+    # NOTE: password-based login was removed in favour of SSO. The endpoint
+    # now unconditionally raises ForbiddenError, so the success/invalid-email/
+    # invalid-password paths all collapse to the same 403 response. These
+    # tests pin the current contract so a future re-enable is loud.
+
     @pytest.mark.asyncio
-    async def test_login_success(self, async_client: AsyncClient, test_user: dict):
-        """Test successful login."""
+    async def test_login_password_auth_disabled(self, async_client: AsyncClient, test_user: dict):
+        """Password login is disabled — endpoint returns 403 regardless of credentials."""
         response = await async_client.post(
             "/api/v1/auth/login",
             json={
@@ -17,22 +22,14 @@ class TestLoginEndpoint:
                 "password": test_user["password"],
             },
         )
-
-        assert response.status_code == 200
+        assert response.status_code == 403
         data = response.json()
-
-        assert "access_token" in data
-        assert "refresh_token" in data
-        assert data["token_type"] == "bearer"
-        assert "expires_in" in data
-        assert data["expires_in"] > 0
-        assert "user" in data
-        assert data["user"]["email"] == test_user["email"]
-        assert data["user"]["id"] == str(test_user["user"].id)
+        assert "error" in data
+        assert "SSO" in data["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_login_invalid_email(self, async_client: AsyncClient, faker):
-        """Test login with non-existent email."""
+    async def test_login_invalid_email_still_403(self, async_client: AsyncClient, faker):
+        """Even non-existent emails get 403, not 401 — password auth is off the table."""
         response = await async_client.post(
             "/api/v1/auth/login",
             json={
@@ -40,15 +37,11 @@ class TestLoginEndpoint:
                 "password": "some_password",
             },
         )
-
-        assert response.status_code == 401
-        data = response.json()
-        assert "error" in data
-        assert "message" in data["error"]
+        assert response.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_login_invalid_password(self, async_client: AsyncClient, test_user: dict):
-        """Test login with incorrect password."""
+    async def test_login_invalid_password_still_403(self, async_client: AsyncClient, test_user: dict):
+        """Wrong password gets the same 403 — the endpoint never validates credentials anymore."""
         response = await async_client.post(
             "/api/v1/auth/login",
             json={
@@ -56,11 +49,7 @@ class TestLoginEndpoint:
                 "password": "wrong_password",
             },
         )
-
-        assert response.status_code == 401
-        data = response.json()
-        assert "error" in data
-        assert "message" in data["error"]
+        assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_login_invalid_email_format(self, async_client: AsyncClient):
@@ -329,29 +318,23 @@ class TestForgotPasswordEndpoint:
     """Tests for POST /api/v1/auth/forgot-password."""
 
     @pytest.mark.asyncio
-    async def test_forgot_password_success(self, async_client: AsyncClient, test_user: dict):
-        """Test forgot password with existing email."""
+    async def test_forgot_password_disabled(self, async_client: AsyncClient, test_user: dict):
+        """Password reset is disabled alongside password login — returns 403."""
         response = await async_client.post(
             "/api/v1/auth/forgot-password",
             json={"email": test_user["email"]},
         )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "message" in data
+        assert response.status_code == 403
+        assert "SSO" in response.json()["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_forgot_password_nonexistent_email(self, async_client: AsyncClient, faker):
-        """Test forgot password with non-existent email (should still return 200)."""
+    async def test_forgot_password_nonexistent_email_also_disabled(self, async_client: AsyncClient, faker):
+        """Unknown emails get the same 403 — the endpoint doesn't look anyone up."""
         response = await async_client.post(
             "/api/v1/auth/forgot-password",
             json={"email": faker.email()},
         )
-
-        # Should return 200 even for non-existent email (security)
-        assert response.status_code == 200
-        data = response.json()
-        assert "message" in data
+        assert response.status_code == 403
 
     @pytest.mark.asyncio
     async def test_forgot_password_invalid_email_format(self, async_client: AsyncClient):
@@ -368,8 +351,8 @@ class TestResetPasswordEndpoint:
     """Tests for POST /api/v1/auth/reset-password."""
 
     @pytest.mark.asyncio
-    async def test_reset_password_not_implemented(self, async_client: AsyncClient):
-        """Test reset password (not implemented yet)."""
+    async def test_reset_password_disabled(self, async_client: AsyncClient):
+        """Reset-password is disabled — returns 403, not 400."""
         response = await async_client.post(
             "/api/v1/auth/reset-password",
             json={
@@ -377,23 +360,19 @@ class TestResetPasswordEndpoint:
                 "new_password": "new_password123",
             },
         )
-
-        assert response.status_code == 400
-        data = response.json()
-        assert "error" in data
+        assert response.status_code == 403
+        assert "SSO" in response.json()["error"]["message"]
 
 
 class TestVerifyEmailEndpoint:
     """Tests for POST /api/v1/auth/verify-email."""
 
     @pytest.mark.asyncio
-    async def test_verify_email_not_implemented(self, async_client: AsyncClient):
-        """Test verify email (not implemented yet)."""
+    async def test_verify_email_not_applicable(self, async_client: AsyncClient):
+        """Email verification is not applicable under SSO — returns 403."""
         response = await async_client.post(
             "/api/v1/auth/verify-email",
             json={"token": "some_token"},
         )
-
-        assert response.status_code == 400
-        data = response.json()
-        assert "error" in data
+        assert response.status_code == 403
+        assert "SSO" in response.json()["error"]["message"]

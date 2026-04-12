@@ -39,6 +39,7 @@ async def list_agents(
     scope: Optional[str] = Query(None, description="Filter by scope: personal, space, crew, organization"),
     scope_id: Optional[str] = Query(None, description="Filter by scope entity ID"),
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
     """List agents. Filter by scope/scope_id or get all accessible agents."""
@@ -50,6 +51,7 @@ async def list_agents(
 async def create_agent(
     data: AgentCreate,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
     """Create a new agent."""
@@ -61,6 +63,7 @@ async def create_agent(
 async def get_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
     """Get agent detail with findings."""
@@ -73,6 +76,7 @@ async def update_agent(
     agent_id: UUID,
     data: AgentUpdate,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
     """Update agent configuration."""
@@ -84,6 +88,7 @@ async def update_agent(
 async def delete_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
     """Delete an agent and all its findings."""
@@ -96,6 +101,7 @@ async def delete_agent(
 async def pause_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
     """Pause an active agent."""
@@ -107,6 +113,7 @@ async def pause_agent(
 async def resume_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
     """Resume a paused agent."""
@@ -323,6 +330,7 @@ async def list_findings(
     agent_id: UUID,
     include_dismissed: bool = Query(False),
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
     """List findings for an agent."""
@@ -335,6 +343,7 @@ async def dismiss_finding(
     agent_id: UUID,
     finding_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
     """Dismiss a finding."""

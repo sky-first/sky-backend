@@ -48,6 +48,7 @@ async def get_strategy_tree(
     space_id: Optional[UUID] = None,
     crew_id: Optional[UUID] = None,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyTreeResponse:
     """Get the full strategy tree."""
@@ -60,6 +61,7 @@ async def get_strategy_health(
     space_id: Optional[UUID] = None,
     crew_id: Optional[UUID] = None,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyHealthResponse:
     """Get strategy health metrics."""
@@ -75,6 +77,7 @@ async def create_pillar(
     body: StrategicPillarCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategicPillarResponse:
     """Create a new strategic pillar."""
@@ -88,6 +91,7 @@ async def update_pillar(
     body: StrategicPillarUpdate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategicPillarResponse:
     """Update a strategic pillar."""
@@ -99,6 +103,7 @@ async def update_pillar(
 async def delete_pillar(
     pillar_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategic pillar."""
@@ -114,6 +119,7 @@ async def create_objective(
     body: StrategicObjectiveCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategicObjectiveResponse:
     """Create a new strategic objective."""
@@ -127,6 +133,7 @@ async def update_objective(
     body: StrategicObjectiveUpdate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategicObjectiveResponse:
     """Update a strategic objective."""
@@ -138,6 +145,7 @@ async def update_objective(
 async def delete_objective(
     objective_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategic objective."""
@@ -153,6 +161,7 @@ async def create_okr(
     body: StrategyOKRCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyOKRResponse:
     """Create a new strategy OKR."""
@@ -166,6 +175,7 @@ async def update_okr(
     body: StrategyOKRUpdate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyOKRResponse:
     """Update a strategy OKR."""
@@ -177,6 +187,7 @@ async def update_okr(
 async def delete_okr(
     okr_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategy OKR."""
@@ -189,6 +200,7 @@ async def create_initiative(
     body: StrategyInitiativeCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyInitiativeResponse:
     """Create a new strategy initiative."""
@@ -202,6 +214,7 @@ async def update_initiative(
     body: StrategyInitiativeUpdate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyInitiativeResponse:
     """Update a strategy initiative."""
@@ -213,6 +226,7 @@ async def update_initiative(
 async def delete_initiative(
     initiative_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategy initiative."""
@@ -228,6 +242,7 @@ async def create_assumption(
     body: StrategyAssumptionCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyAssumptionResponse:
     """Create a new strategy assumption."""
@@ -241,6 +256,7 @@ async def update_assumption(
     body: StrategyAssumptionUpdate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyAssumptionResponse:
     """Update a strategy assumption."""
@@ -252,6 +268,7 @@ async def update_assumption(
 async def delete_assumption(
     assumption_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategy assumption."""
@@ -267,6 +284,7 @@ async def create_cycle(
     body: StrategyCycleCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyCycleResponse:
     """Create a new strategy cycle."""
@@ -280,6 +298,7 @@ async def update_cycle(
     body: StrategyCycleUpdate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyCycleResponse:
     """Update a strategy cycle."""
@@ -291,6 +310,7 @@ async def update_cycle(
 async def delete_cycle(
     cycle_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategy cycle."""
@@ -306,6 +326,7 @@ async def create_key_result(
     body: StrategyKeyResultCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyKeyResultResponse:
     """Create a new strategy key result."""
@@ -319,6 +340,7 @@ async def update_key_result(
     body: StrategyKeyResultUpdate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyKeyResultResponse:
     """Update a strategy key result."""
@@ -330,6 +352,7 @@ async def update_key_result(
 async def delete_key_result(
     kr_id: UUID,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> None:
     """Delete a strategy key result."""
