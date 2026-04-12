@@ -445,6 +445,26 @@ class SpaceService:
         await self.db.commit()
         await self.db.refresh(member, ["user"])
 
+        # Notify the new member they've been added to the space
+        try:
+            from src.schemas.notification import NotificationCreate
+            from src.services.notification_service import NotificationService
+
+            notif_svc = NotificationService(self.db)
+            await notif_svc.create(
+                NotificationCreate(
+                    user_id=member_data.user_id,
+                    type="space_member_added",
+                    title=f"You were added to space '{space.name}'",
+                    description=f"{user.name or user.email} added you to this space",
+                    entity_type="space",
+                    entity_id=str(space_id),
+                    deep_link=f"/dashboard?space={space_id}",
+                )
+            )
+        except Exception:
+            pass  # Non-fatal
+
         return SpaceMemberResponse.model_validate(member)
 
     async def remove_space_member(self, space_id: UUID, user_id: UUID, current_user: User) -> None:

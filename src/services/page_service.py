@@ -309,6 +309,26 @@ class PageService:
         await self.db.commit()
         await self.db.refresh(member)
 
+        # Notify the new member they've been added to the page
+        try:
+            from src.schemas.notification import NotificationCreate
+            from src.services.notification_service import NotificationService
+
+            notif_svc = NotificationService(self.db)
+            await notif_svc.create(
+                NotificationCreate(
+                    user_id=member_data.user_id,
+                    type="page_member_added",
+                    title=f"You were added to '{page.name}'",
+                    description=f"{user.name or user.email} added you as {member_data.role}",
+                    entity_type="page",
+                    entity_id=str(page_id),
+                    deep_link=f"/dashboard?page={page_id}",
+                )
+            )
+        except Exception:
+            pass  # Non-fatal — don't block the membership operation
+
         return PageMemberResponse.model_validate(member)
 
     async def remove_member(self, page_id: UUID, user_id: UUID, current_user: User) -> None:

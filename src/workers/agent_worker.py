@@ -154,6 +154,31 @@ async def _execute_agent_async(agent_id: str):
             agent.next_execution_at = datetime.now(timezone.utc) + timedelta(hours=hours)
 
             await db.commit()
+
+            # 7. Notify the agent creator about new findings
+            if findings_created > 0 and agent.created_by:
+                try:
+                    from src.schemas.notification import NotificationCreate
+                    from src.services.notification_service import NotificationService
+
+                    notif_svc = NotificationService(db)
+                    title = (
+                        f"{agent.name} found {findings_created} new insight{'s' if findings_created > 1 else ''}"
+                    )
+                    await notif_svc.create(
+                        NotificationCreate(
+                            user_id=agent.created_by,
+                            type="agent_finding",
+                            title=title,
+                            description=answer[:200] if answer else None,
+                            entity_type="agent",
+                            entity_id=str(agent.id),
+                            deep_link=f"/dashboard/sky-studio?agent={agent.id}",
+                        )
+                    )
+                except Exception as notif_err:
+                    logger.warning(f"Agent {agent_id}: notification failed (non-fatal): {notif_err}")
+
             logger.info(
                 f"Agent {agent_id} executed successfully: "
                 f"{findings_created} findings, {cycles} cycles consumed"
