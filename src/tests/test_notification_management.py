@@ -466,38 +466,286 @@ class TestNotificationPreferences:
 class TestNotificationProducers:
     """C1, C6–C8: verify that service calls create notifications."""
 
-    # C6 — Page member added creates notification
-    async def test_c6_page_member_added_notification(
-        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
-    ):
-        user = test_user_with_tokens["user"]
-        # Create a page, then add a second user
-        from src.services.page_service import PageService
-        from src.schemas.page import PageCreate
+    # -- Helpers --
 
-        page_svc = PageService(db_session)
-        page = await page_svc.create_page(user, PageCreate(name="Notify Test", type="personal", color="#3B82F6"))
-
-        # Create another user to be the member
+    async def _create_second_user(self, db_session: AsyncSession, email: str = "member@test.com"):
         from src.repositories.user import UserRepository
         from src.core.security import get_password_hash
 
         user_repo = UserRepository(db_session)
-        member_user = await user_repo.create(
-            email="member@test.com",
+        user = await user_repo.create(
+            email=email,
             password_hash=get_password_hash("pass123"),
             name="Member User",
             role="user",
         )
         await db_session.commit()
+        return user
 
-        from src.schemas.page import PageMemberCreate
+    # C1 — Agent finding creates notification for agent creator
+    async def test_c1_agent_finding_notification_service_level(
+        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        """Simulates what agent_worker does after creating findings."""
+        user = test_user_with_tokens["user"]
+        agent_id = str(uuid4())
+
+        svc = NotificationService(db_session)
+        result = await svc.create(
+            NotificationCreate(
+                user_id=user.id,
+                type="agent_finding",
+                title="Sales Agent found 3 new insights",
+                description="Revenue up 12% in Q3...",
+                entity_type="agent",
+                entity_id=agent_id,
+                deep_link=f"/dashboard/sky-studio?agent={agent_id}",
+            )
+        )
+        assert result is not None
+        assert result.type == "agent_finding"
+        assert "Sales Agent" in result.title
+
+        notifs = await svc.get_notifications(user.id)
+        assert any(n.entity_id == agent_id for n in notifs)
+
+    # C6 — Page member added creates notification
+    async def test_c6_page_member_added_notification(
+        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        user = test_user_with_tokens["user"]
+        from src.services.page_service import PageService
+        from src.schemas.page import PageCreate, PageMemberCreate
+
+        page_svc = PageService(db_session)
+        page = await page_svc.create_page(user, PageCreate(name="Notify Test", type="personal", color="#3B82F6"))
+
+        member_user = await self._create_second_user(db_session, "page-member@test.com")
         await page_svc.add_member(page.id, user, PageMemberCreate(user_id=member_user.id, role="viewer"))
 
-        # Check that the member received a notification
         svc = NotificationService(db_session)
         notifs = await svc.get_notifications(member_user.id)
         assert any("Notify Test" in (n.title or "") for n in notifs)
+        assert any(n.type == "page_member_added" for n in notifs)
+
+    # C7 — Space member added creates notification
+    async def test_c7_space_member_added_notification(
+        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        user = test_user_with_tokens["user"]
+        from src.services.space_service import SpaceService
+        from src.schemas.space import SpaceCreate, SpaceMemberCreate
+
+        space_svc = SpaceService(db_session)
+        space = await space_svc.create_space(user, SpaceCreate(name="Alpha Space"))
+
+        member_user = await self._create_second_user(db_session, "space-member@test.com")
+        await space_svc.add_space_member(space.id, user, SpaceMemberCreate(user_id=member_user.id))
+
+        svc = NotificationService(db_session)
+        notifs = await svc.get_notifications(member_user.id)
+        assert any("Alpha Space" in (n.title or "") for n in notifs)
+        assert any(n.type == "space_member_added" for n in notifs)
+
+    # C8 — Crew member added creates notification
+    async def test_c8_crew_member_added_notification(
+        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        user = test_user_with_tokens["user"]
+        from src.services.space_service import SpaceService
+        from src.services.crew_service import CrewService
+        from src.schemas.space import SpaceCreate
+        from src.schemas.crew import CrewCreate, CrewMemberCreate
+
+        space_svc = SpaceService(db_session)
+        space = await space_svc.create_space(user, SpaceCreate(name="Test Space"))
+
+        crew_svc = CrewService(db_session)
+        crew = await crew_svc.create_crew(user, CrewCreate(name="Bravo Crew", space_id=space.id))
+
+        member_user = await self._create_second_user(db_session, "crew-member@test.com")
+        await crew_svc.add_crew_member(crew.id, user, CrewMemberCreate(user_id=member_user.id, role="explorer"))
+
+        svc = NotificationService(db_session)
+        notifs = await svc.get_notifications(member_user.id)
+        assert any("Bravo Crew" in (n.title or "") for n in notifs)
+        assert any(n.type == "crew_member_added" for n in notifs)
+
+    # C6b — Page member notification has correct deep-link
+    async def test_c6b_page_notification_deep_link(
+        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        user = test_user_with_tokens["user"]
+        from src.services.page_service import PageService
+        from src.schemas.page import PageCreate, PageMemberCreate
+
+        page_svc = PageService(db_session)
+        page = await page_svc.create_page(user, PageCreate(name="Deep Link Test", type="personal", color="#3B82F6"))
+
+        member_user = await self._create_second_user(db_session, "deeplink@test.com")
+        await page_svc.add_member(page.id, user, PageMemberCreate(user_id=member_user.id, role="viewer"))
+
+        svc = NotificationService(db_session)
+        notifs = await svc.get_notifications(member_user.id)
+        page_notif = next((n for n in notifs if n.type == "page_member_added"), None)
+        assert page_notif is not None
+        assert str(page.id) in (page_notif.deep_link or "")
+
+    # C1b — Agent finding notification includes description
+    async def test_c1b_agent_finding_has_description(
+        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        user = test_user_with_tokens["user"]
+        svc = NotificationService(db_session)
+        result = await svc.create(
+            NotificationCreate(
+                user_id=user.id,
+                type="agent_finding",
+                title="Agent found something",
+                description="Revenue anomaly detected in Q4 data",
+                entity_type="agent",
+                entity_id=str(uuid4()),
+            )
+        )
+        assert result is not None
+        assert result.description == "Revenue anomaly detected in Q4 data"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GROUP D — Cross-suppression: preferences interact with producers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+class TestCrossSuppression:
+    """Verify that mute rules correctly suppress real producer events."""
+
+    # D1 — Mute agents category → agent finding suppressed but crew added passes
+    async def test_d1_mute_agents_only_suppresses_agents(
+        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        user = test_user_with_tokens["user"]
+
+        # Mute agents category
+        pref_svc = NotificationPreferenceService(db_session)
+        from src.schemas.notification_preference import NotificationPreferenceCreate
+        await pref_svc.update_preferences(user.id, [
+            NotificationPreferenceCreate(scope_type="category", scope_value="agents", channel="all", enabled=False)
+        ])
+
+        svc = NotificationService(db_session)
+
+        # Agent finding → suppressed
+        agent_result = await svc.create(NotificationCreate(
+            user_id=user.id, type="agent_finding", title="Should be muted",
+            entity_type="agent", entity_id=str(uuid4()),
+        ))
+        assert agent_result is None
+
+        # Crew member added → should pass (collaboration category, not agents)
+        crew_result = await svc.create(NotificationCreate(
+            user_id=user.id, type="crew_member_added", title="Should arrive",
+            entity_type="crew", entity_id=str(uuid4()),
+        ))
+        assert crew_result is not None
+        assert crew_result.title == "Should arrive"
+
+    # D2 — Focus mode suppresses everything, then resume lets them through
+    async def test_d2_focus_then_resume_flow(
+        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        user = test_user_with_tokens["user"]
+        pref_svc = NotificationPreferenceService(db_session)
+        svc = NotificationService(db_session)
+
+        # Pause
+        await pref_svc.toggle_pause(user.id, True)
+        suppressed = await svc.create(NotificationCreate(
+            user_id=user.id, type="comment_mention", title="During pause",
+            entity_type="comment", entity_id=str(uuid4()),
+        ))
+        assert suppressed is None
+
+        # Resume
+        await pref_svc.toggle_pause(user.id, False)
+        delivered = await svc.create(NotificationCreate(
+            user_id=user.id, type="comment_mention", title="After resume",
+            entity_type="comment", entity_id=str(uuid4()),
+        ))
+        assert delivered is not None
+        assert delivered.title == "After resume"
+
+    # D3 — Mute specific dashboard source, other dashboards still notify
+    async def test_d3_mute_specific_dashboard(
+        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        user = test_user_with_tokens["user"]
+        muted_dash = str(uuid4())
+        other_dash = str(uuid4())
+
+        pref_svc = NotificationPreferenceService(db_session)
+        from src.schemas.notification_preference import NotificationPreferenceCreate
+        await pref_svc.update_preferences(user.id, [
+            NotificationPreferenceCreate(
+                scope_type="source", scope_value=f"dashboard:{muted_dash}",
+                channel="all", enabled=False
+            )
+        ])
+
+        svc = NotificationService(db_session)
+
+        # Muted dashboard → suppressed
+        r1 = await svc.create(NotificationCreate(
+            user_id=user.id, type="dashboard_edited_by_other", title="Muted dash edit",
+            entity_type="dashboard", entity_id=muted_dash,
+        ))
+        assert r1 is None
+
+        # Other dashboard → passes
+        r2 = await svc.create(NotificationCreate(
+            user_id=user.id, type="dashboard_edited_by_other", title="Other dash edit",
+            entity_type="dashboard", entity_id=other_dash,
+        ))
+        assert r2 is not None
+
+    # D4 — Multiple preferences coexist without conflict
+    async def test_d4_multiple_preferences_coexist(
+        self, async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    ):
+        user = test_user_with_tokens["user"]
+        pref_svc = NotificationPreferenceService(db_session)
+        from src.schemas.notification_preference import NotificationPreferenceCreate
+
+        # Mute agents AND mute a specific dashboard
+        await pref_svc.update_preferences(user.id, [
+            NotificationPreferenceCreate(scope_type="category", scope_value="agents", enabled=False),
+            NotificationPreferenceCreate(scope_type="source", scope_value="dashboard:abc", enabled=False),
+        ])
+
+        svc = NotificationService(db_session)
+
+        # Agent → suppressed
+        assert await svc.create(NotificationCreate(
+            user_id=user.id, type="agent_finding", title="A",
+            entity_type="agent", entity_id=str(uuid4()),
+        )) is None
+
+        # Dashboard abc → suppressed
+        assert await svc.create(NotificationCreate(
+            user_id=user.id, type="dashboard_edited_by_other", title="B",
+            entity_type="dashboard", entity_id="abc",
+        )) is None
+
+        # Mention → passes (neither agents category nor source abc)
+        mention = await svc.create(NotificationCreate(
+            user_id=user.id, type="comment_mention", title="C",
+            entity_type="comment", entity_id=str(uuid4()),
+        ))
+        assert mention is not None
+
+        # Verify preferences list
+        prefs = await pref_svc.get_preferences(user.id)
+        assert len(prefs) == 2
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
