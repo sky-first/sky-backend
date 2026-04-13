@@ -18,6 +18,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Widen alembic_version.version_num so this revision ID (38 chars) fits VARCHAR(32)
+    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)")
+
     op.create_table(
         "notification_preferences",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
@@ -36,3 +39,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("idx_notif_pref_user_id", table_name="notification_preferences")
     op.drop_table("notification_preferences")
+    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(32)")

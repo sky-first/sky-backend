@@ -36,7 +36,7 @@ from src.schemas.connection import (
 logger = structlog.get_logger(__name__)
 
 
-def _decrypt_config(config: dict | None) -> dict:
+def _decrypt_config(config: Optional[dict]) -> dict:
     """Decrypt connection config in memory. Handles legacy plaintext gracefully."""
     if not config:
         return {}

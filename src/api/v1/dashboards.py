@@ -861,7 +861,7 @@ async def ai_build_dashboard_async(
     max_widgets = min(int(body.max_widgets or 8), 6)
 
     job_repo = BaseRepository(db, DashboardBuildJob)
-    context: dict | None = None
+    context: Optional[dict] = None
     if (
         body.initial_ai_response
         or (isinstance(body.context_spaces, list) and body.context_spaces)

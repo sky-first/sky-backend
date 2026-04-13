@@ -19,6 +19,7 @@ from src.api.v1 import (
     intelligence_signals,
     notifications,
     permissions,
+    presence,
     privacy,
     support,
     pages,
@@ -136,3 +137,6 @@ api_router.include_router(
 
 # Agent endpoints
 api_router.include_router(agents.router, prefix="/agents", tags=["Agents"])
+
+# Presence (WebSocket) endpoints
+api_router.include_router(presence.router, prefix="", tags=["Presence"])

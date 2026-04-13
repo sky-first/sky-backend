@@ -15,7 +15,7 @@ import hashlib
 import json
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 # The encryption key. In production this comes from Azure Key Vault via
 # ExternalSecret. For local dev, generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-_ENCRYPTION_KEY: str | None = os.environ.get("ENCRYPTION_KEY")
+_ENCRYPTION_KEY: Optional[str] = os.environ.get("ENCRYPTION_KEY")
 
 
-def _get_fernet() -> Fernet | None:
+def _get_fernet() -> Optional[Fernet]:
     """Get a Fernet instance, or None if no key is configured."""
     if not _ENCRYPTION_KEY:
         return None
