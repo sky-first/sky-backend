@@ -181,7 +181,9 @@ class AuthenticationService:
         refresh_token = create_refresh_token(token_data)
 
         # Save refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
+        )
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,
@@ -262,7 +264,9 @@ class AuthenticationService:
         refresh_token = create_refresh_token(token_data)
 
         # Save refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
+        )
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,
@@ -357,7 +361,9 @@ class AuthenticationService:
         new_refresh_token = create_refresh_token(token_data)
 
         # Save new refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
+        )
         new_token_model = RefreshToken(
             user_id=user.id,
             token=new_refresh_token,
@@ -374,18 +380,28 @@ class AuthenticationService:
 
     async def logout(self, refresh_token: str) -> None:
         """
-        Logout user by revoking refresh token.
+        Logout user by revoking refresh token and marking them offline.
 
         Args:
             refresh_token: Refresh token to revoke
         """
-        from sqlalchemy import update
+        from sqlalchemy import select, update
 
+        # Revoke the token
         await self.db.execute(
             update(RefreshToken)
             .where(RefreshToken.token == refresh_token)
             .values(revoked_at=datetime.now(timezone.utc))
         )
+
+        # Mark the user offline so presence reflects the logout
+        result = await self.db.execute(
+            select(RefreshToken.user_id).where(RefreshToken.token == refresh_token)
+        )
+        user_id = result.scalar_one_or_none()
+        if user_id:
+            await self.db.execute(update(User).where(User.id == user_id).values(status="offline"))
+
         await self.db.commit()
 
     async def revoke_all_tokens(self, user_id: UUID) -> None:
