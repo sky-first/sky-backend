@@ -158,6 +158,14 @@ class SpaceService:
             created_by=user.id,
         )
 
+        # Auto-add creator as the first member of the space.
+        # Without this, the creator does not show up in the members list
+        # nor in the collaborative presence pill (see DO2025-collaborative-mode).
+        await self.member_repo.create(
+            space_id=space.id,
+            user_id=user.id,
+        )
+
         await self.db.commit()
         await self.db.refresh(space)
 
