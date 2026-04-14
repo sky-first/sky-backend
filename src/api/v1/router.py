@@ -10,6 +10,7 @@ from src.api.v1 import (
     comments,
     connections,
     conversations,
+    insight_agents,
     messages,
     connectors,
     crews,
@@ -63,6 +64,12 @@ api_router.include_router(
 )
 api_router.include_router(
     messages.router, prefix="/messages", tags=["Messages"]
+)
+
+# Insight-mode agent endpoints — mounted under /agents/insight so the
+# pre-existing /agents (question/datasource/sql) CRUD stays untouched.
+api_router.include_router(
+    insight_agents.router, prefix="/agents/insight", tags=["Insight Agents"]
 )
 
 # Dashboard endpoints
