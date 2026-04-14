@@ -18,6 +18,7 @@ from src.models.ai import (
     PipelineStep,
 )
 from src.models.comment import Comment
+from src.models.conversation import Conversation, Message
 from src.models.connection import ColumnMetadata, ConnectionMetadata, DataConnection, TableMetadata
 from src.models.crew import Crew, CrewMember
 from src.models.dashboard import Connection, Dashboard, Widget
@@ -87,6 +88,8 @@ __all__ = [
     "Notification",
     "NotificationPreference",
     "Comment",
+    "Conversation",
+    "Message",
     "SignalEvent",
     "EnterpriseRelationship",
     "EnterpriseAPI",

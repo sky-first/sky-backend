@@ -126,6 +126,33 @@ class Widget(Base):
         onupdate=func.now(),
     )
 
+    # --- Agent / conversation attribution (nullable for backward compat) ---
+    conversation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    pinned_message_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_by_sp_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("service_principals.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_by_agent_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     # Relationships
     dashboard = relationship("Dashboard", back_populates="widgets")
     connection = relationship("DataConnection", foreign_keys=[connection_id])
@@ -136,6 +163,16 @@ class Widget(Base):
         Index("idx_widgets_type", "type"),
         Index("idx_widgets_connection_id", "connection_id"),
         Index("idx_widgets_query_id", "query_id"),
+        Index(
+            "idx_widgets_conversation_id",
+            "conversation_id",
+            postgresql_where=text("conversation_id IS NOT NULL"),
+        ),
+        Index(
+            "idx_widgets_created_by_agent_id",
+            "created_by_agent_id",
+            postgresql_where=text("created_by_agent_id IS NOT NULL"),
+        ),
     )
 
     def __repr__(self) -> str:
