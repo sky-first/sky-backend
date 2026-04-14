@@ -166,6 +166,17 @@ class SpaceService:
             user_id=user.id,
         )
 
+        # Auto-create a service principal for this space (C3 in master plan).
+        # Collaborative agents created on space-scoped pages run as this
+        # identity so they survive the creator leaving the org.
+        from src.models.service_principal import ServicePrincipal
+
+        sp = ServicePrincipal(
+            space_id=space.id,
+            name=f"sa-space-{str(space.id)[:8]}",
+        )
+        self.db.add(sp)
+
         await self.db.commit()
         await self.db.refresh(space)
 
@@ -238,6 +249,23 @@ class SpaceService:
             # Production mode: only admin or owner can delete
             if user.role != "admin" and space.created_by != user.id:
                 raise ForbiddenError("Access denied to this space")
+
+        # C6: end every agent scoped to this space before cascade-deleting.
+        # The agents rows are kept (audit), but moved to status='ended' so
+        # the worker / beat never schedules them again.
+        from sqlalchemy import update as sa_update
+
+        from src.models.agent import Agent
+
+        await self.db.execute(
+            sa_update(Agent)
+            .where(
+                Agent.scope == "space",
+                Agent.scope_id == str(space_id),
+                Agent.status != "ended",
+            )
+            .values(status="ended")
+        )
 
         await self.space_repo.delete(space_id)
         await self.db.commit()

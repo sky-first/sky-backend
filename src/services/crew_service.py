@@ -324,6 +324,23 @@ class CrewService:
             except Exception as e:
                 logger.warning(f"Failed to stop tasks for crew {crew_id}: {e}")
 
+        # C6: end every agent scoped to this crew before delete. The agent
+        # rows stay for audit; status='ended' keeps the worker from ever
+        # picking them up again.
+        from sqlalchemy import update as sa_update
+
+        from src.models.agent import Agent
+
+        await self.db.execute(
+            sa_update(Agent)
+            .where(
+                Agent.scope == "crew",
+                Agent.scope_id == str(crew_id),
+                Agent.status != "ended",
+            )
+            .values(status="ended")
+        )
+
         logger.info(f"🔴 [DELETE SERVICE] Calling crew_repo.delete for crew {crew_id}")
         await self.crew_repo.delete(crew_id)
         await self.db.commit()
