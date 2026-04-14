@@ -1,8 +1,8 @@
 import uuid
 from enum import Enum
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, func, text
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, func, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
 
@@ -15,6 +15,10 @@ from src.config.database import Base
 # is a zero-migration change.
 def _array_with_sqlite_variant(inner_type):
     return ARRAY(inner_type).with_variant(JSON(), "sqlite")
+
+
+# Same story for JSONB — fall back to plain JSON on SQLite.
+_JSONB_OR_JSON = JSONB().with_variant(JSON(), "sqlite")
 
 
 class AgentScope(str, Enum):
@@ -103,6 +107,56 @@ class Agent(Base):
         index=True,
     )
 
+    # --- Identity (user vs service principal) ---
+    # identity_type='user' → agent runs under `created_by`
+    # identity_type='service_principal' → agent runs under `service_principal_id`
+    identity_type = Column(
+        String(20),
+        nullable=False,
+        server_default="user",
+    )
+    service_principal_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("service_principals.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # --- Insight mode linkage ---
+    widget_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("widgets.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    conversation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # --- Flexible schedule (replaces the coarse `frequency` enum over time) ---
+    # Shape: { "interval_value": int, "interval_unit": "minute"|"hour"|"day"|"week", "timezone": str? }
+    schedule_jsonb = Column(_JSONB_OR_JSON, nullable=True)
+    ends_at = Column(DateTime(timezone=True), nullable=True)
+
+    # --- Delta strategy ---
+    delta_strategy = Column(
+        String(10),
+        nullable=False,
+        server_default="hash",
+    )
+
+    # --- Behaviour ---
+    notify_on_change = Column(
+        Boolean,
+        nullable=False,
+        server_default="true",
+    )
+    consecutive_failures = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -119,6 +173,28 @@ class Agent(Base):
     findings = relationship("AgentFinding", back_populates="agent", cascade="all, delete-orphan", order_by="AgentFinding.created_at.desc()")
     executions = relationship("AgentExecution", back_populates="agent", cascade="all, delete-orphan", order_by="AgentExecution.started_at.desc()")
     creator = relationship("User", foreign_keys=[created_by])
+    service_principal = relationship("ServicePrincipal", foreign_keys=[service_principal_id])
+
+    __table_args__ = (
+        CheckConstraint(
+            "identity_type IN ('user', 'service_principal')",
+            name="ck_agents_identity_type_valid",
+        ),
+        CheckConstraint(
+            "delta_strategy IN ('hash', 'llm')",
+            name="ck_agents_delta_strategy_valid",
+        ),
+        Index(
+            "idx_agents_widget_id",
+            "widget_id",
+            postgresql_where=text("widget_id IS NOT NULL"),
+        ),
+        Index(
+            "idx_agents_ends_at",
+            "ends_at",
+            postgresql_where=text("ends_at IS NOT NULL"),
+        ),
+    )
 
     def __repr__(self):
         return f"<Agent(id={self.id}, name={self.name}, scope={self.scope}, status={self.status})>"
@@ -198,6 +274,36 @@ class AgentExecution(Base):
     answer = Column(Text, nullable=True)  # The AI's answer for comparison
     sql_executed = Column(Text, nullable=True)  # The SQL that was run
 
+    # --- Delta detection ---
+    result_hash = Column(String(64), nullable=True)
+    result_payload = Column(_JSONB_OR_JSON, nullable=True)
+    delta_kind = Column(String(20), nullable=True)  # 'first_run' | 'none' | 'trivial' | 'material'
+    delta_summary = Column(Text, nullable=True)
+    delta_tokens = Column(Integer, nullable=True)
+    delta_cost_usd = Column(Numeric(10, 4), nullable=True)
+
+    # --- Main-execution cost ---
+    llm_tokens_used = Column(Integer, nullable=True)
+    llm_cost_usd = Column(Numeric(10, 4), nullable=True)
+
+    # --- Identity audit ---
+    triggered_by_sp_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("service_principals.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    attributed_to_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    notification_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("notifications.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    duration_ms = Column(Integer, nullable=True)
+
     started_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -208,6 +314,19 @@ class AgentExecution(Base):
     # Relationships
     agent = relationship("Agent", back_populates="executions")
     findings = relationship("AgentFinding", back_populates="execution")
+
+    __table_args__ = (
+        CheckConstraint(
+            "delta_kind IS NULL OR delta_kind IN ('first_run', 'none', 'trivial', 'material')",
+            name="ck_agent_executions_delta_kind_valid",
+        ),
+        Index("idx_agent_executions_agent_started", "agent_id", "started_at"),
+        Index(
+            "idx_agent_executions_delta_kind",
+            "delta_kind",
+            postgresql_where=text("delta_kind = 'material'"),
+        ),
+    )
 
     def __repr__(self):
         return f"<AgentExecution(id={self.id}, agent_id={self.agent_id}, status={self.status})>"
