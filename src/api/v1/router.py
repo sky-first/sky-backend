@@ -10,6 +10,7 @@ from src.api.v1 import (
     comments,
     connections,
     conversations,
+    messages,
     connectors,
     crews,
     dashboards,
@@ -53,6 +54,15 @@ api_router.include_router(
 )
 api_router.include_router(
     conversations.router, prefix="/conversations", tags=["Conversations"]
+)
+
+# Message endpoints — nested under conversations for list/create/fork,
+# top-level /messages for pin.
+api_router.include_router(
+    messages.conversation_router, prefix="/conversations", tags=["Messages"]
+)
+api_router.include_router(
+    messages.router, prefix="/messages", tags=["Messages"]
 )
 
 # Dashboard endpoints
