@@ -471,13 +471,22 @@ class PageService:
         if not page or page.deleted_at:
             raise NotFoundError("Page not found")
 
-        # Check if user is owner or member
+        # Check if user is owner or direct member
         if page.owner_id != user_id:
             member = await self.member_repo.get_by_page_and_user(page_id, user_id)
             if not member:
-                # We return 404 instead of 403 to prevent ID enumeration
-                # but for internal service logic, ForbiddenError might be clearer.
-                # However, the plan says 404 to avoid enumeration.
-                raise NotFoundError("Page not found")
+                # Check crew membership for collaborative pages
+                if page.crew_id:
+                    from src.repositories.crew import CrewMemberRepository
+
+                    crew_member_repo = CrewMemberRepository(self.db)
+                    crew_member = await crew_member_repo.get_by_crew_and_user(
+                        page.crew_id, user_id
+                    )
+                    if not crew_member:
+                        raise NotFoundError("Page not found")
+                else:
+                    raise NotFoundError("Page not found")
 
         return page
+

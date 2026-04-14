@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.mock import MockAIService
@@ -950,7 +950,7 @@ class AIService:
     async def get_history(
         self,
         user_id: UUID,
-        page_id: UUID,
+        page_id: Optional[UUID] = None,
         filter_type: Optional[str] = None,
         search: Optional[str] = None,
         category: Optional[str] = None,
@@ -958,6 +958,7 @@ class AIService:
         limit: int = 100,
         crew_id: Optional[str] = None,
         space_id: Optional[str] = None,
+        is_personal: bool = False,
     ) -> List[AIHistoryItem]:
         """
         Get AI history.
@@ -973,54 +974,68 @@ class AIService:
         Returns:
             List[AIHistoryItem]: History items
         """
-        from sqlalchemy import select
 
-        # Build base query
-        query = select(AIHistory).where(
-            AIHistory.page_id == page_id, AIHistory.user_id == user_id
-        )
+        # ── Build base query based on context ──────────────────────────────────
+        #
+        # Priority:
+        #   1. is_personal=True → scoped to (user_id + page_id), ignore crew
+        #   2. crew_id present  → scoped to all interactions for that crew
+        #   3. fallback         → scoped to (user_id + page_id)
+        #
+        base_query = select(AIHistory)
 
-        # Apply date filters
+        if is_personal:
+            # Strict personal isolation: only the current user's items on this page
+            conditions = [AIHistory.user_id == user_id]
+            if page_id is not None:
+                conditions.append(AIHistory.page_id == page_id)
+            base_query = base_query.where(*conditions)
+        elif crew_id:
+            # Collaborative crew mode: all interactions for this crew, any page, any user
+            base_query = base_query.where(AIHistory.crew_id == crew_id)
+        elif page_id is not None:
+            # Personal fallback with known page_id
+            base_query = base_query.where(
+                AIHistory.user_id == user_id,
+                AIHistory.page_id == page_id,
+            )
+        else:
+            # No context at all — just return user's own history
+            base_query = base_query.where(AIHistory.user_id == user_id)
+
+        # ── Apply filter_type ──────────────────────────────────────────────────
         now = datetime.now(timezone.utc)
         if filter_type == "today":
-            # Last 24 hours
             yesterday = now - timedelta(hours=24)
-            query = query.where(AIHistory.date >= yesterday)
+            base_query = base_query.where(AIHistory.date >= yesterday)
         elif filter_type == "week":
-            # Last 7 days
             week_ago = now - timedelta(days=7)
-            query = query.where(AIHistory.date >= week_ago)
+            base_query = base_query.where(AIHistory.date >= week_ago)
         elif filter_type == "pinned":
-            # Only pinned items
-            query = query.where(AIHistory.pinned.is_(True))
-        # "all" or None: no date filter, show everything
+            base_query = base_query.where(AIHistory.pinned.is_(True))
+        # "all" / None → no date filter
 
-        # Apply category filter
+        # ── Apply additional filters ───────────────────────────────────────────
         if category:
-            query = query.where(AIHistory.category == category)
+            base_query = base_query.where(AIHistory.category == category)
 
-        # Apply collaborative context filters
-        if crew_id:
-            query = query.where(AIHistory.crew_id == crew_id)
-        if space_id:
-            query = query.where(AIHistory.space_id == space_id)
-
-        # Order by date descending (most recent first)
-        query = query.order_by(AIHistory.date.desc())
-
-        # Apply pagination
-        query = query.offset(skip).limit(limit)
-
-        # Execute query
-        result = await self.db.execute(query)
-        history_items = list(result.scalars().all())
-        # Apply search filter if provided (client-side for better UX)
+        # ── Apply search (server-side for accuracy) ────────────────────────────
         if search:
-            history_items = [
-                item
-                for item in history_items
-                if search.lower() in item.query.lower() or search.lower() in item.preview.lower()
-            ]
+            search_lower = f"%{search.lower()}%"
+            base_query = base_query.where(
+                or_(
+                    AIHistory.query.ilike(search_lower),
+                    AIHistory.preview.ilike(search_lower),
+                    AIHistory.answer.ilike(search_lower),
+                )
+            )
+
+        # ── Sort + paginate ────────────────────────────────────────────────────
+        base_query = base_query.order_by(AIHistory.pinned.desc(), AIHistory.date.desc())
+        base_query = base_query.offset(skip).limit(limit)
+
+        result = await self.db.execute(base_query)
+        history_items = list(result.scalars().all())
 
         return [AIHistoryItem.model_validate(item) for item in history_items]
 

@@ -455,6 +455,7 @@ async def get_history(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     page_id: Optional[UUID] = Query(None, description="Page ID for filtering"),
+    is_personal: bool = Query(False, description="Whether to fetch personal history"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[AIHistoryItem]:
@@ -475,7 +476,13 @@ async def get_history(
     """
     # Resolve and validate page_id
     resolved_page_id = page_id
-    if not resolved_page_id:
+    if crew_id:
+        # Collaborative crew mode: page_id is optional.
+        # History is scoped by crew_id, no page ownership check needed.
+        # If page_id is provided alongside crew_id, use it as-is (no validation required).
+        pass
+    elif not resolved_page_id:
+        # Personal mode with no page_id: resolve the active page
         page_repo = PageRepository(db)
         active_page = await page_repo.get_active_page(current_user.id)
         if not active_page:
@@ -484,6 +491,7 @@ async def get_history(
             raise NotFoundError("No active page found for user")
         resolved_page_id = active_page.id
     else:
+        # Personal mode with explicit page_id: validate ownership
         from src.services.page_service import PageService
 
         page_service = PageService(db)
@@ -500,6 +508,7 @@ async def get_history(
         limit=limit,
         crew_id=crew_id,
         space_id=space_id,
+        is_personal=is_personal,
     )
 
 
