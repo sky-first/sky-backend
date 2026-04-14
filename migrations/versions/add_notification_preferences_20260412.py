@@ -18,6 +18,12 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Widen alembic_version.version_num so revision IDs longer than the
+    # default VARCHAR(32) can be recorded. This revision ID itself is
+    # 37 chars — without widening, alembic fails updating its bookkeeping
+    # table right after creating the table below.
+    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
+
     op.create_table(
         "notification_preferences",
         sa.Column("id", UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
