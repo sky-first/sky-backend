@@ -108,6 +108,8 @@ celery_app.conf.update(
         "src.workers.sync_worker",
         "src.workers.ai_worker",
         "src.workers.cache_warming_worker",
+        "src.workers.agent_worker",
+        "src.workers.insight_agent_worker",
     ],
 )
 
@@ -129,6 +131,14 @@ try:
             "schedule-agents": {
                 "task": "src.workers.agent_worker.schedule_agents",
                 "schedule": timedelta(minutes=5),
+            },
+            # Insight-mode agents have their own scheduler because they
+            # use the new AgentRunService state machine (iteration 1.6)
+            # and run at finer granularities (down to 1 minute). Legacy
+            # agents stay on the 5-minute beat.
+            "schedule-insight-agents": {
+                "task": "src.workers.insight_agent_worker.schedule_insight_agents",
+                "schedule": timedelta(minutes=1),
             },
         }
 except Exception:
