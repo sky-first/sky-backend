@@ -17,6 +17,7 @@ from src.config.database import (
     log_connection_stats,
 )
 from src.config.redis import close_redis, init_redis
+from src.core.context_events import init_context_events
 from src.core.errors.handlers import register_exception_handlers
 from src.core.logging import configure_logging, get_logger
 from src.core.middleware.correlation import CorrelationIdMiddleware
@@ -34,6 +35,12 @@ async def lifespan(app: FastAPI):
     logger.info("application_startup")
     await init_db()
     await init_redis()
+    # Context Layer — register domain-event listeners that publish to the
+    # `context:ingest` Redis stream consumed by the AI service ingest
+    # worker. Done after init_db so the SQLAlchemy Session class exists.
+    from src.config.database import AsyncSessionLocal
+
+    init_context_events(AsyncSessionLocal)
     # Log initial connection stats
     await log_connection_stats()
     logger.info("application_ready")
