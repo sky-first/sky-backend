@@ -9,6 +9,7 @@ from src.api.v1 import (
     auth,
     comments,
     connections,
+    context_health,
     conversations,
     insight_agents,
     messages,
@@ -114,6 +115,11 @@ api_router.include_router(settings.router, prefix="/settings", tags=["Settings"]
 # Settings Metrics endpoints
 api_router.include_router(
     settings_metrics.router, prefix="/settings/metrics", tags=["Settings Metrics"]
+)
+
+# Context Layer health — admin-only; feeds the Administration tab in Settings.
+api_router.include_router(
+    context_health.router, prefix="/context", tags=["Context Health"]
 )
 
 # File upload endpoints
