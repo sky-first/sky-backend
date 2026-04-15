@@ -2,9 +2,35 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.models.agent import AgentArchetype, AgentFrequency, AgentScope, AgentStatus, FindingSeverity, FindingType
+
+
+# Phase 4.2: explicit set of agent monitor types the platform supports.
+# Kept as a tuple (not an Enum) because `datasource` is a legacy alias
+# for `scan` — Pydantic Enums reject aliases, a validator does not.
+# Clients still writing `datasource` keep working; new writers should
+# prefer `scan`. `context` is reserved for Phase 5 (full-context mode).
+MONITOR_TYPE_VALUES: tuple[str, ...] = (
+    "question",
+    "sql",
+    "scan",
+    "datasource",
+    "context",
+    "insight",
+)
+
+
+def _validate_monitor_type(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return None
+    s = str(v).strip().lower()
+    if s not in MONITOR_TYPE_VALUES:
+        raise ValueError(
+            f"monitor_type must be one of {MONITOR_TYPE_VALUES}, got {v!r}"
+        )
+    return s
 
 
 # ─── Agent schemas ───
@@ -15,7 +41,7 @@ class AgentCreate(BaseModel):
     scope: AgentScope = AgentScope.SPACE
     scope_id: str = Field(..., max_length=255)
     scope_name: Optional[str] = Field(None, max_length=255)
-    monitor_type: str = Field("question", max_length=20)  # question, datasource, sql
+    monitor_type: str = Field("question", max_length=20)
     focus: Optional[str] = None  # The question or instructions
     custom_sql: Optional[str] = None  # For sql monitor_type
     frequency: AgentFrequency = AgentFrequency.DAILY
@@ -24,6 +50,11 @@ class AgentCreate(BaseModel):
     table_ids: Optional[List[str]] = None  # Granular table selection
     space_ids: Optional[List[UUID]] = None
     relationship_types: Optional[List[str]] = None
+
+    @field_validator("monitor_type")
+    @classmethod
+    def _check_monitor_type(cls, v):
+        return _validate_monitor_type(v) or "question"
 
 
 class AgentUpdate(BaseModel):
@@ -37,6 +68,11 @@ class AgentUpdate(BaseModel):
     connection_ids: Optional[List[UUID]] = None
     space_ids: Optional[List[UUID]] = None
     relationship_types: Optional[List[str]] = None
+
+    @field_validator("monitor_type")
+    @classmethod
+    def _check_monitor_type(cls, v):
+        return _validate_monitor_type(v)
 
 
 class AgentFindingResponse(BaseModel):
