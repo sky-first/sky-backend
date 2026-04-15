@@ -329,9 +329,14 @@ def _register_default_mappings() -> None:
     that participates in the brain at a glance.
     """
     # Local import avoids circular dependencies during module load.
+    from src.models.connection import DataConnection
     from src.models.conversation import Conversation, Message
+    from src.models.crew import Crew, CrewMember
     from src.models.dashboard import Widget
+    from src.models.enterprise_relationship import EnterpriseRelationship
     from src.models.signal_event import SignalEvent
+    from src.models.space import Space, SpaceMember
+    from src.models.starred import StarredItem
     from src.models.strategy import (
         StrategicObjective,
         StrategicPillar,
@@ -340,7 +345,9 @@ def _register_default_mappings() -> None:
         StrategyKeyResult,
         StrategyOKR,
     )
+    from src.models.user import User
 
+    # Business rules (Strategy)
     register_context_mapping(ContextMapping(model=StrategicPillar, kind="pillar", source_table="strategic_pillars"))
     register_context_mapping(ContextMapping(model=StrategicObjective, kind="goal", source_table="strategic_objectives"))
     register_context_mapping(ContextMapping(model=StrategyOKR, kind="okr", source_table="strategy_okrs"))
@@ -348,6 +355,7 @@ def _register_default_mappings() -> None:
     register_context_mapping(ContextMapping(model=StrategyKeyResult, kind="kpi", source_table="strategy_key_results"))
     register_context_mapping(ContextMapping(model=StrategyAssumption, kind="risk", source_table="strategy_assumptions"))
 
+    # Events / Signals — kind resolved from category (internal / external / trend / macro).
     register_context_mapping(
         ContextMapping(
             model=SignalEvent,
@@ -357,9 +365,35 @@ def _register_default_mappings() -> None:
         )
     )
 
+    # Relationships
+    register_context_mapping(
+        ContextMapping(
+            model=EnterpriseRelationship,
+            kind="relationship",
+            source_table="user_enterprise_relationships",
+        )
+    )
+
+    # Platform fabric — users, spaces, crews, memberships.
+    # `user` documents are public by default (discoverable across spaces
+    # for "who owns X" questions); values themselves are PII and get
+    # masked at response time by the render template's pii_flags.
+    register_context_mapping(ContextMapping(model=User, kind="user", source_table="users", visibility="public"))
+    register_context_mapping(ContextMapping(model=Space, kind="space", source_table="spaces"))
+    register_context_mapping(ContextMapping(model=Crew, kind="crew", source_table="crews"))
+    register_context_mapping(ContextMapping(model=SpaceMember, kind="membership", source_table="space_members"))
+    register_context_mapping(ContextMapping(model=CrewMember, kind="membership", source_table="crew_members"))
+
+    # Connections — the data-source catalog. Tables / columns live in
+    # AI-service-owned tables (table_metadata / column_metadata) — those
+    # are ingested on that side directly, not through this stream.
+    register_context_mapping(ContextMapping(model=DataConnection, kind="connection", source_table="data_connections"))
+
+    # Outputs & social
     register_context_mapping(ContextMapping(model=Widget, kind="widget", source_table="widgets"))
     register_context_mapping(ContextMapping(model=Conversation, kind="conversation", source_table="conversations"))
     register_context_mapping(ContextMapping(model=Message, kind="message", source_table="messages"))
+    register_context_mapping(ContextMapping(model=StarredItem, kind="pin", source_table="starred_items"))
 
 
 def _signal_event_kind(obj: Any) -> str:
