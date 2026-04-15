@@ -46,6 +46,53 @@ def _metric(value: Any, trend_value: Optional[str] = None, is_positive: Optional
     return result
 
 
+async def _performance_metrics(db: AsyncSession) -> Dict:
+    """Real latency from ai_queries.duration_ms.
+
+    We sample the last 30 days of queries that have a recorded latency
+    (new rows only — the column was added in 2026-04-15). When there's
+    no data yet, surface "N/A" rather than the old hardcoded "< 3s".
+    SLA target is 3000ms; compliance is the fraction of queries that
+    hit it.
+    """
+    SLA_TARGET_MS = 3_000
+    since = _now() - timedelta(days=30)
+
+    stats = await db.execute(
+        select(
+            func.avg(AIHistory.duration_ms),
+            func.sum(
+                case((AIHistory.duration_ms <= SLA_TARGET_MS, 1), else_=0)
+            ),
+            func.count(AIHistory.duration_ms),
+        ).where(
+            AIHistory.created_at >= since,
+            AIHistory.duration_ms.is_not(None),
+        )
+    )
+    avg_ms, within_sla, measured = stats.one()
+    avg_ms = float(avg_ms) if avg_ms is not None else None
+    within_sla = int(within_sla or 0)
+    measured = int(measured or 0)
+
+    if not measured:
+        # No latency data yet — be honest about it rather than lying with a static value.
+        return {
+            "avgLatency": _metric("N/A"),
+            "slaCompliance": _metric("N/A"),
+            "responseTime": _metric("N/A"),
+        }
+
+    sla_pct = round(within_sla / measured * 100)
+    avg_sec = avg_ms / 1000.0
+    latency_label = f"{avg_sec:.1f}s" if avg_sec >= 0.1 else f"{int(avg_ms)}ms"
+    return {
+        "avgLatency": _metric(latency_label),
+        "slaCompliance": _metric(f"{sla_pct}%"),
+        "responseTime": _metric(latency_label),
+    }
+
+
 def _pct_change(current: int | float, previous: int | float) -> Optional[str]:
     """Return percentage change string like '+12%' or '-5%'."""
     if not previous:
@@ -163,12 +210,7 @@ async def get_global_metrics(
             ),
             "avgFrequency": _metric(f"{avg_freq}/day"),
         },
-        "performance": {
-            # Response latency not tracked in DB — show N/A gracefully
-            "avgLatency": _metric("< 3s"),
-            "slaCompliance": _metric("99.9%"),
-            "responseTime": _metric("< 3s"),
-        },
+        "performance": await _performance_metrics(db),
         "engagement": {
             "activeUsers": _metric(
                 f"{active_users} / {total_users}",
@@ -481,28 +523,51 @@ async def get_ai_metrics(
     corrections_estimated = round(total * 0.05)
     accuracy = f"{round(((total - corrections_estimated) / total) * 100)}%" if total else "0%"
 
-    # Check for AIFeedback model if it exists
+    # Real corrections from AIFeedback. The rating column stores the
+    # string 'good' / 'bad' (see src/models/ai.py CheckConstraint) — the
+    # previous `AIFeedback.rating < 3` comparison never matched because
+    # rating is text, so this always silently fell back to the 5%
+    # estimate. Now count rows explicitly marked 'bad'.
+    corrections_source = "estimated"
     try:
         from src.models.ai import AIFeedback
+
         feedback_res = await db.execute(
-            select(func.count(AIFeedback.id)).where(
-                # negative feedback (rating < 3 or explicit thumbs down)
-                AIFeedback.rating < 3  # type: ignore[operator]
-            )
+            select(func.count(AIFeedback.id)).where(AIFeedback.rating == "bad")
         )
         corrections_actual: int = feedback_res.scalar_one() or 0
-        if corrections_actual > 0:
+        # Also check whether any feedback at all exists — if users have
+        # given feedback, trust the signal even when all of it is 'good'
+        # (i.e. zero corrections).
+        any_feedback_res = await db.execute(select(func.count(AIFeedback.id)))
+        any_feedback: int = any_feedback_res.scalar_one() or 0
+        if any_feedback > 0:
             corrections_estimated = corrections_actual
-            accuracy = f"{round(((total - corrections_actual) / total) * 100)}%" if total else "0%"
+            accuracy = (
+                f"{round(((total - corrections_actual) / total) * 100)}%"
+                if total
+                else "0%"
+            )
+            corrections_source = "measured"
     except Exception:
         pass  # AIFeedback table may not exist yet
+
+    # Real avg latency (same source as global Performance metrics).
+    perf = await _performance_metrics(db)
 
     return {
         "engineEffectiveness": {
             "perceivedAccuracy": _metric(accuracy),
-            "correctionsMade": _metric(str(corrections_estimated)),
+            "correctionsMade": _metric(
+                str(corrections_estimated),
+                trend_value=None if corrections_source == "measured" else "Estimated",
+            ),
             "insightAcceptanceRate": _metric(acceptance_rate),
-            "averageLatency": _metric("< 3s"),
-            "estResponseConfidence": _metric(f"{max(70, round(100 - (corrections_estimated / total * 100)))}%" if total else "70%"),
+            "averageLatency": perf["avgLatency"],
+            "estResponseConfidence": _metric(
+                f"{max(70, round(100 - (corrections_estimated / total * 100)))}%"
+                if total
+                else "70%"
+            ),
         }
     }

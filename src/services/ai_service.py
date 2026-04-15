@@ -1283,6 +1283,7 @@ class AIService:
             date=datetime.now(timezone.utc),
             space_id=history_data.space_id,
             crew_id=history_data.crew_id,
+            duration_ms=history_data.duration_ms,
         )
 
         await self.db.commit()
