@@ -209,6 +209,63 @@ async def test_widget_emits_widget_kind(
 
 
 # ─── E9 ───────────────────────────────────────────────────────────────────
+# ─── Phase 2.2b kinds ─────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_user_insert_emits_user_kind_with_public_visibility(
+    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
+):
+    from src.core.security import get_password_hash
+    from src.models.user import User
+
+    user = User(
+        email="paulo@sky.com",
+        name="Paulo",
+        password_hash=get_password_hash("x"),
+        role="admin",
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    user_events = [e for e in event_sink if e.kind == "user"]
+    assert len(user_events) == 1
+    assert user_events[0].visibility == "public"
+    assert user_events[0].source_table == "users"
+
+
+@pytest.mark.asyncio
+async def test_space_insert_emits_space_kind(
+    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
+):
+    from src.models.space import Space
+
+    sp = Space(name="NovaTech", created_by=uuid.uuid4())
+    db_session.add(sp)
+    await db_session.commit()
+
+    kinds = [e.kind for e in event_sink]
+    assert "space" in kinds
+
+
+@pytest.mark.asyncio
+async def test_crew_insert_emits_crew_kind(
+    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
+):
+    from src.models.crew import Crew
+    from src.models.space import Space
+
+    sp = Space(name="S1", created_by=uuid.uuid4())
+    db_session.add(sp)
+    await db_session.flush()
+    event_sink.clear()
+
+    crew = Crew(name="Finance", space_id=sp.id, created_by=uuid.uuid4())
+    db_session.add(crew)
+    await db_session.commit()
+
+    kinds = [e.kind for e in event_sink]
+    assert "crew" in kinds
+
+
 @pytest.mark.asyncio
 async def test_personal_scope_row_has_null_space_and_crew(
     db_session: AsyncSession, event_sink: list[ce.ContextEvent]
