@@ -184,12 +184,31 @@ async def run_agent_stream(
             yield f"data: {json.dumps({'type': 'error', 'message': 'No connections configured'})}\n\n"
             return
 
-        monitor_type = agent.monitor_type or "question"
+        # Phase 4.2: explicit handling of every monitor_type the schema
+        # validator accepts. `scan` is the preferred name for autonomous
+        # connection monitoring; `datasource` is a legacy alias. `context`
+        # is reserved for Phase 5 full-context mode and currently behaves
+        # like `scan` with an explicit label for audit logs.
+        monitor_type = (agent.monitor_type or "question").lower()
         if monitor_type == "question":
             question = agent.focus or "Analyze the data and surface insights, risks, and opportunities."
         elif monitor_type == "sql":
             question = f"Execute this SQL and analyze results:\n```sql\n{agent.custom_sql or 'SELECT 1'}\n```"
+        elif monitor_type in ("scan", "datasource"):
+            question = (
+                f"You are an autonomous {agent.archetype or 'custom'} intelligence agent. "
+                f"Scan the configured data sources for anomalies, trends, risks, and opportunities.\n\n"
+                f"{agent.focus or ''}"
+            ).strip()
+        elif monitor_type == "context":
+            question = (
+                f"Full-context scan: traverse every available data source, "
+                f"strategy artefact, and signal in scope and surface what "
+                f"decision-makers should know.\n\n{agent.focus or ''}"
+            ).strip()
         else:
+            # Schema validator rejects unknown values before we get here,
+            # but keep a graceful fallback so a stale row can still run.
             question = (
                 f"You are an autonomous {agent.archetype or 'custom'} intelligence agent. "
                 f"Analyze the data based on these instructions:\n\n"
