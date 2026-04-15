@@ -37,10 +37,11 @@ async def lifespan(app: FastAPI):
     await init_redis()
     # Context Layer — register domain-event listeners that publish to the
     # `context:ingest` Redis stream consumed by the AI service ingest
-    # worker. Done after init_db so the SQLAlchemy Session class exists.
-    from src.config.database import AsyncSessionLocal
-
-    init_context_events(AsyncSessionLocal)
+    # worker. Bound to the base `sqlalchemy.orm.Session` class
+    # internally; every AsyncSession flush fires through a sync
+    # Session so that's where the after_flush / after_commit /
+    # after_rollback events exist. No sessionmaker arg needed.
+    init_context_events()
     # Log initial connection stats
     await log_connection_stats()
     logger.info("application_ready")

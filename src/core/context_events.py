@@ -310,15 +310,40 @@ def _sync_publish(events: list[ContextEvent]) -> None:
 
 
 # ───────────────────────────── bootstrap ──────────────────────────────────
-def init_context_events(session_cls) -> None:
+def init_context_events(session_cls=None) -> None:
     """Call once during application startup.
 
     Registers the mapping table (strategy/events/widgets/etc) and installs
-    the session-level drain hooks against the application's Session class.
-    Safe to call from tests — duplicate registrations are idempotent on
-    the SQLAlchemy side (same callable).
+    the session-level drain hooks.
+
+    IMPORTANT — `after_flush` / `after_commit` / `after_rollback` are
+    events defined on `sqlalchemy.orm.Session` (the sync base class).
+    `async_sessionmaker` + `AsyncSession` don't expose them directly;
+    internally every AsyncSession runs its flush through a sync
+    `Session` instance, and Session-level events fire for that sync
+    session. So we always bind to the base `Session` class regardless
+    of what the caller passes. The `session_cls` parameter is kept for
+    backward compat with test fixtures that passed the sync session
+    class directly — it's simply ignored unless it looks like a valid
+    Session subclass.
     """
-    _install_session_hooks(session_cls)
+    from sqlalchemy.orm import Session as _BaseSession
+
+    target_cls = _BaseSession
+    # Backward compat: tests that already pass _BaseSession keep
+    # working. Anything that's NOT a Session subclass (e.g. an
+    # async_sessionmaker from production code) falls back to the base
+    # class instead of raising.
+    if session_cls is not None:
+        try:
+            if isinstance(session_cls, type) and issubclass(session_cls, _BaseSession):
+                target_cls = session_cls
+        except TypeError:
+            # session_cls wasn't a class at all (e.g. an instance of
+            # async_sessionmaker) — ignore and use the base.
+            pass
+
+    _install_session_hooks(target_cls)
     _register_default_mappings()
 
 
