@@ -8,6 +8,7 @@ Covers master plan use cases D-series (agent_runs lifecycle):
   D8   Skipped runs (delta_kind=none) don't count as failures
 """
 
+import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
@@ -174,6 +175,51 @@ async def test_success_resets_failure_counter_and_schedules_next(
     # 30 minutes out, ±2 minutes slack
     delta = refreshed.next_execution_at - datetime.utcnow()
     assert timedelta(minutes=28) <= delta <= timedelta(minutes=32)
+
+
+# ─── Phase 2.10 context evidence writeback ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_report_success_persists_context_evidence(
+    test_user_with_tokens, db_session: AsyncSession
+):
+    user = test_user_with_tokens["user"]
+    agent = await _make_agent(
+        db_session, user.id,
+        schedule={"interval_value": 1, "interval_unit": "hour"},
+    )
+    service = AgentRunService(db_session)
+    run = await service.enqueue(agent.id)
+    await service.claim(run.id)
+
+    doc_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    success = await service.report_success(
+        run.id,
+        result_hash="ctx-trail",
+        delta_kind="first_run",
+        context_doc_ids=doc_ids,
+        context_intent="strategy",
+    )
+    assert len(success.context_doc_ids) == 2
+    assert success.context_intent == "strategy"
+
+
+@pytest.mark.asyncio
+async def test_report_success_without_context_keeps_defaults(
+    test_user_with_tokens, db_session: AsyncSession
+):
+    user = test_user_with_tokens["user"]
+    agent = await _make_agent(
+        db_session, user.id,
+        schedule={"interval_value": 1, "interval_unit": "hour"},
+    )
+    service = AgentRunService(db_session)
+    run = await service.enqueue(agent.id)
+    await service.claim(run.id)
+    success = await service.report_success(run.id, result_hash="no-ctx", delta_kind="first_run")
+    assert list(success.context_doc_ids or []) == []
+    assert success.context_intent is None
 
 
 # ─── report_failure (D5, D6) ─────────────────────────────────────────────
