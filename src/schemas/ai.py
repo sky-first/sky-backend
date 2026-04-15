@@ -159,6 +159,10 @@ class CreateHistoryRequest(BaseModel):
     # Collaborative context
     space_id: Optional[str] = None
     crew_id: Optional[str] = None
+    # Real end-to-end query latency in milliseconds — feeds Settings → Usage.
+    duration_ms: Optional[int] = Field(
+        None, description="Query latency in ms (client-measured or server-measured)"
+    )
 
 
 class FeedbackRequest(BaseModel):

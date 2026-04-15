@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -114,6 +115,12 @@ class AIHistory(Base):
     # Collaborative context: used to scope history by active crew/space
     space_id = Column(String, nullable=True, index=True)
     crew_id = Column(String, nullable=True, index=True)
+    # Real end-to-end query latency in milliseconds. Written by the AI
+    # chat endpoint when a history row is saved. Settings → Usage
+    # aggregates non-null rows to compute real avgLatency + SLA
+    # compliance; old rows predate the column and stay NULL (filtered
+    # out on aggregation).
+    duration_ms = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
