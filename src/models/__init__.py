@@ -7,6 +7,11 @@
 # no such table: <name>` at runtime when the service layer queries it.
 from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.audit import AuditEvent
+from src.models.context_document import (
+    ContextDocument,
+    ContextDocumentKind,
+    ContextDocumentVisibility,
+)
 from src.models.service_principal import ServicePrincipal
 from src.models.ai import (
     AIFeedback,
@@ -51,6 +56,9 @@ __all__ = [
     "AgentFinding",
     "AgentExecution",
     "AuditEvent",
+    "ContextDocument",
+    "ContextDocumentKind",
+    "ContextDocumentVisibility",
     "ServicePrincipal",
     "User",
     "RefreshToken",
