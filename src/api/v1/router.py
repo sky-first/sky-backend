@@ -9,6 +9,7 @@ from src.api.v1 import (
     auth,
     comments,
     connections,
+    conversations,
     connectors,
     crews,
     dashboards,
@@ -45,6 +46,14 @@ api_router.include_router(users.router, prefix="/users", tags=["Users"])
 
 # Page endpoints
 api_router.include_router(pages.router, prefix="/pages", tags=["Pages"])
+
+# Conversation endpoints — collection under /pages, operations under /conversations
+api_router.include_router(
+    conversations.page_router, prefix="/pages", tags=["Conversations"]
+)
+api_router.include_router(
+    conversations.router, prefix="/conversations", tags=["Conversations"]
+)
 
 # Dashboard endpoints
 api_router.include_router(dashboards.router, prefix="/dashboards", tags=["Dashboards"])
