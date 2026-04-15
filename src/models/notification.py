@@ -45,6 +45,11 @@ class NotificationType(str, Enum):
     AGENT_PAUSED = "agent_paused"
     AGENT_RESUMED = "agent_resumed"
     AGENT_CYCLE_NO_FINDINGS = "agent_cycle_no_findings"
+    # Phase 3.3 — insight-mode specific. Split from AGENT_FINDING so
+    # users can mute insight rerun noise (low signal-to-noise in busy
+    # dashboards) without silencing agent findings they actually want.
+    INSIGHT_AGENT_MATERIAL = "insight_agent_material"  # delta_kind='material'
+    INSIGHT_AGENT_RESULT = "insight_agent_result"      # every completed run
 
     # --- Dashboards ---
     DASHBOARD_SHARED_WITH_YOU = "dashboard_shared_with_you"
@@ -89,6 +94,8 @@ NOTIFICATION_CATEGORY: dict[str, str] = {
     "agent_resumed": "agents",
     "agent_cycle_no_findings": "agents",
     "new_insight_available": "agents",
+    "insight_agent_material": "agents",
+    "insight_agent_result": "agents",
 
     # Dashboards
     "dashboard_shared_with_you": "dashboards",

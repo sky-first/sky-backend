@@ -28,14 +28,80 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.database import AsyncSessionLocal
 from src.core.exceptions import NotFoundError
 from src.models.agent import Agent, AgentExecution
+from src.models.notification import NotificationType
+from src.schemas.notification import NotificationCreate
 from src.services.agent_run_service import AgentRunService
+from src.services.notification_service import NotificationService
 from src.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+async def _emit_insight_notifications(
+    db: AsyncSession,
+    *,
+    agent: Agent,
+    run_id: UUID,
+    delta_kind: Optional[str],
+    delta_summary: Optional[str],
+) -> None:
+    """Emit up to two notifications per successful insight run.
+
+    * INSIGHT_AGENT_RESULT — every completed run. Users mute this
+      category when they only want material-delta pings.
+    * INSIGHT_AGENT_MATERIAL — delta_kind == 'material' only. This is
+      the "you should actually look at this" signal; kept distinct
+      from RESULT so users can mute one without losing the other.
+
+    Target user is `agent.created_by`. Both notifications carry a
+    deep_link that opens the insight widget on the dashboard; the UI
+    consumer resolves `entity_id` to the widget.
+    """
+    owner_id = agent.created_by
+    if owner_id is None:
+        # SP-owned agents have no human to ping here (audit record is
+        # enough). If we need to fan out to crew admins later this is
+        # the place to resolve them.
+        return
+
+    service = NotificationService(db)
+    widget_id = str(agent.widget_id) if agent.widget_id else ""
+    deep_link = f"/dashboard?insight={widget_id}" if widget_id else None
+
+    result_title = f"{agent.name or 'Insight agent'} — run completed"
+    description = (delta_summary or "").strip() or None
+
+    # Feed-level notification — muted by default for power users.
+    await service.create_notification(
+        NotificationCreate(
+            user_id=owner_id,
+            type=NotificationType.INSIGHT_AGENT_RESULT.value,
+            title=result_title,
+            description=description,
+            entity_type="agent_execution",
+            entity_id=str(run_id),
+            deep_link=deep_link,
+        )
+    )
+
+    if (delta_kind or "").lower() == "material":
+        material_title = f"{agent.name or 'Insight agent'} — material change"
+        await service.create_notification(
+            NotificationCreate(
+                user_id=owner_id,
+                type=NotificationType.INSIGHT_AGENT_MATERIAL.value,
+                title=material_title,
+                description=description,
+                entity_type="agent_execution",
+                entity_id=str(run_id),
+                deep_link=deep_link,
+            )
+        )
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────
@@ -174,6 +240,29 @@ def execute_insight_run(self, run_id: str) -> Dict[str, Any]:
                 context_doc_ids=ctx.get("doc_ids") or [],
                 context_intent=ctx.get("intent"),
             )
+
+            # Phase 3.3: notify the agent owner. Two levels:
+            #   - INSIGHT_AGENT_MATERIAL on material deltas (user-facing
+            #     "something changed you should look at").
+            #   - INSIGHT_AGENT_RESULT for every completed run (feed
+            #     entry — users usually mute this category but keep
+            #     MATERIAL on).
+            try:
+                await _emit_insight_notifications(
+                    db,
+                    agent=agent,
+                    run_id=run_uuid,
+                    delta_kind=delta_kind,
+                    delta_summary=(response.get("delta") or {}).get("summary"),
+                )
+            except Exception:
+                # Notifications are side-effects; a failure here must
+                # not roll back the successful run.
+                logger.exception(
+                    "notify_insight_run_failed run_id=%s agent_id=%s",
+                    run_uuid, agent.id,
+                )
+
             return {"status": "succeeded"}
 
     return _run_async(_process())
