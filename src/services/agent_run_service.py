@@ -102,6 +102,8 @@ class AgentRunService:
         llm_tokens_used: Optional[int] = None,
         llm_cost_usd: Optional[Decimal] = None,
         notification_id: Optional[UUID] = None,
+        context_doc_ids: Optional[list] = None,
+        context_intent: Optional[str] = None,
     ) -> AgentExecution:
         """Record a successful run + reset the agent's failure counter."""
         run = await self._require_run(run_id)
@@ -121,6 +123,17 @@ class AgentRunService:
         run.llm_tokens_used = llm_tokens_used
         run.llm_cost_usd = llm_cost_usd
         run.notification_id = notification_id
+
+        # Phase 2.10: Context-layer evidence trail. The AI service returns
+        # the IDs of every context_documents row that informed this run,
+        # plus the classified intent, so the UI can show exactly WHAT the
+        # agent read when it produced its finding. Optional — when absent
+        # (e.g. during the Phase-1 stub window), the columns keep their
+        # defaults (empty array, null intent).
+        if context_doc_ids is not None:
+            run.context_doc_ids = list(context_doc_ids)
+        if context_intent is not None:
+            run.context_intent = context_intent
 
         # Reset the agent's consecutive-failures counter and project the
         # next run from the agent's schedule.

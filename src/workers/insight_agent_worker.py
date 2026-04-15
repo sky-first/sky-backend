@@ -79,6 +79,12 @@ async def _call_ai_run_agent(
         "tokens": {"in": 0, "out": 0},
         "cost_usd": 0.0,
         "duration_ms": 0,
+        # Phase 2.10: Context-layer evidence trail. When the real AI
+        # service lands, this dict carries the brain_doc_ids it
+        # retrieved (UUIDs) and the classified intent string. The stub
+        # returns empty so the `context_doc_ids` column falls back to
+        # its default (empty array).
+        "context": {"doc_ids": [], "intent": None},
     }
 
 
@@ -158,12 +164,15 @@ def execute_insight_run(self, run_id: str) -> Dict[str, Any]:
                 await service.report_skip(run_uuid)
                 return {"status": "skipped"}
 
+            ctx = response.get("context") or {}
             await service.report_success(
                 run_uuid,
                 result_hash=response.get("result_hash"),
                 result_payload=response.get("result_payload"),
                 delta_kind=delta_kind,
                 delta_summary=(response.get("delta") or {}).get("summary"),
+                context_doc_ids=ctx.get("doc_ids") or [],
+                context_intent=ctx.get("intent"),
             )
             return {"status": "succeeded"}
 
