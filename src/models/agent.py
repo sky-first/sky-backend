@@ -304,6 +304,18 @@ class AgentExecution(Base):
     )
     duration_ms = Column(Integer, nullable=True)
 
+    # --- Context-layer evidence trail (Phase 2.6) ---
+    # Which context_documents this run retrieved, and which intent the
+    # supervisor classified the prompt as. Kept as an array of UUIDs
+    # rather than a FK relationship because we never hard-delete
+    # context_documents, and the list may reference soft-deleted rows.
+    context_doc_ids = Column(
+        _array_with_sqlite_variant(UUID(as_uuid=True)),
+        nullable=False,
+        default=list,
+    )
+    context_intent = Column(String(32), nullable=True)
+
     started_at = Column(
         DateTime(timezone=True),
         nullable=False,
