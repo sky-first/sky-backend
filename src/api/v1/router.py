@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from src.api.v1 import (
+    admin_actions,
     agents,
     ai,
     audit,
@@ -120,6 +121,11 @@ api_router.include_router(
 # Context Layer health — admin-only; feeds the Administration tab in Settings.
 api_router.include_router(
     context_health.router, prefix="/context", tags=["Context Health"]
+)
+
+# Admin actions (pause-all, audit export) — admin-only.
+api_router.include_router(
+    admin_actions.router, prefix="/admin", tags=["Admin Actions"]
 )
 
 # File upload endpoints
