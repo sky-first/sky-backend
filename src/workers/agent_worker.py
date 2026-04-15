@@ -219,10 +219,15 @@ def schedule_agents():
 
         now = datetime.now(timezone.utc)
         async with AsyncSessionLocal() as db:
+            # Insight-mode agents are scheduled by insight_agent_worker
+            # via the new AgentRunService state machine; the legacy
+            # scheduler only handles question/datasource/sql modes here
+            # so the two flows don't double-enqueue.
             result = await db.execute(
                 select(Agent).where(
                     Agent.status == "active",
                     Agent.next_execution_at <= now,
+                    Agent.monitor_type != "insight",
                 )
             )
             due_agents = result.scalars().all()
