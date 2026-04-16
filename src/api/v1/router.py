@@ -12,6 +12,7 @@ from src.api.v1 import (
     connections,
     context_health,
     conversations,
+    cost_metrics,
     insight_agents,
     messages,
     connectors,
@@ -126,6 +127,11 @@ api_router.include_router(
 # Admin actions (pause-all, audit export) — admin-only.
 api_router.include_router(
     admin_actions.router, prefix="/admin", tags=["Admin Actions"]
+)
+
+# Cost breakdown (per-crew + daily series) — extends Settings Usage.
+api_router.include_router(
+    cost_metrics.router, prefix="/settings/metrics", tags=["Settings Metrics"]
 )
 
 # File upload endpoints
