@@ -173,7 +173,12 @@ async def _execute_agent_async(agent_id: str):
                             description=answer[:200] if answer else None,
                             entity_type="agent",
                             entity_id=str(agent.id),
-                            deep_link=f"/dashboard/sky-studio?agent={agent.id}",
+                            # Route was renamed from sky-studio to
+                            # universe-intelligence during the Phase-2
+                            # UI refresh. The old path 404s; fixing
+                            # here so existing notifications stop
+                            # dead-ending users.
+                            deep_link=f"/dashboard/universe-intelligence?agent={agent.id}",
                         )
                     )
                 except Exception as notif_err:

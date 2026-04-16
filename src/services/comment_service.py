@@ -36,6 +36,18 @@ class CommentService:
 
         # Trigger Notifications
         # 1. Notify mentioned users
+        #
+        # Deep-link shape: the frontend route is `/dashboard?id=<id>`
+        # (singular — there is no `/dashboards/<id>` route, clicking
+        # the old pluralised path was a silent dead-end). We also
+        # carry `insight=<widget_id>` when the comment is anchored to
+        # a widget so the dashboard page's Phase-3.4 scroll-to-widget
+        # handler highlights the right one on arrival.
+        dashboard_id = comment_data.dashboard_id
+        widget_id = comment_data.widget_id
+        deep_link = f"/dashboard?id={dashboard_id}"
+        if widget_id:
+            deep_link += f"&insight={widget_id}"
         for mentioned_user_id in comment_data.mentions:
             if mentioned_user_id != user_id:  # Don't notify self
                 await self.notification_service.create(
@@ -46,7 +58,7 @@ class CommentService:
                         description=f"User mentioned you: {comment_data.content[:50]}...",
                         entity_type="comment",
                         entity_id=str(db_comment.id),
-                        deep_link=f"/dashboards/{comment_data.dashboard_id}",
+                        deep_link=deep_link,
                     )
                 )
 

@@ -499,7 +499,7 @@ class TestNotificationProducers:
                 description="Revenue up 12% in Q3...",
                 entity_type="agent",
                 entity_id=agent_id,
-                deep_link=f"/dashboard/sky-studio?agent={agent_id}",
+                deep_link=f"/dashboard/universe-intelligence?agent={agent_id}",
             )
         )
         assert result is not None
