@@ -557,7 +557,12 @@ class RBACService:
     async def _best_role_for_user_anywhere(self, user_id: UUID) -> CrewRole:
         crew_ids = await self.crew_members.get_crew_ids_by_user(user_id)
         if not crew_ids:
-            return "guest"
+            # User has no crew memberships — they're operating in their own
+            # personal workspace (no shared/team context). Treat them as
+            # commander of that personal world so they can bootstrap their
+            # first page/dashboard. Once invited to crews, the best-role
+            # resolution below takes over.
+            return "commander"
 
         best_role = "guest"
         best_score = ROLE_PRECEDENCE[best_role]
