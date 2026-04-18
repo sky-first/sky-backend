@@ -430,14 +430,20 @@ class RBACService:
                 permissions={},
             )
 
-        # Customer admins bypass crew-level checks. This is the temporary
-        # behavior — the Sky Support JIT migration replaces this with the
-        # consent flow. Until then, log the bypass so operators can audit
-        # post-hoc via application logs.
-        if user.role == "admin":
+        # Customer Owners and Admins bypass crew-level checks. This is the
+        # temporary behavior — the Sky Support JIT migration replaces this
+        # with the consent flow. Until then, log the bypass so operators can
+        # audit post-hoc via application logs.
+        #
+        # Owner vs Admin: Owner is the tenant founder (single seat). Owner
+        # passes EVERY permission, including tenant.delete / billing.manage /
+        # tenant.transfer_ownership. Admin passes everything EXCEPT those
+        # three — see assert_permission for the enforcement-time split.
+        if user.role in ("admin", "owner"):
             logger.info(
-                "rbac.admin_bypass.effective_permissions user_id=%s crew_id=%s space_id=%s connection_id=%s",
+                "rbac.admin_bypass.effective_permissions user_id=%s role=%s crew_id=%s space_id=%s connection_id=%s",
                 getattr(user, "id", None),
+                user.role,
                 crew_id,
                 space_id,
                 connection_id,
@@ -446,8 +452,15 @@ class RBACService:
             merged = {}
             for role_map in DEFAULT_ROLE_PERMISSIONS.values():
                 merged.update({k: True for k in role_map.keys()})
+            # Owner-exclusive perms must be included when the role is owner;
+            # admin gets them as False so the assert_permission check can
+            # draw the line.
+            if user.role == "owner":
+                merged["tenant.delete"] = True
+                merged["tenant.transfer_ownership"] = True
+                merged["billing.manage"] = True
             return EffectivePermissions(
-                platform_role="admin", crew_role="commander", permissions=merged
+                platform_role=user.role, crew_role="commander", permissions=merged
             )
 
         crew_role = await self._resolve_context_crew_role(
@@ -510,8 +523,30 @@ class RBACService:
                 "Sky support access requires an active JIT consent session"
             )
 
-        # Customer admins bypass.
+        # Owner-exclusive permissions — only the tenant Owner can run these,
+        # regardless of their crew role or the admin bypass.
+        OWNER_EXCLUSIVE_PERMS = {
+            "tenant.delete",
+            "tenant.transfer_ownership",
+            "billing.manage",
+        }
+
+        # Owner bypass: owner passes every permission, including the three
+        # owner-exclusive ones above.
+        if user.role == "owner":
+            await self._audit_decision(user, permission_key, "allow", "owner_bypass", resource_id=resource_id)
+            return
+
+        # Admin bypass: passes everything EXCEPT owner-exclusive perms.
         if user.role == "admin":
+            if permission_key in OWNER_EXCLUSIVE_PERMS:
+                await self._audit_decision(
+                    user, permission_key, "deny", "admin_cannot_grant_owner_exclusive",
+                    resource_id=resource_id,
+                )
+                raise ForbiddenError(
+                    f"Permission '{permission_key}' is reserved for the tenant Owner"
+                )
             await self._audit_decision(user, permission_key, "allow", "admin_bypass", resource_id=resource_id)
             return
 
