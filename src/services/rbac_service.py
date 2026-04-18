@@ -161,6 +161,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "audit.view": False, "audit.verify": False,
         "privacy.export": False, "privacy.delete": False,
         "support.settings": False, "support.revoke": False,
+        "users.impersonate": False,
     },
 
     # ═══════════════════════════════════════════════════════════════
@@ -238,6 +239,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "audit.view": False, "audit.verify": False,
         "privacy.export": False, "privacy.delete": False,
         "support.settings": False, "support.revoke": False,
+        "users.impersonate": False,
     },
 
     # ═══════════════════════════════════════════════════════════════
@@ -313,6 +315,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "audit.view": False, "audit.verify": False,
         "privacy.export": False, "privacy.delete": False,
         "support.settings": False, "support.revoke": False,
+        "users.impersonate": False,
     },
     # ═══════════════════════════════════════════════════════════════
     # Guest/Viewer = Stakeholder. Sees everything shared with them.
@@ -386,6 +389,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "audit.view": False, "audit.verify": False,
         "privacy.export": False, "privacy.delete": False,
         "support.settings": False, "support.revoke": False,
+        "users.impersonate": False,
     },
 }
 

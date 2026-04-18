@@ -22,6 +22,7 @@ from src.api.v1 import (
     enterprise_apis,
     enterprise_relationships,
     files,
+    impersonation,
     intelligence_signals,
     notifications,
     permissions,
@@ -48,6 +49,11 @@ api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 
 # User endpoints
 api_router.include_router(users.router, prefix="/users", tags=["Users"])
+
+# Impersonation — ADR-001 Fase 2. Mounted under /users so the routes become
+#   POST /users/{user_id}/impersonate
+#   POST /users/me/impersonate/exit
+api_router.include_router(impersonation.router, prefix="/users", tags=["Impersonation"])
 
 # Page endpoints
 api_router.include_router(pages.router, prefix="/pages", tags=["Pages"])
