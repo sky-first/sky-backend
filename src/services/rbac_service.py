@@ -115,8 +115,8 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         # Crews
         "crews.view": True, "crews.create": True, "crews.edit": True, "crews.delete": True,
         "crews.members.view": True, "crews.members.manage": True, "crews.stats.view": True,
-        # Users
-        "users.view": True, "users.permissions.view": True, "users.self.edit": True,
+        # Users — self-only at the crew level; other-user read is admin-only
+        "users.self.edit": True,
         "users.self.permissions": True,
         # Agents
         "agents.view": True, "agents.create": True, "agents.edit": True, "agents.delete": True,
@@ -145,11 +145,18 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "enterprise.apis.view": True, "enterprise.apis.create": True,
         "connectors.view": True,
         "datasets.view": True, "datasets.delete": True,
-        "settings.view": True, "permissions.view": True,
-        "apikeys.manage": True, "integrations.manage": True,
-        "metrics.view": True,
+        # Commander is a CREW role. Platform-level perms below are reserved
+        # for platform_admin (and owner above it). Wave 3 of ADR-002 fixed
+        # the leak where Commander accidentally had global config powers.
+        "settings.view": True,                  # read-only config view stays (benign)
+        "permissions.view": False,              # RBAC matrix is admin-only
+        "apikeys.manage": False,                # global tenant secrets
+        "integrations.manage": False,           # global integrations
+        "metrics.view": False,                  # platform usage/metrics
         # Admin-only (commander cannot)
         "admin.users.manage": False, "users.invite": False, "users.edit": False, "users.delete": False,
+        "users.view": False,                    # managing other users = admin
+        "users.permissions.view": False,        # reading other users' perms = admin
         "users.permissions.edit": False, "settings.edit": False, "permissions.edit": False,
         "audit.view": False, "audit.verify": False,
         "privacy.export": False, "privacy.delete": False,
@@ -221,9 +228,11 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "enterprise.apis.view": True, "enterprise.apis.create": False,
         "connectors.view": True,
         "datasets.view": True, "datasets.delete": False,
+        # Navigator is a CREW role too. Wave 3: metrics.view is platform-
+        # admin-only and was previously leaking here.
         "settings.view": True, "permissions.view": False,
         "apikeys.manage": False, "integrations.manage": False,
-        "metrics.view": True,
+        "metrics.view": False,
         "admin.users.manage": False, "users.invite": False, "users.edit": False, "users.delete": False,
         "users.permissions.edit": False, "settings.edit": False, "permissions.edit": False,
         "audit.view": False, "audit.verify": False,
