@@ -31,6 +31,7 @@ from src.models.dashboard_build_job import DashboardBuildJob
 from src.models.enterprise_api import EnterpriseAPI
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.file import FileUpload
+from src.models.glossary import GlossaryTerm
 from src.models.intelligence_signal import IntelligenceSignal
 from src.models.notification import Notification, NotificationPreference
 from src.models.permission import APIKey, ConnectionPermission, Integration
@@ -91,6 +92,7 @@ __all__ = [
     "APIKey",
     "Integration",
     "FileUpload",
+    "GlossaryTerm",
     "Workspace",
     "WorkspaceMember",
     "Notification",
