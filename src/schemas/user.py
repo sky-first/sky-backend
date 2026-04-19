@@ -13,7 +13,7 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: str = Field(default="user", pattern="^(admin|user|viewer)$")
+    role: str = Field(default="user", pattern="^(owner|admin|user|viewer|billing_admin|compliance_auditor|service_account|commander|navigator|explorer|guest|member)$")
 
 
 class UserCreate(UserBase):
@@ -36,7 +36,7 @@ class UserUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: Optional[str] = Field(None, pattern="^(admin|user|viewer)$")
+    role: Optional[str] = Field(None, pattern="^(owner|admin|user|viewer|billing_admin|compliance_auditor|service_account|commander|navigator|explorer|guest|member)$")
     email_verified: Optional[bool] = None
     onboarding_step: Optional[int] = None
     onboarding_version: Optional[int] = None
@@ -138,14 +138,14 @@ class UserPermissionsResponse(BaseModel):
 class UserPermissionsUpdate(BaseModel):
     """User permissions update schema."""
 
-    role: str = Field(..., pattern="^(admin|user|viewer)$")
+    role: str = Field(..., pattern="^(owner|admin|user|viewer|billing_admin|compliance_auditor|service_account|commander|navigator|explorer|guest|member)$")
 
 
 class UserInviteRequest(BaseModel):
     """User invite request schema."""
 
     workspace_id: Optional[UUID] = None
-    role: Optional[str] = Field(None, pattern="^(admin|user|viewer)$")
+    role: Optional[str] = Field(None, pattern="^(owner|admin|user|viewer|billing_admin|compliance_auditor|service_account|commander|navigator|explorer|guest|member)$")
 
 
 # Invite System Schemas
