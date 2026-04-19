@@ -224,9 +224,22 @@ class StrategyRepository:
             query = query.join(StrategyInitiative.spaces).where(Space.id == space_id)
         if crew_id:
             query = query.join(StrategyInitiative.crews).where(Crew.id == crew_id)
-            
-        result = await self.session.execute(query.distinct())
-        return list(result.scalars().all())
+
+        # Cannot use plain .distinct() — StrategyInitiative has json columns
+        # (risks, assumptions) and Postgres has no equality operator for the
+        # json type, so SELECT DISTINCT crashes with UndefinedFunctionError.
+        # The joins above can produce duplicates when an initiative has many
+        # spaces/crews; dedupe on .id in Python after the query instead.
+        result = await self.session.execute(query)
+        all_rows = result.scalars().all()
+        seen: set = set()
+        unique: list[StrategyInitiative] = []
+        for row in all_rows:
+            if row.id in seen:
+                continue
+            seen.add(row.id)
+            unique.append(row)
+        return unique
 
     async def get_initiative_by_id(self, initiative_id: UUID) -> Optional[StrategyInitiative]:
         result = await self.session.execute(
