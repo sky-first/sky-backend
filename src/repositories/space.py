@@ -20,13 +20,7 @@ class SpaceRepository(BaseRepository[Space]):
         super().__init__(db, Space)
 
     async def get_by_user(self, user_id: UUID, skip: int = 0, limit: int = 100) -> List[Space]:
-<<<<<<< fix/settings-member-connection-counts
         """Get spaces the user created or is a member of."""
-=======
-        """
-        Get spaces by user — includes spaces the user created or is a member of.
-        """
->>>>>>> staging
         member_space_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
         result = await self.db.execute(
             select(Space)
@@ -43,14 +37,7 @@ class SpaceRepository(BaseRepository[Space]):
     async def get_by_user_with_stats(
         self, user_id: UUID, skip: int = 0, limit: int = 100
     ) -> List[dict]:
-<<<<<<< fix/settings-member-connection-counts
         """Get spaces (created or member) with member and connection counts."""
-=======
-        """Get spaces by user with member and connection counts.
-
-        Returns spaces the user created OR is a member of.
-        """
->>>>>>> staging
         member_space_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
         stmt = (
             select(
