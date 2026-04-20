@@ -2,6 +2,7 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.models.space import SpaceMember
 from src.models.user import User
 from src.repositories.page import PageMemberRepository, PageRepository
 from src.repositories.space import SpaceRepository
@@ -41,14 +42,20 @@ async def ensure_default_page_and_space(db: AsyncSession, user: User) -> None:
         role="owner",
     )
 
-    # Create a default space
-    await space_repo.create(
+    # Create a default space AND add the user as a member. Previously we
+    # created the Space with `created_by=user.id` but never inserted a
+    # SpaceMember row — the Space showed in the sidebar but the user
+    # wasn't "inside" it, so member counts were 0 and the settings panel
+    # rendered a blank Members tab. The creator is always a member of
+    # their own default space.
+    space = await space_repo.create(
         name="Default space",
         description="Your first space",
         color="#3B82F6",
         icon=None,
         created_by=user.id,
     )
+    db.add(SpaceMember(space_id=space.id, user_id=user.id))
 
     await db.commit()
     await db.refresh(page)

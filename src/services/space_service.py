@@ -100,7 +100,7 @@ class SpaceService:
             raise NotFoundError("Space not found")
 
         # Check access (only owner for now)
-        if space.created_by != user.id:
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         return SpaceResponse.model_validate(space)
@@ -170,7 +170,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         update_data = space_data.model_dump(exclude_unset=True)
@@ -213,7 +213,7 @@ class SpaceService:
             )
         else:
             # Production mode: only admin or owner can delete
-            if user.role != "admin" and space.created_by != user.id:
+            if user.role not in ("admin", "owner") and space.created_by != user.id:
                 raise ForbiddenError("Access denied to this space")
 
         # C6: end every agent scoped to this space before cascade-deleting.
@@ -283,7 +283,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         connections = await self.space_repo.get_space_connections(space_id)
@@ -312,7 +312,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         connection = await self.connection_repo.get_by_id(connection_id)
@@ -371,7 +371,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         association = await self.space_repo.get_space_connection(space_id, connection_id)
@@ -400,7 +400,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         members = await self.member_repo.get_space_members(space_id)
@@ -432,7 +432,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         # Check if member already exists
@@ -600,7 +600,11 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        # Owners and admins can link tables to any space; creators can
+        # link tables to their own. The endpoint already RBAC-checks
+        # `spaces.members.manage` — this guard is defence-in-depth for
+        # internal callers that bypass the route.
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         # Check if already exists
@@ -643,7 +647,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         association = await self.table_repo.get_space_table(
