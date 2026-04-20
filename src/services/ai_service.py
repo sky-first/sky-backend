@@ -641,8 +641,19 @@ class AIService:
                 )
                 query.status = "completed"
         except Exception as e:
+            # Some exceptions (bare `raise Exception()`, HTTP errors with empty
+            # `detail`, custom exceptions without a message) stringify to ""
+            # and produced user-visible `answer: "Error: "` with no signal
+            # about what failed. Always surface at least the exception type.
+            detail = str(e).strip() or repr(e).strip() or type(e).__name__
             query.status = "error"
-            query.answer = f"Error: {str(e)}"
+            query.answer = f"Error: {detail}"
+            logger.exception(
+                "AI query pipeline failed (query_id=%s, connection_id=%s): %s",
+                query.id,
+                locals().get("connection_id"),
+                detail,
+            )
 
         await self.db.commit()
         await self.db.refresh(query)

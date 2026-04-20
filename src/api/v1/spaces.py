@@ -242,7 +242,11 @@ async def get_space_crews(
     Returns:
         List[CrewResponse]: List of crews
     """
+<<<<<<< fix/settings-member-connection-counts
     # Verify access (raises ForbiddenError if user is not creator or member)
+=======
+    # Verify user has access to the space before listing crews
+>>>>>>> staging
     space_service = SpaceService(db)
     await space_service.get_space_crews(space_id, current_user)
 

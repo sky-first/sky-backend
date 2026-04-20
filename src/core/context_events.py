@@ -359,6 +359,7 @@ def _register_default_mappings() -> None:
     from src.models.crew import Crew, CrewMember
     from src.models.dashboard import Widget
     from src.models.enterprise_relationship import EnterpriseRelationship
+    from src.models.glossary import GlossaryTerm
     from src.models.signal_event import SignalEvent
     from src.models.space import Space, SpaceMember
     from src.models.starred import StarredItem
@@ -379,6 +380,9 @@ def _register_default_mappings() -> None:
     register_context_mapping(ContextMapping(model=StrategyInitiative, kind="initiative", source_table="strategy_initiatives"))
     register_context_mapping(ContextMapping(model=StrategyKeyResult, kind="kpi", source_table="strategy_key_results"))
     register_context_mapping(ContextMapping(model=StrategyAssumption, kind="risk", source_table="strategy_assumptions"))
+
+    # Glossary — short vocabulary terms (GMV / MAU / Churn / …) scoped to space/crew.
+    register_context_mapping(ContextMapping(model=GlossaryTerm, kind="glossary", source_table="glossary_terms"))
 
     # Events / Signals — kind resolved from category (internal / external / trend / macro).
     register_context_mapping(

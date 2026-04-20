@@ -60,6 +60,10 @@ class SpaceService:
             result = []
             for space_data in spaces_data:
                 try:
+<<<<<<< fix/settings-member-connection-counts
+=======
+                    # SpaceBase.validate_color handles normalization automatically
+>>>>>>> staging
                     result.append(SpaceResponse.model_validate(space_data))
                 except Exception as e:
                     logger.error(

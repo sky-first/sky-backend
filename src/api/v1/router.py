@@ -16,12 +16,14 @@ from src.api.v1 import (
     insight_agents,
     messages,
     connectors,
+    context_rows,
     crews,
     dashboards,
     datasets,
     enterprise_apis,
     enterprise_relationships,
     files,
+    glossary,
     impersonation,
     intelligence_signals,
     notifications,
@@ -130,6 +132,13 @@ api_router.include_router(
     context_health.router, prefix="/context", tags=["Context Health"]
 )
 
+# Context rows — generic row-hydration endpoint used by the AI service's
+# ingest worker to fetch the full source row before embedding. Paired
+# with the Redis event stream in src/core/context_events.py.
+api_router.include_router(
+    context_rows.router, prefix="/context", tags=["Context Rows"]
+)
+
 # Admin actions (pause-all, audit export) — admin-only.
 api_router.include_router(
     admin_actions.router, prefix="/admin", tags=["Admin Actions"]
@@ -170,6 +179,9 @@ api_router.include_router(
 
 # Strategy endpoints
 api_router.include_router(strategy.router, prefix="/strategy", tags=["Strategy"])
+
+# Glossary endpoints — business vocabulary consumed by the context layer
+api_router.include_router(glossary.router, prefix="/glossary", tags=["Glossary"])
 
 # Enterprise Relationship endpoints
 api_router.include_router(
