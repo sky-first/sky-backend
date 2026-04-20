@@ -55,59 +55,25 @@ class SpaceService:
         Returns:
             List[SpaceResponse]: List of spaces
         """
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         try:
-            spaces = await self.space_repo.get_by_user(user.id, skip=skip, limit=limit)
+            spaces_data = await self.space_repo.get_by_user_with_stats(user.id, skip=skip, limit=limit)
             result = []
-            for space in spaces:
+            for space_data in spaces_data:
                 try:
-                    # Normalize color field - ensure it's either None or a valid hex color
-                    normalized_color = None
-                    if space.color:
-                        # Check if it's a valid hex color
-                        if (
-                            isinstance(space.color, str)
-                            and space.color.startswith("#")
-                            and len(space.color) == 7
-                        ):
-                            try:
-                                int(space.color[1:], 16)  # Validate hex
-                                normalized_color = space.color
-                            except ValueError:
-                                # Invalid hex, set to None
-                                normalized_color = None
-                        # If it's not a valid hex format, set to None
-
-                    # Create response using model_validate with from_attributes
-                    # Temporarily set color to normalized value
-                    original_color = space.color
-                    space.color = normalized_color
-                    try:
-                        response = SpaceResponse.model_validate(space)
-                        result.append(response)
-                    finally:
-                        # Restore original color value
-                        space.color = original_color
+                    result.append(SpaceResponse.model_validate(space_data))
                 except Exception as e:
-                    logger.error(f"Error validating space {space.id}: {str(e)}", exc_info=True)
-                    # Try with color as None if validation fails
+                    logger.error(
+                        f"Error validating space {space_data.get('id')}: {str(e)}",
+                        exc_info=True,
+                    )
                     try:
-                        original_color = space.color
-                        space.color = None
-                        try:
-                            response = SpaceResponse.model_validate(space)
-                            result.append(response)
-                        finally:
-                            space.color = original_color
+                        space_data["color"] = None
+                        result.append(SpaceResponse.model_validate(space_data))
                     except Exception as e2:
                         logger.error(
-                            f"Error validating space {space.id} with color=None: {str(e2)}",
+                            f"Error validating space {space_data.get('id')} with color=None: {str(e2)}",
                             exc_info=True,
                         )
-                        # Skip this space if it still fails
                         continue
             return result
         except Exception as e:
@@ -290,7 +256,9 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id:
+        is_creator = space.created_by == user.id
+        is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+        if not is_creator and not is_member:
             raise ForbiddenError("Access denied to this space")
 
         crews = await self.space_repo.get_space_crews(space_id)

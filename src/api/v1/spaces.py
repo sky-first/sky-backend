@@ -20,6 +20,7 @@ from src.schemas.space import (
     SpaceTableCreate,
     SpaceUpdate,
 )
+from src.services.crew_service import CrewService
 from src.services.rbac_service import RBACService
 from src.services.space_service import SpaceService
 
@@ -241,9 +242,12 @@ async def get_space_crews(
     Returns:
         List[CrewResponse]: List of crews
     """
+    # Verify access (raises ForbiddenError if user is not creator or member)
     space_service = SpaceService(db)
-    crews = await space_service.get_space_crews(space_id, current_user)
-    return [CrewResponse.model_validate(c) for c in crews]
+    await space_service.get_space_crews(space_id, current_user)
+
+    crew_service = CrewService(db)
+    return await crew_service.list_crews(current_user, space_id=space_id)
 
 
 @router.get(
