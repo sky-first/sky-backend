@@ -62,10 +62,8 @@ class CrewService:
             )
             return [CrewResponse.model_validate(c) for c in crews_data]
         else:
-            # Get all crews user has access to
-            # TODO: Implement get_all_with_stats if needed
-            crews = await self.crew_repo.get_all(skip=skip, limit=limit)
-            return [CrewResponse.model_validate(c) for c in crews]
+            crews_data = await self.crew_repo.get_all_with_stats(skip=skip, limit=limit)
+            return [CrewResponse.model_validate(c) for c in crews_data]
 
     async def get_crew(self, crew_id: UUID, user: User) -> CrewResponse:
         """

@@ -3,7 +3,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -21,24 +21,57 @@ class SpaceRepository(BaseRepository[Space]):
 
     async def get_by_user(self, user_id: UUID, skip: int = 0, limit: int = 100) -> List[Space]:
         """
-        Get spaces by user.
-
-        Args:
-            user_id: User ID
-            skip: Number of records to skip
-            limit: Maximum number of records
-
-        Returns:
-            List[Space]: List of spaces
+        Get spaces by user — includes spaces the user created or is a member of.
         """
+        member_space_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
         result = await self.db.execute(
             select(Space)
-            .where(Space.created_by == user_id, Space.deleted_at.is_(None))
+            .where(
+                Space.deleted_at.is_(None),
+                or_(Space.created_by == user_id, Space.id.in_(member_space_ids)),
+            )
             .order_by(Space.created_at.desc())
             .offset(skip)
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def get_by_user_with_stats(
+        self, user_id: UUID, skip: int = 0, limit: int = 100
+    ) -> List[dict]:
+        """Get spaces by user with member and connection counts.
+
+        Returns spaces the user created OR is a member of.
+        """
+        member_space_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
+        stmt = (
+            select(
+                Space,
+                func.count(distinct(SpaceMember.id)).label("member_count"),
+                func.count(distinct(SpaceConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(SpaceMember, Space.id == SpaceMember.space_id)
+            .outerjoin(SpaceConnection, Space.id == SpaceConnection.space_id)
+            .where(
+                Space.deleted_at.is_(None),
+                or_(Space.created_by == user_id, Space.id.in_(member_space_ids)),
+            )
+            .group_by(Space.id)
+            .order_by(Space.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+
+        spaces = []
+        for row in result:
+            space, member_count, connection_count = row
+            space_data = {c.name: getattr(space, c.name) for c in space.__table__.columns}
+            space_data["member_count"] = member_count
+            space_data["connection_count"] = connection_count
+            spaces.append(space_data)
+
+        return spaces
 
     async def get_by_id(self, id: UUID) -> Optional[Space]:
         """
