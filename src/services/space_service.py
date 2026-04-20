@@ -60,14 +60,12 @@ class SpaceService:
             result = []
             for space_data in spaces_data:
                 try:
-                    # SpaceBase.validate_color handles normalization automatically
                     result.append(SpaceResponse.model_validate(space_data))
                 except Exception as e:
                     logger.error(
                         f"Error validating space {space_data.get('id')}: {str(e)}",
                         exc_info=True,
                     )
-                    # Retry with color cleared if validation fails
                     try:
                         space_data["color"] = None
                         result.append(SpaceResponse.model_validate(space_data))
