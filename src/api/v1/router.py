@@ -22,6 +22,7 @@ from src.api.v1 import (
     enterprise_apis,
     enterprise_relationships,
     files,
+    glossary,
     impersonation,
     intelligence_signals,
     notifications,
@@ -170,6 +171,9 @@ api_router.include_router(
 
 # Strategy endpoints
 api_router.include_router(strategy.router, prefix="/strategy", tags=["Strategy"])
+
+# Glossary endpoints — business vocabulary consumed by the context layer
+api_router.include_router(glossary.router, prefix="/glossary", tags=["Glossary"])
 
 # Enterprise Relationship endpoints
 api_router.include_router(
