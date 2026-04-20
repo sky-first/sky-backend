@@ -4,10 +4,15 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import JSON
 
 from src.config.database import Base
+
+# SQLite has no native JSONB — fall back to JSON in tests so the column
+# still round-trips. Same pattern used by src/models/context_document.py.
+_JSONB_OR_JSON = JSONB().with_variant(JSON(), "sqlite")
 
 
 class Space(Base):
@@ -142,6 +147,11 @@ class SpaceTable(Base):
     )
     table_name = Column(String(255), nullable=False)
     schema_name = Column(String(255), nullable=True)
+    # Columns that the Space chose to HIDE from this table. Empty list means
+    # every column is visible (default). The connection itself still owns
+    # the full schema — hidden_columns is a per-space filter applied on
+    # retrieval and render, not on storage.
+    hidden_columns = Column(_JSONB_OR_JSON, nullable=False, default=list, server_default="[]")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relationships
