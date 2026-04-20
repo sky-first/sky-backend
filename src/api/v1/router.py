@@ -16,6 +16,7 @@ from src.api.v1 import (
     insight_agents,
     messages,
     connectors,
+    context_rows,
     crews,
     dashboards,
     datasets,
@@ -129,6 +130,13 @@ api_router.include_router(
 # Context Layer health — admin-only; feeds the Administration tab in Settings.
 api_router.include_router(
     context_health.router, prefix="/context", tags=["Context Health"]
+)
+
+# Context rows — generic row-hydration endpoint used by the AI service's
+# ingest worker to fetch the full source row before embedding. Paired
+# with the Redis event stream in src/core/context_events.py.
+api_router.include_router(
+    context_rows.router, prefix="/context", tags=["Context Rows"]
 )
 
 # Admin actions (pause-all, audit export) — admin-only.
