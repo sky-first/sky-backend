@@ -98,6 +98,11 @@ class SpaceTableResponse(BaseModel):
     connection_id: UUID
     table_name: str
     schema_name: Optional[str] = None
+    # Per-space column visibility — columns the Space chose to hide on
+    # this table. Empty list means every column is visible (default).
+    # Populated by sky-poc-backend#190 and consumed by the Space detail
+    # drawer to pre-select the right toggles.
+    hidden_columns: list[str] = []
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
