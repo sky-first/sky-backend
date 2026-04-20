@@ -657,6 +657,48 @@ class SpaceService:
         await self.db.delete(association)
         await self.db.commit()
 
+    async def set_space_table_hidden_columns(
+        self,
+        space_id: UUID,
+        connection_id: UUID,
+        table_name: str,
+        schema_name: Optional[str],
+        hidden_columns: list[str],
+        user: User,
+    ) -> None:
+        """Replace the hidden_columns list for a space-linked table.
+
+        `hidden_columns` is a whitelist-inverse: every column in the
+        list is filtered out of retrieval / render for this Space only.
+        The RBAC gate at the endpoint layer (`connections.edit`) is the
+        authoritative permission check; the ownership guard below is a
+        defence-in-depth against rogue internal callers that bypass the
+        route handler.
+        """
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
+            raise ForbiddenError("Access denied to this space")
+
+        association = await self.table_repo.get_space_table(
+            space_id, connection_id, table_name, schema_name
+        )
+        if not association:
+            raise NotFoundError("Table association not found — link the table first")
+
+        # Deduplicate + strip while preserving UI order.
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for col in hidden_columns:
+            key = col.strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(key)
+        association.hidden_columns = cleaned
+        await self.db.commit()
+
     async def get_space_stats(self, space_id: UUID, user: User) -> dict:
         """
         Get statistics for a space.

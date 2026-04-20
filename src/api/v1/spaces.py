@@ -529,6 +529,52 @@ async def remove_space_table(
     return SuccessResponse(message="Table unlinked successfully")
 
 
+@router.patch(
+    "/{space_id}/connections/{connection_id}/tables/{table_name}/columns",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Set hidden columns for a space-linked table",
+    description=(
+        "Replace the list of columns this Space chooses to hide on this "
+        "connection/table. The connection itself still owns the full "
+        "schema — hidden columns are filtered out on retrieval / render."
+    ),
+)
+async def set_space_table_hidden_columns(
+    space_id: UUID,
+    connection_id: UUID,
+    table_name: str,
+    payload: Dict[str, Any],
+    schema_name: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """Set the hidden_columns list for the (space, connection, table) row.
+
+    Payload: `{"hidden_columns": ["col1", "col2", ...]}`. Empty list
+    means every column is visible (default).
+    """
+    await RBACService(db).assert_permission(current_user, "connections.edit", space_id=space_id)
+    hidden = payload.get("hidden_columns")
+    if not isinstance(hidden, list) or not all(isinstance(c, str) for c in hidden):
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="hidden_columns must be a list of strings",
+        )
+    space_service = SpaceService(db)
+    await space_service.set_space_table_hidden_columns(
+        space_id,
+        connection_id,
+        table_name,
+        schema_name,
+        list(hidden),
+        current_user,
+    )
+    return SuccessResponse(message="Hidden columns updated")
+
+
 @router.get(
     "/{space_id}/stats",
     response_model=SpaceStatsResponse,
