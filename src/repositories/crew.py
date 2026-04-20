@@ -122,6 +122,36 @@ class CrewRepository(BaseRepository[Crew]):
         result = await self.db.execute(select(self.model).where(self.model.id == id))
         return result.scalar_one_or_none()
 
+    async def get_all_with_stats(
+        self, skip: int = 0, limit: int = 100
+    ) -> List[dict]:
+        """Get all crews with member and connection counts."""
+        stmt = (
+            select(
+                Crew,
+                func.count(distinct(CrewMember.id)).label("member_count"),
+                func.count(distinct(CrewConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(CrewMember, Crew.id == CrewMember.crew_id)
+            .outerjoin(CrewConnection, Crew.id == CrewConnection.crew_id)
+            .where(Crew.deleted_at.is_(None))
+            .group_by(Crew.id)
+            .order_by(Crew.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+
+        crews = []
+        for row in result:
+            crew, member_count, connection_count = row
+            crew_data = {c.name: getattr(crew, c.name) for c in crew.__table__.columns}
+            crew_data["member_count"] = member_count
+            crew_data["connection_count"] = connection_count
+            crews.append(crew_data)
+
+        return crews
+
     async def get_all(
         self,
         skip: int = 0,
