@@ -607,6 +607,13 @@ class SpaceService:
         if space.created_by != user.id and user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
+        # Verify the connection exists — if not, fail fast with a 404
+        # instead of letting the FK blow up inside commit() and surface
+        # as an opaque 500.
+        connection = await self.connection_repo.get_by_id(table_data.connection_id)
+        if not connection:
+            raise NotFoundError("Connection not found")
+
         # Check if already exists
         existing = await self.table_repo.get_space_table(
             space_id,
@@ -618,6 +625,8 @@ class SpaceService:
             return {"message": "Table already linked", "id": str(existing.id)}
 
         # Create association
+        from sqlalchemy.exc import IntegrityError
+
         from src.models.space import SpaceTable
 
         space_table = SpaceTable(
@@ -627,8 +636,35 @@ class SpaceService:
             schema_name=table_data.schema_name,
         )
         self.db.add(space_table)
-        await self.db.commit()
-        await self.db.refresh(space_table)
+        try:
+            await self.db.commit()
+            await self.db.refresh(space_table)
+        except IntegrityError as e:
+            # Race condition (concurrent link) or unique-constraint hit —
+            # roll back and treat as an idempotent success. Logging the
+            # actual error here keeps the 500 off the wire so the user
+            # sees the correct linked state.
+            await self.db.rollback()
+            logger.warning(
+                "add_space_table integrity error (treated as already linked): %s",
+                str(e),
+            )
+            existing = await self.table_repo.get_space_table(
+                space_id,
+                table_data.connection_id,
+                table_data.table_name,
+                table_data.schema_name,
+            )
+            if existing:
+                return {"message": "Table already linked", "id": str(existing.id)}
+            raise BadRequestError("Could not link table — integrity check failed")
+        except Exception as e:
+            # Any other DB error: roll back and surface a clean 400 with
+            # the exception type so the frontend stops showing a generic
+            # 500 that reverts the optimistic Link state.
+            await self.db.rollback()
+            logger.exception("add_space_table failed")
+            raise BadRequestError(f"Could not link table: {type(e).__name__}")
 
         return {"message": "Table linked successfully", "id": str(space_table.id)}
 
