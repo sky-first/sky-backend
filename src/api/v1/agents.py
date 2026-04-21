@@ -412,23 +412,28 @@ async def get_agent_metrics(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Per-agent usage metrics — runs, findings, tokens consumed, cadence.
+    """Per-agent usage metrics.
 
-    Exposes the counters the UI uses to show "cost" in run-units, not
-    USD. Tokens and rows analyzed are the two proxies for volume the
-    billing model is built around.
+    Two flavours of volume surface here:
+
+    * `runs_*` and `data_bytes_*` — human-readable units shown to end
+      users in the agent card. "This agent ran 12 times and analyzed
+      8 MB of data this month."
+    * `tokens_*` — technical LLM units, used only by admin-level
+      billing screens and the customer invoice. Included in the
+      response so the same endpoint powers both views, but the
+      end-user UI never surfaces it.
     """
     await RBACService(db).assert_permission(current_user, "agents.view")
+    import json
     from datetime import datetime, timezone
     from src.models.agent import AgentExecution
 
-    # All executions for this agent.
     exec_q = await db.execute(
         select(AgentExecution).where(AgentExecution.agent_id == agent_id)
     )
     executions = list(exec_q.scalars().all())
 
-    # This-month window (UTC).
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -439,10 +444,24 @@ async def get_agent_metrics(
     def _tokens(e: AgentExecution) -> int:
         return int(e.llm_tokens_used or 0) + int(e.delta_tokens or 0)
 
+    def _data_bytes(e: AgentExecution) -> int:
+        """Size of the query result the execution analyzed. We use the
+        JSONB result_payload byte length as the proxy: it captures both
+        rows read and any intermediate aggregation the agent touched."""
+        payload = getattr(e, "result_payload", None)
+        if payload is None:
+            return 0
+        try:
+            return len(json.dumps(payload, default=str))
+        except Exception:
+            return 0
+
     runs_total = len(executions)
     runs_this_month = sum(1 for e in executions if _month(e))
     tokens_total = sum(_tokens(e) for e in executions)
     tokens_this_month = sum(_tokens(e) for e in executions if _month(e))
+    data_bytes_total = sum(_data_bytes(e) for e in executions)
+    data_bytes_this_month = sum(_data_bytes(e) for e in executions if _month(e))
     findings_total = sum(int(e.findings_count or 0) for e in executions)
     findings_this_month = sum(int(e.findings_count or 0) for e in executions if _month(e))
     durations = [e.duration_ms for e in executions if e.duration_ms]
@@ -452,7 +471,6 @@ async def get_agent_metrics(
         None,
     )
 
-    # Fetch agent for next_execution_at + linked sources.
     agent_q = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = agent_q.scalar_one_or_none()
     if not agent:
@@ -462,16 +480,22 @@ async def get_agent_metrics(
         "agent_id": str(agent_id),
         "runs_total": runs_total,
         "runs_this_month": runs_this_month,
-        "tokens_total": tokens_total,
-        "tokens_this_month": tokens_this_month,
+        "data_bytes_total": data_bytes_total,
+        "data_bytes_this_month": data_bytes_this_month,
+        "avg_data_bytes_per_run": int(data_bytes_total / runs_total) if runs_total else 0,
         "findings_total": findings_total,
         "findings_this_month": findings_this_month,
         "avg_duration_ms": avg_duration_ms,
-        "avg_tokens_per_run": int(tokens_total / runs_total) if runs_total else 0,
         "last_run_at": (getattr(last_execution, "started_at", None) or getattr(last_execution, "created_at", None)) if last_execution else None,
         "next_run_at": agent.next_execution_at,
         "connection_count": len(agent.connection_ids or []),
         "table_count": len(agent.table_ids or []),
+        # Billing-only fields. End-user UI must NOT surface these; they
+        # are aggregated by the tenant admin dashboard and printed on
+        # the customer invoice.
+        "tokens_total": tokens_total,
+        "tokens_this_month": tokens_this_month,
+        "avg_tokens_per_run": int(tokens_total / runs_total) if runs_total else 0,
     }
 
 
@@ -506,15 +530,29 @@ async def get_tenant_agent_metrics(
     def _tokens(e: AgentExecution) -> int:
         return int(e.llm_tokens_used or 0) + int(e.delta_tokens or 0)
 
+    import json
+
+    def _data_bytes(e: AgentExecution) -> int:
+        payload = getattr(e, "result_payload", None)
+        if payload is None:
+            return 0
+        try:
+            return len(json.dumps(payload, default=str))
+        except Exception:
+            return 0
+
     return {
         "agents_total": len(agents),
         "agents_active": sum(1 for a in agents if a.status == "active"),
         "runs_this_month": sum(1 for e in executions if _month(e)),
         "runs_total": len(executions),
-        "tokens_this_month": sum(_tokens(e) for e in executions if _month(e)),
-        "tokens_total": sum(_tokens(e) for e in executions),
+        "data_bytes_this_month": sum(_data_bytes(e) for e in executions if _month(e)),
+        "data_bytes_total": sum(_data_bytes(e) for e in executions),
         "findings_this_month": sum(int(e.findings_count or 0) for e in executions if _month(e)),
         "findings_total": sum(int(e.findings_count or 0) for e in executions),
+        # Billing-only — admin invoice / backend cost projection.
+        "tokens_this_month": sum(_tokens(e) for e in executions if _month(e)),
+        "tokens_total": sum(_tokens(e) for e in executions),
     }
 
 
