@@ -17,7 +17,7 @@ render the full 26-kind grid without branching).
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
@@ -40,7 +40,7 @@ class KindHealth(BaseModel):
     kind: str
     doc_count: int
     stale_count: int
-    last_indexed_at: datetime | None
+    last_indexed_at: Optional[datetime]
     ok: bool
 
     model_config = ConfigDict(from_attributes=True)

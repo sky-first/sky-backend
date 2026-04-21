@@ -103,6 +103,7 @@ class AuditService:
         actor_id: Optional[UUID] = None,
         decision: Optional[str] = None,
         resource_kind: Optional[str] = None,
+        resource_id: Optional[str] = None,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -119,6 +120,8 @@ class AuditService:
             query = query.where(AuditEvent.decision == decision)
         if resource_kind:
             query = query.where(AuditEvent.resource_kind == resource_kind)
+        if resource_id:
+            query = query.where(AuditEvent.resource_id == resource_id)
 
         # Count
         count_query = select(func.count()).select_from(query.subquery())

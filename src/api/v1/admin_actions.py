@@ -25,7 +25,7 @@ import csv
 import io
 import json
 from datetime import datetime, timezone
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -61,7 +61,7 @@ class PauseAllResponse(BaseModel):
     summary="Pause every active agent in scope (admin emergency switch)",
 )
 async def pause_all_agents(
-    space_id: str | None = Query(
+    space_id: Optional[str] = Query(
         None,
         description="Optional: limit to a single space. When omitted, "
         "pauses every active agent visible to the caller.",

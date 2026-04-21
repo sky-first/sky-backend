@@ -54,7 +54,7 @@ _PENDING_KEY = "_context_pending_events"
 
 # The publish strategy is a module-level hook so tests can swap it for an
 # in-memory sink. Production callers should stay on the default.
-_publisher: Callable[[list["ContextEvent"]], None] | None = None
+_publisher: Optional[Callable[[list["ContextEvent"]], None]] = None
 
 
 def set_publisher(fn: Optional[Callable[[list["ContextEvent"]], None]]) -> None:

@@ -1,7 +1,7 @@
 """Crew schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -96,11 +96,23 @@ class CrewPIIAccess(BaseModel):
     description: str
 
 
+class CrewActivity(BaseModel):
+    """Schema for an activity event in the crew feed."""
+
+    id: str
+    user: str
+    action: str
+    target: str
+    time: str
+    status: str  # "allow" | "deny"
+
+
 class CrewStatsResponse(BaseModel):
     """Schema for a crew's statistics."""
 
     usage_summary: CrewMetric
     insights_contributed: CrewMetric
     pii_access: CrewPIIAccess
+    activity_feed: List[CrewActivity] = []
 
     model_config = ConfigDict(from_attributes=True)

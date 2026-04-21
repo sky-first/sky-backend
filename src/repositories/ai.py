@@ -7,7 +7,7 @@ from sqlalchemy import cast, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.ai import AIQuery
+from src.models.ai import AIHistory, AIQuery
 from src.repositories.base import BaseRepository
 
 
@@ -91,4 +91,40 @@ class AIQueryRepository(BaseRepository[AIQuery]):
             )
         )
         result = await self.db.execute(query)
+        return result.scalar() or 0
+
+    async def count_queries_by_space_id(self, space_id: str) -> int:
+        """Count AI history entries scoped to a space."""
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(AIHistory)
+            .where(AIHistory.space_id == space_id)
+        )
+        return result.scalar() or 0
+
+    async def get_active_users_by_space_id(self, space_id: str) -> int:
+        """Count distinct users who made queries in a space."""
+        result = await self.db.execute(
+            select(func.count(func.distinct(AIHistory.user_id)))
+            .select_from(AIHistory)
+            .where(AIHistory.space_id == space_id)
+        )
+        return result.scalar() or 0
+
+    async def count_queries_by_crew_id(self, crew_id: str) -> int:
+        """Count AI history entries scoped to a crew."""
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(AIHistory)
+            .where(AIHistory.crew_id == crew_id)
+        )
+        return result.scalar() or 0
+
+    async def get_active_users_by_crew_id(self, crew_id: str) -> int:
+        """Count distinct users who made queries in a crew."""
+        result = await self.db.execute(
+            select(func.count(func.distinct(AIHistory.user_id)))
+            .select_from(AIHistory)
+            .where(AIHistory.crew_id == crew_id)
+        )
         return result.scalar() or 0
