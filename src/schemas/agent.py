@@ -68,6 +68,10 @@ class AgentUpdate(BaseModel):
     connection_ids: Optional[List[UUID]] = None
     space_ids: Optional[List[UUID]] = None
     relationship_types: Optional[List[str]] = None
+    # Flexible schedule — supersedes `frequency` when present.
+    # Shape: {interval_value: int, interval_unit: minute|hour|day|week|month,
+    #         end: {type: forever|once|n_runs|until_date, value: int|iso?}}
+    schedule_jsonb: Optional[Dict[str, Any]] = None
 
     @field_validator("monitor_type")
     @classmethod

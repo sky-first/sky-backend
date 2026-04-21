@@ -68,7 +68,14 @@ class AgentService:
         return agent
 
     async def update_agent(self, agent_id: UUID, data: AgentUpdate) -> Agent:
-        agent = await self.repo.get_by_id(agent_id)
+        # Load with findings eager-loaded because the endpoint's
+        # response_model (AgentListResponse) now includes findings. Without
+        # eager load, response serialization triggers a lazy-load on the
+        # relationship inside FastAPI's async context, which blows up with
+        # MissingGreenlet after ~5s and surfaces as a generic 500
+        # "unexpected error" to the UI — exactly the bug the user hit on
+        # every Save.
+        agent = await self.repo.get_with_findings(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
@@ -77,8 +84,10 @@ class AgentService:
             setattr(agent, key, value)
 
         await self.db.commit()
-        await self.db.refresh(agent)
-        return agent
+        # Re-fetch with findings so the response still has them populated
+        # after the write. db.refresh() alone would not reload the
+        # relationship.
+        return await self.repo.get_with_findings(agent_id)
 
     async def delete_agent(self, agent_id: UUID) -> None:
         agent = await self.repo.get_by_id(agent_id)
@@ -89,25 +98,24 @@ class AgentService:
         logger.info(f"Agent deleted: {agent_id}")
 
     async def pause_agent(self, agent_id: UUID) -> Agent:
-        agent = await self.repo.get_by_id(agent_id)
+        # Same response_model-needs-findings reasoning as update_agent.
+        agent = await self.repo.get_with_findings(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
         agent.status = "paused"
         agent.next_execution_at = None
         await self.db.commit()
-        await self.db.refresh(agent)
-        return agent
+        return await self.repo.get_with_findings(agent_id)
 
     async def resume_agent(self, agent_id: UUID) -> Agent:
-        agent = await self.repo.get_by_id(agent_id)
+        agent = await self.repo.get_with_findings(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
         hours = FREQUENCY_HOURS.get(agent.frequency, 24)
         agent.status = "active"
         agent.next_execution_at = datetime.now(timezone.utc) + timedelta(hours=hours)
         await self.db.commit()
-        await self.db.refresh(agent)
-        return agent
+        return await self.repo.get_with_findings(agent_id)
 
     # ─── Findings ───
 

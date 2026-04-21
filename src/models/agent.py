@@ -36,9 +36,18 @@ class AgentStatus(str, Enum):
 
 
 class AgentFrequency(str, Enum):
+    # `schedule_jsonb` is the precise source of truth for cadence
+    # (interval_value + interval_unit + end condition). These enum
+    # values are coarse buckets kept for backward compatibility with
+    # existing rows and the legacy UI select; new flexible schedules
+    # pass `manual` here and rely on `schedule_jsonb`.
+    MINUTELY = "minutely"
     HOURLY = "hourly"
     DAILY = "daily"
     WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    MANUAL = "manual"
+    ONCE = "once"
 
 
 class AgentArchetype(str, Enum):
