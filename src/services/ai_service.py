@@ -641,18 +641,57 @@ class AIService:
                 )
                 query.status = "completed"
         except Exception as e:
-            # Some exceptions (bare `raise Exception()`, HTTP errors with empty
-            # `detail`, custom exceptions without a message) stringify to ""
-            # and produced user-visible `answer: "Error: "` with no signal
-            # about what failed. Always surface at least the exception type.
-            detail = str(e).strip() or repr(e).strip() or type(e).__name__
+            # User-facing message must NEVER leak internal URLs, pod IDs,
+            # connection UUIDs, or httpx's default "for url 'http://...'"
+            # preamble. Classify the exception into a platform_error key
+            # the frontend PlatformErrorBanner can render cleanly, and log
+            # the full detail server-side only.
+            import httpx as _httpx
+            error_key = "chat.server"
+            friendly = "The AI service had a problem. Please try again."
+            if isinstance(e, _httpx.TimeoutException):
+                error_key = "chat.timeout"
+                friendly = "The question took too long to answer. Try a simpler one or retry."
+            elif isinstance(e, _httpx.HTTPStatusError):
+                code = e.response.status_code
+                if code == 429:
+                    error_key = "chat.rate_limited"
+                    friendly = "Too many AI requests in a short window. Please wait a few seconds and retry."
+                elif 500 <= code < 600:
+                    error_key = "chat.server"
+                    friendly = "The AI service is temporarily unavailable. Please retry in a moment."
+                elif code == 400:
+                    error_key = "chat.server"
+                    friendly = "I couldn't understand that question. Try rephrasing it."
+                else:
+                    error_key = "chat.server"
+                    friendly = "The AI service rejected the request. Please retry or open a ticket."
+            elif isinstance(e, (_httpx.ConnectError, _httpx.NetworkError)):
+                error_key = "chat.network"
+                friendly = "Couldn't reach the AI service. Check your connection and retry."
+
             query.status = "error"
-            query.answer = f"Error: {detail}"
+            # Store the friendly message as `answer` so the chat bubble shows
+            # something readable. Key + details go into a separate field if
+            # the response schema supports it — the frontend reads `error_key`
+            # when present to pick the PlatformErrorBanner template.
+            query.answer = friendly
+            try:
+                # extra_data is a JSONB column used for misc metadata on
+                # AIQuery; if it doesn't exist in older schemas this block
+                # is a no-op (setattr on non-column is silently dropped by
+                # SQLAlchemy declarative).
+                extra = dict(getattr(query, "extra_data", None) or {})
+                extra["error_key"] = error_key
+                extra["exception_type"] = type(e).__name__
+                query.extra_data = extra
+            except Exception:
+                pass
             logger.exception(
-                "AI query pipeline failed (query_id=%s, connection_id=%s): %s",
+                "AI query pipeline failed (query_id=%s, connection_id=%s, error_key=%s)",
                 query.id,
                 locals().get("connection_id"),
-                detail,
+                error_key,
             )
 
         await self.db.commit()
