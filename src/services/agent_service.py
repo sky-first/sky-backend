@@ -14,7 +14,35 @@ from src.schemas.agent import AgentCreate, AgentUpdate
 
 logger = logging.getLogger(__name__)
 
-FREQUENCY_HOURS = {"hourly": 1, "daily": 24, "weekly": 168}
+# Coarse buckets — fine-grained cadence lives in schedule_jsonb.
+# `once` and `manual` deliberately map to "no next run" — the scheduler
+# checks for None before enqueueing, so leaving it unset disables
+# auto-runs for these two modes.
+FREQUENCY_HOURS = {
+    "minutely": 1 / 60,  # fraction of an hour — converted via timedelta below
+    "hourly": 1,
+    "daily": 24,
+    "weekly": 168,
+    "monthly": 24 * 30,  # calendar-month approximation; good enough for cost forecast
+}
+
+
+def _compute_next_execution(frequency: str, schedule_jsonb: Optional[dict] = None) -> Optional[datetime]:
+    """Next-run timestamp for the scheduler. `once` and `manual` return None
+    so the agent never auto-fires. `schedule_jsonb.interval_value` lets
+    the user express "every 3 hours" or "every 15 minutes" without a new
+    enum bucket — defaults to 1 when absent."""
+    if frequency in ("once", "manual"):
+        return None
+    hours = FREQUENCY_HOURS.get(frequency, 24)
+    if schedule_jsonb and isinstance(schedule_jsonb, dict):
+        try:
+            multiplier = int(schedule_jsonb.get("interval_value") or 1)
+            if multiplier > 1:
+                hours = hours * multiplier
+        except (TypeError, ValueError):
+            pass
+    return datetime.now(timezone.utc) + timedelta(hours=hours)
 DEPTH_CYCLES = {"quick": 1, "standard": 3, "deep": 5}
 
 
@@ -39,8 +67,11 @@ class AgentService:
         return agent
 
     async def create_agent(self, data: AgentCreate, user_id: UUID) -> Agent:
-        hours = FREQUENCY_HOURS.get(data.frequency, 24)
-        now = datetime.now(timezone.utc)
+        next_run = _compute_next_execution(
+            data.frequency,
+            getattr(data, "schedule_jsonb", None),
+        )
+        now = datetime.now(timezone.utc)  # noqa: F841 — kept for future audit fields
 
         agent = Agent(
             name=data.name,
@@ -58,7 +89,7 @@ class AgentService:
             table_ids=data.table_ids,
             space_ids=data.space_ids,
             relationship_types=data.relationship_types,
-            next_execution_at=now + timedelta(hours=hours),
+            next_execution_at=next_run,
             created_by=user_id,
         )
         self.db.add(agent)
@@ -111,9 +142,11 @@ class AgentService:
         agent = await self.repo.get_with_findings(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-        hours = FREQUENCY_HOURS.get(agent.frequency, 24)
         agent.status = "active"
-        agent.next_execution_at = datetime.now(timezone.utc) + timedelta(hours=hours)
+        agent.next_execution_at = _compute_next_execution(
+            agent.frequency,
+            getattr(agent, "schedule_jsonb", None),
+        )
         await self.db.commit()
         return await self.repo.get_with_findings(agent_id)
 
