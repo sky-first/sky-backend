@@ -496,7 +496,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != current_user.id:
+        if space.created_by != current_user.id and current_user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         # Check if member exists
