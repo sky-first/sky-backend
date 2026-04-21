@@ -37,11 +37,14 @@ def upgrade() -> None:
         ),
     )
 
-    # Backfill: space creators become admin of their own space.
+    # Backfill: space creators become commander of their own space.
+    # (Earlier drafts used 'admin' here; see rename migration 20260421b
+    # for the vocabulary fix. Keeping 'commander' on fresh installs so
+    # they don't need the rename at all.)
     op.execute(
         """
         UPDATE space_members sm
-        SET role = 'admin'
+        SET role = 'commander'
         FROM spaces s
         WHERE sm.space_id = s.id
           AND sm.user_id = s.created_by

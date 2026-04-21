@@ -990,12 +990,13 @@ class RBACService:
             return member.role if member and member.role else "guest"  # type: ignore[return-value]
 
         # Next: resolve from space_id. Prefer the explicit space_members
-        # role (two-axis RBAC, Phase 1) and fall back to the best crew
-        # role in that space only when the user isn't a direct member.
-        # Mapping: space admin → crew commander, space navigator → crew
-        # navigator, space explorer → crew explorer. Platform admin /
-        # owner have already bypassed above; this path is for platform
-        # `member` users with scoped grants.
+        # role (two-axis RBAC) and fall back to the best crew role in
+        # that space only when the user isn't a direct member. Space
+        # roles (commander / navigator / explorer) share vocabulary
+        # with crew roles on purpose — no mapping needed, a space
+        # commander IS a commander for permission purposes. Platform
+        # owner / admin have already bypassed above; this path is for
+        # platform `member` users with scoped grants.
         if space_id:
             from sqlalchemy import select
             from src.models.space import SpaceMember
@@ -1007,13 +1008,8 @@ class RBACService:
                 )
             )
             space_role = res.scalar_one_or_none()
-            if space_role:
-                mapped = {
-                    "admin": "commander",
-                    "navigator": "navigator",
-                    "explorer": "explorer",
-                }.get(space_role, "guest")
-                return mapped  # type: ignore[return-value]
+            if space_role and space_role in ("commander", "navigator", "explorer"):
+                return space_role  # type: ignore[return-value]
             return await self._best_role_for_user_in_space(user_id, space_id)
 
         # Next: resolve from connection_id (any crew/space permission that user belongs to)
