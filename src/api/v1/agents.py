@@ -254,47 +254,70 @@ async def run_agent_stream(
             logger.error(f"Agent stream failed for {agent_id}: {e}")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
-        # Save finding from collected answer
+        # Save finding — always create one row, even when the AI produced
+        # no content, so the user sees a concrete result in the halo /
+        # findings tab instead of a silent "Run" that looks like nothing
+        # happened. The old behaviour only saved when collected_answer
+        # was non-empty, which is exactly when run_agent feedback matters
+        # least.
+        saved_finding_id: Optional[UUID] = None
         try:
             from src.config.database import AsyncSessionLocal
             async with AsyncSessionLocal() as save_db:
-                if collected_answer:
-                    finding = AgentFinding(
-                        agent_id=agent.id,
-                        execution_id=execution_id,
-                        type="insight",
-                        severity="medium",
-                        title=collected_meta.get("title", f"Analysis from {agent.name}")[:500],
-                        description=collected_answer[:3000],
-                        confidence=0.75,
-                        query=question[:500],
-                        connection_id=UUID(conn_id) if conn_id else None,
-                        data_sources=[s for s in [collected_meta.get("chosen_table"), conn_id] if s],
-                    )
-                    save_db.add(finding)
+                has_answer = bool(collected_answer and collected_answer.strip())
+                finding = AgentFinding(
+                    agent_id=agent.id,
+                    execution_id=execution_id,
+                    type="insight" if has_answer else "error",
+                    severity="medium" if has_answer else "low",
+                    title=(
+                        collected_meta.get("title", f"Analysis from {agent.name}")[:500]
+                        if has_answer
+                        else f"Run produced no output ({agent.name})"[:500]
+                    ),
+                    description=(
+                        collected_answer[:3000]
+                        if has_answer
+                        else "The AI service returned no content for this run. Check the agent's focus prompt, data sources, or retry."
+                    ),
+                    confidence=0.75 if has_answer else 0.0,
+                    query=question[:500],
+                    connection_id=UUID(conn_id) if conn_id else None,
+                    data_sources=[s for s in [collected_meta.get("chosen_table"), conn_id] if s],
+                )
+                save_db.add(finding)
+                await save_db.flush()
+                saved_finding_id = finding.id
 
-                    # Update execution
-                    exec_result = await save_db.execute(select(AgentExecution).where(AgentExecution.id == execution_id))
-                    exec_obj = exec_result.scalar_one_or_none()
-                    if exec_obj:
-                        exec_obj.status = "completed"
-                        exec_obj.findings_count = 1
-                        exec_obj.cycles_consumed = 3
-                        exec_obj.finished_at = datetime.now(timezone.utc)
+                # Update execution
+                exec_result = await save_db.execute(select(AgentExecution).where(AgentExecution.id == execution_id))
+                exec_obj = exec_result.scalar_one_or_none()
+                if exec_obj:
+                    exec_obj.status = "completed" if has_answer else "failed"
+                    exec_obj.findings_count = 1
+                    exec_obj.cycles_consumed = 3 if has_answer else 1
+                    exec_obj.finished_at = datetime.now(timezone.utc)
 
-                    # Update agent stats
-                    agent_result = await save_db.execute(select(Agent).where(Agent.id == agent_id))
-                    agent_obj = agent_result.scalar_one_or_none()
-                    if agent_obj:
-                        agent_obj.last_execution_at = datetime.now(timezone.utc)
-                        agent_obj.executions_this_month += 1
-                        agent_obj.cycles_consumed += 3
+                # Update agent stats
+                agent_result = await save_db.execute(select(Agent).where(Agent.id == agent_id))
+                agent_obj = agent_result.scalar_one_or_none()
+                if agent_obj:
+                    agent_obj.last_execution_at = datetime.now(timezone.utc)
+                    agent_obj.executions_this_month += 1
+                    agent_obj.cycles_consumed += 3 if has_answer else 1
 
-                    await save_db.commit()
+                await save_db.commit()
 
-            yield f"data: {json.dumps({'type': 'finding_saved', 'title': collected_meta.get('title', 'Analysis complete')})}\n\n"
+            payload = {
+                "type": "finding_saved",
+                "finding_id": str(saved_finding_id) if saved_finding_id else None,
+                "title": collected_meta.get("title", "Analysis complete"),
+                "has_answer": bool(collected_answer),
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
         except Exception as e:
-            logger.error(f"Failed to save agent finding: {e}")
+            logger.exception("Failed to save agent finding")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Could not persist finding: {e}'})}\n\n"
 
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 

@@ -220,6 +220,15 @@ class Settings(BaseSettings):
         default="http://localhost:8001",
         description="URL of the AI service (ia-do-projeto)",
     )
+    AI_SERVICE_HTTP_TIMEOUT: float = Field(
+        default=90.0,
+        description=(
+            "Seconds the backend will wait on a single AI HTTP call before "
+            "aborting. Must be <= the frontend withTimeout (120s). Previous "
+            "default of 25s caused spurious 'Service highly demanded' banners "
+            "on any medium-complexity question."
+        ),
+    )
     AI_METADATA_TTL_SECONDS: int = Field(
         default=21600,
         description="TTL (seconds) for AI table metadata before re-discover is triggered. 0 disables staleness checks.",
