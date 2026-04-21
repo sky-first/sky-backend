@@ -50,6 +50,9 @@ async def list_users(
     Returns:
         List[UserResponse]: List of users
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     # Users list is needed by anyone who manages crew/space members.
     # admin.users.manage is false for all roles by default (reserved for
     # platform-level user admin). For listing, we allow any authenticated
@@ -142,6 +145,9 @@ async def get_user(
     Returns:
         UserResponse: User data
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     user_service = UserService(db)
     return await user_service.get_user(user_id, current_user)
 
@@ -170,6 +176,9 @@ async def create_user(
     Returns:
         UserResponse: Created user
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     user_service = UserService(db)
     return await user_service.create_user(user_data, current_user)
 
@@ -200,6 +209,9 @@ async def update_user(
     Returns:
         UserResponse: Updated user
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     user_service = UserService(db)
     return await user_service.update_user(user_id, user_data, current_user)
 
@@ -228,6 +240,9 @@ async def delete_user(
     Returns:
         SuccessResponse: Success message
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     user_service = UserService(db)
     await user_service.delete_user(user_id, current_user)
     return SuccessResponse(message="User deleted successfully")
@@ -257,6 +272,9 @@ async def get_user_permissions(
     Returns:
         UserPermissionsResponse: User permissions
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     user_service = UserService(db)
     permissions = await user_service.get_user_permissions(user_id, current_user)
 
@@ -292,6 +310,9 @@ async def update_user_permissions(
     Returns:
         UserPermissionsResponse: Updated permissions
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     user_service = UserService(db)
     permissions = await user_service.update_user_permissions(
         user_id, permissions_data.model_dump(), current_user
@@ -329,6 +350,9 @@ async def invite_user(
     Returns:
         SuccessResponse: Success message
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     user_service = UserService(db)
     await user_service.invite_user(user_id, invite_data.model_dump(), current_user)
     return SuccessResponse(message="Invitation sent successfully")

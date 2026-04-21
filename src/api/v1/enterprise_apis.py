@@ -35,6 +35,9 @@ async def list_apis(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """List all registered APIs for the current user."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.view")
     try:
         service = EnterpriseAPIService(db)
@@ -56,6 +59,9 @@ async def create_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Register a new API."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseAPIService(db)
@@ -81,6 +87,9 @@ async def get_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Get API details by ID."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.view")
     try:
         service = EnterpriseAPIService(db)
@@ -105,6 +114,9 @@ async def update_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> Any:
     """Update API registration."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseAPIService(db)
@@ -134,6 +146,9 @@ async def delete_api(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """Delete API registration."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseAPIService(db)

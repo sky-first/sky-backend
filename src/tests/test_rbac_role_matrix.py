@@ -1,27 +1,25 @@
-"""RBAC role matrix — incremental coverage per role.
+"""RBAC role matrix — incremental coverage per role, aggregated.
 
 See docs/rbac-role-test-matrix.md for the full 150-case matrix.
 
-Harness:
-  - seed_tenant() builds ONE tenant + space + crew + connection + agent
-    + dashboard + page + members (one user per role).
-  - Each test is parameterized over (case_id, role, expected_status).
-  - Expected status is either "allow" (2xx/204) or "deny" (403 or 404).
+Architecture:
+  - Seed ONCE per test run (all roles + space + agent).
+  - One Python test iterates every (case, role) pair via the sync
+    `client` fixture and records the outcome in a list.
+  - At the end, assert the failure list is empty. Individual failures
+    are reported as f"{case_id}[{role}] expected X got Y".
 
-Run only this file:
-    pytest src/tests/test_rbac_role_matrix.py -v
-
-Run one section:
-    pytest src/tests/test_rbac_role_matrix.py -v -k section_i
+This beats pytest.mark.parametrize on two axes — which was hanging
+the test runner for ~25×5 = 125 combinations because each needed its
+own fixture cycle.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+import asyncio
+from typing import Callable, Literal
 
 import pytest
-import pytest_asyncio
-from fastapi.testclient import TestClient
 
 ROLES = ["explorer", "navigator", "commander", "platform_admin", "owner"]
 ROLE_IDX = {r: i for i, r in enumerate(ROLES)}
@@ -31,12 +29,6 @@ Expect = Literal["allow", "deny"]
 
 
 def _expect_for_role(allowed_from: str, role: str) -> Expect:
-    """Return allow/deny for a role given the minimum role that allows.
-
-    `allowed_from` is the lowest role in ROLES that may perform the
-    action. Any role at or above it in the ROLES list is allowed;
-    anyone below is denied.
-    """
     return "allow" if ROLE_IDX[role] >= ROLE_IDX[allowed_from] else "deny"
 
 
@@ -44,28 +36,21 @@ def _auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _assert_outcome(resp, expected: Expect, case_id: str) -> None:
+def _check(resp, expected: Expect) -> tuple[bool, str]:
+    code = resp.status_code
     if expected == "allow":
-        assert resp.status_code < 400, (
-            f"[{case_id}] expected allow but got {resp.status_code}: {resp.text[:200]}"
-        )
+        ok = code < 400
     else:
-        assert resp.status_code in (403, 404), (
-            f"[{case_id}] expected deny (403/404) but got {resp.status_code}: {resp.text[:200]}"
-        )
+        ok = code in (403, 404)
+    return ok, f"status={code}"
 
 
 # -----------------------------------------------------------------------------
-# Seed fixture — one tenant populated with a user per role
+# Seed
 # -----------------------------------------------------------------------------
 
 
-@pytest_asyncio.fixture
-async def seeded(db_session) -> dict:
-    """Seed a tenant with one user per role + shared resources.
-
-    Returns a dict with tokens keyed by role name.
-    """
+async def _seed_async(db_session) -> dict:
     from src.core.security import create_access_token, get_password_hash
     from src.models.agent import Agent
     from src.models.space import Space, SpaceMember
@@ -129,166 +114,126 @@ async def seeded(db_session) -> dict:
     }
 
 
-# -----------------------------------------------------------------------------
-# Section I — Read surfaces (baseline Explorer)
-# -----------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_i_01_list_spaces(seeded, async_client, role):
-    r = await async_client.get("/api/v1/spaces", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("explorer", role), "I-01")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_i_02_get_space_detail(seeded, async_client, role):
-    r = await async_client.get(f"/api/v1/spaces/{seeded['space_id']}", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("explorer", role), "I-02")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_i_03_list_space_members(seeded, async_client, role):
-    r = await async_client.get(f"/api/v1/spaces/{seeded['space_id']}/members", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("explorer", role), "I-03")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_i_08_list_agents(seeded, async_client, role):
-    r = await async_client.get("/api/v1/agents/", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("explorer", role), "I-08")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_i_09_get_agent(seeded, async_client, role):
-    r = await async_client.get(f"/api/v1/agents/{seeded['agent_id']}", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("explorer", role), "I-09")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_i_10_list_findings(seeded, async_client, role):
-    r = await async_client.get(f"/api/v1/agents/{seeded['agent_id']}/findings", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("explorer", role), "I-10")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_i_12_agent_metrics(seeded, async_client, role):
-    r = await async_client.get(f"/api/v1/agents/{seeded['agent_id']}/metrics", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("explorer", role), "I-12")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_i_24_me(seeded, async_client, role):
-    r = await async_client.get("/api/v1/users/me", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("explorer", role), "I-24")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_i_30_audit_logs(seeded, async_client, role):
-    r = await async_client.get("/api/v1/audit-logs/", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("platform_admin", role), "I-30")
+@pytest.fixture
+def seeded(db_session) -> dict:
+    import nest_asyncio  # type: ignore
+    nest_asyncio.apply()
+    return asyncio.get_event_loop().run_until_complete(_seed_async(db_session))
 
 
 # -----------------------------------------------------------------------------
-# Section II — Write (baseline Navigator)
+# Case definition
 # -----------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_ii_31_create_agent(seeded, async_client, role):
-    payload = {
-        "name": f"agent-{role}",
-        "archetype": "custom",
-        "scope": "space",
-        "scope_id": seeded["space_id"],
-        "monitor_type": "question",
-        "focus": "test",
-        "frequency": "daily",
-        "connection_ids": [],
-    }
-    r = await async_client.post("/api/v1/agents/", json=payload, headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("navigator", role), "II-31")
+def _cases(seeded) -> list[tuple[str, str, Callable]]:
+    """Return a list of (case_id, min_role, call_fn). call_fn takes
+    (client, role) and returns the response."""
+    sp = seeded["space_id"]
+    ag = seeded["agent_id"]
+    expl_id = str(seeded["users"]["explorer"].id)
+
+    def get(path):
+        return lambda client, role: client.get(path, headers=_auth_headers(seeded["tokens"][role]))
+
+    def post(path, body):
+        return lambda client, role: client.post(path, json=body, headers=_auth_headers(seeded["tokens"][role]))
+
+    def put(path, body):
+        return lambda client, role: client.put(path, json=body, headers=_auth_headers(seeded["tokens"][role]))
+
+    def delete(path):
+        return lambda client, role: client.delete(path, headers=_auth_headers(seeded["tokens"][role]))
+
+    return [
+        # Section I — read (baseline Explorer)
+        ("I-01", "explorer", get("/api/v1/spaces")),
+        ("I-02", "explorer", get(f"/api/v1/spaces/{sp}")),
+        ("I-03", "explorer", get(f"/api/v1/spaces/{sp}/members")),
+        ("I-05", "explorer", get(f"/api/v1/spaces/{sp}/connections")),
+        ("I-08", "explorer", get("/api/v1/agents/")),
+        ("I-09", "explorer", get(f"/api/v1/agents/{ag}")),
+        ("I-10", "explorer", get(f"/api/v1/agents/{ag}/findings")),
+        ("I-12", "explorer", get(f"/api/v1/agents/{ag}/metrics")),
+        ("I-24", "explorer", get("/api/v1/users/me")),
+        ("I-25", "explorer", get("/api/v1/auth/session")),
+        ("I-30", "platform_admin", get("/api/v1/audit-logs/")),
+
+        # Section II — write (baseline Navigator)
+        ("II-31", "navigator", post("/api/v1/agents/", {
+            "name": "rbac-agent",
+            "archetype": "custom",
+            "scope": "space",
+            "scope_id": sp,
+            "monitor_type": "question",
+            "focus": "test",
+            "frequency": "daily",
+            "connection_ids": [],
+        })),
+        ("II-34", "navigator", post(f"/api/v1/agents/{ag}/pause", {})),
+        ("II-36", "navigator", put(f"/api/v1/agents/{ag}", {"name": "updated"})),
+
+        # Section III — manage (baseline Commander)
+        ("III-61", "commander", post(f"/api/v1/spaces/{sp}/members", {
+            "user_id": expl_id,
+            "role": "navigator",
+        })),
+        ("III-64", "commander", post("/api/v1/crews/", {
+            "name": "rbac-crew",
+            "space_id": sp,
+        })),
+
+        # Section IV — platform (baseline Admin)
+        ("IV-91", "platform_admin", post("/api/v1/spaces/", {
+            "name": "rbac-space",
+            "description": "rbac",
+        })),
+        ("IV-96", "platform_admin", get("/api/v1/users/")),
+        ("IV-99", "platform_admin", get("/api/v1/agents/metrics/summary")),
+    ]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_ii_34_pause_agent(seeded, async_client, role):
-    r = await async_client.post(f"/api/v1/agents/{seeded['agent_id']}/pause", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("navigator", role), "II-34")
+# -----------------------------------------------------------------------------
+# Aggregated test — one function, reports full grid
+# -----------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_ii_36_update_agent(seeded, async_client, role):
-    r = await async_client.put(
-        f"/api/v1/agents/{seeded['agent_id']}",
-        json={"name": f"updated-by-{role}"},
-        headers=_auth_headers(seeded["tokens"][role]),
+def test_rbac_role_matrix(seeded, client, capsys):
+    """One run, all cases × all roles, collect failures. On failure,
+    print the full grid so you can see the shape of the breakage.
+
+    Exit code green ⇒ every cell matches the matrix. Red ⇒ at least
+    one cell is wrong; each failure line names the case and role."""
+    cases = _cases(seeded)
+    failures: list[str] = []
+    grid: list[str] = []
+
+    import sys
+    for case_id, min_role, fn in cases:
+        sys.stderr.write(f"\n>> {case_id} ")
+        sys.stderr.flush()
+        row = [case_id.ljust(8)]
+        for role in ROLES:
+            sys.stderr.write(f"{role[:3]} ")
+            sys.stderr.flush()
+            expected = _expect_for_role(min_role, role)
+            resp = fn(client, role)
+            ok, info = _check(resp, expected)
+            mark = "✓" if ok else f"✗({info})"
+            if not ok:
+                failures.append(
+                    f"{case_id}[{role}] expected={expected} {info} body={resp.text[:120]}"
+                )
+            row.append(f"{role[:3]}:{mark}")
+        grid.append("  ".join(row))
+
+    # Print always — capsys picks it up and pytest -s makes it visible.
+    print("\n=== RBAC role matrix ===")
+    print(f"{'case'.ljust(8)}  " + "  ".join(r[:3].ljust(15) for r in ROLES))
+    for row in grid:
+        print(row)
+    print("========================")
+
+    assert not failures, (
+        f"{len(failures)} RBAC cells wrong:\n" + "\n".join(failures[:30])
     )
-    _assert_outcome(r, _expect_for_role("navigator", role), "II-36")
-
-
-# -----------------------------------------------------------------------------
-# Section III — Manage (baseline Commander)
-# -----------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_iii_61_add_space_member(seeded, async_client, role):
-    target = seeded["users"]["explorer"]
-    payload = {"user_id": str(target.id), "role": "navigator"}
-    r = await async_client.post(
-        f"/api/v1/spaces/{seeded['space_id']}/members",
-        json=payload,
-        headers=_auth_headers(seeded["tokens"][role]),
-    )
-    expected = _expect_for_role("commander", role)
-    if expected == "allow":
-        assert r.status_code in (200, 201, 400), f"[III-61] {r.status_code}: {r.text[:200]}"
-    else:
-        assert r.status_code == 403, f"[III-61] expected 403 got {r.status_code}"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_iii_64_create_crew(seeded, async_client, role):
-    payload = {"name": f"crew-{role}", "space_id": seeded["space_id"]}
-    r = await async_client.post("/api/v1/crews/", json=payload, headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("commander", role), "III-64")
-
-
-# -----------------------------------------------------------------------------
-# Section IV — Platform ops (baseline Admin)
-# -----------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_iv_91_create_space(seeded, async_client, role):
-    payload = {"name": f"space-{role}", "description": "rbac test"}
-    r = await async_client.post("/api/v1/spaces/", json=payload, headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("platform_admin", role), "IV-91")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_iv_96_list_users(seeded, async_client, role):
-    r = await async_client.get("/api/v1/users/", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("platform_admin", role), "IV-96")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ROLES)
-async def test_section_iv_99_agents_summary(seeded, async_client, role):
-    r = await async_client.get("/api/v1/agents/metrics/summary", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("platform_admin", role), "IV-99")

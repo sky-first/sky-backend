@@ -94,9 +94,12 @@ class AgentService:
         )
         self.db.add(agent)
         await self.db.commit()
-        await self.db.refresh(agent)
+        # Re-fetch with findings eager-loaded so the response serializer
+        # doesn't trigger a lazy load inside FastAPI's async context
+        # (MissingGreenlet). AgentListResponse includes findings, so the
+        # row must ship it already hydrated.
         logger.info(f"Agent created: {agent.id} ({agent.name}) by user {user_id}")
-        return agent
+        return await self.repo.get_with_findings(agent.id)
 
     async def update_agent(self, agent_id: UUID, data: AgentUpdate) -> Agent:
         # Load with findings eager-loaded because the endpoint's

@@ -1,0 +1,296 @@
+router	method	path	full_path	scope	min_role	notes	skip_matrix
+admin_actions	POST	/agents/pause-all	/admin/agents/pause-all	platform	admin	Platform admin only	false
+admin_actions	GET	/audit/executions.csv	/admin/audit/executions.csv	platform	admin	Platform admin only	false
+agents	GET	/	/agents	space	explorer	Read agent	false
+agents	POST	/	/agents	space	navigator	Create agent	false
+agents	GET	/{agent_id}	/agents/{agent_id}	space	explorer	Read agent	false
+agents	PUT	/{agent_id}	/agents/{agent_id}	space	navigator	Update agent	false
+agents	DELETE	/{agent_id}	/agents/{agent_id}	space	commander	Delete agent	false
+agents	POST	/{agent_id}/pause	/agents/{agent_id}/pause	space	navigator	Operate agent	false
+agents	POST	/{agent_id}/resume	/agents/{agent_id}/resume	space	navigator	Operate agent	false
+agents	POST	/{agent_id}/run	/agents/{agent_id}/run	space	navigator	Operate agent	true
+agents	POST	/{agent_id}/run/stream	/agents/{agent_id}/run/stream	space	navigator	Operate agent	true
+agents	GET	/insights/all	/agents/insights/all	space	explorer	Read agent	false
+agents	GET	/{agent_id}/findings	/agents/{agent_id}/findings	space	explorer	Read agent	false
+agents	GET	/{agent_id}/metrics	/agents/{agent_id}/metrics	space	explorer	Read agent	false
+agents	GET	/metrics/summary	/agents/metrics/summary	space	explorer	Read agent	false
+agents	POST	/{agent_id}/findings/{finding_id}/dismiss	/agents/{agent_id}/findings/{finding_id}/dismiss	space	navigator	Dismiss finding	false
+ai	POST	/query	/ai/query	personal	explorer	AI op (self-scoped)	true
+ai	GET	/chat/bootstrap	/ai/chat/bootstrap	personal	explorer	AI read (self-scoped)	true
+ai	POST	/chat	/ai/chat	personal	explorer	AI op (self-scoped)	true
+ai	GET	/history	/ai/history	personal	explorer	Own AI history	false
+ai	POST	/history	/ai/history	personal	explorer	Own AI history	false
+ai	GET	/history/{history_id}	/ai/history/{history_id}	personal	explorer	Own AI history	false
+ai	DELETE	/history/{history_id}	/ai/history/{history_id}	personal	explorer	Own AI history	false
+ai	POST	/history/{history_id}/pin	/ai/history/{history_id}/pin	personal	explorer	Own AI history	false
+ai	POST	/history/{history_id}/unpin	/ai/history/{history_id}/unpin	personal	explorer	Own AI history	false
+ai	GET	/history/export	/ai/history/export	personal	explorer	Own AI history	false
+ai	POST	/pipeline/execute	/ai/pipeline/execute	personal	explorer	AI op (self-scoped)	true
+ai	GET	/pipeline/{pipeline_id}/status	/ai/pipeline/{pipeline_id}/status	personal	explorer	AI read (self-scoped)	true
+ai	GET	/pipeline/{pipeline_id}/logs	/ai/pipeline/{pipeline_id}/logs	personal	explorer	AI read (self-scoped)	true
+ai	POST	/generate-sql	/ai/generate-sql	personal	explorer	AI op (self-scoped)	true
+ai	POST	/generate-answer	/ai/generate-answer	personal	explorer	AI op (self-scoped)	true
+ai	POST	/generate-infographic	/ai/generate-infographic	personal	explorer	AI op (self-scoped)	true
+ai	POST	/analyze-question	/ai/analyze-question	personal	explorer	AI op (self-scoped)	true
+ai	POST	/feedback	/ai/feedback	personal	explorer	AI op (self-scoped)	false
+ai	POST	/validate-sql	/ai/validate-sql	personal	explorer	AI op (self-scoped)	true
+ai	POST	/suggest-title	/ai/suggest-title	personal	explorer	AI op (self-scoped)	true
+audit	GET	/events	/audit/events	platform	admin	Audit log access	false
+audit	GET	/verify	/audit/verify	platform	admin	Audit log access	false
+auth	POST	/register	/auth/register	public	public	No auth required	false
+auth	POST	/login	/auth/login	public	public	No auth required	false
+auth	POST	/logout	/auth/logout	personal	explorer	Current-user endpoint (self-scoped)	false
+auth	POST	/refresh	/auth/refresh	personal	explorer	Current-user endpoint (self-scoped)	false
+auth	GET	/me	/auth/me	personal	explorer	Current-user endpoint (self-scoped)	false
+auth	GET	/me/effective-permissions	/auth/me/effective-permissions	personal	explorer	Current-user endpoint (self-scoped)	false
+auth	POST	/forgot-password	/auth/forgot-password	public	public	No auth required	false
+auth	POST	/reset-password	/auth/reset-password	public	public	No auth required	false
+auth	POST	/verify-email	/auth/verify-email	public	public	No auth required	false
+auth	GET	/session	/auth/session	personal	explorer	Current-user endpoint (self-scoped)	false
+auth	GET	/sessions	/auth/sessions	personal	explorer	Current-user endpoint (self-scoped)	false
+auth	DELETE	/sessions	/auth/sessions	personal	explorer	Current-user endpoint (self-scoped)	false
+auth	DELETE	/sessions/{session_id}	/auth/sessions/{session_id}	personal	explorer	Revoke own session (self-scoped)	true
+auth	POST	/change-password	/auth/change-password	personal	explorer	Current-user endpoint (self-scoped)	false
+auth	POST	/invite/validate	/auth/invite/validate	public	public	No auth required	false
+auth	POST	/invite/login	/auth/invite/login	public	public	No auth required	false
+auth	POST	/invite/accept	/auth/invite/accept	public	public	No auth required	false
+auth	POST	/invite/generate	/auth/invite/generate	platform	admin	Generate invite	false
+auth	GET	/sso/{provider}/login	/auth/sso/{provider}/login	public	public	No auth required	true
+auth	GET	/sso/{provider}/callback	/auth/sso/{provider}/callback	public	public	SSO public flow	true
+comments	POST		/comments	space	navigator	Create comment	false
+comments	GET		/comments	space	explorer	Read comments	false
+connections	GET		/connections	space	explorer	Read connection (space navigator+)	false
+connections	GET	/{connection_id}	/connections/{connection_id}	space	explorer	Read connection (space navigator+)	false
+connections	POST		/connections	platform	admin	Connection CRUD/sync — admin-level (all contexts)	false
+connections	DELETE	/{connection_id}	/connections/{connection_id}	platform	admin	Connection CRUD/sync — admin-level (all contexts)	false
+connections	PUT	/{connection_id}	/connections/{connection_id}	platform	admin	Connection CRUD/sync — admin-level (all contexts)	false
+connections	POST	/{connection_id}/test	/connections/{connection_id}/test	platform	admin	Connection CRUD/sync — admin-level (all contexts)	true
+connections	POST	/{connection_id}/sync	/connections/{connection_id}/sync	platform	admin	Connection CRUD/sync — admin-level (all contexts)	true
+connections	GET	/{connection_id}/metadata	/connections/{connection_id}/metadata	space	navigator	Read connection (space navigator+)	false
+connections	PUT	/{connection_id}/metadata	/connections/{connection_id}/metadata	platform	admin	Connection CRUD/sync — admin-level (all contexts)	false
+connections	GET	/{connection_id}/tables	/connections/{connection_id}/tables	space	navigator	Read connection (space navigator+)	false
+connections	GET	/{connection_id}/schemas	/connections/{connection_id}/schemas	space	navigator	Read connection (space navigator+)	false
+connections	GET	/{connection_id}/status	/connections/{connection_id}/status	space	navigator	Read connection (space navigator+)	false
+connections	GET	/{connection_id}/metrics	/connections/{connection_id}/metrics	space	navigator	Read connection (space navigator+)	false
+connections	POST	/{connection_id}/validate	/connections/{connection_id}/validate	platform	admin	Connection CRUD/sync — admin-level (all contexts)	true
+connections	GET	/{connection_id}/ai/catalog/status	/connections/{connection_id}/ai/catalog/status	space	navigator	Read connection (space navigator+)	false
+connections	POST	/{connection_id}/ai/catalog/refresh	/connections/{connection_id}/ai/catalog/refresh	platform	admin	Connection CRUD/sync — admin-level (all contexts)	true
+connections	GET	/{connection_id}/ai/catalog/tables	/connections/{connection_id}/ai/catalog/tables	space	navigator	Read connection (space navigator+)	false
+connectors	GET		/connectors	personal	explorer	Connector registry read (self-scoped)	false
+connectors	GET	/{connector_id}	/connectors/{connector_id}	personal	explorer	Connector registry read (self-scoped)	false
+connectors	GET	/categories	/connectors/categories	personal	explorer	Connector registry read (self-scoped)	false
+context_health	GET	/health	/context/health	platform	admin	Context infra read	false
+context_rows	GET	/rows/{source_table}/{source_id}	/context/rows/{source_table}/{source_id}	platform	admin	Context infra read	false
+conversations	GET	/{conversation_id}	/conversations/{conversation_id}	personal	explorer	Own conversation	false
+conversations	PATCH	/{conversation_id}	/conversations/{conversation_id}	personal	explorer	Own conversation op	false
+conversations	POST	/{conversation_id}/archive	/conversations/{conversation_id}/archive	personal	explorer	Own conversation op	false
+conversations	POST	/{conversation_id}/unarchive	/conversations/{conversation_id}/unarchive	personal	explorer	Own conversation op	false
+conversations	DELETE	/{conversation_id}	/conversations/{conversation_id}	personal	explorer	Delete own conversation (self-scoped)	false
+cost_metrics	GET	/cost	/settings/metrics/cost	platform	admin	Cost metrics	false
+crews	GET		/crews	crew	explorer	Read crew	false
+crews	GET	/{crew_id}	/crews/{crew_id}	crew	explorer	Read crew	false
+crews	POST		/crews	space	commander	Create crew (requires space commander)	false
+crews	PUT	/{crew_id}	/crews/{crew_id}	crew	commander	Update crew	false
+crews	GET	/{crew_id}/status	/crews/{crew_id}/status	crew	explorer	Read crew	false
+crews	DELETE	/{crew_id}	/crews/{crew_id}	crew	commander	Delete crew	false
+crews	GET	/{crew_id}/members	/crews/{crew_id}/members	crew	explorer	List members	false
+crews	POST	/{crew_id}/members	/crews/{crew_id}/members	crew	commander	Manage crew members	false
+crews	DELETE	/{crew_id}/members/{user_id}	/crews/{crew_id}/members/{user_id}	crew	commander	Manage crew members	false
+crews	PUT	/{crew_id}/members/{user_id}/role	/crews/{crew_id}/members/{user_id}/role	crew	commander	Manage crew members	false
+crews	GET	/{crew_id}/stats	/crews/{crew_id}/stats	crew	explorer	Read crew	false
+dashboards	GET		/dashboards	space	explorer	Read dashboard	false
+dashboards	GET	/{dashboard_id}	/dashboards/{dashboard_id}	space	explorer	Read dashboard	false
+dashboards	POST		/dashboards	space	navigator	Create dashboard	false
+dashboards	PUT	/{dashboard_id}	/dashboards/{dashboard_id}	space	navigator	Update dashboard	false
+dashboards	DELETE	/{dashboard_id}	/dashboards/{dashboard_id}	space	commander	Delete dashboard	false
+dashboards	GET	/{dashboard_id}/widgets	/dashboards/{dashboard_id}/widgets	space	explorer	Read dashboard	false
+dashboards	POST	/{dashboard_id}/widgets	/dashboards/{dashboard_id}/widgets	space	navigator	Dashboard op	false
+dashboards	PUT	/{dashboard_id}/widgets/{widget_id}	/dashboards/{dashboard_id}/widgets/{widget_id}	space	navigator	Update dashboard	false
+dashboards	DELETE	/{dashboard_id}/widgets/{widget_id}	/dashboards/{dashboard_id}/widgets/{widget_id}	space	commander	Delete dashboard	false
+dashboards	GET	/{dashboard_id}/export	/dashboards/{dashboard_id}/export	space	explorer	Read dashboard	false
+dashboards	POST	/ai/plan	/dashboards/ai/plan	space	navigator	AI dashboard build	true
+dashboards	POST	/ai/build	/dashboards/ai/build	space	navigator	AI dashboard build	true
+dashboards	POST	/ai/build-async	/dashboards/ai/build-async	space	navigator	AI dashboard build	true
+dashboards	GET	/ai/build-jobs/{job_id}	/dashboards/ai/build-jobs/{job_id}	space	explorer	Read dashboard	true
+dashboards	POST	/{dashboard_id}/duplicate	/dashboards/{dashboard_id}/duplicate	space	navigator	Dashboard op	false
+dashboards	POST	/{dashboard_id}/lock	/dashboards/{dashboard_id}/lock	space	navigator	Dashboard op	false
+dashboards	POST	/{dashboard_id}/unlock	/dashboards/{dashboard_id}/unlock	space	navigator	Dashboard op	false
+datasets	DELETE	/{dataset_id}	/datasets/{dataset_id}	space	commander	Delete dataset	false
+datasets	GET	/excluded	/datasets/excluded	space	explorer	Read dataset	false
+datasets	GET		/datasets	space	explorer	Read dataset	false
+enterprise_apis	GET		/enterprise/apis	platform	admin	Read enterprise resource	false
+enterprise_apis	POST		/enterprise/apis	platform	admin	Create/update enterprise	false
+enterprise_apis	GET	/{api_id}	/enterprise/apis/{api_id}	platform	admin	Read enterprise resource	false
+enterprise_apis	PUT	/{api_id}	/enterprise/apis/{api_id}	platform	admin	Create/update enterprise	false
+enterprise_apis	DELETE	/{api_id}	/enterprise/apis/{api_id}	platform	admin	Delete enterprise resource	false
+enterprise_relationships	GET		/enterprise/relationships	platform	admin	Read enterprise resource	false
+enterprise_relationships	POST		/enterprise/relationships	platform	admin	Create/update enterprise	false
+enterprise_relationships	PUT	/{relationship_id}	/enterprise/relationships/{relationship_id}	platform	admin	Create/update enterprise	false
+enterprise_relationships	DELETE	/{relationship_id}	/enterprise/relationships/{relationship_id}	platform	admin	Delete enterprise resource	false
+files	POST	/upload	/files/upload	space	navigator	Upload file	true
+files	POST	/upload/csv	/files/upload/csv	space	navigator	Upload file	true
+files	POST	/upload/excel	/files/upload/excel	space	navigator	Upload file	true
+files	POST	/upload/image	/files/upload/image	space	navigator	Upload file	true
+files	POST	/upload/pdf	/files/upload/pdf	space	navigator	Upload file	true
+files	GET	/{file_id}	/files/{file_id}	space	explorer	Read file	false
+files	DELETE	/{file_id}	/files/{file_id}	space	navigator	Delete own file	false
+glossary	GET	/	/glossary	space	explorer	Read glossary	false
+glossary	POST	/	/glossary	space	navigator	Create/update term	false
+glossary	GET	/{term_id}	/glossary/{term_id}	space	explorer	Read glossary	false
+glossary	PUT	/{term_id}	/glossary/{term_id}	space	navigator	Create/update term	false
+glossary	DELETE	/{term_id}	/glossary/{term_id}	space	commander	Delete term	false
+impersonation	POST	/{user_id}/impersonate	/users/{user_id}/impersonate	platform	admin	Platform admin only	false
+impersonation	POST	/me/impersonate/exit	/users/me/impersonate/exit	platform	admin	Platform admin only	false
+insight_agents	POST		/agents/insight	space	navigator	Insight agent op	false
+insight_agents	GET		/agents/insight	space	explorer	Read insight agent	false
+insight_agents	GET	/executions	/agents/insight/executions	space	explorer	Read insight agent	false
+insight_agents	GET	/{agent_id}	/agents/insight/{agent_id}	space	explorer	Read insight agent	true
+insight_agents	PUT	/{agent_id}	/agents/insight/{agent_id}	space	navigator	Insight agent op	true
+insight_agents	POST	/{agent_id}/pause	/agents/insight/{agent_id}/pause	space	navigator	Insight agent op	false
+insight_agents	POST	/{agent_id}/resume	/agents/insight/{agent_id}/resume	space	navigator	Insight agent op	false
+insight_agents	POST	/{agent_id}/run-now	/agents/insight/{agent_id}/run-now	space	navigator	Insight agent op	true
+insight_agents	DELETE	/{agent_id}	/agents/insight/{agent_id}	space	commander	Delete insight agent	true
+intelligence_signals	GET	/	/intelligence/signals	space	explorer	Read event	false
+intelligence_signals	POST	/	/intelligence/signals	space	navigator	Create/dismiss event	false
+intelligence_signals	PATCH	/{signal_id}/dismiss	/intelligence/signals/{signal_id}/dismiss	space	navigator	Create/dismiss event	false
+intelligence_signals	DELETE	/{signal_id}	/intelligence/signals/{signal_id}	space	commander	Delete event	false
+messages	POST	/{message_id}/pin	/messages/{message_id}/pin	personal	explorer	Message pin (self-scoped)	false
+notifications	GET		/notifications	personal	explorer	Personal notifications	false
+notifications	GET	/unread-count	/notifications/unread-count	personal	explorer	Personal notifications	false
+notifications	GET	/categories	/notifications/categories	personal	explorer	Personal notifications	false
+notifications	GET	/preferences	/notifications/preferences	personal	explorer	Personal notifications	false
+notifications	PUT	/preferences	/notifications/preferences	personal	explorer	Personal notifications	false
+notifications	POST	/preferences/pause	/notifications/preferences/pause	personal	explorer	Personal notifications	false
+notifications	POST	/{notification_id}/read	/notifications/{notification_id}/read	personal	explorer	Personal notifications	false
+notifications	POST	/read-all	/notifications/read-all	personal	explorer	Personal notifications	false
+notifications	DELETE	/{notification_id}	/notifications/{notification_id}	personal	explorer	Personal notifications	false
+notifications	DELETE		/notifications	personal	explorer	Personal notifications	false
+pages	GET		/pages	space	explorer	Read page	false
+pages	GET	/{page_id}	/pages/{page_id}	space	explorer	Read page	false
+pages	POST		/pages	space	commander	Create page (space page default)	false
+pages	PUT	/{page_id}	/pages/{page_id}	space	commander	Space page create/update/delete	false
+pages	POST	/{page_id}/duplicate	/pages/{page_id}/duplicate	space	commander	Duplicate page	false
+pages	DELETE	/{page_id}	/pages/{page_id}	space	commander	Space page create/update/delete	false
+pages	GET	/{page_id}/members	/pages/{page_id}/members	space	commander	Manage page members	false
+pages	POST	/{page_id}/members	/pages/{page_id}/members	space	commander	Manage page members	false
+pages	DELETE	/{page_id}/members/{user_id}	/pages/{page_id}/members/{user_id}	space	commander	Manage page members	false
+pages	PUT	/{page_id}/members/{user_id}/role	/pages/{page_id}/members/{user_id}/role	space	commander	Manage page members	false
+pages	GET	/{page_id}/dashboards	/pages/{page_id}/dashboards	space	explorer	Read page	false
+pages	POST	/{page_id}/switch	/pages/{page_id}/switch	space	explorer	Personal page action	false
+pages	POST	/{page_id}/star	/pages/{page_id}/star	space	explorer	Personal page action	false
+pages	DELETE	/{page_id}/star	/pages/{page_id}/star	space	explorer	Personal page action	false
+permissions	GET	/connections/{connection_id}	/permissions/connections/{connection_id}	space	navigator	Read permission	false
+permissions	POST	/connections/{connection_id}	/permissions/connections/{connection_id}	space	commander	Manage permission	false
+permissions	PUT	/{permission_id}	/permissions/{permission_id}	space	commander	Edit permission	false
+permissions	DELETE	/{permission_id}	/permissions/{permission_id}	space	commander	Delete permission	false
+permissions	GET	/spaces/{space_id}	/permissions/spaces/{space_id}	space	explorer	Read space/crew permissions	false
+permissions	GET	/crews/{crew_id}	/permissions/crews/{crew_id}	space	explorer	Read space/crew permissions	false
+permissions	POST	/validate	/permissions/validate	personal	explorer	Validate permission (self-scoped)	false
+permissions	GET	/table-members/{connection_id}/{table_name}	/permissions/table-members/{connection_id}/{table_name}	space	navigator	Read permission	false
+permissions	POST	/table-members	/permissions/table-members	space	commander	Manage permission	false
+permissions	PUT	/table-members/{permission_id}	/permissions/table-members/{permission_id}	space	commander	Manage permission	false
+permissions	DELETE	/table-members/{permission_id}	/permissions/table-members/{permission_id}	space	commander	Manage permission	false
+permissions	GET	/roles	/permissions/roles	platform	admin	Read role matrix	false
+permissions	PUT	/roles/{role}	/permissions/roles/{role}	platform	admin	Edit role matrix	false
+privacy	POST	/dsar/export	/privacy/dsar/export	platform	owner	DSAR requires owner	true
+privacy	POST	/dsar/delete	/privacy/dsar/delete	platform	owner	DSAR requires owner	true
+settings	GET		/settings	personal	explorer	Personal preferences	false
+settings	PUT		/settings	personal	explorer	Personal preferences	false
+settings	GET	/data-catalog	/settings/data-catalog	platform	admin	Admin settings	false
+settings	GET	/spaces	/settings/spaces	platform	admin	Admin settings	false
+settings	GET	/crews	/settings/crews	platform	admin	Admin settings	false
+settings	GET	/users	/settings/users	platform	admin	Admin settings	false
+settings	GET	/permissions	/settings/permissions	platform	admin	Admin settings	false
+settings	GET	/api-keys	/settings/api-keys	platform	admin	Admin settings	false
+settings	POST	/api-keys	/settings/api-keys	platform	admin	Admin settings	false
+settings	DELETE	/api-keys/{api_key_id}	/settings/api-keys/{api_key_id}	platform	admin	Admin settings	false
+settings	GET	/integrations	/settings/integrations	platform	admin	Admin settings	false
+settings	POST	/integrations	/settings/integrations	platform	admin	Admin settings	false
+settings	PUT	/integrations/{integration_id}	/settings/integrations/{integration_id}	platform	admin	Admin settings	false
+settings	DELETE	/integrations/{integration_id}	/settings/integrations/{integration_id}	platform	admin	Admin settings	false
+settings_metrics	GET	/global	/settings/metrics/global	platform	admin	Usage metrics	true
+settings_metrics	GET	/connections/{connection_id}	/settings/metrics/connections/{connection_id}	platform	admin	Usage metrics	true
+settings_metrics	GET	/spaces/{space_id}	/settings/metrics/spaces/{space_id}	platform	admin	Usage metrics	true
+settings_metrics	GET	/crews/{crew_id}	/settings/metrics/crews/{crew_id}	platform	admin	Usage metrics	true
+settings_metrics	GET	/users/{user_id}	/settings/metrics/users/{user_id}	platform	admin	Usage metrics	false
+settings_metrics	GET	/ai	/settings/metrics/ai	platform	admin	Usage metrics	true
+signal_events	GET	/	/signal-events	space	explorer	Read event	false
+signal_events	POST	/	/signal-events	space	navigator	Create/dismiss event	false
+signal_events	GET	/{event_id}	/signal-events/{event_id}	space	explorer	Read event	false
+signal_events	PUT	/{event_id}	/signal-events/{event_id}	space	navigator	Create/dismiss event	false
+signal_events	DELETE	/{event_id}	/signal-events/{event_id}	space	commander	Delete event	false
+spaces	GET		/spaces	space	explorer	Read space	false
+spaces	GET	/{space_id}	/spaces/{space_id}	space	explorer	Read space	false
+spaces	POST		/spaces	platform	admin	Create space (platform admin)	false
+spaces	PUT	/{space_id}	/spaces/{space_id}	space	commander	Update space	false
+spaces	DELETE	/{space_id}	/spaces/{space_id}	space	commander	Delete space	false
+spaces	GET	/{space_id}/crews	/spaces/{space_id}/crews	space	explorer	List crews in space	false
+spaces	GET	/{space_id}/connections	/spaces/{space_id}/connections	space	explorer	List space connections	false
+spaces	POST	/{space_id}/connections/{connection_id}	/spaces/{space_id}/connections/{connection_id}	space	commander	Attach/detach connection to space	false
+spaces	DELETE	/{space_id}/connections/{connection_id}	/spaces/{space_id}/connections/{connection_id}	space	commander	Attach/detach connection to space	false
+spaces	GET	/{space_id}/members	/spaces/{space_id}/members	space	explorer	List members	false
+spaces	POST	/{space_id}/members	/spaces/{space_id}/members	space	commander	Manage members	false
+spaces	PATCH	/{space_id}/members/{user_id}	/spaces/{space_id}/members/{user_id}	space	commander	Manage members	false
+spaces	DELETE	/{space_id}/members/{user_id}	/spaces/{space_id}/members/{user_id}	space	commander	Manage members	false
+spaces	GET	/{space_id}/tables	/spaces/{space_id}/tables	space	explorer	Read tables	false
+spaces	POST	/{space_id}/tables	/spaces/{space_id}/tables	space	commander	Manage tables/columns	false
+spaces	DELETE	/{space_id}/connections/{connection_id}/tables/{table_name}	/spaces/{space_id}/connections/{connection_id}/tables/{table_name}	space	commander	Attach/detach connection to space	false
+spaces	PATCH	/{space_id}/connections/{connection_id}/tables/{table_name}/columns	/spaces/{space_id}/connections/{connection_id}/tables/{table_name}/columns	space	commander	Attach/detach connection to space	false
+spaces	GET	/{space_id}/stats	/spaces/{space_id}/stats	space	explorer	Space stats	false
+starred	GET		/starred	personal	explorer	Personal starred items	false
+starred	GET	/check/{item_id}	/starred/check/{item_id}	personal	explorer	Personal starred items	false
+strategy	GET	/tree	/strategy/tree	space	explorer	Read strategy	false
+strategy	GET	/health	/strategy/health	space	explorer	Read strategy	false
+strategy	POST	/pillars	/strategy/pillars	space	navigator	Create/update strategy entity	false
+strategy	PUT	/pillars/{pillar_id}	/strategy/pillars/{pillar_id}	space	navigator	Create/update strategy entity	false
+strategy	DELETE	/pillars/{pillar_id}	/strategy/pillars/{pillar_id}	space	commander	Delete strategy entity	false
+strategy	POST	/objectives	/strategy/objectives	space	navigator	Create/update strategy entity	false
+strategy	PUT	/objectives/{objective_id}	/strategy/objectives/{objective_id}	space	navigator	Create/update strategy entity	false
+strategy	DELETE	/objectives/{objective_id}	/strategy/objectives/{objective_id}	space	commander	Delete strategy entity	false
+strategy	POST	/okrs	/strategy/okrs	space	navigator	Create/update strategy entity	false
+strategy	PUT	/okrs/{okr_id}	/strategy/okrs/{okr_id}	space	navigator	Create/update strategy entity	false
+strategy	DELETE	/okrs/{okr_id}	/strategy/okrs/{okr_id}	space	commander	Delete strategy entity	false
+strategy	POST	/initiatives	/strategy/initiatives	space	navigator	Create/update strategy entity	false
+strategy	PUT	/initiatives/{initiative_id}	/strategy/initiatives/{initiative_id}	space	navigator	Create/update strategy entity	false
+strategy	DELETE	/initiatives/{initiative_id}	/strategy/initiatives/{initiative_id}	space	commander	Delete strategy entity	false
+strategy	POST	/assumptions	/strategy/assumptions	space	navigator	Create/update strategy entity	false
+strategy	PUT	/assumptions/{assumption_id}	/strategy/assumptions/{assumption_id}	space	navigator	Create/update strategy entity	false
+strategy	DELETE	/assumptions/{assumption_id}	/strategy/assumptions/{assumption_id}	space	commander	Delete strategy entity	false
+strategy	POST	/cycles	/strategy/cycles	space	navigator	Create/update strategy entity	false
+strategy	PUT	/cycles/{cycle_id}	/strategy/cycles/{cycle_id}	space	navigator	Create/update strategy entity	false
+strategy	DELETE	/cycles/{cycle_id}	/strategy/cycles/{cycle_id}	space	commander	Delete strategy entity	false
+strategy	POST	/key-results	/strategy/key-results	space	navigator	Create/update strategy entity	false
+strategy	PUT	/key-results/{kr_id}	/strategy/key-results/{kr_id}	space	navigator	Create/update strategy entity	false
+strategy	DELETE	/key-results/{kr_id}	/strategy/key-results/{kr_id}	space	commander	Delete strategy entity	false
+support	GET	/settings	/support/settings	platform	owner	Sky support JIT	true
+support	PUT	/settings	/support/settings	platform	owner	Sky support JIT	true
+support	POST	/sessions	/support/sessions	platform	owner	Sky support JIT	true
+support	DELETE	/sessions/{session_id}	/support/sessions/{session_id}	platform	owner	Sky support JIT	true
+users	GET		/users	platform	admin	List users	false
+users	PUT	/me	/users/me	personal	explorer	Current-user endpoint (self-scoped)	false
+users	PATCH	/me/onboarding	/users/me/onboarding	personal	explorer	Current-user endpoint (self-scoped)	false
+users	GET	/{user_id}	/users/{user_id}	platform	admin	Get other user	false
+users	POST		/users	platform	admin	Create user	false
+users	PUT	/{user_id}	/users/{user_id}	platform	admin	Edit other user	false
+users	DELETE	/{user_id}	/users/{user_id}	platform	admin	Delete user	false
+users	GET	/{user_id}/permissions	/users/{user_id}/permissions	platform	admin	User permissions mgmt	false
+users	PUT	/{user_id}/permissions	/users/{user_id}/permissions	platform	admin	User permissions mgmt	false
+users	POST	/{user_id}/invite	/users/{user_id}/invite	platform	admin	Invite user	false
+widgets	PUT	/{widget_id}	/widgets/{widget_id}	space	navigator	Widget op	false
+widgets	DELETE	/{widget_id}	/widgets/{widget_id}	space	navigator	Delete widget	false
+widgets	POST	/{widget_id}/duplicate	/widgets/{widget_id}/duplicate	space	navigator	Widget op	false
+widgets	POST	/{widget_id}/export	/widgets/{widget_id}/export	space	navigator	Widget op	false
+widgets	GET	/{widget_id}/data	/widgets/{widget_id}/data	space	explorer	Read widget	true
+widgets	POST	/{widget_id}/refresh	/widgets/{widget_id}/refresh	space	navigator	Widget op	false
+widgets	POST	/{widget_id}/feedback	/widgets/{widget_id}/feedback	space	navigator	Widget op	false
+workspaces	GET		/workspaces	personal	explorer	Read workspace (self-scoped)	true
+workspaces	GET	/{workspace_id}	/workspaces/{workspace_id}	personal	explorer	Read workspace (self-scoped)	true
+workspaces	POST		/workspaces	platform	admin	Create workspace	true
+workspaces	PUT	/{workspace_id}	/workspaces/{workspace_id}	space	navigator	Workspace op	true
+workspaces	DELETE	/{workspace_id}	/workspaces/{workspace_id}	platform	admin	Delete workspace	true
+workspaces	GET	/{workspace_id}/members	/workspaces/{workspace_id}/members	personal	explorer	Read workspace (self-scoped)	true
+workspaces	POST	/{workspace_id}/members	/workspaces/{workspace_id}/members	space	commander	Manage workspace members	true
+workspaces	DELETE	/{workspace_id}/members/{user_id}	/workspaces/{workspace_id}/members/{user_id}	platform	admin	Delete workspace	true
+workspaces	PUT	/{workspace_id}/members/{user_id}/role	/workspaces/{workspace_id}/members/{user_id}/role	space	commander	Manage workspace members	true
+workspaces	GET	/{workspace_id}/dashboards	/workspaces/{workspace_id}/dashboards	personal	explorer	Read workspace (self-scoped)	true
+workspaces	POST	/{workspace_id}/switch	/workspaces/{workspace_id}/switch	space	navigator	Workspace op	false

@@ -35,7 +35,7 @@ async def dsar_export(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Export all data for a subject (GDPR right of access)."""
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "owner"):
         raise ForbiddenError("DSAR export requires admin role")
 
     dsar = DSARService(db)
@@ -55,7 +55,7 @@ async def dsar_delete(
 ) -> Dict[str, Any]:
     """Erase a user's data (GDPR right to erasure)."""
     # Only the deploy owner should be able to erase users
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "owner"):
         raise ForbiddenError("DSAR erasure requires admin role")
 
     if not request.confirm:

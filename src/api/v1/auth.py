@@ -373,7 +373,7 @@ async def revoke_session(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """Revoke a specific session."""
-    from src.models.auth import RefreshToken
+    from src.models.user import RefreshToken
     from sqlalchemy import update
 
     result = await db.execute(
@@ -559,7 +559,7 @@ async def generate_invite(
     from src.core.exceptions import ForbiddenError
 
     # Check if user is admin
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "owner"):
         raise ForbiddenError("Only admins can generate invite tokens")
 
     invite_service = InviteService(db)

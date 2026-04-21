@@ -53,6 +53,9 @@ async def start_impersonation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ImpersonationSessionResponse:
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     # RBAC gate — default deny for everyone; must be granted explicitly.
     await RBACService(db).assert_permission(current_user, "users.impersonate")
 
@@ -132,6 +135,9 @@ async def exit_impersonation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ImpersonationExitResponse:
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     # The client is responsible for discarding the impersonation token and
     # reverting to the admin's original token. Server-side we just audit
     # the exit. If a revocation list is later added (session blocklist),

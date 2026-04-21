@@ -292,10 +292,13 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        is_creator = space.created_by == user.id
-        is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
-        if not is_creator and not is_member:
-            raise ForbiddenError("Access denied to this space")
+        if user.role not in ("admin", "owner"):
+            is_creator = space.created_by == user.id
+            is_member = (
+                await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            )
+            if not is_creator and not is_member:
+                raise ForbiddenError("Access denied to this space")
 
         crews = await self.space_repo.get_space_crews(space_id)
         return crews

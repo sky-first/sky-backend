@@ -104,6 +104,9 @@ async def get_data_catalog_settings(
     Returns:
         DataCatalogSettingsResponse: Data catalog settings
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     return await settings_service.get_data_catalog_settings(current_user)
 
@@ -130,6 +133,9 @@ async def get_spaces_settings(
     Returns:
         SpacesSettingsResponse: Spaces settings
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     return await settings_service.get_spaces_settings(current_user)
 
@@ -156,6 +162,9 @@ async def get_crews_settings(
     Returns:
         CrewsSettingsResponse: Crews settings
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     return await settings_service.get_crews_settings(current_user)
 
@@ -182,6 +191,9 @@ async def get_users_settings(
     Returns:
         UsersSettingsResponse: Users settings
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     return await settings_service.get_users_settings(current_user)
 
@@ -208,6 +220,9 @@ async def get_permissions_settings(
     Returns:
         PermissionsSettingsResponse: Permissions settings
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     return await settings_service.get_permissions_settings(current_user)
 
@@ -234,6 +249,9 @@ async def get_api_keys(
     Returns:
         List[APIKeyResponse]: List of API keys
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     return await settings_service.get_api_keys(current_user)
 
@@ -262,6 +280,9 @@ async def create_api_key(
     Returns:
         Dict[str, Any]: API key with plain key (only shown once)
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     return await settings_service.create_api_key(current_user, api_key_data)
 
@@ -290,6 +311,9 @@ async def delete_api_key(
     Returns:
         SuccessResponse: Success message
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     await settings_service.delete_api_key(api_key_id, current_user)
     return SuccessResponse(message="API key deleted successfully")
@@ -317,6 +341,9 @@ async def get_integrations(
     Returns:
         List[IntegrationResponse]: List of integrations
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     return await settings_service.get_integrations(current_user)
 
@@ -345,6 +372,9 @@ async def create_integration(
     Returns:
         IntegrationResponse: Created integration
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     return await settings_service.create_integration(current_user, integration_data)
 
@@ -375,6 +405,9 @@ async def update_integration(
     Returns:
         IntegrationResponse: Updated integration
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     return await settings_service.update_integration(integration_id, current_user, integration_data)
 
@@ -403,6 +436,9 @@ async def delete_integration(
     Returns:
         SuccessResponse: Success message
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     settings_service = SettingsService(db)
     await settings_service.delete_integration(integration_id, current_user)
     return SuccessResponse(message="Integration deleted successfully")

@@ -88,6 +88,9 @@ async def get_cost_metrics(
         * scope='personal'  → "Personal" bucket
         * scope='organization' or unknown → "Organisation"
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=window_days)
 

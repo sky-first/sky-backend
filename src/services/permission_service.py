@@ -573,7 +573,7 @@ class PermissionService:
             ForbiddenError: If user doesn't have permission (admin only)
         """
         # Only admins can view role permissions
-        if user.role != "admin":
+        if user.role not in ("admin", "owner"):
             raise ForbiddenError("Only admins can view role permissions")
 
         role_permissions = await self.role_permission_repo.get_all()
@@ -598,7 +598,7 @@ class PermissionService:
             BadRequestError: If role is invalid
         """
         # Only admins can update role permissions
-        if user.role != "admin":
+        if user.role not in ("admin", "owner"):
             raise ForbiddenError("Only admins can update role permissions")
 
         valid_roles = ["commander", "navigator", "explorer", "guest"]

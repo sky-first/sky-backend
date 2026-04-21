@@ -28,7 +28,7 @@ async def list_signal_events(
     db: AsyncSession = Depends(get_db),
 ):
     """List signal events with tenant filtering."""
-    await RBACService(db).assert_permission(current_user, "connections.view")
+    await RBACService(db).assert_permission(current_user, "strategy.view")
     return await service.list_events(space_id=space_id, crew_id=crew_id)
 
 
@@ -42,7 +42,7 @@ async def create_signal_event(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new signal event within a tenant context."""
-    await RBACService(db).assert_permission(current_user, "connections.edit")
+    await RBACService(db).assert_permission(current_user, "strategy.pillars.edit")
     return await service.create_event(event_in, space_id=space_id, crew_id=crew_id)
 
 
@@ -56,7 +56,7 @@ async def get_signal_event(
     db: AsyncSession = Depends(get_db),
 ):
     """Get a specific signal event by ID with tenant validation."""
-    await RBACService(db).assert_permission(current_user, "connections.view")
+    await RBACService(db).assert_permission(current_user, "strategy.view")
     return await service.get_event(event_id, space_id=space_id, crew_id=crew_id)
 
 
@@ -71,7 +71,7 @@ async def update_signal_event(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a signal event with tenant validation."""
-    await RBACService(db).assert_permission(current_user, "connections.edit")
+    await RBACService(db).assert_permission(current_user, "strategy.pillars.edit")
     return await service.update_event(event_id, event_in, space_id=space_id, crew_id=crew_id)
 
 
@@ -85,6 +85,6 @@ async def delete_signal_event(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a signal event with tenant validation."""
-    await RBACService(db).assert_permission(current_user, "connections.edit")
+    await RBACService(db).assert_permission(current_user, "strategy.pillars.edit")
     await service.delete_event(event_id, space_id=space_id, crew_id=crew_id)
     return None

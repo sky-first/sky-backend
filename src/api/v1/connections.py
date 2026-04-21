@@ -136,6 +136,9 @@ async def create_connection(
     Returns:
         ConnectionResponse: Created connection
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     rbac = RBACService(db)
     await rbac.assert_permission(current_user, "connections.edit")
 
@@ -167,6 +170,9 @@ async def delete_connection(
     Returns:
         SuccessResponse: Success message
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     import logging
 
     logger = logging.getLogger(__name__)
@@ -218,6 +224,9 @@ async def update_connection(
     Returns:
         ConnectionResponse: Updated connection
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     rbac = RBACService(db)
     await rbac.assert_permission(current_user, "connections.edit", connection_id=connection_id)
 
@@ -249,6 +258,9 @@ async def test_connection(
     Returns:
         ConnectionTestResponse: Test result
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     connection_service = ConnectionService(db)
     return await connection_service.test_connection(connection_id, current_user)
 
@@ -277,6 +289,9 @@ async def sync_connection(
     Returns:
         ConnectionSyncResponse: Sync result
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     connection_service = ConnectionService(db)
     return await connection_service.sync_connection(connection_id, current_user)
 
@@ -338,6 +353,9 @@ async def update_connection_metadata(
     Returns:
         ConnectionMetadataResponse: Updated connection metadata
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     connection_service = ConnectionService(db)
     return await connection_service.update_metadata(connection_id, current_user, metadata_update)
 
@@ -486,6 +504,9 @@ async def validate_connection(
     Returns:
         ConnectionValidateResponse: Validation result
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     connection_service = ConnectionService(db)
     return await connection_service.validate_connection(connection_id, current_user)
 
@@ -552,6 +573,9 @@ async def refresh_ai_catalog(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     # Ensure user has access to this connection
     connection_service = ConnectionService(db)
     await connection_service.get_connection(connection_id, current_user)

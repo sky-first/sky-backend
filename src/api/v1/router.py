@@ -38,7 +38,6 @@ from src.api.v1 import (
     spaces,
     starred,
     strategy,
-    templates,
     users,
     widgets,
     workspaces,
@@ -115,9 +114,6 @@ api_router.include_router(crews.router, prefix="/crews", tags=["Crews"])
 
 # AI endpoints
 api_router.include_router(ai.router, prefix="/ai", tags=["AI"])
-
-# Template endpoints
-api_router.include_router(templates.router, prefix="/templates", tags=["Templates"])
 
 # Settings endpoints
 api_router.include_router(settings.router, prefix="/settings", tags=["Settings"])

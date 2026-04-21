@@ -336,10 +336,10 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "users.permissions.view": False,
         "users.self.edit": True,
         "users.self.permissions": True,
-        # Agents (navigator can run/pause/resume own runs, no create/edit/delete)
+        # Agents — navigator can create/edit/run; only commander+ deletes.
         "agents.view": True,
-        "agents.create": False,
-        "agents.edit": False,
+        "agents.create": True,
+        "agents.edit": True,
         "agents.delete": False,
         "agents.run": True,
         "agents.pause": True,
@@ -1040,11 +1040,27 @@ class RBACService:
     async def _best_role_for_user_anywhere(self, user_id: UUID) -> CrewRole:
         crew_ids = await self.crew_members.get_crew_ids_by_user(user_id)
         if not crew_ids:
-            # User has no crew memberships — they're operating in their own
-            # personal workspace (no shared/team context). Treat them as
-            # commander of that personal world so they can bootstrap their
-            # first page/dashboard. Once invited to crews, the best-role
-            # resolution below takes over.
+            # No crew memberships — check space_members first. A user with
+            # an explicit space role must NOT silently become commander of
+            # the personal world; that would let a space `navigator` delete
+            # agents they should only be able to edit.
+            from sqlalchemy import select
+            from src.models.space import SpaceMember
+            res = await self.db.execute(
+                select(SpaceMember.role).where(SpaceMember.user_id == user_id)
+            )
+            space_roles = [r for r in res.scalars().all() if r]
+            if space_roles:
+                # Use the best-ranked explicit space role.
+                best = "guest"
+                best_score = ROLE_PRECEDENCE["guest"]
+                for role in space_roles:
+                    if role in ROLE_PRECEDENCE and ROLE_PRECEDENCE[role] > best_score:
+                        best_score = ROLE_PRECEDENCE[role]
+                        best = role
+                return best  # type: ignore[return-value]
+            # Truly no shared context — personal workspace commander so
+            # the user can still bootstrap their first page/dashboard.
             return "commander"
 
         best_role = "guest"

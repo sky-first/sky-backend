@@ -39,7 +39,7 @@ async def list_glossary(
     service: GlossaryService = Depends(get_glossary_service),
     db: AsyncSession = Depends(get_db),
 ):
-    await RBACService(db).assert_permission(current_user, "connections.view")
+    await RBACService(db).assert_permission(current_user, "strategy.view")
     return await service.list_terms(
         space_id=space_id,
         crew_id=crew_id,
@@ -56,7 +56,7 @@ async def create_glossary(
     service: GlossaryService = Depends(get_glossary_service),
     db: AsyncSession = Depends(get_db),
 ):
-    await RBACService(db).assert_permission(current_user, "connections.edit")
+    await RBACService(db).assert_permission(current_user, "strategy.pillars.edit")
     return await service.create_term(
         payload,
         space_id=space_id,
@@ -74,7 +74,7 @@ async def get_glossary_term(
     service: GlossaryService = Depends(get_glossary_service),
     db: AsyncSession = Depends(get_db),
 ):
-    await RBACService(db).assert_permission(current_user, "connections.view")
+    await RBACService(db).assert_permission(current_user, "strategy.view")
     return await service.get_term(term_id, space_id=space_id, crew_id=crew_id)
 
 
@@ -88,7 +88,7 @@ async def update_glossary_term(
     service: GlossaryService = Depends(get_glossary_service),
     db: AsyncSession = Depends(get_db),
 ):
-    await RBACService(db).assert_permission(current_user, "connections.edit")
+    await RBACService(db).assert_permission(current_user, "strategy.pillars.edit")
     return await service.update_term(term_id, payload, space_id=space_id, crew_id=crew_id)
 
 
@@ -101,6 +101,6 @@ async def delete_glossary_term(
     service: GlossaryService = Depends(get_glossary_service),
     db: AsyncSession = Depends(get_db),
 ):
-    await RBACService(db).assert_permission(current_user, "connections.edit")
+    await RBACService(db).assert_permission(current_user, "strategy.pillars.edit")
     await service.delete_term(term_id, space_id=space_id, crew_id=crew_id)
     return None

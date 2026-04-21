@@ -396,6 +396,9 @@ async def get_all_role_permissions(
     Returns:
         List[RolePermissionResponse]: List of all role permissions
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     permission_service = PermissionService(db)
     return await permission_service.get_all_role_permissions(current_user)
 
@@ -426,5 +429,8 @@ async def update_role_permission(
     Returns:
         RolePermissionResponse: Updated role permission
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     permission_service = PermissionService(db)
     return await permission_service.update_role_permission(role, current_user, permission_data)

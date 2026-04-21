@@ -84,12 +84,30 @@ class CrewService:
         if not crew_data:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
+        # Access: platform admin/owner, space creator, or any member of
+        # the space/crew can view. Route-level assert_permission already
+        # enforced the crews.view role gate — this check is scope-check.
+        if user.role in ("admin", "owner"):
+            return CrewResponse.model_validate(crew_data)
         space = await self.space_repo.get_by_id(crew_data["space_id"])
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
-
-        return CrewResponse.model_validate(crew_data)
+        if space and space.created_by == user.id:
+            return CrewResponse.model_validate(crew_data)
+        # Space member check
+        from sqlalchemy import select
+        from src.models.space import SpaceMember
+        res = await self.db.execute(
+            select(SpaceMember.id).where(
+                SpaceMember.space_id == crew_data["space_id"],
+                SpaceMember.user_id == user.id,
+            ).limit(1)
+        )
+        if res.scalar_one_or_none():
+            return CrewResponse.model_validate(crew_data)
+        # Crew member check (crew could be cross-space in theory)
+        member = await self.member_repo.get_by_crew_and_user(crew_id, user.id)
+        if member:
+            return CrewResponse.model_validate(crew_data)
+        raise ForbiddenError("Access denied to this crew")
 
     async def create_crew(self, user: User, crew_data: CrewCreate) -> CrewResponse:
         """
@@ -178,19 +196,24 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via current space
-        current_space = await self.space_repo.get_by_id(crew.space_id)
-        if not current_space or current_space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        # Access: platform admin/owner, space creator, or crew commander.
+        if user.role not in ("admin", "owner"):
+            current_space = await self.space_repo.get_by_id(crew.space_id)
+            allowed = current_space and current_space.created_by == user.id
+            if not allowed:
+                member = await self.member_repo.get_by_crew_and_user(crew_id, user.id)
+                allowed = member and member.role == "commander"
+            if not allowed:
+                raise ForbiddenError("Access denied to this crew")
 
         update_data = crew_data.model_dump(exclude_unset=True)
 
-        # If moving crew to another space, validate target space ownership
+        # If moving crew to another space, validate target space access.
         if "space_id" in update_data and update_data["space_id"] != crew.space_id:
             target_space = await self.space_repo.get_by_id(update_data["space_id"])
             if not target_space:
                 raise NotFoundError("Target space not found")
-            if target_space.created_by != user.id:
+            if user.role not in ("admin", "owner") and target_space.created_by != user.id:
                 raise ForbiddenError("Access denied to target space")
 
         crew = await self.crew_repo.update(crew_id, **update_data)
@@ -225,10 +248,26 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        # Access: platform admin/owner, space creator, space member,
+        # or crew member can view/query crew state.
+        if user.role not in ("admin", "owner"):
+            space = await self.space_repo.get_by_id(crew.space_id)
+            allowed = space and space.created_by == user.id
+            if not allowed:
+                from sqlalchemy import select
+                from src.models.space import SpaceMember
+                res = await self.db.execute(
+                    select(SpaceMember.id).where(
+                        SpaceMember.space_id == crew.space_id,
+                        SpaceMember.user_id == user.id,
+                    ).limit(1)
+                )
+                allowed = res.scalar_one_or_none() is not None
+            if not allowed:
+                member = await self.member_repo.get_by_crew_and_user(crew_id, user.id)
+                allowed = member is not None
+            if not allowed:
+                raise ForbiddenError("Access denied to this crew")
 
         # Query AI service for running tasks
         # For now, return mock data - integrate with AI service later
@@ -292,15 +331,19 @@ class CrewService:
         # In development, allow any user to delete any crew
         # In production, only admin or owner can delete
         if settings.is_development:
-            # Development mode: allow any authenticated user to delete
             logger.info(
                 f"🔴 [DELETE SERVICE] Development mode: Allowing user {user.id} to delete crew {crew_id} (space created by {crew.space_id})"
             )
         else:
-            # Production mode: only admin or owner can delete
-            space = await self.space_repo.get_by_id(crew.space_id)
-            if not space or space.created_by != user.id:
-                raise ForbiddenError("Access denied to this crew")
+            # Access: platform admin/owner, space creator, or crew commander.
+            if user.role not in ("admin", "owner"):
+                space = await self.space_repo.get_by_id(crew.space_id)
+                allowed = space and space.created_by == user.id
+                if not allowed:
+                    member = await self.member_repo.get_by_crew_and_user(crew_id, user.id)
+                    allowed = member and member.role == "commander"
+                if not allowed:
+                    raise ForbiddenError("Access denied to this crew")
 
         # Check for running tasks if not forcing
         if not force:
@@ -365,10 +408,26 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        # Access: platform admin/owner, space creator, space member,
+        # or crew member can view/query crew state.
+        if user.role not in ("admin", "owner"):
+            space = await self.space_repo.get_by_id(crew.space_id)
+            allowed = space and space.created_by == user.id
+            if not allowed:
+                from sqlalchemy import select
+                from src.models.space import SpaceMember
+                res = await self.db.execute(
+                    select(SpaceMember.id).where(
+                        SpaceMember.space_id == crew.space_id,
+                        SpaceMember.user_id == user.id,
+                    ).limit(1)
+                )
+                allowed = res.scalar_one_or_none() is not None
+            if not allowed:
+                member = await self.member_repo.get_by_crew_and_user(crew_id, user.id)
+                allowed = member is not None
+            if not allowed:
+                raise ForbiddenError("Access denied to this crew")
 
         members = await self.member_repo.get_by_crew(crew_id)
         # Refresh user relationships to ensure they're loaded
@@ -414,10 +473,26 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        # Access: platform admin/owner, space creator, space member,
+        # or crew member can view/query crew state.
+        if user.role not in ("admin", "owner"):
+            space = await self.space_repo.get_by_id(crew.space_id)
+            allowed = space and space.created_by == user.id
+            if not allowed:
+                from sqlalchemy import select
+                from src.models.space import SpaceMember
+                res = await self.db.execute(
+                    select(SpaceMember.id).where(
+                        SpaceMember.space_id == crew.space_id,
+                        SpaceMember.user_id == user.id,
+                    ).limit(1)
+                )
+                allowed = res.scalar_one_or_none() is not None
+            if not allowed:
+                member = await self.member_repo.get_by_crew_and_user(crew_id, user.id)
+                allowed = member is not None
+            if not allowed:
+                raise ForbiddenError("Access denied to this crew")
 
         # Check if member already exists
         existing = await self.member_repo.get_by_crew_and_user(crew_id, member_data.user_id)
@@ -570,10 +645,26 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        # Access: platform admin/owner, space creator, space member,
+        # or crew member can view/query crew state.
+        if user.role not in ("admin", "owner"):
+            space = await self.space_repo.get_by_id(crew.space_id)
+            allowed = space and space.created_by == user.id
+            if not allowed:
+                from sqlalchemy import select
+                from src.models.space import SpaceMember
+                res = await self.db.execute(
+                    select(SpaceMember.id).where(
+                        SpaceMember.space_id == crew.space_id,
+                        SpaceMember.user_id == user.id,
+                    ).limit(1)
+                )
+                allowed = res.scalar_one_or_none() is not None
+            if not allowed:
+                member = await self.member_repo.get_by_crew_and_user(crew_id, user.id)
+                allowed = member is not None
+            if not allowed:
+                raise ForbiddenError("Access denied to this crew")
 
         # In a real app, these would come from the database/analytics service
         # For now, we return 0/neutral if no data exists, but formatted to represent real state

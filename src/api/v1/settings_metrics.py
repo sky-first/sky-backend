@@ -55,6 +55,9 @@ async def _performance_metrics(db: AsyncSession) -> Dict:
     SLA target is 3000ms; compliance is the fraction of queries that
     hit it.
     """
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     SLA_TARGET_MS = 3_000
     since = _now() - timedelta(days=30)
 
@@ -110,6 +113,9 @@ async def get_global_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get global platform metrics computed from real database data."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.view")
 
     now = _now()
@@ -239,6 +245,9 @@ async def get_connection_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get metrics for a specific connection (or 'all')."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.view")
 
     now = _now()
@@ -329,6 +338,9 @@ async def get_space_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get metrics for a specific space (or 'all')."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.view")
 
     now = _now()
@@ -400,6 +412,9 @@ async def get_crew_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get metrics for a specific crew (or 'all')."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.view")
 
     now = _now()
@@ -446,6 +461,9 @@ async def get_user_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get metrics for a specific user (or 'all')."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.view")
 
     now = _now()
@@ -503,6 +521,9 @@ async def get_ai_metrics(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get AI effectiveness metrics from real interaction data."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.view")
 
     # Total queries

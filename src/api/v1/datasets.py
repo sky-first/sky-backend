@@ -35,21 +35,11 @@ async def delete_dataset(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
+    """Delete dataset. Requires connections.delete (commander+).
+
+    For files, deletes the file. For tables, marks as excluded.
     """
-    await RBACService(db).assert_permission(current_user, "connections.edit")
-    Delete dataset.
-
-    Args:
-        dataset_id: Dataset ID (table name or file_id prefixed with "file_")
-        current_user: Current authenticated user
-        db: Database session
-
-    Returns:
-        SuccessResponse: Success message
-
-    Raises:
-        HTTPException: If deletion fails
-    """
+    await RBACService(db).assert_permission(current_user, "connections.delete")
     try:
         dataset_service = DatasetService(db)
         await dataset_service.delete_dataset(dataset_id, current_user)

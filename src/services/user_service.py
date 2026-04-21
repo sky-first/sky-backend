@@ -181,14 +181,14 @@ class UserService:
             raise NotFoundError("User not found")
 
         # Non-admin users can only update limited fields
-        if current_user.role != "admin" and user_id != current_user.id:
+        if current_user.role not in ("admin", "owner") and user_id != current_user.id:
             raise ForbiddenError("You can only update your own profile")
 
         # Update fields
         update_data = user_data.model_dump(exclude_unset=True)
 
         # Non-admin users cannot change role
-        if current_user.role != "admin" and "role" in update_data:
+        if current_user.role not in ("admin", "owner") and "role" in update_data:
             del update_data["role"]
 
         # Handle preferences specifically to merge instead of replace

@@ -33,6 +33,9 @@ async def list_relationships(
     db: AsyncSession = Depends(get_db_session),
 ) -> list[EnterpriseRelationshipResponse]:
     """List all relationships for the current user."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.view")
     service = EnterpriseRelationshipService(db)
     return await service.list_relationships(current_user)
@@ -50,6 +53,9 @@ async def create_relationship(
     db: AsyncSession = Depends(get_db_session),
 ) -> EnterpriseRelationshipResponse:
     """Create a new relationship."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseRelationshipService(db)
@@ -76,6 +82,9 @@ async def update_relationship(
     db: AsyncSession = Depends(get_db_session),
 ) -> EnterpriseRelationshipResponse:
     """Update a relationship."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseRelationshipService(db)
@@ -105,6 +114,9 @@ async def delete_relationship(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """Delete a relationship."""
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Admin role required.")
     await RBACService(db).assert_permission(current_user, "connections.edit")
     try:
         service = EnterpriseRelationshipService(db)
