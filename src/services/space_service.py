@@ -525,6 +525,15 @@ class SpaceService:
         Returns:
             List[Dict[str, Any]]: List of tables with connection info
         """
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
+            is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            if not is_member:
+                raise ForbiddenError("Access denied to this space")
+
         # Get space connections
         space_connections = await self.space_repo.get_space_connections(space_id)
 
@@ -754,6 +763,11 @@ class SpaceService:
         space = await self.space_repo.get_by_id(space_id)
         if not space:
             raise NotFoundError("Space not found")
+
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
+            is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            if not is_member:
+                raise ForbiddenError("Access denied to this space")
 
         # Get space connections
         space_connections = await self.space_repo.get_space_connections(space_id)
