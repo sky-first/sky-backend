@@ -796,6 +796,8 @@ class SpaceService:
             return f"{s}{size_name[i]}"
 
         def format_number(n):
+            if not n:
+                return "0"
             if n >= 1000:
                 return f"{round(n / 1000, 1)}k"
             return str(n)
@@ -813,11 +815,11 @@ class SpaceService:
         activity_feed = [
             {
                 "id": str(e["id"]),
-                "user": e["actor_email"] or e["actor_kind"],
-                "action": e["action"],
+                "user": e["actor_email"] or e["actor_kind"] or "system",
+                "action": e["action"] or "unknown",
                 "target": f"{e['resource_kind'] or ''}/{e['resource_id'] or ''}".strip("/"),
                 "time": e["occurred_at"] or "",
-                "status": e["decision"],
+                "status": e["decision"] or "allow",
             }
             for e in audit_result["items"]
         ]
