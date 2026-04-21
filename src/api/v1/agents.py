@@ -406,6 +406,118 @@ async def list_findings(
     return await service.list_findings(agent_id, include_dismissed=include_dismissed)
 
 
+@router.get("/{agent_id}/metrics")
+async def get_agent_metrics(
+    agent_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Per-agent usage metrics — runs, findings, tokens consumed, cadence.
+
+    Exposes the counters the UI uses to show "cost" in run-units, not
+    USD. Tokens and rows analyzed are the two proxies for volume the
+    billing model is built around.
+    """
+    await RBACService(db).assert_permission(current_user, "agents.view")
+    from datetime import datetime, timezone
+    from src.models.agent import AgentExecution
+
+    # All executions for this agent.
+    exec_q = await db.execute(
+        select(AgentExecution).where(AgentExecution.agent_id == agent_id)
+    )
+    executions = list(exec_q.scalars().all())
+
+    # This-month window (UTC).
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    def _month(e: AgentExecution) -> bool:
+        started = getattr(e, "started_at", None) or getattr(e, "created_at", None)
+        return bool(started and started >= month_start)
+
+    def _tokens(e: AgentExecution) -> int:
+        return int(e.llm_tokens_used or 0) + int(e.delta_tokens or 0)
+
+    runs_total = len(executions)
+    runs_this_month = sum(1 for e in executions if _month(e))
+    tokens_total = sum(_tokens(e) for e in executions)
+    tokens_this_month = sum(_tokens(e) for e in executions if _month(e))
+    findings_total = sum(int(e.findings_count or 0) for e in executions)
+    findings_this_month = sum(int(e.findings_count or 0) for e in executions if _month(e))
+    durations = [e.duration_ms for e in executions if e.duration_ms]
+    avg_duration_ms = int(sum(durations) / len(durations)) if durations else None
+    last_execution = next(
+        (e for e in sorted(executions, key=lambda x: (getattr(x, "started_at", None) or getattr(x, "created_at", None) or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)),
+        None,
+    )
+
+    # Fetch agent for next_execution_at + linked sources.
+    agent_q = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent = agent_q.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    return {
+        "agent_id": str(agent_id),
+        "runs_total": runs_total,
+        "runs_this_month": runs_this_month,
+        "tokens_total": tokens_total,
+        "tokens_this_month": tokens_this_month,
+        "findings_total": findings_total,
+        "findings_this_month": findings_this_month,
+        "avg_duration_ms": avg_duration_ms,
+        "avg_tokens_per_run": int(tokens_total / runs_total) if runs_total else 0,
+        "last_run_at": (getattr(last_execution, "started_at", None) or getattr(last_execution, "created_at", None)) if last_execution else None,
+        "next_run_at": agent.next_execution_at,
+        "connection_count": len(agent.connection_ids or []),
+        "table_count": len(agent.table_ids or []),
+    }
+
+
+@router.get("/metrics/summary")
+async def get_tenant_agent_metrics(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tenant-level roll-up for Settings → Usage & Metrics.
+
+    Aggregates runs and tokens across every agent the user can see so
+    admins can show customers a single "you used X runs / Y tokens this
+    month" number per billing cycle.
+    """
+    await RBACService(db).assert_permission(current_user, "agents.view")
+    from datetime import datetime, timezone
+    from src.models.agent import AgentExecution
+
+    all_agents = await db.execute(select(Agent))
+    agents = list(all_agents.scalars().all())
+
+    execs_q = await db.execute(select(AgentExecution))
+    executions = list(execs_q.scalars().all())
+
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    def _month(e: AgentExecution) -> bool:
+        started = getattr(e, "started_at", None) or getattr(e, "created_at", None)
+        return bool(started and started >= month_start)
+
+    def _tokens(e: AgentExecution) -> int:
+        return int(e.llm_tokens_used or 0) + int(e.delta_tokens or 0)
+
+    return {
+        "agents_total": len(agents),
+        "agents_active": sum(1 for a in agents if a.status == "active"),
+        "runs_this_month": sum(1 for e in executions if _month(e)),
+        "runs_total": len(executions),
+        "tokens_this_month": sum(_tokens(e) for e in executions if _month(e)),
+        "tokens_total": sum(_tokens(e) for e in executions),
+        "findings_this_month": sum(int(e.findings_count or 0) for e in executions if _month(e)),
+        "findings_total": sum(int(e.findings_count or 0) for e in executions),
+    }
+
+
 @router.post("/{agent_id}/findings/{finding_id}/dismiss", response_model=AgentFindingResponse)
 async def dismiss_finding(
     agent_id: UUID,
