@@ -31,7 +31,12 @@ class AgentRepository(BaseRepository[Agent]):
         skip: int = 0,
         limit: int = 50,
     ) -> List[Agent]:
-        query = select(Agent)
+        # Eager-load findings so the frontend missions store can populate
+        # the halo / cockpit without a second round-trip per agent.
+        # Without this, agent.findings was a lazy-async relationship that
+        # serialized as empty on AgentListResponse, making the Insight
+        # Cockpit always look empty even when findings existed.
+        query = select(Agent).options(selectinload(Agent.findings))
         if scope:
             query = query.where(Agent.scope == scope)
         if scope_id:
