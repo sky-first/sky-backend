@@ -142,7 +142,10 @@ class AgentResponse(BaseModel):
 
 
 class AgentListResponse(BaseModel):
-    """Lightweight response — all fields except findings."""
+    """Lightweight response — includes findings so Insight Cockpit can
+    populate without a per-agent round-trip. Prior to this change the
+    list endpoint returned agents with no findings, making the halo
+    and cockpit appear empty even when findings existed."""
     id: UUID
     name: str
     archetype: str
@@ -164,5 +167,6 @@ class AgentListResponse(BaseModel):
     executions_this_month: int = 0
     cycles_consumed: int = 0
     created_at: datetime
+    findings: Optional[List[AgentFindingResponse]] = None
 
     model_config = ConfigDict(from_attributes=True)
