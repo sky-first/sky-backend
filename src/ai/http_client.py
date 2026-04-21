@@ -21,7 +21,14 @@ class AIServiceHTTPClient:
             base_url: Base URL of AI service (defaults to settings.AI_SERVICE_URL)
         """
         self.base_url = (base_url or settings.AI_SERVICE_URL).rstrip("/")
-        self.timeout = 25.0  # Failsafe timeout for AI queries
+        # Previously 25s, which was shorter than the time a real Claude call
+        # plus metadata/retrieval takes for a medium-complexity question.
+        # 90s fits inside the frontend's 120s withTimeout budget and aligns
+        # with the AI service's own 300s Ollama ceiling. Configurable via
+        # AI_SERVICE_HTTP_TIMEOUT so ops can dial it without a deploy.
+        self.timeout = float(
+            getattr(settings, "AI_SERVICE_HTTP_TIMEOUT", None) or 90.0
+        )
 
     async def query_connection(
         self,
