@@ -102,9 +102,10 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        # Check access (only owner for now)
         if space.created_by != user.id and user.role not in ("admin", "owner"):
-            raise ForbiddenError("Access denied to this space")
+            is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            if not is_member:
+                raise ForbiddenError("Access denied to this space")
 
         return SpaceResponse.model_validate(space)
 
@@ -287,7 +288,9 @@ class SpaceService:
             raise NotFoundError("Space not found")
 
         if space.created_by != user.id and user.role not in ("admin", "owner"):
-            raise ForbiddenError("Access denied to this space")
+            is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            if not is_member:
+                raise ForbiddenError("Access denied to this space")
 
         connections = await self.space_repo.get_space_connections(space_id)
         return connections
@@ -404,7 +407,9 @@ class SpaceService:
             raise NotFoundError("Space not found")
 
         if space.created_by != user.id and user.role not in ("admin", "owner"):
-            raise ForbiddenError("Access denied to this space")
+            is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            if not is_member:
+                raise ForbiddenError("Access denied to this space")
 
         members = await self.member_repo.get_space_members(space_id)
         # Refresh user objects to ensure they're loaded
