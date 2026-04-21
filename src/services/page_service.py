@@ -1,14 +1,28 @@
 """Page service."""
 
+import json
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+
+def _deep_copy_json(value: Any) -> Any:
+    """Deep-copy a JSON-serialisable value via round-trip.
+
+    Used when cloning widget.data / widget.config so the new row doesn't
+    share nested dict/list references with the source row.
+    """
+    if value is None:
+        return None
+    return json.loads(json.dumps(value))
+
+
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.page import Page
 from src.models.user import User
+from src.repositories.dashboard import DashboardRepository, WidgetRepository
 from src.repositories.page import PageMemberRepository, PageRepository
 from src.schemas.page import (
     PageCreate,
@@ -32,6 +46,8 @@ class PageService:
         self.db = db
         self.page_repo = PageRepository(db)
         self.member_repo = PageMemberRepository(db)
+        self.dashboard_repo = DashboardRepository(db)
+        self.widget_repo = WidgetRepository(db)
 
     async def create_page(self, user: User, page_data: PageCreate) -> PageResponse:
         """
@@ -123,9 +139,7 @@ class PageService:
                     from src.repositories.crew import CrewMemberRepository
 
                     crew_member_repo = CrewMemberRepository(self.db)
-                    crew_member = await crew_member_repo.get_by_crew_and_user(
-                        page.crew_id, user.id
-                    )
+                    crew_member = await crew_member_repo.get_by_crew_and_user(page.crew_id, user.id)
                     if not crew_member:
                         raise NotFoundError("Page not found")
                 else:
@@ -157,9 +171,7 @@ class PageService:
         )
         return [PageResponse.model_validate(w) for w in pages]
 
-    async def update_page(
-        self, page_id: UUID, user: User, page_data: PageUpdate
-    ) -> PageResponse:
+    async def update_page(self, page_id: UUID, user: User, page_data: PageUpdate) -> PageResponse:
         """
         Update page.
 
@@ -191,6 +203,117 @@ class PageService:
         await self.db.refresh(page)
 
         return PageResponse.model_validate(page)
+
+    async def duplicate_page(self, page_id: UUID, user: User) -> PageResponse:
+        """Duplicate a page with all its dashboards and widgets.
+
+        Creates a fresh Page row (new UUID, name suffixed " (Copy)"), clones
+        each Dashboard belonging to the source page (fresh UUIDs + canvas
+        settings copy + `is_locked=False`) and for each dashboard re-creates
+        every Widget with fresh UUIDs. `connection_id` / `query_id` are
+        REFERENCED, not deep-copied, so the duplicated page points at the
+        same data sources and saved queries as the original.
+
+        Only copies what the current user can see; member roles and comments
+        are not copied.
+
+        Raises:
+            NotFoundError: source page missing or soft-deleted.
+            ForbiddenError: user is neither owner nor a member.
+        """
+        original = await self.page_repo.get_by_id(page_id)
+        if not original or original.deleted_at:
+            raise NotFoundError("Page not found")
+
+        if original.owner_id != user.id:
+            member = await self.member_repo.get_by_page_and_user(page_id, user.id)
+            if not member:
+                raise ForbiddenError("Permission denied")
+
+        # 1. Create the new page
+        new_page = await self.page_repo.create(
+            name=f"{original.name} (Copy)",
+            description=original.description,
+            type=original.type,
+            color=original.color,
+            icon=original.icon,
+            owner_id=user.id,  # new owner = the duplicator
+            crew_id=original.crew_id,
+            space_id=original.space_id,
+            is_active=False,
+        )
+        await self.db.flush()
+
+        # Duplicator is the owner of the copy
+        await self.member_repo.create(
+            page_id=new_page.id,
+            user_id=user.id,
+            role="owner",
+        )
+
+        # 2. Clone dashboards
+        original_dashboards = await self.dashboard_repo.get_by_page(page_id)
+        for original_dashboard in original_dashboards:
+            new_dashboard = await self.dashboard_repo.create(
+                name=original_dashboard.name,
+                description=original_dashboard.description,
+                page_id=new_page.id,
+                template_id=original_dashboard.template_id,
+                created_by=user.id,
+                canvas_settings=(
+                    original_dashboard.canvas_settings.copy()
+                    if original_dashboard.canvas_settings
+                    else None
+                ),
+                is_locked=False,  # copies always start unlocked
+            )
+            await self.db.flush()
+
+            # 3. Clone widgets for this dashboard (infographics included — they
+            # are `type='infographic'` rows in the same widgets table)
+            original_widgets = await self.widget_repo.get_by_dashboard(original_dashboard.id)
+            for original_widget in original_widgets:
+                # Deep copy via json round-trip so nested dicts/lists don't
+                # share references with the original row.
+                cloned_data = _deep_copy_json(original_widget.data)
+                cloned_config = _deep_copy_json(original_widget.config)
+
+                # Defensive: if the original widget was left in a transient
+                # loading state (infographic AI save race, aborted generation,
+                # etc.), strip `isLoading:true` on the clone. Keeping it
+                # would make the copy spin forever even though no generation
+                # is in flight anymore. Preserves `infographic_data` so the
+                # clone renders whatever content did make it to the row.
+                if isinstance(cloned_data, dict) and cloned_data.get("isLoading"):
+                    cloned_data["isLoading"] = False
+                if isinstance(cloned_config, dict) and cloned_config.get("isLoading"):
+                    cloned_config["isLoading"] = False
+
+                await self.widget_repo.create(
+                    dashboard_id=new_dashboard.id,
+                    type=original_widget.type,
+                    title=original_widget.title,
+                    position=(
+                        original_widget.position.copy()
+                        if original_widget.position
+                        else {"x": 0, "y": 0}
+                    ),
+                    size=(
+                        original_widget.size.copy()
+                        if original_widget.size
+                        else {"width": 400, "height": 300}
+                    ),
+                    data=cloned_data,
+                    config=cloned_config,
+                    connection_id=original_widget.connection_id,
+                    query_id=original_widget.query_id,
+                    z_index=getattr(original_widget, "z_index", 0) or 0,
+                )
+
+        await self.db.commit()
+        await self.db.refresh(new_page)
+
+        return PageResponse.model_validate(new_page)
 
     async def delete_page(self, page_id: UUID, user: User) -> None:
         """
@@ -243,9 +366,7 @@ class PageService:
                     from src.repositories.crew import CrewMemberRepository
 
                     crew_member_repo = CrewMemberRepository(self.db)
-                    crew_member = await crew_member_repo.get_by_crew_and_user(
-                        page.crew_id, user.id
-                    )
+                    crew_member = await crew_member_repo.get_by_crew_and_user(page.crew_id, user.id)
                     if not crew_member:
                         raise NotFoundError("Page not found")
                 else:
@@ -255,9 +376,7 @@ class PageService:
         from sqlalchemy import update
 
         await self.db.execute(
-            update(Page)
-            .where(Page.owner_id == user.id, Page.id != page_id)
-            .values(is_active=False)
+            update(Page).where(Page.owner_id == user.id, Page.id != page_id).values(is_active=False)
         )
 
         # Activate this page
@@ -393,9 +512,7 @@ class PageService:
                     from src.repositories.crew import CrewMemberRepository
 
                     crew_member_repo = CrewMemberRepository(self.db)
-                    crew_member = await crew_member_repo.get_by_crew_and_user(
-                        page.crew_id, user.id
-                    )
+                    crew_member = await crew_member_repo.get_by_crew_and_user(page.crew_id, user.id)
                     if not crew_member:
                         raise NotFoundError("Page not found")
                 else:
@@ -480,13 +597,10 @@ class PageService:
                     from src.repositories.crew import CrewMemberRepository
 
                     crew_member_repo = CrewMemberRepository(self.db)
-                    crew_member = await crew_member_repo.get_by_crew_and_user(
-                        page.crew_id, user_id
-                    )
+                    crew_member = await crew_member_repo.get_by_crew_and_user(page.crew_id, user_id)
                     if not crew_member:
                         raise NotFoundError("Page not found")
                 else:
                     raise NotFoundError("Page not found")
 
         return page
-

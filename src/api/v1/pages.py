@@ -37,8 +37,11 @@ router = APIRouter()
 async def list_pages(
     type: Optional[str] = Query(None, pattern="^(personal|team)$"),
     search: Optional[str] = Query(None),
-    context: Optional[str] = Query(None, pattern="^(personal|space|crew|all)$",
-                                    description="Navigation context: personal, space, crew, or all"),
+    context: Optional[str] = Query(
+        None,
+        pattern="^(personal|space|crew|all)$",
+        description="Navigation context: personal, space, crew, or all",
+    ),
     space_id: Optional[UUID] = Query(None, description="Required when context=space"),
     crew_id: Optional[UUID] = Query(None, description="Required when context=crew"),
     current_user: User = Depends(get_current_user),
@@ -159,6 +162,28 @@ async def update_page(
     await RBACService(db).assert_permission(current_user, "pages.edit")
     page_service = PageService(db)
     return await page_service.update_page(page_id, current_user, page_data)
+
+
+@router.post(
+    "/{page_id}/duplicate",
+    response_model=PageResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Duplicate page",
+    description=(
+        "Create a copy of the page with all its dashboards and widgets "
+        "(infographics included). The copy gets fresh UUIDs everywhere and "
+        "its name is suffixed with ' (Copy)'."
+    ),
+)
+async def duplicate_page(
+    page_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PageResponse:
+    await RBACService(db).assert_permission(current_user, "pages.create")
+    page_service = PageService(db)
+    return await page_service.duplicate_page(page_id, current_user)
 
 
 @router.delete(
