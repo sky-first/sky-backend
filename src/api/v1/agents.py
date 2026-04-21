@@ -3,7 +3,7 @@
 import json
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -178,6 +178,7 @@ async def run_agent_stream(
         """Stream SSE events from AI service, save findings on completion."""
         collected_answer = ""
         collected_meta = {}
+        collected_rows: Optional[Dict[str, Any]] = None  # {columns, data, truncated?}
         conn_id = str(agent.connection_ids[0]) if agent.connection_ids else None
 
         if not conn_id:
@@ -242,6 +243,28 @@ async def run_agent_stream(
                         if event_type == "meta":
                             collected_meta = event.get("meta", {})
 
+                        # Tabular data emitted by the AI after the SQL
+                        # step (or the datasource scan). Capture a copy
+                        # so we can persist it on the finding row; the
+                        # event itself is still forwarded to the UI so
+                        # the Cockpit can update the live preview.
+                        if event_type == "rows":
+                            raw_cols = event.get("columns")
+                            raw_data = event.get("rows")
+                            if isinstance(raw_cols, list) and isinstance(raw_data, list):
+                                # Defensive: drop rows whose arity doesn't
+                                # match columns. Matches the frontend
+                                # unpackRows guard.
+                                clean_data = [
+                                    r for r in raw_data
+                                    if isinstance(r, list) and len(r) == len(raw_cols)
+                                ]
+                                collected_rows = {
+                                    "columns": raw_cols,
+                                    "data": clean_data[:200],  # R6: hard cap
+                                    "truncated": bool(event.get("truncated")) or len(clean_data) > 200,
+                                }
+
                         # Forward to frontend
                         yield f"data: {raw}\n\n"
 
@@ -284,6 +307,7 @@ async def run_agent_stream(
                     query=question[:500],
                     connection_id=UUID(conn_id) if conn_id else None,
                     data_sources=[s for s in [collected_meta.get("chosen_table"), conn_id] if s],
+                    rows=collected_rows,
                 )
                 save_db.add(finding)
                 await save_db.flush()

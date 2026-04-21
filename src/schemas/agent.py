@@ -88,6 +88,7 @@ class AgentFindingResponse(BaseModel):
     reasoning: Optional[str] = None
     recommendation: Optional[str] = None
     data_sources: Optional[List[Optional[str]]] = None
+    rows: Optional[Dict[str, Any]] = None  # {columns, data, truncated?} — consumed by Cockpit
     connection_id: Optional[UUID] = None
     connection_name: Optional[str] = None
     dismissed: bool = False

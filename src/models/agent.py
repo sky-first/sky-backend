@@ -230,6 +230,12 @@ class AgentFinding(Base):
     reasoning = Column(Text, nullable=True)  # Step-by-step reasoning
     recommendation = Column(Text, nullable=True)  # Recommended action
     data_sources = Column(_array_with_sqlite_variant(String), nullable=True)  # tables/columns analyzed
+    # Structured tabular result set produced by the agent's SQL/datasource
+    # run. Shape: {"columns": ["col1", "col2"], "data": [[...], [...]],
+    # "truncated": bool?}. Null when the agent ran in question-only mode
+    # or produced no tabular output. Consumed by the frontend Insight
+    # Cockpit chart picker.
+    rows = Column(_JSONB_OR_JSON, nullable=True)
 
     # Context
     connection_id = Column(UUID(as_uuid=True), nullable=True)
