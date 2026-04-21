@@ -96,12 +96,15 @@ class Widget(Base):
         nullable=False,
         index=True,
     )
-    type = Column(String(50), nullable=False)  # chart, kpi, table, ai-box, text
+    type = Column(String(50), nullable=False)  # chart, kpi, table, ai-box, text, shape, infographic, insight
     title = Column(String(255), nullable=False)
     position = Column(JSON, nullable=False)  # {x, y}
     size = Column(JSON, nullable=False)  # {width, height}
     data = Column(JSON, nullable=True)  # Widget-specific data
     config = Column(JSON, nullable=True)  # Styling and configuration
+    # Layer order. Higher = rendered on top. Client computes front/back as
+    # max(z_index)+1 / min(z_index)-1 among peers on the same dashboard.
+    z_index = Column(Integer, nullable=False, default=0, server_default="0")
     connection_id = Column(
         UUID(as_uuid=True),
         ForeignKey("data_connections.id", ondelete="SET NULL"),

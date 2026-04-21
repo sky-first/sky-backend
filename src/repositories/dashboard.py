@@ -74,18 +74,14 @@ class WidgetRepository(BaseRepository[Widget]):
         """
         Get widgets by dashboard.
 
-        Args:
-            dashboard_id: Dashboard ID
-            skip: Number of records to skip
-            limit: Maximum number of records
-
-        Returns:
-            List[Widget]: List of widgets
+        Ordered by `z_index ASC, created_at ASC` so the canvas renders
+        back-to-front and "bring to front" / "send to back" actions are
+        reflected by the stored z_index value.
         """
         result = await self.db.execute(
             select(Widget)
             .where(Widget.dashboard_id == dashboard_id)
-            .order_by(Widget.created_at.asc())
+            .order_by(Widget.z_index.asc(), Widget.created_at.asc())
             .offset(skip)
             .limit(limit)
         )

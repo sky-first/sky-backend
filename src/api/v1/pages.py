@@ -161,6 +161,28 @@ async def update_page(
     return await page_service.update_page(page_id, current_user, page_data)
 
 
+@router.post(
+    "/{page_id}/duplicate",
+    response_model=PageResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Duplicate page",
+    description=(
+        "Create a copy of the page with all its dashboards and widgets "
+        "(infographics included). The copy gets fresh UUIDs everywhere and "
+        "its name is suffixed with ' (Copy)'."
+    ),
+)
+async def duplicate_page(
+    page_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PageResponse:
+    await RBACService(db).assert_permission(current_user, "pages.create")
+    page_service = PageService(db)
+    return await page_service.duplicate_page(page_id, current_user)
+
+
 @router.delete(
     "/{page_id}",
     response_model=SuccessResponse,
