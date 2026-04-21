@@ -412,6 +412,27 @@ class SpaceService:
             await self.db.refresh(member, ["user"])
         return [SpaceMemberResponse.model_validate(m) for m in members]
 
+    async def update_space_member_role(
+        self, space_id: UUID, user_id: UUID, role: str
+    ):
+        """Change an existing member's per-space role (two-axis RBAC)."""
+        from src.schemas.space import SPACE_MEMBER_ROLES
+
+        role = (role or "").lower()
+        if role not in SPACE_MEMBER_ROLES:
+            raise BadRequestError(
+                f"Invalid space role '{role}'. Use one of: {sorted(SPACE_MEMBER_ROLES)}"
+            )
+
+        member = await self.member_repo.get_by_space_and_user(space_id, user_id)
+        if not member:
+            raise NotFoundError("User is not a member of this space")
+
+        member.role = role
+        await self.db.commit()
+        await self.db.refresh(member, ["user"])
+        return member
+
     async def add_space_member(
         self, space_id: UUID, user: User, member_data: SpaceMemberCreate
     ) -> SpaceMemberResponse:
@@ -443,10 +464,19 @@ class SpaceService:
         if existing:
             raise BadRequestError("User is already a member of this space")
 
-        # Create new member
+        # Validate the requested Space role (two-axis RBAC, Phase 1).
+        from src.schemas.space import SPACE_MEMBER_ROLES
+        role = (member_data.role or "navigator").lower()
+        if role not in SPACE_MEMBER_ROLES:
+            raise BadRequestError(
+                f"Invalid space role '{role}'. Use one of: {sorted(SPACE_MEMBER_ROLES)}"
+            )
+
+        # Create new member with the chosen role.
         member = await self.member_repo.create(
             space_id=space_id,
             user_id=member_data.user_id,
+            role=role,
         )
 
         await self.db.commit()
