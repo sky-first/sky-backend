@@ -64,7 +64,12 @@ class SpaceResponse(SpaceBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-SPACE_MEMBER_ROLES = {"admin", "navigator", "explorer"}
+# Space roles — deliberately NOT reusing platform role names. Using
+# "admin" here was confusing ("Alice is admin of Finance vs admin of
+# the tenant?"). Space vocabulary stays commander / navigator /
+# explorer, which already matched the Sky language in the old
+# permission matrix. Platform stays owner / admin.
+SPACE_MEMBER_ROLES = {"commander", "navigator", "explorer"}
 
 
 class SpaceMemberCreate(BaseModel):
