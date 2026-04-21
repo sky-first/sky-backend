@@ -17,9 +17,7 @@ class DashboardRepository(BaseRepository[Dashboard]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, Dashboard)
 
-    async def get_by_page(
-        self, page_id: UUID, skip: int = 0, limit: int = 100
-    ) -> List[Dashboard]:
+    async def get_by_page(self, page_id: UUID, skip: int = 0, limit: int = 100) -> List[Dashboard]:
         """
         Get dashboards by page.
 

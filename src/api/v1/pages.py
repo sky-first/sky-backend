@@ -37,8 +37,11 @@ router = APIRouter()
 async def list_pages(
     type: Optional[str] = Query(None, pattern="^(personal|team)$"),
     search: Optional[str] = Query(None),
-    context: Optional[str] = Query(None, pattern="^(personal|space|crew|all)$",
-                                    description="Navigation context: personal, space, crew, or all"),
+    context: Optional[str] = Query(
+        None,
+        pattern="^(personal|space|crew|all)$",
+        description="Navigation context: personal, space, crew, or all",
+    ),
     space_id: Optional[UUID] = Query(None, description="Required when context=space"),
     crew_id: Optional[UUID] = Query(None, description="Required when context=crew"),
     current_user: User = Depends(get_current_user),

@@ -96,7 +96,9 @@ class Widget(Base):
         nullable=False,
         index=True,
     )
-    type = Column(String(50), nullable=False)  # chart, kpi, table, ai-box, text, shape, infographic, insight
+    type = Column(
+        String(50), nullable=False
+    )  # chart, kpi, table, ai-box, text, shape, infographic, insight
     title = Column(String(255), nullable=False)
     position = Column(JSON, nullable=False)  # {x, y}
     size = Column(JSON, nullable=False)  # {width, height}

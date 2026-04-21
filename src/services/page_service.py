@@ -18,6 +18,7 @@ def _deep_copy_json(value: Any) -> Any:
         return None
     return json.loads(json.dumps(value))
 
+
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.page import Page
 from src.models.user import User
@@ -138,9 +139,7 @@ class PageService:
                     from src.repositories.crew import CrewMemberRepository
 
                     crew_member_repo = CrewMemberRepository(self.db)
-                    crew_member = await crew_member_repo.get_by_crew_and_user(
-                        page.crew_id, user.id
-                    )
+                    crew_member = await crew_member_repo.get_by_crew_and_user(page.crew_id, user.id)
                     if not crew_member:
                         raise NotFoundError("Page not found")
                 else:
@@ -172,9 +171,7 @@ class PageService:
         )
         return [PageResponse.model_validate(w) for w in pages]
 
-    async def update_page(
-        self, page_id: UUID, user: User, page_data: PageUpdate
-    ) -> PageResponse:
+    async def update_page(self, page_id: UUID, user: User, page_data: PageUpdate) -> PageResponse:
         """
         Update page.
 
@@ -240,7 +237,7 @@ class PageService:
             type=original.type,
             color=original.color,
             icon=original.icon,
-            owner_id=user.id,                # new owner = the duplicator
+            owner_id=user.id,  # new owner = the duplicator
             crew_id=original.crew_id,
             space_id=original.space_id,
             is_active=False,
@@ -274,9 +271,7 @@ class PageService:
 
             # 3. Clone widgets for this dashboard (infographics included — they
             # are `type='infographic'` rows in the same widgets table)
-            original_widgets = await self.widget_repo.get_by_dashboard(
-                original_dashboard.id
-            )
+            original_widgets = await self.widget_repo.get_by_dashboard(original_dashboard.id)
             for original_widget in original_widgets:
                 # Deep copy via json round-trip so nested dicts/lists don't
                 # share references with the original row.
@@ -371,9 +366,7 @@ class PageService:
                     from src.repositories.crew import CrewMemberRepository
 
                     crew_member_repo = CrewMemberRepository(self.db)
-                    crew_member = await crew_member_repo.get_by_crew_and_user(
-                        page.crew_id, user.id
-                    )
+                    crew_member = await crew_member_repo.get_by_crew_and_user(page.crew_id, user.id)
                     if not crew_member:
                         raise NotFoundError("Page not found")
                 else:
@@ -383,9 +376,7 @@ class PageService:
         from sqlalchemy import update
 
         await self.db.execute(
-            update(Page)
-            .where(Page.owner_id == user.id, Page.id != page_id)
-            .values(is_active=False)
+            update(Page).where(Page.owner_id == user.id, Page.id != page_id).values(is_active=False)
         )
 
         # Activate this page
@@ -521,9 +512,7 @@ class PageService:
                     from src.repositories.crew import CrewMemberRepository
 
                     crew_member_repo = CrewMemberRepository(self.db)
-                    crew_member = await crew_member_repo.get_by_crew_and_user(
-                        page.crew_id, user.id
-                    )
+                    crew_member = await crew_member_repo.get_by_crew_and_user(page.crew_id, user.id)
                     if not crew_member:
                         raise NotFoundError("Page not found")
                 else:
@@ -608,13 +597,10 @@ class PageService:
                     from src.repositories.crew import CrewMemberRepository
 
                     crew_member_repo = CrewMemberRepository(self.db)
-                    crew_member = await crew_member_repo.get_by_crew_and_user(
-                        page.crew_id, user_id
-                    )
+                    crew_member = await crew_member_repo.get_by_crew_and_user(page.crew_id, user_id)
                     if not crew_member:
                         raise NotFoundError("Page not found")
                 else:
                     raise NotFoundError("Page not found")
 
         return page
-

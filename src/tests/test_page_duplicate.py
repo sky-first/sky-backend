@@ -125,10 +125,10 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
     from sqlalchemy import select
 
     copied_dashboards = (
-        await db_session.execute(
-            select(Dashboard).where(Dashboard.page_id == result.id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(Dashboard).where(Dashboard.page_id == result.id)))
+        .scalars()
+        .all()
+    )
     assert len(copied_dashboards) == 2
 
     original_dashboard_ids = {dash_a.id, dash_b.id}
@@ -140,12 +140,14 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
 
     # Widgets cloned for each dashboard; UUIDs are fresh; infographic is among them
     copied_widget_rows = (
-        await db_session.execute(
-            select(Widget).where(
-                Widget.dashboard_id.in_([cd.id for cd in copied_dashboards])
+        (
+            await db_session.execute(
+                select(Widget).where(Widget.dashboard_id.in_([cd.id for cd in copied_dashboards]))
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(copied_widget_rows) == 5
 
     original_widget_ids = {w.id for w in widgets}
@@ -161,17 +163,19 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
     await db_session.refresh(page)
     assert page.name == "Weekly Ops"
     original_widgets_still = (
-        await db_session.execute(
-            select(Widget).where(Widget.dashboard_id.in_([dash_a.id, dash_b.id]))
+        (
+            await db_session.execute(
+                select(Widget).where(Widget.dashboard_id.in_([dash_a.id, dash_b.id]))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(original_widgets_still) == 5
 
 
 @pytest.mark.asyncio
-async def test_duplicate_page_strips_stuck_isloading_on_infographic(
-    db_session, test_user
-):
+async def test_duplicate_page_strips_stuck_isloading_on_infographic(db_session, test_user):
     """Regression: originals left at {isLoading:true} (AI save race, aborted
     generation, etc.) must not propagate that stuck state to the duplicate.
 
@@ -216,14 +220,10 @@ async def test_duplicate_page_strips_stuck_isloading_on_infographic(
     from sqlalchemy import select
 
     copied_dash = (
-        await db_session.execute(
-            select(Dashboard).where(Dashboard.page_id == result.id)
-        )
+        await db_session.execute(select(Dashboard).where(Dashboard.page_id == result.id))
     ).scalar_one()
     copied_widget = (
-        await db_session.execute(
-            select(Widget).where(Widget.dashboard_id == copied_dash.id)
-        )
+        await db_session.execute(select(Widget).where(Widget.dashboard_id == copied_dash.id))
     ).scalar_one()
 
     assert copied_widget.data["isLoading"] is False
@@ -233,9 +233,7 @@ async def test_duplicate_page_strips_stuck_isloading_on_infographic(
 
 
 @pytest.mark.asyncio
-async def test_duplicate_page_deep_copies_nested_widget_data(
-    db_session, test_user
-):
+async def test_duplicate_page_deep_copies_nested_widget_data(db_session, test_user):
     """Regression: the clone's data should not share nested references with
     the original, so mutating the clone can't corrupt the source row.
     """
@@ -284,9 +282,7 @@ async def test_duplicate_page_deep_copies_nested_widget_data(
     copied = (
         await db_session.execute(
             select(Widget).where(
-                Widget.dashboard_id.in_(
-                    select(Dashboard.id).where(Dashboard.page_id != page.id)
-                )
+                Widget.dashboard_id.in_(select(Dashboard.id).where(Dashboard.page_id != page.id))
             )
         )
     ).scalar_one()
