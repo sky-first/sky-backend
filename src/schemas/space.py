@@ -64,10 +64,21 @@ class SpaceResponse(SpaceBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+SPACE_MEMBER_ROLES = {"admin", "navigator", "explorer"}
+
+
 class SpaceMemberCreate(BaseModel):
     """Space member creation schema."""
 
     user_id: UUID
+    # Per-space role. See docs/rbac-two-axis-design.md.
+    role: str = "navigator"
+
+
+class SpaceMemberUpdate(BaseModel):
+    """Change an existing space member's role."""
+
+    role: str
 
 
 class SpaceMemberResponse(BaseModel):
@@ -76,6 +87,7 @@ class SpaceMemberResponse(BaseModel):
     id: UUID
     space_id: UUID
     user_id: UUID
+    role: str = "navigator"
     user: Optional[UserResponse] = None
     created_at: datetime
 

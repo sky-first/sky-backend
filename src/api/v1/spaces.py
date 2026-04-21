@@ -14,6 +14,7 @@ from src.schemas.crew import CrewResponse
 from src.schemas.space import (
     SpaceCreate,
     SpaceMemberCreate,
+    SpaceMemberUpdate,
     SpaceMemberResponse,
     SpaceResponse,
     SpaceStatsResponse,
@@ -414,6 +415,33 @@ async def add_space_member(
     await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     return await space_service.add_space_member(space_id, current_user, member_data)
+
+
+@router.patch(
+    "/{space_id}/members/{user_id}",
+    response_model=SpaceMemberResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        404: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+    summary="Change a space member's role",
+    description="Update the per-space role (admin / navigator / explorer) for an existing member.",
+)
+async def update_space_member_role(
+    space_id: UUID,
+    user_id: UUID,
+    payload: SpaceMemberUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SpaceMemberResponse:
+    """Change a member's per-space role. Platform owner/admin bypass in
+    RBACService; space admins can reshuffle their own space. Explorers
+    and navigators cannot call this."""
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    space_service = SpaceService(db)
+    return await space_service.update_space_member_role(space_id, user_id, payload.role)
 
 
 @router.delete(

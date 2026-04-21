@@ -108,6 +108,18 @@ class SpaceMember(Base):
         nullable=False,
         index=True,
     )
+    # Per-space role — distinct from the platform-wide `users.role`.
+    # Valid values: admin | navigator | explorer. A platform `owner`
+    # or `admin` bypasses this column in RBACService, so the field
+    # only matters for platform `member` users who need scoped
+    # privileges. See docs/rbac-two-axis-design.md for the full
+    # permission matrix.
+    role = Column(
+        String(20),
+        nullable=False,
+        default="navigator",
+        server_default="navigator",
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relationships
