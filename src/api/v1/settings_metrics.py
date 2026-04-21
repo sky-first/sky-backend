@@ -6,7 +6,7 @@ Every endpoint reads directly from the relevant tables; no stub values.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -93,7 +93,7 @@ async def _performance_metrics(db: AsyncSession) -> Dict:
     }
 
 
-def _pct_change(current: int | float, previous: int | float) -> Optional[str]:
+def _pct_change(current: Union[int, float], previous: Union[int, float]) -> Optional[str]:
     """Return percentage change string like '+12%' or '-5%'."""
     if not previous:
         return None

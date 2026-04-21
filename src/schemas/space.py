@@ -119,11 +119,19 @@ class SpaceMetric(BaseModel):
 class SpaceActivity(BaseModel):
     """Schema for an activity in the space feed."""
 
-    id: UUID
+    id: str
     user: str
     action: str
     target: str
     time: str
+    status: str  # "allow" | "deny"
+
+
+class SpaceComplianceStatus(BaseModel):
+    """Structured compliance indicator derived from space sensitivity level."""
+
+    status: str        # "INTERNAL" | "CONFIDENTIAL" | "RESTRICTED"
+    description: str
 
 
 class SpaceStatsResponse(BaseModel):
@@ -132,7 +140,7 @@ class SpaceStatsResponse(BaseModel):
     total_queries: SpaceMetric
     active_users: SpaceMetric
     data_usage: SpaceMetric
-    compliance_score: SpaceMetric
+    compliance_status: SpaceComplianceStatus
     activity_feed: List[SpaceActivity]
 
     model_config = ConfigDict(from_attributes=True)

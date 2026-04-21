@@ -592,8 +592,45 @@ class CrewService:
             else "This crew has full access to available data without PII restrictions."
         )
 
+        from src.repositories.ai import AIQueryRepository
+        from src.services.audit_service import AuditService
+
+        ai_repo = AIQueryRepository(self.db)
+        total_queries = await ai_repo.count_queries_by_crew_id(str(crew_id))
+        active_users = await ai_repo.get_active_users_by_crew_id(str(crew_id))
+
+        def format_number(n: int) -> str:
+            return f"{round(n / 1000, 1)}k" if n >= 1000 else str(n)
+
+        audit_service = AuditService(self.db)
+        audit_result = await audit_service.list_events(
+            resource_kind="crew",
+            resource_id=str(crew_id),
+            limit=20,
+        )
+        activity_feed = [
+            {
+                "id": str(e["id"]),
+                "user": e["actor_email"] or e["actor_kind"],
+                "action": e["action"],
+                "target": f"{e['resource_kind'] or ''}/{e['resource_id'] or ''}".strip("/"),
+                "time": e["occurred_at"] or "",
+                "status": e["decision"],
+            }
+            for e in audit_result["items"]
+        ]
+
         return CrewStatsResponse(
-            usage_summary={"value": "0", "change": "+0%", "trend": "neutral"},
-            insights_contributed={"value": "0", "change": "+0%", "trend": "neutral"},
+            usage_summary={
+                "value": format_number(total_queries),
+                "change": "+0%",
+                "trend": "neutral",
+            },
+            insights_contributed={
+                "value": format_number(active_users),
+                "change": "+0%",
+                "trend": "neutral",
+            },
             pii_access={"status": pii_status, "description": pii_description},
+            activity_feed=activity_feed,
         )

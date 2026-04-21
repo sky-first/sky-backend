@@ -33,7 +33,7 @@ Retry budget:
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import FrozenSet, Mapping
+from typing import FrozenSet, Mapping, Optional
 
 
 # ─── State vocabulary ─────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ BACKOFF_SCHEDULE: tuple[timedelta, ...] = (
 )
 
 
-def compute_backoff(failure_count: int) -> timedelta | None:
+def compute_backoff(failure_count: int) -> Optional[timedelta]:
     """Return the retry delay after `failure_count` consecutive failures.
 
     `failure_count` is the number of failures INCLUDING the one just

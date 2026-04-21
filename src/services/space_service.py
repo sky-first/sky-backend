@@ -1,4 +1,5 @@
 """Space service."""
+
 import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -56,7 +57,9 @@ class SpaceService:
             List[SpaceResponse]: List of spaces
         """
         try:
-            spaces_data = await self.space_repo.get_by_user_with_stats(user.id, skip=skip, limit=limit)
+            spaces_data = await self.space_repo.get_by_user_with_stats(
+                user.id, skip=skip, limit=limit
+            )
             result = []
             for space_data in spaces_data:
                 try:
@@ -751,27 +754,34 @@ class SpaceService:
         space_connections = await self.space_repo.get_space_connections(space_id)
         connection_ids = [sc.connection_id for sc in space_connections]
 
-        # Get stats from AI Repository
+        # Get stats from AI History (scoped by space_id — the authoritative source)
         ai_repo = AIQueryRepository(self.db)
-        total_queries = await ai_repo.count_queries_by_connection_ids(connection_ids)
-        active_users = await ai_repo.get_active_users_by_connection_ids(connection_ids)
+        total_queries = await ai_repo.count_queries_by_space_id(str(space_id))
+        active_users = await ai_repo.get_active_users_by_space_id(str(space_id))
 
-        # Aggregated metrics from connections
+        # Data usage from connection metrics
         total_usage_bytes = 0
-        avg_compliance = 0
-        conn_count = 0
-
         for sc in space_connections:
             conn = await self.connection_repo.get_by_id(sc.connection_id)
-            if conn and conn.metrics:
-                m = conn.metrics
-                if isinstance(m, dict):
-                    total_usage_bytes += m.get("usage_bytes", 0)
-                    if "compliance_score" in m:
-                        avg_compliance += m["compliance_score"]
-                        conn_count += 1
+            if conn and conn.metrics and isinstance(conn.metrics, dict):
+                total_usage_bytes += conn.metrics.get("usage_bytes", 0)
 
-        compliance = (avg_compliance / conn_count) if conn_count > 0 else 0
+        # Compliance status derived from space sensitivity (authoritative source)
+        _sensitivity_map = {
+            "restricted": (
+                "RESTRICTED",
+                "This space contains restricted data. Enhanced access controls and monitoring are active.",
+            ),
+            "confidential": (
+                "CONFIDENTIAL",
+                "This space contains confidential data. Access is logged and subject to periodic review.",
+            ),
+            "internal": ("INTERNAL", "This space operates under standard internal data policies."),
+        }
+        _status, _desc = _sensitivity_map.get(
+            space.sensitivity or "internal",
+            ("INTERNAL", "This space operates under standard internal data policies."),
+        )
 
         # Formatting helpers
         def format_bytes(b):
@@ -791,6 +801,27 @@ class SpaceService:
             return str(n)
 
         # Return in a format that matches the expected schema
+        # Fetch recent audit events for this space
+        from src.services.audit_service import AuditService
+
+        audit_service = AuditService(self.db)
+        audit_result = await audit_service.list_events(
+            resource_kind="space",
+            resource_id=str(space_id),
+            limit=20,
+        )
+        activity_feed = [
+            {
+                "id": str(e["id"]),
+                "user": e["actor_email"] or e["actor_kind"],
+                "action": e["action"],
+                "target": f"{e['resource_kind'] or ''}/{e['resource_id'] or ''}".strip("/"),
+                "time": e["occurred_at"] or "",
+                "status": e["decision"],
+            }
+            for e in audit_result["items"]
+        ]
+
         return {
             "total_queries": {
                 "value": format_number(total_queries),
@@ -798,7 +829,7 @@ class SpaceService:
                 "trend": "neutral",
             },
             "active_users": {
-                "value": str(active_users),
+                "value": format_number(active_users),
                 "change": "+0%",
                 "trend": "neutral",
             },
@@ -807,10 +838,9 @@ class SpaceService:
                 "change": "+0%",
                 "trend": "neutral",
             },
-            "compliance_score": {
-                "value": f"{int(compliance)}%",
-                "change": "+0%",
-                "trend": "neutral",
+            "compliance_status": {
+                "status": _status,
+                "description": _desc,
             },
-            "activity_feed": [],  # TODO: Implement activity feed
+            "activity_feed": activity_feed,
         }
