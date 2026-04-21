@@ -48,7 +48,7 @@ class DashboardResponse(DashboardBase):
 class WidgetBase(BaseModel):
     """Base widget schema."""
 
-    type: str = Field(..., pattern="^(chart|kpi|table|ai-box|text|insight|infographic)$")
+    type: str = Field(..., pattern="^(chart|kpi|table|ai-box|text|insight|infographic|shape)$")
     title: str = Field(..., min_length=1, max_length=255)
     position: Dict[str, float] = Field(..., description="Position {x, y}")
     size: Dict[str, float] = Field(..., description="Size {width, height}")
@@ -62,6 +62,7 @@ class WidgetCreate(WidgetBase):
     config: Optional[Dict[str, Any]] = None
     connection_id: Optional[UUID] = None
     query_id: Optional[UUID] = None
+    z_index: Optional[int] = None
 
 
 class WidgetUpdate(BaseModel):
@@ -74,6 +75,7 @@ class WidgetUpdate(BaseModel):
     config: Optional[Dict[str, Any]] = None
     connection_id: Optional[UUID] = None
     query_id: Optional[UUID] = None
+    z_index: Optional[int] = None
 
 
 class WidgetResponse(WidgetBase):
@@ -85,6 +87,7 @@ class WidgetResponse(WidgetBase):
     config: Optional[Dict[str, Any]] = None
     connection_id: Optional[UUID] = None
     query_id: Optional[UUID] = None
+    z_index: int = 0
     created_at: datetime
     updated_at: datetime
 
