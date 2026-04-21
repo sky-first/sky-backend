@@ -596,6 +596,8 @@ class CrewService:
         active_users = await ai_repo.get_active_users_by_crew_id(str(crew_id))
 
         def format_number(n: int) -> str:
+            if not n:
+                return "0"
             return f"{round(n / 1000, 1)}k" if n >= 1000 else str(n)
 
         audit_service = AuditService(self.db)
@@ -607,11 +609,11 @@ class CrewService:
         activity_feed = [
             {
                 "id": str(e["id"]),
-                "user": e["actor_email"] or e["actor_kind"],
-                "action": e["action"],
+                "user": e["actor_email"] or e["actor_kind"] or "system",
+                "action": e["action"] or "unknown",
                 "target": f"{e['resource_kind'] or ''}/{e['resource_id'] or ''}".strip("/"),
                 "time": e["occurred_at"] or "",
-                "status": e["decision"],
+                "status": e["decision"] or "allow",
             }
             for e in audit_result["items"]
         ]
