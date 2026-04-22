@@ -1174,11 +1174,12 @@ class TestAIEndpoints:
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         message_data = {"widget_id": str(uuid4()), "message": "Hello, AI!"}
         response = await async_client.post("/api/v1/ai/chat", json=message_data, headers=headers)
-        assert response.status_code == 200
-        data = response.json()
-        # Response has id, type, content, timestamp
-        assert "id" in data
-        assert "content" in data
+        # 503 when no real AI backend is configured in CI — mock was disabled so users never see fabricated data.
+        assert response.status_code in [200, 503]
+        if response.status_code == 200:
+            data = response.json()
+            assert "id" in data
+            assert "content" in data
 
     @pytest.mark.asyncio
     async def test_get_history(self, async_client: AsyncClient, test_user_with_tokens: dict):
@@ -1255,7 +1256,8 @@ class TestAIEndpoints:
         response = await async_client.post(
             "/api/v1/ai/generate-sql", json=sql_data, headers=headers
         )
-        assert response.status_code in [200, 400]
+        # 503 when no real AI backend is configured in CI.
+        assert response.status_code in [200, 400, 503]
 
     @pytest.mark.asyncio
     async def test_generate_answer(self, async_client: AsyncClient, test_user_with_tokens: dict):
@@ -1269,7 +1271,8 @@ class TestAIEndpoints:
         response = await async_client.post(
             "/api/v1/ai/generate-answer", json=answer_data, headers=headers
         )
-        assert response.status_code in [200, 400]
+        # 503 when no real AI backend is configured in CI.
+        assert response.status_code in [200, 400, 503]
 
     @pytest.mark.asyncio
     async def test_analyze_question(self, async_client: AsyncClient, test_user_with_tokens: dict):

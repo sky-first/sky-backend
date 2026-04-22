@@ -98,6 +98,13 @@ class Agent(Base):
     # Previous execution answer for comparison
     last_answer = Column(Text, nullable=True)
 
+    # Transcript of the AI chat conversation this agent was created from.
+    # Populated only when the "Create agent from this chat" CTA is used
+    # (frontend passes the last N messages as a readable transcript).
+    # Otherwise NULL — legacy agents and sidebar-originated creations
+    # don't carry chat context.
+    chat_context = Column(Text, nullable=True)
+
     # Organization scope: spaces to traverse + relationship types
     space_ids = Column(_array_with_sqlite_variant(UUID(as_uuid=True)), nullable=True)
     relationship_types = Column(_array_with_sqlite_variant(String), nullable=True)
