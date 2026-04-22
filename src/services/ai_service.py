@@ -390,6 +390,30 @@ class AIService:
                         space_id = await self._resolve_space_id_for_connection(
                             user_id, connection_id
                         )
+                    # Personal mode fallback: when the user has no space
+                    # membership to back the query, scope the AI call to the
+                    # user themselves. The downstream AI service only uses
+                    # space_id as a cache / audit key — a user-scoped value
+                    # is semantically equivalent and, crucially, keeps the
+                    # query on the real AI path instead of dropping to the
+                    # mock fallback (which now raises ServiceUnavailable).
+                    # `space_id_is_personal_fallback` marks that the permission
+                    # check must NOT treat this as a real Space context, so it
+                    # falls through to the ownership branch and returns every
+                    # table the user owns on this connection.
+                    space_id_is_personal_fallback = False
+                    if not space_id:
+                        is_personal_flag = bool(
+                            getattr(query_data, "is_personal", False)
+                        )
+                        if is_personal_flag:
+                            space_id = str(user_id)
+                            space_id_is_personal_fallback = True
+                            logger.info(
+                                "Personal mode without space membership — using user_id as space_id scope (user=%s, connection=%s)",
+                                user_id,
+                                connection_id,
+                            )
 
                     if space_id:
                         # Cache: short-lived response cache to avoid repeated expensive calls (e.g., Databricks spin-up)
@@ -433,13 +457,29 @@ class AIService:
                             # No specific crew: use all crews the user belongs to in the space
                             crew_ids = await self._get_user_crew_ids(user_id, space_id)
                         # --- MANDATORY PERMISSION FILTERING ---
-                        # 1. Get truly authorized tables for this context (space/crew/user)
+                        # 1. Get truly authorized tables for this context (space/crew/user).
+                        # When space_id was backfilled from user_id (Personal
+                        # mode without a real space), pass None so the
+                        # permission check falls into the ownership branch
+                        # and returns every table the user owns on the
+                        # connection. Passing a non-Space UUID would match
+                        # zero SpaceTable links and produce an empty list.
+                        perm_space_id = (
+                            None
+                            if space_id_is_personal_fallback
+                            else (UUID(space_id) if space_id else None)
+                        )
+                        perm_crew_ids = (
+                            None
+                            if space_id_is_personal_fallback
+                            else ([UUID(cid) for cid in crew_ids] if crew_ids else None)
+                        )
                         try:
                             authorized_tables = await self.permission_service.get_authorized_tables(
                                 user_id=user_id,
                                 connection_id=UUID(connection_id),
-                                space_id=UUID(space_id) if space_id else None,
-                                crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+                                space_id=perm_space_id,
+                                crew_ids=perm_crew_ids,
                             )
                         except Exception as e:
                             logger.error(f"Error checking authorized tables: {e}", exc_info=True)
@@ -832,6 +872,22 @@ class AIService:
                         space_id = await self._resolve_space_id_for_connection(
                             user_id, connection_id
                         )
+                    # Personal mode fallback — see process_query for rationale.
+                    space_id_is_personal_fallback = False
+                    if not space_id:
+                        is_personal_flag = bool(
+                            message_data.is_personal
+                            if message_data.is_personal is not None
+                            else context.get("is_personal", False)
+                        )
+                        if is_personal_flag:
+                            space_id = str(user_id)
+                            space_id_is_personal_fallback = True
+                            logger.info(
+                                "[send_chat_message] Personal mode without space — using user_id as space_id (user=%s, connection=%s)",
+                                user_id,
+                                connection_id,
+                            )
 
                     if space_id:
                         # Resolve crew_ids — prefer explicit crew_id from request (collaborative mode)
@@ -857,13 +913,27 @@ class AIService:
                             crew_ids = await self._get_user_crew_ids(user_id, space_id)
 
                         # --- MANDATORY PERMISSION FILTERING ---
-                        # 1. Get truly authorized tables for this context
+                        # 1. Get truly authorized tables for this context.
+                        # Mirror of the process_query fallback: skip Space /
+                        # Crew context when space_id was backfilled from
+                        # user_id in Personal mode so the ownership branch
+                        # returns every table the user owns.
+                        perm_space_id = (
+                            None
+                            if space_id_is_personal_fallback
+                            else (UUID(space_id) if space_id else None)
+                        )
+                        perm_crew_ids = (
+                            None
+                            if space_id_is_personal_fallback
+                            else ([UUID(cid) for cid in crew_ids] if crew_ids else None)
+                        )
                         try:
                             authorized_tables = await self.permission_service.get_authorized_tables(
                                 user_id=user_id,
                                 connection_id=UUID(connection_id),
-                                space_id=UUID(space_id) if space_id else None,
-                                crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+                                space_id=perm_space_id,
+                                crew_ids=perm_crew_ids,
                             )
                         except Exception as e:
                             logger.error(
