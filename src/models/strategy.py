@@ -66,6 +66,9 @@ class StrategicPillar(Base):
     crew_id = Column(
         UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    owner_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     # Audit info
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -112,6 +115,9 @@ class StrategicObjective(Base):
     )
     crew_id = Column(
         UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    owner_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
 
     # Audit info
@@ -189,6 +195,9 @@ class StrategyOKR(Base):
     )
     crew_id = Column(
         UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    owner_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
 
     # Audit info
