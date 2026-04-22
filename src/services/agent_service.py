@@ -66,6 +66,10 @@ class AgentService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
         return agent
 
+    async def get_agent_raw(self, agent_id: UUID) -> Optional[Agent]:
+        """Fetch agent without findings, returns None if missing."""
+        return await self.repo.get_by_id(agent_id)
+
     async def create_agent(self, data: AgentCreate, user_id: UUID) -> Agent:
         next_run = _compute_next_execution(
             data.frequency,
@@ -95,9 +99,12 @@ class AgentService:
         )
         self.db.add(agent)
         await self.db.commit()
-        await self.db.refresh(agent)
-        logger.info(f"Agent created: {agent.id} ({agent.name}) by user {user_id}")
-        return agent
+        # RE-FETCH with findings eager-loaded. Even though an agent starts
+        # with zero findings, AgentListResponse (the response_model for
+        # POST /) declares findings: List[...]. Without this eager load,
+        # Pydantic's serialization triggers a lazy relationship access
+        # outside the greenlet context, blowing up with 500.
+        return await self.repo.get_with_findings(agent.id)
 
     async def update_agent(self, agent_id: UUID, data: AgentUpdate) -> Agent:
         # Load with findings eager-loaded because the endpoint's

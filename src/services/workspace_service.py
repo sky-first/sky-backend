@@ -251,7 +251,7 @@ class WorkspaceService:
         await self.db.commit()
         await self.db.refresh(member)
 
-        return WorkspaceMemberResponse.model_validate(member)
+        return WorkspaceMemberResponse.model_validate(member.__dict__)
 
     async def remove_member(self, workspace_id: UUID, user_id: UUID, current_user: User) -> None:
         """
@@ -362,4 +362,4 @@ class WorkspaceService:
         await self.db.commit()
         await self.db.refresh(member)
 
-        return WorkspaceMemberResponse.model_validate(member)
+        return WorkspaceMemberResponse.model_validate(member.__dict__)

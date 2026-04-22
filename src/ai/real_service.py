@@ -35,6 +35,8 @@ class RealAIService:
         instructions: Optional[str] = None,
         response_format: Optional[str] = None,
         security_config: Optional[Dict[str, Any]] = None,
+        ai_tone: Optional[str] = None,
+        ai_style: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a query using the real AI service.
@@ -123,6 +125,8 @@ class RealAIService:
                 instructions=instructions,
                 response_format=response_format,
                 security_config=security_config,
+                ai_tone=ai_tone,
+                ai_style=ai_style,
             )
 
             # Map response from AI service to our format
