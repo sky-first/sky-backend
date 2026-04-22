@@ -18,6 +18,7 @@ from src.schemas.space import (
     SpaceMemberCreate,
     SpaceMemberResponse,
     SpaceResponse,
+    SpaceStatsResponse,
     SpaceTableCreate,
     SpaceUpdate,
 )
@@ -805,7 +806,7 @@ class SpaceService:
         association.hidden_columns = cleaned
         await self.db.commit()
 
-    async def get_space_stats(self, space_id: UUID, user: User) -> dict:
+    async def get_space_stats(self, space_id: UUID, user: User) -> SpaceStatsResponse:
         """
         Get statistics for a space.
         """
@@ -834,7 +835,8 @@ class SpaceService:
         for sc in space_connections:
             conn = await self.connection_repo.get_by_id(sc.connection_id)
             if conn and conn.metrics and isinstance(conn.metrics, dict):
-                total_usage_bytes += conn.metrics.get("usage_bytes", 0)
+                raw_bytes = conn.metrics.get("usage_bytes", 0)
+                total_usage_bytes += int(raw_bytes) if raw_bytes else 0
 
         # Compliance status derived from space sensitivity (authoritative source)
         _sensitivity_map = {
@@ -853,27 +855,23 @@ class SpaceService:
             ("INTERNAL", "This space operates under standard internal data policies."),
         )
 
-        # Formatting helpers
-        def format_bytes(b):
-            if b <= 0:
+        def _format_bytes(b: int) -> str:
+            if not b or b <= 0:
                 return "0B"
             import math
-
             size_name = ("B", "KB", "MB", "GB", "TB")
             i = int(math.floor(math.log(b, 1024)))
             p = math.pow(1024, i)
             s = round(b / p, 1)
             return f"{s}{size_name[i]}"
 
-        def format_number(n):
+        def _format_number(n: int) -> str:
             if not n:
                 return "0"
             if n >= 1000:
                 return f"{round(n / 1000, 1)}k"
             return str(n)
 
-        # Return in a format that matches the expected schema
-        # Fetch recent audit events for this space
         from src.services.audit_service import AuditService
 
         audit_service = AuditService(self.db)
@@ -894,25 +892,25 @@ class SpaceService:
             for e in audit_result["items"]
         ]
 
-        return {
-            "total_queries": {
-                "value": format_number(total_queries),
+        return SpaceStatsResponse(
+            total_queries={
+                "value": _format_number(total_queries),
                 "change": "+0%",
                 "trend": "neutral",
             },
-            "active_users": {
-                "value": format_number(active_users),
+            active_users={
+                "value": _format_number(active_users),
                 "change": "+0%",
                 "trend": "neutral",
             },
-            "data_usage": {
-                "value": format_bytes(total_usage_bytes),
+            data_usage={
+                "value": _format_bytes(total_usage_bytes),
                 "change": "+0%",
                 "trend": "neutral",
             },
-            "compliance_status": {
+            compliance_status={
                 "status": _status,
                 "description": _desc,
             },
-            "activity_feed": activity_feed,
-        }
+            activity_feed=activity_feed,
+        )
