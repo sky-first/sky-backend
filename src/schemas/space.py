@@ -64,10 +64,26 @@ class SpaceResponse(SpaceBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+# Space roles — deliberately NOT reusing platform role names. Using
+# "admin" here was confusing ("Alice is admin of Finance vs admin of
+# the tenant?"). Space vocabulary stays commander / navigator /
+# explorer, which already matched the Sky language in the old
+# permission matrix. Platform stays owner / admin.
+SPACE_MEMBER_ROLES = {"commander", "navigator", "explorer"}
+
+
 class SpaceMemberCreate(BaseModel):
     """Space member creation schema."""
 
     user_id: UUID
+    # Per-space role. See docs/rbac-two-axis-design.md.
+    role: str = "navigator"
+
+
+class SpaceMemberUpdate(BaseModel):
+    """Change an existing space member's role."""
+
+    role: str
 
 
 class SpaceMemberResponse(BaseModel):
@@ -76,6 +92,7 @@ class SpaceMemberResponse(BaseModel):
     id: UUID
     space_id: UUID
     user_id: UUID
+    role: str = "navigator"
     user: Optional[UserResponse] = None
     created_at: datetime
 

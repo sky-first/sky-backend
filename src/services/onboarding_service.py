@@ -1,21 +1,24 @@
-"""Onboarding helpers to ensure default page/space for new users."""
+"""Onboarding helpers to ensure default page for new users.
+
+Default Space creation was removed in favour of Personal-first onboarding
+— a fresh Owner no longer gets an auto-generated "Default space". They
+start in Personal mode and create a Space on demand when they need
+shared scope.
+"""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.space import SpaceMember
 from src.models.user import User
 from src.repositories.page import PageMemberRepository, PageRepository
-from src.repositories.space import SpaceRepository
 
 
 async def ensure_default_page_and_space(db: AsyncSession, user: User) -> None:
     """
-    Ensure a user has at least one page and a default space.
+    Ensure a user has at least one Personal page.
 
     Idempotent: if the user already owns a page, it does nothing.
     """
     page_repo = PageRepository(db)
-    space_repo = SpaceRepository(db)
     page_member_repo = PageMemberRepository(db)
 
     # Already has page? Do nothing.
@@ -42,20 +45,9 @@ async def ensure_default_page_and_space(db: AsyncSession, user: User) -> None:
         role="owner",
     )
 
-    # Create a default space AND add the user as a member. Previously we
-    # created the Space with `created_by=user.id` but never inserted a
-    # SpaceMember row — the Space showed in the sidebar but the user
-    # wasn't "inside" it, so member counts were 0 and the settings panel
-    # rendered a blank Members tab. The creator is always a member of
-    # their own default space.
-    space = await space_repo.create(
-        name="Default space",
-        description="Your first space",
-        color="#3B82F6",
-        icon=None,
-        created_by=user.id,
-    )
-    db.add(SpaceMember(space_id=space.id, user_id=user.id))
+    # Default space creation removed — Personal-first onboarding. The
+    # page above is enough to start. Connections / agents / rules
+    # created in Personal can be promoted to a Space later.
 
     await db.commit()
     await db.refresh(page)

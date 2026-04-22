@@ -36,7 +36,15 @@ else
 fi
 
 # Configura variáveis de ambiente
-export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db}"
+# Carrega .env.local primeiro (pydantic-settings usa, mas alembic roda no shell e precisa de env vars exportadas)
+if [ -f ".env.local" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source .env.local
+    set +a
+fi
+# sky_poc_postgres está exposto em 5433 no host (5432 é frequentemente ocupado por outros containers)
+export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5433/ai_saas_db}"
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 export CELERY_BROKER_URL="${CELERY_BROKER_URL:-redis://localhost:6379/1}"
 export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/2}"
