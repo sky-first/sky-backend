@@ -285,12 +285,12 @@ widgets	POST	/{widget_id}/refresh	/widgets/{widget_id}/refresh	space	navigator	W
 widgets	POST	/{widget_id}/feedback	/widgets/{widget_id}/feedback	space	navigator	Widget op	false
 workspaces	GET		/workspaces	personal	explorer	Read workspace (self-scoped)	false
 workspaces	GET	/{workspace_id}	/workspaces/{workspace_id}	personal	explorer	Read workspace (self-scoped)	false
-workspaces	POST		/workspaces	platform	admin	Create workspace	false
-workspaces	PUT	/{workspace_id}	/workspaces/{workspace_id}	space	navigator	Workspace op	false
-workspaces	DELETE	/{workspace_id}	/workspaces/{workspace_id}	platform	admin	Delete workspace	false
+workspaces	POST		/workspaces	platform	admin	Temp admin-only until task #115 resolves multi-workspace model	false
+workspaces	PUT	/{workspace_id}	/workspaces/{workspace_id}	space	admin	Temp admin-only until task #115 resolves multi-workspace model	false
+workspaces	DELETE	/{workspace_id}	/workspaces/{workspace_id}	platform	admin	Temp admin-only until task #115 resolves multi-workspace model	false
 workspaces	GET	/{workspace_id}/members	/workspaces/{workspace_id}/members	personal	explorer	Read workspace (self-scoped)	false
-workspaces	POST	/{workspace_id}/members	/workspaces/{workspace_id}/members	space	commander	Manage workspace members	false
-workspaces	DELETE	/{workspace_id}/members/{user_id}	/workspaces/{workspace_id}/members/{user_id}	platform	admin	Delete workspace	false
-workspaces	PUT	/{workspace_id}/members/{user_id}/role	/workspaces/{workspace_id}/members/{user_id}/role	space	commander	Manage workspace members	false
+workspaces	POST	/{workspace_id}/members	/workspaces/{workspace_id}/members	space	admin	Temp admin-only until task #115 resolves multi-workspace model	false
+workspaces	DELETE	/{workspace_id}/members/{user_id}	/workspaces/{workspace_id}/members/{user_id}	platform	admin	Temp admin-only until task #115 resolves multi-workspace model	false
+workspaces	PUT	/{workspace_id}/members/{user_id}/role	/workspaces/{workspace_id}/members/{user_id}/role	space	admin	Temp admin-only until task #115 resolves multi-workspace model	false
 workspaces	GET	/{workspace_id}/dashboards	/workspaces/{workspace_id}/dashboards	personal	explorer	Read workspace (self-scoped)	false
-workspaces	POST	/{workspace_id}/switch	/workspaces/{workspace_id}/switch	space	navigator	Workspace op	false
+workspaces	POST	/{workspace_id}/switch	/workspaces/{workspace_id}/switch	space	admin	Temp admin-only until task #115 resolves multi-workspace model	false

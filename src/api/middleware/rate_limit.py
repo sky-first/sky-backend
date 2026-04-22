@@ -43,12 +43,17 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         if "/auth/" in path:
             return cast(Response, await call_next(request))
 
+    # Track whether we've started the downstream call — critical because
+    # ASGI consumes the receive channel on the first call_next and a
+    # retry will deadlock the request.
+    response: Response | None = None
     try:
         redis = await get_redis()
         if redis is None:
             # Redis not available, skip rate limiting
             logger.debug("Redis not available, skipping rate limiting")
-            return cast(Response, await call_next(request))
+            response = cast(Response, await call_next(request))
+            return response
 
         # Try to get real IP if behind a proxy
         client_ip = request.headers.get("X-Forwarded-For")
@@ -110,7 +115,8 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
 
         response = await call_next(request)
 
-        # Add rate limit headers
+        # Add rate limit headers — skip if response is already finalized
+        # (StreamingResponse may lock headers after starting the body).
         response.headers["X-RateLimit-Limit-Minute"] = str(settings.RATE_LIMIT_PER_MINUTE)
         response.headers["X-RateLimit-Remaining-Minute"] = str(
             max(0, settings.RATE_LIMIT_PER_MINUTE - minute_count)
@@ -123,13 +129,20 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         return response
     except Exception as e:
         logger.warning(f"Rate limiting error (continuing without rate limit): {str(e)}")
-        # Can't re-invoke call_next on the same request — ASGI consumes
-        # the receive channel once, a second await hangs forever. If the
-        # first call_next already produced a response, return it;
-        # otherwise bail out with 500 rather than deadlocking.
-        if 'response' in locals():
-            return response  # type: ignore[name-defined]
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"error": "Internal Server Error", "message": "Rate limit middleware failed"},
-        )
+        # ASGI consumes the receive channel on the first call_next, so
+        # we must never call it twice on the same request. Three cases:
+        #   1) Failure BEFORE call_next started (response is None): we
+        #      safely invoke it once, skipping rate-limit work.
+        #   2) Failure AFTER call_next produced a response (e.g. header
+        #      mutation threw): return the response as-is.
+        #   3) Failure INSIDE call_next itself: exception bubbled from
+        #      the app — surface a 500 rather than hang.
+        if response is not None:
+            return response
+        try:
+            return cast(Response, await call_next(request))
+        except Exception:
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"error": "Internal Server Error", "message": "Request failed"},
+            )

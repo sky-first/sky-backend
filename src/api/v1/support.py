@@ -92,8 +92,12 @@ async def update_support_settings(
     if getattr(current_user, "is_sky_operator", False):
         raise ForbiddenError("Sky operators cannot modify support settings")
 
+    # Hard-coded allowlist — never interpolate attacker-controlled keys
+    # into the SET clause. Pydantic limits input to these three, but we
+    # repeat the whitelist here so the SQL never depends on schema drift.
+    ALLOWED = {"access_enabled", "require_ticket_id", "auto_revoke_after_minutes"}
     from sqlalchemy import text
-    updates = {}
+    updates: Dict[str, Any] = {}
     if settings_data.access_enabled is not None:
         updates["access_enabled"] = settings_data.access_enabled
     if settings_data.require_ticket_id is not None:
@@ -102,9 +106,15 @@ async def update_support_settings(
         updates["auto_revoke_after_minutes"] = settings_data.auto_revoke_after_minutes
 
     if updates:
-        set_clauses = ", ".join(f"{k} = :{k}" for k in updates)
+        # Assert every key is in the allowlist — guards against future
+        # schema changes accidentally exposing a write primitive.
+        assert set(updates).issubset(ALLOWED), "Unexpected support_settings field"
+        set_clauses = ", ".join(f"{k} = :{k}" for k in updates if k in ALLOWED)
         updates["now"] = datetime.now(timezone.utc)
-        await db.execute(text(f"UPDATE support_settings SET {set_clauses}, updated_at = :now"), updates)
+        await db.execute(
+            text(f"UPDATE support_settings SET {set_clauses}, updated_at = :now"),  # noqa: S608
+            updates,
+        )
         await db.commit()
 
     return await get_support_settings(current_user, db)
