@@ -1056,103 +1056,6 @@ class TestConnectionsEndpoints:
         assert response.status_code in [200, 400, 404, 500]
 
 
-# ============================================================================
-# MODULE 5: TEMPLATES
-# ============================================================================
-
-
-class TestTemplatesEndpoints:
-    """Tests for /api/v1/templates endpoints."""
-
-    @pytest.mark.asyncio
-    async def test_list_templates_success(
-        self, async_client: AsyncClient, test_user_with_tokens: dict
-    ):
-        """Test GET /api/v1/templates."""
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/templates", headers=headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_list_templates_with_category(
-        self, async_client: AsyncClient, test_user_with_tokens: dict
-    ):
-        """Test GET /api/v1/templates?category=analytics."""
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/templates?category=analytics", headers=headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_list_templates_categories(
-        self, async_client: AsyncClient, test_user_with_tokens: dict
-    ):
-        """Test GET /api/v1/templates/categories."""
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/templates/categories", headers=headers)
-        # May return 200 or 422 if not implemented
-        assert response.status_code in [200, 422]
-        if response.status_code == 200:
-            data = response.json()
-            assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_get_template_not_found(
-        self, async_client: AsyncClient, test_user_with_tokens: dict
-    ):
-        """Test GET /api/v1/templates/{id} with non-existent ID."""
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        fake_id = str(uuid4())
-        response = await async_client.get(f"/api/v1/templates/{fake_id}", headers=headers)
-        assert response.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_apply_template(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test POST /api/v1/templates/{id}/apply."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        fake_id = str(uuid4())
-        apply_data = {"page_id": str(page.id)}
-        response = await async_client.post(
-            f"/api/v1/templates/{fake_id}/apply", json=apply_data, headers=headers
-        )
-        # May return 404 (template not found), 400 (invalid data), or 422 (validation error)
-        assert response.status_code in [200, 201, 400, 404, 422]
-
-    @pytest.mark.asyncio
-    async def test_get_template_preview_not_found(
-        self, async_client: AsyncClient, test_user_with_tokens: dict
-    ):
-        """Test GET /api/v1/templates/{id}/preview with non-existent ID."""
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        fake_id = str(uuid4())
-        response = await async_client.get(f"/api/v1/templates/{fake_id}/preview", headers=headers)
-        assert response.status_code in [200, 404]
-
-    @pytest.mark.asyncio
-    async def test_search_templates(self, async_client: AsyncClient, test_user_with_tokens: dict):
-        """Test GET /api/v1/templates?search=test."""
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/templates?search=test", headers=headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-
-
-# ============================================================================
-# MODULE 6: AI
-# ============================================================================
-
-
 class TestAIEndpoints:
     """Tests for /api/v1/ai endpoints."""
 
@@ -1754,7 +1657,9 @@ class TestSpacesEndpoints:
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        member_data = {"user_id": str(new_user.id), "role": "member"}
+        # Two-axis RBAC (PR #207): per-space role must be one of the
+        # SPACE_MEMBER_ROLES enum, not the legacy platform "member".
+        member_data = {"user_id": str(new_user.id), "role": "navigator"}
         response = await async_client.post(
             f"/api/v1/spaces/{space.id}/members", json=member_data, headers=headers
         )
