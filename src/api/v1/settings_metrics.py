@@ -3,6 +3,7 @@ Settings & Metrics API — real database queries.
 
 Every endpoint reads directly from the relevant tables; no stub values.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -10,7 +11,7 @@ from typing import Any, Dict, Optional, Union
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select, distinct, cast, Float, case, and_
+from sqlalchemy import Float, and_, case, cast, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
@@ -34,11 +35,14 @@ router = APIRouter()
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _metric(value: Any, trend_value: Optional[str] = None, is_positive: Optional[bool] = None) -> Dict:
+def _metric(
+    value: Any, trend_value: Optional[str] = None, is_positive: Optional[bool] = None
+) -> Dict:
     """Build a MetricValue dict."""
     display = str(value) if value not in (None, "", 0) else "0"
     result: Dict = {"value": display}
@@ -62,9 +66,7 @@ async def _performance_metrics(db: AsyncSession) -> Dict:
     stats = await db.execute(
         select(
             func.avg(AIHistory.duration_ms),
-            func.sum(
-                case((AIHistory.duration_ms <= SLA_TARGET_MS, 1), else_=0)
-            ),
+            func.sum(case((AIHistory.duration_ms <= SLA_TARGET_MS, 1), else_=0)),
             func.count(AIHistory.duration_ms),
         ).where(
             AIHistory.created_at >= since,
@@ -105,6 +107,7 @@ def _pct_change(current: Union[int, float], previous: Union[int, float]) -> Opti
 
 # ── Global Metrics ─────────────────────────────────────────────────────────────
 
+
 @router.get("/global", response_model=GlobalMetricsResponse)
 async def get_global_metrics(
     current_user: User = Depends(get_current_user),
@@ -122,15 +125,11 @@ async def get_global_metrics(
     total_queries: int = total_q_res.scalar_one() or 0
 
     # ── Last 30 days ───────────────────────────────────────────────────────────
-    last30_res = await db.execute(
-        select(func.count(AIHistory.id)).where(AIHistory.date >= ago_30)
-    )
+    last30_res = await db.execute(select(func.count(AIHistory.id)).where(AIHistory.date >= ago_30))
     last30: int = last30_res.scalar_one() or 0
 
     prev30_res = await db.execute(
-        select(func.count(AIHistory.id)).where(
-            AIHistory.date >= ago_60, AIHistory.date < ago_30
-        )
+        select(func.count(AIHistory.id)).where(AIHistory.date >= ago_60, AIHistory.date < ago_30)
     )
     prev30: int = prev30_res.scalar_one() or 0
 
@@ -187,7 +186,11 @@ async def get_global_metrics(
         "usage": {
             "totalQueries": _metric(
                 f"{total_queries:,}",
-                _pct_change(total_queries, total_queries - last30) if total_queries > last30 else None,
+                (
+                    _pct_change(total_queries, total_queries - last30)
+                    if total_queries > last30
+                    else None
+                ),
                 True,
             ),
             "last30Days": _metric(
@@ -216,6 +219,7 @@ async def get_global_metrics(
 
 
 # ── Connection Metrics ─────────────────────────────────────────────────────────
+
 
 def _format_duration(avg_ms: Optional[float]) -> str:
     """Render an AVG(duration_ms) value as a short human label."""
@@ -292,10 +296,9 @@ async def get_connection_metrics(
     base_filter = []
     if connection_id != "all":
         from src.models.space import SpaceConnection
+
         space_ids_res = await db.execute(
-            select(SpaceConnection.space_id).where(
-                SpaceConnection.connection_id == connection_id
-            )
+            select(SpaceConnection.space_id).where(SpaceConnection.connection_id == connection_id)
         )
         space_ids = [str(r[0]) for r in space_ids_res.fetchall()]
         if space_ids:
@@ -326,15 +329,15 @@ async def get_connection_metrics(
 
     # Queries processed (total + last 30d)
     q_total_res = await db.execute(
-        select(func.count(AIHistory.id)).where(*base_filter) if base_filter
+        select(func.count(AIHistory.id)).where(*base_filter)
+        if base_filter
         else select(func.count(AIHistory.id))
     )
     q_total: int = q_total_res.scalar_one() or 0
 
     q_30_res = await db.execute(
-        select(func.count(AIHistory.id)).where(
-            *base_filter, AIHistory.date >= ago_30
-        ) if base_filter
+        select(func.count(AIHistory.id)).where(*base_filter, AIHistory.date >= ago_30)
+        if base_filter
         else select(func.count(AIHistory.id)).where(AIHistory.date >= ago_30)
     )
     q_30: int = q_30_res.scalar_one() or 0
@@ -345,9 +348,7 @@ async def get_connection_metrics(
             select(func.count(distinct(AIHistory.space_id))).where(*base_filter)
         )
     else:
-        processes_res = await db.execute(
-            select(func.count(distinct(AIHistory.space_id)))
-        )
+        processes_res = await db.execute(select(func.count(distinct(AIHistory.space_id))))
     supported_processes: int = processes_res.scalar_one() or 0
 
     # Dependent widgets — real count via Widget.connection_id. For "all"
@@ -364,11 +365,13 @@ async def get_connection_metrics(
 
     # Avg exec time — real AVG(duration_ms). NULL rows predate the column
     # and are excluded (see AIHistory.duration_ms comment).
-    avg_q = select(func.avg(AIHistory.duration_ms)).where(
-        *base_filter,
-        AIHistory.duration_ms.is_not(None),
-    ) if base_filter else select(func.avg(AIHistory.duration_ms)).where(
-        AIHistory.duration_ms.is_not(None)
+    avg_q = (
+        select(func.avg(AIHistory.duration_ms)).where(
+            *base_filter,
+            AIHistory.duration_ms.is_not(None),
+        )
+        if base_filter
+        else select(func.avg(AIHistory.duration_ms)).where(AIHistory.duration_ms.is_not(None))
     )
     avg_ms_res = await db.execute(avg_q)
     avg_ms_raw = avg_ms_res.scalar_one_or_none()
@@ -395,6 +398,7 @@ async def get_connection_metrics(
 
 
 # ── Space Metrics ──────────────────────────────────────────────────────────────
+
 
 @router.get("/spaces/{space_id}", response_model=SpaceMetricsResponse)
 async def get_space_metrics(
@@ -437,9 +441,7 @@ async def get_space_metrics(
 
     # Spaces / crews in this space (network growth proxy)
     if space_id != "all":
-        crews_res = await db.execute(
-            select(func.count(Crew.id)).where(Crew.space_id == space_id)
-        )
+        crews_res = await db.execute(select(func.count(Crew.id)).where(Crew.space_id == space_id))
     else:
         crews_res = await db.execute(select(func.count(Crew.id)))
     crews_count: int = crews_res.scalar_one() or 0
@@ -467,6 +469,7 @@ async def get_space_metrics(
 
 # ── Crew Metrics ───────────────────────────────────────────────────────────────
 
+
 @router.get("/crews/{crew_id}", response_model=CrewMetricsResponse)
 async def get_crew_metrics(
     crew_id: str,
@@ -493,9 +496,15 @@ async def get_crew_metrics(
     # Active sessions proxy = distinct user+date combinations
     sessions_res = await db.execute(
         select(
-            func.count(distinct(
-                func.concat(cast(AIHistory.user_id, type_=type(AIHistory.user_id)), ':', func.date(AIHistory.date))
-            ))
+            func.count(
+                distinct(
+                    func.concat(
+                        cast(AIHistory.user_id, type_=type(AIHistory.user_id)),
+                        ":",
+                        func.date(AIHistory.date),
+                    )
+                )
+            )
         ).where(hist_filter, AIHistory.date >= ago_30)
     )
     active_sessions: int = sessions_res.scalar_one() or 0
@@ -523,6 +532,7 @@ async def get_crew_metrics(
 
 
 # ── User Metrics ───────────────────────────────────────────────────────────────
+
 
 @router.get("/users/{user_id}", response_model=UserMetricsResponse)
 async def get_user_metrics(
@@ -582,6 +592,7 @@ async def get_user_metrics(
 
 # ── AI Performance ─────────────────────────────────────────────────────────────
 
+
 @router.get("/ai", response_model=AiMetricsResponse)
 async def get_ai_metrics(
     current_user: User = Depends(get_current_user),
@@ -622,9 +633,7 @@ async def get_ai_metrics(
 
     if any_feedback > 0:
         corrections_label = str(bad_feedback)
-        accuracy_label = (
-            f"{round(((any_feedback - bad_feedback) / any_feedback) * 100)}%"
-        )
+        accuracy_label = f"{round(((any_feedback - bad_feedback) / any_feedback) * 100)}%"
     else:
         corrections_label = "N/A"
         accuracy_label = "N/A"

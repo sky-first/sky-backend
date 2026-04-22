@@ -647,6 +647,7 @@ class AIService:
             # the frontend PlatformErrorBanner can render cleanly, and log
             # the full detail server-side only.
             import httpx as _httpx
+
             error_key = "chat.server"
             friendly = "The AI service had a problem. Please try again."
             if isinstance(e, _httpx.TimeoutException):
@@ -659,7 +660,9 @@ class AIService:
                     friendly = "Too many AI requests in a short window. Please wait a few seconds and retry."
                 elif 500 <= code < 600:
                     error_key = "chat.server"
-                    friendly = "The AI service is temporarily unavailable. Please retry in a moment."
+                    friendly = (
+                        "The AI service is temporarily unavailable. Please retry in a moment."
+                    )
                 elif code == 400:
                     error_key = "chat.server"
                     friendly = "I couldn't understand that question. Try rephrasing it."
@@ -1241,9 +1244,7 @@ class AIService:
 
         return AIHistoryItem.model_validate(history)
 
-    async def unpin_history(
-        self, history_id: UUID, user_id: UUID, page_id: UUID
-    ) -> AIHistoryItem:
+    async def unpin_history(self, history_id: UUID, user_id: UUID, page_id: UUID) -> AIHistoryItem:
         """
         Unpin history item.
 

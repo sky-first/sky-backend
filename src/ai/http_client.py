@@ -26,9 +26,7 @@ class AIServiceHTTPClient:
         # 90s fits inside the frontend's 120s withTimeout budget and aligns
         # with the AI service's own 300s Ollama ceiling. Configurable via
         # AI_SERVICE_HTTP_TIMEOUT so ops can dial it without a deploy.
-        self.timeout = float(
-            getattr(settings, "AI_SERVICE_HTTP_TIMEOUT", None) or 90.0
-        )
+        self.timeout = float(getattr(settings, "AI_SERVICE_HTTP_TIMEOUT", None) or 90.0)
 
     async def query_connection(
         self,
