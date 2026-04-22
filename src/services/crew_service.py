@@ -130,7 +130,7 @@ class CrewService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if user.role != "admin" and space.created_by != user.id:
+        if user.role not in ("admin", "owner") and space.created_by != user.id:
             # Check space membership for non-admin, non-creator users
             from sqlalchemy import select
 

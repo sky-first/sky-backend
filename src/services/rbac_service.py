@@ -141,7 +141,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "ai.davinci": True,
         # Spaces
         "spaces.view": True,
-        "spaces.create": True,
+        "spaces.create": False,
         "spaces.edit": True,
         "spaces.delete": True,
         "spaces.members.view": True,
@@ -1039,16 +1039,32 @@ class RBACService:
 
     async def _best_role_for_user_anywhere(self, user_id: UUID) -> CrewRole:
         crew_ids = await self.crew_members.get_crew_ids_by_user(user_id)
-        if not crew_ids:
-            # User has no crew memberships — they're operating in their own
+        
+        from sqlalchemy import select
+        from src.models.space import SpaceMember
+
+        res = await self.db.execute(
+            select(SpaceMember.role).where(SpaceMember.user_id == user_id)
+        )
+        space_roles = res.scalars().all()
+        
+        if not crew_ids and not space_roles:
+            # User has no crew/space memberships — they're operating in their own
             # personal workspace (no shared/team context). Treat them as
             # commander of that personal world so they can bootstrap their
-            # first page/dashboard. Once invited to crews, the best-role
+            # first page/dashboard. Once invited to crews/spaces, the best-role
             # resolution below takes over.
             return "commander"
 
         best_role = "guest"
         best_score = ROLE_PRECEDENCE[best_role]
+        
+        for role in space_roles:
+            score = ROLE_PRECEDENCE.get(role, 0)
+            if score > best_score:
+                best_score = score
+                best_role = role
+                
         for cid in crew_ids:
             member = await self.crew_members.get_by_crew_and_user(cid, user_id)
             role = member.role if member and member.role else "guest"  # type: ignore[assignment]

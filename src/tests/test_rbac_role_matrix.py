@@ -158,7 +158,7 @@ async def test_section_i_03_list_space_members(seeded, async_client, role):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_i_08_list_agents(seeded, async_client, role):
-    r = await async_client.get("/api/v1/agents", headers=_auth_headers(seeded["tokens"][role]))
+    r = await async_client.get("/api/v1/agents/", headers=_auth_headers(seeded["tokens"][role]))
     _assert_outcome(r, _expect_for_role("explorer", role), "I-08")
 
 
@@ -215,7 +215,7 @@ async def test_section_ii_31_create_agent(seeded, async_client, role):
         "frequency": "daily",
         "connection_ids": [],
     }
-    r = await async_client.post("/api/v1/agents", json=payload, headers=_auth_headers(seeded["tokens"][role]))
+    r = await async_client.post("/api/v1/agents/", json=payload, headers=_auth_headers(seeded["tokens"][role]))
     _assert_outcome(r, _expect_for_role("navigator", role), "II-31")
 
 
