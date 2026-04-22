@@ -44,6 +44,8 @@ class AIServiceHTTPClient:
         instructions: Optional[str] = None,
         response_format: Optional[str] = None,
         security_config: Optional[Dict[str, Any]] = None,
+        ai_tone: Optional[str] = None,
+        ai_style: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Query a connection using the AI service.
@@ -85,6 +87,10 @@ class AIServiceHTTPClient:
             payload["response_format"] = response_format
         if security_config:
             payload["security_config"] = security_config
+        if ai_tone:
+            payload["ai_tone"] = ai_tone
+        if ai_style:
+            payload["ai_style"] = ai_style
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(
