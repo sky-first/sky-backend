@@ -141,7 +141,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "ai.davinci": True,
         # Spaces
         "spaces.view": True,
-        "spaces.create": True,
+        "spaces.create": False,  # Restricted to Platform Admin in matrix IV-91
         "spaces.edit": True,
         "spaces.delete": True,
         "spaces.members.view": True,
@@ -153,7 +153,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "spaces.stats.view": True,
         # Crews
         "crews.view": True,
-        "crews.create": True,
+        "crews.create": True,   # Allowed from Commander in matrix III-64
         "crews.edit": True,
         "crews.delete": True,
         "crews.members.view": True,
@@ -171,6 +171,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "agents.pause": True,
         "agents.resume": True,
         "agents.manage": True,
+        "agents.summary": False,  # Restricted to Platform Admin in matrix IV-99
         "agents.findings.view": True,
         "agents.findings.dismiss": True,
         # Strategy
@@ -336,7 +337,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "users.permissions.view": False,
         "users.self.edit": True,
         "users.self.permissions": True,
-        # Agents (navigator can run/pause/resume own runs, no create/edit/delete)
+        # Agents (navigator can now create/edit in matrix II-31/II-36)
         "agents.view": True,
         "agents.create": True,
         "agents.edit": True,

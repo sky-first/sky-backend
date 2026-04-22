@@ -34,36 +34,35 @@ class GlobalEngagementMetrics(BaseModel):
     satisfactionRate: MetricItem
 
 
-class GlobalValueGenerationMetrics(BaseModel):
-    financialImpact: MetricItem
-    hoursSaved: MetricItem
-    influencedDecisions: MetricItem
-    costAvoided: MetricItem
-
-
 class GlobalMetricsResponse(BaseModel):
     usage: GlobalUsageMetrics
     performance: GlobalPerformanceMetrics
     engagement: GlobalEngagementMetrics
-    valueGeneration: GlobalValueGenerationMetrics
+    # `valueGeneration` was removed: financialImpact/hoursSaved/costAvoided
+    # rested on unvalidated assumptions (5 min/query, $50/h, 70% savings).
+    # We surface no fabricated monetary metric until those inputs come
+    # from a measured source.
 
 
 # Connection Metrics
 class ConnectionUsageMetrics(BaseModel):
     queriesProcessed: MetricItem
-    dataTransferred: MetricItem
     avgSyncFrequency: MetricItem
 
 
 class ConnectionValueMapMetrics(BaseModel):
     supportedProcesses: MetricItem
-    dependentKpis: MetricItem
+    # Renamed from `dependentKpis`: now the real count of Widgets whose
+    # `connection_id` points at this connection (Widget.connection_id).
+    dependentWidgets: MetricItem
 
 
 class ConnectionReliabilityMetrics(BaseModel):
-    syncFailures: MetricItem
+    # Renamed from `syncFailures`: there is no per-sync event log today,
+    # so we surface the latest sync timestamp + whether the connection is
+    # currently in an error state (DataConnection.last_sync + error).
+    lastSync: MetricItem
     avgExecTime: MetricItem
-    slaMaintenance: MetricItem
 
 
 class ConnectionMetricsResponse(BaseModel):
@@ -117,11 +116,14 @@ class UserMetricsResponse(BaseModel):
 
 # AI Metrics
 class AiEngineEffectivenessMetrics(BaseModel):
+    # perceivedAccuracy and correctionsMade are computed from AIFeedback
+    # rows ('good'/'bad'). When no feedback exists yet, we surface "N/A"
+    # instead of a fabricated estimate — the previous 5% heuristic gave
+    # false confidence.
     perceivedAccuracy: MetricItem
     correctionsMade: MetricItem
     insightAcceptanceRate: MetricItem
     averageLatency: MetricItem
-    estResponseConfidence: MetricItem
 
 
 class AiMetricsResponse(BaseModel):

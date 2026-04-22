@@ -66,6 +66,10 @@ class AgentService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
         return agent
 
+    async def get_agent_raw(self, agent_id: UUID) -> Optional[Agent]:
+        """Fetch agent without findings, returns None if missing."""
+        return await self.repo.get_by_id(agent_id)
+
     async def create_agent(self, data: AgentCreate, user_id: UUID) -> Agent:
         next_run = _compute_next_execution(
             data.frequency,

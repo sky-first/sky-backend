@@ -130,22 +130,32 @@ class CrewService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if user.role != "admin" and space.created_by != user.id:
-            # Check space membership for non-admin, non-creator users
+        # Two-axis RBAC (mirrors SpaceService._require_space_role):
+        # platform owner/admin bypass; space creator bypasses; otherwise
+        # the user must be a space_member AND rank at least `commander`
+        # in that space. Plain membership is not enough — explorers and
+        # navigators can see a space but cannot manage its crews.
+        if user.role not in ("admin", "owner") and space.created_by != user.id:
             from sqlalchemy import select
 
             from src.models.space import SpaceMember
 
             result = await self.db.execute(
-                select(SpaceMember.id)
+                select(SpaceMember.role)
                 .where(
                     SpaceMember.space_id == crew_data.space_id,
                     SpaceMember.user_id == user.id,
                 )
                 .limit(1)
             )
-            if not result.scalar_one_or_none():
+            member_role = result.scalar_one_or_none()
+            if member_role is None:
                 raise ForbiddenError("You must be a member of this space to create crews")
+            rank = {"explorer": 0, "navigator": 1, "commander": 2}
+            if rank.get(member_role, -1) < rank["commander"]:
+                raise ForbiddenError(
+                    f"Creating crews requires space role 'commander' (you have '{member_role}')"
+                )
 
         crew = await self.crew_repo.create(
             name=crew_data.name,

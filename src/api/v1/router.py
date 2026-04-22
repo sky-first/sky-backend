@@ -10,13 +10,11 @@ from src.api.v1 import (
     auth,
     comments,
     connections,
+    connectors,
     context_health,
+    context_rows,
     conversations,
     cost_metrics,
-    insight_agents,
-    messages,
-    connectors,
-    context_rows,
     crews,
     dashboards,
     datasets,
@@ -25,19 +23,21 @@ from src.api.v1 import (
     files,
     glossary,
     impersonation,
+    insight_agents,
     intelligence_signals,
+    messages,
     notifications,
+    pages,
     permissions,
     presence,
     privacy,
-    support,
-    pages,
     settings,
     settings_metrics,
     signal_events,
     spaces,
     starred,
     strategy,
+    support,
     templates,
     users,
     widgets,
@@ -61,27 +61,17 @@ api_router.include_router(impersonation.router, prefix="/users", tags=["Imperson
 api_router.include_router(pages.router, prefix="/pages", tags=["Pages"])
 
 # Conversation endpoints — collection under /pages, operations under /conversations
-api_router.include_router(
-    conversations.page_router, prefix="/pages", tags=["Conversations"]
-)
-api_router.include_router(
-    conversations.router, prefix="/conversations", tags=["Conversations"]
-)
+api_router.include_router(conversations.page_router, prefix="/pages", tags=["Conversations"])
+api_router.include_router(conversations.router, prefix="/conversations", tags=["Conversations"])
 
 # Message endpoints — nested under conversations for list/create/fork,
 # top-level /messages for pin.
-api_router.include_router(
-    messages.conversation_router, prefix="/conversations", tags=["Messages"]
-)
-api_router.include_router(
-    messages.router, prefix="/messages", tags=["Messages"]
-)
+api_router.include_router(messages.conversation_router, prefix="/conversations", tags=["Messages"])
+api_router.include_router(messages.router, prefix="/messages", tags=["Messages"])
 
 # Insight-mode agent endpoints — mounted under /agents/insight so the
 # pre-existing /agents (question/datasource/sql) CRUD stays untouched.
-api_router.include_router(
-    insight_agents.router, prefix="/agents/insight", tags=["Insight Agents"]
-)
+api_router.include_router(insight_agents.router, prefix="/agents/insight", tags=["Insight Agents"])
 
 # Dashboard endpoints
 api_router.include_router(dashboards.router, prefix="/dashboards", tags=["Dashboards"])
@@ -95,8 +85,11 @@ api_router.include_router(connections.router, prefix="/connections", tags=["Conn
 # Permission endpoints
 api_router.include_router(permissions.router, prefix="/permissions", tags=["Permissions"])
 
-# Audit endpoints
-api_router.include_router(audit.router, prefix="/audit", tags=["Audit"])
+# Audit endpoints — mounted at /audit-logs (resource-oriented naming).
+# The older /audit mount is kept so existing callers (if any) keep working
+# while we migrate off it.
+api_router.include_router(audit.router, prefix="/audit-logs", tags=["Audit"])
+api_router.include_router(audit.router, prefix="/audit", tags=["Audit"], include_in_schema=False)
 
 # Privacy endpoints (GDPR DSAR)
 api_router.include_router(privacy.router, prefix="/privacy", tags=["Privacy"])
@@ -128,21 +121,15 @@ api_router.include_router(
 )
 
 # Context Layer health — admin-only; feeds the Administration tab in Settings.
-api_router.include_router(
-    context_health.router, prefix="/context", tags=["Context Health"]
-)
+api_router.include_router(context_health.router, prefix="/context", tags=["Context Health"])
 
 # Context rows — generic row-hydration endpoint used by the AI service's
 # ingest worker to fetch the full source row before embedding. Paired
 # with the Redis event stream in src/core/context_events.py.
-api_router.include_router(
-    context_rows.router, prefix="/context", tags=["Context Rows"]
-)
+api_router.include_router(context_rows.router, prefix="/context", tags=["Context Rows"])
 
 # Admin actions (pause-all, audit export) — admin-only.
-api_router.include_router(
-    admin_actions.router, prefix="/admin", tags=["Admin Actions"]
-)
+api_router.include_router(admin_actions.router, prefix="/admin", tags=["Admin Actions"])
 
 # Cost breakdown (per-crew + daily series) — extends Settings Usage.
 api_router.include_router(
