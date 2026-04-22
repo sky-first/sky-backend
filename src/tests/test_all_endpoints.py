@@ -1754,7 +1754,8 @@ class TestSpacesEndpoints:
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        member_data = {"user_id": str(new_user.id), "role": "member"}
+        # Space roles use commander/navigator/explorer — see SPACE_MEMBER_ROLES (#208).
+        member_data = {"user_id": str(new_user.id), "role": "explorer"}
         response = await async_client.post(
             f"/api/v1/spaces/{space.id}/members", json=member_data, headers=headers
         )

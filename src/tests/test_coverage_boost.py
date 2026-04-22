@@ -424,10 +424,7 @@ async def test_onboarding_service_simple():
     user.id = uuid4()
     user.name = "Test User"
 
-    with (
-        patch("src.services.onboarding_service.PageRepository") as pr,
-        patch("src.services.onboarding_service.SpaceRepository") as sr,  # noqa: F841
-    ):
+    with patch("src.services.onboarding_service.PageRepository") as pr:
         pr.return_value.get_by_owner = AsyncMock(return_value=[MagicMock()])
         await ensure_default_page_and_space(db, user)
 
