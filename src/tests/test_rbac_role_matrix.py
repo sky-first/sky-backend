@@ -312,8 +312,12 @@ async def test_section_iii_61_add_space_member(seeded, async_client, role):
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_iii_64_create_crew(seeded, async_client, role):
     payload = {"name": f"crew-{role}", "space_id": seeded["space_id"]}
+    # POST goes to /crews (no trailing slash) because the crews router
+    # registers the root as "" — requesting /crews/ would land on a
+    # 307 redirect that the deny-path assertion can't distinguish
+    # from a legitimate 2xx.
     r = await async_client.post(
-        "/api/v1/crews/", json=payload, headers=_auth_headers(seeded["tokens"][role])
+        "/api/v1/crews", json=payload, headers=_auth_headers(seeded["tokens"][role])
     )
     _assert_outcome(r, _expect_for_role("commander", role), "III-64")
 
@@ -327,8 +331,9 @@ async def test_section_iii_64_create_crew(seeded, async_client, role):
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_iv_91_create_space(seeded, async_client, role):
     payload = {"name": f"space-{role}", "description": "rbac test"}
+    # No trailing slash — see comment on test_section_iii_64_create_crew.
     r = await async_client.post(
-        "/api/v1/spaces/", json=payload, headers=_auth_headers(seeded["tokens"][role])
+        "/api/v1/spaces", json=payload, headers=_auth_headers(seeded["tokens"][role])
     )
     _assert_outcome(r, _expect_for_role("platform_admin", role), "IV-91")
 
@@ -336,7 +341,7 @@ async def test_section_iv_91_create_space(seeded, async_client, role):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_iv_96_list_users(seeded, async_client, role):
-    r = await async_client.get("/api/v1/users/", headers=_auth_headers(seeded["tokens"][role]))
+    r = await async_client.get("/api/v1/users", headers=_auth_headers(seeded["tokens"][role]))
     _assert_outcome(r, _expect_for_role("platform_admin", role), "IV-96")
 
 
