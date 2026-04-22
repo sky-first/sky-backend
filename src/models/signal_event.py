@@ -59,6 +59,11 @@ class SignalEvent(Base):
     crew_id = Column(
         UUID(as_uuid=True), ForeignKey("crews.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    # owner_user_id is set when the item was created in Personal mode.
+    # NULL = space-scoped (legacy or explicitly created in a Space).
+    owner_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
