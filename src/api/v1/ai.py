@@ -432,6 +432,15 @@ async def send_chat_message(
         page_service = PageService(db)
         await page_service.get_user_page_or_404(message_data.page_id, current_user.id)
 
+    # AI Customization fallback: if the client didn't pass tone/style in the
+    # request, pull them from the user's saved preferences (Settings → AI
+    # Customization). Request-level values always win over saved defaults.
+    prefs = current_user.preferences or {}
+    if message_data.ai_tone is None:
+        message_data.ai_tone = prefs.get("ai_tone")
+    if message_data.ai_style is None:
+        message_data.ai_style = prefs.get("ai_style")
+
     ai_service = AIService(db)
     return await ai_service.send_chat_message(current_user.id, message_data)
 

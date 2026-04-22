@@ -60,6 +60,28 @@ async def list_users(
     return await user_service.list_users(current_user, skip=skip, limit=limit)
 
 
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="Get current user",
+    description="Get the current authenticated user's profile",
+)
+async def get_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserResponse:
+    """Return the current authenticated user.
+
+    Registered before /{user_id} so FastAPI doesn't try to parse the
+    literal "me" as a UUID (the prior behavior returned 422 — caught by
+    test_rbac_role_matrix.test_section_i_24_me).
+    """
+    user_service = UserService(db)
+    return await user_service.get_user(current_user.id, current_user)
+
+
 @router.put(
     "/me",
     response_model=UserResponse,
