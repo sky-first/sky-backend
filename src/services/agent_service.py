@@ -83,6 +83,7 @@ class AgentService:
             monitor_type=data.monitor_type or "question",
             focus=data.focus,
             custom_sql=data.custom_sql,
+            chat_context=data.chat_context,
             frequency=data.frequency,
             depth=data.depth or "standard",
             connection_ids=data.connection_ids,
