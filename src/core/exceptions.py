@@ -57,3 +57,12 @@ class InternalServerError(BaseAPIException):
 
     def __init__(self, message: str = "Internal server error"):
         super().__init__(message, status_code=500)
+
+
+class ServiceUnavailableError(BaseAPIException):
+    """Upstream dependency is not available (503). Use when a real
+    external service (AI backend, Ollama, etc.) is expected but cannot
+    be reached — the API surface should not fall back to fake data."""
+
+    def __init__(self, message: str = "Service unavailable"):
+        super().__init__(message, status_code=503)

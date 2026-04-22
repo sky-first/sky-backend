@@ -290,10 +290,18 @@ async def run_agent_stream(
             from src.config.database import AsyncSessionLocal
             async with AsyncSessionLocal() as save_db:
                 has_answer = bool(collected_answer and collected_answer.strip())
+                # Finding type is always a member of the FindingType enum
+                # ("insight", "opportunity", "risk"). A run that produced no
+                # content is still an observation about the agent's state —
+                # persist it as a low-severity "insight" with confidence=0
+                # and a title that reads as "no output". Previously we stored
+                # "error" here, which is NOT in FindingType, and that made
+                # GET /agents/ explode during response serialization
+                # (ResponseValidationError, 500 on the whole list).
                 finding = AgentFinding(
                     agent_id=agent.id,
                     execution_id=execution_id,
-                    type="insight" if has_answer else "error",
+                    type="insight",
                     severity="medium" if has_answer else "low",
                     title=(
                         collected_meta.get("title", f"Analysis from {agent.name}")[:500]

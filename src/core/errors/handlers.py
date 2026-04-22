@@ -15,6 +15,7 @@ from src.core.exceptions import (
     ForbiddenError,
     InternalServerError,
     NotFoundError,
+    ServiceUnavailableError,
     UnauthorizedError,
     ValidationError,
 )
@@ -97,6 +98,7 @@ def register_exception_handlers(app: FastAPI):
             BadRequestError: "BAD_REQUEST",
             ConflictError: "CONFLICT",
             InternalServerError: "SERVER_ERROR",
+            ServiceUnavailableError: "SERVICE_UNAVAILABLE",
         }
 
         code = code_map.get(type(exc), "API_ERROR")
