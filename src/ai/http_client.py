@@ -26,9 +26,7 @@ class AIServiceHTTPClient:
         # 90s fits inside the frontend's 120s withTimeout budget and aligns
         # with the AI service's own 300s Ollama ceiling. Configurable via
         # AI_SERVICE_HTTP_TIMEOUT so ops can dial it without a deploy.
-        self.timeout = float(
-            getattr(settings, "AI_SERVICE_HTTP_TIMEOUT", None) or 90.0
-        )
+        self.timeout = float(getattr(settings, "AI_SERVICE_HTTP_TIMEOUT", None) or 90.0)
 
     async def query_connection(
         self,
@@ -44,6 +42,8 @@ class AIServiceHTTPClient:
         instructions: Optional[str] = None,
         response_format: Optional[str] = None,
         security_config: Optional[Dict[str, Any]] = None,
+        ai_tone: Optional[str] = None,
+        ai_style: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Query a connection using the AI service.
@@ -85,6 +85,10 @@ class AIServiceHTTPClient:
             payload["response_format"] = response_format
         if security_config:
             payload["security_config"] = security_config
+        if ai_tone:
+            payload["ai_tone"] = ai_tone
+        if ai_style:
+            payload["ai_style"] = ai_style
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(

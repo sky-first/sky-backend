@@ -113,6 +113,16 @@ class ChatMessageRequest(BaseModel):
     space_id: Optional[str] = Field(None, description="Space ID for context")
     crew_id: Optional[str] = Field(None, description="Active crew ID (collaborative mode)")
     is_personal: Optional[bool] = Field(default=False, description="Personal mode flag")
+    # AI Customization (Settings → AI Customization tab).
+    # When absent, the route handler falls back to current_user.preferences.
+    ai_tone: Optional[str] = Field(
+        None,
+        description="Preferred response tone (casual, professional, technical, friendly).",
+    )
+    ai_style: Optional[str] = Field(
+        None,
+        description="Preferred output structure (concise, detailed, step-by-step).",
+    )
 
 
 class ChatMessageResponse(BaseModel):

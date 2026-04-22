@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get(
-    "/events",
+    "/",
     status_code=status.HTTP_200_OK,
     summary="List audit events",
     description="Paginated list of audit events. Requires admin role.",
@@ -31,8 +31,15 @@ async def list_audit_events(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """List audit events with optional filters."""
+<<<<<<< fix/space-insights-crash
+=======
+    # Only platform admin+ can read audit log. `owner` sits above `admin`
+    # on the platform role ladder (see src/services/rbac_service.py), so
+    # owners must be allowed through alongside admins.
+>>>>>>> staging
     if current_user.role not in ("admin", "owner"):
         from src.core.exceptions import ForbiddenError
+
         raise ForbiddenError("Audit log access requires admin role")
 
     audit = AuditService(db)
@@ -44,6 +51,16 @@ async def list_audit_events(
         decision=decision,
         resource_kind=resource_kind,
     )
+
+
+# Back-compat alias — /audit-logs/events (or /audit/events via the legacy
+# mount) still works for any pre-existing caller.
+router.add_api_route(
+    "/events",
+    list_audit_events,
+    methods=["GET"],
+    include_in_schema=False,
+)
 
 
 @router.get(
@@ -60,6 +77,7 @@ async def verify_audit_chain(
     """Verify audit log hash chain integrity."""
     if current_user.role not in ("admin", "owner"):
         from src.core.exceptions import ForbiddenError
+
         raise ForbiddenError("Audit chain verification requires admin role")
 
     audit = AuditService(db)
