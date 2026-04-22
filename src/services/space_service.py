@@ -130,14 +130,9 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        # Two-axis RBAC: platform owner/admin bypass; everyone else must
-        # be a space_member regardless of role (explorer can read, too).
-        # Previously the gate only allowed the creator, which broke the
-        # whole membership concept — members of the space they were
-        # invited to couldn't even fetch its detail.
-        if user.role not in ("admin", "owner"):
-            member = await self.member_repo.get_by_space_and_user(space_id, user.id)
-            if not member:
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
+            is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            if not is_member:
                 raise ForbiddenError("Access denied to this space")
 
         return SpaceResponse.model_validate(space)
@@ -319,9 +314,10 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        # Read-only listing — any member can see the connections their
-        # space is linked to.
-        await self._require_space_role(space_id, user, min_role="explorer")
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
+            is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            if not is_member:
+                raise ForbiddenError("Access denied to this space")
 
         connections = await self.space_repo.get_space_connections(space_id)
         return connections
@@ -435,9 +431,10 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        # Read-only listing — any member can see who else is in the
-        # space. (Writes like add/remove still need commander.)
-        await self._require_space_role(space_id, user, min_role="explorer")
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
+            is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            if not is_member:
+                raise ForbiddenError("Access denied to this space")
 
         members = await self.member_repo.get_space_members(space_id)
         # Refresh user objects to ensure they're loaded
@@ -553,7 +550,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != current_user.id:
+        if space.created_by != current_user.id and current_user.role not in ("admin", "owner"):
             raise ForbiddenError("Access denied to this space")
 
         # Check if member exists
@@ -582,6 +579,15 @@ class SpaceService:
         Returns:
             List[Dict[str, Any]]: List of tables with connection info
         """
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
+            is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            if not is_member:
+                raise ForbiddenError("Access denied to this space")
+
         # Get space connections
         space_connections = await self.space_repo.get_space_connections(space_id)
 
@@ -809,6 +815,11 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
+        if space.created_by != user.id and user.role not in ("admin", "owner"):
+            is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
+            if not is_member:
+                raise ForbiddenError("Access denied to this space")
+
         # Get space connections
         space_connections = await self.space_repo.get_space_connections(space_id)
         connection_ids = [sc.connection_id for sc in space_connections]
@@ -855,6 +866,8 @@ class SpaceService:
             return f"{s}{size_name[i]}"
 
         def format_number(n):
+            if not n:
+                return "0"
             if n >= 1000:
                 return f"{round(n / 1000, 1)}k"
             return str(n)
@@ -872,11 +885,11 @@ class SpaceService:
         activity_feed = [
             {
                 "id": str(e["id"]),
-                "user": e["actor_email"] or e["actor_kind"],
-                "action": e["action"],
+                "user": e["actor_email"] or e["actor_kind"] or "system",
+                "action": e["action"] or "unknown",
                 "target": f"{e['resource_kind'] or ''}/{e['resource_id'] or ''}".strip("/"),
                 "time": e["occurred_at"] or "",
-                "status": e["decision"],
+                "status": e["decision"] or "allow",
             }
             for e in audit_result["items"]
         ]

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.user import User
 from src.repositories.crew import CrewMemberRepository, CrewRepository
-from src.repositories.space import SpaceRepository
+from src.repositories.space import SpaceMemberRepository, SpaceRepository
 from src.schemas.crew import (
     CrewCreate,
     CrewMemberCreate,
@@ -36,6 +36,28 @@ class CrewService:
         self.crew_repo = CrewRepository(db)
         self.member_repo = CrewMemberRepository(db)
         self.space_repo = SpaceRepository(db)
+        self.space_member_repo = SpaceMemberRepository(db)
+
+    async def _assert_crew_read_access(self, space_id: UUID, crew_id: UUID, user: User) -> None:
+        """Allow admin/owner, space creator, space member, or crew member to read crew data."""
+        if user.role in ("admin", "owner"):
+            return
+        space = await self.space_repo.get_by_id(space_id)
+        if space and space.created_by == user.id:
+            return
+        if await self.space_member_repo.get_by_space_and_user(space_id, user.id):
+            return
+        if await self.member_repo.get_by_crew_and_user(crew_id, user.id):
+            return
+        raise ForbiddenError("Access denied to this crew")
+
+    async def _assert_crew_write_access(self, space_id: UUID, user: User) -> None:
+        """Allow only admin/owner or space creator to mutate crew data."""
+        if user.role in ("admin", "owner"):
+            return
+        space = await self.space_repo.get_by_id(space_id)
+        if not space or space.created_by != user.id:
+            raise ForbiddenError("Access denied to this crew")
 
     async def list_crews(
         self,
@@ -84,10 +106,7 @@ class CrewService:
         if not crew_data:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew_data["space_id"])
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        await self._assert_crew_read_access(crew_data["space_id"], crew_id, user)
 
         return CrewResponse.model_validate(crew_data)
 
@@ -178,20 +197,17 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via current space
-        current_space = await self.space_repo.get_by_id(crew.space_id)
-        if not current_space or current_space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        # Check write access via current space
+        await self._assert_crew_write_access(crew.space_id, user)
 
         update_data = crew_data.model_dump(exclude_unset=True)
 
-        # If moving crew to another space, validate target space ownership
+        # If moving crew to another space, validate write access on target space too
         if "space_id" in update_data and update_data["space_id"] != crew.space_id:
             target_space = await self.space_repo.get_by_id(update_data["space_id"])
             if not target_space:
                 raise NotFoundError("Target space not found")
-            if target_space.created_by != user.id:
-                raise ForbiddenError("Access denied to target space")
+            await self._assert_crew_write_access(update_data["space_id"], user)
 
         crew = await self.crew_repo.update(crew_id, **update_data)
         await self.db.commit()
@@ -225,10 +241,7 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        await self._assert_crew_read_access(crew.space_id, crew_id, user)
 
         # Query AI service for running tasks
         # For now, return mock data - integrate with AI service later
@@ -297,10 +310,8 @@ class CrewService:
                 f"🔴 [DELETE SERVICE] Development mode: Allowing user {user.id} to delete crew {crew_id} (space created by {crew.space_id})"
             )
         else:
-            # Production mode: only admin or owner can delete
-            space = await self.space_repo.get_by_id(crew.space_id)
-            if not space or space.created_by != user.id:
-                raise ForbiddenError("Access denied to this crew")
+            # Production mode: only admin/owner or space creator can delete
+            await self._assert_crew_write_access(crew.space_id, user)
 
         # Check for running tasks if not forcing
         if not force:
@@ -365,10 +376,7 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        await self._assert_crew_read_access(crew.space_id, crew_id, user)
 
         members = await self.member_repo.get_by_crew(crew_id)
         # Refresh user relationships to ensure they're loaded
@@ -414,10 +422,7 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        await self._assert_crew_write_access(crew.space_id, user)
 
         # Check if member already exists
         existing = await self.member_repo.get_by_crew_and_user(crew_id, member_data.user_id)
@@ -484,10 +489,7 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != current_user.id:
-            raise ForbiddenError("Access denied to this crew")
+        await self._assert_crew_write_access(crew.space_id, current_user)
 
         member = await self.member_repo.get_by_crew_and_user(crew_id, user_id)
         if not member:
@@ -523,10 +525,7 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != current_user.id:
-            raise ForbiddenError("Access denied to this crew")
+        await self._assert_crew_write_access(crew.space_id, current_user)
 
         member = await self.member_repo.get_by_crew_and_user(crew_id, user_id)
         if not member:
@@ -570,10 +569,7 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != user.id:
-            raise ForbiddenError("Access denied to this crew")
+        await self._assert_crew_read_access(crew.space_id, crew_id, user)
 
         # In a real app, these would come from the database/analytics service
         # For now, we return 0/neutral if no data exists, but formatted to represent real state
@@ -600,6 +596,8 @@ class CrewService:
         active_users = await ai_repo.get_active_users_by_crew_id(str(crew_id))
 
         def format_number(n: int) -> str:
+            if not n:
+                return "0"
             return f"{round(n / 1000, 1)}k" if n >= 1000 else str(n)
 
         audit_service = AuditService(self.db)
@@ -611,11 +609,11 @@ class CrewService:
         activity_feed = [
             {
                 "id": str(e["id"]),
-                "user": e["actor_email"] or e["actor_kind"],
-                "action": e["action"],
+                "user": e["actor_email"] or e["actor_kind"] or "system",
+                "action": e["action"] or "unknown",
                 "target": f"{e['resource_kind'] or ''}/{e['resource_id'] or ''}".strip("/"),
                 "time": e["occurred_at"] or "",
-                "status": e["decision"],
+                "status": e["decision"] or "allow",
             }
             for e in audit_result["items"]
         ]

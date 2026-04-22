@@ -53,7 +53,7 @@ async def list_crews(
     Returns:
         List[CrewResponse]: List of crews
     """
-    await RBACService(db).assert_permission(current_user, "crews.create")
+    await RBACService(db).assert_permission(current_user, "crews.view")
     crew_service = CrewService(db)
     return await crew_service.list_crews(current_user, space_id=space_id, skip=skip, limit=limit)
 
@@ -82,7 +82,7 @@ async def get_crew(
     Returns:
         CrewResponse: Crew data
     """
-    await RBACService(db).assert_permission(current_user, "crews.create", crew_id=crew_id)
+    await RBACService(db).assert_permission(current_user, "crews.view", crew_id=crew_id)
     crew_service = CrewService(db)
     return await crew_service.get_crew(crew_id, current_user)
 
@@ -175,7 +175,7 @@ async def get_crew_status(
     Returns:
         CrewStatusResponse: Crew status with running tasks info
     """
-    await RBACService(db).assert_permission(current_user, "crews.create", crew_id=crew_id)
+    await RBACService(db).assert_permission(current_user, "crews.view", crew_id=crew_id)
     crew_service = CrewService(db)
     return await crew_service.get_crew_status(crew_id, current_user)
 
@@ -251,7 +251,7 @@ async def get_crew_members(
     Returns:
         List[CrewMemberResponse]: List of crew members
     """
-    await RBACService(db).assert_permission(current_user, "crews.create", crew_id=crew_id)
+    await RBACService(db).assert_permission(current_user, "crews.view", crew_id=crew_id)
     crew_service = CrewService(db)
     return await crew_service.get_crew_members(crew_id, current_user)
 
