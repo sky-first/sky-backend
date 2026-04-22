@@ -14,9 +14,10 @@ from sqlalchemy import func, select, distinct, cast, Float, case, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
-from src.models.ai import AIHistory
+from src.models.ai import AIFeedback, AIHistory
 from src.models.connection import DataConnection
 from src.models.crew import Crew, CrewMember
+from src.models.dashboard import Widget
 from src.models.space import Space, SpaceMember
 from src.models.user import User
 from src.schemas.settings_metrics import (
@@ -182,16 +183,6 @@ async def get_global_metrics(
     pinned_count: int = pinned_res.scalar_one() or 0
     satisfaction = f"{round((pinned_count / total_queries) * 100)}%" if total_queries else "0%"
 
-    # ── Financial impact: estimated 5 min/query saved @ $50/h ─────────────────
-    hours_saved = round((total_queries * 5) / 60, 1)
-    financial_impact = round(hours_saved * 50, 0)
-
-    # ── Influenced decisions ≈ pinned items (explicitly saved for reference) ──
-    influenced = pinned_count
-
-    # ── Cost avoided = financial_impact (avoided manual research) ─────────────
-    cost_avoided = financial_impact * 0.7  # conservative estimate
-
     return {
         "usage": {
             "totalQueries": _metric(
@@ -221,16 +212,46 @@ async def get_global_metrics(
             "recurrenceRate": _metric(recurrence_rate),
             "satisfactionRate": _metric(satisfaction),
         },
-        "valueGeneration": {
-            "financialImpact": _metric(f"${financial_impact:,.0f}"),
-            "hoursSaved": _metric(f"{hours_saved}h"),
-            "influencedDecisions": _metric(str(influenced)),
-            "costAvoided": _metric(f"${cost_avoided:,.0f}"),
-        },
     }
 
 
 # ── Connection Metrics ─────────────────────────────────────────────────────────
+
+def _format_duration(avg_ms: Optional[float]) -> str:
+    """Render an AVG(duration_ms) value as a short human label."""
+    if avg_ms is None:
+        return "N/A"
+    if avg_ms >= 1_000:
+        return f"{avg_ms / 1000.0:.1f}s"
+    return f"{int(avg_ms)}ms"
+
+
+def _format_last_sync(conn: Optional[DataConnection]) -> str:
+    """Render DataConnection.last_sync + error as a compact status string.
+
+    Shape: "OK — 2h ago" / "Error — 15m ago" / "Never" / "–".
+    Honest surrogate for the "Sync Failures" hardcoded to 0 before: we
+    don't track per-sync event history, but we do persist the latest
+    sync timestamp and the current error JSON.
+    """
+    if conn is None:
+        return "–"
+    last = conn.last_sync
+    if last is None:
+        return "Never"
+    status = "Error" if conn.error else "OK"
+    delta = _now() - last
+    seconds = int(delta.total_seconds())
+    if seconds < 60:
+        ago = f"{seconds}s ago"
+    elif seconds < 3_600:
+        ago = f"{seconds // 60}m ago"
+    elif seconds < 86_400:
+        ago = f"{seconds // 3600}h ago"
+    else:
+        ago = f"{seconds // 86_400}d ago"
+    return f"{status} — {ago}"
+
 
 @router.get("/connections/{connection_id}", response_model=ConnectionMetricsResponse)
 async def get_connection_metrics(
@@ -238,16 +259,38 @@ async def get_connection_metrics(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Get metrics for a specific connection (or 'all')."""
+    """Get metrics for a specific connection (or 'all').
+
+    Scoping note: AIHistory rows are not tied directly to a connection —
+    only to a space. We attribute a query to a connection when the
+    connection lives in a space that also produced the query (via
+    SpaceConnection). This is a proxy; a space with two connections will
+    over-attribute, but it's consistent with the rest of the endpoint
+    and matches the previous scoping logic.
+    """
     await RBACService(db).assert_permission(current_user, "connections.view")
 
     now = _now()
     ago_30 = now - timedelta(days=30)
 
-    # Queries that reference this connection (via space_id if connection_id == "all")
+    # Resolve the connection row (used for lastSync + as the anchor for
+    # Widget counts). May be None when connection_id == "all".
+    conn_row: Optional[DataConnection] = None
+    conn_uuid: Optional[UUID] = None
+    if connection_id != "all":
+        try:
+            conn_uuid = UUID(connection_id)
+        except ValueError:
+            conn_uuid = None
+        if conn_uuid is not None:
+            conn_res = await db.execute(
+                select(DataConnection).where(DataConnection.id == conn_uuid)
+            )
+            conn_row = conn_res.scalar_one_or_none()
+
+    # Queries that reference this connection (via space_id)
     base_filter = []
     if connection_id != "all":
-        # Filter history tied to spaces that use this connection
         from src.models.space import SpaceConnection
         space_ids_res = await db.execute(
             select(SpaceConnection.space_id).where(
@@ -258,25 +301,30 @@ async def get_connection_metrics(
         if space_ids:
             base_filter.append(AIHistory.space_id.in_(space_ids))
         else:
-            # No spaces linked to this connection
+            # No spaces linked to this connection — still emit Widget and
+            # lastSync metrics (those don't depend on history).
+            widgets_count = 0
+            if conn_uuid is not None:
+                w_res = await db.execute(
+                    select(func.count(Widget.id)).where(Widget.connection_id == conn_uuid)
+                )
+                widgets_count = w_res.scalar_one() or 0
             return {
                 "usage": {
                     "queriesProcessed": _metric("0"),
-                    "dataTransferred": _metric("0 MB"),
                     "avgSyncFrequency": _metric("–"),
                 },
                 "valueMap": {
                     "supportedProcesses": _metric("0"),
-                    "dependentKpis": _metric("0"),
+                    "dependentWidgets": _metric(str(widgets_count)),
                 },
                 "reliability": {
-                    "syncFailures": _metric("0"),
-                    "avgExecTime": _metric("–"),
-                    "slaMaintenance": _metric("–"),
+                    "lastSync": _metric(_format_last_sync(conn_row)),
+                    "avgExecTime": _metric("N/A"),
                 },
             }
 
-    # Queries processed
+    # Queries processed (total + last 30d)
     q_total_res = await db.execute(
         select(func.count(AIHistory.id)).where(*base_filter) if base_filter
         else select(func.count(AIHistory.id))
@@ -302,20 +350,46 @@ async def get_connection_metrics(
         )
     supported_processes: int = processes_res.scalar_one() or 0
 
+    # Dependent widgets — real count via Widget.connection_id. For "all"
+    # we count every widget bound to any connection.
+    if connection_id != "all" and conn_uuid is not None:
+        w_res = await db.execute(
+            select(func.count(Widget.id)).where(Widget.connection_id == conn_uuid)
+        )
+    else:
+        w_res = await db.execute(
+            select(func.count(Widget.id)).where(Widget.connection_id.is_not(None))
+        )
+    widgets_count: int = w_res.scalar_one() or 0
+
+    # Avg exec time — real AVG(duration_ms). NULL rows predate the column
+    # and are excluded (see AIHistory.duration_ms comment).
+    avg_q = select(func.avg(AIHistory.duration_ms)).where(
+        *base_filter,
+        AIHistory.duration_ms.is_not(None),
+    ) if base_filter else select(func.avg(AIHistory.duration_ms)).where(
+        AIHistory.duration_ms.is_not(None)
+    )
+    avg_ms_res = await db.execute(avg_q)
+    avg_ms_raw = avg_ms_res.scalar_one_or_none()
+    avg_ms = float(avg_ms_raw) if avg_ms_raw is not None else None
+
     return {
         "usage": {
-            "queriesProcessed": _metric(f"{q_total:,}", _pct_change(q_30, q_total - q_30) if q_total > q_30 else None, True),
-            "dataTransferred": _metric(f"{round(q_total * 0.005, 1)} MB"),  # ~5KB/query estimate
+            "queriesProcessed": _metric(
+                f"{q_total:,}",
+                _pct_change(q_30, q_total - q_30) if q_total > q_30 else None,
+                True,
+            ),
             "avgSyncFrequency": _metric(f"{round(q_30 / 30, 1)}/day"),
         },
         "valueMap": {
             "supportedProcesses": _metric(str(supported_processes)),
-            "dependentKpis": _metric(str(supported_processes * 3)),  # estimated KPIs per space
+            "dependentWidgets": _metric(str(widgets_count)),
         },
         "reliability": {
-            "syncFailures": _metric("0"),
-            "avgExecTime": _metric("< 3s"),
-            "slaMaintenance": _metric("99.9%"),
+            "lastSync": _metric(_format_last_sync(conn_row)),
+            "avgExecTime": _metric(_format_duration(avg_ms)),
         },
     }
 
@@ -426,13 +500,24 @@ async def get_crew_metrics(
     )
     active_sessions: int = sessions_res.scalar_one() or 0
 
+    # Avg response time — real AVG(duration_ms) scoped by crew. NULL
+    # rows (pre-duration_ms column) are excluded. Falls back to "N/A"
+    # when no measured rows exist.
+    avg_ms_res = await db.execute(
+        select(func.avg(AIHistory.duration_ms)).where(
+            hist_filter, AIHistory.duration_ms.is_not(None)
+        )
+    )
+    avg_ms_raw = avg_ms_res.scalar_one_or_none()
+    avg_ms = float(avg_ms_raw) if avg_ms_raw is not None else None
+
     return {
         "engagement": {
             "usageFrequency": _metric(f"{q_30:,} queries / 30d"),
             "activeSessions": _metric(str(active_sessions)),
         },
         "performance": {
-            "avgResponseTime": _metric("< 3s"),
+            "avgResponseTime": _metric(_format_duration(avg_ms)),
         },
     }
 
@@ -502,7 +587,13 @@ async def get_ai_metrics(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Get AI effectiveness metrics from real interaction data."""
+    """Get AI effectiveness metrics from real interaction data.
+
+    Accuracy & corrections are computed from AIFeedback rows. When no
+    feedback exists yet we return "N/A" rather than the old 5% estimate
+    fallback — fabricated numbers were misleading operators into
+    thinking accuracy was being measured.
+    """
     await RBACService(db).assert_permission(current_user, "connections.view")
 
     # Total queries
@@ -515,59 +606,37 @@ async def get_ai_metrics(
     )
     pinned: int = pinned_res.scalar_one() or 0
 
-    # Insight acceptance = % pinned
+    # Insight acceptance = % pinned (real, always available)
     acceptance_rate = f"{round((pinned / total) * 100)}%" if total else "0%"
 
-    # Perceived accuracy proxy = 1 - (corrections / total)
-    # Corrections proxy: we don't have explicit feedback, so use a conservative 5% estimate
-    corrections_estimated = round(total * 0.05)
-    accuracy = f"{round(((total - corrections_estimated) / total) * 100)}%" if total else "0%"
+    # Real corrections & accuracy from AIFeedback. The rating column
+    # stores the string 'good' / 'bad' (see src/models/ai.py
+    # CheckConstraint). If no feedback exists yet, we return "N/A"
+    # instead of guessing.
+    bad_feedback_res = await db.execute(
+        select(func.count(AIFeedback.id)).where(AIFeedback.rating == "bad")
+    )
+    bad_feedback: int = bad_feedback_res.scalar_one() or 0
+    any_feedback_res = await db.execute(select(func.count(AIFeedback.id)))
+    any_feedback: int = any_feedback_res.scalar_one() or 0
 
-    # Real corrections from AIFeedback. The rating column stores the
-    # string 'good' / 'bad' (see src/models/ai.py CheckConstraint) — the
-    # previous `AIFeedback.rating < 3` comparison never matched because
-    # rating is text, so this always silently fell back to the 5%
-    # estimate. Now count rows explicitly marked 'bad'.
-    corrections_source = "estimated"
-    try:
-        from src.models.ai import AIFeedback
-
-        feedback_res = await db.execute(
-            select(func.count(AIFeedback.id)).where(AIFeedback.rating == "bad")
+    if any_feedback > 0:
+        corrections_label = str(bad_feedback)
+        accuracy_label = (
+            f"{round(((any_feedback - bad_feedback) / any_feedback) * 100)}%"
         )
-        corrections_actual: int = feedback_res.scalar_one() or 0
-        # Also check whether any feedback at all exists — if users have
-        # given feedback, trust the signal even when all of it is 'good'
-        # (i.e. zero corrections).
-        any_feedback_res = await db.execute(select(func.count(AIFeedback.id)))
-        any_feedback: int = any_feedback_res.scalar_one() or 0
-        if any_feedback > 0:
-            corrections_estimated = corrections_actual
-            accuracy = (
-                f"{round(((total - corrections_actual) / total) * 100)}%"
-                if total
-                else "0%"
-            )
-            corrections_source = "measured"
-    except Exception:
-        pass  # AIFeedback table may not exist yet
+    else:
+        corrections_label = "N/A"
+        accuracy_label = "N/A"
 
     # Real avg latency (same source as global Performance metrics).
     perf = await _performance_metrics(db)
 
     return {
         "engineEffectiveness": {
-            "perceivedAccuracy": _metric(accuracy),
-            "correctionsMade": _metric(
-                str(corrections_estimated),
-                trend_value=None if corrections_source == "measured" else "Estimated",
-            ),
+            "perceivedAccuracy": _metric(accuracy_label),
+            "correctionsMade": _metric(corrections_label),
             "insightAcceptanceRate": _metric(acceptance_rate),
             "averageLatency": perf["avgLatency"],
-            "estResponseConfidence": _metric(
-                f"{max(70, round(100 - (corrections_estimated / total * 100)))}%"
-                if total
-                else "70%"
-            ),
         }
     }
