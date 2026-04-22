@@ -51,9 +51,13 @@ class EnterpriseRelationshipService:
 
             ai_client = AIServiceHTTPClient()
 
-            # Formatar payload para a IA
+            # The table is strictly per-user (user_enterprise_relationships)
+            # so the embedding belongs to the creator. owner_user_id lets the
+            # RAG filter return only this user's relationships in Personal
+            # mode; space_id/crew_id stay NULL.
             payload = {
                 "id": str(relationship.id),
+                "entity_type": "enterprise_graph_node",
                 "name": relationship.name,
                 "description": relationship.description,
                 "sources": sources_data,
@@ -61,16 +65,9 @@ class EnterpriseRelationshipService:
                 "target_type": relationship.target_type,
                 "target_details": relationship.target_details,
                 "relationship_type": relationship.relationship_type,
-                "space_id": (
-                    str(relationship.space_id)
-                    if hasattr(relationship, "space_id") and relationship.space_id
-                    else None
-                ),
-                "crew_id": (
-                    str(relationship.crew_id)
-                    if hasattr(relationship, "crew_id") and relationship.crew_id
-                    else None
-                ),
+                "space_id": None,
+                "crew_id": None,
+                "owner_user_id": str(relationship.created_by),
             }
             await ai_client.ingest_knowledge_graph(payload)
         except Exception as e:
@@ -113,6 +110,7 @@ class EnterpriseRelationshipService:
 
                 payload = {
                     "id": str(updated_relationship.id),
+                    "entity_type": "enterprise_graph_node",
                     "name": updated_relationship.name,
                     "description": updated_relationship.description,
                     "sources": sources_data,
@@ -120,17 +118,9 @@ class EnterpriseRelationshipService:
                     "target_type": updated_relationship.target_type,
                     "target_details": updated_relationship.target_details,
                     "relationship_type": updated_relationship.relationship_type,
-                    "space_id": (
-                        str(updated_relationship.space_id)
-                        if hasattr(updated_relationship, "space_id")
-                        and updated_relationship.space_id
-                        else None
-                    ),
-                    "crew_id": (
-                        str(updated_relationship.crew_id)
-                        if hasattr(updated_relationship, "crew_id") and updated_relationship.crew_id
-                        else None
-                    ),
+                    "space_id": None,
+                    "crew_id": None,
+                    "owner_user_id": str(updated_relationship.created_by),
                 }
                 await ai_client.ingest_knowledge_graph(payload)
             except Exception as e:

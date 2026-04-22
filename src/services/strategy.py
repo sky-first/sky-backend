@@ -54,7 +54,7 @@ class StrategyService:
                 space_val = str(entity.space_id)
             elif hasattr(entity, "space_ids") and entity.space_ids:
                 space_val = str(entity.space_ids[0])
-                
+
             crew_val = None
             if hasattr(entity, "crews") and entity.crews:
                 crew_val = str(entity.crews[0].id)
@@ -63,6 +63,13 @@ class StrategyService:
             elif hasattr(entity, "crew_ids") and entity.crew_ids:
                 crew_val = str(entity.crew_ids[0])
 
+            # owner_user_id carries Personal-mode ownership into the embedding
+            # metadata so the RAG filter in sky-poc-ai can return only the
+            # caller's own Personal items. Space/Crew items leave this NULL.
+            owner_user_val = None
+            if hasattr(entity, "owner_user_id") and entity.owner_user_id:
+                owner_user_val = str(entity.owner_user_id)
+
             payload = {
                 "id": str(entity.id),
                 "entity_type": entity_type,
@@ -70,6 +77,7 @@ class StrategyService:
                 "description": getattr(entity, "description", None),
                 "space_id": space_val,
                 "crew_id": crew_val,
+                "owner_user_id": owner_user_val,
                 "entity_details": {
                     "status": getattr(entity, "status", None),
                     "priority": getattr(entity, "priority", None),
@@ -95,11 +103,27 @@ class StrategyService:
             logger.error(f"Background task failed: AI ingestion for {entity_type} {entity_id} failed: {e}")
 
     async def get_strategy_tree(
-        self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None
+        self,
+        space_id: Optional[UUID] = None,
+        crew_id: Optional[UUID] = None,
+        is_personal: bool = False,
+        user_id: Optional[UUID] = None,
     ) -> StrategyTreeResponse:
-        pillars = await self.repository.get_all_pillars(space_id=space_id, crew_id=crew_id)
-        objectives = await self.repository.get_all_objectives(space_id=space_id, crew_id=crew_id)
-        okrs = await self.repository.get_all_okrs(space_id=space_id, crew_id=crew_id)
+        # Personal: owner_user_id matches caller. Space/Crew: owner_user_id IS NULL
+        # so someone else's Personal-scoped pillars/objectives/OKRs never leak into
+        # a shared Space view.
+        pillars = await self.repository.get_all_pillars(
+            space_id=space_id, crew_id=crew_id, is_personal=is_personal, user_id=user_id
+        )
+        objectives = await self.repository.get_all_objectives(
+            space_id=space_id, crew_id=crew_id, is_personal=is_personal, user_id=user_id
+        )
+        okrs = await self.repository.get_all_okrs(
+            space_id=space_id, crew_id=crew_id, is_personal=is_personal, user_id=user_id
+        )
+        # Initiatives + assumptions still ride on the M2M tables / parent objective
+        # for scope; Personal aggregation for those ships with Bug 6b (Default Space
+        # removal), when we rework the initiative/assumption scope model.
         initiatives = await self.repository.get_all_initiatives(space_id=space_id, crew_id=crew_id)
         assumptions = await self.repository.get_all_assumptions(space_id=space_id, crew_id=crew_id)
         cycles = await self.repository.get_all_cycles()
@@ -116,8 +140,18 @@ class StrategyService:
     # --- Strategic Pillar ---
 
     async def create_pillar(
-        self, schema: StrategicPillarCreate, background_tasks: BackgroundTasks
+        self,
+        schema: StrategicPillarCreate,
+        background_tasks: BackgroundTasks,
+        is_personal: bool = False,
+        user_id: Optional[UUID] = None,
     ) -> StrategicPillarResponse:
+        if is_personal:
+            schema = schema.model_copy(
+                update={"owner_user_id": user_id, "space_id": None, "crew_id": None}
+            )
+        else:
+            schema = schema.model_copy(update={"owner_user_id": None})
         pillar = await self.repository.create_pillar(schema)
         await self.session.commit()
         await self.session.refresh(pillar)
@@ -146,8 +180,18 @@ class StrategyService:
     # --- Strategic Objective ---
 
     async def create_objective(
-        self, schema: StrategicObjectiveCreate, background_tasks: BackgroundTasks
+        self,
+        schema: StrategicObjectiveCreate,
+        background_tasks: BackgroundTasks,
+        is_personal: bool = False,
+        user_id: Optional[UUID] = None,
     ) -> StrategicObjectiveResponse:
+        if is_personal:
+            schema = schema.model_copy(
+                update={"owner_user_id": user_id, "space_id": None, "crew_id": None}
+            )
+        else:
+            schema = schema.model_copy(update={"owner_user_id": None})
         objective = await self.repository.create_objective(schema)
         await self.session.commit()
         await self.session.refresh(objective)
@@ -176,8 +220,18 @@ class StrategyService:
     # --- Strategy OKR ---
 
     async def create_okr(
-        self, schema: StrategyOKRCreate, background_tasks: BackgroundTasks
+        self,
+        schema: StrategyOKRCreate,
+        background_tasks: BackgroundTasks,
+        is_personal: bool = False,
+        user_id: Optional[UUID] = None,
     ) -> StrategyOKRResponse:
+        if is_personal:
+            schema = schema.model_copy(
+                update={"owner_user_id": user_id, "space_id": None, "crew_id": None}
+            )
+        else:
+            schema = schema.model_copy(update={"owner_user_id": None})
         okr = await self.repository.create_okr(schema)
         await self.session.commit()
         okr = await self.repository.get_okr_by_id(okr.id)
