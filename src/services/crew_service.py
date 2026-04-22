@@ -559,10 +559,17 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        # Check access via space
-        space = await self.space_repo.get_by_id(crew.space_id)
-        if not space or space.created_by != current_user.id:
-            raise ForbiddenError("Access denied to this crew")
+        # Access: platform admin/owner, space creator, or crew commander.
+        if current_user.role not in ("admin", "owner"):
+            space = await self.space_repo.get_by_id(crew.space_id)
+            allowed = space and space.created_by == current_user.id
+            if not allowed:
+                caller_member = await self.member_repo.get_by_crew_and_user(
+                    crew_id, current_user.id
+                )
+                allowed = caller_member and caller_member.role == "commander"
+            if not allowed:
+                raise ForbiddenError("Access denied to this crew")
 
         member = await self.member_repo.get_by_crew_and_user(crew_id, user_id)
         if not member:

@@ -155,18 +155,8 @@ async def get_widget_data(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> WidgetDataResponse:
-    """
-    await RBACService(db).assert_permission(current_user, "pages.view")
-    Get widget data.
-
-    Args:
-        widget_id: Widget ID
-        current_user: Current authenticated user
-        db: Database session
-
-    Returns:
-        WidgetDataResponse: Widget data
-    """
+    """Get widget data. Requires widgets.view (explorer+)."""
+    await RBACService(db).assert_permission(current_user, "widgets.view")
     dashboard_service = DashboardService(db)
     data = await dashboard_service.get_widget_data(widget_id, current_user)
     return WidgetDataResponse(**data)

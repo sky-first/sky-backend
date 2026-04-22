@@ -48,6 +48,7 @@ from src.models.strategy import (
     StrategyKeyResult,
     StrategyOKR,
 )
+from src.models.support import SupportSession, SupportSettings
 from src.models.template import Template
 from src.models.user import RefreshToken, User
 from src.models.workspace import Workspace, WorkspaceMember

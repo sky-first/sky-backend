@@ -57,9 +57,9 @@ async def get_support_settings(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
-    """Get current Sky Support settings. Admin only."""
-    if current_user.role not in ("admin", "owner"):
-        raise ForbiddenError("Support settings require admin role")
+    """Get current Sky Support settings. Owner-only."""
+    if current_user.role != "owner":
+        raise ForbiddenError("Support settings are owner-only")
 
     from sqlalchemy import text
     result = await db.execute(text("SELECT access_enabled, require_ticket_id, allowed_modes, auto_revoke_after_minutes FROM support_settings LIMIT 1"))
@@ -84,9 +84,9 @@ async def update_support_settings(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
-    """Update Sky Support settings. Admin only. Sky operators cannot change this."""
-    if current_user.role not in ("admin", "owner"):
-        raise ForbiddenError("Support settings require admin role")
+    """Update Sky Support settings. Owner-only. Sky operators cannot change this."""
+    if current_user.role != "owner":
+        raise ForbiddenError("Support settings are owner-only")
 
     # Sky operators cannot disable support toggle (they can't lock customers out)
     if getattr(current_user, "is_sky_operator", False):
@@ -120,7 +120,9 @@ async def create_support_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
-    """Create a JIT support session. Requires support access to be enabled."""
+    """Create a JIT support session. Owner-only."""
+    if current_user.role != "owner":
+        raise ForbiddenError("Only owner can open support sessions")
     # Check if support access is enabled
     from sqlalchemy import text
     settings_row = await db.execute(text("SELECT access_enabled, require_ticket_id, auto_revoke_after_minutes FROM support_settings LIMIT 1"))
@@ -136,27 +138,29 @@ async def create_support_session(
     now = datetime.now(timezone.utc)
     expires = now + timedelta(minutes=ttl)
 
-    result = await db.execute(text("""
-        INSERT INTO support_sessions (operator_id, ticket_id, mode, justification, expires_at)
-        VALUES (:op_id, :ticket, :mode, :justification, :expires)
-        RETURNING id, started_at
-    """), {
-        "op_id": current_user.id,
-        "ticket": session_data.ticket_id,
-        "mode": session_data.mode,
-        "justification": session_data.justification,
-        "expires": expires,
-    })
-    row = result.fetchone()
+    # Use the ORM model instead of raw INSERT ... RETURNING — aiosqlite
+    # hangs on RETURNING in certain versions, and the ORM gives us the
+    # same round-trip shape across Postgres + SQLite.
+    from src.models.support import SupportSession
+    new_session = SupportSession(
+        operator_id=current_user.id,
+        ticket_id=session_data.ticket_id,
+        mode=session_data.mode,
+        justification=session_data.justification,
+        started_at=now,
+        expires_at=expires,
+    )
+    db.add(new_session)
     await db.commit()
+    await db.refresh(new_session)
 
     return {
-        "id": str(row[0]),
-        "session_id": str(row[0]),
-        "mode": session_data.mode,
-        "ticket_id": session_data.ticket_id,
-        "started_at": row[1].isoformat(),
-        "expires_at": expires.isoformat(),
+        "id": str(new_session.id),
+        "session_id": str(new_session.id),
+        "mode": new_session.mode,
+        "ticket_id": new_session.ticket_id,
+        "started_at": new_session.started_at.isoformat(),
+        "expires_at": new_session.expires_at.isoformat(),
     }
 
 
@@ -170,18 +174,20 @@ async def revoke_support_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
-    """Customer admin can revoke a support session immediately."""
-    if current_user.role not in ("admin", "owner"):
-        raise ForbiddenError("Only admin can revoke support sessions")
+    """Customer owner can revoke a support session immediately."""
+    if current_user.role != "owner":
+        raise ForbiddenError("Only owner can revoke support sessions")
 
     from sqlalchemy import text
+    # Bind UUIDs as strings — raw SQL + SQLite aiosqlite can't adapt
+    # UUID objects directly through text() parameters.
     result = await db.execute(text("""
         UPDATE support_sessions SET revoked_at = :now, revoked_by = :by
         WHERE id = :sid AND revoked_at IS NULL
     """), {
         "now": datetime.now(timezone.utc),
-        "by": current_user.id,
-        "sid": session_id,
+        "by": str(current_user.id),
+        "sid": str(session_id),
     })
     await db.commit()
 

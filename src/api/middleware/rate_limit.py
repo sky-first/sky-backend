@@ -123,6 +123,13 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         return response
     except Exception as e:
         logger.warning(f"Rate limiting error (continuing without rate limit): {str(e)}")
-        # On error, allow request to proceed without rate limiting
-        # Don't reset request.state - just continue
-        return cast(Response, await call_next(request))
+        # Can't re-invoke call_next on the same request — ASGI consumes
+        # the receive channel once, a second await hangs forever. If the
+        # first call_next already produced a response, return it;
+        # otherwise bail out with 500 rather than deadlocking.
+        if 'response' in locals():
+            return response  # type: ignore[name-defined]
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": "Internal Server Error", "message": "Rate limit middleware failed"},
+        )

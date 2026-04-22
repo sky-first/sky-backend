@@ -55,9 +55,6 @@ async def _performance_metrics(db: AsyncSession) -> Dict:
     SLA target is 3000ms; compliance is the fraction of queries that
     hit it.
     """
-    if current_user.role not in ("admin", "owner"):
-        from src.core.exceptions import ForbiddenError
-        raise ForbiddenError("Admin role required.")
     SLA_TARGET_MS = 3_000
     since = _now() - timedelta(days=30)
 
@@ -256,11 +253,17 @@ async def get_connection_metrics(
     # Queries that reference this connection (via space_id if connection_id == "all")
     base_filter = []
     if connection_id != "all":
-        # Filter history tied to spaces that use this connection
+        # Filter history tied to spaces that use this connection.
+        # SQLAlchemy's UUID column type rejects raw strings — must cast.
+        try:
+            conn_uuid = UUID(connection_id)
+        except ValueError:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Connection not found")
         from src.models.space import SpaceConnection
         space_ids_res = await db.execute(
             select(SpaceConnection.space_id).where(
-                SpaceConnection.connection_id == connection_id
+                SpaceConnection.connection_id == conn_uuid
             )
         )
         space_ids = [str(r[0]) for r in space_ids_res.fetchall()]
@@ -346,9 +349,15 @@ async def get_space_metrics(
     now = _now()
     ago_30 = now - timedelta(days=30)
 
-    # Build filter
+    # Build filter — coerce path string to UUID or the SQLite driver
+    # chokes on ``'str'.hex`` trying to bind it to a UUID column.
     if space_id != "all":
-        hist_filter = AIHistory.space_id == space_id
+        try:
+            space_uuid = UUID(space_id)
+        except ValueError:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Space not found")
+        hist_filter = AIHistory.space_id == space_uuid
     else:
         hist_filter = None
 
@@ -376,7 +385,7 @@ async def get_space_metrics(
     # Spaces / crews in this space (network growth proxy)
     if space_id != "all":
         crews_res = await db.execute(
-            select(func.count(Crew.id)).where(Crew.space_id == space_id)
+            select(func.count(Crew.id)).where(Crew.space_id == space_uuid)
         )
     else:
         crews_res = await db.execute(select(func.count(Crew.id)))
@@ -421,7 +430,12 @@ async def get_crew_metrics(
     ago_30 = now - timedelta(days=30)
 
     if crew_id != "all":
-        hist_filter = AIHistory.crew_id == crew_id
+        try:
+            crew_uuid = UUID(crew_id)
+        except ValueError:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Crew not found")
+        hist_filter = AIHistory.crew_id == crew_uuid
     else:
         hist_filter = AIHistory.crew_id.isnot(None)
 
@@ -431,11 +445,14 @@ async def get_crew_metrics(
     )
     q_30: int = q_30_res.scalar_one() or 0
 
-    # Active sessions proxy = distinct user+date combinations
+    # Active sessions proxy = distinct user+date combinations.
+    # type(column) returns QueryableAttribute, not a SQL type — cast to
+    # String so the driver can build ``CONCAT(user_id::text, ':', date)``.
+    from sqlalchemy import String
     sessions_res = await db.execute(
         select(
             func.count(distinct(
-                func.concat(cast(AIHistory.user_id, type_=type(AIHistory.user_id)), ':', func.date(AIHistory.date))
+                func.concat(cast(AIHistory.user_id, String), ':', func.date(AIHistory.date))
             ))
         ).where(hist_filter, AIHistory.date >= ago_30)
     )

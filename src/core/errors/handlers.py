@@ -63,6 +63,17 @@ def register_exception_handlers(app: FastAPI):
         sanitized = []
         for err in exc.errors():
             safe = {k: v for k, v in err.items() if k != "input"}
+            # Pydantic's `ctx` can embed the original Exception instance
+            # (e.g. ValueError from a model_validator). Exceptions aren't
+            # JSON-serializable, so JSONResponse raises TypeError and the
+            # rate-limit middleware's error branch catches it as "not JSON
+            # serializable" — which used to deadlock the request. Flatten
+            # any non-serializable ctx values to their string form.
+            if isinstance(safe.get("ctx"), dict):
+                safe["ctx"] = {
+                    k: (str(v) if isinstance(v, BaseException) else v)
+                    for k, v in safe["ctx"].items()
+                }
             sanitized.append(safe)
         return _json_response(
             request=request,

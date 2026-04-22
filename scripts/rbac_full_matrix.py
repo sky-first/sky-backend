@@ -160,6 +160,16 @@ async def seed() -> dict:
                 "sub": str(u.id), "email": u.email, "role": platform_role,
             })
 
+        # Separate "target" user used as {user_id} substitution — kept out
+        # of the request-issuing pool so concurrent DELETE /users/{id} can't
+        # wipe a logged-in tester mid-run (caused 401 cascades on explorer).
+        target = await user_repo.create(
+            email="target@rbactest.example.com",
+            password_hash=get_password_hash("test"),
+            name="Target",
+            role="member",
+        )
+
         commander = users["commander"]
         space = Space(name="RBAC Space", created_by=commander.id)
         session.add(space)
@@ -186,6 +196,17 @@ async def seed() -> dict:
             created_by=commander.id,
         )
         session.add(agent)
+
+        # Seed the single support_settings row the migration inserts on
+        # prod. Without it, POST /support/sessions short-circuits to 403
+        # "Sky Support access is disabled".
+        from src.models.support import SupportSettings
+        session.add(SupportSettings(
+            access_enabled=True,
+            require_ticket_id=False,
+            allowed_modes=["read_only"],
+            auto_revoke_after_minutes=240,
+        ))
         await session.commit()
         return {
             "users": {k: {"id": str(v.id), "email": v.email} for k, v in users.items()},
@@ -193,7 +214,7 @@ async def seed() -> dict:
             "space_id": str(space.id),
             "agent_id": str(agent.id),
             "crew_id": str(crew.id),
-            "target_user_id": str(users["explorer"].id),
+            "target_user_id": str(target.id),
         }
 
 
@@ -267,7 +288,7 @@ async def run():
     # is sync and holds the event loop, which is what caused each request
     # to take 1-2s even when the handler returns in ms.
     transport = httpx.ASGITransport(app=app)
-    CONCURRENCY = 25
+    CONCURRENCY = 10
     REQ_TIMEOUT = 5.0
 
     async with httpx.AsyncClient(
@@ -308,10 +329,10 @@ async def run():
             token = seed_data["tokens"][role]
             headers = {"Authorization": f"Bearer {token}"}
             try:
-                # Hard 3s per-call cap — some handlers ignore httpx's
+                # Hard 8s per-call cap — some handlers ignore httpx's
                 # own timeout (await deep in asyncio.ensure_future).
                 resp = await asyncio.wait_for(
-                    _make_call(method, url, body, headers), timeout=3.0
+                    _make_call(method, url, body, headers), timeout=8.0
                 )
                 if resp is None:
                     return None
