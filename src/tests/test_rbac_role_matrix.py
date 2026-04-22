@@ -244,7 +244,6 @@ _AGENT_WRITE_HANG_REASON = (
 )
 
 
-@pytest.mark.skip(reason=_AGENT_WRITE_HANG_REASON)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_ii_31_create_agent(seeded, async_client, role):
@@ -264,7 +263,15 @@ async def test_section_ii_31_create_agent(seeded, async_client, role):
     _assert_outcome(r, _expect_for_role("navigator", role), "II-31")
 
 
-@pytest.mark.skip(reason=_AGENT_WRITE_HANG_REASON)
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ROLES)
+async def test_section_ii_33_resume_agent(seeded, async_client, role):
+    r = await async_client.post(
+        f"/api/v1/agents/{seeded['agent_id']}/resume", headers=_auth_headers(seeded["tokens"][role])
+    )
+    _assert_outcome(r, _expect_for_role("navigator", role), "II-33")
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_ii_34_pause_agent(seeded, async_client, role):
@@ -274,7 +281,6 @@ async def test_section_ii_34_pause_agent(seeded, async_client, role):
     _assert_outcome(r, _expect_for_role("navigator", role), "II-34")
 
 
-@pytest.mark.skip(reason=_AGENT_WRITE_HANG_REASON)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_ii_36_update_agent(seeded, async_client, role):

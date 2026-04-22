@@ -72,7 +72,11 @@ async def get_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Get agent detail with findings."""
-    await RBACService(db).assert_permission(current_user, "agents.view")
+    agent = await service.get_agent_raw(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
+    await RBACService(db).assert_permission(current_user, "agents.view", space_id=space_id)
     return await service.get_agent(agent_id)
 
 
@@ -85,7 +89,11 @@ async def update_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Update agent configuration."""
-    await RBACService(db).assert_permission(current_user, "agents.edit")
+    agent = await service.get_agent_raw(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
+    await RBACService(db).assert_permission(current_user, "agents.edit", space_id=space_id)
     return await service.update_agent(agent_id, data)
 
 
@@ -97,7 +105,11 @@ async def delete_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Delete an agent and all its findings."""
-    await RBACService(db).assert_permission(current_user, "agents.delete")
+    agent = await service.get_agent_raw(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
+    await RBACService(db).assert_permission(current_user, "agents.delete", space_id=space_id)
     await service.delete_agent(agent_id)
     return None
 
@@ -110,7 +122,11 @@ async def pause_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Pause an active agent."""
-    await RBACService(db).assert_permission(current_user, "agents.pause")
+    agent = await service.get_agent_raw(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
+    await RBACService(db).assert_permission(current_user, "agents.pause", space_id=space_id)
     return await service.pause_agent(agent_id)
 
 
@@ -122,7 +138,11 @@ async def resume_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Resume a paused agent."""
-    await RBACService(db).assert_permission(current_user, "agents.resume")
+    agent = await service.get_agent_raw(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
+    await RBACService(db).assert_permission(current_user, "agents.resume", space_id=space_id)
     return await service.resume_agent(agent_id)
 
 
@@ -131,9 +151,14 @@ async def run_agent_now(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    service: AgentService = Depends(get_agent_service),
 ):
     """Trigger an immediate execution of the agent."""
-    await RBACService(db).assert_permission(current_user, "agents.run")
+    agent = await service.get_agent_raw(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
+    await RBACService(db).assert_permission(current_user, "agents.run", space_id=space_id)
     import logging
 
     from sqlalchemy import select
@@ -163,6 +188,7 @@ async def run_agent_stream(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    service: AgentService = Depends(get_agent_service),
 ):
     """
     Execute an agent with SSE streaming — shows live progress as AI analyzes data.
@@ -170,7 +196,11 @@ async def run_agent_stream(
     """
     # RBAC: must have agents.run. The check was previously commented out
     # inside the docstring, so the endpoint was effectively public.
-    await RBACService(db).assert_permission(current_user, "agents.run")
+    agent = await service.get_agent_raw(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
+    await RBACService(db).assert_permission(current_user, "agents.run", space_id=space_id)
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
