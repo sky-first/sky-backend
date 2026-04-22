@@ -82,7 +82,7 @@ async def seeded(db_session) -> dict:
             else "member"
         )
         u = await user_repo.create(
-            email=f"{role}@rbac-test.local",
+            email=f"{role}@rbac-test.example.com",
             password_hash=get_password_hash("test"),
             name=role.title(),
             role=platform_role,
@@ -158,7 +158,7 @@ async def test_section_i_03_list_space_members(seeded, async_client, role):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_i_08_list_agents(seeded, async_client, role):
-    r = await async_client.get("/api/v1/agents/", headers=_auth_headers(seeded["tokens"][role]))
+    r = await async_client.get("/api/v1/agents", headers=_auth_headers(seeded["tokens"][role]))
     _assert_outcome(r, _expect_for_role("explorer", role), "I-08")
 
 
@@ -193,7 +193,7 @@ async def test_section_i_24_me(seeded, async_client, role):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_i_30_audit_logs(seeded, async_client, role):
-    r = await async_client.get("/api/v1/audit-logs/", headers=_auth_headers(seeded["tokens"][role]))
+    r = await async_client.get("/api/v1/audit/events", headers=_auth_headers(seeded["tokens"][role]))
     _assert_outcome(r, _expect_for_role("platform_admin", role), "I-30")
 
 
@@ -215,7 +215,7 @@ async def test_section_ii_31_create_agent(seeded, async_client, role):
         "frequency": "daily",
         "connection_ids": [],
     }
-    r = await async_client.post("/api/v1/agents/", json=payload, headers=_auth_headers(seeded["tokens"][role]))
+    r = await async_client.post("/api/v1/agents", json=payload, headers=_auth_headers(seeded["tokens"][role]))
     _assert_outcome(r, _expect_for_role("navigator", role), "II-31")
 
 
@@ -263,7 +263,7 @@ async def test_section_iii_61_add_space_member(seeded, async_client, role):
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_iii_64_create_crew(seeded, async_client, role):
     payload = {"name": f"crew-{role}", "space_id": seeded["space_id"]}
-    r = await async_client.post("/api/v1/crews/", json=payload, headers=_auth_headers(seeded["tokens"][role]))
+    r = await async_client.post("/api/v1/crews", json=payload, headers=_auth_headers(seeded["tokens"][role]))
     _assert_outcome(r, _expect_for_role("commander", role), "III-64")
 
 
@@ -276,14 +276,14 @@ async def test_section_iii_64_create_crew(seeded, async_client, role):
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_iv_91_create_space(seeded, async_client, role):
     payload = {"name": f"space-{role}", "description": "rbac test"}
-    r = await async_client.post("/api/v1/spaces/", json=payload, headers=_auth_headers(seeded["tokens"][role]))
+    r = await async_client.post("/api/v1/spaces", json=payload, headers=_auth_headers(seeded["tokens"][role]))
     _assert_outcome(r, _expect_for_role("platform_admin", role), "IV-91")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_iv_96_list_users(seeded, async_client, role):
-    r = await async_client.get("/api/v1/users/", headers=_auth_headers(seeded["tokens"][role]))
+    r = await async_client.get("/api/v1/users", headers=_auth_headers(seeded["tokens"][role]))
     _assert_outcome(r, _expect_for_role("platform_admin", role), "IV-96")
 
 

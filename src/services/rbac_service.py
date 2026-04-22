@@ -338,8 +338,8 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "users.self.permissions": True,
         # Agents (navigator can run/pause/resume own runs, no create/edit/delete)
         "agents.view": True,
-        "agents.create": False,
-        "agents.edit": False,
+        "agents.create": True,
+        "agents.edit": True,
         "agents.delete": False,
         "agents.run": True,
         "agents.pause": True,

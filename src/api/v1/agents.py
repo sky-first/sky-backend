@@ -43,7 +43,14 @@ async def list_agents(
     service: AgentService = Depends(get_agent_service),
 ):
     """List agents. Filter by scope/scope_id or get all accessible agents."""
-    await RBACService(db).assert_permission(current_user, "agents.view")
+    # RBAC: pass space context if scope is space
+    s_id = None
+    if scope == "space" and scope_id:
+        try:
+            s_id = UUID(scope_id)
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.view", space_id=s_id)
     return await service.list_agents(scope=scope, scope_id=scope_id, created_by=None)
 
 
@@ -55,7 +62,14 @@ async def create_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Create a new agent."""
-    await RBACService(db).assert_permission(current_user, "agents.create")
+    # RBAC: pass space context if scope is space
+    s_id = None
+    if data.scope == "space" and data.scope_id:
+        try:
+            s_id = UUID(data.scope_id)
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.create", space_id=s_id)
     return await service.create_agent(data, user_id=current_user.id)
 
 

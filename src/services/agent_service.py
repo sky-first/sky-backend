@@ -94,9 +94,9 @@ class AgentService:
         )
         self.db.add(agent)
         await self.db.commit()
-        await self.db.refresh(agent)
-        logger.info(f"Agent created: {agent.id} ({agent.name}) by user {user_id}")
-        return agent
+        # Re-fetch with findings so the response serialization (AgentListResponse)
+        # doesn't trigger a lazy-load MissingGreenlet error.
+        return await self.repo.get_with_findings(agent.id)
 
     async def update_agent(self, agent_id: UUID, data: AgentUpdate) -> Agent:
         # Load with findings eager-loaded because the endpoint's
