@@ -72,6 +72,20 @@ cors.setup_cors(app)
 # 2. Correlation ID (Should be early to trace everything)
 app.add_middleware(CorrelationIdMiddleware)
 
+# 3. Security response headers (HSTS/CSP/nosniff/frame-options + server
+# fingerprint strip). Added late so it wraps every response including
+# ones produced by exception handlers. Red-team infra findings
+# 2026-04-23.
+from src.middleware.security_headers import SecurityHeadersMiddleware  # noqa: E402
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 4. Request size limit — rejects >1 MiB bodies at Content-Length
+# before they hit a handler. Closes the "5 MB chat message melts the
+# LLM" DoS vector found by red-team. Large-body routes (file upload,
+# ingest) are explicitly allowlisted inside the middleware.
+from src.middleware.request_limits import RequestSizeLimitMiddleware  # noqa: E402
+app.add_middleware(RequestSizeLimitMiddleware)
+
 # Setup HTTP middlewares
 # IMPORTANT: In FastAPI, middleware added with app.middleware("http")() executes in REVERSE order
 # Desired execution order:
