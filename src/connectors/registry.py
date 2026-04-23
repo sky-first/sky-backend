@@ -4,9 +4,12 @@ from typing import Any, Dict, Optional, Type
 
 from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
+from src.connectors.dropbox import DropboxConnector
+from src.connectors.google_drive import GoogleDriveConnector
 from src.connectors.google_sheets import GoogleSheetsConnector
 from src.connectors.hubspot import HubSpotConnector
 from src.connectors.jira import JiraConnector
+from src.connectors.microsoft_graph import OneDriveConnector, SharePointConnector
 from src.connectors.mongodb import MongoDBConnector
 from src.connectors.mysql import MySQLConnector
 from src.connectors.postgresql import PostgreSQLConnector
@@ -49,6 +52,11 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "jira": JiraConnector,
     "hubspot": HubSpotConnector,
     "salesforce": SalesforceConnector,
+    "google-drive": GoogleDriveConnector,
+    "google_drive": GoogleDriveConnector,
+    "dropbox": DropboxConnector,
+    "onedrive": OneDriveConnector,
+    "sharepoint": SharePointConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
     "snowflake": MockConnector,
