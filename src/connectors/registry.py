@@ -6,6 +6,7 @@ from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
 from src.connectors.mysql import MySQLConnector
 from src.connectors.postgresql import PostgreSQLConnector
+from src.connectors.rest_api import RestAPIConnector
 
 
 # Mock connectors for now - will be implemented later
@@ -37,7 +38,8 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "mysql": MySQLConnector,
     "mongodb": MockConnector,
     "google-sheets": MockConnector,
-    "rest-api": MockConnector,
+    "rest-api": RestAPIConnector,
+    "rest_api": RestAPIConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
     "snowflake": MockConnector,
