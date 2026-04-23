@@ -23,10 +23,33 @@ from src.schemas.connection import (
     ConnectionValidateResponse,
     TableMetadataSchema,
 )
+from src.security.filesystem_paths import UnsafePathError, validate_sqlite_path
 from src.services.connection_service import ConnectionService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
+
+
+def _reject_unsafe_paths_or_400(connector_id: str, config: Optional[Dict[str, Any]]) -> None:
+    """Edge-guard for local-filesystem misconfigs (path traversal).
+    Red-team finding CR-003 (2026-04-23): the SQLite connector accepted
+    ``../../../../etc/passwd`` and seven sibling payloads. Refuse at
+    create/update time so a malicious row is never persisted.
+    """
+    from fastapi import HTTPException
+    if connector_id != "sqlite":
+        return
+    for key in ("database_path", "path"):
+        val = (config or {}).get(key)
+        if val is None:
+            continue
+        try:
+            validate_sqlite_path(str(val))
+        except UnsafePathError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{key}: {exc}",
+            )
 
 _logger = logging.getLogger(__name__)
 _logger.info("🔴 [CONNECTIONS ROUTER] Module loaded, DELETE endpoint will be registered")
@@ -139,6 +162,8 @@ async def create_connection(
     rbac = RBACService(db)
     await rbac.assert_permission(current_user, "connections.edit")
 
+    _reject_unsafe_paths_or_400(connection_data.connector_id, connection_data.config)
+
     connection_service = ConnectionService(db)
     return await connection_service.create_connection(current_user, connection_data)
 
@@ -222,6 +247,9 @@ async def update_connection(
     await rbac.assert_permission(current_user, "connections.edit", connection_id=connection_id)
 
     connection_service = ConnectionService(db)
+    if connection_data.config is not None:
+        existing = await connection_service.get_connection(connection_id, current_user)
+        _reject_unsafe_paths_or_400(existing.connector_id, connection_data.config)
     return await connection_service.update_connection(connection_id, current_user, connection_data)
 
 
