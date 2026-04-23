@@ -148,3 +148,56 @@ async def test_create_space_still_succeeds_when_ingest_fails(
         )
     assert res.status_code in (200, 201)
     assert res.json()["name"] == "Resilient"
+
+
+@pytest.mark.asyncio
+async def test_register_user_ingests_user_profile(db_session):
+    """Self-registration via HTTP is disabled (SSO-only), so we call
+    AuthenticationService.register directly. Confirms the user's own
+    profile lands in the RAG with owner_user_id = self."""
+    from src.schemas.user import UserCreate
+    from src.services.auth_service import AuthenticationService
+
+    service = AuthenticationService(db_session)
+    with patch(
+        "src.ai.http_client.AIServiceHTTPClient.ingest_knowledge_graph",
+        new=AsyncMock(return_value={"success": True}),
+    ) as mock_ingest:
+        user_resp = await service.register(UserCreate(
+            email=f"ingest-{uuid4()}@example.com",
+            password="password-123-456",
+            name="Ada Ingest",
+            role="owner",
+        ))
+    assert user_resp.name == "Ada Ingest"
+    payloads = _get_ingest_payloads(mock_ingest)
+    user_payloads = [p for p in payloads if p and p.get("entity_type") == "user"]
+    assert len(user_payloads) >= 1
+    assert user_payloads[0]["name"] == "Ada Ingest"
+
+
+@pytest.mark.asyncio
+async def test_create_page_ingests_page_with_owner_for_personal_type(
+    async_client: AsyncClient, test_user_with_tokens: dict
+):
+    token = test_user_with_tokens["access_token"]
+    user_id = str(test_user_with_tokens["user"].id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with patch(
+        "src.ai.http_client.AIServiceHTTPClient.ingest_knowledge_graph",
+        new=AsyncMock(return_value={"success": True}),
+    ) as mock_ingest:
+        res = await async_client.post(
+            "/api/v1/pages",
+            json={"name": "My dashboard", "type": "personal", "color": "#4F46E5"},
+            headers=headers,
+        )
+    assert res.status_code in (200, 201)
+    body = res.json()
+    payloads = _get_ingest_payloads(mock_ingest)
+    page_payloads = [p for p in payloads if p and p.get("entity_type") == "page"]
+    assert len(page_payloads) == 1
+    assert page_payloads[0]["id"] == body["id"]
+    assert page_payloads[0]["owner_user_id"] == user_id
+    assert page_payloads[0]["space_id"] is None
