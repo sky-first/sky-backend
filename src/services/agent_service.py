@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.http_client import AIServiceHTTPClient
 from src.models.agent import Agent, AgentFinding
 from src.repositories.agent import AgentFindingRepository, AgentRepository
 from src.schemas.agent import AgentCreate, AgentUpdate
@@ -51,6 +52,7 @@ class AgentService:
         self.db = db
         self.repo = AgentRepository(db)
         self.finding_repo = AgentFindingRepository(db)
+        self.ai_client = AIServiceHTTPClient()
 
     async def list_agents(
         self,
@@ -100,6 +102,25 @@ class AgentService:
         )
         self.db.add(agent)
         await self.db.commit()
+
+        # Ingest into knowledge graph — mirrors crew/space create flow.
+        # Failures are logged and swallowed so the agent is always saved.
+        try:
+            space_id = str(data.scope_id) if data.scope == "space" and data.scope_id else None
+            crew_id = str(data.scope_id) if data.scope == "crew" and data.scope_id else None
+            await self.ai_client.ingest_knowledge_graph({
+                "id": str(agent.id),
+                "entity_type": "agent",
+                "name": agent.name,
+                "scope": agent.scope,
+                "space_id": space_id,
+                "crew_id": crew_id,
+                "owner_user_id": str(user_id),
+                "entity_details": {"monitor_type": agent.monitor_type, "focus": agent.focus},
+            })
+        except Exception as exc:
+            logger.warning(f"AI ingest failed for agent {agent.id}: {exc}")
+
         # Re-fetch with findings so the response serialization (AgentListResponse)
         # doesn't trigger a lazy-load MissingGreenlet error.
         return await self.repo.get_with_findings(agent.id)
