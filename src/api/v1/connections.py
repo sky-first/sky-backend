@@ -24,9 +24,29 @@ from src.schemas.connection import (
     TableMetadataSchema,
 )
 from src.schemas.connection import _URL_CONFIG_KEYS_BY_CONNECTOR
+from src.security.filesystem_paths import UnsafePathError, validate_sqlite_path
 from src.security.url_allowlist import UnsafeURLError, validate_outbound_url
 from src.services.connection_service import ConnectionService
 from src.services.rbac_service import RBACService
+
+
+def _reject_unsafe_paths_or_400(connector_id: str, config: Optional[Dict[str, Any]]) -> None:
+    """Edge-guard for local-filesystem misconfigs (path traversal).
+    Red-team finding CR-003 (2026-04-23)."""
+    from fastapi import HTTPException
+    if connector_id != "sqlite":
+        return
+    for key in ("database_path", "path"):
+        val = (config or {}).get(key)
+        if val is None:
+            continue
+        try:
+            validate_sqlite_path(str(val))
+        except UnsafePathError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{key}: {exc}",
+            )
 
 
 def _reject_unsafe_urls_or_400(connector_id: str, config: Optional[Dict[str, Any]]) -> None:
@@ -164,6 +184,7 @@ async def create_connection(
     await rbac.assert_permission(current_user, "connections.edit")
 
     _reject_unsafe_urls_or_400(connection_data.connector_id, connection_data.config)
+    _reject_unsafe_paths_or_400(connection_data.connector_id, connection_data.config)
 
     connection_service = ConnectionService(db)
     return await connection_service.create_connection(current_user, connection_data)
@@ -254,6 +275,7 @@ async def update_connection(
     if connection_data.config is not None:
         existing = await connection_service.get_connection(connection_id, current_user)
         _reject_unsafe_urls_or_400(existing.connector_id, connection_data.config)
+        _reject_unsafe_paths_or_400(existing.connector_id, connection_data.config)
     return await connection_service.update_connection(connection_id, current_user, connection_data)
 
 
