@@ -27,7 +27,7 @@ async def test_user_b_cannot_delete_user_a_personal_page(
 
     create = await async_client.post(
         "/api/v1/pages",
-        json={"name": "A personal page", "type": "personal", "color": "#fff"},
+        json={"name": "A personal page", "type": "personal", "color": "#ffffff"},
         headers=a_h,
     )
     assert create.status_code == 201, create.text
@@ -47,7 +47,7 @@ async def test_page_owner_can_delete_their_own(
     h = {"Authorization": f"Bearer {test_user_with_tokens['access_token']}"}
     create = await async_client.post(
         "/api/v1/pages",
-        json={"name": "own-delete-canary", "type": "personal", "color": "#fff"},
+        json={"name": "own-delete-canary", "type": "personal", "color": "#ffffff"},
         headers=h,
     )
     assert create.status_code == 201
