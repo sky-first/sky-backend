@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from src.connectors.base import BaseConnector
+from src.security.url_allowlist import UnsafeURLError, validate_outbound_url
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,16 @@ class RestAPIConnector(BaseConnector):
         base_url = (config.get("base_url") or "").rstrip("/")
         if not base_url:
             return False
+        # Defence in depth: the schema validator already rejects
+        # IMDS / internal / non-HTTP schemes at create time, but a row
+        # persisted before this landed could still hold a dangerous
+        # URL. Re-validate at fetch time so an old row cannot suddenly
+        # SSRF when someone exercises the connection.
+        try:
+            validate_outbound_url(base_url)
+        except UnsafeURLError as exc:
+            logger.warning("rest_api blocked unsafe base_url %s: %s", base_url, exc)
+            return False
         try:
             resp = await _request(
                 "GET",
@@ -146,6 +157,11 @@ class RestAPIConnector(BaseConnector):
         base_url = (config.get("base_url") or "").rstrip("/")
         if not base_url:
             raise ValueError("REST API connector requires base_url")
+        # Same runtime check as test_connection — see note there.
+        try:
+            validate_outbound_url(base_url)
+        except UnsafeURLError as exc:
+            raise ValueError(f"REST API base_url rejected: {exc}")
 
         method = "GET"
         path = ""

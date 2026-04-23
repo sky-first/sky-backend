@@ -23,8 +23,32 @@ from src.schemas.connection import (
     ConnectionValidateResponse,
     TableMetadataSchema,
 )
+from src.schemas.connection import _URL_CONFIG_KEYS_BY_CONNECTOR
+from src.security.url_allowlist import UnsafeURLError, validate_outbound_url
 from src.services.connection_service import ConnectionService
 from src.services.rbac_service import RBACService
+
+
+def _reject_unsafe_urls_or_400(connector_id: str, config: Optional[Dict[str, Any]]) -> None:
+    """Edge-guard for SSRF-style misconfigs. Red-team CR-002 (2026-04-23):
+    the REST connector accepted IMDS / private / non-HTTP URLs and would
+    then fetch them with server creds. We refuse at create/update time.
+    """
+    from fastapi import HTTPException
+    keys = _URL_CONFIG_KEYS_BY_CONNECTOR.get(connector_id or "", ())
+    if not keys or not config:
+        return
+    for key in keys:
+        val = config.get(key)
+        if val is None:
+            continue
+        try:
+            validate_outbound_url(str(val))
+        except UnsafeURLError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{key}: {exc}",
+            )
 
 router = APIRouter()
 
@@ -139,6 +163,8 @@ async def create_connection(
     rbac = RBACService(db)
     await rbac.assert_permission(current_user, "connections.edit")
 
+    _reject_unsafe_urls_or_400(connection_data.connector_id, connection_data.config)
+
     connection_service = ConnectionService(db)
     return await connection_service.create_connection(current_user, connection_data)
 
@@ -221,7 +247,13 @@ async def update_connection(
     rbac = RBACService(db)
     await rbac.assert_permission(current_user, "connections.edit", connection_id=connection_id)
 
+    # Update may switch the config URL — re-validate before the service
+    # touches anything. We look up the connector_id from the existing
+    # row since ConnectionUpdate.connector_id is optional by design.
     connection_service = ConnectionService(db)
+    if connection_data.config is not None:
+        existing = await connection_service.get_connection(connection_id, current_user)
+        _reject_unsafe_urls_or_400(existing.connector_id, connection_data.config)
     return await connection_service.update_connection(connection_id, current_user, connection_data)
 
 
