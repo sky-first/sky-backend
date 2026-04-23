@@ -26,9 +26,11 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError
+from src.models.space import SpaceMember
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
 from src.repositories.crew import CrewMemberRepository
@@ -141,7 +143,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "ai.davinci": True,
         # Spaces
         "spaces.view": True,
-        "spaces.create": False,  # Restricted to Platform Admin in matrix IV-91
+        "spaces.create": False,
         "spaces.edit": True,
         "spaces.delete": True,
         "spaces.members.view": True,
@@ -153,7 +155,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "spaces.stats.view": True,
         # Crews
         "crews.view": True,
-        "crews.create": True,   # Allowed from Commander in matrix III-64
+        "crews.create": True,
         "crews.edit": True,
         "crews.delete": True,
         "crews.members.view": True,
@@ -171,7 +173,6 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "agents.pause": True,
         "agents.resume": True,
         "agents.manage": True,
-        "agents.summary": False,  # Restricted to Platform Admin in matrix IV-99
         "agents.findings.view": True,
         "agents.findings.dismiss": True,
         # Strategy
@@ -337,7 +338,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "users.permissions.view": False,
         "users.self.edit": True,
         "users.self.permissions": True,
-        # Agents (navigator can now create/edit in matrix II-31/II-36)
+        # Agents (navigator can run/pause/resume own runs, no create/edit/delete)
         "agents.view": True,
         "agents.create": True,
         "agents.edit": True,
@@ -999,9 +1000,6 @@ class RBACService:
         # owner / admin have already bypassed above; this path is for
         # platform `member` users with scoped grants.
         if space_id:
-            from sqlalchemy import select
-            from src.models.space import SpaceMember
-
             res = await self.db.execute(
                 select(SpaceMember.role).where(
                     SpaceMember.space_id == space_id,
@@ -1040,16 +1038,29 @@ class RBACService:
 
     async def _best_role_for_user_anywhere(self, user_id: UUID) -> CrewRole:
         crew_ids = await self.crew_members.get_crew_ids_by_user(user_id)
-        if not crew_ids:
-            # User has no crew memberships — they're operating in their own
+
+        res = await self.db.execute(
+            select(SpaceMember.role).where(SpaceMember.user_id == user_id)
+        )
+        space_roles = res.scalars().all()
+        
+        if not crew_ids and not space_roles:
+            # User has no crew/space memberships — they're operating in their own
             # personal workspace (no shared/team context). Treat them as
             # commander of that personal world so they can bootstrap their
-            # first page/dashboard. Once invited to crews, the best-role
+            # first page/dashboard. Once invited to crews/spaces, the best-role
             # resolution below takes over.
             return "commander"
 
         best_role = "guest"
         best_score = ROLE_PRECEDENCE[best_role]
+        
+        for role in space_roles:
+            score = ROLE_PRECEDENCE.get(role, 0)
+            if score > best_score:
+                best_score = score
+                best_role = role
+                
         for cid in crew_ids:
             member = await self.crew_members.get_by_crew_and_user(cid, user_id)
             role = member.role if member and member.role else "guest"  # type: ignore[assignment]

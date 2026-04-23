@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.http_client import AIServiceHTTPClient
 from src.models.agent import Agent, AgentFinding
 from src.repositories.agent import AgentFindingRepository, AgentRepository
 from src.schemas.agent import AgentCreate, AgentUpdate
@@ -51,6 +52,7 @@ class AgentService:
         self.db = db
         self.repo = AgentRepository(db)
         self.finding_repo = AgentFindingRepository(db)
+        self.ai_client = AIServiceHTTPClient()
 
     async def list_agents(
         self,
@@ -101,36 +103,26 @@ class AgentService:
         self.db.add(agent)
         await self.db.commit()
 
-        # Ingest the agent identity itself so the RAG knows this agent
-        # exists and can recognise its scope when answering chat
-        # questions like "what do my agents watch?". Failure logged +
-        # swallowed — never block agent creation on a broken AI side.
+        # Ingest into knowledge graph — mirrors crew/space create flow.
+        # Failures are logged and swallowed so the agent is always saved.
         try:
-            from src.ai.http_client import AIServiceHTTPClient
-            ai_client = AIServiceHTTPClient()
-            await ai_client.ingest_knowledge_graph({
+            space_id = str(data.scope_id) if data.scope == "space" and data.scope_id else None
+            crew_id = str(data.scope_id) if data.scope == "crew" and data.scope_id else None
+            await self.ai_client.ingest_knowledge_graph({
                 "id": str(agent.id),
                 "entity_type": "agent",
                 "name": agent.name,
-                "description": agent.focus,
-                "space_id": str(agent.scope_id) if agent.scope == "space" and agent.scope_id else None,
-                "crew_id": str(agent.scope_id) if agent.scope == "crew" and agent.scope_id else None,
-                "owner_user_id": str(user_id) if agent.scope == "personal" else None,
-                "entity_details": {
-                    "scope": agent.scope,
-                    "monitor_type": agent.monitor_type,
-                    "frequency": agent.frequency,
-                    "created_by": str(user_id),
-                },
+                "scope": agent.scope,
+                "space_id": space_id,
+                "crew_id": crew_id,
+                "owner_user_id": str(user_id),
+                "entity_details": {"monitor_type": agent.monitor_type, "focus": agent.focus},
             })
         except Exception as exc:
             logger.warning(f"AI ingest failed for agent {agent.id}: {exc}")
 
-        # RE-FETCH with findings eager-loaded. Even though an agent starts
-        # with zero findings, AgentListResponse (the response_model for
-        # POST /) declares findings: List[...]. Without this eager load,
-        # Pydantic's serialization triggers a lazy relationship access
-        # outside the greenlet context, blowing up with 500.
+        # Re-fetch with findings so the response serialization (AgentListResponse)
+        # doesn't trigger a lazy-load MissingGreenlet error.
         return await self.repo.get_with_findings(agent.id)
 
     async def update_agent(self, agent_id: UUID, data: AgentUpdate) -> Agent:

@@ -36,16 +36,21 @@ async def get_agent_service(db: AsyncSession = Depends(get_db)) -> AgentService:
 
 @router.get("/", response_model=List[AgentListResponse])
 async def list_agents(
-    scope: Optional[str] = Query(
-        None, description="Filter by scope: personal, space, crew, organization"
-    ),
+    scope: Optional[str] = Query(None, description="Filter by scope: personal, space, crew, organization"),
     scope_id: Optional[str] = Query(None, description="Filter by scope entity ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
     """List agents. Filter by scope/scope_id or get all accessible agents."""
-    await RBACService(db).assert_permission(current_user, "agents.view")
+    # RBAC: pass space context if scope is space
+    s_id = None
+    if scope == "space" and scope_id:
+        try:
+            s_id = UUID(scope_id)
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.view", space_id=s_id)
     return await service.list_agents(scope=scope, scope_id=scope_id, created_by=None)
 
 
@@ -57,10 +62,14 @@ async def create_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Create a new agent."""
-    # Determine the context for permission check. If creating a space-bound
-    # agent, use that space for RBAC resolution.
-    space_id = UUID(data.scope_id) if data.scope == "space" and data.scope_id else None
-    await RBACService(db).assert_permission(current_user, "agents.create", space_id=space_id)
+    # RBAC: pass space context if scope is space
+    s_id = None
+    if data.scope == "space" and data.scope_id:
+        try:
+            s_id = UUID(data.scope_id)
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.create", space_id=s_id)
     return await service.create_agent(data, user_id=current_user.id)
 
 
@@ -72,12 +81,15 @@ async def get_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Get agent detail with findings."""
-    agent = await service.get_agent_raw(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
-    await RBACService(db).assert_permission(current_user, "agents.view", space_id=space_id)
-    return await service.get_agent(agent_id)
+    agent = await service.get_agent(agent_id)
+    s_id = None
+    if agent.scope == "space" and agent.scope_id:
+        try:
+            s_id = UUID(agent.scope_id)
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.view", space_id=s_id)
+    return agent
 
 
 @router.put("/{agent_id}", response_model=AgentListResponse)
@@ -89,11 +101,14 @@ async def update_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Update agent configuration."""
-    agent = await service.get_agent_raw(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
-    await RBACService(db).assert_permission(current_user, "agents.edit", space_id=space_id)
+    agent = await service.get_agent(agent_id)
+    s_id = None
+    if agent.scope == "space" and agent.scope_id:
+        try:
+            s_id = UUID(agent.scope_id)
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.edit", space_id=s_id)
     return await service.update_agent(agent_id, data)
 
 
@@ -105,11 +120,14 @@ async def delete_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Delete an agent and all its findings."""
-    agent = await service.get_agent_raw(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
-    await RBACService(db).assert_permission(current_user, "agents.delete", space_id=space_id)
+    agent = await service.get_agent(agent_id)
+    s_id = None
+    if getattr(agent, "scope", None) == "space" and getattr(agent, "scope_id", None):
+        try:
+            s_id = UUID(getattr(agent, "scope_id"))
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.delete", space_id=s_id)
     await service.delete_agent(agent_id)
     return None
 
@@ -122,11 +140,14 @@ async def pause_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Pause an active agent."""
-    agent = await service.get_agent_raw(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
-    await RBACService(db).assert_permission(current_user, "agents.pause", space_id=space_id)
+    agent = await service.get_agent(agent_id)
+    s_id = None
+    if getattr(agent, "scope", None) == "space" and getattr(agent, "scope_id", None):
+        try:
+            s_id = UUID(getattr(agent, "scope_id"))
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.pause", space_id=s_id)
     return await service.pause_agent(agent_id)
 
 
@@ -138,11 +159,14 @@ async def resume_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Resume a paused agent."""
-    agent = await service.get_agent_raw(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
-    await RBACService(db).assert_permission(current_user, "agents.resume", space_id=space_id)
+    agent = await service.get_agent(agent_id)
+    s_id = None
+    if getattr(agent, "scope", None) == "space" and getattr(agent, "scope_id", None):
+        try:
+            s_id = UUID(getattr(agent, "scope_id"))
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.resume", space_id=s_id)
     return await service.resume_agent(agent_id)
 
 
@@ -151,35 +175,31 @@ async def run_agent_now(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    service: AgentService = Depends(get_agent_service),
 ):
     """Trigger an immediate execution of the agent."""
-    agent = await service.get_agent_raw(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
-    await RBACService(db).assert_permission(current_user, "agents.run", space_id=space_id)
     import logging
-
     from sqlalchemy import select
-
     from src.models.agent import Agent
 
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
         from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail="Agent not found")
+
+    s_id = None
+    if getattr(agent, "scope", None) == "space" and getattr(agent, "scope_id", None):
+        try:
+            s_id = UUID(getattr(agent, "scope_id"))
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.run", space_id=s_id)
 
     try:
         from src.workers.agent_worker import execute_agent
-
         execute_agent.delay(str(agent_id))
     except Exception as e:
-        logging.getLogger(__name__).warning(
-            f"Could not enqueue agent task (Celery may not be running): {e}"
-        )
+        logging.getLogger(__name__).warning(f"Could not enqueue agent task (Celery may not be running): {e}")
     return {"message": "Agent execution started", "agent_id": str(agent_id)}
 
 
@@ -188,7 +208,6 @@ async def run_agent_stream(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    service: AgentService = Depends(get_agent_service),
 ):
     """
     Execute an agent with SSE streaming — shows live progress as AI analyzes data.
@@ -196,23 +215,21 @@ async def run_agent_stream(
     """
     # RBAC: must have agents.run. The check was previously commented out
     # inside the docstring, so the endpoint was effectively public.
-    agent = await service.get_agent_raw(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    space_id = UUID(agent.scope_id) if agent.scope == "space" and agent.scope_id else None
-    await RBACService(db).assert_permission(current_user, "agents.run", space_id=space_id)
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Full-context mode is allowed without explicit connection_ids — the
-    # RAG still pulls pillars/events/relationships/etc. For other modes
-    # (question / sql / datasource / scan) we need at least one concrete
-    # connection to anchor the query. We fall back to the caller's first
-    # active connection before giving up, so an agent that was created
-    # before the UI started persisting connection_ids still runs.
-    monitor_type = (agent.monitor_type or "question").lower()
+        
+    s_id = None
+    if getattr(agent, "scope", None) == "space" and getattr(agent, "scope_id", None):
+        try:
+            s_id = UUID(getattr(agent, "scope_id"))
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.run", space_id=s_id)
+    
+    if not agent.connection_ids:
+        raise HTTPException(status_code=400, detail="Agent has no connections to analyze")
 
     # Create execution record
     execution = AgentExecution(agent_id=agent.id, status="running")
@@ -249,9 +266,7 @@ async def run_agent_stream(
         # like `scan` with an explicit label for audit logs.
         monitor_type = (agent.monitor_type or "question").lower()
         if monitor_type == "question":
-            question = (
-                agent.focus or "Analyze the data and surface insights, risks, and opportunities."
-            )
+            question = agent.focus or "Analyze the data and surface insights, risks, and opportunities."
         elif monitor_type == "sql":
             question = f"Execute this SQL and analyze results:\n```sql\n{agent.custom_sql or 'SELECT 1'}\n```"
         elif monitor_type in ("scan", "datasource"):
@@ -276,7 +291,7 @@ async def run_agent_stream(
             )
 
         if agent.last_answer:
-            question += f'\n\nPrevious result: "{agent.last_answer[:500]}"\nHighlight any changes.'
+            question += f"\n\nPrevious result: \"{agent.last_answer[:500]}\"\nHighlight any changes."
 
         # Send initial progress
         yield f"data: {json.dumps({'type': 'progress', 'stage': 'starting', 'message': f'Connecting to {agent.name}...'})}\n\n"
@@ -325,15 +340,13 @@ async def run_agent_stream(
                                 # match columns. Matches the frontend
                                 # unpackRows guard.
                                 clean_data = [
-                                    r
-                                    for r in raw_data
+                                    r for r in raw_data
                                     if isinstance(r, list) and len(r) == len(raw_cols)
                                 ]
                                 collected_rows = {
                                     "columns": raw_cols,
                                     "data": clean_data[:200],  # R6: hard cap
-                                    "truncated": bool(event.get("truncated"))
-                                    or len(clean_data) > 200,
+                                    "truncated": bool(event.get("truncated")) or len(clean_data) > 200,
                                 }
 
                         # Forward to frontend
@@ -357,7 +370,6 @@ async def run_agent_stream(
         saved_finding_id: Optional[UUID] = None
         try:
             from src.config.database import AsyncSessionLocal
-
             async with AsyncSessionLocal() as save_db:
                 has_answer = bool(collected_answer and collected_answer.strip())
                 # Finding type is always a member of the FindingType enum
@@ -394,9 +406,7 @@ async def run_agent_stream(
                 saved_finding_id = finding.id
 
                 # Update execution
-                exec_result = await save_db.execute(
-                    select(AgentExecution).where(AgentExecution.id == execution_id)
-                )
+                exec_result = await save_db.execute(select(AgentExecution).where(AgentExecution.id == execution_id))
                 exec_obj = exec_result.scalar_one_or_none()
                 if exec_obj:
                     exec_obj.status = "completed" if has_answer else "failed"
@@ -440,7 +450,6 @@ async def run_agent_stream(
 
 # ─── Findings ───
 
-
 @router.get("/insights/all", response_model=List[AgentFindingResponse])
 async def list_all_insights(
     scope: Optional[str] = Query(None),
@@ -465,7 +474,7 @@ async def list_all_insights(
 
     all_findings: list = []
     for agent in agents:
-        for f in agent.findings or []:
+        for f in (agent.findings or []):
             if not include_dismissed and f.dismissed:
                 continue
             all_findings.append(f)
@@ -508,10 +517,11 @@ async def get_agent_metrics(
     await RBACService(db).assert_permission(current_user, "agents.view")
     import json
     from datetime import datetime, timezone
-
     from src.models.agent import AgentExecution
 
-    exec_q = await db.execute(select(AgentExecution).where(AgentExecution.agent_id == agent_id))
+    exec_q = await db.execute(
+        select(AgentExecution).where(AgentExecution.agent_id == agent_id)
+    )
     executions = list(exec_q.scalars().all())
 
     now = datetime.now(timezone.utc)
@@ -547,18 +557,7 @@ async def get_agent_metrics(
     durations = [e.duration_ms for e in executions if e.duration_ms]
     avg_duration_ms = int(sum(durations) / len(durations)) if durations else None
     last_execution = next(
-        (
-            e
-            for e in sorted(
-                executions,
-                key=lambda x: (
-                    getattr(x, "started_at", None)
-                    or getattr(x, "created_at", None)
-                    or datetime.min.replace(tzinfo=timezone.utc)
-                ),
-                reverse=True,
-            )
-        ),
+        (e for e in sorted(executions, key=lambda x: (getattr(x, "started_at", None) or getattr(x, "created_at", None) or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)),
         None,
     )
 
@@ -577,14 +576,7 @@ async def get_agent_metrics(
         "findings_total": findings_total,
         "findings_this_month": findings_this_month,
         "avg_duration_ms": avg_duration_ms,
-        "last_run_at": (
-            (
-                getattr(last_execution, "started_at", None)
-                or getattr(last_execution, "created_at", None)
-            )
-            if last_execution
-            else None
-        ),
+        "last_run_at": (getattr(last_execution, "started_at", None) or getattr(last_execution, "created_at", None)) if last_execution else None,
         "next_run_at": agent.next_execution_at,
         "connection_count": len(agent.connection_ids or []),
         "table_count": len(agent.table_ids or []),
@@ -607,19 +599,9 @@ async def get_tenant_agent_metrics(
     Aggregates runs and tokens across every agent the user can see so
     admins can show customers a single "you used X runs / Y tokens this
     month" number per billing cycle.
-
-    Platform-admin (or owner) only — this roll-up is tenant-wide billing
-    information, not agent operational data, so the baseline
-    `agents.view` permission used elsewhere is too broad. Keeping it
-    gated alongside audit-log access keeps the Settings → Usage &
-    Metrics panel consistent.
     """
-    if current_user.role not in ("admin", "owner"):
-        from src.core.exceptions import ForbiddenError
-
-        raise ForbiddenError("Tenant-wide agent metrics require admin role")
+    await RBACService(db).assert_permission(current_user, "metrics.view")
     from datetime import datetime, timezone
-
     from src.models.agent import AgentExecution
 
     all_agents = await db.execute(select(Agent))

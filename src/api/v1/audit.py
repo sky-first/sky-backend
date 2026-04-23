@@ -31,9 +31,6 @@ async def list_audit_events(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """List audit events with optional filters."""
-    # Only platform admin+ can read audit log. `owner` sits above `admin`
-    # on the platform role ladder (see src/services/rbac_service.py), so
-    # owners must be allowed through alongside admins.
     if current_user.role not in ("admin", "owner"):
         from src.core.exceptions import ForbiddenError
 
