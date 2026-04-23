@@ -15,6 +15,7 @@ from src.connectors.mysql import MySQLConnector
 from src.connectors.postgresql import PostgreSQLConnector
 from src.connectors.rest_api import RestAPIConnector
 from src.connectors.salesforce import SalesforceConnector
+from src.connectors.sqlite import SQLiteConnector
 
 
 # Mock connectors for now - will be implemented later
@@ -63,7 +64,7 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "redshift": MockConnector,
     "sqlserver": MockConnector,
     "oracle": MockConnector,
-    "sqlite": MockConnector,
+    "sqlite": SQLiteConnector,
     "clickhouse": MockConnector,
     "databricks": MockConnector,
     # TODO: Implement real connectors
