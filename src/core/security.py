@@ -51,14 +51,19 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
         str: Encoded JWT token
     """
     to_encode = data.copy()
+    now = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = now + expires_delta
     else:
         # Use default expiration from settings
-        expire = datetime.now(timezone.utc) + timedelta(
+        expire = now + timedelta(
             minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
         )
-    to_encode.update({"exp": expire, "type": "access"})
+    # `iat` (issued-at) is required by the revocation blocklist: on
+    # logout we write a `revoke_before` marker per user and any access
+    # token with `iat` older than it is rejected. See
+    # src/core/token_blocklist.py + src/api/middleware/auth.py.
+    to_encode.update({"exp": expire, "iat": now, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 

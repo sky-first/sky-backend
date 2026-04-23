@@ -102,15 +102,35 @@ async def logout(
     """
     Logout endpoint.
 
-    Args:
-        refresh_token_data: Refresh token to revoke
-        db: Database session
+    Revokes the caller's refresh token AND all outstanding access
+    tokens for the same user. The access-token invalidation uses a
+    "revoke tokens issued before now" marker stored in Redis and
+    checked by the auth middleware — the old access token keeps its
+    JWT shape but stops being accepted immediately.
 
-    Returns:
-        SuccessResponse: Success message
+    Red-team HI (2026-04-23): before this change, a stolen access
+    token kept working until its JWT exp (15 min) regardless of
+    logout.
     """
+    import time
+    from jose import jwt as _jwt
+
     auth_service = AuthenticationService(db)
     await auth_service.logout(refresh_token_data.refresh_token)
+
+    # Decode the refresh to get `sub` (user id) so we can revoke all
+    # the access tokens for the SAME user. We only need the sub
+    # claim; signature was checked inside auth_service.logout above.
+    try:
+        claims = _jwt.get_unverified_claims(refresh_token_data.refresh_token)
+        user_id = claims.get("sub")
+    except Exception:
+        user_id = None
+
+    if user_id:
+        from src.core.token_blocklist import revoke_user_tokens
+        await revoke_user_tokens(user_id, issued_before_epoch=int(time.time()))
+
     return SuccessResponse(message="Logged out successfully")
 
 

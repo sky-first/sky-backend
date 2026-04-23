@@ -152,6 +152,18 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
                 logger.warning(f"Token payload missing 'sub': {payload}")
                 raise UnauthorizedError("Invalid token payload")
 
+            # Logout-revocation check (red-team HI 2026-04-23): if the
+            # user's `revoke_before` marker in Redis is newer than this
+            # token's `iat`, reject. Tokens without `iat` (legacy pre-
+            # fix) are grandfathered and will cycle out on their own
+            # 15-min exp.
+            from src.core.token_blocklist import is_token_revoked
+            _iat_claim = payload.get("iat")
+            if _iat_claim is not None and await is_token_revoked(
+                str(user_id), int(_iat_claim)
+            ):
+                raise UnauthorizedError("Token revoked")
+
             # Store user info in request state
             user_id_str = str(user_id)
             request.state.user_id = user_id_str
