@@ -105,7 +105,7 @@ async def update_pillar(
 ) -> StrategicPillarResponse:
     """Update a strategic pillar."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
-    return await service.update_pillar(pillar_id, body, background_tasks)
+    return await service.update_pillar(pillar_id, body, background_tasks, current_user.id)
 
 
 @router.delete("/pillars/{pillar_id}", status_code=204)
@@ -117,7 +117,7 @@ async def delete_pillar(
 ) -> None:
     """Delete a strategic pillar."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
-    await service.delete_pillar(pillar_id)
+    await service.delete_pillar(pillar_id, current_user.id)
 
 
 # --- Strategic Objective ---
@@ -150,7 +150,7 @@ async def update_objective(
 ) -> StrategicObjectiveResponse:
     """Update a strategic objective."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
-    return await service.update_objective(objective_id, body, background_tasks)
+    return await service.update_objective(objective_id, body, background_tasks, current_user.id)
 
 
 @router.delete("/objectives/{objective_id}", status_code=204)
@@ -162,7 +162,7 @@ async def delete_objective(
 ) -> None:
     """Delete a strategic objective."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
-    await service.delete_objective(objective_id)
+    await service.delete_objective(objective_id, current_user.id)
 
 
 # --- Strategy OKR ---
@@ -195,7 +195,7 @@ async def update_okr(
 ) -> StrategyOKRResponse:
     """Update a strategy OKR."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
-    return await service.update_okr(okr_id, body, background_tasks)
+    return await service.update_okr(okr_id, body, background_tasks, current_user.id)
 
 
 @router.delete("/okrs/{okr_id}", status_code=204)
@@ -207,7 +207,7 @@ async def delete_okr(
 ) -> None:
     """Delete a strategy OKR."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
-    await service.delete_okr(okr_id)
+    await service.delete_okr(okr_id, current_user.id)
 
 
 @router.post("/initiatives", response_model=StrategyInitiativeResponse, status_code=201)
