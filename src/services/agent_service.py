@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.models.agent import Agent, AgentFinding
+from src.models.user import User
 from src.repositories.agent import AgentFindingRepository, AgentRepository
 from src.schemas.agent import AgentCreate, AgentUpdate
 
@@ -125,7 +126,56 @@ class AgentService:
         # doesn't trigger a lazy-load MissingGreenlet error.
         return await self.repo.get_with_findings(agent.id)
 
-    async def update_agent(self, agent_id: UUID, data: AgentUpdate) -> Agent:
+    async def _require_can_mutate(self, agent: Agent, user: User) -> None:
+        """Apply the same policy we use for every other mutable entity:
+
+        1. Personal agent: only the owner (=``scope_id``) may touch it.
+        2. Creator bypass for Space/Crew/Org scopes — the user who
+           created it can always delete/update.
+        3. Otherwise, RBAC must grant ``agents.delete`` / ``agents.manage``
+           in the space the agent lives in.
+
+        Red-team HI-002 (2026-04-23): before this check, any
+        authenticated user could DELETE or UPDATE ANY agent.
+        """
+        from uuid import UUID as _UUID
+
+        from fastapi import HTTPException as _HTTPException
+        from fastapi import status as _status
+
+        scope = (agent.scope or "").lower()
+
+        # Personal: scope_id IS the owner user id.
+        if scope == "personal":
+            try:
+                owner_id = _UUID(str(agent.scope_id))
+            except Exception:
+                owner_id = None
+            if owner_id != user.id:
+                raise _HTTPException(status_code=_status.HTTP_404_NOT_FOUND, detail="Not found")
+            return
+
+        # Creator bypass for collaborative scopes.
+        if agent.created_by == user.id:
+            return
+
+        # Fall through to RBAC. Resolve space_id if the scope is space-
+        # or crew-bound (crew_ids live inside a space; use the agent's
+        # space_id column if set, otherwise treat scope_id as space_id
+        # for scope=="space").
+        space_id = None
+        if scope == "space":
+            try:
+                space_id = _UUID(str(agent.scope_id))
+            except Exception:
+                space_id = None
+
+        from src.services.rbac_service import RBACService
+        await RBACService(self.db).assert_permission(
+            user, "agents.delete", space_id=space_id
+        )
+
+    async def update_agent(self, agent_id: UUID, data: AgentUpdate, user: User) -> Agent:
         # Load with findings eager-loaded because the endpoint's
         # response_model (AgentListResponse) now includes findings. Without
         # eager load, response serialization triggers a lazy-load on the
@@ -136,6 +186,7 @@ class AgentService:
         agent = await self.repo.get_with_findings(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        await self._require_can_mutate(agent, user)
 
         update_data = data.model_dump(exclude_unset=True)
         for key, value in update_data.items():
@@ -147,13 +198,14 @@ class AgentService:
         # relationship.
         return await self.repo.get_with_findings(agent_id)
 
-    async def delete_agent(self, agent_id: UUID) -> None:
+    async def delete_agent(self, agent_id: UUID, user: User) -> None:
         agent = await self.repo.get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        await self._require_can_mutate(agent, user)
         await self.db.delete(agent)
         await self.db.commit()
-        logger.info(f"Agent deleted: {agent_id}")
+        logger.info(f"Agent deleted: {agent_id} by user {user.id}")
 
     async def pause_agent(self, agent_id: UUID) -> Agent:
         # Same response_model-needs-findings reasoning as update_agent.

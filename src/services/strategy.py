@@ -45,25 +45,43 @@ class StrategyService:
 
     @staticmethod
     def _require_personal_owner(entity: Any, current_user_id: UUID) -> None:
-        """Guard against cross-user reads/writes on Personal-scope entities.
-
-        Red-team finding CR-001 (IDOR delete on pillars, 2026-04-23):
-        before this check, `DELETE /strategy/pillars/{id}` scoped only
-        by the caller's `pages.edit` role, so any authenticated user
-        could delete another user's Personal pillar. Same hole applied
-        to update + the sibling entities (objectives, OKRs) that also
-        carry `owner_user_id`.
-
-        Rule: when ``entity.owner_user_id`` is set (Personal), only
-        that user may touch the row. 404 (not 403) so we don't
-        advertise existence to outsiders.
-        """
+        """Personal-scope guard (CR-001). See extended check below."""
         owner = getattr(entity, "owner_user_id", None)
         if owner is not None and owner != current_user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Not found",
             )
+
+    async def _require_can_mutate(self, entity: Any, user_id: UUID, perm: str) -> None:
+        """Full mutation guard — Personal + Space/Crew role hierarchy.
+
+        Red-team HI-002 (2026-04-23): CR-001 fixed Personal leakage but
+        Space-scoped entities (owner_user_id IS NULL, space_id NOT
+        NULL) still let an explorer delete a navigator's pillar.
+
+        Policy (agreed 2026-04-23):
+          1. Personal: only owner_user_id may mutate. 404 on miss.
+          2. Creator bypass: in Space/Crew the user who created it
+             can always delete/update.
+          3. Non-creator: must clear RBAC ``<perm>`` in the entity's
+             space (navigator is blocked from `*.delete`; commander +
+             space admin + platform owner/admin pass).
+        """
+        from src.services._mutation_guard import require_mutation_rights
+
+        from sqlalchemy import select
+        from src.models.user import User
+
+        self._require_personal_owner(entity, user_id)
+        if getattr(entity, "owner_user_id", None) is not None:
+            return  # Personal check above already passed.
+
+        result = await self.session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one()
+        await require_mutation_rights(
+            entity, user=user, rbac_permission=perm, db=self.session
+        )
 
     def _trigger_ai_ingestion(self, entity: Any, entity_type: str, background_tasks: BackgroundTasks):
         """Helper to trigger AI ingestion for an entity in the background using BackgroundTasks."""
@@ -190,7 +208,7 @@ class StrategyService:
         pillar = await self.repository.get_pillar_by_id(pillar_id)
         if not pillar:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pillar not found")
-        self._require_personal_owner(pillar, current_user_id)
+        await self._require_can_mutate(pillar, current_user_id, "pages.edit")
         pillar = await self.repository.update_pillar(pillar, schema)
         await self.session.commit()
         await self.session.refresh(pillar)
@@ -201,7 +219,7 @@ class StrategyService:
         pillar = await self.repository.get_pillar_by_id(pillar_id)
         if not pillar:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pillar not found")
-        self._require_personal_owner(pillar, current_user_id)
+        await self._require_can_mutate(pillar, current_user_id, "pages.delete")
         await self.repository.delete_pillar(pillar)
         await self.session.commit()
 
@@ -236,7 +254,7 @@ class StrategyService:
         objective = await self.repository.get_objective_by_id(objective_id)
         if not objective:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Objective not found")
-        self._require_personal_owner(objective, current_user_id)
+        await self._require_can_mutate(objective, current_user_id, "pages.edit")
         objective = await self.repository.update_objective(objective, schema)
         await self.session.commit()
         await self.session.refresh(objective)
@@ -247,7 +265,7 @@ class StrategyService:
         objective = await self.repository.get_objective_by_id(objective_id)
         if not objective:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Objective not found")
-        self._require_personal_owner(objective, current_user_id)
+        await self._require_can_mutate(objective, current_user_id, "pages.delete")
         await self.repository.delete_objective(objective)
         await self.session.commit()
 
@@ -282,7 +300,7 @@ class StrategyService:
         okr = await self.repository.get_okr_by_id(okr_id)
         if not okr:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found")
-        self._require_personal_owner(okr, current_user_id)
+        await self._require_can_mutate(okr, current_user_id, "pages.edit")
         okr = await self.repository.update_okr(okr, schema)
         await self.session.commit()
         okr = await self.repository.get_okr_by_id(okr.id)
@@ -293,7 +311,7 @@ class StrategyService:
         okr = await self.repository.get_okr_by_id(okr_id)
         if not okr:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found")
-        self._require_personal_owner(okr, current_user_id)
+        await self._require_can_mutate(okr, current_user_id, "pages.delete")
         await self.repository.delete_okr(okr)
         await self.session.commit()
 

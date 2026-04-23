@@ -193,7 +193,14 @@ class DashboardService:
         if not dashboard or dashboard.deleted_at:
             raise NotFoundError("Dashboard not found")
 
-        # TODO: Check workspace access
+        # Red-team HI-002 (2026-04-23): before this guard, any
+        # authenticated user could update any dashboard. Creator can
+        # always edit their own; non-creator must clear dashboards.edit
+        # (scoped to the dashboard's space).
+        from src.services._mutation_guard import require_mutation_rights
+        await require_mutation_rights(
+            dashboard, user=user, rbac_permission="dashboards.edit", db=self.db
+        )
 
         update_data = dashboard_data.model_dump(exclude_unset=True)
         dashboard = await self.dashboard_repo.update(dashboard_id, **update_data)
@@ -236,7 +243,10 @@ class DashboardService:
         if not dashboard or dashboard.deleted_at:
             raise NotFoundError("Dashboard not found")
 
-        # TODO: Check workspace access
+        from src.services._mutation_guard import require_mutation_rights
+        await require_mutation_rights(
+            dashboard, user=user, rbac_permission="dashboards.delete", db=self.db
+        )
 
         await self.dashboard_repo.delete(dashboard_id)
         await self.db.commit()
@@ -381,6 +391,15 @@ class DashboardService:
         # Verify user has access to the dashboard
         await self.get_dashboard(widget.dashboard_id, user)
 
+        # Red-team HI-002: widget mutation also runs through the
+        # creator-bypass + RBAC guard. Creator can edit own, otherwise
+        # need widgets.edit (navigator=yes, explorer=no) in the
+        # widget's space.
+        from src.services._mutation_guard import require_mutation_rights
+        await require_mutation_rights(
+            widget, user=user, rbac_permission="widgets.edit", db=self.db
+        )
+
         update_data = widget_data.model_dump(exclude_unset=True)
         widget = await self.widget_repo.update(widget_id, **update_data)
         await self.db.commit()
@@ -402,6 +421,11 @@ class DashboardService:
         widget = await self.widget_repo.get_by_id(widget_id)
         if not widget:
             raise NotFoundError("Widget not found")
+
+        from src.services._mutation_guard import require_mutation_rights
+        await require_mutation_rights(
+            widget, user=user, rbac_permission="widgets.delete", db=self.db
+        )
 
         await self.widget_repo.delete(widget_id)
         await self.db.commit()

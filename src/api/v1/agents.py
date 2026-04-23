@@ -109,7 +109,7 @@ async def update_agent(
         except ValueError:
             pass
     await RBACService(db).assert_permission(current_user, "agents.edit", space_id=s_id)
-    return await service.update_agent(agent_id, data)
+    return await service.update_agent(agent_id, data, current_user)
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -128,7 +128,7 @@ async def delete_agent(
         except ValueError:
             pass
     await RBACService(db).assert_permission(current_user, "agents.delete", space_id=s_id)
-    await service.delete_agent(agent_id)
+    await service.delete_agent(agent_id, current_user)
     return None
 
 
