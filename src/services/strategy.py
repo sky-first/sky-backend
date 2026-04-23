@@ -43,6 +43,28 @@ class StrategyService:
 
         self.ai_client = AIServiceHTTPClient()
 
+    @staticmethod
+    def _require_personal_owner(entity: Any, current_user_id: UUID) -> None:
+        """Guard against cross-user reads/writes on Personal-scope entities.
+
+        Red-team finding CR-001 (IDOR delete on pillars, 2026-04-23):
+        before this check, `DELETE /strategy/pillars/{id}` scoped only
+        by the caller's `pages.edit` role, so any authenticated user
+        could delete another user's Personal pillar. Same hole applied
+        to update + the sibling entities (objectives, OKRs) that also
+        carry `owner_user_id`.
+
+        Rule: when ``entity.owner_user_id`` is set (Personal), only
+        that user may touch the row. 404 (not 403) so we don't
+        advertise existence to outsiders.
+        """
+        owner = getattr(entity, "owner_user_id", None)
+        if owner is not None and owner != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Not found",
+            )
+
     def _trigger_ai_ingestion(self, entity: Any, entity_type: str, background_tasks: BackgroundTasks):
         """Helper to trigger AI ingestion for an entity in the background using BackgroundTasks."""
         try:
@@ -159,21 +181,27 @@ class StrategyService:
         return pillar
 
     async def update_pillar(
-        self, pillar_id: UUID, schema: StrategicPillarUpdate, background_tasks: BackgroundTasks
+        self,
+        pillar_id: UUID,
+        schema: StrategicPillarUpdate,
+        background_tasks: BackgroundTasks,
+        current_user_id: UUID,
     ) -> StrategicPillarResponse:
         pillar = await self.repository.get_pillar_by_id(pillar_id)
         if not pillar:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pillar not found")
+        self._require_personal_owner(pillar, current_user_id)
         pillar = await self.repository.update_pillar(pillar, schema)
         await self.session.commit()
         await self.session.refresh(pillar)
         self._trigger_ai_ingestion(pillar, "strategic_pillar", background_tasks)
         return pillar
 
-    async def delete_pillar(self, pillar_id: UUID) -> None:
+    async def delete_pillar(self, pillar_id: UUID, current_user_id: UUID) -> None:
         pillar = await self.repository.get_pillar_by_id(pillar_id)
         if not pillar:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pillar not found")
+        self._require_personal_owner(pillar, current_user_id)
         await self.repository.delete_pillar(pillar)
         await self.session.commit()
 
@@ -199,21 +227,27 @@ class StrategyService:
         return objective
 
     async def update_objective(
-        self, objective_id: UUID, schema: StrategicObjectiveUpdate, background_tasks: BackgroundTasks
+        self,
+        objective_id: UUID,
+        schema: StrategicObjectiveUpdate,
+        background_tasks: BackgroundTasks,
+        current_user_id: UUID,
     ) -> StrategicObjectiveResponse:
         objective = await self.repository.get_objective_by_id(objective_id)
         if not objective:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Objective not found")
+        self._require_personal_owner(objective, current_user_id)
         objective = await self.repository.update_objective(objective, schema)
         await self.session.commit()
         await self.session.refresh(objective)
         self._trigger_ai_ingestion(objective, "strategic_objective", background_tasks)
         return objective
 
-    async def delete_objective(self, objective_id: UUID) -> None:
+    async def delete_objective(self, objective_id: UUID, current_user_id: UUID) -> None:
         objective = await self.repository.get_objective_by_id(objective_id)
         if not objective:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Objective not found")
+        self._require_personal_owner(objective, current_user_id)
         await self.repository.delete_objective(objective)
         await self.session.commit()
 
@@ -239,21 +273,27 @@ class StrategyService:
         return okr
 
     async def update_okr(
-        self, okr_id: UUID, schema: StrategyOKRUpdate, background_tasks: BackgroundTasks
+        self,
+        okr_id: UUID,
+        schema: StrategyOKRUpdate,
+        background_tasks: BackgroundTasks,
+        current_user_id: UUID,
     ) -> StrategyOKRResponse:
         okr = await self.repository.get_okr_by_id(okr_id)
         if not okr:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found")
+        self._require_personal_owner(okr, current_user_id)
         okr = await self.repository.update_okr(okr, schema)
         await self.session.commit()
         okr = await self.repository.get_okr_by_id(okr.id)
         self._trigger_ai_ingestion(okr, "strategy_okr", background_tasks)
         return okr
 
-    async def delete_okr(self, okr_id: UUID) -> None:
+    async def delete_okr(self, okr_id: UUID, current_user_id: UUID) -> None:
         okr = await self.repository.get_okr_by_id(okr_id)
         if not okr:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OKR not found")
+        self._require_personal_owner(okr, current_user_id)
         await self.repository.delete_okr(okr)
         await self.session.commit()
 
