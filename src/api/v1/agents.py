@@ -281,6 +281,14 @@ async def run_agent_stream(
         # Send initial progress
         yield f"data: {json.dumps({'type': 'progress', 'stage': 'starting', 'message': f'Connecting to {agent.name}...'})}\n\n"
 
+        # Forward the agent's full Universe-Intelligence selection to the
+        # AI service so the RAG can filter to the pinned subset across
+        # every entity kind (Business Rules incl. glossary, Events,
+        # Relationships, Outputs). Empty dict / missing kinds = no filter.
+        selected_ctx: Optional[Dict[str, List[str]]] = (
+            getattr(agent, "selected_context", None) or None
+        )
+        is_personal = (agent.scope or "").lower() == "personal"
         try:
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
@@ -288,6 +296,8 @@ async def run_agent_stream(
                 user_id=str(current_user.id),
                 space_id=agent.scope_id or "default",
                 instructions=agent.focus,
+                is_personal=is_personal,
+                selected_context=selected_ctx,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):
