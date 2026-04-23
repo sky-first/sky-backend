@@ -7,6 +7,17 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+# Connectors that fetch an arbitrary URL supplied by the user. Each
+# entry maps connector_id → list of config keys that must be validated
+# as outbound URLs. If a connector is added later that opens up any
+# user-controlled URL (webhooks, OAuth callback overrides, proxies…)
+# add it here or this file becomes stale and a SSRF regression slips.
+_URL_CONFIG_KEYS_BY_CONNECTOR: Dict[str, tuple[str, ...]] = {
+    "rest-api": ("base_url",),
+    "rest_api": ("base_url",),
+}
+
+
 class ColumnMetadataSchema(BaseModel):
     """Column metadata schema."""
 
