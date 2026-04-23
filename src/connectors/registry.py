@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional, Type
 
 from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
+from src.connectors.clickhouse import ClickHouseConnector
+from src.connectors.databricks import DatabricksConnector
 from src.connectors.dropbox import DropboxConnector
 from src.connectors.google_drive import GoogleDriveConnector
 from src.connectors.google_sheets import GoogleSheetsConnector
@@ -12,10 +14,14 @@ from src.connectors.jira import JiraConnector
 from src.connectors.microsoft_graph import OneDriveConnector, SharePointConnector
 from src.connectors.mongodb import MongoDBConnector
 from src.connectors.mysql import MySQLConnector
+from src.connectors.oracle import OracleConnector
 from src.connectors.postgresql import PostgreSQLConnector
+from src.connectors.redshift import RedshiftConnector
 from src.connectors.rest_api import RestAPIConnector
 from src.connectors.salesforce import SalesforceConnector
+from src.connectors.snowflake import SnowflakeConnector
 from src.connectors.sqlite import SQLiteConnector
+from src.connectors.sqlserver import SQLServerConnector
 
 
 # Mock connectors for now - will be implemented later
@@ -60,14 +66,16 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "sharepoint": SharePointConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
-    "snowflake": MockConnector,
-    "redshift": MockConnector,
-    "sqlserver": MockConnector,
-    "oracle": MockConnector,
+    # All six warehouses below now have real drivers. Each loads its
+    # third-party dep lazily, so missing optional deps degrade to
+    # test_connection=False rather than import-time crashes.
+    "snowflake": SnowflakeConnector,
+    "redshift": RedshiftConnector,
+    "sqlserver": SQLServerConnector,
+    "oracle": OracleConnector,
     "sqlite": SQLiteConnector,
-    "clickhouse": MockConnector,
-    "databricks": MockConnector,
-    # TODO: Implement real connectors
+    "clickhouse": ClickHouseConnector,
+    "databricks": DatabricksConnector,
 }
 
 
