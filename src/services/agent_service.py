@@ -100,6 +100,32 @@ class AgentService:
         )
         self.db.add(agent)
         await self.db.commit()
+
+        # Ingest the agent identity itself so the RAG knows this agent
+        # exists and can recognise its scope when answering chat
+        # questions like "what do my agents watch?". Failure logged +
+        # swallowed — never block agent creation on a broken AI side.
+        try:
+            from src.ai.http_client import AIServiceHTTPClient
+            ai_client = AIServiceHTTPClient()
+            await ai_client.ingest_knowledge_graph({
+                "id": str(agent.id),
+                "entity_type": "agent",
+                "name": agent.name,
+                "description": agent.focus,
+                "space_id": str(agent.scope_id) if agent.scope == "space" and agent.scope_id else None,
+                "crew_id": str(agent.scope_id) if agent.scope == "crew" and agent.scope_id else None,
+                "owner_user_id": str(user_id) if agent.scope == "personal" else None,
+                "entity_details": {
+                    "scope": agent.scope,
+                    "monitor_type": agent.monitor_type,
+                    "frequency": agent.frequency,
+                    "created_by": str(user_id),
+                },
+            })
+        except Exception as exc:
+            logger.warning(f"AI ingest failed for agent {agent.id}: {exc}")
+
         # RE-FETCH with findings eager-loaded. Even though an agent starts
         # with zero findings, AgentListResponse (the response_model for
         # POST /) declares findings: List[...]. Without this eager load,
