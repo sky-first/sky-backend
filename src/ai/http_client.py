@@ -108,6 +108,7 @@ class AIServiceHTTPClient:
         instructions: Optional[str] = None,
         is_personal: Optional[bool] = None,
         selected_context: Optional[Dict[str, List[str]]] = None,
+        crew_ids: Optional[List[str]] = None,
     ) -> AsyncIterator[str]:
         """
         Stream a query to the AI service via SSE.
@@ -116,6 +117,14 @@ class AIServiceHTTPClient:
         ``selected_context`` lets the caller restrict retrieval to
         specific context entity IDs ({kind: [id, ...]}). The AI service
         treats empty dict / missing kinds as "no filter".
+
+        ``crew_ids`` is the list of crews the asking user belongs to in
+        ``space_id`` (collaborative mode) — the RAG uses it to restrict
+        retrieval to embeddings whose ``crew_id`` is either NULL (space-
+        wide) or in that list. Omitting it means "user is not in any
+        crew", so the RAG only surfaces crew_id-NULL rows. Without this
+        parameter a Space member would silently miss their own Crew's
+        embeddings (bug found in collaborative RAG audit).
         """
         url = f"{self.base_url}/connections/{connection_id}/query/stream"
 
@@ -130,6 +139,8 @@ class AIServiceHTTPClient:
             payload["is_personal"] = bool(is_personal)
         if selected_context:
             payload["selected_context"] = selected_context
+        if crew_ids:
+            payload["crew_ids"] = crew_ids
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             logger.info(f"Streaming AI service: {url} for connection {connection_id}")

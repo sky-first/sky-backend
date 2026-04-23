@@ -55,7 +55,14 @@ async def test_create_space_ingests_space_into_knowledge_graph(
     assert payload["entity_type"] == "space"
     assert payload["id"] == body["id"]
     assert payload["name"] == "Engineering"
-    assert payload["owner_user_id"] == str(test_user_with_tokens["user"].id)
+    # Space is collaborative — its embedding must NOT be stamped with
+    # the creator as owner_user_id or the RAG's Personal filter would
+    # silently hide it from other members. The creator still appears in
+    # entity_details.created_by for audit/UX purposes.
+    assert payload["owner_user_id"] is None
+    assert payload["entity_details"]["created_by"] == str(
+        test_user_with_tokens["user"].id
+    )
 
 
 @pytest.mark.asyncio
