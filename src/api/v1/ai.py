@@ -445,6 +445,114 @@ async def send_chat_message(
     return await ai_service.send_chat_message(current_user.id, message_data)
 
 
+@router.post(
+    "/chat/stream",
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    summary="Send chat message (SSE streaming)",
+    description=(
+        "Same contract as POST /chat but streams the AI response back as "
+        "Server-Sent Events. Each event is a `data: {...}` line with a "
+        "`type` field: 'progress', 'chunk', 'rows', 'meta', 'done', or "
+        "'error'. Lets the UI render tokens as they arrive instead of "
+        "waiting for the full response — first-visible-content typically "
+        "2-3 seconds vs. ~8-30s end-to-end."
+    ),
+)
+async def send_chat_message_stream(
+    message_data: ChatMessageRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Stream chat response via SSE.
+
+    Resolution rules mirror POST /chat: page_id, tone/style fallback,
+    and the same scope-to-connection resolution the non-streaming path
+    uses. The difference is the response is forwarded from the AI
+    service's streaming endpoint (stream_query_connection) line-by-line
+    instead of waiting for the final JSON.
+    """
+    # Page resolution — same as /chat.
+    if not message_data.page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active page found for user")
+        message_data.page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(message_data.page_id, current_user.id)
+
+    # Tone/style fallback — same as /chat.
+    prefs = current_user.preferences or {}
+    if message_data.ai_tone is None:
+        message_data.ai_tone = prefs.get("ai_tone")
+    if message_data.ai_style is None:
+        message_data.ai_style = prefs.get("ai_style")
+
+    # Resolve scope inline. We can't reuse AIService.send_chat_message
+    # because it persists and returns a single blob; streaming needs us
+    # to flush events as they arrive. Connection resolution uses the
+    # same fallbacks as the non-streaming path: explicit field → first
+    # active connection for the user.
+    ai_service = AIService(db)
+    resolved_connection_id: Optional[str] = None
+    try:
+        # AIService._get_first_active_connection_for_space is used by
+        # the non-streaming chat as the same fallback.
+        if getattr(message_data, "space_id", None):
+            resolved_connection_id = await ai_service._get_first_active_connection_for_space(
+                current_user.id, str(message_data.space_id)
+            )
+        if not resolved_connection_id:
+            resolved_connection_id = await ai_service._get_first_active_connection(current_user.id)
+    except Exception as exc:
+        logger.warning(f"Chat stream — connection resolution failed: {exc}")
+
+    scope_is_personal = bool(getattr(message_data, "is_personal", False))
+    scope_space_id = getattr(message_data, "space_id", None) or "default"
+
+    import json as _json
+    ai_client = AIServiceHTTPClient()
+
+    async def event_stream():
+        """Forward AI service SSE lines to the client. Adds a final
+        'done' event when the upstream stream completes."""
+        started = False
+        try:
+            if not resolved_connection_id:
+                yield f"data: {_json.dumps({'type': 'error', 'message': 'No data source available for this chat.'})}\n\n"
+                return
+
+            yield f"data: {_json.dumps({'type': 'progress', 'stage': 'starting', 'message': 'Thinking...'})}\n\n"
+            started = True
+
+            async for line in ai_client.stream_query_connection(
+                connection_id=str(resolved_connection_id),
+                question=message_data.message,
+                user_id=str(current_user.id),
+                space_id=str(scope_space_id),
+                instructions=getattr(message_data, "instructions", None),
+                is_personal=scope_is_personal,
+            ):
+                if line.startswith("data: "):
+                    yield line + "\n\n"
+                elif line.strip():
+                    yield f"data: {line.strip()}\n\n"
+
+            yield f"data: {_json.dumps({'type': 'done'})}\n\n"
+        except Exception as exc:
+            logger.error(f"Chat stream failed: {exc}", exc_info=True)
+            if started:
+                yield f"data: {_json.dumps({'type': 'error', 'message': str(exc)[:200]})}\n\n"
+            else:
+                yield f"data: {_json.dumps({'type': 'error', 'message': 'Unable to start chat stream.'})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 @router.get(
     "/history",
     response_model=List[AIHistoryItem],
