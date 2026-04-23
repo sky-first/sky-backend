@@ -205,8 +205,14 @@ async def run_agent_stream(
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    if not agent.connection_ids:
-        raise HTTPException(status_code=400, detail="Agent has no connections to analyze")
+
+    # Full-context mode is allowed without explicit connection_ids — the
+    # RAG still pulls pillars/events/relationships/etc. For other modes
+    # (question / sql / datasource / scan) we need at least one concrete
+    # connection to anchor the query. We fall back to the caller's first
+    # active connection before giving up, so an agent that was created
+    # before the UI started persisting connection_ids still runs.
+    monitor_type = (agent.monitor_type or "question").lower()
 
     # Create execution record
     execution = AgentExecution(agent_id=agent.id, status="running")
@@ -225,7 +231,15 @@ async def run_agent_stream(
         conn_id = str(agent.connection_ids[0]) if agent.connection_ids else None
 
         if not conn_id:
-            yield f"data: {json.dumps({'type': 'error', 'message': 'No connections configured'})}\n\n"
+            # Fallback: use any active connection the user can read. This
+            # lets full-context agents run against the user's aggregate
+            # universe even when the agent row doesn't pin a specific
+            # connection.
+            from src.services.ai_service import AIService
+            conn_id = await AIService(db)._get_first_active_connection(current_user.id)
+
+        if not conn_id and monitor_type != "context":
+            yield f"data: {json.dumps({'type': 'error', 'message': 'No data source available. Add a connection in the Edit tab, or switch to Full context mode.'})}\n\n"
             return
 
         # Phase 4.2: explicit handling of every monitor_type the schema
