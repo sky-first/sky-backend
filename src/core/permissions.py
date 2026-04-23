@@ -60,7 +60,12 @@ PERMISSIONS = {
     },
     "user": {
         "create": ["owner", "admin"],
-        "read": ["owner", "admin", "user"],
+        # Red-team HI-001 (2026-04-23): regular users must NOT read
+        # other users' profiles via GET /users/{id}. Reading your own
+        # profile goes through `current_user.id == user_id` in the
+        # route, which bypasses this check. Only owner + admin keep
+        # cross-user read rights (they need it for administration).
+        "read": ["owner", "admin"],
         "update": ["owner", "admin"],
         "delete": ["owner", "admin"],
     },
