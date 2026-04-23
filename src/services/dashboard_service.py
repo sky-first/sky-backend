@@ -102,6 +102,34 @@ class DashboardService:
         await self.db.commit()
         await self.db.refresh(dashboard)
 
+        # Ingest the dashboard into the RAG. Scope inherits from the
+        # parent page: Personal → owner_user_id; space/crew pages →
+        # those ids. Failures logged + swallowed so a broken AI side
+        # never blocks dashboard creation. Mirrors the same pattern
+        # used by space/crew/agent/page/widget ingest (Bug 6a phase 3).
+        try:
+            import logging
+            from src.ai.http_client import AIServiceHTTPClient
+            ai_client = AIServiceHTTPClient()
+            owner_user_id = str(user.id) if page.type == "personal" else None
+            await ai_client.ingest_knowledge_graph({
+                "id": str(dashboard.id),
+                "entity_type": "dashboard",
+                "name": dashboard.name,
+                "description": dashboard.description,
+                "space_id": str(page.space_id) if page.space_id else None,
+                "crew_id": str(page.crew_id) if page.crew_id else None,
+                "owner_user_id": owner_user_id,
+                "entity_details": {
+                    "page_id": str(dashboard.page_id),
+                    "created_by": str(user.id),
+                    "is_locked": dashboard.is_locked,
+                },
+            })
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(f"AI ingest failed for dashboard {dashboard.id}: {exc}")
+
         return DashboardResponse.model_validate(dashboard)
 
     async def get_dashboard(self, dashboard_id: UUID, user: User) -> DashboardResponse:

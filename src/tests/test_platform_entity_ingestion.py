@@ -201,3 +201,46 @@ async def test_create_page_ingests_page_with_owner_for_personal_type(
     assert page_payloads[0]["id"] == body["id"]
     assert page_payloads[0]["owner_user_id"] == user_id
     assert page_payloads[0]["space_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_dashboard_ingests_with_personal_scope_inherited_from_page(
+    async_client: AsyncClient, test_user_with_tokens: dict
+):
+    """Dashboards inherit scope from their parent page. Personal page →
+    dashboard ingest carries owner_user_id. Space page → dashboard
+    carries space_id instead."""
+    token = test_user_with_tokens["access_token"]
+    user_id = str(test_user_with_tokens["user"].id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with patch(
+        "src.ai.http_client.AIServiceHTTPClient.ingest_knowledge_graph",
+        new=AsyncMock(return_value={"success": True}),
+    ) as mock_ingest:
+        page_res = await async_client.post(
+            "/api/v1/pages",
+            json={"name": "Parent personal page", "type": "personal", "color": "#4F46E5"},
+            headers=headers,
+        )
+        assert page_res.status_code in (200, 201)
+        page_id = page_res.json()["id"]
+
+        dash_res = await async_client.post(
+            "/api/v1/dashboards",
+            json={"name": "My canvas", "page_id": page_id},
+            headers=headers,
+        )
+    assert dash_res.status_code in (200, 201)
+    dash_body = dash_res.json()
+    payloads = _get_ingest_payloads(mock_ingest)
+    dashboard_payloads = [p for p in payloads if p and p.get("entity_type") == "dashboard"]
+    assert len(dashboard_payloads) == 1
+    assert dashboard_payloads[0]["id"] == dash_body["id"]
+    # Personal page → dashboard inherits owner_user_id and leaves
+    # space/crew NULL so the isolation filter works correctly on
+    # chat queries scoped to the dashboard's page.
+    assert dashboard_payloads[0]["owner_user_id"] == user_id
+    assert dashboard_payloads[0]["space_id"] is None
+    assert dashboard_payloads[0]["crew_id"] is None
+    assert dashboard_payloads[0]["entity_details"]["page_id"] == page_id
