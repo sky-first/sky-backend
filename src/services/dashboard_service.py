@@ -247,6 +247,51 @@ class DashboardService:
         await self.db.commit()
         await self.db.refresh(widget)
 
+        # Ingest the widget into the RAG. The dashboard→page→space/crew
+        # chain defines scope; we climb it lazily because WidgetCreate
+        # doesn't carry page_id. For Personal pages the retrieved
+        # parent will have owner_id = creator; we stamp owner_user_id
+        # accordingly. Failures logged + swallowed.
+        try:
+            import logging
+            from src.ai.http_client import AIServiceHTTPClient
+            _logger = logging.getLogger(__name__)
+            ai_client = AIServiceHTTPClient()
+            space_id = None
+            crew_id = None
+            owner_user_id = None
+            try:
+                from src.repositories.page import PageRepository
+                page_repo = PageRepository(self.db)
+                page = await page_repo.get_by_id(dashboard.page_id) if dashboard.page_id else None
+                if page is not None:
+                    space_id = str(page.space_id) if page.space_id else None
+                    crew_id = str(page.crew_id) if page.crew_id else None
+                    if page.type == "personal":
+                        owner_user_id = str(page.owner_id)
+            except Exception:
+                # Scope inference is best-effort — missing scope just means the
+                # widget won't be filtered on these axes (safer: treat as
+                # space-public than to block ingest).
+                pass
+            await ai_client.ingest_knowledge_graph({
+                "id": str(widget.id),
+                "entity_type": "widget",
+                "name": widget.title or widget.type,
+                "description": f"{widget.type} widget",
+                "space_id": space_id,
+                "crew_id": crew_id,
+                "owner_user_id": owner_user_id,
+                "entity_details": {
+                    "type": widget.type,
+                    "dashboard_id": str(widget.dashboard_id),
+                    "connection_id": str(widget.connection_id) if widget.connection_id else None,
+                },
+            })
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(f"AI ingest failed for widget {widget.id}: {exc}")
+
         return WidgetResponse.model_validate(widget)
 
     async def get_widget(self, widget_id: UUID, user: User) -> WidgetResponse:

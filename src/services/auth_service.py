@@ -1,11 +1,14 @@
 """Authentication service."""
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
 from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, UnauthorizedError
@@ -128,6 +131,30 @@ class AuthenticationService:
                 background_tasks.add_task(perform_onboarding_task, UUID(str(user.id)))
             else:
                 await ensure_default_page_and_space(self.db, user)
+
+        # Ingest the user into the RAG so agents + chat can answer
+        # questions like "who is on my team?" or "who reported that
+        # finding?". Personal scope (owner_user_id = self) so the
+        # user's profile only shows up in their own retrieval unless
+        # they end up as a member of shared scopes.
+        try:
+            from src.ai.http_client import AIServiceHTTPClient
+            ai_client = AIServiceHTTPClient()
+            await ai_client.ingest_knowledge_graph({
+                "id": str(user.id),
+                "entity_type": "user",
+                "name": user.name,
+                "description": f"Platform user — {user.role}" if user.role else "Platform user",
+                "space_id": None,
+                "crew_id": None,
+                "owner_user_id": str(user.id),
+                "entity_details": {
+                    "email": user.email,
+                    "role": user.role,
+                },
+            })
+        except Exception as exc:
+            logger.warning(f"AI ingest failed for user {user.id}: {exc}")
 
         user_response_data = user_to_response_dict(user)
         return UserResponse.model_validate(user_response_data)

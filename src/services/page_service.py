@@ -109,6 +109,35 @@ class PageService:
         await self.db.commit()
         await self.db.refresh(page)
 
+        # Ingest the page into the RAG so chat/agents know about it.
+        # Personal pages carry owner_user_id only so they stay isolated
+        # per-user even if they later get moved under a space. Failures
+        # are logged + swallowed — creation must never be blocked.
+        try:
+            import logging
+            from src.ai.http_client import AIServiceHTTPClient
+            _logger = logging.getLogger(__name__)
+            ai_client = AIServiceHTTPClient()
+            is_personal = page.type == "personal"
+            await ai_client.ingest_knowledge_graph({
+                "id": str(page.id),
+                "entity_type": "page",
+                "name": page.name,
+                "description": page.description,
+                "space_id": str(page.space_id) if page.space_id else None,
+                "crew_id": str(page.crew_id) if page.crew_id else None,
+                "owner_user_id": str(user.id) if is_personal else None,
+                "entity_details": {
+                    "type": page.type,
+                    "color": page.color,
+                    "icon": page.icon,
+                    "owner_id": str(page.owner_id),
+                },
+            })
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(f"AI ingest failed for page {page.id}: {exc}")
+
         return PageResponse.model_validate(page)
 
     async def get_page(self, page_id: UUID, user: User) -> PageResponse:
