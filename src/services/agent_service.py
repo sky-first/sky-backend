@@ -92,6 +92,7 @@ class AgentService:
             depth=data.depth or "standard",
             connection_ids=data.connection_ids,
             table_ids=data.table_ids,
+            selected_context=data.selected_context,
             space_ids=data.space_ids,
             relationship_types=data.relationship_types,
             next_execution_at=next_run,
