@@ -256,8 +256,13 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+        # Red-team HI-002: creator can always edit; non-creator needs
+        # `connections.edit` in the connection's space (explorer/nav-
+        # igator denied, commander/admin allowed).
+        from src.services._mutation_guard import require_mutation_rights
+        await require_mutation_rights(
+            connection, user=user, rbac_permission="connections.edit", db=self.db
+        )
 
         update_data = connection_data.model_dump(exclude_unset=True)
         # Handle metadata update if present
@@ -307,21 +312,15 @@ class ConnectionService:
             f"🔴 [DELETE SERVICE] Checking permissions: connection_id={connection_id}, user_id={user.id}, environment={settings.ENVIRONMENT}, is_development={settings.is_development}"
         )
 
-        if settings.is_development:
-            # Development mode: allow any authenticated user to delete
-            logger.info(
-                f"🔴 [DELETE SERVICE] Development mode: Allowing user {user.id} to delete connection {connection_id} (created by {connection.created_by})"
-            )
-        else:
-            # Production mode: only admin or owner can delete
-            logger.info(
-                f"🔴 [DELETE SERVICE] Production mode: Checking if user {user.id} is admin or owner"
-            )
-            if user.role != "admin" and connection.created_by != user.id:
-                logger.warning(
-                    f"🔴 [DELETE SERVICE] Access denied: user {user.id} is not admin and not owner (created_by={connection.created_by})"
-                )
-                raise ForbiddenError("Access denied to this connection")
+        # Red-team HI-002 (2026-04-23): removed the dev-mode blanket
+        # bypass + unified on the standard mutation guard so the same
+        # rule runs in dev and prod. Creator can always delete; non-
+        # creator needs `connections.delete` in the connection's space
+        # (matrix denies navigator/explorer, allows commander/admin).
+        from src.services._mutation_guard import require_mutation_rights
+        await require_mutation_rights(
+            connection, user=user, rbac_permission="connections.delete", db=self.db
+        )
 
         logger.info(
             f"🔴 [DELETE SERVICE] HARD Deleting connection {connection_id} and dependent metadata..."
