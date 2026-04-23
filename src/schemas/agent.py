@@ -53,6 +53,12 @@ class AgentCreate(BaseModel):
     # Transcript from the AI chat when the agent was created via the
     # "Create agent from this chat" CTA. Plain text, nullable.
     chat_context: Optional[str] = None
+    # Full Universe-Intelligence scope: dict keyed by entity kind
+    # (pillars, objectives, okrs, initiatives, assumptions, key_results,
+    # glossary_terms, signal_events, intelligence_signals,
+    # enterprise_relationships, widgets, insights, pages, ...). Empty
+    # arrays or missing keys = "no filter for that kind".
+    selected_context: Optional[Dict[str, List[str]]] = None
 
     @field_validator("monitor_type")
     @classmethod
@@ -72,6 +78,7 @@ class AgentUpdate(BaseModel):
     space_ids: Optional[List[UUID]] = None
     relationship_types: Optional[List[str]] = None
     chat_context: Optional[str] = None
+    selected_context: Optional[Dict[str, List[str]]] = None
     # Flexible schedule — supersedes `frequency` when present.
     # Shape: {interval_value: int, interval_unit: minute|hour|day|week|month,
     #         end: {type: forever|once|n_runs|until_date, value: int|iso?}}
@@ -134,6 +141,7 @@ class AgentResponse(BaseModel):
     depth: Optional[str] = None
     connection_ids: List[UUID] = []
     table_ids: Optional[List[str]] = None
+    selected_context: Optional[Dict[str, List[str]]] = None
     space_ids: Optional[List[UUID]] = None
     relationship_types: Optional[List[str]] = None
     last_execution_at: Optional[datetime] = None
@@ -170,6 +178,7 @@ class AgentListResponse(BaseModel):
     depth: Optional[str] = None
     connection_ids: List[UUID] = []
     table_ids: Optional[List[str]] = None
+    selected_context: Optional[Dict[str, List[str]]] = None
     space_ids: Optional[List[UUID]] = None
     relationship_types: Optional[List[str]] = None
     last_execution_at: Optional[datetime] = None
