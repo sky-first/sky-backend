@@ -348,21 +348,32 @@ class PageService:
         """
         Delete page.
 
-        Args:
-            page_id: Page ID
-            user: Current user
+        Personal page: only the owner (``owner_id``) may delete.
+        Space page: owner OR someone with pages.delete in the page's
+        space (space admin / commander / platform owner-admin).
 
-        Raises:
-            NotFoundError: If page not found
-            ForbiddenError: If user is not owner
+        Red-team HI-003 (2026-04-23): before this, Space-scoped pages
+        could only be deleted by the creator, leaving admin cleanup
+        impossible — product rule says "Space admin can delete
+        anything in their Space".
         """
         page = await self.page_repo.get_by_id(page_id)
         if not page or page.deleted_at:
             raise NotFoundError("Page not found")
 
-        # Only owner can delete
-        if page.owner_id != user.id:
-            raise ForbiddenError("Only page owner can delete")
+        # Personal: owner-only (map owner_id onto the guard's
+        # owner_user_id shape).
+        if getattr(page, "space_id", None) is None:
+            if page.owner_id != user.id:
+                raise ForbiddenError("Only page owner can delete")
+        else:
+            # Space page — creator bypass + RBAC pages.delete in the
+            # page's space.
+            if page.owner_id != user.id:
+                from src.services.rbac_service import RBACService
+                await RBACService(self.db).assert_permission(
+                    user, "pages.delete", space_id=page.space_id
+                )
 
         await self.page_repo.delete(page_id)
         await self.db.commit()
