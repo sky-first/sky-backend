@@ -1,0 +1,128 @@
+"""Tests for POST /api/v1/ai/chat/stream (SSE streaming variant of the
+chat endpoint). Covers the happy path (events forwarded), the no-
+connection error path, and the upstream-failure path.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, patch
+from uuid import uuid4
+
+import pytest
+from httpx import AsyncClient
+
+
+async def _aiter(items):
+    """Async generator helper — yields the given items in order."""
+    for x in items:
+        yield x
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_forwards_ai_service_events(
+    async_client: AsyncClient, test_user_with_tokens: dict
+):
+    token = test_user_with_tokens["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Fake AI service returning a 3-event stream.
+    ai_events = [
+        'data: {"type": "chunk", "content": "Hello"}',
+        'data: {"type": "chunk", "content": " world"}',
+        'data: {"type": "meta", "meta": {"sql": "SELECT 1"}}',
+    ]
+
+    fake_conn = str(uuid4())
+    with patch(
+        "src.services.ai_service.AIService._get_first_active_connection",
+        new=AsyncMock(return_value=fake_conn),
+    ), patch(
+        "src.ai.http_client.AIServiceHTTPClient.stream_query_connection",
+        side_effect=lambda *args, **kwargs: _aiter(ai_events),
+    ):
+        async with async_client.stream(
+            "POST",
+            "/api/v1/ai/chat/stream",
+            json={"message": "How many orders do I have?", "widget_id": str(uuid4())},
+            headers=headers,
+        ) as resp:
+            assert resp.status_code == 200
+            assert resp.headers["content-type"].startswith("text/event-stream")
+            body = b""
+            async for chunk in resp.aiter_bytes():
+                body += chunk
+
+    text = body.decode("utf-8")
+    # Progress event emitted before forwarding kicks in.
+    assert "progress" in text
+    # Each upstream event is forwarded verbatim (after the "data: " prefix).
+    assert '"content": "Hello"' in text
+    assert '"content": " world"' in text
+    assert '"sql": "SELECT 1"' in text
+    # And we emit a terminal `done` when the stream ends cleanly.
+    assert '"type": "done"' in text
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_emits_error_when_connection_missing(
+    async_client: AsyncClient, test_user_with_tokens: dict
+):
+    """User has no connection in scope — stream must emit a single
+    `error` event with actionable copy and close, not raise an HTTP
+    500 or silently hang."""
+    token = test_user_with_tokens["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # resolve_chat_scope doesn't exist yet in ai_service; the endpoint's
+    # fallback builds a scope with connection_id=None.
+    async with async_client.stream(
+        "POST",
+        "/api/v1/ai/chat/stream",
+        json={"message": "anything", "widget_id": str(uuid4())},
+        headers=headers,
+    ) as resp:
+        assert resp.status_code == 200
+        body = b""
+        async for chunk in resp.aiter_bytes():
+            body += chunk
+
+    text = body.decode("utf-8")
+    assert '"type": "error"' in text
+    assert "No data source available" in text
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_emits_error_event_when_upstream_raises(
+    async_client: AsyncClient, test_user_with_tokens: dict
+):
+    """If the AI service stream raises mid-flight, we emit an error
+    event with the exception message (truncated) so the UI can show
+    a useful banner instead of an unexplained cut."""
+    token = test_user_with_tokens["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async def _failing_stream(*args, **kwargs):
+        yield 'data: {"type": "progress", "stage": "thinking"}'
+        raise RuntimeError("upstream exploded")
+
+    fake_conn = str(uuid4())
+    with patch(
+        "src.services.ai_service.AIService._get_first_active_connection",
+        new=AsyncMock(return_value=fake_conn),
+    ), patch(
+        "src.ai.http_client.AIServiceHTTPClient.stream_query_connection",
+        side_effect=lambda *args, **kwargs: _failing_stream(),
+    ):
+        async with async_client.stream(
+            "POST",
+            "/api/v1/ai/chat/stream",
+            json={"message": "ping", "widget_id": str(uuid4())},
+            headers=headers,
+        ) as resp:
+            body = b""
+            async for chunk in resp.aiter_bytes():
+                body += chunk
+
+    text = body.decode("utf-8")
+    assert '"type": "error"' in text
+    assert "upstream exploded" in text
