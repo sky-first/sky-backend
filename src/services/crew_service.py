@@ -1,12 +1,16 @@
 """Crew service."""
 
+import logging
 from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.http_client import AIServiceHTTPClient
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.user import User
+
+logger = logging.getLogger(__name__)
 from src.repositories.crew import CrewMemberRepository, CrewRepository
 from src.repositories.space import SpaceMemberRepository, SpaceRepository
 from src.schemas.crew import (
@@ -37,6 +41,7 @@ class CrewService:
         self.member_repo = CrewMemberRepository(db)
         self.space_repo = SpaceRepository(db)
         self.space_member_repo = SpaceMemberRepository(db)
+        self.ai_client = AIServiceHTTPClient()
 
     async def _assert_crew_read_access(self, space_id: UUID, crew_id: UUID, user: User) -> None:
         """Allow admin/owner, space creator, space member, or crew member to read crew data."""
@@ -184,6 +189,22 @@ class CrewService:
 
         await self.db.commit()
         await self.db.refresh(crew)
+
+        # Ingest the Crew so RAG knows about it — mirrors SpaceService's
+        # create flow. Failures are logged + swallowed.
+        try:
+            await self.ai_client.ingest_knowledge_graph({
+                "id": str(crew.id),
+                "entity_type": "crew",
+                "name": crew.name,
+                "description": crew.description,
+                "space_id": str(crew.space_id),
+                "crew_id": str(crew.id),
+                "owner_user_id": str(user.id),
+                "entity_details": {"created_by": str(user.id)},
+            })
+        except Exception as exc:
+            logger.warning(f"AI ingest failed for crew {crew.id}: {exc}")
 
         return CrewResponse.model_validate(crew)
 

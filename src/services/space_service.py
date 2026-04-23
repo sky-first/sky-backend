@@ -178,6 +178,29 @@ class SpaceService:
         await self.db.commit()
         await self.db.refresh(space)
 
+        # Ingest the Space into the knowledge graph so RAG knows about
+        # it. Without this the chat/agents never have a concept of the
+        # Space they're scoped to beyond its id. Failures here are
+        # logged and swallowed — a broken AI side must not block Space
+        # creation (see Bug 6a phase 3 in session checkpoint).
+        try:
+            await self.ai_client.ingest_knowledge_graph({
+                "id": str(space.id),
+                "entity_type": "space",
+                "name": space.name,
+                "description": space.description,
+                "space_id": str(space.id),
+                "crew_id": None,
+                "owner_user_id": str(user.id),
+                "entity_details": {
+                    "created_by": str(user.id),
+                    "color": space.color,
+                    "icon": space.icon,
+                },
+            })
+        except Exception as exc:
+            logger.warning(f"AI ingest failed for space {space.id}: {exc}")
+
         return SpaceResponse.model_validate(space)
 
     async def update_space(
