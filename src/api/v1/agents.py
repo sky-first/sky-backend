@@ -81,7 +81,6 @@ async def get_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Get agent detail with findings."""
-    """Get agent detail with findings."""
     agent = await service.get_agent(agent_id)
     s_id = None
     if agent.scope == "space" and agent.scope_id:
@@ -102,7 +101,6 @@ async def update_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Update agent configuration."""
-    """Update agent configuration."""
     agent = await service.get_agent(agent_id)
     s_id = None
     if agent.scope == "space" and agent.scope_id:
@@ -121,7 +119,6 @@ async def delete_agent(
     db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
-    """Delete an agent and all its findings."""
     """Delete an agent and all its findings."""
     agent = await service.get_agent(agent_id)
     s_id = None
@@ -143,7 +140,6 @@ async def pause_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Pause an active agent."""
-    """Pause an active agent."""
     agent = await service.get_agent(agent_id)
     s_id = None
     if getattr(agent, "scope", None) == "space" and getattr(agent, "scope_id", None):
@@ -162,7 +158,6 @@ async def resume_agent(
     db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
-    """Resume a paused agent."""
     """Resume a paused agent."""
     agent = await service.get_agent(agent_id)
     s_id = None

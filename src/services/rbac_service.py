@@ -26,9 +26,11 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError
+from src.models.space import SpaceMember
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
 from src.repositories.crew import CrewMemberRepository
@@ -998,9 +1000,6 @@ class RBACService:
         # owner / admin have already bypassed above; this path is for
         # platform `member` users with scoped grants.
         if space_id:
-            from sqlalchemy import select
-            from src.models.space import SpaceMember
-
             res = await self.db.execute(
                 select(SpaceMember.role).where(
                     SpaceMember.space_id == space_id,
@@ -1039,9 +1038,6 @@ class RBACService:
 
     async def _best_role_for_user_anywhere(self, user_id: UUID) -> CrewRole:
         crew_ids = await self.crew_members.get_crew_ids_by_user(user_id)
-        
-        from sqlalchemy import select
-        from src.models.space import SpaceMember
 
         res = await self.db.execute(
             select(SpaceMember.role).where(SpaceMember.user_id == user_id)
