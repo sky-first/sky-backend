@@ -157,4 +157,105 @@ async def test_create_signal_event_enum_uppercase(
     assert data["nature"] == "SIGNAL"
 
 
+# ---------------------------------------------------------------------------
+# Bug 6a phase 2 — Personal isolation on the strategy tree
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pillar_created_in_personal_mode_stamps_owner_and_nulls_space(
+    async_client: AsyncClient, test_user_with_tokens: dict
+):
+    """Creating a pillar with ?is_personal=true must persist owner_user_id
+    and leave space_id/crew_id NULL so Personal stays isolated."""
+    token = test_user_with_tokens["access_token"]
+    user_id = str(test_user_with_tokens["user"].id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res = await async_client.post(
+        "/api/v1/strategy/pillars?is_personal=true",
+        json={"name": "My Private Pillar"},
+        headers=headers,
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["owner_user_id"] == user_id
+    assert data["space_id"] is None
+    assert data["crew_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_pillar_created_in_space_leaves_owner_null(
+    async_client: AsyncClient, test_user_with_tokens: dict
+):
+    """Creating a pillar without is_personal (Space scope) must leave
+    owner_user_id NULL so Space views can still see it."""
+    token = test_user_with_tokens["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res = await async_client.post(
+        "/api/v1/strategy/pillars",
+        json={"name": "Team Pillar"},
+        headers=headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["owner_user_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_strategy_tree_personal_only_returns_caller_items(
+    async_client: AsyncClient, test_user_with_tokens: dict
+):
+    """GET /strategy/tree?is_personal=true must return only items the
+    caller created in Personal; space-scoped items stay hidden."""
+    token = test_user_with_tokens["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # One Personal + one Space pillar, same caller.
+    await async_client.post(
+        "/api/v1/strategy/pillars?is_personal=true",
+        json={"name": "Personal-only Pillar"},
+        headers=headers,
+    )
+    await async_client.post(
+        "/api/v1/strategy/pillars",
+        json={"name": "Space-only Pillar"},
+        headers=headers,
+    )
+
+    personal = await async_client.get(
+        "/api/v1/strategy/tree?is_personal=true", headers=headers
+    )
+    assert personal.status_code == 200
+    names = [p["name"] for p in personal.json()["pillars"]]
+    assert "Personal-only Pillar" in names
+    assert "Space-only Pillar" not in names
+
+
+@pytest.mark.asyncio
+async def test_strategy_tree_space_excludes_other_user_personal(
+    async_client: AsyncClient,
+    test_user_with_tokens: dict,
+    test_second_user_with_tokens: dict,
+):
+    """Space/Crew view must NOT include another user's Personal items.
+    This is the anti-leak check the whole isolation work hinges on."""
+    # User B creates a Personal pillar that User A must never see in a
+    # Space listing — even if the space_id coincides (we don't pass one).
+    b_token = test_second_user_with_tokens["access_token"]
+    b_headers = {"Authorization": f"Bearer {b_token}"}
+    await async_client.post(
+        "/api/v1/strategy/pillars?is_personal=true",
+        json={"name": "B-private Pillar"},
+        headers=b_headers,
+    )
+
+    a_token = test_user_with_tokens["access_token"]
+    a_headers = {"Authorization": f"Bearer {a_token}"}
+    res = await async_client.get("/api/v1/strategy/tree", headers=a_headers)
+    assert res.status_code == 200
+    names = [p["name"] for p in res.json()["pillars"]]
+    assert "B-private Pillar" not in names
+
+
 

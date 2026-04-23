@@ -248,7 +248,15 @@ async def run_agent_stream(
         conn_id = str(agent.connection_ids[0]) if agent.connection_ids else None
 
         if not conn_id:
-            yield f"data: {json.dumps({'type': 'error', 'message': 'No connections configured'})}\n\n"
+            # Fallback: use any active connection the user can read. This
+            # lets full-context agents run against the user's aggregate
+            # universe even when the agent row doesn't pin a specific
+            # connection.
+            from src.services.ai_service import AIService
+            conn_id = await AIService(db)._get_first_active_connection(current_user.id)
+
+        if not conn_id and monitor_type != "context":
+            yield f"data: {json.dumps({'type': 'error', 'message': 'No data source available. Add a connection in the Edit tab, or switch to Full context mode.'})}\n\n"
             return
 
         # Phase 4.2: explicit handling of every monitor_type the schema
@@ -288,6 +296,14 @@ async def run_agent_stream(
         # Send initial progress
         yield f"data: {json.dumps({'type': 'progress', 'stage': 'starting', 'message': f'Connecting to {agent.name}...'})}\n\n"
 
+        # Forward the agent's full Universe-Intelligence selection to the
+        # AI service so the RAG can filter to the pinned subset across
+        # every entity kind (Business Rules incl. glossary, Events,
+        # Relationships, Outputs). Empty dict / missing kinds = no filter.
+        selected_ctx: Optional[Dict[str, List[str]]] = (
+            getattr(agent, "selected_context", None) or None
+        )
+        is_personal = (agent.scope or "").lower() == "personal"
         try:
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
@@ -295,6 +311,8 @@ async def run_agent_stream(
                 user_id=str(current_user.id),
                 space_id=agent.scope_id or "default",
                 instructions=agent.focus,
+                is_personal=is_personal,
+                selected_context=selected_ctx,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):
@@ -354,10 +372,18 @@ async def run_agent_stream(
             from src.config.database import AsyncSessionLocal
             async with AsyncSessionLocal() as save_db:
                 has_answer = bool(collected_answer and collected_answer.strip())
+                # Finding type is always a member of the FindingType enum
+                # ("insight", "opportunity", "risk"). A run that produced no
+                # content is still an observation about the agent's state —
+                # persist it as a low-severity "insight" with confidence=0
+                # and a title that reads as "no output". Previously we stored
+                # "error" here, which is NOT in FindingType, and that made
+                # GET /agents/ explode during response serialization
+                # (ResponseValidationError, 500 on the whole list).
                 finding = AgentFinding(
                     agent_id=agent.id,
                     execution_id=execution_id,
-                    type="insight" if has_answer else "error",
+                    type="insight",
                     severity="medium" if has_answer else "low",
                     title=(
                         collected_meta.get("title", f"Analysis from {agent.name}")[:500]

@@ -4,8 +4,17 @@ from typing import Any, Dict, Optional, Type
 
 from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
+from src.connectors.dropbox import DropboxConnector
+from src.connectors.google_drive import GoogleDriveConnector
+from src.connectors.google_sheets import GoogleSheetsConnector
+from src.connectors.hubspot import HubSpotConnector
+from src.connectors.jira import JiraConnector
+from src.connectors.microsoft_graph import OneDriveConnector, SharePointConnector
+from src.connectors.mongodb import MongoDBConnector
 from src.connectors.mysql import MySQLConnector
 from src.connectors.postgresql import PostgreSQLConnector
+from src.connectors.rest_api import RestAPIConnector
+from src.connectors.salesforce import SalesforceConnector
 
 
 # Mock connectors for now - will be implemented later
@@ -35,9 +44,19 @@ class MockConnector(BaseConnector):
 CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "postgresql": PostgreSQLConnector,
     "mysql": MySQLConnector,
-    "mongodb": MockConnector,
-    "google-sheets": MockConnector,
-    "rest-api": MockConnector,
+    "mongodb": MongoDBConnector,
+    "google-sheets": GoogleSheetsConnector,
+    "google_sheets": GoogleSheetsConnector,
+    "rest-api": RestAPIConnector,
+    "rest_api": RestAPIConnector,
+    "jira": JiraConnector,
+    "hubspot": HubSpotConnector,
+    "salesforce": SalesforceConnector,
+    "google-drive": GoogleDriveConnector,
+    "google_drive": GoogleDriveConnector,
+    "dropbox": DropboxConnector,
+    "onedrive": OneDriveConnector,
+    "sharepoint": SharePointConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
     "snowflake": MockConnector,

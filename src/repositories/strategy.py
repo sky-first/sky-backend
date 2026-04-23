@@ -38,12 +38,22 @@ class StrategyRepository:
 
     # --- Strategic Pillar ---
 
-    async def get_all_pillars(self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None) -> List[StrategicPillar]:
+    async def get_all_pillars(
+        self,
+        space_id: Optional[UUID] = None,
+        crew_id: Optional[UUID] = None,
+        is_personal: bool = False,
+        user_id: Optional[UUID] = None,
+    ) -> List[StrategicPillar]:
         query = select(StrategicPillar)
-        if space_id:
-            query = query.where(StrategicPillar.space_id == space_id)
-        if crew_id:
-            query = query.where(StrategicPillar.crew_id == crew_id)
+        if is_personal:
+            query = query.where(StrategicPillar.owner_user_id == user_id)
+        else:
+            query = query.where(StrategicPillar.owner_user_id.is_(None))
+            if space_id:
+                query = query.where(StrategicPillar.space_id == space_id)
+            if crew_id:
+                query = query.where(StrategicPillar.crew_id == crew_id)
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -74,12 +84,22 @@ class StrategyRepository:
 
     # --- Strategic Objective ---
 
-    async def get_all_objectives(self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None) -> List[StrategicObjective]:
+    async def get_all_objectives(
+        self,
+        space_id: Optional[UUID] = None,
+        crew_id: Optional[UUID] = None,
+        is_personal: bool = False,
+        user_id: Optional[UUID] = None,
+    ) -> List[StrategicObjective]:
         query = select(StrategicObjective)
-        if space_id:
-            query = query.where(StrategicObjective.space_id == space_id)
-        if crew_id:
-            query = query.where(StrategicObjective.crew_id == crew_id)
+        if is_personal:
+            query = query.where(StrategicObjective.owner_user_id == user_id)
+        else:
+            query = query.where(StrategicObjective.owner_user_id.is_(None))
+            if space_id:
+                query = query.where(StrategicObjective.space_id == space_id)
+            if crew_id:
+                query = query.where(StrategicObjective.crew_id == crew_id)
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -110,12 +130,22 @@ class StrategyRepository:
 
     # --- Strategy OKR ---
 
-    async def get_all_okrs(self, space_id: Optional[UUID] = None, crew_id: Optional[UUID] = None) -> List[StrategyOKR]:
+    async def get_all_okrs(
+        self,
+        space_id: Optional[UUID] = None,
+        crew_id: Optional[UUID] = None,
+        is_personal: bool = False,
+        user_id: Optional[UUID] = None,
+    ) -> List[StrategyOKR]:
         query = select(StrategyOKR).options(selectinload(StrategyOKR.key_results))
-        if space_id:
-            query = query.where(StrategyOKR.space_id == space_id)
-        if crew_id:
-            query = query.where(StrategyOKR.crew_id == crew_id)
+        if is_personal:
+            query = query.where(StrategyOKR.owner_user_id == user_id)
+        else:
+            query = query.where(StrategyOKR.owner_user_id.is_(None))
+            if space_id:
+                query = query.where(StrategyOKR.space_id == space_id)
+            if crew_id:
+                query = query.where(StrategyOKR.crew_id == crew_id)
         result = await self.session.execute(query)
         return result.scalars().all()
 

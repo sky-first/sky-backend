@@ -95,8 +95,34 @@ class Agent(Base):
     connection_ids = Column(_array_with_sqlite_variant(UUID(as_uuid=True)), nullable=False, default=[])
     table_ids = Column(_array_with_sqlite_variant(String), nullable=True)  # Granular table selection
 
+    # Selected context — everything in Universe Intelligence that can be
+    # scoped to an agent, indexed by entity kind. Keys mirror what the
+    # DataSourcePicker surfaces: Business Rules (pillars/objectives/okrs/
+    # initiatives/assumptions/key_results/glossary_terms), Events
+    # (signal_events, intelligence_signals), Relationships
+    # (enterprise_relationships), Outputs (widgets, insights, pages).
+    # Empty arrays or missing keys mean "no filter — include everything
+    # the RAG can see in scope".
+    # Example:
+    #   {
+    #     "pillars": ["uuid-1"],
+    #     "okrs": [],
+    #     "glossary_terms": ["uuid-9"],
+    #     "signal_events": ["uuid-3"],
+    #     "enterprise_relationships": [],
+    #     "widgets": [],
+    #   }
+    selected_context = Column(_JSONB_OR_JSON, nullable=True)
+
     # Previous execution answer for comparison
     last_answer = Column(Text, nullable=True)
+
+    # Transcript of the AI chat conversation this agent was created from.
+    # Populated only when the "Create agent from this chat" CTA is used
+    # (frontend passes the last N messages as a readable transcript).
+    # Otherwise NULL — legacy agents and sidebar-originated creations
+    # don't carry chat context.
+    chat_context = Column(Text, nullable=True)
 
     # Organization scope: spaces to traverse + relationship types
     space_ids = Column(_array_with_sqlite_variant(UUID(as_uuid=True)), nullable=True)

@@ -106,10 +106,16 @@ class AIServiceHTTPClient:
         user_id: str,
         space_id: str,
         instructions: Optional[str] = None,
+        is_personal: Optional[bool] = None,
+        selected_context: Optional[Dict[str, List[str]]] = None,
     ) -> AsyncIterator[str]:
         """
         Stream a query to the AI service via SSE.
         Yields raw SSE lines (data: {...}) as they arrive.
+
+        ``selected_context`` lets the caller restrict retrieval to
+        specific context entity IDs ({kind: [id, ...]}). The AI service
+        treats empty dict / missing kinds as "no filter".
         """
         url = f"{self.base_url}/connections/{connection_id}/query/stream"
 
@@ -120,6 +126,10 @@ class AIServiceHTTPClient:
         }
         if instructions:
             payload["instructions"] = instructions
+        if is_personal is not None:
+            payload["is_personal"] = bool(is_personal)
+        if selected_context:
+            payload["selected_context"] = selected_context
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             logger.info(f"Streaming AI service: {url} for connection {connection_id}")

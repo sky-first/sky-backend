@@ -47,13 +47,19 @@ def get_service(db: AsyncSession = Depends(get_db)) -> StrategyService:
 async def get_strategy_tree(
     space_id: Optional[UUID] = None,
     crew_id: Optional[UUID] = None,
+    is_personal: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyTreeResponse:
-    """Get the full strategy tree."""
+    """Get the full strategy tree scoped to Personal or a Space/Crew."""
     await RBACService(db).assert_permission(current_user, "pages.view")
-    return await service.get_strategy_tree(space_id=space_id, crew_id=crew_id)
+    return await service.get_strategy_tree(
+        space_id=space_id,
+        crew_id=crew_id,
+        is_personal=is_personal,
+        user_id=current_user.id,
+    )
 
 
 @router.get("/health", response_model=StrategyHealthResponse)
@@ -76,13 +82,16 @@ async def get_strategy_health(
 async def create_pillar(
     body: StrategicPillarCreate,
     background_tasks: BackgroundTasks,
+    is_personal: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategicPillarResponse:
-    """Create a new strategic pillar."""
+    """Create a new strategic pillar. Personal scope stamps owner_user_id."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
-    return await service.create_pillar(body, background_tasks)
+    return await service.create_pillar(
+        body, background_tasks, is_personal=is_personal, user_id=current_user.id
+    )
 
 
 @router.put("/pillars/{pillar_id}", response_model=StrategicPillarResponse)
@@ -118,13 +127,16 @@ async def delete_pillar(
 async def create_objective(
     body: StrategicObjectiveCreate,
     background_tasks: BackgroundTasks,
+    is_personal: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategicObjectiveResponse:
-    """Create a new strategic objective."""
+    """Create a new strategic objective. Personal scope stamps owner_user_id."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
-    return await service.create_objective(body, background_tasks)
+    return await service.create_objective(
+        body, background_tasks, is_personal=is_personal, user_id=current_user.id
+    )
 
 
 @router.put("/objectives/{objective_id}", response_model=StrategicObjectiveResponse)
@@ -160,13 +172,16 @@ async def delete_objective(
 async def create_okr(
     body: StrategyOKRCreate,
     background_tasks: BackgroundTasks,
+    is_personal: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     service: StrategyService = Depends(get_service),
 ) -> StrategyOKRResponse:
-    """Create a new strategy OKR."""
+    """Create a new strategy OKR. Personal scope stamps owner_user_id."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
-    return await service.create_okr(body, background_tasks)
+    return await service.create_okr(
+        body, background_tasks, is_personal=is_personal, user_id=current_user.id
+    )
 
 
 @router.put("/okrs/{okr_id}", response_model=StrategyOKRResponse)

@@ -142,6 +142,50 @@ async def test_user_with_tokens(db_session: AsyncSession, test_user: dict):
     }
 
 
+@pytest_asyncio.fixture
+async def test_second_user_with_tokens(db_session: AsyncSession, faker: Faker):
+    """A second authenticated user — used in cross-user isolation tests.
+
+    Mirrors test_user_with_tokens but with an independent identity so we
+    can verify one user's Personal data never appears in another user's
+    API responses.
+    """
+    from src.services.onboarding_service import ensure_default_page_and_space
+
+    user_repo = UserRepository(db_session)
+
+    email = faker.email()
+    password = "test_password_456"
+    user = await user_repo.create(
+        email=email,
+        password_hash=get_password_hash(password),
+        name=faker.name(),
+        role="admin",
+    )
+    await ensure_default_page_and_space(db_session, user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
+    )
+    db_session.add(
+        RefreshToken(user_id=user.id, token=refresh_token, expires_at=expires_at)
+    )
+    await db_session.commit()
+
+    return {
+        "user": {"id": str(user.id), "email": user.email, "role": user.role},
+        "email": email,
+        "password": password,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+    }
+
+
 @pytest.fixture
 def valid_token_payload(test_user: dict):
     """Generate valid JWT token payload."""

@@ -15,6 +15,7 @@ class StrategicPillarBase(BaseModel):
     priority: Optional[str] = None
     space_id: Optional[UUID] = None
     crew_id: Optional[UUID] = None
+    owner_user_id: Optional[UUID] = None
 
 
 class StrategicPillarCreate(StrategicPillarBase):
@@ -55,6 +56,7 @@ class StrategicObjectiveBase(BaseModel):
     budget: Optional[float] = None
     space_id: Optional[UUID] = None
     crew_id: Optional[UUID] = None
+    owner_user_id: Optional[UUID] = None
 
 
 class StrategicObjectiveCreate(StrategicObjectiveBase):
@@ -98,6 +100,7 @@ class StrategyOKRBase(BaseModel):
     owner_crew_id: Optional[UUID] = None
     space_id: Optional[UUID] = None
     crew_id: Optional[UUID] = None
+    owner_user_id: Optional[UUID] = None
 
 
 class StrategyOKRCreate(StrategyOKRBase):
