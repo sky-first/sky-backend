@@ -4,7 +4,7 @@ from typing import Dict, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.connectors.registry import CONNECTORS
+from src.connectors.registry import CONNECTORS, is_real_connector
 from src.schemas.connector import AuthMethod, ConnectorField, ConnectorResponse
 
 
@@ -921,4 +921,5 @@ class ConnectorService:
             config_schema=definition.get("config_schema", {}),
             sync_frequency=definition.get("sync_frequency"),
             metadata_schema=definition.get("metadata_schema"),
+            is_real=is_real_connector(definition["id"]),
         )
