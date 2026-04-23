@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 import aiosqlite
 
 from src.connectors.base import BaseConnector
+from src.security.filesystem_paths import UnsafePathError, validate_sqlite_path
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +44,17 @@ def _connect_uri(path: str, read_only: bool) -> str:
 
 class SQLiteConnector(BaseConnector):
     async def test_connection(self, config: Dict[str, Any]) -> bool:
-        path = config.get("path")
+        path = config.get("path") or config.get("database_path")
         if not path:
+            return False
+        # Defence in depth: even if a pre-existing row slipped past the
+        # edge validator (the route handler runs `validate_sqlite_path`
+        # at create time), refuse to open traversal / sensitive paths
+        # at fetch time.
+        try:
+            validate_sqlite_path(str(path))
+        except UnsafePathError as exc:
+            logger.warning("SQLite blocked unsafe path %s: %s", path, exc)
             return False
         read_only = bool(config.get("read_only", True))
         if read_only and not os.path.exists(path):
@@ -97,9 +107,13 @@ class SQLiteConnector(BaseConnector):
     async def execute_query(
         self, config: Dict[str, Any], query: str
     ) -> List[Dict[str, Any]]:
-        path = config.get("path")
+        path = config.get("path") or config.get("database_path")
         if not path:
             raise ValueError("SQLite connector requires path")
+        try:
+            validate_sqlite_path(str(path))
+        except UnsafePathError as exc:
+            raise ValueError(f"SQLite path rejected: {exc}")
         if not (query or "").strip():
             raise ValueError("SQLite execute_query requires a SQL statement")
         read_only = bool(config.get("read_only", True))
