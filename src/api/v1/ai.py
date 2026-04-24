@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
+from src.middleware.request_limits import depth_guard_dependency
 from src.config.settings import settings
 from src.models.user import User
 from src.rate_limit.core import (
@@ -60,6 +61,7 @@ logger = logging.getLogger(__name__)
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
     summary="Process AI query",
     description="Process a natural language question and return answer",
+    dependencies=[Depends(depth_guard_dependency)],
 )
 async def process_query(
     query_data: AIQueryRequest,
@@ -400,6 +402,7 @@ async def chat_bootstrap(
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
     summary="Send chat message",
     description="Send a chat message in a widget",
+    dependencies=[Depends(depth_guard_dependency)],
 )
 async def send_chat_message(
     message_data: ChatMessageRequest,
@@ -450,6 +453,7 @@ async def send_chat_message(
     status_code=status.HTTP_200_OK,
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
     summary="Send chat message (SSE streaming)",
+    dependencies=[Depends(depth_guard_dependency)],
     description=(
         "Same contract as POST /chat but streams the AI response back as "
         "Server-Sent Events. Each event is a `data: {...}` line with a "
