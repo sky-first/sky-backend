@@ -103,3 +103,43 @@ def reject_deep_json_or_400(body: Any, limit: int = MAX_JSON_DEPTH) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"JSON body nested deeper than {limit} — rejected.",
         )
+
+
+async def depth_guard_dependency(request):
+    """FastAPI ``Depends()`` that peeks the request body and rejects
+    with 400 when its JSON is nested beyond ``MAX_JSON_DEPTH``.
+
+    Usage::
+
+        @router.post(
+            "/ai/chat",
+            dependencies=[Depends(depth_guard_dependency)],
+        )
+        async def chat(...): ...
+
+    Only applies when the body parses as JSON. For non-JSON /
+    multipart / empty bodies we pass through silently. The read body
+    is cached by Starlette so Pydantic can still parse it downstream
+    (``await request.body()`` is idempotent per-request).
+    """
+    import json as _json
+    from starlette.requests import Request
+
+    if not isinstance(request, Request):  # pragma: no cover — defensive
+        return
+    if request.method in ("GET", "HEAD", "DELETE", "OPTIONS"):
+        return
+    ct = (request.headers.get("content-type") or "").lower()
+    if not ct.startswith("application/json"):
+        return
+    try:
+        raw = await request.body()
+    except Exception:
+        return
+    if not raw:
+        return
+    try:
+        parsed = _json.loads(raw)
+    except Exception:
+        return  # malformed — Pydantic will 422 downstream
+    reject_deep_json_or_400(parsed)
