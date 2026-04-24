@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.schemas.ai_transparency import AIResponseTransparency  # W7
+
 
 class ConfigureData(BaseModel):
     """AI configuration data schema."""
@@ -67,6 +69,9 @@ class AIQueryResponse(BaseModel):
     page_id: UUID
     created_at: datetime
     updated_at: datetime
+
+    # W7 — optional transparency bundle (evidence + reasoning + flags).
+    transparency: Optional["AIResponseTransparency"] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -133,6 +138,11 @@ class ChatMessageResponse(BaseModel):
     content: str
     page_id: UUID
     timestamp: datetime
+
+    # W7 — optional transparency bundle. Omitted from serialization
+    # when absent (old clients see no new field). Populated for
+    # assistant responses only.
+    transparency: Optional["AIResponseTransparency"] = None
 
     model_config = ConfigDict(from_attributes=True)
 
