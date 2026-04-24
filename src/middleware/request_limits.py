@@ -23,9 +23,9 @@ from __future__ import annotations
 import os
 from typing import Any, Callable
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from starlette.requests import Request as _StarletteRequest  # used in middleware class
 from starlette.responses import JSONResponse
 
 
@@ -105,17 +105,15 @@ def reject_deep_json_or_400(body: Any, limit: int = MAX_JSON_DEPTH) -> None:
         )
 
 
-async def depth_guard_dependency(request):
+async def depth_guard_dependency(request: Request):
     """FastAPI ``Depends()`` that peeks the request body and rejects
     with 400 when its JSON is nested beyond ``MAX_JSON_DEPTH``.
 
-    Usage::
-
-        @router.post(
-            "/ai/chat",
-            dependencies=[Depends(depth_guard_dependency)],
-        )
-        async def chat(...): ...
+    The ``request: Request`` type hint is **required** — without it
+    FastAPI treats the parameter as a query-string field and returns
+    422 for every call ("missing query parameter 'request'"). Found
+    the hard way when staging's /ai/chat suddenly returned 422 for
+    every payload after PR #245 landed.
 
     Only applies when the body parses as JSON. For non-JSON /
     multipart / empty bodies we pass through silently. The read body
@@ -123,10 +121,7 @@ async def depth_guard_dependency(request):
     (``await request.body()`` is idempotent per-request).
     """
     import json as _json
-    from starlette.requests import Request
 
-    if not isinstance(request, Request):  # pragma: no cover — defensive
-        return
     if request.method in ("GET", "HEAD", "DELETE", "OPTIONS"):
         return
     ct = (request.headers.get("content-type") or "").lower()
