@@ -11,6 +11,7 @@ asyncpg>=0.30.0
 psycopg2-binary==2.9.11  # pinned per red-team supply-chain audit (WC-001)
 aiosqlite==0.19.0
 pgvector==0.3.6
+sqlparse==0.5.3  # W8 — AST-level readonly SQL check for LLM tool-use
 
 
 # Redis
