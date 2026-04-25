@@ -15,6 +15,7 @@ from src.connectors.mysql import MySQLConnector
 from src.connectors.notion import NotionConnector
 from src.connectors.postgresql import PostgreSQLConnector
 from src.connectors.rest_api import RestAPIConnector
+from src.connectors.s3 import S3Connector
 from src.connectors.salesforce import SalesforceConnector
 from src.connectors.slack import SlackConnector
 from src.connectors.sqlite import SQLiteConnector
@@ -62,6 +63,8 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "sharepoint": SharePointConnector,
     "slack": SlackConnector,
     "notion": NotionConnector,
+    "s3": S3Connector,
+    "amazon-s3": S3Connector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
     "snowflake": MockConnector,
