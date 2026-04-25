@@ -15,6 +15,7 @@ from src.connectors.mysql import MySQLConnector
 from src.connectors.postgresql import PostgreSQLConnector
 from src.connectors.rest_api import RestAPIConnector
 from src.connectors.salesforce import SalesforceConnector
+from src.connectors.slack import SlackConnector
 from src.connectors.sqlite import SQLiteConnector
 
 
@@ -58,6 +59,7 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "dropbox": DropboxConnector,
     "onedrive": OneDriveConnector,
     "sharepoint": SharePointConnector,
+    "slack": SlackConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
     "snowflake": MockConnector,
