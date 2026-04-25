@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, Type
 
 from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
+from src.connectors.confluence import ConfluenceConnector
 from src.connectors.dropbox import DropboxConnector
 from src.connectors.google_drive import GoogleDriveConnector
 from src.connectors.google_sheets import GoogleSheetsConnector
@@ -65,6 +66,7 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "notion": NotionConnector,
     "s3": S3Connector,
     "amazon-s3": S3Connector,
+    "confluence": ConfluenceConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
     "snowflake": MockConnector,
