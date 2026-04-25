@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, Optional, Type
 
+from src.connectors.azure_blob import AzureBlobConnector
 from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
 from src.connectors.confluence import ConfluenceConnector
@@ -70,6 +71,9 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "confluence": ConfluenceConnector,
     "gcs": GCSConnector,
     "google-cloud-storage": GCSConnector,
+    "azure-blob": AzureBlobConnector,
+    "azure_blob": AzureBlobConnector,
+    "azure-blob-storage": AzureBlobConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
     "snowflake": MockConnector,
