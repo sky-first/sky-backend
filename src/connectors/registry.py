@@ -6,6 +6,7 @@ from src.connectors.azure_blob import AzureBlobConnector
 from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
 from src.connectors.confluence import ConfluenceConnector
+from src.connectors.box import BoxConnector
 from src.connectors.dropbox import DropboxConnector
 from src.connectors.gcs import GCSConnector
 from src.connectors.google_drive import GoogleDriveConnector
@@ -74,6 +75,7 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "azure-blob": AzureBlobConnector,
     "azure_blob": AzureBlobConnector,
     "azure-blob-storage": AzureBlobConnector,
+    "box": BoxConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
     "snowflake": MockConnector,
