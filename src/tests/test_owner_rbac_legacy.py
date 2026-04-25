@@ -63,8 +63,13 @@ def test_admin_still_passes_after_fix(resource, action):
 
 
 def test_plain_user_still_limited():
+    # HI-001 (red-team, 2026-04-23): regular users may NOT read other
+    # users' profiles via GET /users/{id}. Reading your own profile
+    # goes through ``current_user.id == user_id`` in the route, which
+    # bypasses this matrix. So at the matrix level, plain ``user`` is
+    # denied for every cross-user action — including read.
     user = _user("user")
-    assert check_permission(user, "user", "read") is True
+    assert check_permission(user, "user", "read") is False
     assert check_permission(user, "user", "delete") is False
     assert check_permission(user, "connection", "delete") is False
 
