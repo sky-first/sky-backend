@@ -3,6 +3,7 @@
 import logging
 import sys
 import json
+import uuid
 from uuid import UUID
 from typing import Any, AsyncGenerator, Dict
 
@@ -36,6 +37,33 @@ is_celery_worker = (
     or (len(sys.argv) > 0 and sys.argv[0].endswith("celery"))
 )
 
+# ─── Per-connection server-side guards ────────────────────────────────────
+# These are sent the first time a connection is opened. They put hard
+# ceilings on the Postgres side so a single misbehaving query / leaked
+# transaction can't hold a pool slot indefinitely.
+def _postgres_server_settings() -> dict[str, str]:
+    return {
+        "statement_timeout": str(settings.DATABASE_STATEMENT_TIMEOUT_MS),
+        "idle_in_transaction_session_timeout": str(settings.DATABASE_IDLE_IN_TX_TIMEOUT_MS),
+        "lock_timeout": str(settings.DATABASE_LOCK_TIMEOUT_MS),
+    }
+
+
+# ─── PgBouncer compatibility ──────────────────────────────────────────────
+# asyncpg keeps a per-connection prepared-statement cache by default. Under
+# PgBouncer's transaction-mode pooling, the same physical connection is
+# shared across many clients, so cached prepared statements collide. When
+# DATABASE_PGBOUNCER_MODE is on we disable the cache + use unique names.
+def _asyncpg_pgbouncer_kwargs() -> dict[str, object]:
+    if not settings.DATABASE_PGBOUNCER_MODE:
+        return {}
+    return {
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4().hex}__",
+    }
+
+
 # Only add pool settings for non-SQLite databases
 if "sqlite" not in settings.DATABASE_URL.lower():
     if is_celery_worker:
@@ -52,8 +80,18 @@ if "sqlite" not in settings.DATABASE_URL.lower():
                 "pool_pre_ping": settings.DATABASE_POOL_PRE_PING,
                 "pool_recycle": 3600,  # Fechar conexões após 1 hora de inatividade
                 "pool_reset_on_return": "commit",  # Resetar conexões ao retornar ao pool
+                "pool_timeout": settings.DATABASE_POOL_TIMEOUT,
+                "pool_use_lifo": settings.DATABASE_POOL_USE_LIFO,
             }
         )
+
+    # asyncpg-specific connect args. Always set the server-side timeouts;
+    # PgBouncer-specific overrides only fire when the flag is on.
+    connect_args: dict[str, object] = {
+        "server_settings": _postgres_server_settings(),
+        **_asyncpg_pgbouncer_kwargs(),
+    }
+    engine_kwargs["connect_args"] = connect_args
 else:
     # SQLite-specific settings
     engine_kwargs.update(

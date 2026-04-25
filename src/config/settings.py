@@ -125,6 +125,41 @@ class Settings(BaseSettings):
     DATABASE_MAX_OVERFLOW: int = 10  # Aumentado de 5 para 10 (total máximo: 30 conexões)
     DATABASE_POOL_PRE_PING: bool = True
 
+    # ─── Postgres pool hardening ──────────────────────────────────────────
+    # How long a request waits for a free connection before failing fast.
+    # Without it, a leak or saturation hangs the request indefinitely
+    # while clients keep piling on; with a 30 s ceiling we surface the
+    # incident at the request layer (5xx alerts fire) instead of
+    # silently degrading throughput.
+    DATABASE_POOL_TIMEOUT: int = 30
+
+    # LIFO recycling — newest-released connection is the first one we
+    # hand out. Keeps Postgres' query-planner caches warm and lets idle
+    # connections drift to the recycle window naturally.
+    DATABASE_POOL_USE_LIFO: bool = True
+
+    # Per-connection statement timeout (Postgres ``statement_timeout``).
+    # Keeps a single runaway query from holding the pool slot forever.
+    # 30 s default — analytics queries should run via the AI worker, not
+    # the API event loop.
+    DATABASE_STATEMENT_TIMEOUT_MS: int = 30_000
+
+    # Per-connection idle-in-transaction timeout. A leaked transaction
+    # locks rows + occupies the connection; this kills the session
+    # automatically after 60 s.
+    DATABASE_IDLE_IN_TX_TIMEOUT_MS: int = 60_000
+
+    # Lock-wait timeout. Failing fast is better than queuing requests
+    # behind a long-running migration or DDL.
+    DATABASE_LOCK_TIMEOUT_MS: int = 10_000
+
+    # PgBouncer transaction-mode flag. asyncpg keeps a per-connection
+    # prepared-statement cache by default; under PgBouncer transaction
+    # pooling the same physical connection is shared by many clients,
+    # so the cached statements collide. Setting this to ``True`` disables
+    # the cache so PgBouncer can do its job.
+    DATABASE_PGBOUNCER_MODE: bool = False
+
     # Redis
     REDIS_URL: str = Field(
         default="",

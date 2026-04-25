@@ -18,6 +18,7 @@ from src.api.v1 import (
     cost_metrics,
     crews,
     dashboards,
+    db_health,
     datasets,
     enterprise_apis,
     enterprise_relationships,
@@ -124,6 +125,11 @@ api_router.include_router(
 
 # Context Layer health — admin-only; feeds the Administration tab in Settings.
 api_router.include_router(context_health.router, prefix="/context", tags=["Context Health"])
+
+# Database pool health — admin-only ops endpoint surfacing pool counters
+# + a SELECT 1 ping. Pairs with the Postgres pool hardening settings
+# (statement_timeout, idle_in_tx, pool_timeout, pgbouncer mode).
+api_router.include_router(db_health.router, prefix="/db-health", tags=["DB Health"])
 
 # Context rows — generic row-hydration endpoint used by the AI service's
 # ingest worker to fetch the full source row before embedding. Paired
