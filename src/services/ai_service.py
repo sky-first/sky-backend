@@ -298,16 +298,25 @@ class AIService:
         Returns:
             AIQueryResponse: Query response
         """
+        # ── W-wire: pre-flight security pipeline ──────────────────
+        # Same contract as send_chat_message — input guard runs BEFORE
+        # we touch the DB so blocked input never persists. The
+        # sanitised text feeds the rest of the flow; transparency
+        # bundle (trace_id + flags) is attached to the response.
+        pipeline = ChatPipeline(user_id=user_id, endpoint="/ai/query")
+        guarded_input = pipeline.preflight(query_data.question)
+        sanitised_question = guarded_input.text
+
         # Create query record
         configure_data = query_data.configure_data or ConfigureData(
-            question=query_data.question, knowledge=query_data.knowledge or []
+            question=sanitised_question, knowledge=query_data.knowledge or []
         )
 
         query = await self.query_repo.create(
             user_id=user_id,
             page_id=query_data.page_id,
             widget_id=query_data.widget_id,
-            question=query_data.question,
+            question=sanitised_question,
             configure_data=configure_data.model_dump(),
             status="processing",
         )
@@ -792,7 +801,24 @@ class AIService:
             f"configure_data_keys={list(configure_data.keys()) if isinstance(configure_data, dict) else 'not_dict'}"
         )
 
-        return AIQueryResponse.model_validate(response_dict)
+        # ── W-wire: post-flight security pipeline ─────────────────
+        # Pass the answer text through the W5 output guard. On ACL
+        # breach, ChatOutputACLBreach raises and the API handler
+        # converts it to the CHAT_OUTPUT_ACL_BREACH envelope (502).
+        # On secret/leak detection, the answer is rewritten in place
+        # before serialization. Transparency bundle attached.
+        raw_answer = response_dict.get("answer") or ""
+        finalized = pipeline.finalize(
+            raw_answer,
+            evidence=None,
+            evidence_count=None,
+            authorized_evidence_ids=(),
+        )
+        response_dict["answer"] = finalized.answer
+
+        ai_response = AIQueryResponse.model_validate(response_dict)
+        ai_response.transparency = finalized.transparency
+        return ai_response
 
     async def send_chat_message(
         self, user_id: UUID, message_data: ChatMessageRequest
