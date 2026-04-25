@@ -122,6 +122,28 @@ def register_exception_handlers(app: FastAPI):
             correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
 
+    # W6 wire-in — ChatError family. Each subclass carries its own
+    # http_status + stable code; we serialize via the dedicated
+    # envelope so the FE mapper can switch on `error.code`.
+    from src.core.errors.chat_errors import ChatError as _ChatError
+
+    @app.exception_handler(_ChatError)
+    async def chat_error_handler(request: Request, exc: _ChatError):
+        # If the trace_id was not pre-populated by the pipeline, attach
+        # the request correlation_id here so support has a thread to pull.
+        if exc.trace_id is None:
+            exc.trace_id = structlog.contextvars.get_contextvars().get("correlation_id")
+        logger.warning(
+            "chat_error",
+            code=exc.code,
+            status=exc.http_status,
+            trace_id=exc.trace_id,
+        )
+        return JSONResponse(
+            status_code=exc.http_status,
+            content=exc.envelope().to_dict(),
+        )
+
 
 def _json_response(
     request: Request,
