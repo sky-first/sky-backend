@@ -8,8 +8,10 @@ from uuid import UUID
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.chat_pipeline import ChatPipeline
 from src.ai.mock import MockAIService
 from src.ai.real_service import RealAIService
+from src.core.errors.chat_errors import ChatError
 from src.config.redis import get_redis
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
@@ -806,12 +808,23 @@ class AIService:
             ChatMessageResponse: Chat response
         """
 
+        # ── W-wire: pre-flight security pipeline ──────────────────
+        # Input guard runs BEFORE we touch the DB. Hard fail (empty,
+        # too long, policy block) raises a ChatError that the API
+        # handler turns into the right CHAT_* envelope. The trace_id
+        # travels with every downstream log line.
+        pipeline = ChatPipeline(user_id=user_id, endpoint="/ai/chat")
+        guarded_input = pipeline.preflight(message_data.message)
+        # Use the sanitised text downstream — strips control chars,
+        # invisibles, NFC normalisation. Length limits already enforced.
+        sanitised_message = guarded_input.text
+
         # Save user message
         user_message = await self.chat_repo.create(
             widget_id=message_data.widget_id,
             page_id=message_data.page_id,
             type="user",
-            content=message_data.message,
+            content=sanitised_message,
         )
 
         await self.db.commit()
@@ -1027,18 +1040,36 @@ class AIService:
             # Fallback to mock on error
             answer = await self.mock_ai.generate_answer(message_data.message, knowledge, context)
 
-        # Save AI response
+        # ── W-wire: post-flight security pipeline ─────────────────
+        # Output guard scans for secrets, system-prompt leaks, and
+        # ACL-cited evidence outside the authorised set. On a clear
+        # ACL breach the pipeline raises ChatOutputACLBreach (502).
+        # Otherwise we get back a (possibly redacted) answer plus the
+        # transparency bundle that travels with the response.
+        finalized = pipeline.finalize(
+            answer or "No answer generated",
+            evidence=None,                    # Runpod doesn't return this yet
+            evidence_count=None,
+            authorized_evidence_ids=(),
+        )
+        safe_answer = finalized.answer
+
+        # Save AI response (post-redaction text — never persist a leaked secret)
         ai_message = await self.chat_repo.create(
             widget_id=message_data.widget_id,
             page_id=message_data.page_id,
             type="assistant",
-            content=answer or "No answer generated",
+            content=safe_answer,
         )
 
         await self.db.commit()
         await self.db.refresh(ai_message)
 
-        return ChatMessageResponse.model_validate(ai_message)
+        response = ChatMessageResponse.model_validate(ai_message)
+        # Attach the transparency bundle so the FE "Ver como foi gerado"
+        # panel can render. Field is optional (W7) — old clients ignore.
+        response.transparency = finalized.transparency
+        return response
 
     async def generate_infographic(
         self,
