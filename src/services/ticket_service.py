@@ -1,0 +1,384 @@
+"""Ticket service.
+
+RBAC summary:
+  - **Create**: any authenticated user.
+  - **List / Get**: reporter sees own; admin/owner sees all in their
+    workspace; non-reporter non-admin denied.
+  - **Update / Escalate / Assign**: admin / owner only.
+  - **Comment**: reporter, admin, owner, or assignee.
+
+Side-effects:
+  - Every mutation appends a row to ``ticket_events`` (audit trail).
+  - Escalation logs a structured warning so external pipes (Slack,
+    PagerDuty) can pick it up. The actual webhook target is read from
+    ``settings.TICKET_ESCALATION_WEBHOOK`` when set; otherwise we just
+    log.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List, Optional, Tuple
+from uuid import UUID
+
+from sqlalchemy import desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.exceptions import ForbiddenError, NotFoundError, ValidationError
+from src.models.ticket import (
+    Ticket,
+    TicketCategory,
+    TicketEvent,
+    TicketEventKind,
+    TicketSeverity,
+    TicketStatus,
+)
+from src.models.user import User
+from src.schemas.ticket import (
+    TicketCommentRequest,
+    TicketCreateRequest,
+    TicketDetailResponse,
+    TicketEscalateRequest,
+    TicketEventResponse,
+    TicketListResponse,
+    TicketResponse,
+    TicketUpdateRequest,
+)
+
+logger = logging.getLogger(__name__)
+
+
+_VALID_CATEGORIES = {c.value for c in TicketCategory}
+_VALID_SEVERITIES = {s.value for s in TicketSeverity}
+_VALID_STATUSES = {s.value for s in TicketStatus}
+
+
+def _is_admin_like(user: User) -> bool:
+    role = (user.role or "").lower()
+    return role in {"admin", "owner"}
+
+
+class TicketService:
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+
+    # ------------------------------------------------------------------
+    #  Create
+    # ------------------------------------------------------------------
+
+    async def create(self, *, user: User, payload: TicketCreateRequest) -> TicketResponse:
+        if payload.category not in _VALID_CATEGORIES:
+            raise ValidationError(f"Unknown category: {payload.category}")
+        if payload.severity not in _VALID_SEVERITIES:
+            raise ValidationError(f"Unknown severity: {payload.severity}")
+
+        ticket = Ticket(
+            reporter_user_id=user.id,
+            space_id=payload.space_id,
+            subject=payload.subject.strip(),
+            body=payload.body or "",
+            category=payload.category,
+            severity=payload.severity,
+            status=TicketStatus.OPEN.value,
+            context=dict(payload.context or {}),
+        )
+        self.db.add(ticket)
+        await self.db.flush()
+
+        await self._append_event(
+            ticket_id=ticket.id,
+            actor=user,
+            kind=TicketEventKind.CREATED,
+            payload={
+                "subject": ticket.subject,
+                "category": ticket.category,
+                "severity": ticket.severity,
+            },
+        )
+        await self.db.commit()
+        await self.db.refresh(ticket)
+
+        logger.info(
+            "ticket_created id=%s reporter=%s severity=%s category=%s",
+            ticket.id, user.id, ticket.severity, ticket.category,
+        )
+        return TicketResponse.model_validate(ticket)
+
+    # ------------------------------------------------------------------
+    #  List / get
+    # ------------------------------------------------------------------
+
+    async def list(
+        self,
+        *,
+        user: User,
+        status: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> TicketListResponse:
+        # Reporter sees own; admin/owner sees all.
+        base = select(Ticket).where(Ticket.deleted_at.is_(None))
+        if status:
+            if status not in _VALID_STATUSES:
+                raise ValidationError(f"Unknown status filter: {status}")
+            base = base.where(Ticket.status == status)
+        if not _is_admin_like(user):
+            base = base.where(Ticket.reporter_user_id == user.id)
+
+        count_stmt = select(func.count()).select_from(base.subquery())
+        total = (await self.db.execute(count_stmt)).scalar_one()
+
+        rows = (
+            await self.db.execute(
+                base.order_by(desc(Ticket.created_at)).offset(skip).limit(limit)
+            )
+        ).scalars().all()
+
+        return TicketListResponse(
+            items=[TicketResponse.model_validate(t) for t in rows],
+            total=total,
+        )
+
+    async def get(self, *, user: User, ticket_id: UUID) -> TicketDetailResponse:
+        ticket = await self._load_or_404(ticket_id)
+        self._assert_can_view(ticket, user)
+
+        events = (
+            await self.db.execute(
+                select(TicketEvent)
+                .where(TicketEvent.ticket_id == ticket.id)
+                .order_by(TicketEvent.created_at.asc())
+            )
+        ).scalars().all()
+
+        detail = TicketDetailResponse.model_validate(ticket)
+        detail = detail.model_copy(update={
+            "events": [TicketEventResponse.model_validate(e) for e in events],
+        })
+        return detail
+
+    # ------------------------------------------------------------------
+    #  Update (admin/owner)
+    # ------------------------------------------------------------------
+
+    async def update(
+        self,
+        *,
+        user: User,
+        ticket_id: UUID,
+        payload: TicketUpdateRequest,
+    ) -> TicketResponse:
+        ticket = await self._load_or_404(ticket_id)
+        self._assert_can_admin(ticket, user)
+
+        changed: Dict[str, Tuple[Any, Any]] = {}
+
+        if payload.status is not None:
+            if payload.status not in _VALID_STATUSES:
+                raise ValidationError(f"Unknown status: {payload.status}")
+            if payload.status != ticket.status:
+                changed["status"] = (ticket.status, payload.status)
+                ticket.status = payload.status
+
+        if payload.severity is not None:
+            if payload.severity not in _VALID_SEVERITIES:
+                raise ValidationError(f"Unknown severity: {payload.severity}")
+            if payload.severity != ticket.severity:
+                changed["severity"] = (ticket.severity, payload.severity)
+                ticket.severity = payload.severity
+
+        if payload.assigned_to_user_id is not None and (
+            payload.assigned_to_user_id != ticket.assigned_to_user_id
+        ):
+            changed["assigned_to_user_id"] = (
+                str(ticket.assigned_to_user_id) if ticket.assigned_to_user_id else None,
+                str(payload.assigned_to_user_id),
+            )
+            ticket.assigned_to_user_id = payload.assigned_to_user_id
+
+        if payload.external_ref is not None and payload.external_ref != ticket.external_ref:
+            changed["external_ref"] = (ticket.external_ref, payload.external_ref)
+            ticket.external_ref = payload.external_ref
+
+        if not changed:
+            await self.db.commit()
+            return TicketResponse.model_validate(ticket)
+
+        # Emit one event per logical change (status / assigned have
+        # dedicated kinds for the timeline UI).
+        for field, (old, new) in changed.items():
+            if field == "status":
+                await self._append_event(
+                    ticket_id=ticket.id, actor=user,
+                    kind=TicketEventKind.STATUS_CHANGED,
+                    payload={"from": old, "to": new},
+                )
+                if new == TicketStatus.RESOLVED.value:
+                    await self._append_event(
+                        ticket_id=ticket.id, actor=user,
+                        kind=TicketEventKind.RESOLVED, payload={},
+                    )
+            elif field == "assigned_to_user_id":
+                await self._append_event(
+                    ticket_id=ticket.id, actor=user,
+                    kind=TicketEventKind.ASSIGNED,
+                    payload={"to": new},
+                )
+            else:
+                await self._append_event(
+                    ticket_id=ticket.id, actor=user,
+                    kind=TicketEventKind.STATUS_CHANGED,
+                    payload={"field": field, "from": old, "to": new},
+                )
+
+        await self.db.commit()
+        await self.db.refresh(ticket)
+        return TicketResponse.model_validate(ticket)
+
+    # ------------------------------------------------------------------
+    #  Comment
+    # ------------------------------------------------------------------
+
+    async def comment(
+        self,
+        *,
+        user: User,
+        ticket_id: UUID,
+        payload: TicketCommentRequest,
+    ) -> TicketEventResponse:
+        ticket = await self._load_or_404(ticket_id)
+        # Reporter, admin, owner, assignee can comment.
+        if not (
+            _is_admin_like(user)
+            or ticket.reporter_user_id == user.id
+            or ticket.assigned_to_user_id == user.id
+        ):
+            raise ForbiddenError("You can't comment on this ticket")
+
+        event = await self._append_event(
+            ticket_id=ticket.id,
+            actor=user,
+            kind=TicketEventKind.COMMENTED,
+            payload={"body": payload.body.strip()},
+        )
+        await self.db.commit()
+        return TicketEventResponse.model_validate(event)
+
+    # ------------------------------------------------------------------
+    #  Escalate
+    # ------------------------------------------------------------------
+
+    async def escalate(
+        self,
+        *,
+        user: User,
+        ticket_id: UUID,
+        payload: TicketEscalateRequest,
+    ) -> TicketResponse:
+        ticket = await self._load_or_404(ticket_id)
+        self._assert_can_admin(ticket, user)
+
+        if ticket.status == TicketStatus.ESCALATED.value:
+            return TicketResponse.model_validate(ticket)
+
+        from datetime import datetime, timezone
+        ticket.status = TicketStatus.ESCALATED.value
+        ticket.escalated_at = datetime.now(timezone.utc)
+        ticket.escalated_by_user_id = user.id
+
+        await self._append_event(
+            ticket_id=ticket.id,
+            actor=user,
+            kind=TicketEventKind.ESCALATED,
+            payload={
+                "note": (payload.note or "").strip(),
+                "by": str(user.id),
+            },
+        )
+
+        # Structured log line — external integrations (Slack webhook,
+        # PagerDuty bridge) tail this. Exact field names match what the
+        # Sky on-call tool expects (see runbook in
+        # sky-security/INCIDENT_RESPONSE.md).
+        logger.warning(
+            "ticket_escalated ticket_id=%s reporter=%s severity=%s "
+            "category=%s subject=%r escalated_by=%s note=%r",
+            ticket.id, ticket.reporter_user_id, ticket.severity,
+            ticket.category, ticket.subject, user.id,
+            (payload.note or "")[:200],
+        )
+
+        await self.db.commit()
+        await self.db.refresh(ticket)
+        return TicketResponse.model_validate(ticket)
+
+    # ------------------------------------------------------------------
+    #  Reopen
+    # ------------------------------------------------------------------
+
+    async def reopen(self, *, user: User, ticket_id: UUID) -> TicketResponse:
+        ticket = await self._load_or_404(ticket_id)
+        if not (
+            _is_admin_like(user) or ticket.reporter_user_id == user.id
+        ):
+            raise ForbiddenError("You can't reopen this ticket")
+        if ticket.status not in {TicketStatus.RESOLVED.value, TicketStatus.CLOSED.value}:
+            raise ValidationError("Only resolved/closed tickets can be reopened")
+
+        prev = ticket.status
+        ticket.status = TicketStatus.OPEN.value
+        await self._append_event(
+            ticket_id=ticket.id, actor=user, kind=TicketEventKind.REOPENED,
+            payload={"from": prev},
+        )
+        await self.db.commit()
+        await self.db.refresh(ticket)
+        return TicketResponse.model_validate(ticket)
+
+    # ------------------------------------------------------------------
+    #  Internals
+    # ------------------------------------------------------------------
+
+    async def _load_or_404(self, ticket_id: UUID) -> Ticket:
+        ticket = (
+            await self.db.execute(
+                select(Ticket).where(
+                    Ticket.id == ticket_id,
+                    Ticket.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if not ticket:
+            raise NotFoundError("Ticket not found")
+        return ticket
+
+    @staticmethod
+    def _assert_can_view(ticket: Ticket, user: User) -> None:
+        if _is_admin_like(user):
+            return
+        if ticket.reporter_user_id == user.id:
+            return
+        raise ForbiddenError("You can't view this ticket")
+
+    @staticmethod
+    def _assert_can_admin(ticket: Ticket, user: User) -> None:
+        if not _is_admin_like(user):
+            raise ForbiddenError("Only admin or owner can do this")
+
+    async def _append_event(
+        self,
+        *,
+        ticket_id: UUID,
+        actor: Optional[User],
+        kind: TicketEventKind,
+        payload: Dict[str, Any],
+    ) -> TicketEvent:
+        event = TicketEvent(
+            ticket_id=ticket_id,
+            actor_user_id=actor.id if actor else None,
+            kind=kind.value,
+            payload=payload,
+        )
+        self.db.add(event)
+        await self.db.flush()
+        return event

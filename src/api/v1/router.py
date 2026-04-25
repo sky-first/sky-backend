@@ -39,6 +39,7 @@ from src.api.v1 import (
     strategy,
     support,
     templates,
+    tickets,
     users,
     widgets,
     workspaces,
@@ -189,3 +190,7 @@ api_router.include_router(agents.router, prefix="/agents", tags=["Agents"])
 
 # Presence (WebSocket) endpoints
 api_router.include_router(presence.router, prefix="", tags=["Presence"])
+
+# Customer-raised support tickets — distinct from /support which manages
+# Sky-operator JIT sessions.
+api_router.include_router(tickets.router, prefix="/tickets", tags=["Tickets"])

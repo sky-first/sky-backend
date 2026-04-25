@@ -49,6 +49,7 @@ from src.models.strategy import (
     StrategyOKR,
 )
 from src.models.template import Template
+from src.models.ticket import Ticket, TicketEvent
 from src.models.user import RefreshToken, User
 from src.models.workspace import Workspace, WorkspaceMember
 
