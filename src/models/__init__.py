@@ -35,6 +35,7 @@ from src.models.glossary import GlossaryTerm
 from src.models.intelligence_signal import IntelligenceSignal
 from src.models.notification import Notification, NotificationPreference
 from src.models.permission import APIKey, ConnectionPermission, Integration
+from src.models.platform_branding import PlatformBranding
 from src.models.page import Page, PageMember
 from src.models.signal_event import SignalEvent
 from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable
@@ -92,6 +93,7 @@ __all__ = [
     "Template",
     "APIKey",
     "Integration",
+    "PlatformBranding",
     "FileUpload",
     "GlossaryTerm",
     "Workspace",

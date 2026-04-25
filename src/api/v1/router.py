@@ -8,6 +8,7 @@ from src.api.v1 import (
     ai,
     audit,
     auth,
+    branding,
     comments,
     connections,
     connectors,
@@ -115,6 +116,9 @@ api_router.include_router(templates.router, prefix="/templates", tags=["Template
 
 # Settings endpoints
 api_router.include_router(settings.router, prefix="/settings", tags=["Settings"])
+
+# Tenant-wide branding (owner-only writes; reads open to any auth user).
+api_router.include_router(branding.router, prefix="/branding", tags=["Branding"])
 
 # Settings Metrics endpoints
 api_router.include_router(
