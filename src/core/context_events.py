@@ -363,23 +363,14 @@ def _register_default_mappings() -> None:
     from src.models.signal_event import SignalEvent
     from src.models.space import Space, SpaceMember
     from src.models.starred import StarredItem
-    from src.models.strategy import (
-        StrategicObjective,
-        StrategicPillar,
-        StrategyAssumption,
-        StrategyInitiative,
-        StrategyKeyResult,
-        StrategyOKR,
-    )
     from src.models.user import User
 
-    # Business rules (Strategy)
-    register_context_mapping(ContextMapping(model=StrategicPillar, kind="pillar", source_table="strategic_pillars"))
-    register_context_mapping(ContextMapping(model=StrategicObjective, kind="goal", source_table="strategic_objectives"))
-    register_context_mapping(ContextMapping(model=StrategyOKR, kind="okr", source_table="strategy_okrs"))
-    register_context_mapping(ContextMapping(model=StrategyInitiative, kind="initiative", source_table="strategy_initiatives"))
-    register_context_mapping(ContextMapping(model=StrategyKeyResult, kind="kpi", source_table="strategy_key_results"))
-    register_context_mapping(ContextMapping(model=StrategyAssumption, kind="risk", source_table="strategy_assumptions"))
+    # Strategy mappings (Pillar / Objective / OKR / Initiative / KeyResult /
+    # Assumption / Cycle) were removed in the 2026-04-25 Knowledge refactor.
+    # Their kinds (pillar / goal / okr / initiative / kpi / risk) will
+    # re-appear when Phase 2 lands `metric` and `glossary_term` registrations
+    # — they fold into Metric attributes (tags, target_value, thresholds)
+    # rather than separate entities.
 
     # Glossary — short vocabulary terms (GMV / MAU / Churn / …) scoped to space/crew.
     register_context_mapping(ContextMapping(model=GlossaryTerm, kind="glossary", source_table="glossary_terms"))

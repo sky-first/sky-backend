@@ -40,15 +40,10 @@ from src.models.page import Page, PageMember
 from src.models.signal_event import SignalEvent
 from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable
 from src.models.starred import StarredItem
-from src.models.strategy import (
-    StrategicObjective,
-    StrategicPillar,
-    StrategyAssumption,
-    StrategyCycle,
-    StrategyInitiative,
-    StrategyKeyResult,
-    StrategyOKR,
-)
+# Strategy entities (Pillar/Objective/OKR/Initiative/KeyResult/Assumption/
+# Cycle) were dropped in the Knowledge refactor (2026-04-25). Their
+# semantics fold into Metric attributes (tags / target_value / threshold).
+# See sky-security/docs/KNOWLEDGE_REFACTOR.md §2.
 from src.models.template import Template
 from src.models.ticket import Ticket, TicketEvent
 from src.models.user import RefreshToken, User
@@ -107,11 +102,4 @@ __all__ = [
     "EnterpriseRelationship",
     "EnterpriseAPI",
     "IntelligenceSignal",
-    "StrategicPillar",
-    "StrategicObjective",
-    "StrategyOKR",
-    "StrategyInitiative",
-    "StrategyAssumption",
-    "StrategyCycle",
-    "StrategyKeyResult",
 ]
