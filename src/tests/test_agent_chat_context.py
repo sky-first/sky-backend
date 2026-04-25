@@ -95,6 +95,7 @@ async def test_service_update_agent_preserves_chat_context_when_not_set(db_sessi
     # existing chat_context value.
     transcript = "the original transcript"
     service = AgentService(db_session)
+    creator_id = uuid4()
     created = await service.create_agent(
         AgentCreate(
             name="Preserve",
@@ -102,11 +103,17 @@ async def test_service_update_agent_preserves_chat_context_when_not_set(db_sessi
             chat_context=transcript,
             connection_ids=[],
         ),
-        user_id=uuid4(),
+        user_id=creator_id,
     )
+    # HI-002 (PR #240) added the ``user`` arg to update_agent so the
+    # service can enforce mutation policy. Pass a stand-in that matches
+    # the agent's ``created_by`` so the creator-bypass branch fires —
+    # this test is about chat_context preservation, not RBAC.
+    from types import SimpleNamespace
     updated = await service.update_agent(
         created.id,
         AgentUpdate(name="Preserve (renamed)"),
+        SimpleNamespace(id=creator_id, role="user"),
     )
     assert updated.chat_context == transcript
     assert updated.name == "Preserve (renamed)"

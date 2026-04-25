@@ -126,17 +126,26 @@ class AgentService:
         # doesn't trigger a lazy-load MissingGreenlet error.
         return await self.repo.get_with_findings(agent.id)
 
-    async def _require_can_mutate(self, agent: Agent, user: User) -> None:
+    async def _require_can_mutate(self, agent: Agent, user: User, action: str = "agents.delete") -> None:
         """Apply the same policy we use for every other mutable entity:
 
         1. Personal agent: only the owner (=``scope_id``) may touch it.
         2. Creator bypass for Space/Crew/Org scopes — the user who
            created it can always delete/update.
-        3. Otherwise, RBAC must grant ``agents.delete`` / ``agents.manage``
-           in the space the agent lives in.
+        3. Otherwise, RBAC must grant the action key passed in
+           (``agents.edit`` for updates/pause/resume; ``agents.delete``
+           for deletion) in the space the agent lives in.
 
         Red-team HI-002 (2026-04-23): before this check, any
         authenticated user could DELETE or UPDATE ANY agent.
+
+        2026-04-25 (CI red fix): ``action`` was hard-coded to
+        ``agents.delete`` here regardless of caller, which silently
+        gated every mutation behind delete permission — Navigator had
+        ``agents.edit`` but no ``agents.delete``, so update_agent
+        returned 403 even though the route-level
+        ``RBACService.assert_permission(..., "agents.edit")`` had
+        already passed. Parameterising restores the asymmetry.
         """
         from uuid import UUID as _UUID
 
@@ -172,7 +181,7 @@ class AgentService:
 
         from src.services.rbac_service import RBACService
         await RBACService(self.db).assert_permission(
-            user, "agents.delete", space_id=space_id
+            user, action, space_id=space_id
         )
 
     async def update_agent(self, agent_id: UUID, data: AgentUpdate, user: User) -> Agent:
@@ -186,7 +195,7 @@ class AgentService:
         agent = await self.repo.get_with_findings(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-        await self._require_can_mutate(agent, user)
+        await self._require_can_mutate(agent, user, action="agents.edit")
 
         update_data = data.model_dump(exclude_unset=True)
         for key, value in update_data.items():

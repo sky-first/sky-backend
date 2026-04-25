@@ -10,6 +10,22 @@ import pytest
 from src.connectors.rest_api import RestAPIConnector
 
 
+# CR-002 (PR #235) added an SSRF guard that calls
+# ``socket.getaddrinfo(host)`` BEFORE the HTTP layer fires. Tests that
+# use ``api.example.com`` (the RFC 2606 documentation TLD) fail in any
+# environment whose DNS doesn't resolve that host — notably the GitHub
+# Actions runner (and offline laptops). Auto-applied to every test in
+# this file: no-op the validator, since these tests are about HTTP
+# behavior, not SSRF coverage. SSRF is exercised separately in
+# ``test_url_allowlist.py``.
+@pytest.fixture(autouse=True)
+def _bypass_ssrf_dns(monkeypatch):
+    monkeypatch.setattr(
+        "src.connectors.rest_api.validate_outbound_url",
+        lambda url, **_kw: url,
+    )
+
+
 class _MockResp:
     def __init__(self, status_code: int, json_data=None, text: str = "", headers=None):
         self.status_code = status_code
