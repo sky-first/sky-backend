@@ -570,11 +570,13 @@ class PermissionService:
             List[RolePermissionResponse]: List of all role permissions
 
         Raises:
-            ForbiddenError: If user doesn't have permission (admin only)
+            ForbiddenError: If user doesn't have permission (admin or owner)
         """
-        # Only admins can view role permissions
-        if user.role != "admin":
-            raise ForbiddenError("Only admins can view role permissions")
+        # Owner is the platform's super-admin (Wave 1 of platform-roles)
+        # and bypasses every check on the FE; the BE was checking only
+        # 'admin' which locked owners out. Both must pass.
+        if user.role not in ("admin", "owner"):
+            raise ForbiddenError("Only admins or the workspace owner can view role permissions")
 
         role_permissions = await self.role_permission_repo.get_all()
         return [RolePermissionResponse.model_validate(rp) for rp in role_permissions]
@@ -597,9 +599,10 @@ class PermissionService:
             ForbiddenError: If user doesn't have permission (admin only)
             BadRequestError: If role is invalid
         """
-        # Only admins can update role permissions
-        if user.role != "admin":
-            raise ForbiddenError("Only admins can update role permissions")
+        # Only admins or owner can update role permissions (owner is
+        # the platform super-admin per Wave 1 of platform-roles).
+        if user.role not in ("admin", "owner"):
+            raise ForbiddenError("Only admins or the workspace owner can update role permissions")
 
         valid_roles = ["commander", "navigator", "explorer", "guest"]
         if role not in valid_roles:
