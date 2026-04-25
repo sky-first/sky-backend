@@ -110,6 +110,7 @@ celery_app.conf.update(
         "src.workers.cache_warming_worker",
         "src.workers.agent_worker",
         "src.workers.insight_agent_worker",
+        "src.workers.agent_revocation_worker",
     ],
 )
 
@@ -139,6 +140,15 @@ try:
             "schedule-insight-agents": {
                 "task": "src.workers.insight_agent_worker.schedule_insight_agents",
                 "schedule": timedelta(minutes=1),
+            },
+            # Agent revocation safety net — every 15 minutes, sweep
+            # every ACTIVE agent and pause any whose creator no longer
+            # belongs to the agent's scope (HI-002 / W12). Synchronous
+            # hook in space/crew remove_member is best-effort; this is
+            # the guarantee of eventual consistency.
+            "sweep-orphan-agents": {
+                "task": "src.workers.agent_revocation_worker.sweep_orphan_agents",
+                "schedule": timedelta(minutes=15),
             },
         }
 except Exception:
