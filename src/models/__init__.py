@@ -32,18 +32,18 @@ from src.models.enterprise_api import EnterpriseAPI
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.file import FileUpload
 from src.models.glossary import GlossaryTerm
-from src.models.intelligence_signal import IntelligenceSignal
 from src.models.notification import Notification, NotificationPreference
 from src.models.permission import APIKey, ConnectionPermission, Integration
 from src.models.platform_branding import PlatformBranding
 from src.models.page import Page, PageMember
-from src.models.signal_event import SignalEvent
 from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable
 from src.models.starred import StarredItem
 # Strategy entities (Pillar/Objective/OKR/Initiative/KeyResult/Assumption/
-# Cycle) were dropped in the Knowledge refactor (2026-04-25). Their
-# semantics fold into Metric attributes (tags / target_value / threshold).
-# See sky-security/docs/KNOWLEDGE_REFACTOR.md §2.
+# Cycle) were dropped in the Knowledge refactor Phase 1a (2026-04-25).
+# Events/Signals (SignalEvent / IntelligenceSignal) were dropped in
+# Phase 1b. Strategy semantics fold into Metric attributes (tags /
+# target_value / threshold) in Phase 2; agent findings surface directly
+# in the Pulse halo. See sky-security/docs/KNOWLEDGE_REFACTOR.md.
 from src.models.template import Template
 from src.models.ticket import Ticket, TicketEvent
 from src.models.user import RefreshToken, User
@@ -98,8 +98,6 @@ __all__ = [
     "Comment",
     "Conversation",
     "Message",
-    "SignalEvent",
     "EnterpriseRelationship",
     "EnterpriseAPI",
-    "IntelligenceSignal",
 ]

@@ -22,7 +22,6 @@ What gets truncated (in dependency order, CASCADE where possible):
     ai_history, ai_queries, conversations
     enterprise_relationships
     glossary_terms
-    intelligence_signals
     data_connections
 
 Non-destructive:
@@ -62,7 +61,6 @@ TRUNCATE_TABLES = [
     "conversations",
     "enterprise_relationships",
     "glossary_terms",
-    "intelligence_signals",
     "data_connections",
 ]
 

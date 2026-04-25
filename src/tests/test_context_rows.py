@@ -19,12 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.v1.context_rows import MODEL_REGISTRY, row_to_dict
 from src.models.glossary import GlossaryTerm
-from src.models.signal_event import (
-    SignalCategory,
-    SignalConfidence,
-    SignalEvent,
-    SignalNature,
-)
+from src.models.notification import Notification, NotificationType
 
 
 def _auth(token: str) -> dict:
@@ -35,27 +30,30 @@ def _auth(token: str) -> dict:
 
 
 def test_row_to_dict_flattens_uuid_datetime_enum():
-    row = SignalEvent(
+    # Notification carries the three primitives the AI render templates
+    # need to be JSON-safe: UUID id, DateTime read_at, and an Enum value
+    # (the type column is a String column but we're passing the str-Enum
+    # instance — `row_to_dict` flattens by isinstance, not column type).
+    row = Notification(
         id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
-        category=SignalCategory.EXTERNAL,
-        sub_type="competitor_launch",
-        nature=SignalNature.EVENT,
-        confidence=SignalConfidence.HIGH,
-        description="Competitor launched tier 2.",
-        start_date=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
+        user_id=uuid.uuid4(),
+        type=NotificationType.AGENT_FINDING,
+        title="New finding",
+        entity_type="agent",
+        entity_id=str(uuid.uuid4()),
+        is_read=False,
+        read_at=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
     )
 
     out = row_to_dict(row)
 
     assert out["id"] == "11111111-1111-1111-1111-111111111111"
-    assert out["category"] == "EXTERNAL"  # enum → value
-    assert out["nature"] == "EVENT"
-    assert out["confidence"] == "HIGH"
-    assert out["sub_type"] == "competitor_launch"
-    assert out["description"] == "Competitor launched tier 2."
+    assert out["type"] == "agent_finding"  # enum → value
+    assert out["title"] == "New finding"
+    assert out["entity_type"] == "agent"
     # datetime must be ISO, not a raw datetime object that would break json.dumps
-    assert isinstance(out["start_date"], str)
-    assert "2026-04-01" in out["start_date"]
+    assert isinstance(out["read_at"], str)
+    assert "2026-04-01" in out["read_at"]
 
 
 def test_row_to_dict_handles_none_values():

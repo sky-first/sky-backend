@@ -53,11 +53,10 @@ class AgentCreate(BaseModel):
     # Transcript from the AI chat when the agent was created via the
     # "Create agent from this chat" CTA. Plain text, nullable.
     chat_context: Optional[str] = None
-    # Full Universe-Intelligence scope: dict keyed by entity kind
-    # (pillars, objectives, okrs, initiatives, assumptions, key_results,
-    # glossary_terms, signal_events, intelligence_signals,
-    # enterprise_relationships, widgets, insights, pages, ...). Empty
-    # arrays or missing keys = "no filter for that kind".
+    # Full Universe-Intelligence scope: dict keyed by entity kind. After
+    # the Knowledge refactor (Phase 1) the kinds are: glossary_terms (and
+    # metrics in Phase 2), enterprise_relationships, widgets, insights,
+    # pages. Empty arrays or missing keys = "no filter for that kind".
     selected_context: Optional[Dict[str, List[str]]] = None
 
     @field_validator("monitor_type")

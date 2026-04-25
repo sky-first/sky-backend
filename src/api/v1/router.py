@@ -25,7 +25,6 @@ from src.api.v1 import (
     glossary,
     impersonation,
     insight_agents,
-    intelligence_signals,
     messages,
     notifications,
     pages,
@@ -34,7 +33,6 @@ from src.api.v1 import (
     privacy,
     settings,
     settings_metrics,
-    signal_events,
     spaces,
     starred,
     support,
@@ -158,18 +156,13 @@ api_router.include_router(starred.router, prefix="/starred", tags=["Starred"])
 # Comment endpoints
 api_router.include_router(comments.router, prefix="/comments", tags=["Comments"])
 
-# Signal Events endpoints
-api_router.include_router(signal_events.router, prefix="/signal-events", tags=["Signal Events"])
-
-# Intelligence Signals endpoints
-api_router.include_router(
-    intelligence_signals.router,
-    prefix="/intelligence/signals",
-    tags=["Intelligence Signals"],
-)
-
-# Strategy endpoints removed in the Knowledge refactor (2026-04-25).
-# Pillar/OKR/Initiative/Risk/Goal/Cycle/Assumption/KeyResult fold into
+# Signal Events / Intelligence Signals endpoints removed in the Knowledge
+# refactor Phase 1b (2026-04-25). They were not part of the new Knowledge
+# model (Sources + Knowledge + Relationships) — agent-emitted findings
+# now surface directly in the Pulse halo and Universe Intelligence.
+#
+# Strategy endpoints removed in Phase 1a (2026-04-25). Pillar / OKR /
+# Initiative / Risk / Goal / Cycle / Assumption / KeyResult fold into
 # Metric attributes (tags, target_value, threshold). The replacement
 # /knowledge endpoint family lands in Phase 2 of the refactor — see
 # sky-security/docs/KNOWLEDGE_REFACTOR.md.

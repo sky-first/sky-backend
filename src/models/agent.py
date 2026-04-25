@@ -97,18 +97,15 @@ class Agent(Base):
 
     # Selected context — everything in Universe Intelligence that can be
     # scoped to an agent, indexed by entity kind. Keys mirror what the
-    # DataSourcePicker surfaces: Business Rules (pillars/objectives/okrs/
-    # initiatives/assumptions/key_results/glossary_terms), Events
-    # (signal_events, intelligence_signals), Relationships
-    # (enterprise_relationships), Outputs (widgets, insights, pages).
+    # DataSourcePicker surfaces. After the Knowledge refactor (Phase 1)
+    # the supported kinds shrink to: Knowledge (glossary_terms — and in
+    # Phase 2, metrics), Relationships (enterprise_relationships), and
+    # Outputs (widgets, insights, pages).
     # Empty arrays or missing keys mean "no filter — include everything
     # the RAG can see in scope".
     # Example:
     #   {
-    #     "pillars": ["uuid-1"],
-    #     "okrs": [],
     #     "glossary_terms": ["uuid-9"],
-    #     "signal_events": ["uuid-3"],
     #     "enterprise_relationships": [],
     #     "widgets": [],
     #   }
