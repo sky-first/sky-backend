@@ -12,6 +12,7 @@ from src.connectors.jira import JiraConnector
 from src.connectors.microsoft_graph import OneDriveConnector, SharePointConnector
 from src.connectors.mongodb import MongoDBConnector
 from src.connectors.mysql import MySQLConnector
+from src.connectors.notion import NotionConnector
 from src.connectors.postgresql import PostgreSQLConnector
 from src.connectors.rest_api import RestAPIConnector
 from src.connectors.salesforce import SalesforceConnector
@@ -60,6 +61,7 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "onedrive": OneDriveConnector,
     "sharepoint": SharePointConnector,
     "slack": SlackConnector,
+    "notion": NotionConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
     "snowflake": MockConnector,
