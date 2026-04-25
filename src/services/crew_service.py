@@ -517,6 +517,25 @@ class CrewService:
             raise NotFoundError("Member not found")
 
         await self.member_repo.delete(member.id)
+
+        # W12 wire-in — pause every active agent the removed user
+        # created scoped to this crew. Same rationale as
+        # space_service.remove_space_member: HI-002 privilege persistence.
+        try:
+            from src.services.agent_revocation_service import (
+                AgentRevocationService,
+            )
+            await AgentRevocationService(self.db).revoke_on_crew_removal(
+                user_id=user_id, crew_id=crew_id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            import logging
+            logging.getLogger(__name__).warning(
+                "Agent revocation on crew-member-removal failed "
+                "(user=%s crew=%s): %s. Periodic sweep will catch up.",
+                user_id, crew_id, exc,
+            )
+
         await self.db.commit()
 
     async def update_crew_member_role(
