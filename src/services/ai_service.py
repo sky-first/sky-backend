@@ -9,9 +9,11 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.chat_pipeline import ChatPipeline
+from src.ai.evidence_extractor import extract_evidence
 from src.ai.mock import MockAIService
 from src.ai.real_service import RealAIService
 from src.core.errors.chat_errors import ChatError
+from src.schemas.ai_transparency import EvidenceChunkOut
 from src.config.redis import get_redis
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
@@ -306,6 +308,9 @@ class AIService:
         pipeline = ChatPipeline(user_id=user_id, endpoint="/ai/query")
         guarded_input = pipeline.preflight(query_data.question)
         sanitised_question = guarded_input.text
+        # Evidence chunks extracted from the AI engine response (when
+        # present). Flows through to the W7 transparency bundle.
+        extracted_evidence: List[EvidenceChunkOut] = []
 
         # Create query record
         configure_data = query_data.configure_data or ConfigureData(
@@ -560,6 +565,12 @@ class AIService:
                         query.sql = result.get("sql")
                         query.status = "completed"
 
+                        # W7 — extract evidence chunks if Runpod populated them
+                        try:
+                            extracted_evidence = extract_evidence(result)
+                        except Exception:
+                            extracted_evidence = []
+
                         # Store chosen table/datasets in configure_data for frontend
                         chosen_table = result.get("chosen_table")
                         chosen_datasets = result.get("chosen_datasets", [])
@@ -808,11 +819,15 @@ class AIService:
         # On secret/leak detection, the answer is rewritten in place
         # before serialization. Transparency bundle attached.
         raw_answer = response_dict.get("answer") or ""
+        # When evidence ids are present, lock the output guard's
+        # citation check to that authorised set so the LLM can't
+        # hallucinate a foreign reference.
+        authorised_ids = tuple(c.id for c in extracted_evidence if c.id)
         finalized = pipeline.finalize(
             raw_answer,
-            evidence=None,
-            evidence_count=None,
-            authorized_evidence_ids=(),
+            evidence=extracted_evidence or None,
+            evidence_count=len(extracted_evidence) or None,
+            authorized_evidence_ids=authorised_ids,
         )
         response_dict["answer"] = finalized.answer
 
@@ -844,6 +859,7 @@ class AIService:
         # Use the sanitised text downstream — strips control chars,
         # invisibles, NFC normalisation. Length limits already enforced.
         sanitised_message = guarded_input.text
+        extracted_evidence: List[EvidenceChunkOut] = []
 
         # Save user message
         user_message = await self.chat_repo.create(
@@ -1029,8 +1045,13 @@ class AIService:
                         )
 
                         answer = result.get("answer", "")
+                        try:
+                            extracted_evidence = extract_evidence(result)
+                        except Exception:
+                            extracted_evidence = []
                         logger.info(
-                            f"[send_chat_message] Real AI service returned answer (length: {len(answer)})"
+                            f"[send_chat_message] Real AI service returned answer (length: {len(answer)}, "
+                            f"evidence_chunks={len(extracted_evidence)})"
                         )
                     else:
                         # Fallback to mock if no space_id
@@ -1072,11 +1093,12 @@ class AIService:
         # ACL breach the pipeline raises ChatOutputACLBreach (502).
         # Otherwise we get back a (possibly redacted) answer plus the
         # transparency bundle that travels with the response.
+        authorised_ids = tuple(c.id for c in extracted_evidence if c.id)
         finalized = pipeline.finalize(
             answer or "No answer generated",
-            evidence=None,                    # Runpod doesn't return this yet
-            evidence_count=None,
-            authorized_evidence_ids=(),
+            evidence=extracted_evidence or None,
+            evidence_count=len(extracted_evidence) or None,
+            authorized_evidence_ids=authorised_ids,
         )
         safe_answer = finalized.answer
 
