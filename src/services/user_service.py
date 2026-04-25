@@ -286,6 +286,27 @@ class UserService:
             raise NotFoundError("User not found")
 
         await self.user_repo.delete(user_id)
+
+        # W12 wire-in — pause every active agent the deactivated user
+        # created, regardless of scope (Personal / Space / Crew / Org).
+        # Best-effort: failures here are logged but do NOT roll back
+        # the user deletion. The 15-min periodic sweep
+        # (sweep_orphan_agents) catches any miss.
+        try:
+            from src.services.agent_revocation_service import (
+                AgentRevocationService,
+            )
+            await AgentRevocationService(self.db).revoke_on_user_deactivation(
+                user_id=user_id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            import logging
+            logging.getLogger(__name__).warning(
+                "Agent revocation on user deactivation failed (user=%s): %s. "
+                "Periodic sweep will catch up.",
+                user_id, exc,
+            )
+
         await self.db.commit()
 
     async def get_user_permissions(self, user_id: UUID, current_user: User) -> dict:
