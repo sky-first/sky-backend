@@ -26,6 +26,7 @@ from src.api.v1 import (
     impersonation,
     insight_agents,
     messages,
+    metrics,
     notifications,
     pages,
     permissions,
@@ -169,6 +170,10 @@ api_router.include_router(comments.router, prefix="/comments", tags=["Comments"]
 
 # Glossary endpoints — business vocabulary consumed by the context layer
 api_router.include_router(glossary.router, prefix="/glossary", tags=["Glossary"])
+
+# Metrics endpoints (Knowledge refactor Phase 2 — replaces Pillar/OKR/Risk
+# entities with a unified Metric model carrying tags + target + threshold).
+api_router.include_router(metrics.router, prefix="/metrics", tags=["Metrics"])
 
 # Enterprise Relationship endpoints
 api_router.include_router(
