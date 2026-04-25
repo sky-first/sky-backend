@@ -39,14 +39,8 @@ from src.models.signal_event import (
     SignalNature,
 )
 from src.models.space import Space
-from src.models.strategy import (
-    StrategicObjective,
-    StrategicPillar,
-    StrategyAssumption,
-    StrategyInitiative,
-    StrategyKeyResult,
-    StrategyOKR,
-)
+# Strategy seed removed in the Knowledge refactor (2026-04-25). The
+# Metric-based seed lands in Phase 2 — see KNOWLEDGE_REFACTOR.md.
 from src.models.user import User
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -190,111 +184,10 @@ async def seed_glossary(session, space_id, owner_id):
     logger.info("  %d new terms added", added)
 
 
-async def seed_strategy(session, space_id):
-    logger.info("Seeding strategy (pillars, objectives, OKRs, initiatives, risks) …")
-    pillar_by_name = {}
-    for name, desc, color in PILLARS:
-        stmt = select(StrategicPillar).where(StrategicPillar.name == name, StrategicPillar.space_id == space_id)
-        existing = (await session.execute(stmt)).scalar_one_or_none()
-        if existing:
-            pillar_by_name[name] = existing
-            continue
-        p = StrategicPillar(name=name, description=desc, color=color, space_id=space_id, priority="high")
-        session.add(p)
-        await session.flush()
-        pillar_by_name[name] = p
-
-    pillar_cycle = list(pillar_by_name.values())
-    obj_by_title = {}
-    for i, (otype, title, desc, status, prio, area) in enumerate(OBJECTIVES):
-        stmt = select(StrategicObjective).where(StrategicObjective.title == title)
-        existing = (await session.execute(stmt)).scalar_one_or_none()
-        if existing:
-            obj_by_title[title] = existing
-            continue
-        pillar = pillar_cycle[i % len(pillar_cycle)] if pillar_cycle else None
-        o = StrategicObjective(
-            type=otype,
-            title=title,
-            description=desc,
-            status=status,
-            priority=prio,
-            area=area,
-            space_id=space_id,
-            pillar_id=pillar.id if pillar else None,
-        )
-        session.add(o)
-        await session.flush()
-        obj_by_title[title] = o
-
-    obj_cycle = list(obj_by_title.values())
-    okr_by_title = {}
-    for i, (title, baseline, target, _unit, _freq) in enumerate(OKR_TITLES):
-        stmt = select(StrategyOKR).where(StrategyOKR.title == title)
-        existing = (await session.execute(stmt)).scalar_one_or_none()
-        if existing:
-            okr_by_title[title] = existing
-            continue
-        parent = obj_cycle[i % len(obj_cycle)] if obj_cycle else None
-        if not parent:
-            continue
-        okr = StrategyOKR(
-            objective_id=parent.id,
-            title=title,
-            baseline=baseline,
-            target=target,
-            space_id=space_id,
-        )
-        session.add(okr)
-        await session.flush()
-        okr_by_title[title] = okr
-
-    okr_cycle = list(okr_by_title.values())
-    for i, (desc, baseline, target, current, unit) in enumerate(KEY_RESULTS):
-        stmt = select(StrategyKeyResult).where(StrategyKeyResult.description == desc)
-        existing = (await session.execute(stmt)).scalar_one_or_none()
-        if existing:
-            continue
-        okr = okr_cycle[i % len(okr_cycle)] if okr_cycle else None
-        if not okr:
-            continue
-        session.add(
-            StrategyKeyResult(
-                okr_id=okr.id,
-                description=desc,
-                baseline=baseline,
-                target=target,
-                current_value=current,
-                unit=unit,
-            )
-        )
-
-    for title, desc, status in INITIATIVES:
-        stmt = select(StrategyInitiative).where(StrategyInitiative.title == title)
-        existing = (await session.execute(stmt)).scalar_one_or_none()
-        if existing:
-            continue
-        session.add(
-            StrategyInitiative(title=title, description=desc, status=status, progress=25)
-        )
-
-    for title, desc, category, impact, probability in RISKS:
-        stmt = select(StrategyAssumption).where(StrategyAssumption.title == title)
-        existing = (await session.execute(stmt)).scalar_one_or_none()
-        if existing:
-            continue
-        session.add(
-            StrategyAssumption(
-                title=title,
-                description=desc,
-                category=category,
-                impact_score=impact,
-                probability_score=probability,
-                space_id=space_id,
-            )
-        )
-
-    logger.info("  strategy seeded (pillars=%d, objectives=%d, OKRs=%d)", len(pillar_by_name), len(obj_by_title), len(okr_by_title))
+# seed_strategy() was removed when the Strategy module was dropped in
+# the Knowledge refactor (2026-04-25). PILLARS / OBJECTIVES / OKR_TITLES /
+# KEY_RESULTS / INITIATIVES / RISKS data above is kept as a reference for
+# the Phase 2 Metric/tag seed that replaces this function.
 
 
 async def seed_events(session, space_id):
@@ -360,7 +253,7 @@ async def main():
             sys.exit(1)
         logger.info("Seeding into space=%s owner=%s", space.name, owner.email)
         await seed_glossary(session, space.id, owner.id)
-        await seed_strategy(session, space.id)
+        # Strategy seed removed; replaced by Metric seed in Phase 2.
         await seed_events(session, space.id)
         await seed_relationships(session)
         await session.commit()

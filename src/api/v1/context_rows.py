@@ -38,15 +38,9 @@ from src.models.glossary import GlossaryTerm
 from src.models.signal_event import SignalEvent
 from src.models.space import Space, SpaceMember
 from src.models.starred import StarredItem
-from src.models.strategy import (
-    StrategicObjective,
-    StrategicPillar,
-    StrategyAssumption,
-    StrategyInitiative,
-    StrategyKeyResult,
-    StrategyOKR,
-)
 from src.models.user import User
+# Strategy entities removed in Knowledge refactor (2026-04-25). Phase 2
+# adds `metric` + `glossary_term` to MODEL_REGISTRY below.
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
@@ -59,12 +53,8 @@ router = APIRouter()
 # sync — a mismatch here means events emit but never hydrate.
 
 MODEL_REGISTRY: Dict[str, Any] = {
-    "strategic_pillars": StrategicPillar,
-    "strategic_objectives": StrategicObjective,
-    "strategy_okrs": StrategyOKR,
-    "strategy_initiatives": StrategyInitiative,
-    "strategy_key_results": StrategyKeyResult,
-    "strategy_assumptions": StrategyAssumption,
+    # Strategy entries removed; Phase 2 will add "metrics" + replace
+    # "glossary_terms" with the rebuilt schema.
     "glossary_terms": GlossaryTerm,
     "signal_events": SignalEvent,
     "user_enterprise_relationships": EnterpriseRelationship,

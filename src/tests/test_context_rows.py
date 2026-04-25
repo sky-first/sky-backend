@@ -25,7 +25,6 @@ from src.models.signal_event import (
     SignalEvent,
     SignalNature,
 )
-from src.models.strategy import StrategicPillar
 
 
 def _auth(token: str) -> dict:
@@ -60,19 +59,21 @@ def test_row_to_dict_flattens_uuid_datetime_enum():
 
 
 def test_row_to_dict_handles_none_values():
-    pillar = StrategicPillar(
+    term = GlossaryTerm(
         id=uuid.uuid4(),
-        name="Customer Experience",
-        description=None,
-        color=None,
+        term="Customer Experience",
+        definition="Aggregate of every touchpoint the customer has with us.",
+        notes=None,
         space_id=None,
+        crew_id=None,
     )
 
-    out = row_to_dict(pillar)
+    out = row_to_dict(term)
 
-    assert out["name"] == "Customer Experience"
-    assert out["description"] is None
+    assert out["term"] == "Customer Experience"
+    assert out["notes"] is None
     assert out["space_id"] is None
+    assert out["crew_id"] is None
 
 
 def test_row_to_dict_no_sqlalchemy_internals():

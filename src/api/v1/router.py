@@ -37,7 +37,6 @@ from src.api.v1 import (
     signal_events,
     spaces,
     starred,
-    strategy,
     support,
     templates,
     tickets,
@@ -169,8 +168,11 @@ api_router.include_router(
     tags=["Intelligence Signals"],
 )
 
-# Strategy endpoints
-api_router.include_router(strategy.router, prefix="/strategy", tags=["Strategy"])
+# Strategy endpoints removed in the Knowledge refactor (2026-04-25).
+# Pillar/OKR/Initiative/Risk/Goal/Cycle/Assumption/KeyResult fold into
+# Metric attributes (tags, target_value, threshold). The replacement
+# /knowledge endpoint family lands in Phase 2 of the refactor — see
+# sky-security/docs/KNOWLEDGE_REFACTOR.md.
 
 # Glossary endpoints — business vocabulary consumed by the context layer
 api_router.include_router(glossary.router, prefix="/glossary", tags=["Glossary"])

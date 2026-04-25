@@ -2,16 +2,15 @@
 
 Coverage (see docs/agent-and-ai-master-plan.md §3.6):
 
-  E1   Inserting a Strategy goal emits one upsert event (kind=goal),
-       with the scope (space_id) copied over verbatim.
-  E2   Updating a goal emits another upsert.
-  E3   Deleting via ORM .delete() emits action=delete.
-  E4   Rollback suppresses pending events.
-  E5   Multiple inserts in one commit are published together.
   E6   SignalEvent with category=EXTERNAL produces kind=event_external.
   E7   SignalEvent with category=TRENDS produces kind=event_trend.
   E8   Widget emits kind=widget and picks owner_user_id from created_by.
-  E9   Emitter is tolerant of missing space/crew on personal-scope rows.
+
+Phase 2.2b kinds — user / space / crew.
+
+Strategy-entity coverage (E1–E5, E9 personal-scope) was removed when the
+Strategy module was dropped in the Knowledge refactor (2026-04-25). The
+equivalent tests against the new Metric model land in Phase 2.
 """
 
 from __future__ import annotations
@@ -25,7 +24,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core import context_events as ce
 from src.models.dashboard import Widget
 from src.models.signal_event import SignalCategory, SignalConfidence, SignalEvent, SignalNature
-from src.models.strategy import StrategicObjective, StrategyOKR
 
 
 @pytest_asyncio.fixture
@@ -46,98 +44,6 @@ async def event_sink(db_session: AsyncSession):
     finally:
         ce.set_publisher(None)
         captured.clear()
-
-
-# ─── E1 ───────────────────────────────────────────────────────────────────
-@pytest.mark.asyncio
-async def test_inserting_goal_emits_upsert_with_scope(
-    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
-):
-    space_id = uuid.uuid4()
-    goal = StrategicObjective(
-        type="corporate",
-        title="Increase ARR by 20%",
-        description="...",
-        status="active",
-        space_id=space_id,
-    )
-    db_session.add(goal)
-    await db_session.commit()
-
-    assert len(event_sink) == 1
-    evt = event_sink[0]
-    assert evt.action == "upsert"
-    assert evt.kind == "goal"
-    assert evt.source_table == "strategic_objectives"
-    assert evt.source_id == str(goal.id)
-    assert evt.space_id == str(space_id)
-
-
-# ─── E2 ───────────────────────────────────────────────────────────────────
-@pytest.mark.asyncio
-async def test_updating_goal_emits_second_upsert(
-    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
-):
-    goal = StrategicObjective(type="corporate", title="A", description="...", status="active")
-    db_session.add(goal)
-    await db_session.commit()
-    event_sink.clear()
-
-    goal.title = "B"
-    await db_session.commit()
-
-    assert len(event_sink) == 1
-    assert event_sink[0].action == "upsert"
-    assert event_sink[0].source_id == str(goal.id)
-
-
-# ─── E3 ───────────────────────────────────────────────────────────────────
-@pytest.mark.asyncio
-async def test_deleting_goal_emits_delete(
-    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
-):
-    goal = StrategicObjective(type="corporate", title="Doomed", description="...", status="active")
-    db_session.add(goal)
-    await db_session.commit()
-    event_sink.clear()
-
-    await db_session.delete(goal)
-    await db_session.commit()
-
-    assert len(event_sink) == 1
-    assert event_sink[0].action == "delete"
-    assert event_sink[0].kind == "goal"
-
-
-# ─── E4 ───────────────────────────────────────────────────────────────────
-@pytest.mark.asyncio
-async def test_rollback_suppresses_events(
-    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
-):
-    goal = StrategicObjective(type="corporate", title="Ephemeral", description="...", status="active")
-    db_session.add(goal)
-    await db_session.flush()
-    await db_session.rollback()
-
-    assert event_sink == []
-
-
-# ─── E5 ───────────────────────────────────────────────────────────────────
-@pytest.mark.asyncio
-async def test_batch_in_one_commit_emits_all(
-    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
-):
-    g1 = StrategicObjective(type="corporate", title="G1", description="", status="active")
-    g2 = StrategicObjective(type="corporate", title="G2", description="", status="active")
-    db_session.add_all([g1, g2])
-    await db_session.flush()
-    # OKR requires objective_id (not null FK), so attach to g1.
-    okr = StrategyOKR(objective_id=g1.id, title="OKR1")
-    db_session.add(okr)
-    await db_session.commit()
-
-    kinds = sorted(e.kind for e in event_sink)
-    assert kinds == ["goal", "goal", "okr"]
 
 
 # ─── E6 ───────────────────────────────────────────────────────────────────
@@ -208,7 +114,6 @@ async def test_widget_emits_widget_kind(
     assert widget_events[0].owner_user_id == str(owner)
 
 
-# ─── E9 ───────────────────────────────────────────────────────────────────
 # ─── Phase 2.2b kinds ─────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_user_insert_emits_user_kind_with_public_visibility(
@@ -264,16 +169,3 @@ async def test_crew_insert_emits_crew_kind(
 
     kinds = [e.kind for e in event_sink]
     assert "crew" in kinds
-
-
-@pytest.mark.asyncio
-async def test_personal_scope_row_has_null_space_and_crew(
-    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
-):
-    goal = StrategicObjective(type="corporate", title="Personal", description="", status="active")
-    db_session.add(goal)
-    await db_session.commit()
-
-    assert len(event_sink) == 1
-    assert event_sink[0].space_id is None
-    assert event_sink[0].crew_id is None
