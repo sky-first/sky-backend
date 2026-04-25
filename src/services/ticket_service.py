@@ -21,9 +21,11 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
+import httpx
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.settings import settings
 from src.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from src.models.ticket import (
     Ticket,
@@ -310,6 +312,13 @@ class TicketService:
 
         await self.db.commit()
         await self.db.refresh(ticket)
+
+        # Optional outbound webhook to the Sky on-call rotation. We fire
+        # it AFTER the DB commit so an HTTP failure can't roll back the
+        # escalation — the DB is the source of truth, the webhook is a
+        # best-effort notification. Failures are swallowed and logged.
+        await _post_escalation_webhook(ticket=ticket, actor=user, note=payload.note)
+
         return TicketResponse.model_validate(ticket)
 
     # ------------------------------------------------------------------
@@ -382,3 +391,72 @@ class TicketService:
         self.db.add(event)
         await self.db.flush()
         return event
+
+
+# ─── Outbound Sky on-call webhook ────────────────────────────────────────
+
+
+def _escalation_payload(ticket: Ticket, actor: User, note: Optional[str]) -> Dict[str, Any]:
+    """The exact JSON contract the Sky on-call receiver pins on.
+
+    Keep additions backwards-compatible (additive only) — the receiver
+    in sky-security/INCIDENT_RESPONSE.md doesn't enforce a strict
+    schema, but downstream alerting rules read these keys directly.
+    """
+    return {
+        "event": "ticket_escalated",
+        "ticket_id": str(ticket.id),
+        "subject": ticket.subject,
+        "category": ticket.category,
+        "severity": ticket.severity,
+        "status": ticket.status,
+        "reporter_user_id": str(ticket.reporter_user_id),
+        "escalated_by_user_id": str(actor.id),
+        "escalated_by_email": actor.email,
+        "note": (note or "").strip()[:1000],
+        "external_ref": ticket.external_ref,
+    }
+
+
+async def _post_escalation_webhook(
+    *,
+    ticket: Ticket,
+    actor: User,
+    note: Optional[str],
+) -> None:
+    """Best-effort POST to the Sky on-call rotation. Swallows failures.
+
+    The DB is already updated by the time we get here, so a webhook
+    failure can't roll back the escalation. We log it loudly enough
+    that ops will notice if the receiver is consistently down.
+    """
+    url = (settings.TICKET_ESCALATION_WEBHOOK_URL or "").strip()
+    if not url:
+        return  # log-only mode
+
+    headers = {"Content-Type": "application/json"}
+    if settings.TICKET_ESCALATION_WEBHOOK_TOKEN:
+        headers["Authorization"] = f"Bearer {settings.TICKET_ESCALATION_WEBHOOK_TOKEN}"
+
+    body = _escalation_payload(ticket, actor, note)
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=settings.TICKET_ESCALATION_WEBHOOK_TIMEOUT
+        ) as client:
+            resp = await client.post(url, headers=headers, json=body)
+        if resp.status_code >= 400:
+            logger.error(
+                "ticket_escalation_webhook_failed status=%s ticket_id=%s body=%r",
+                resp.status_code, ticket.id, resp.text[:500],
+            )
+        else:
+            logger.info(
+                "ticket_escalation_webhook_delivered ticket_id=%s status=%s",
+                ticket.id, resp.status_code,
+            )
+    except Exception as exc:  # noqa: BLE001 — webhook must not fail the request
+        logger.exception(
+            "ticket_escalation_webhook_error ticket_id=%s err=%s", ticket.id, exc
+        )
+

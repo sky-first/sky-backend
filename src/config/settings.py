@@ -160,6 +160,26 @@ class Settings(BaseSettings):
     # the cache so PgBouncer can do its job.
     DATABASE_PGBOUNCER_MODE: bool = False
 
+    # ─── Ticket escalation → Sky on-call ───────────────────────────────────
+    # When a customer-side admin / owner escalates a ticket to "Sky team
+    # review", we POST a JSON payload to this URL so the Sky on-call rotation
+    # gets paged. Empty default = log-only mode (the structured WARN line in
+    # ticket_service still fires for off-platform tooling that tails logs).
+    TICKET_ESCALATION_WEBHOOK_URL: str = Field(
+        default="",
+        description=(
+            "HTTPS URL that receives a JSON POST when a ticket is escalated. "
+            "Empty disables the webhook and falls back to log-only escalation."
+        ),
+    )
+    # Bearer token sent in the Authorization header on the webhook call.
+    # Optional — leave empty if the receiver authenticates by IP allow-list.
+    TICKET_ESCALATION_WEBHOOK_TOKEN: str = Field(default="")
+    # Hard ceiling on the outbound POST so a slow Sky receiver can't stall
+    # the escalate request. The escalate flow swallows the failure and
+    # continues — the DB is the source of truth.
+    TICKET_ESCALATION_WEBHOOK_TIMEOUT: float = 5.0
+
     # Redis
     REDIS_URL: str = Field(
         default="",
