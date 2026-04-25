@@ -587,6 +587,28 @@ class SpaceService:
             raise ForbiddenError("Cannot remove space creator")
 
         await self.member_repo.delete(member.id)
+
+        # W12 wire-in — pause every active agent the removed user
+        # created against this space (or org-scoped agents that list it).
+        # Privilege persistence (HI-002): without this the agent keeps
+        # running under the orphaned creator's identity. Errors here are
+        # logged but do NOT roll back the membership removal — the
+        # primary action (revocation of access) already happened.
+        try:
+            from src.services.agent_revocation_service import (
+                AgentRevocationService,
+            )
+            await AgentRevocationService(self.db).revoke_on_space_removal(
+                user_id=user_id, space_id=space_id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            import logging
+            logging.getLogger(__name__).warning(
+                "Agent revocation on space-member-removal failed "
+                "(user=%s space=%s): %s. Periodic sweep will catch up.",
+                user_id, space_id, exc,
+            )
+
         await self.db.commit()
 
     async def get_space_tables(
