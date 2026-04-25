@@ -2,15 +2,17 @@
 
 Coverage (see docs/agent-and-ai-master-plan.md §3.6):
 
-  E6   SignalEvent with category=EXTERNAL produces kind=event_external.
-  E7   SignalEvent with category=TRENDS produces kind=event_trend.
   E8   Widget emits kind=widget and picks owner_user_id from created_by.
 
 Phase 2.2b kinds — user / space / crew.
 
-Strategy-entity coverage (E1–E5, E9 personal-scope) was removed when the
-Strategy module was dropped in the Knowledge refactor (2026-04-25). The
-equivalent tests against the new Metric model land in Phase 2.
+History
+- E1–E5 + E9 personal-scope coverage removed in Phase 1a (2026-04-25)
+  when the Strategy module was dropped.
+- E6/E7 SignalEvent coverage removed in Phase 1b (2026-04-25) when the
+  Events/Signals module was dropped.
+
+The equivalent tests against the new Metric model land in Phase 2.
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core import context_events as ce
 from src.models.dashboard import Widget
-from src.models.signal_event import SignalCategory, SignalConfidence, SignalEvent, SignalNature
 
 
 @pytest_asyncio.fixture
@@ -44,44 +45,6 @@ async def event_sink(db_session: AsyncSession):
     finally:
         ce.set_publisher(None)
         captured.clear()
-
-
-# ─── E6 ───────────────────────────────────────────────────────────────────
-@pytest.mark.asyncio
-async def test_signal_event_external_kind(
-    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
-):
-    ev = SignalEvent(
-        category=SignalCategory.EXTERNAL,
-        sub_type="market_shift",
-        nature=SignalNature.EVENT,
-        confidence=SignalConfidence.HIGH,
-        description="USD surge",
-    )
-    db_session.add(ev)
-    await db_session.commit()
-
-    assert len(event_sink) == 1
-    assert event_sink[0].kind == "event_external"
-
-
-# ─── E7 ───────────────────────────────────────────────────────────────────
-@pytest.mark.asyncio
-async def test_signal_event_trend_kind(
-    db_session: AsyncSession, event_sink: list[ce.ContextEvent]
-):
-    ev = SignalEvent(
-        category=SignalCategory.TRENDS,
-        sub_type="ai_adoption",
-        nature=SignalNature.SIGNAL,
-        confidence=SignalConfidence.MEDIUM,
-        description="LLM adoption up 40%",
-    )
-    db_session.add(ev)
-    await db_session.commit()
-
-    assert len(event_sink) == 1
-    assert event_sink[0].kind == "event_trend"
 
 
 # ─── E8 ───────────────────────────────────────────────────────────────────

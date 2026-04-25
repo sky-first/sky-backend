@@ -73,14 +73,10 @@ class NotificationType(str, Enum):
     CONNECTION_SYNC_RESTORED = "connection_sync_restored"
     CONNECTION_NEW_TABLE_DISCOVERED = "connection_new_table_discovered"
 
-    # --- Events / Signals ---
-    SIGNAL_EVENT_CREATED = "signal_event_created"
-    HIGH_CONFIDENCE_SIGNAL = "high_confidence_signal"
-
-    # --- Strategy ---
-    OKR_UPDATED = "okr_updated"
-    INITIATIVE_STATUS_CHANGED = "initiative_status_changed"
-    KEY_RESULT_TARGET_REACHED = "key_result_target_reached"
+    # Events/Signals types removed in Phase 1b (2026-04-25). Strategy
+    # types (OKR_UPDATED / INITIATIVE_STATUS_CHANGED / KEY_RESULT_TARGET_REACHED)
+    # removed in Phase 1a. Phase 2 will re-introduce metric-flavoured
+    # notifications (METRIC_THRESHOLD_BREACHED, …).
 
 
 # Category label for each type — drives frontend filter tabs and preference
@@ -119,19 +115,14 @@ NOTIFICATION_CATEGORY: dict[str, str] = {
     "role_changed": "collaboration",
     "invite_received": "collaboration",
 
-    # Events / Signals
-    "signal_event_created": "events",
-    "high_confidence_signal": "events",
+    # Events/Signals + Strategy entries removed in the Knowledge refactor
+    # (Phase 1a + 1b, 2026-04-25). Phase 2 will replace them with
+    # metric-flavoured categories.
 
     # Connections
     "connection_sync_failed": "connections",
     "connection_sync_restored": "connections",
     "connection_new_table_discovered": "connections",
-
-    # Strategy
-    "okr_updated": "strategy",
-    "initiative_status_changed": "strategy",
-    "key_result_target_reached": "strategy",
 
     # System / legacy
     "system": "system",

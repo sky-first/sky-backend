@@ -24,7 +24,6 @@ import asyncio
 import logging
 import sys
 import uuid
-from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -32,12 +31,6 @@ from sqlalchemy import select
 from src.config.database import AsyncSessionLocal
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.glossary import GlossaryTerm
-from src.models.signal_event import (
-    SignalCategory,
-    SignalConfidence,
-    SignalEvent,
-    SignalNature,
-)
 from src.models.space import Space
 # Strategy seed removed in the Knowledge refactor (2026-04-25). The
 # Metric-based seed lands in Phase 2 — see KNOWLEDGE_REFACTOR.md.
@@ -117,20 +110,10 @@ RISKS = [
 ]
 
 
-EVENTS = [
-    (SignalCategory.INTERNAL, SignalNature.EVENT, SignalConfidence.HIGH, "deploy_failure",
-     "Deploy falhou em prod — rollback em 12 min.", 1),
-    (SignalCategory.INTERNAL, SignalNature.EVENT, SignalConfidence.HIGH, "contract_closed",
-     "Contrato Enterprise TechCo fechado — ACV 180k USD.", 2),
-    (SignalCategory.EXTERNAL, SignalNature.EVENT, SignalConfidence.MEDIUM, "competitor_launch",
-     "Competidor lançou SKU equivalente ao nosso Tier 2.", 4),
-    (SignalCategory.EXTERNAL, SignalNature.EVENT, SignalConfidence.HIGH, "regulation_change",
-     "ANPD publicou atualização sobre consentimento granular.", 5),
-    (SignalCategory.TRENDS, SignalNature.TREND, SignalConfidence.MEDIUM, "usage_trend",
-     "Uso do módulo Analytics cresceu 38% m/m nos últimos 3 meses.", 3),
-    (SignalCategory.TRENDS, SignalNature.TREND, SignalConfidence.HIGH, "nps_trend",
-     "NPS subiu de 41 para 48 em duas ondas consecutivas.", 2),
-]
+# EVENTS list and seed_events() removed in Phase 1b alongside the
+# SignalEvent model. Phase 2 brings agent-emitted findings back via the
+# Pulse halo + Universe Intelligence — wired through agent_findings,
+# not a dedicated events table.
 
 
 RELATIONSHIPS = [
@@ -190,30 +173,6 @@ async def seed_glossary(session, space_id, owner_id):
 # the Phase 2 Metric/tag seed that replaces this function.
 
 
-async def seed_events(session, space_id):
-    logger.info("Seeding events …")
-    added = 0
-    base = datetime.now(timezone.utc)
-    for cat, nature, conf, sub_type, desc, days_ago in EVENTS:
-        stmt = select(SignalEvent).where(SignalEvent.description == desc)
-        existing = (await session.execute(stmt)).scalar_one_or_none()
-        if existing:
-            continue
-        session.add(
-            SignalEvent(
-                category=cat,
-                nature=nature,
-                confidence=conf,
-                sub_type=sub_type,
-                description=desc,
-                start_date=base - timedelta(days=days_ago),
-                space_id=space_id,
-            )
-        )
-        added += 1
-    logger.info("  %d new events added", added)
-
-
 async def seed_relationships(session):
     logger.info("Seeding enterprise relationships …")
     added = 0
@@ -253,8 +212,8 @@ async def main():
             sys.exit(1)
         logger.info("Seeding into space=%s owner=%s", space.name, owner.email)
         await seed_glossary(session, space.id, owner.id)
-        # Strategy seed removed; replaced by Metric seed in Phase 2.
-        await seed_events(session, space.id)
+        # Strategy seed removed in Phase 1a; Events seed removed in Phase 1b.
+        # Both reappear in Phase 2 as Metric + agent_findings seeds.
         await seed_relationships(session)
         await session.commit()
         logger.info("Done.")

@@ -76,8 +76,9 @@ class ContextMapping:
         visibility:   default visibility when the row has no explicit flag.
                       Scope attributes override at event time.
         resolve_kind: optional callable (instance) -> kind. Used when one
-                      table maps to multiple kinds (e.g. signal_events →
-                      internal vs external vs trend vs macro).
+                      table maps to multiple kinds (kept on the contract
+                      surface — Phase 2 metrics will use it to split
+                      target / threshold / KPI sub-kinds).
     """
 
     model: Any
@@ -360,7 +361,6 @@ def _register_default_mappings() -> None:
     from src.models.dashboard import Widget
     from src.models.enterprise_relationship import EnterpriseRelationship
     from src.models.glossary import GlossaryTerm
-    from src.models.signal_event import SignalEvent
     from src.models.space import Space, SpaceMember
     from src.models.starred import StarredItem
     from src.models.user import User
@@ -371,19 +371,14 @@ def _register_default_mappings() -> None:
     # re-appear when Phase 2 lands `metric` and `glossary_term` registrations
     # — they fold into Metric attributes (tags, target_value, thresholds)
     # rather than separate entities.
+    #
+    # Events / Signals (signal_events / intelligence_signals) were also
+    # dropped in Phase 1b — they were not part of the new Knowledge model
+    # (Sources + Knowledge + Relationships). Surfacing of agent findings
+    # moves into the Pulse halo + Universe Intelligence directly.
 
     # Glossary — short vocabulary terms (GMV / MAU / Churn / …) scoped to space/crew.
     register_context_mapping(ContextMapping(model=GlossaryTerm, kind="glossary", source_table="glossary_terms"))
-
-    # Events / Signals — kind resolved from category (internal / external / trend / macro).
-    register_context_mapping(
-        ContextMapping(
-            model=SignalEvent,
-            kind="event_internal",
-            source_table="signal_events",
-            resolve_kind=_signal_event_kind,
-        )
-    )
 
     # Relationships
     register_context_mapping(
@@ -416,30 +411,6 @@ def _register_default_mappings() -> None:
     register_context_mapping(ContextMapping(model=StarredItem, kind="pin", source_table="starred_items"))
 
 
-def _signal_event_kind(obj: Any) -> str:
-    """Map signal_events.category → context kind.
-
-    The SignalCategory enum (INTERNAL / EXTERNAL / TRENDS) covers the
-    first three context kinds. We don't yet have a stored "MACRO"
-    category — the master plan reserves ``event_macro`` for
-    macro-economic signals that will ship alongside external-API
-    ingestion; for now, unknown categories bucket into ``event_internal``
-    which is the safest default (more restrictive retrieval scope).
-    """
-    category = getattr(obj, "category", None)
-    if category is None:
-        return "event_internal"
-    # Enum vs raw string — handle both.
-    value = getattr(category, "value", category)
-    if not isinstance(value, str):
-        return "event_internal"
-    v = value.upper()
-    if v == "INTERNAL":
-        return "event_internal"
-    if v == "EXTERNAL":
-        return "event_external"
-    if v == "TRENDS":
-        return "event_trend"
-    if v == "MACRO":
-        return "event_macro"
-    return "event_internal"
+# _signal_event_kind() removed alongside SignalEvent in the 2026-04-25
+# Knowledge refactor (Phase 1b). Phase 2 will introduce an analogous
+# resolver for Metric kinds (target / threshold / kpi).

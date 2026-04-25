@@ -35,7 +35,6 @@ from src.models.crew import Crew, CrewMember
 from src.models.dashboard import Widget
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.glossary import GlossaryTerm
-from src.models.signal_event import SignalEvent
 from src.models.space import Space, SpaceMember
 from src.models.starred import StarredItem
 from src.models.user import User
@@ -53,10 +52,10 @@ router = APIRouter()
 # sync — a mismatch here means events emit but never hydrate.
 
 MODEL_REGISTRY: Dict[str, Any] = {
-    # Strategy entries removed; Phase 2 will add "metrics" + replace
+    # Strategy + Events/Signals entries were removed in the Knowledge
+    # refactor (Phase 1a + 1b). Phase 2 will add "metrics" and replace
     # "glossary_terms" with the rebuilt schema.
     "glossary_terms": GlossaryTerm,
-    "signal_events": SignalEvent,
     "user_enterprise_relationships": EnterpriseRelationship,
     "users": User,
     "spaces": Space,
