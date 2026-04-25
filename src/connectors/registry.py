@@ -6,6 +6,7 @@ from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
 from src.connectors.confluence import ConfluenceConnector
 from src.connectors.dropbox import DropboxConnector
+from src.connectors.gcs import GCSConnector
 from src.connectors.google_drive import GoogleDriveConnector
 from src.connectors.google_sheets import GoogleSheetsConnector
 from src.connectors.hubspot import HubSpotConnector
@@ -67,6 +68,8 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "s3": S3Connector,
     "amazon-s3": S3Connector,
     "confluence": ConfluenceConnector,
+    "gcs": GCSConnector,
+    "google-cloud-storage": GCSConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
     "snowflake": MockConnector,
