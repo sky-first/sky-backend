@@ -26,10 +26,18 @@ depends_on = None
 
 
 # Strategy module tables. Listed in reverse-FK order so child tables go
-# first; ``CASCADE`` on the eventual metric/glossary FKs is intentionally
-# NOT used here — we want any unexpected FK to fail loudly so the
-# operator notices code drift before the migration runs in prod.
+# first. M2M junction tables (``strategy_initiative_crews`` /
+# ``strategy_initiative_spaces``) point to ``strategy_initiatives`` and
+# must drop *before* it.
+#
+# ``CASCADE`` on the eventual metric/glossary FKs is intentionally NOT
+# used here — we want any unexpected FK to fail loudly so the operator
+# notices code drift before the migration runs in prod.
 _STRATEGY_TABLES = [
+    # Junction tables first — their FKs point to the main tables below.
+    "strategy_initiative_spaces",
+    "strategy_initiative_crews",
+    # Main entity tables, child → parent order.
     "strategy_key_results",
     "strategy_assumptions",
     "strategy_initiatives",
@@ -44,6 +52,20 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     existing = set(inspector.get_table_names())
+
+    # First pass — anything that prefix-matches "strategy_" or
+    # "strategic_" but isn't in our known list is almost certainly a
+    # junction table we forgot. Drop them before touching the main
+    # entity tables. Catches future drift if a m2m gets added without
+    # updating this list.
+    known = set(_STRATEGY_TABLES)
+    for tbl in sorted(existing):
+        if (tbl.startswith("strategy_") or tbl.startswith("strategic_")) and tbl not in known:
+            op.drop_table(tbl)
+
+    # Second pass — drop in the explicit reverse-FK order above.
+    # Re-fetch the table list because the first pass changed it.
+    existing = set(sa.inspect(bind).get_table_names())
     for tbl in _STRATEGY_TABLES:
         if tbl in existing:
             op.drop_table(tbl)
