@@ -577,6 +577,31 @@ class AIService:
                             f"Calling real AI service with connection_id={connection_id}, "
                             f"space_id={space_id}, crew_ids={crew_ids}, question='{str(configure_data.question)[:50]}...'"
                         )
+                        # Splice the rendered Knowledge block (Metrics +
+                        # Glossary + Relationships) into the instructions
+                        # the engine receives. This is the seam the AI
+                        # service uses as its system-prompt addendum, so
+                        # carrying knowledge_context here is what makes
+                        # the answer actually reason over governed
+                        # definitions instead of inventing them.
+                        merged_instructions = configure_data.instructions or ""
+                        knowledge_block = (
+                            getattr(configure_data, "knowledge_context", None)
+                            or (
+                                configure_data.model_dump().get(
+                                    "knowledge_context"
+                                )
+                                if hasattr(configure_data, "model_dump")
+                                else None
+                            )
+                        )
+                        if knowledge_block:
+                            merged_instructions = (
+                                f"{knowledge_block}\n\n{merged_instructions}"
+                                if merged_instructions
+                                else knowledge_block
+                            )
+
                         result = await self.real_ai.process_query(
                             connection_id=connection_id,
                             question=configure_data.question,
@@ -587,7 +612,7 @@ class AIService:
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
                             authorized_tables=list(authorized_tables),
-                            instructions=configure_data.instructions,
+                            instructions=merged_instructions or None,
                             response_format=configure_data.response_format,
                             security_config=sec_config,
                         )
