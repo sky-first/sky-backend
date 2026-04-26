@@ -164,25 +164,78 @@ async def test_crud_08_target_and_threshold_persisted(db_session, test_user):
     assert fetched.target_date.isoformat() == "2026-12-31"
 
 
-# ─── CRUD-09..12 — GlossaryTerm rebuild (Phase 4) ────────────────────────
+# ─── CRUD-09..11 — GlossaryTerm Phase 5 rebuild ──────────────────────
 
 
-@pytest.mark.skip(reason=f"{PHASE} (CRUD-09) — glossary term create — Phase 4 rebuild")
 @pytest.mark.asyncio
-async def test_crud_09_create_glossary_term(db_session):
-    raise NotImplementedError
+async def test_crud_09_create_glossary_term(db_session, test_user):
+    """The Phase 5 columns (scope/scope_id/slug/status) are populated
+    directly via the model — pins the new schema contract."""
+    from src.models.glossary import GlossaryTerm
+    user = test_user["user"]
+    term = GlossaryTerm(
+        term="ARR",
+        slug="arr",
+        scope="personal",
+        scope_id=user.id,
+        definition="Annual recurring revenue.",
+        owner_user_id=user.id,
+        created_by_user_id=user.id,
+    )
+    db_session.add(term)
+    await db_session.commit()
+    await db_session.refresh(term)
+
+    assert term.id is not None
+    assert term.scope == "personal"
+    assert term.scope_id == user.id
+    assert term.slug == "arr"
+    assert term.status == "active"  # server_default
 
 
-@pytest.mark.skip(reason=f"{PHASE} (CRUD-10) — glossary term aliases — Phase 4 rebuild")
 @pytest.mark.asyncio
-async def test_crud_10_glossary_aliases_persisted(db_session):
-    raise NotImplementedError
+async def test_crud_10_glossary_aliases_persisted(db_session, test_user):
+    from src.models.glossary import GlossaryTerm
+    user = test_user["user"]
+    term = GlossaryTerm(
+        term="MRR",
+        slug="mrr",
+        scope="personal",
+        scope_id=user.id,
+        definition="Monthly recurring revenue.",
+        aliases=["Monthly RR", "Recurring Monthly Rev"],
+        owner_user_id=user.id,
+    )
+    db_session.add(term)
+    await db_session.commit()
+    await db_session.refresh(term)
+
+    assert sorted(term.aliases) == ["Monthly RR", "Recurring Monthly Rev"]
 
 
-@pytest.mark.skip(reason=f"{PHASE} (CRUD-11) — glossary→metric/source link — Phase 4 rebuild")
 @pytest.mark.asyncio
-async def test_crud_11_glossary_relates_to_metric_and_source(db_session):
-    raise NotImplementedError
+async def test_crud_11_glossary_relates_to_metric_and_source(db_session, test_user):
+    from src.models.glossary import GlossaryTerm
+
+    user = test_user["user"]
+    metric_id = uuid.uuid4()
+    source_id = uuid.uuid4()
+    term = GlossaryTerm(
+        term="GMV",
+        slug="gmv",
+        scope="personal",
+        scope_id=user.id,
+        definition="Gross merchandise value.",
+        related_metric_ids=[str(metric_id)],
+        related_source_ids=[str(source_id)],
+        owner_user_id=user.id,
+    )
+    db_session.add(term)
+    await db_session.commit()
+    await db_session.refresh(term)
+
+    assert term.related_metric_ids == [str(metric_id)]
+    assert term.related_source_ids == [str(source_id)]
 
 
 @pytest.mark.asyncio
