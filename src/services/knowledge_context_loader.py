@@ -33,6 +33,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.crew import CrewMember
+from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.glossary import GlossaryTerm
 from src.models.metric import Metric
 from src.models.space import SpaceMember
@@ -65,6 +66,26 @@ def _serialize_metric(m: Metric) -> Dict:
         "tags": list(m.tags or []),
         "certified": m.certified_by_user_id is not None,
         "unit": m.unit,
+    }
+
+
+def _serialize_relationship(r: EnterpriseRelationship) -> Dict:
+    return {
+        "id": str(r.id),
+        "name": r.name,
+        "description": r.description,
+        "relationship_type": r.relationship_type,
+        "sources": list(r.sources or []),
+        "target_id": r.target_id,
+        "target_type": r.target_type,
+        "targets": list(getattr(r, "targets", None) or []),
+        "ai_inferred": bool(getattr(r, "ai_inferred", False)),
+        "confidence": (
+            float(getattr(r, "confidence", 0) or 0)
+            if getattr(r, "confidence", None) is not None
+            else None
+        ),
+        "scope": getattr(r, "scope", None),
     }
 
 
@@ -145,10 +166,45 @@ async def load_knowledge_context_for_user(
 
     glossary = [_serialize_term(g) for g in visible_terms[:limit]]
 
+    # Relationships — same 4-scope ACL as Metrics. AI-inferred rows
+    # come last (lower-confidence than human-curated links).
+    rel_clauses = [
+        EnterpriseRelationship.scope == "org",
+        EnterpriseRelationship.scope.is_(None),
+        (EnterpriseRelationship.scope == "personal")
+        & (EnterpriseRelationship.scope_id == user.id),
+    ]
+    if crew_ids:
+        rel_clauses.append(
+            (EnterpriseRelationship.scope == "crew")
+            & (EnterpriseRelationship.scope_id.in_(crew_ids))
+        )
+    if space_ids:
+        rel_clauses.append(
+            (EnterpriseRelationship.scope == "space")
+            & (EnterpriseRelationship.scope_id.in_(space_ids))
+        )
+    rel_stmt = (
+        select(EnterpriseRelationship)
+        .where(or_(*rel_clauses))
+        .order_by(
+            EnterpriseRelationship.ai_inferred.asc().nulls_first(),
+            EnterpriseRelationship.created_at.desc(),
+        )
+        .limit(limit)
+    )
+    try:
+        rel_rows = (await db.execute(rel_stmt)).scalars().all()
+        relationships = [_serialize_relationship(r) for r in rel_rows]
+    except Exception as exc:  # noqa: BLE001 — relationships are best-effort
+        logger.debug("relationships load skipped: %s", exc)
+        relationships = []
+
     return {
         "metrics": metrics,
         "glossary": glossary,
         "preferred_metrics": preferred,
+        "relationships": relationships,
     }
 
 
@@ -184,5 +240,37 @@ def render_knowledge_for_prompt(ctx: Dict[str, List[Dict]]) -> str:
         for g in terms[:50]:
             tag = "[ORG-CERTIFIED]" if g.get("certified") else ""
             out.append(f"- **{g['term']}** {tag} — {g.get('definition', '')}".rstrip())
+
+    rels = ctx.get("relationships") or []
+    if rels:
+        out.append(
+            "\n# Enterprise relationships (use these to join across data sources)"
+        )
+        for r in rels[:50]:
+            srcs = r.get("sources") or []
+            src_names = ", ".join(
+                str(s.get("name") or s.get("id", "?")) for s in srcs[:3]
+            ) or "?"
+            tgts = r.get("targets") or []
+            if tgts:
+                tgt_names = ", ".join(
+                    str(t.get("id", "?")) for t in tgts[:3]
+                )
+            else:
+                tgt_names = r.get("target_id", "?")
+            tag_bits = [r.get("relationship_type", "")]
+            if r.get("ai_inferred"):
+                conf = r.get("confidence")
+                conf_str = (
+                    f" {int(conf * 100)}%"
+                    if isinstance(conf, (int, float)) and conf <= 1
+                    else ""
+                )
+                tag_bits.append(f"AI-inferred{conf_str}")
+            tag = " · ".join(t for t in tag_bits if t)
+            out.append(
+                f"- **{r['name']}**: {src_names} → {tgt_names}"
+                + (f" [{tag}]" if tag else "")
+            )
 
     return "\n".join(out)

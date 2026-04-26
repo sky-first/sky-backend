@@ -94,6 +94,43 @@ async def test_loader_returns_org_glossary(db_session: AsyncSession, test_user):
 
 
 @pytest.mark.asyncio
+async def test_loader_includes_relationships(db_session: AsyncSession, test_user):
+    """E2E proof — relationships flow into the AI prompt context.
+
+    Closes the gap the user flagged: Knowledge + Metrics had been
+    wired in, but enterprise relationships were not. An AI question
+    that needs to join across data sources must see the relationship
+    catalog, otherwise the answer can't reason about how a metric on
+    BigQuery relates to a row in another connection.
+    """
+    from src.models.enterprise_relationship import EnterpriseRelationship
+
+    user = test_user["user"]
+    rel = EnterpriseRelationship(
+        name="Customer ↔ Revenue",
+        sources=[{"id": "customers.email", "type": "column"}],
+        target_id="revenue.customer_email",
+        target_type="column",
+        relationship_type="depends_on",
+        scope="org",
+        ai_inferred=True,
+        confidence=0.92,
+        created_by=user.id,
+    )
+    db_session.add(rel)
+    await db_session.commit()
+
+    ctx = await load_knowledge_context_for_user(db_session, user)
+    names = [r["name"] for r in ctx["relationships"]]
+    assert "Customer ↔ Revenue" in names
+
+    rendered = render_knowledge_for_prompt(ctx)
+    assert "Customer ↔ Revenue" in rendered
+    assert "Enterprise relationships" in rendered
+    assert "AI-inferred" in rendered  # confidence tag rendered for AI rows
+
+
+@pytest.mark.asyncio
 async def test_render_for_prompt_emits_certified_tag(db_session: AsyncSession, test_user):
     user = test_user["user"]
     user.role = "owner"
