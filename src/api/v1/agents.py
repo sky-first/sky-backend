@@ -304,6 +304,23 @@ async def run_agent_stream(
             getattr(agent, "selected_context", None) or None
         )
         is_personal = (agent.scope or "").lower() == "personal"
+
+        # Resolve crew_ids so the RAG scopes the retrieval correctly.
+        # - Personal agent: no crew filter (agent sees only user-scoped data)
+        # - Crew agent: the agent IS the crew; pass [scope_id]
+        # - Space agent: collaborative — use the member's own crews in
+        #   that space so the agent sees space-wide + crew-scoped data
+        #   the running user is authorised for.
+        resolved_crew_ids: List[str] = []
+        agent_scope = (agent.scope or "").lower()
+        if agent_scope == "crew" and agent.scope_id:
+            resolved_crew_ids = [str(agent.scope_id)]
+        elif agent_scope == "space" and agent.scope_id:
+            from src.services.ai_service import AIService as _AIService
+            resolved_crew_ids = await _AIService(db)._get_user_crew_ids(
+                current_user.id, str(agent.scope_id)
+            )
+
         try:
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
@@ -313,6 +330,7 @@ async def run_agent_stream(
                 instructions=agent.focus,
                 is_personal=is_personal,
                 selected_context=selected_ctx,
+                crew_ids=resolved_crew_ids or None,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):

@@ -185,6 +185,12 @@ class SpaceService:
         # logged and swallowed — a broken AI side must not block Space
         # creation (see Bug 6a phase 3 in session checkpoint).
         try:
+            # A Space is collaborative by definition — its embedding must
+            # be visible to every member, not just the creator. Leaving
+            # owner_user_id NULL lets the RAG's Personal-vs-collaborative
+            # filter treat it as space-wide. Stamping the creator here
+            # (pre-fix) caused the Space record to behave like a Personal
+            # entity and silently hid it from other members.
             await self.ai_client.ingest_knowledge_graph({
                 "id": str(space.id),
                 "entity_type": "space",
@@ -192,7 +198,7 @@ class SpaceService:
                 "description": space.description,
                 "space_id": str(space.id),
                 "crew_id": None,
-                "owner_user_id": str(user.id),
+                "owner_user_id": None,
                 "entity_details": {
                     "created_by": str(user.id),
                     "color": space.color,

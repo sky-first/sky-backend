@@ -518,6 +518,30 @@ async def send_chat_message_stream(
     scope_is_personal = bool(getattr(message_data, "is_personal", False))
     scope_space_id = getattr(message_data, "space_id", None) or "default"
 
+    # Resolve the caller's crew membership so the RAG restricts the
+    # retrieval to their own crews (or crew_id IS NULL). Without this,
+    # a Space member asking a question inside their own Crew page would
+    # silently miss Crew-scoped embeddings because the AI defaults to
+    # crew_ids=[] → crew_id IS NULL only. See collaborative RAG audit.
+    resolved_crew_ids: List[str] = []
+    if not scope_is_personal:
+        explicit_crew_id = getattr(message_data, "crew_id", None)
+        if explicit_crew_id:
+            # Trust the page-level crew signal but intersect with the
+            # user's actual membership so a compromised client can't
+            # read a Crew they don't belong to.
+            user_crews = await ai_service._get_user_crew_ids(
+                current_user.id, str(scope_space_id)
+            )
+            if str(explicit_crew_id) in user_crews:
+                resolved_crew_ids = [str(explicit_crew_id)]
+            # else: the client asked for a Crew the user doesn't belong
+            # to — fall back to the space-wide view (no crew filter).
+        else:
+            resolved_crew_ids = await ai_service._get_user_crew_ids(
+                current_user.id, str(scope_space_id)
+            )
+
     import json as _json
     ai_client = AIServiceHTTPClient()
 
@@ -540,6 +564,7 @@ async def send_chat_message_stream(
                 space_id=str(scope_space_id),
                 instructions=getattr(message_data, "instructions", None),
                 is_personal=scope_is_personal,
+                crew_ids=resolved_crew_ids or None,
             ):
                 if line.startswith("data: "):
                     yield line + "\n\n"
