@@ -98,6 +98,36 @@ async def promote_metric(
     return _request(request, conflicts)
 
 
+@request_router.get("/", response_model=List[PromotionResponse])
+async def list_promotion_requests(
+    status_filter: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List promotion requests visible to the caller.
+
+    Owner / admin see every request in the org (so they can act on the
+    inbox). Everyone else sees only requests they themselves opened so
+    they can track their own pending submissions. Optional
+    ?status_filter=pending|approved|rejected narrows the response.
+    """
+    role = (getattr(current_user, "role", "") or "").lower()
+    is_admin_or_owner = role in {"owner", "admin"}
+    stmt = select(PromotionRequest).order_by(PromotionRequest.created_at.desc())
+    if not is_admin_or_owner:
+        stmt = stmt.where(PromotionRequest.requester_user_id == current_user.id)
+    if status_filter:
+        stmt = stmt.where(PromotionRequest.status == status_filter)
+    rows = (await db.execute(stmt)).scalars().all()
+    out: List[PromotionResponse] = []
+    for r in rows:
+        conflict_rows = await db.execute(
+            select(KnowledgeConflict).where(KnowledgeConflict.request_id == r.id)
+        )
+        out.append(_request(r, list(conflict_rows.scalars().all())))
+    return out
+
+
 @request_router.get("/{request_id}", response_model=PromotionResponse)
 async def get_promotion_request(
     request_id: UUID,
