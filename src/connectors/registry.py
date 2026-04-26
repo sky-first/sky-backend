@@ -217,6 +217,16 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
 }
 
 
+# Honest flag per connector: True when the backend has a real
+# implementation (non-MockConnector). The UI reads this to show a
+# "Real" badge vs a "Coming soon" pill so users don't pick a
+# connector whose test_connection would silently return True on a
+# mock but never actually execute queries.
+def is_real_connector(connector_id: str) -> bool:
+    cls = CONNECTORS.get(connector_id)
+    return cls is not None and cls is not MockConnector
+
+
 def get_connector(connector_id: str) -> BaseConnector:
     """
     Get connector instance by ID.
