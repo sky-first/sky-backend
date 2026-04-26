@@ -558,6 +558,65 @@ async def send_chat_message_stream(
 
 
 @router.get(
+    "/popular-questions",
+    response_model=List[dict],
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="List popular AI questions (anonymised)",
+    description=(
+        "Returns the most-asked questions across the org over the last 30 days, "
+        "grouped by normalised question text and ordered by count desc. No user "
+        "attribution — used to seed the chat bootstrap suggestions with what "
+        "other people in the same space have actually been asking."
+    ),
+)
+async def get_popular_questions(
+    limit: int = Query(5, ge=1, le=20),
+    space_id: Optional[UUID] = Query(None, description="Restrict to a Space (optional)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[dict]:
+    """List popular questions, anonymised. Each row: {question, count}."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, select
+    from src.models.ai import AIQuery
+
+    # Last 30 days, completed only — incomplete/error queries shouldn't drive
+    # recommendations because we're inferring "this question worked".
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+    # Normalise to lowercase trimmed text so "What is MRR?" and "what is mrr"
+    # collapse into one bucket. We keep the original-cased question of the
+    # most recent occurrence as the displayed string.
+    norm = func.lower(func.trim(AIQuery.question))
+    stmt = (
+        select(
+            norm.label("norm"),
+            func.count().label("cnt"),
+            func.max(AIQuery.question).label("display"),
+        )
+        .where(AIQuery.status == "completed")
+        .where(AIQuery.created_at >= since)
+        .where(AIQuery.user_id != current_user.id)  # exclude my own
+        .group_by(norm)
+        .order_by(func.count().desc())
+        .limit(limit * 3)
+    )
+    rows = (await db.execute(stmt)).all()
+    out: List[dict] = []
+    for r in rows:
+        q = (r.display or "").strip()
+        if not q or len(q) < 8:
+            continue
+        # Filter out boring stuff that shouldn't be surfaced as a suggestion.
+        if q.lower() in {"hi", "hello", "test", "what?"}:
+            continue
+        out.append({"question": q, "count": int(r.cnt)})
+        if len(out) >= limit:
+            break
+    return out
+
+
+@router.get(
     "/history",
     response_model=List[AIHistoryItem],
     status_code=status.HTTP_200_OK,
