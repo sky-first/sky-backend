@@ -32,6 +32,7 @@ from src.models.enterprise_api import EnterpriseAPI
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.file import FileUpload
 from src.models.glossary import GlossaryTerm
+from src.models.metric import Metric
 from src.models.notification import Notification, NotificationPreference
 from src.models.permission import APIKey, ConnectionPermission, Integration
 from src.models.platform_branding import PlatformBranding
@@ -91,6 +92,7 @@ __all__ = [
     "PlatformBranding",
     "FileUpload",
     "GlossaryTerm",
+    "Metric",
     "Workspace",
     "WorkspaceMember",
     "Notification",
