@@ -20,6 +20,10 @@ class ConfigureData(BaseModel):
     length: int = Field(default=50, ge=0, le=100)
     knowledge: List[str] = Field(default_factory=list)  # Connection IDs or table names
     sql_instructions: Optional[str] = None
+    # Knowledge layer markdown — Metrics + Glossary visible to the user,
+    # Org-certified rows first. Populated by ai_service.process_query
+    # via knowledge_context_loader and spliced into the engine prompt.
+    knowledge_context: Optional[str] = None
 
 
 class AIQueryRequest(BaseModel):

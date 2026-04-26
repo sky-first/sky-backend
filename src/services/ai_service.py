@@ -317,6 +317,39 @@ class AIService:
             question=sanitised_question, knowledge=query_data.knowledge or []
         )
 
+        # ── Knowledge layer splice ─────────────────────────────────
+        # Load Metrics + Glossary visible to the user and render them
+        # into a markdown block the AI engine prepends to its system
+        # prompt. Org-certified definitions surface first so the
+        # answer prefers them over Personal duplicates (Knowledge
+        # refactor §7). Failures are logged but never blow the chat
+        # path — the loader is best-effort context, not a hard dep.
+        try:
+            from src.services.knowledge_context_loader import (
+                load_knowledge_context_for_user,
+                render_knowledge_for_prompt,
+            )
+            from sqlalchemy import select as _select
+            from src.models.user import User as _User
+            user_row = await self.db.execute(_select(_User).where(_User.id == user_id))
+            user_obj = user_row.scalar_one_or_none()
+            if user_obj is not None:
+                knowledge_ctx = await load_knowledge_context_for_user(
+                    self.db, user_obj
+                )
+                rendered = render_knowledge_for_prompt(knowledge_ctx)
+                if rendered:
+                    # Stash on configure_data so the engine can splice it
+                    # into the system prompt template (the engine reads
+                    # ``knowledge_context`` from configure_data when set).
+                    cd_dict = configure_data.model_dump()
+                    cd_dict["knowledge_context"] = rendered
+                    configure_data = ConfigureData(**{
+                        k: v for k, v in cd_dict.items() if k in ConfigureData.model_fields
+                    })
+        except Exception as exc:  # noqa: BLE001 — knowledge is best-effort context
+            logger.debug("knowledge_context_loader skipped: %s", exc)
+
         query = await self.query_repo.create(
             user_id=user_id,
             page_id=query_data.page_id,
