@@ -1,17 +1,17 @@
-"""MetricService — Knowledge refactor Phase 2 (foundations).
+"""MetricService — Knowledge refactor Phases 2 + 3.
 
-Phase 2 ships the model + table + minimal CRUD. The mutation gates
-(creating/promoting at crew/space/org scope) live in Phase 3 and the
-contract tests in `src/tests/knowledge/test_knowledge_mutation_rbac.py`
-will start passing as that lands.
+Phase 2 shipped the model + table + minimal CRUD with author-only
+mutation. Phase 3 plugs the RBAC matrix from KNOWLEDGE_REFACTOR.md §4
+into create/update/delete:
 
-For Phase 2 we keep it simple:
+  scope=personal — only the user themselves
+  scope=crew     — Crew Commander OR Navigator (Explorer / Guest deny)
+  scope=space    — Space Commander only (Navigator deny — wider blast
+                    radius than Crew, gated tighter on purpose)
+  scope=org      — Owner OR admin with `knowledge.certify` permission
+                    grant (delegable per-user, not by platform role)
 
-* read filter — Personal rows (your own), plus rows in crews you're
-  in, plus rows in spaces you're in, plus everything at org scope.
-* mutation — only the row's owner / creator can update or soft-delete
-  it. Crew/space/org create paths exist but are not yet RBAC-gated by
-  the platform-role grant matrix; they will be in Phase 3.
+The same matrix applies to update + delete.
 """
 
 from __future__ import annotations
@@ -30,7 +30,17 @@ from src.models.crew import CrewMember
 from src.models.metric import METRIC_LANGUAGES, METRIC_SCOPES, METRIC_STATUSES, Metric
 from src.models.space import SpaceMember
 from src.models.user import User
+from src.models.user_permission_grant import (
+    PERMISSION_KNOWLEDGE_CERTIFY,
+    UserPermissionGrant,
+)
 from src.schemas.metric import MetricCreate, MetricUpdate
+
+# Per Knowledge RBAC matrix:
+#   crew: Commander + Navigator can write; Explorer + Guest cannot
+#   space: only Commander (= Space "admin" role) can write
+_CREW_WRITE_ROLES = {"commander", "navigator"}
+_SPACE_WRITE_ROLES = {"admin"}  # Space "admin" ≡ Commander in the matrix
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -66,6 +76,84 @@ class MetricService:
             select(SpaceMember.space_id).where(SpaceMember.user_id == user.id)
         )
         return [r[0] for r in rows.all()]
+
+    async def _user_role_in_crew(self, user: User, crew_id: UUID) -> Optional[str]:
+        row = await self.db.execute(
+            select(CrewMember.role).where(
+                CrewMember.user_id == user.id, CrewMember.crew_id == crew_id
+            )
+        )
+        return row.scalar_one_or_none()
+
+    async def _user_role_in_space(self, user: User, space_id: UUID) -> Optional[str]:
+        row = await self.db.execute(
+            select(SpaceMember.role).where(
+                SpaceMember.user_id == user.id, SpaceMember.space_id == space_id
+            )
+        )
+        return row.scalar_one_or_none()
+
+    async def _has_live_grant(self, user: User, permission: str) -> bool:
+        """True iff the user has a non-revoked grant for ``permission``.
+
+        Live = ``revoked_at IS NULL``. Always re-queried — there is no
+        caching layer here so revocations take effect on the next call.
+        """
+        row = await self.db.execute(
+            select(UserPermissionGrant.id)
+            .where(
+                UserPermissionGrant.user_id == user.id,
+                UserPermissionGrant.permission == permission,
+                UserPermissionGrant.revoked_at.is_(None),
+            )
+            .limit(1)
+        )
+        return row.first() is not None
+
+    async def _assert_can_mutate_scope(
+        self, user: User, scope: str, scope_id: Optional[UUID]
+    ) -> None:
+        """Phase 3 gate — runs at create / update / delete time.
+
+        Personal: user must match ``scope_id``.
+        Crew:     user must be Commander or Navigator of the crew.
+        Space:    user must be Commander (Space role ``admin``).
+        Org:      Owner OR admin with ``knowledge.certify`` grant.
+        """
+        if scope == "personal":
+            if scope_id != user.id:
+                raise ForbiddenError("personal metrics are scoped to their owner")
+            return
+
+        if scope == "crew":
+            role = await self._user_role_in_crew(user, scope_id)
+            if role not in _CREW_WRITE_ROLES:
+                raise ForbiddenError(
+                    "crew metric writes require Commander or Navigator role"
+                )
+            return
+
+        if scope == "space":
+            role = await self._user_role_in_space(user, scope_id)
+            if role not in _SPACE_WRITE_ROLES:
+                raise ForbiddenError(
+                    "space metric writes require the Commander (admin) role"
+                )
+            return
+
+        if scope == "org":
+            platform_role = (user.role or "").lower()
+            if platform_role == "owner":
+                return
+            if platform_role == "admin" and await self._has_live_grant(
+                user, PERMISSION_KNOWLEDGE_CERTIFY
+            ):
+                return
+            raise ForbiddenError(
+                "org metric writes require Owner or knowledge.certify grant"
+            )
+
+        raise ValidationError(f"invalid scope '{scope}'")
 
     async def _resolve_unique_slug(
         self,
@@ -120,10 +208,9 @@ class MetricService:
         self._validate_scope(payload.scope, payload.scope_id)
         self._validate_status_lang(payload.status, payload.formula_language)
 
-        # Personal scope must always be authored against the caller's
-        # own user-id. Crew / space / org checks are Phase 3 territory.
-        if payload.scope == "personal" and payload.scope_id != user.id:
-            raise ForbiddenError("personal metrics must be scoped to the caller")
+        # Phase 3 RBAC gate — covers Personal+Crew+Space+Org per the
+        # KNOWLEDGE_REFACTOR.md §4 mutation matrix.
+        await self._assert_can_mutate_scope(user, payload.scope, payload.scope_id)
 
         slug = await self._resolve_unique_slug(
             payload.scope, payload.scope_id, _slugify(payload.name)
@@ -211,9 +298,12 @@ class MetricService:
 
     async def update(self, user: User, metric_id: UUID, payload: MetricUpdate) -> Metric:
         m = await self._get_visible_or_404(user, metric_id)
-        if m.created_by_user_id and m.created_by_user_id != user.id:
-            # Phase 3 will plug in platform-role grants here.
-            raise ForbiddenError("only the metric author can update it (Phase 2)")
+        # Phase 3 — same matrix as create. Author can always update their
+        # own row; otherwise the caller must satisfy the scope's write
+        # rule. We keep the author shortcut for Personal so the user
+        # doesn't need to pass any additional gate to edit their own row.
+        if m.created_by_user_id != user.id:
+            await self._assert_can_mutate_scope(user, m.scope, m.scope_id)
 
         data = payload.model_dump(exclude_unset=True)
 
@@ -238,8 +328,8 @@ class MetricService:
 
     async def delete(self, user: User, metric_id: UUID) -> None:
         m = await self._get_visible_or_404(user, metric_id)
-        if m.created_by_user_id and m.created_by_user_id != user.id:
-            raise ForbiddenError("only the metric author can delete it (Phase 2)")
+        if m.created_by_user_id != user.id:
+            await self._assert_can_mutate_scope(user, m.scope, m.scope_id)
         m.deleted_at = datetime.now(timezone.utc)
         m.updated_by_user_id = user.id
         await self.db.flush()
