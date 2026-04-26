@@ -159,6 +159,14 @@ class RealAIService:
                 "detected_language": meta.get("detected_language"),
                 "num_rows": meta.get("num_rows", 0),
                 "error": meta.get("error"),
+                # Transparency surfaces — Knowledge specialist returns
+                # evidence (catalog rows the answer leaned on) and a
+                # generic, user-readable reasoning trace. We forward
+                # both so chat_pipeline can attach them to the W7
+                # transparency bundle. Default to [] so legacy paths
+                # (data SQL questions) are unaffected.
+                "evidence": response.get("evidence") or [],
+                "reasoning_steps": response.get("reasoning_steps") or [],
             }
         except Exception as e:
             logger.error(f"Error calling AI service: {str(e)}", exc_info=True)

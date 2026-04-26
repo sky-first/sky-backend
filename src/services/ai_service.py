@@ -13,7 +13,7 @@ from src.ai.evidence_extractor import extract_evidence
 from src.ai.mock import MockAIService
 from src.ai.real_service import RealAIService
 from src.core.errors.chat_errors import ChatError
-from src.schemas.ai_transparency import EvidenceChunkOut
+from src.schemas.ai_transparency import EvidenceChunkOut, ReasoningStepOut
 from src.config.redis import get_redis
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
@@ -623,11 +623,56 @@ class AIService:
                         query.sql = result.get("sql")
                         query.status = "completed"
 
-                        # W7 — extract evidence chunks if Runpod populated them
+                        # W7 — extract evidence chunks. Knowledge specialist
+                        # returns its own structured evidence (Sources tab),
+                        # which we prefer; fall back to the heuristic
+                        # extractor for legacy SQL/data answers.
                         try:
-                            extracted_evidence = extract_evidence(result)
+                            engine_evidence = result.get("evidence") or []
+                            if engine_evidence:
+                                from src.schemas.ai_transparency import EvidenceChunkOut as _EC
+                                extracted_evidence = []
+                                for raw in engine_evidence:
+                                    if not isinstance(raw, dict):
+                                        continue
+                                    try:
+                                        extracted_evidence.append(
+                                            _EC(
+                                                id=str(raw.get("id") or ""),
+                                                kind=str(raw.get("kind") or "unknown"),
+                                                source_label=str(raw.get("source_label") or "(unlabelled)"),
+                                                snippet=str(raw.get("snippet") or "")[:400],
+                                                href=raw.get("href"),
+                                            )
+                                        )
+                                    except Exception:
+                                        continue
+                            else:
+                                extracted_evidence = extract_evidence(result)
                         except Exception:
                             extracted_evidence = []
+
+                        # W7 — emit user-readable reasoning steps the
+                        # engine surfaced (Knowledge specialist does
+                        # this; SQL flow doesn't yet). We deliberately
+                        # never include model name / latency here.
+                        try:
+                            engine_steps = result.get("reasoning_steps") or []
+                            for raw in engine_steps:
+                                if not isinstance(raw, dict):
+                                    continue
+                                summary = str(raw.get("summary") or "").strip()
+                                kind = str(raw.get("kind") or "step")
+                                if summary:
+                                    pipeline._reasoning.append(
+                                        ReasoningStepOut(
+                                            step=len(pipeline._reasoning) + 1,
+                                            kind=kind,
+                                            summary=summary,
+                                        )
+                                    )
+                        except Exception as exc:
+                            logger.debug("reasoning_steps splice skipped: %s", exc)
 
                         # Store chosen table/datasets in configure_data for frontend
                         chosen_table = result.get("chosen_table")
