@@ -2,17 +2,24 @@
 
 from typing import Any, Dict, Optional, Type
 
+from src.connectors.airtable import AirtableConnector
 from src.connectors.azure_blob import AzureBlobConnector
 from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
 from src.connectors.confluence import ConfluenceConnector
 from src.connectors.box import BoxConnector
+from src.connectors.discord import DiscordConnector
 from src.connectors.dropbox import DropboxConnector
+from src.connectors.elasticsearch import ElasticsearchConnector
 from src.connectors.gcs import GCSConnector
+from src.connectors.github import GitHubConnector
+from src.connectors.gitlab import GitLabConnector
 from src.connectors.google_drive import GoogleDriveConnector
 from src.connectors.google_sheets import GoogleSheetsConnector
 from src.connectors.hubspot import HubSpotConnector
 from src.connectors.jira import JiraConnector
+from src.connectors.mailchimp import MailchimpConnector
+from src.connectors.mariadb import MariaDBConnector
 from src.connectors.microsoft_graph import OneDriveConnector, SharePointConnector
 from src.connectors.mongodb import MongoDBConnector
 from src.connectors.mysql import MySQLConnector
@@ -23,6 +30,9 @@ from src.connectors.s3 import S3Connector
 from src.connectors.salesforce import SalesforceConnector
 from src.connectors.slack import SlackConnector
 from src.connectors.sqlite import SQLiteConnector
+from src.connectors.stripe import StripeConnector
+from src.connectors.trello import TrelloConnector
+from src.connectors.zendesk import ZendeskConnector
 
 
 # Mock connectors for now - will be implemented later
@@ -85,7 +95,20 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "sqlite": SQLiteConnector,
     "clickhouse": MockConnector,
     "databricks": MockConnector,
-    # TODO: Implement real connectors
+    # P2 — real REST drivers (Phase 2 of the connector roll-out).
+    "github": GitHubConnector,
+    "gitlab": GitLabConnector,
+    "stripe": StripeConnector,
+    "airtable": AirtableConnector,
+    "mailchimp": MailchimpConnector,
+    "trello": TrelloConnector,
+    "discord": DiscordConnector,
+    "zendesk": ZendeskConnector,
+    "mariadb": MariaDBConnector,
+    "elasticsearch": ElasticsearchConnector,
+    "opensearch": ElasticsearchConnector,  # OpenSearch is wire-compatible
+    # TODO: Implement real connectors for the remaining "Coming Soon"
+    # entries — Snowflake / Redshift / SQL Server / Oracle / etc.
 }
 
 
