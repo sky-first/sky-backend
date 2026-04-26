@@ -6,8 +6,10 @@ from src.connectors.airtable import AirtableConnector
 from src.connectors.azure_blob import AzureBlobConnector
 from src.connectors.base import BaseConnector
 from src.connectors.bigquery import BigQueryConnector
-from src.connectors.confluence import ConfluenceConnector
 from src.connectors.box import BoxConnector
+from src.connectors.clickhouse import ClickHouseConnector
+from src.connectors.confluence import ConfluenceConnector
+from src.connectors.databricks import DatabricksConnector
 from src.connectors.discord import DiscordConnector
 from src.connectors.dropbox import DropboxConnector
 from src.connectors.elasticsearch import ElasticsearchConnector
@@ -24,12 +26,16 @@ from src.connectors.microsoft_graph import OneDriveConnector, SharePointConnecto
 from src.connectors.mongodb import MongoDBConnector
 from src.connectors.mysql import MySQLConnector
 from src.connectors.notion import NotionConnector
+from src.connectors.oracle import OracleConnector
 from src.connectors.postgresql import PostgreSQLConnector
+from src.connectors.redshift import RedshiftConnector
 from src.connectors.rest_api import RestAPIConnector
 from src.connectors.s3 import S3Connector
 from src.connectors.salesforce import SalesforceConnector
 from src.connectors.slack import SlackConnector
+from src.connectors.snowflake import SnowflakeConnector
 from src.connectors.sqlite import SQLiteConnector
+from src.connectors.sqlserver import SQLServerConnector
 from src.connectors.stripe import StripeConnector
 from src.connectors.trello import TrelloConnector
 from src.connectors.zendesk import ZendeskConnector
@@ -136,13 +142,16 @@ CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "box": BoxConnector,
     # Use real BigQuery connector
     "bigquery": BigQueryConnector,
-    "snowflake": MockConnector,
-    "redshift": MockConnector,
-    "sqlserver": MockConnector,
-    "oracle": MockConnector,
+    # All six warehouses below now have real drivers. Each loads its
+    # third-party dep lazily, so missing optional deps degrade to
+    # test_connection=False rather than import-time crashes.
+    "snowflake": SnowflakeConnector,
+    "redshift": RedshiftConnector,
+    "sqlserver": SQLServerConnector,
+    "oracle": OracleConnector,
     "sqlite": SQLiteConnector,
-    "clickhouse": MockConnector,
-    "databricks": MockConnector,
+    "clickhouse": ClickHouseConnector,
+    "databricks": DatabricksConnector,
     # P2 batch 1 — real REST drivers.
     "github": GitHubConnector,
     "gitlab": GitLabConnector,

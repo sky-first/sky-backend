@@ -79,3 +79,17 @@ flake8==7.0.0
 mypy==1.8.0
 
 google-cloud-bigquery==3.25.0
+
+# Warehouse drivers (Bug 5 — real drivers for the six connectors that
+# used to map to MockConnector). Each is imported lazily in its
+# connector module so the app still boots if one is missing in a
+# minimal install. If you don't deploy the corresponding warehouse,
+# the entry can be omitted to save install time — test_connection
+# will report False honestly.
+snowflake-connector-python==3.7.1
+pymssql==2.2.11
+oracledb==2.0.1
+clickhouse-driver==0.2.7
+databricks-sql-connector==3.1.0
+# Redshift reuses psycopg2-binary (already above) via the Postgres wire
+# protocol — no separate driver needed.
