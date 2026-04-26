@@ -121,8 +121,15 @@ class Settings(BaseSettings):
 
         return self
 
-    DATABASE_POOL_SIZE: int = 20  # Aumentado de 3 para 20 para evitar exaustão de conexões
-    DATABASE_MAX_OVERFLOW: int = 10  # Aumentado de 5 para 10 (total máximo: 30 conexões)
+    # Per-process Postgres pool. The defaults were 20+10 = 30 per
+    # process — combined with uvicorn --reload child processes +
+    # Celery worker + AI ingest worker, that easily exceeds Postgres'
+    # default max_connections=100 in dev and triggers \"FATAL: sorry,
+    # too many clients already\". Down to 5+5 = 10/process leaves
+    # ample headroom; production overrides via env when running on
+    # a beefier Postgres instance.
+    DATABASE_POOL_SIZE: int = 5
+    DATABASE_MAX_OVERFLOW: int = 5
     DATABASE_POOL_PRE_PING: bool = True
 
     # ─── Postgres pool hardening ──────────────────────────────────────────
