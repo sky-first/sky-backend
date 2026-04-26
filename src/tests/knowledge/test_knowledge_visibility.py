@@ -68,8 +68,13 @@ async def _make_space(db: AsyncSession, name: str, owner: User) -> Space:
     return space
 
 
-async def _add_to_space(db: AsyncSession, user: User, space: Space) -> None:
-    db.add(SpaceMember(space_id=space.id, user_id=user.id))
+async def _add_to_space(
+    db: AsyncSession, user: User, space: Space, role: str = "admin"
+) -> None:
+    """Default role is ``admin`` (Commander) so visibility tests that
+    seed space-scoped metrics can pass the Phase 3 mutation gate.
+    """
+    db.add(SpaceMember(space_id=space.id, user_id=user.id, role=role))
     await db.flush()
 
 
@@ -80,7 +85,12 @@ async def _make_crew(db: AsyncSession, name: str, space: Space, owner: User) -> 
     return crew
 
 
-async def _add_to_crew(db: AsyncSession, user: User, crew: Crew, role: str = "member") -> None:
+async def _add_to_crew(db: AsyncSession, user: User, crew: Crew, role: str = "navigator") -> None:
+    """Default role is ``navigator`` so tests can both READ (visibility)
+    and WRITE (the Phase 3 mutation gate accepts navigator). Explicit
+    explorer / guest is what tests pass when they want to assert the
+    deny path.
+    """
     db.add(CrewMember(crew_id=crew.id, user_id=user.id, role=role))
     await db.flush()
 
@@ -234,6 +244,12 @@ async def test_acl_07_all_authenticated_users_see_org_metrics(
     db_session, test_user, test_second_user_with_tokens
 ):
     alice = test_user["user"]
+    # Org create needs Owner role — bump alice for the duration of
+    # this test (Phase 3 mutation gate).
+    alice.role = "owner"
+    db_session.add(alice)
+    await db_session.flush()
+
     bob = await _resolve_user(db_session, test_second_user_with_tokens["user"])
 
     service = MetricService(db_session)

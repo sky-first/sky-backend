@@ -30,6 +30,7 @@ from src.api.v1 import (
     metrics,
     notifications,
     pages,
+    permission_grants,
     permissions,
     presence,
     privacy,
@@ -85,6 +86,13 @@ api_router.include_router(connections.router, prefix="/connections", tags=["Conn
 
 # Permission endpoints
 api_router.include_router(permissions.router, prefix="/permissions", tags=["Permissions"])
+
+# Per-user delegable permission grants (Knowledge refactor Phase 3 —
+# starts with knowledge.certify, more delegations land later as the
+# matrix expands). Mounted under /users/{id}/permission-grants.
+api_router.include_router(
+    permission_grants.router, prefix="/users", tags=["Permission Grants"]
+)
 
 # Audit endpoints — mounted at /audit-logs (resource-oriented naming).
 # The older /audit mount is kept so existing callers (if any) keep working

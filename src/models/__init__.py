@@ -48,6 +48,7 @@ from src.models.starred import StarredItem
 from src.models.template import Template
 from src.models.ticket import Ticket, TicketEvent
 from src.models.user import RefreshToken, User
+from src.models.user_permission_grant import UserPermissionGrant
 from src.models.workspace import Workspace, WorkspaceMember
 
 __all__ = [
@@ -102,4 +103,5 @@ __all__ = [
     "Message",
     "EnterpriseRelationship",
     "EnterpriseAPI",
+    "UserPermissionGrant",
 ]
