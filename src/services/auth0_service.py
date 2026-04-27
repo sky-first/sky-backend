@@ -211,32 +211,27 @@ class Auth0Service:
             else:
                 raise BadRequestError("User with this email already exists")
 
-        # Soft-deleted-user restore path. The standard get_by_email above
-        # filters deleted_at IS NULL, so a previously deleted user with
-        # the same email is invisible and the INSERT below would collide
-        # with the unique-email index → the SSO provider authenticates
-        # the human but the API rejects them, effectively a permanent
-        # blacklist. Detect that case and restore the existing row
-        # (clear deleted_at, refresh provider linkage) so the user can
-        # come back with their original id, history, and ACLs intact.
+        # Soft-deleted-user check. We DO NOT auto-restore — that would
+        # defeat admin intent (any deactivated user could just log
+        # back in). But we MUST detect the case explicitly, otherwise
+        # the INSERT below would collide with the unique-email index
+        # and surface as a generic auth error that looks like a bug.
+        # Instead: raise a 403 Forbidden with a clear message so the
+        # user knows their account was disabled and how to recover.
+        # Admin restores explicitly via POST /api/v1/users/{id}/restore.
+        from src.core.exceptions import ForbiddenError
+
         soft_deleted = await self.user_repo.get_by_email_including_deleted(email)
         if soft_deleted is not None and soft_deleted.deleted_at is not None:
-            soft_deleted.deleted_at = None
-            soft_deleted.auth0_id = auth0_id
-            soft_deleted.auth_provider = provider
-            soft_deleted.auth_provider_id = provider_id or auth0_id
-            soft_deleted.sso_metadata = sso_metadata
-            if avatar:
-                soft_deleted.avatar = avatar
-            soft_deleted.name = name
-            await self.db.commit()
-            await self.db.refresh(soft_deleted)
             logger.info(
-                "🔄 Restored soft-deleted user on SSO re-login: %s (provider=%s)",
+                "🚫 SSO callback for soft-deleted user — rejecting: %s (provider=%s, deleted_at=%s)",
                 email,
                 provider,
+                soft_deleted.deleted_at,
             )
-            return soft_deleted
+            raise ForbiddenError(
+                "Your account has been deactivated. Contact your administrator to restore access."
+            )
 
         # Create new user
         # For SSO users, we don't set a password (they authenticate via provider)

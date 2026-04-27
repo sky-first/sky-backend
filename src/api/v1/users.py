@@ -246,6 +246,27 @@ async def delete_user(
     return SuccessResponse(message="User deleted successfully")
 
 
+@router.post(
+    "/{user_id}/restore",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Restore a soft-deleted user",
+    description=(
+        "Restores a previously deleted user (clears deleted_at). Same "
+        "permission as delete — admins who can deactivate can reactivate. "
+        "Idempotent: calling on a non-deleted user is a no-op."
+    ),
+)
+async def restore_user(
+    user_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserResponse:
+    user_service = UserService(db)
+    return await user_service.restore_user(user_id, current_user)
+
+
 @router.get(
     "/{user_id}/permissions",
     response_model=UserPermissionsResponse,

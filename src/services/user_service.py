@@ -309,6 +309,53 @@ class UserService:
 
         await self.db.commit()
 
+    async def restore_user(self, user_id: UUID, current_user: User) -> UserResponse:
+        """
+        Restore a soft-deleted user.
+
+        Reverses delete_user() — clears `deleted_at` so the user can
+        sign in via SSO again. Required because the SSO callback now
+        REJECTS soft-deleted users (with a clear "deactivated" error)
+        instead of silently auto-restoring them on login. This gives
+        admins explicit, opt-in control: a delete that shouldn't have
+        happened can be undone here without a SQL UPDATE.
+
+        Same permission as delete (`user:delete`) — the same group of
+        people who can deactivate are the ones who can reactivate.
+
+        Raises:
+            NotFoundError: if no soft-deleted user with that id exists
+            ForbiddenError: if caller lacks user:delete permission
+        """
+        if not check_permission(current_user, "user", "delete"):
+            raise ForbiddenError("You don't have permission to restore users")
+
+        # Use the explicit "including deleted" lookup — get_by_id
+        # filters deleted_at IS NULL so it would 404 the very user
+        # we're trying to restore.
+        from sqlalchemy import select as _select
+
+        from src.models.user import User as _User
+
+        result = await self.db.execute(_select(_User).where(_User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise NotFoundError("User not found")
+        if user.deleted_at is None:
+            # Idempotent — already active, nothing to do
+            return UserResponse.model_validate(user_to_response_dict(user))
+
+        user.deleted_at = None
+        await self.db.commit()
+        await self.db.refresh(user)
+
+        import logging
+        logging.getLogger(__name__).info(
+            "🔄 User restored by admin: user_id=%s admin_id=%s",
+            user_id, current_user.id,
+        )
+        return UserResponse.model_validate(user_to_response_dict(user))
+
     async def get_user_permissions(self, user_id: UUID, current_user: User) -> dict:
         """
         Get user permissions.
