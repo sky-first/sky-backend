@@ -259,7 +259,8 @@ class Settings(BaseSettings):
     DEMO_ENABLED: bool = False
     DEMO_TTL_DAYS: int = 7
     DEMO_RATE_LIMIT_PER_IP_PER_HOUR: int = 3
-    DEMO_DATASET_CONNECTION_ID: str = ""  # synthetic Postgres seeded once
+    DEMO_DATASET_CONNECTION_ID: str = ""  # legacy single Connection UUID
+    DEMO_DATASET_CONNECTION_IDS: str = ""  # CSV of Connection UUIDs (preferred — multi-schema demo)
     TURNSTILE_SECRET_KEY: str = ""  # Cloudflare Turnstile (free)
     TURNSTILE_VERIFY_URL: str = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 

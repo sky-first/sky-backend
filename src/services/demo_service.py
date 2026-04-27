@@ -121,6 +121,40 @@ class DemoService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    @staticmethod
+    def _parse_connection_ids() -> list[UUID]:
+        """Resolve the list of dataset connection UUIDs to wire onto a new
+        demo Space. Reads DEMO_DATASET_CONNECTION_IDS first (CSV); falls
+        back to the legacy DEMO_DATASET_CONNECTION_ID single value.
+        Invalid entries are logged and skipped so one bad UUID doesn't
+        break the entire signup flow.
+        """
+        plural = (getattr(settings, "DEMO_DATASET_CONNECTION_IDS", "") or "").strip()
+        if plural:
+            uuids: list[UUID] = []
+            for raw in plural.split(","):
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    uuids.append(UUID(raw))
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "DEMO_DATASET_CONNECTION_IDS contains invalid UUID %r — skipping.",
+                        raw,
+                    )
+            return uuids
+
+        singular = (settings.DEMO_DATASET_CONNECTION_ID or "").strip()
+        if singular:
+            try:
+                return [UUID(singular)]
+            except (ValueError, TypeError):
+                logger.warning(
+                    "DEMO_DATASET_CONNECTION_ID is set but not a valid UUID — skipping wire-up."
+                )
+        return []
+
     async def signup(
         self,
         payload: DemoSignupRequest,
@@ -205,17 +239,20 @@ class DemoService:
         )
         self.db.add(member)
 
-        # Optional shared dataset connection (single read-only Postgres
-        # provisioned once). When DEMO_DATASET_CONNECTION_ID is empty the
-        # Space starts with no data — still valid for click-the-buttons demos.
-        if settings.DEMO_DATASET_CONNECTION_ID:
-            try:
-                conn_uuid = UUID(settings.DEMO_DATASET_CONNECTION_ID)
-                self.db.add(SpaceConnection(space_id=space.id, connection_id=conn_uuid))
-            except (ValueError, TypeError):
-                logger.warning(
-                    "DEMO_DATASET_CONNECTION_ID is set but not a valid UUID — skipping wire-up."
-                )
+        # Optional shared dataset connections. Two env vars are supported,
+        # in this order:
+        #   1. DEMO_DATASET_CONNECTION_IDS (comma-separated list) — wires
+        #      every UUID in the list to the new Space. This is what the
+        #      multi-schema synthetic dataset uses (CRM, Marketing,
+        #      Finance, Web Analytics, Product Usage = 5 connections).
+        #   2. DEMO_DATASET_CONNECTION_ID (single UUID, legacy) — kept
+        #      for backwards compatibility with the original single-DB
+        #      design. Used only when the plural is empty.
+        # When both are empty the Space starts with no data — still valid
+        # for click-the-buttons demos.
+        connection_uuids = self._parse_connection_ids()
+        for conn_uuid in connection_uuids:
+            self.db.add(SpaceConnection(space_id=space.id, connection_id=conn_uuid))
 
         await self.db.commit()
         await self.db.refresh(user)
