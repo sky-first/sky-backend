@@ -1,10 +1,26 @@
 """PostgreSQL connector."""
 
+import re
 from typing import Any, Dict, List, Optional
 
 import asyncpg
 
 from src.connectors.base import BaseConnector
+
+# Postgres identifier rule (unquoted): letter/_underscore + letters/digits/_
+# Strict on purpose — the value is interpolated into SET search_path,
+# which can't use bind parameters. Anything not matching is ignored.
+_SCHEMA_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _safe_schema(config: Dict[str, Any]) -> Optional[str]:
+    """Return the configured schema name iff it's a valid Postgres
+    identifier; otherwise None. Used to gate metadata filtering AND
+    search_path setting against injection."""
+    raw = (config.get("schema") or "").strip()
+    if raw and _SCHEMA_IDENT_RE.match(raw):
+        return raw
+    return None
 
 
 class PostgreSQLConnector(BaseConnector):
@@ -62,11 +78,17 @@ class PostgreSQLConnector(BaseConnector):
         Get PostgreSQL metadata including comments.
 
         Note: row_count is an estimate based on reltuples from pg_class for performance.
+
+        If config["schema"] is set to a valid identifier, only tables in
+        that schema are returned. This is what makes the per-department
+        Demo connections (e.g. `Demo — Sales` → schema crm) show only
+        their schema's tables instead of the full multi-schema dataset.
         """
         params = self._get_connection_params(config)
+        schema = _safe_schema(config)
         async with asyncpg.connect(**params) as conn:
             # Better query using pg_catalog to get comments (descriptions)
-            tables_query = """
+            base_query = """
                 SELECT
                     n.nspname AS schema_name,
                     c.relname AS table_name,
@@ -77,7 +99,10 @@ class PostgreSQLConnector(BaseConnector):
                 WHERE n.nspname NOT IN ('information_schema', 'pg_catalog')
                 AND c.relkind = 'r'
             """
-            tables = await conn.fetch(tables_query)
+            if schema:
+                tables = await conn.fetch(base_query + " AND n.nspname = $1", schema)
+            else:
+                tables = await conn.fetch(base_query)
 
             result_tables = []
             schemas = set()
@@ -134,9 +159,20 @@ class PostgreSQLConnector(BaseConnector):
             return {"tables": result_tables, "schemas": list(schemas)}
 
     async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
-        """Execute PostgreSQL query using a context manager."""
+        """Execute PostgreSQL query using a context manager.
+
+        If config["schema"] is set to a valid identifier, the session
+        search_path is scoped to that schema (then `public` as fallback)
+        before the query runs — so unqualified table references resolve
+        to the configured schema. Schema name is regex-validated up
+        front (asyncpg can't bind-param a SET command, so the value
+        IS interpolated; the regex blocks injection).
+        """
         params = self._get_connection_params(config)
+        schema = _safe_schema(config)
         async with asyncpg.connect(**params) as conn:
+            if schema:
+                await conn.execute(f'SET search_path TO "{schema}", public')
             rows = await conn.fetch(query)
             return [dict(row) for row in rows]
 
