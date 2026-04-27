@@ -63,6 +63,9 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/auth/verify-email",
         "/api/auth/register",  # Registration endpoint
         "/api/v1/auth/register",  # Registration endpoint (v1)
+        # Public demo signup — issues its own JWT, no auth required.
+        "/api/v1/demo/",
+        "/api/demo/",
     ]
 
     # Root only (avoid "/" matching every path)

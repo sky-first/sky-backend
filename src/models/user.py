@@ -58,6 +58,14 @@ class User(Base):
     # Sky Support operator flag
     is_sky_operator = Column(Boolean, nullable=False, default=False, server_default="false")
 
+    # Public demo guest (Cenário B). is_demo=true marks users provisioned
+    # via /demo/signup; the cleanup cron uses demo_expires_at to decide
+    # whether the user (and its Space, dashboards, chats) is past TTL and
+    # can be deleted. Demo users have a placeholder password_hash and
+    # cannot log in via /auth/login — only via the JWT issued at signup.
+    is_demo = Column(Boolean, nullable=False, default=False, server_default="false")
+    demo_expires_at = Column(DateTime(timezone=True), nullable=True)
+
     # Auth0 Integration
     auth0_id = Column(String(255), unique=True, nullable=True, index=True)
     auth_provider = Column(

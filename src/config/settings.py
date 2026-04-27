@@ -253,6 +253,16 @@ class Settings(BaseSettings):
         description="Encryption key for sensitive data (must be 32 bytes)",
     )
 
+    # Public demo (Cenário B) — visitor lands on demo.skyfirstlabs.com,
+    # fills a short form, gets a per-visitor Space provisioned with a TTL.
+    # All values overridable via env so staging/prod can clamp differently.
+    DEMO_ENABLED: bool = False
+    DEMO_TTL_DAYS: int = 7
+    DEMO_RATE_LIMIT_PER_IP_PER_HOUR: int = 3
+    DEMO_DATASET_CONNECTION_ID: str = ""  # synthetic Postgres seeded once
+    TURNSTILE_SECRET_KEY: str = ""  # Cloudflare Turnstile (free)
+    TURNSTILE_VERIFY_URL: str = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
     # Sentry
     SENTRY_DSN: str = ""
     SENTRY_ENVIRONMENT: str = "development"

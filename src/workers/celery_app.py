@@ -111,6 +111,7 @@ celery_app.conf.update(
         "src.workers.agent_worker",
         "src.workers.insight_agent_worker",
         "src.workers.agent_revocation_worker",
+        "src.workers.demo_cleanup_worker",
     ],
 )
 
@@ -149,6 +150,14 @@ try:
             "sweep-orphan-agents": {
                 "task": "src.workers.agent_revocation_worker.sweep_orphan_agents",
                 "schedule": timedelta(minutes=15),
+            },
+            # Public demo (Cenário B) sandbox cleanup. Daily pass deletes
+            # any Space/User past its TTL — keeps the table small and
+            # protects against vandalism living on the public surface
+            # for more than the advertised window.
+            "cleanup-expired-demo-spaces": {
+                "task": "src.workers.demo_cleanup_worker.cleanup_expired_demo_spaces",
+                "schedule": timedelta(hours=24),
             },
         }
 except Exception:

@@ -20,6 +20,7 @@ from src.api.v1 import (
     dashboards,
     db_health,
     datasets,
+    demo,
     enterprise_apis,
     enterprise_relationships,
     files,
@@ -51,6 +52,11 @@ api_router = APIRouter()
 
 # Authentication endpoints
 api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+
+# Public demo signup — gated by DEMO_ENABLED. Mounted as a sibling to
+# /auth so it lives outside any middleware that assumes the user is
+# already authenticated.
+api_router.include_router(demo.router, prefix="/demo", tags=["Demo"])
 
 # User endpoints
 api_router.include_router(users.router, prefix="/users", tags=["Users"])

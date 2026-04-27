@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
@@ -42,6 +42,13 @@ class Space(Base):
         onupdate=datetime.utcnow,
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Public demo (Cenário B). When is_demo=true the cron at
+    # cleanup_expired_demo_spaces uses demo_expires_at to decide whether
+    # the sandbox is past its TTL and can be CASCADE-deleted with
+    # everything inside it (members, dashboards, widgets, chats).
+    is_demo = Column(Boolean, nullable=False, default=False, server_default="false")
+    demo_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     crews = relationship("Crew", back_populates="space", cascade="all, delete-orphan")
