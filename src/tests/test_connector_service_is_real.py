@@ -34,13 +34,27 @@ def test_is_real_connector_true_for_real_driver():
     assert is_real_connector("postgresql") is True
 
 
-def test_is_real_connector_false_for_mock_driver():
-    # Snowflake is still wired to MockConnector in CONNECTORS.
-    assert is_real_connector("snowflake") is False
-
-
 def test_is_real_connector_false_for_unknown_id():
+    # Unknown ids fail-closed — UI shows them as "Coming soon" so
+    # users can't fill in credentials for a connector that doesn't
+    # exist server-side.
     assert is_real_connector("not-a-connector") is False
+
+
+def test_is_real_connector_false_for_explicit_mock_binding():
+    """Defence in depth: if anyone re-points a registered id at
+    MockConnector, the helper must report False so the UI flips back
+    to "Coming soon" instead of letting the user fill in creds."""
+    from src.connectors import registry
+
+    # Patch a known id to MockConnector for this test only.
+    original = registry.CONNECTORS.get("postgresql")
+    registry.CONNECTORS["postgresql"] = registry.MockConnector
+    try:
+        assert is_real_connector("postgresql") is False
+    finally:
+        if original is not None:
+            registry.CONNECTORS["postgresql"] = original
 
 
 # --- Service contract ------------------------------------------------
@@ -51,39 +65,33 @@ def test_get_connector_includes_is_real_for_real_driver(service: ConnectorServic
     assert resp.is_real is True
 
 
-def test_get_connector_includes_is_real_false_for_mock(service: ConnectorService):
-    resp = service.get_connector("snowflake")
-    assert resp.is_real is False
-
-
 def test_get_connectors_list_carries_is_real_per_entry(service: ConnectorService):
     """End-to-end: every connector returned by /connectors must carry
     a truthful is_real reflecting its registry binding."""
     responses = service.get_connectors()
     by_id = {r.id: r for r in responses}
 
-    # Real drivers we already ship to customers. If any of these flips
-    # to False, we've silently regressed a production integration.
+    # Real drivers we already ship. If any of these flips to False,
+    # we've silently regressed a production integration. The list
+    # tracks the registry — when a previously-mock connector lands a
+    # real driver, add it here too.
     real_ids = [
         "postgresql",
         "mysql",
         "mongodb",
         "bigquery",
         "sqlite",
+        # Phase 2 — warehouses landed with real drivers (sky-poc-backend #302).
+        "snowflake",
+        "redshift",
+        "sqlserver",
+        "oracle",
+        "clickhouse",
+        "databricks",
     ]
     for cid in real_ids:
         assert cid in by_id, f"expected {cid} in /connectors response"
         assert by_id[cid].is_real is True, f"{cid} must be flagged is_real=True"
-
-    # Warehouses still stubbed — these must stay False until #TODO
-    # Implement real connectors lands.
-    mock_ids = ["snowflake", "redshift", "sqlserver", "oracle", "clickhouse", "databricks"]
-    for cid in mock_ids:
-        assert cid in by_id, f"expected {cid} in /connectors response"
-        assert by_id[cid].is_real is False, (
-            f"{cid} is still wired to MockConnector — UI relies on is_real=False "
-            "to show a Coming soon pill"
-        )
 
 
 def test_is_real_flag_matches_registry_binding_for_every_connector(
