@@ -1,0 +1,26 @@
+# Warehouse drivers (Bug 5 — PR #302). Real drivers for the six
+# connectors that used to map to MockConnector. Each is imported
+# lazily in its connector module (src/connectors/*.py) so the app
+# still boots if one is missing in a minimal install. If you don't
+# deploy the corresponding warehouse, the entry can be omitted to
+# save install time — test_connection will report False honestly.
+#
+# This file is split out from requirements.txt because installing
+# these on python:3.11-slim broke staging CI for 7 consecutive
+# commits (`pip install` exit code 2). Re-enable in two places:
+#   1. install in Dockerfile (or a Dockerfile.warehouse variant)
+#      AFTER adding the system deps each driver needs:
+#        - pymssql           → freetds-dev, libssl-dev
+#        - oracledb (thick)  → libaio1
+#        - snowflake/databricks → typically wheel-only, no headers
+#   2. add `--prefer-binary` to the pip install command so source
+#      builds are avoided when a wheel exists for the platform.
+#
+# Tracking issue: BE staging deploy red since PR #302 (2026-04-26).
+snowflake-connector-python==3.7.1
+pymssql==2.2.11
+oracledb==2.0.1
+clickhouse-driver==0.2.7
+databricks-sql-connector==3.1.0
+# Redshift reuses psycopg2-binary (already in requirements.txt) via
+# the Postgres wire protocol — no separate driver needed.

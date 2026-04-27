@@ -12,9 +12,15 @@ RUN apt-get update && apt-get install -y \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy requirements and install dependencies
+# Copy requirements and install dependencies. `--prefer-binary` makes
+# pip pick wheels over source builds when both exist, which prevents
+# a silent regression like PR #302 where a new dep triggered an
+# hours-long source build that ultimately failed (exit code 2) and
+# broke 7 consecutive staging deploys. Warehouse drivers are
+# intentionally NOT in requirements.txt — see requirements-warehouse.txt
+# for that opt-in.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Production stage
 FROM python:3.11-slim
