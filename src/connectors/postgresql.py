@@ -68,9 +68,18 @@ class PostgreSQLConnector(BaseConnector):
         the actual cause was wrong password, SSL handshake, host
         unreachable, or a typo'd database name.
         """
+        # asyncpg.connect() is a coroutine that returns a Connection
+        # — it is NOT itself an async context manager, so the original
+        # `async with asyncpg.connect(...)` was always broken (the
+        # try/except: return False that previously surrounded it just
+        # hid the TypeError as a generic "Connection test failed").
+        # Use the explicit await + close pattern instead.
         params = self._get_connection_params(config)
-        async with asyncpg.connect(**params):
-            pass
+        conn = await asyncpg.connect(**params)
+        try:
+            pass  # successful connect proves the credentials work
+        finally:
+            await conn.close()
         return True
 
     async def get_metadata(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -86,7 +95,8 @@ class PostgreSQLConnector(BaseConnector):
         """
         params = self._get_connection_params(config)
         schema = _safe_schema(config)
-        async with asyncpg.connect(**params) as conn:
+        conn = await asyncpg.connect(**params)
+        try:
             # Better query using pg_catalog to get comments (descriptions)
             base_query = """
                 SELECT
@@ -157,6 +167,8 @@ class PostgreSQLConnector(BaseConnector):
                 )
 
             return {"tables": result_tables, "schemas": list(schemas)}
+        finally:
+            await conn.close()
 
     async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
         """Execute PostgreSQL query using a context manager.
@@ -170,11 +182,14 @@ class PostgreSQLConnector(BaseConnector):
         """
         params = self._get_connection_params(config)
         schema = _safe_schema(config)
-        async with asyncpg.connect(**params) as conn:
+        conn = await asyncpg.connect(**params)
+        try:
             if schema:
                 await conn.execute(f'SET search_path TO "{schema}", public')
             rows = await conn.fetch(query)
             return [dict(row) for row in rows]
+        finally:
+            await conn.close()
 
     async def sync_data(
         self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None
