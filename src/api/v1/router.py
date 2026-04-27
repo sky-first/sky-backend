@@ -27,6 +27,7 @@ from src.api.v1 import (
     glossary,
     impersonation,
     insight_agents,
+    knowledge,
     messages,
     metrics,
     notifications,
@@ -162,6 +163,9 @@ api_router.include_router(
 
 # File upload endpoints
 api_router.include_router(files.router, prefix="/files", tags=["Files"])
+
+# Knowledge Library endpoints
+api_router.include_router(knowledge.router, prefix="/knowledge", tags=["Knowledge"])
 
 # Dataset management endpoints
 api_router.include_router(datasets.router, prefix="/datasets", tags=["Datasets"])

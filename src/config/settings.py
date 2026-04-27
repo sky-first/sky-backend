@@ -344,6 +344,27 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4"
     ANTHROPIC_API_KEY: str = ""
 
+    # Knowledge Library — Azure Storage
+    AZURE_STORAGE_ACCOUNT_NAME: str = ""  # empty = use local fallback in dev
+    AZURE_STORAGE_CONTAINER_RAW: str = "uploads-raw"
+    AZURE_STORAGE_CONTAINER_PROCESSED: str = "uploads-processed"
+
+    # Knowledge Library — file/quota limits
+    FILE_MAX_SIZE_MB: int = 15
+    QUOTA_PERSONAL_FILES: int = 15
+    QUOTA_PERSONAL_MB: int = 100
+    QUOTA_CREW_FILES: int = 50
+    QUOTA_CREW_MB: int = 500
+    QUOTA_SPACE_FILES: int = 100
+    QUOTA_SPACE_MB: int = 1024
+
+    # Knowledge Library — processing
+    EMBEDDING_BATCH_SIZE: int = 100
+    FILE_PROCESSING_TIMEOUT_SECONDS: int = 300
+
+    # Used by blob_helper local dev URLs
+    BACKEND_BASE_URL: str = "http://localhost:8000"
+
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_PER_MINUTE: int = 300

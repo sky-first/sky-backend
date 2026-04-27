@@ -615,6 +615,7 @@ class AIService:
                             instructions=merged_instructions or None,
                             response_format=configure_data.response_format,
                             security_config=sec_config,
+                            mentioned_file_ids=getattr(query_data, "mentioned_file_ids", None),
                         )
 
                         # Update query with real AI results
@@ -679,6 +680,7 @@ class AIService:
                         chosen_datasets = result.get("chosen_datasets", [])
                         dynamic_title = result.get("title")
                         detected_language = result.get("detected_language")
+                        knowledge_citations = result.get("citations")
 
                         # Debug log
                         logger.info(
@@ -687,7 +689,7 @@ class AIService:
                             f"result_keys={list(result.keys())}"
                         )
 
-                        if chosen_table or chosen_datasets or dynamic_title or detected_language:
+                        if chosen_table or chosen_datasets or dynamic_title or detected_language or knowledge_citations:
                             # Get current config and ensure it's a dict
                             current_config = (
                                 dict(query.configure_data) if query.configure_data else {}
@@ -704,6 +706,8 @@ class AIService:
                                 current_config["title"] = dynamic_title
                             if detected_language:
                                 current_config["detected_language"] = detected_language
+                            if knowledge_citations:
+                                current_config["citations"] = knowledge_citations
 
                             # Assign new dict to ensure SQLAlchemy detects the change
                             query.configure_data = current_config
@@ -903,10 +907,12 @@ class AIService:
 
         response_dict["chosen_table"] = chosen_table
         response_dict["chosen_datasets"] = chosen_datasets
-        if title or detected_language:
+        citations = configure_data.get("citations") if isinstance(configure_data, dict) else None
+        if title or detected_language or citations:
             response_dict["meta"] = {
                 "title": title,
                 "detected_language": detected_language,
+                "citations": citations,
             }
 
         logger.info(

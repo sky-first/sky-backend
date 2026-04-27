@@ -44,6 +44,7 @@ class AIServiceHTTPClient:
         security_config: Optional[Dict[str, Any]] = None,
         ai_tone: Optional[str] = None,
         ai_style: Optional[str] = None,
+        mentioned_file_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Query a connection using the AI service.
@@ -89,6 +90,8 @@ class AIServiceHTTPClient:
             payload["ai_tone"] = ai_tone
         if ai_style:
             payload["ai_style"] = ai_style
+        if mentioned_file_ids:
+            payload["mentioned_file_ids"] = mentioned_file_ids
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(

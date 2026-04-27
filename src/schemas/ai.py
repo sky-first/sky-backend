@@ -48,6 +48,12 @@ class AIQueryRequest(BaseModel):
             "belongs to in the space."
         ),
     )
+    # Knowledge Library: file IDs the user explicitly @mentioned in the prompt.
+    # The AI service boosts their chunks 10× during RAG retrieval.
+    mentioned_file_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Knowledge file IDs @mentioned by the user. Boosted during RAG retrieval.",
+    )
 
 
 class AIQueryResponse(BaseModel):
