@@ -11,7 +11,26 @@ class PostgreSQLConnector(BaseConnector):
     """PostgreSQL connector."""
 
     def _get_connection_params(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize connection parameters from config."""
+        """Normalize connection parameters from config.
+
+        ssl_mode (FE form field) is mapped to asyncpg's `ssl` argument.
+        Azure Postgres Flexible Server enforces SSL — without this
+        Test Connection failed silently with the connector's old
+        catch-all exception handler, surfacing only as the generic
+        "Connection test failed" message in the UI.
+        """
+        ssl_mode = (config.get("ssl_mode") or "prefer").strip().lower()
+        # asyncpg accepts the string directly for these values; fall
+        # back to "require" if the FE sent "verify-ca"/"verify-full"
+        # (those need a custom SSLContext with the Azure root cert
+        # bundle, which we can wire later — "require" is correct
+        # for Azure Postgres without strict CA pinning).
+        ssl_param: Any
+        if ssl_mode in ("disable", "allow", "prefer", "require"):
+            ssl_param = ssl_mode
+        else:
+            ssl_param = "require"
+
         return {
             "host": config.get("host"),
             "port": int(config.get("port") or 5432),
@@ -19,17 +38,24 @@ class PostgreSQLConnector(BaseConnector):
             "password": config.get("password"),
             "database": config.get("database"),
             "timeout": float(config.get("timeout", 5.0)),
+            "ssl": ssl_param,
         }
 
     async def test_connection(self, config: Dict[str, Any]) -> bool:
-        """Test PostgreSQL connection using a context manager."""
+        """Test PostgreSQL connection.
+
+        Intentionally does NOT swallow exceptions — the calling
+        ConnectionService catches them and surfaces `str(exc)` as the
+        UI message (handlers.py line 408). Swallowing here was the
+        reason every Test Connection failure showed the useless
+        "Connection test failed" placeholder regardless of whether
+        the actual cause was wrong password, SSL handshake, host
+        unreachable, or a typo'd database name.
+        """
         params = self._get_connection_params(config)
-        try:
-            async with asyncpg.connect(**params):
-                pass
-            return True
-        except Exception:
-            return False
+        async with asyncpg.connect(**params):
+            pass
+        return True
 
     async def get_metadata(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
