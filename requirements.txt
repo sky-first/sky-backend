@@ -80,16 +80,17 @@ mypy==1.8.0
 
 google-cloud-bigquery==3.25.0
 
-# Warehouse drivers (Bug 5 — real drivers for the six connectors that
-# used to map to MockConnector). Each is imported lazily in its
-# connector module so the app still boots if one is missing in a
-# minimal install. If you don't deploy the corresponding warehouse,
-# the entry can be omitted to save install time — test_connection
-# will report False honestly.
-snowflake-connector-python==3.7.1
-pymssql==2.2.11
-oracledb==2.0.1
-clickhouse-driver==0.2.7
-databricks-sql-connector==3.1.0
-# Redshift reuses psycopg2-binary (already above) via the Postgres wire
-# protocol — no separate driver needed.
+# NOTE: Warehouse drivers (snowflake-connector-python, pymssql, oracledb,
+# clickhouse-driver, databricks-sql-connector) live in
+# `requirements-warehouse.txt` and are NOT installed by the default
+# Dockerfile. Including them here from PR #302 broke `pip install` on
+# python:3.11-slim for 7 consecutive staging deploys (CI logs:
+# `did not complete successfully: exit code: 2`), which left the demo
+# whitelist + signup endpoint undeployed.
+#
+# The connector modules already import these lazily and the
+# `is_real` flag honestly reports False when the driver is missing,
+# so the app boots fine without them. Re-enable them per-environment
+# with `pip install -r requirements-warehouse.txt` once the slim
+# image has the right system headers (or once we move to a beefier
+# base image).
