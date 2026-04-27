@@ -1,6 +1,7 @@
 """PostgreSQL connector."""
 
 import re
+import ssl as ssl_module
 from typing import Any, Dict, List, Optional
 
 import asyncpg
@@ -30,22 +31,35 @@ class PostgreSQLConnector(BaseConnector):
         """Normalize connection parameters from config.
 
         ssl_mode (FE form field) is mapped to asyncpg's `ssl` argument.
-        Azure Postgres Flexible Server enforces SSL — without this
-        Test Connection failed silently with the connector's old
-        catch-all exception handler, surfacing only as the generic
-        "Connection test failed" message in the UI.
+        asyncpg.connect() accepts `ssl=True | False | ssl.SSLContext`
+        — strings like "require"/"prefer" are NOT recognized. Passing
+        a string was silently treated as truthy by some code paths
+        but the actual SSL handshake never fired, so Azure Postgres
+        replied with `no pg_hba.conf entry for host …, no encryption`
+        — surfaced (after #312/#315) as the user's failure to connect.
+
+        Mapping:
+          disable               → False (plain TCP)
+          allow / prefer        → True  (SSL with default context)
+          require               → True  (SSL with default context)
+          verify-ca / verify-full → ssl.SSLContext with cert validation
+
+        For Azure Postgres the public CA chain is in the system trust
+        store, so the default SSLContext validates without extra root
+        bundle wiring.
         """
         ssl_mode = (config.get("ssl_mode") or "prefer").strip().lower()
-        # asyncpg accepts the string directly for these values; fall
-        # back to "require" if the FE sent "verify-ca"/"verify-full"
-        # (those need a custom SSLContext with the Azure root cert
-        # bundle, which we can wire later — "require" is correct
-        # for Azure Postgres without strict CA pinning).
         ssl_param: Any
-        if ssl_mode in ("disable", "allow", "prefer", "require"):
-            ssl_param = ssl_mode
+        if ssl_mode == "disable":
+            ssl_param = False
+        elif ssl_mode in ("verify-ca", "verify-full"):
+            # Build a context that validates server cert against
+            # system trust store. verify-full also checks hostname
+            # — create_default_context() does both by default.
+            ssl_param = ssl_module.create_default_context()
         else:
-            ssl_param = "require"
+            # require / prefer / allow / unknown → SSL with default context
+            ssl_param = True
 
         return {
             "host": config.get("host"),
