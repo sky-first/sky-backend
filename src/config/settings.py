@@ -259,7 +259,13 @@ class Settings(BaseSettings):
     DEMO_ENABLED: bool = False
     DEMO_TTL_DAYS: int = 7
     DEMO_RATE_LIMIT_PER_IP_PER_HOUR: int = 3
-    DEMO_DATASET_CONNECTION_ID: str = ""  # synthetic Postgres seeded once
+    # Comma-separated UUIDs of pre-seeded Connection records that get
+    # wired into every per-visitor demo Space at signup. Each UUID
+    # points at a different schema in the demo Postgres (crm,
+    # marketing, finance, web_analytics, product_usage) so visitors
+    # land on a 5-connection workspace.
+    DEMO_DATASET_CONNECTION_IDS: str = ""
+    DEMO_DATASET_CONNECTION_ID: str = ""  # legacy single — kept for backwards compat
     TURNSTILE_SECRET_KEY: str = ""  # Cloudflare Turnstile (free)
     TURNSTILE_VERIFY_URL: str = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 

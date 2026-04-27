@@ -85,6 +85,24 @@ def _check_ip_rate_limit(ip: str, limit: int, window_seconds: int = 3600) -> boo
 # ─── Cloudflare Turnstile ───────────────────────────────────────────────────
 
 
+def _parse_connection_ids() -> list[UUID]:
+    """Reads DEMO_DATASET_CONNECTION_IDS (comma-sep UUIDs) and falls
+    back to the legacy single DEMO_DATASET_CONNECTION_ID. Skips entries
+    that aren't valid UUIDs with a warning so a typo in env doesn't
+    crash signup."""
+    raw_list = settings.DEMO_DATASET_CONNECTION_IDS or settings.DEMO_DATASET_CONNECTION_ID or ""
+    out: list[UUID] = []
+    for token in raw_list.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            out.append(UUID(token))
+        except (ValueError, TypeError):
+            logger.warning("Skipping invalid demo connection id: %s", token)
+    return out
+
+
 async def _verify_turnstile(token: str, remoteip: Optional[str]) -> bool:
     """Calls Cloudflare's siteverify. Returns True on a valid token."""
     secret = settings.TURNSTILE_SECRET_KEY
@@ -205,17 +223,13 @@ class DemoService:
         )
         self.db.add(member)
 
-        # Optional shared dataset connection (single read-only Postgres
-        # provisioned once). When DEMO_DATASET_CONNECTION_ID is empty the
-        # Space starts with no data — still valid for click-the-buttons demos.
-        if settings.DEMO_DATASET_CONNECTION_ID:
-            try:
-                conn_uuid = UUID(settings.DEMO_DATASET_CONNECTION_ID)
-                self.db.add(SpaceConnection(space_id=space.id, connection_id=conn_uuid))
-            except (ValueError, TypeError):
-                logger.warning(
-                    "DEMO_DATASET_CONNECTION_ID is set but not a valid UUID — skipping wire-up."
-                )
+        # Wire up the shared read-only demo connections. Each row in
+        # DEMO_DATASET_CONNECTION_IDS is a Connection UUID pointing at a
+        # different schema in the demo Postgres (crm, marketing, finance,
+        # web_analytics, product_usage). Empty list = empty Space, still
+        # valid for click-the-buttons demos.
+        for conn_uuid in _parse_connection_ids():
+            self.db.add(SpaceConnection(space_id=space.id, connection_id=conn_uuid))
 
         await self.db.commit()
         await self.db.refresh(user)

@@ -53,6 +53,7 @@ def _enable_demo_and_skip_captcha(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "DEMO_RATE_LIMIT_PER_IP_PER_HOUR", 100)
     monkeypatch.setattr(settings, "DEMO_TTL_DAYS", 7)
     monkeypatch.setattr(settings, "DEMO_DATASET_CONNECTION_ID", "")
+    monkeypatch.setattr(settings, "DEMO_DATASET_CONNECTION_IDS", "")
     monkeypatch.setattr(settings, "REDIS_URL", "")  # force in-memory fallback
     # Reset the in-memory IP rate-limit dict so tests don't leak hits.
     demo_service._IP_SIGNUP_HITS.clear()
@@ -246,6 +247,43 @@ async def test_cleanup_deletes_expired_spaces_and_users(db_session: AsyncSession
     assert len(survivors.scalars().all()) == 1
     survivors_u = await db_session.execute(select(User).where(User.is_demo.is_(True)))
     assert len(survivors_u.scalars().all()) == 1
+
+
+def test_parse_connection_ids_handles_csv_and_skips_garbage(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Multi-connection signup wires every UUID in
+    DEMO_DATASET_CONNECTION_IDS into the new Space. Garbage entries
+    are skipped with a warning so a typo in the env can't 500 the
+    whole signup flow."""
+    monkeypatch.setattr(
+        settings,
+        "DEMO_DATASET_CONNECTION_IDS",
+        "11111111-1111-1111-1111-111111111111, not-a-uuid ,22222222-2222-2222-2222-222222222222",
+    )
+    monkeypatch.setattr(settings, "DEMO_DATASET_CONNECTION_ID", "")
+
+    parsed = demo_service._parse_connection_ids()
+    assert len(parsed) == 2
+    assert str(parsed[0]) == "11111111-1111-1111-1111-111111111111"
+    assert str(parsed[1]) == "22222222-2222-2222-2222-222222222222"
+
+
+def test_parse_connection_ids_falls_back_to_legacy_single_id(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The legacy DEMO_DATASET_CONNECTION_ID still works when the
+    new plural is unset (so existing staging configs don't break on
+    deploy)."""
+    monkeypatch.setattr(settings, "DEMO_DATASET_CONNECTION_IDS", "")
+    monkeypatch.setattr(
+        settings,
+        "DEMO_DATASET_CONNECTION_ID",
+        "33333333-3333-3333-3333-333333333333",
+    )
+    parsed = demo_service._parse_connection_ids()
+    assert len(parsed) == 1
+    assert str(parsed[0]) == "33333333-3333-3333-3333-333333333333"
 
 
 @pytest.mark.asyncio
