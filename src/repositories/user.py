@@ -33,6 +33,27 @@ class UserRepository(BaseRepository[User]):
         )
         return result.scalar_one_or_none()
 
+    async def get_by_email_including_deleted(self, email: str) -> Optional[User]:
+        """
+        Get user by email — INCLUDING soft-deleted rows.
+
+        Used by the SSO callback flow to detect a returning user whose
+        account was previously deleted, so we can restore the existing
+        row (clear deleted_at) instead of failing on the unique-email
+        index when create_user_from_auth0 attempts an INSERT. Without
+        this, a deleted user is permanently locked out of SSO re-login
+        even though their identity provider still authenticates them.
+
+        Callers MUST be careful not to leak the soft-deleted state to
+        unprivileged code paths — the returned User has deleted_at set
+        and should be either restored (set to None) or rejected
+        explicitly. Do NOT use this from generic read paths.
+        """
+        result = await self.db.execute(
+            select(User).where(User.email == email)
+        )
+        return result.scalar_one_or_none()
+
     async def get_by_email_with_tokens(self, email: str) -> Optional[User]:
         """
         Get user by email with refresh tokens loaded.

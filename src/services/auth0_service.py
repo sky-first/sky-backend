@@ -211,6 +211,33 @@ class Auth0Service:
             else:
                 raise BadRequestError("User with this email already exists")
 
+        # Soft-deleted-user restore path. The standard get_by_email above
+        # filters deleted_at IS NULL, so a previously deleted user with
+        # the same email is invisible and the INSERT below would collide
+        # with the unique-email index → the SSO provider authenticates
+        # the human but the API rejects them, effectively a permanent
+        # blacklist. Detect that case and restore the existing row
+        # (clear deleted_at, refresh provider linkage) so the user can
+        # come back with their original id, history, and ACLs intact.
+        soft_deleted = await self.user_repo.get_by_email_including_deleted(email)
+        if soft_deleted is not None and soft_deleted.deleted_at is not None:
+            soft_deleted.deleted_at = None
+            soft_deleted.auth0_id = auth0_id
+            soft_deleted.auth_provider = provider
+            soft_deleted.auth_provider_id = provider_id or auth0_id
+            soft_deleted.sso_metadata = sso_metadata
+            if avatar:
+                soft_deleted.avatar = avatar
+            soft_deleted.name = name
+            await self.db.commit()
+            await self.db.refresh(soft_deleted)
+            logger.info(
+                "🔄 Restored soft-deleted user on SSO re-login: %s (provider=%s)",
+                email,
+                provider,
+            )
+            return soft_deleted
+
         # Create new user
         # For SSO users, we don't set a password (they authenticate via provider)
         # Use a random hash that will never match (SSO users can't login with password)
