@@ -104,6 +104,12 @@ class TicketService:
             "ticket_created id=%s reporter=%s severity=%s category=%s",
             ticket.id, user.id, ticket.severity, ticket.category,
         )
+
+        # Best-effort Slack notification — fired AFTER the DB commit so a
+        # webhook failure can't roll back the ticket. The DB is the
+        # source of truth; the Slack ping is just a triage signal.
+        await _post_slack_ticket_created(ticket=ticket, reporter=user)
+
         return TicketResponse.model_validate(ticket)
 
     # ------------------------------------------------------------------
@@ -460,3 +466,109 @@ async def _post_escalation_webhook(
             "ticket_escalation_webhook_error ticket_id=%s err=%s", ticket.id, exc
         )
 
+
+# ─── Slack Incoming Webhook on ticket creation ───────────────────────────
+
+
+_SEVERITY_EMOJI = {
+    "low": ":information_source:",
+    "medium": ":warning:",
+    "high": ":rotating_light:",
+    "critical": ":fire:",
+}
+
+
+def _slack_blocks_for_created(ticket: Ticket, reporter: User) -> Dict[str, Any]:
+    """Slack block-kit payload for a newly-created ticket.
+
+    Block-kit gives ops the structured fields (severity, category,
+    reporter) on the left rail of the message instead of cramming
+    everything into a single line of text.
+    """
+    severity = (ticket.severity or "").lower()
+    emoji = _SEVERITY_EMOJI.get(severity, ":speech_balloon:")
+    body_preview = (ticket.body or "").strip()
+    if len(body_preview) > 500:
+        body_preview = body_preview[:497] + "…"
+
+    fields = [
+        {"type": "mrkdwn", "text": f"*Severity*\n`{ticket.severity}`"},
+        {"type": "mrkdwn", "text": f"*Category*\n`{ticket.category}`"},
+        {"type": "mrkdwn", "text": f"*Reporter*\n{reporter.email or reporter.id}"},
+        {"type": "mrkdwn", "text": f"*Status*\n`{ticket.status}`"},
+    ]
+
+    blocks: List[Dict[str, Any]] = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"{emoji} New ticket: {ticket.subject[:140]}",
+                "emoji": True,
+            },
+        },
+        {"type": "section", "fields": fields},
+    ]
+    if body_preview:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f">>> {body_preview}"},
+            }
+        )
+
+    app_url = (settings.APP_PUBLIC_URL or "").strip().rstrip("/")
+    if app_url:
+        deep_link = f"{app_url}/dashboard/settings/tickets/{ticket.id}"
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Open ticket"},
+                        "url": deep_link,
+                        "style": "primary",
+                    }
+                ],
+            }
+        )
+
+    return {
+        "text": f"New ticket: {ticket.subject[:140]}",  # fallback for clients that don't render blocks
+        "blocks": blocks,
+    }
+
+
+async def _post_slack_ticket_created(*, ticket: Ticket, reporter: User) -> None:
+    """Best-effort Slack POST. Failures are swallowed.
+
+    Empty SLACK_TICKETS_WEBHOOK_URL = log-only mode; useful for local
+    dev and for the test suite (we don't want every CI run pinging the
+    real channel).
+    """
+    url = (settings.SLACK_TICKETS_WEBHOOK_URL or "").strip()
+    if not url:
+        return
+
+    body = _slack_blocks_for_created(ticket, reporter)
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=settings.SLACK_TICKETS_WEBHOOK_TIMEOUT
+        ) as client:
+            resp = await client.post(url, json=body)
+        if resp.status_code >= 400:
+            logger.error(
+                "slack_ticket_webhook_failed status=%s ticket_id=%s body=%r",
+                resp.status_code, ticket.id, resp.text[:500],
+            )
+        else:
+            logger.info(
+                "slack_ticket_webhook_delivered ticket_id=%s status=%s",
+                ticket.id, resp.status_code,
+            )
+    except Exception as exc:  # noqa: BLE001 — webhook must not fail ticket creation
+        logger.exception(
+            "slack_ticket_webhook_error ticket_id=%s err=%s", ticket.id, exc
+        )
