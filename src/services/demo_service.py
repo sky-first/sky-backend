@@ -156,6 +156,106 @@ class DemoService:
                 )
         return []
 
+    async def _find_sibling_demo_space(self, email_domain: str) -> Optional[Space]:
+        """Return the active demo Space whose owner shares ``email_domain``.
+
+        Used by item D (same-domain grouping): the first signup from
+        @acme.com mints the Space and becomes commander; later signups
+        from @acme.com join that Space instead of creating new ones.
+
+        Returns None if:
+          - email_domain is empty
+          - no active (TTL not expired) demo Space exists for that domain
+          - the only matching Space is owned by the calling user's own row
+            (caller's been moved to _issue_returning before reaching here)
+        """
+        if not email_domain or "." not in email_domain:
+            return None
+
+        now = datetime.now(timezone.utc)
+        # Match via SQL on User.email LIKE '%@<domain>' joined to
+        # Space.created_by. The deleted_at filter on Space is implicit
+        # via the demo_expires_at > now check (cron CASCADE-deletes
+        # expired sandboxes anyway).
+        q = await self.db.execute(
+            select(Space)
+            .join(User, User.id == Space.created_by)
+            .where(
+                Space.is_demo.is_(True),
+                Space.demo_expires_at > now,
+                User.is_demo.is_(True),
+                User.email.like(f"%@{email_domain}"),
+            )
+            .order_by(Space.created_at.asc())  # oldest sibling = canonical
+            .limit(1)
+        )
+        return q.scalar_one_or_none()
+
+    async def _join_sibling_demo_space(
+        self,
+        *,
+        payload: DemoSignupRequest,
+        email_norm: str,
+        sibling_space: Space,
+        client_ip: Optional[str],
+    ) -> DemoSignupResponse:
+        """Mint a new User and attach them as a navigator of an existing
+        same-domain demo Space. Reuses the parent Space's TTL so the
+        whole org's sandbox expires together. Logs loudly so the
+        lead-gen pipeline can pick the event up.
+        """
+        # The new visitor's TTL = the sibling Space's TTL (same expiry
+        # for the whole company so the sandbox doesn't get split into
+        # an awkward "yours expired but theirs didn't" state).
+        expires_at = sibling_space.demo_expires_at or (
+            datetime.now(timezone.utc) + timedelta(days=max(1, int(settings.DEMO_TTL_DAYS)))
+        )
+
+        user = User(
+            id=uuid4(),
+            email=email_norm,
+            password_hash=get_password_hash(secrets.token_urlsafe(32)),
+            name=payload.name,
+            role="user",
+            email_verified=True,
+            is_demo=True,
+            demo_expires_at=expires_at,
+            preferences={
+                "demo_company": payload.company,
+                "demo_role": payload.role or "",
+                "demo_signup_ip": client_ip or "",
+                "demo_joined_existing_space": str(sibling_space.id),
+            },
+        )
+        self.db.add(user)
+        await self.db.flush()
+
+        # Navigator role: full content writes (dashboards, widgets,
+        # agents, AI) but cannot manage members, edit Space settings,
+        # or delete crews. Owner of the demo Space can promote them
+        # via the standard members endpoint.
+        self.db.add(SpaceMember(
+            id=uuid4(),
+            space_id=sibling_space.id,
+            user_id=user.id,
+            role="navigator",
+        ))
+
+        await self.db.commit()
+        await self.db.refresh(user)
+        await self.db.refresh(sibling_space)
+
+        logger.info(
+            "demo_same_domain_join space_id=%s owner_id=%s new_user_id=%s "
+            "email=%s domain=%s",
+            sibling_space.id, sibling_space.created_by, user.id,
+            email_norm, email_norm.split("@", 1)[1],
+        )
+
+        return self._issue_response(
+            user, sibling_space, expires_at, is_returning=False,
+        )
+
     async def _ensure_dataset_connections(self, space: Space) -> int:
         """Idempotently bind the configured demo dataset connections to ``space``.
 
@@ -241,6 +341,7 @@ class DemoService:
             raise BadRequestError("Captcha verification failed. Please refresh and try again.")
 
         email_norm = payload.email.lower().strip()
+        email_domain = email_norm.split("@", 1)[1] if "@" in email_norm else ""
 
         # Returning visitor: same email → return their existing sandbox.
         existing = await self.db.execute(select(User).where(User.email == email_norm))
@@ -253,6 +354,24 @@ class DemoService:
                     "This email is already registered. Please sign in via SSO instead."
                 )
             return await self._issue_returning(existing_user, user_agent, client_ip)
+
+        # Same-domain grouping (D): a colleague from the same company
+        # already has a demo sandbox? Bind this new user as a member of
+        # the SAME Space instead of creating a new one. Pre-A1 behavior
+        # was "every email = new sandbox" which fragmented teams across
+        # parallel demos and made the same-org collaboration story
+        # impossible. Now: first signup mints the Space + becomes
+        # commander; subsequent same-domain signups join as navigator
+        # (full content access, no member/space/connection management).
+        # Owner can promote later if needed.
+        sibling_space = await self._find_sibling_demo_space(email_domain)
+        if sibling_space is not None:
+            return await self._join_sibling_demo_space(
+                payload=payload,
+                email_norm=email_norm,
+                sibling_space=sibling_space,
+                client_ip=client_ip,
+            )
 
         # Fresh sandbox.
         ttl_days = max(1, int(settings.DEMO_TTL_DAYS))
