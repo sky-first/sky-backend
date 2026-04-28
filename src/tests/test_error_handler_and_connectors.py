@@ -167,15 +167,14 @@ async def test_postgresql_connector(monkeypatch):
     assert await connector.test_connection(cfg) is True
     conn.close.assert_awaited()
 
-    # failure test_connection
-    class FailContextManagerMock:
-        async def __aenter__(self):
-            raise RuntimeError("no")
+    # failure test_connection — asyncpg.connect itself raises (OSError simulates
+    # a real refused/unreachable host). Raising from the call site (not from
+    # __aenter__) ensures the exception is caught by the try/except in
+    # test_connection regardless of pytest-asyncio's async-with tracing behaviour.
+    def _connect_fail(**_kw):
+        raise OSError("connection refused")
 
-        async def __aexit__(self, exc_type, exc, tb):
-            pass
-
-    monkeypatch.setattr(pg_mod.asyncpg, "connect", lambda **_kwargs: FailContextManagerMock())
+    monkeypatch.setattr(pg_mod.asyncpg, "connect", _connect_fail)
     assert await connector.test_connection(cfg) is False
 
     # execute_query closes conn in finally
