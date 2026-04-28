@@ -34,6 +34,7 @@ from src.core.security import (
     create_refresh_token,
     get_password_hash,
 )
+from src.models.connection import DataConnection
 from src.models.space import Space, SpaceConnection, SpaceMember
 from src.models.user import User
 from src.schemas.demo import DemoSignupRequest, DemoSignupResponse
@@ -155,6 +156,68 @@ class DemoService:
                 )
         return []
 
+    async def _ensure_dataset_connections(self, space: Space) -> int:
+        """Idempotently bind the configured demo dataset connections to ``space``.
+
+        Reads ``DEMO_DATASET_CONNECTION_IDS`` (or the legacy singular)
+        and, for each UUID that:
+          (a) exists as a row in ``data_connections`` (so the FK insert
+              won't 23503 on us), and
+          (b) is not already bridged to this Space,
+        adds a ``SpaceConnection`` row. Missing UUIDs are logged loudly
+        — operationally that means the seed script wasn't run against
+        this DB, or the env var was edited and points at a stale ID.
+
+        Returns the number of rows added (0 on a no-op).
+
+        Called from both ``_issue_new`` (initial provision) and
+        ``_issue_returning`` (backfill for Spaces created before the env
+        var was deployed). The session is NOT committed here — caller
+        commits as part of its own transaction.
+        """
+        wanted = self._parse_connection_ids()
+        if not wanted:
+            return 0
+
+        # 1. Filter to UUIDs that actually exist in data_connections.
+        existing_q = await self.db.execute(
+            select(DataConnection.id).where(DataConnection.id.in_(wanted))
+        )
+        existing_ids: set[UUID] = {row for row in existing_q.scalars().all()}
+        missing = [str(u) for u in wanted if u not in existing_ids]
+        if missing:
+            logger.warning(
+                "demo_dataset_connection_ids reference missing data_connections "
+                "rows — these IDs will be skipped. Did the seed script run "
+                "against this DB? missing=%s",
+                missing,
+            )
+        if not existing_ids:
+            return 0
+
+        # 2. Skip the ones already bound to avoid duplicate-key errors.
+        already_q = await self.db.execute(
+            select(SpaceConnection.connection_id).where(
+                SpaceConnection.space_id == space.id,
+                SpaceConnection.connection_id.in_(existing_ids),
+            )
+        )
+        already: set[UUID] = {row for row in already_q.scalars().all()}
+
+        added = 0
+        for conn_uuid in existing_ids:
+            if conn_uuid in already:
+                continue
+            self.db.add(SpaceConnection(space_id=space.id, connection_id=conn_uuid))
+            added += 1
+
+        if added:
+            logger.info(
+                "demo_space_connections_bound space_id=%s added=%d total_wanted=%d",
+                space.id, added, len(wanted),
+            )
+        return added
+
     async def signup(
         self,
         payload: DemoSignupRequest,
@@ -250,9 +313,7 @@ class DemoService:
         #      design. Used only when the plural is empty.
         # When both are empty the Space starts with no data — still valid
         # for click-the-buttons demos.
-        connection_uuids = self._parse_connection_ids()
-        for conn_uuid in connection_uuids:
-            self.db.add(SpaceConnection(space_id=space.id, connection_id=conn_uuid))
+        await self._ensure_dataset_connections(space)
 
         await self.db.commit()
         await self.db.refresh(user)
@@ -280,6 +341,17 @@ class DemoService:
             raise BadRequestError(
                 "Your previous demo expired. Please submit the form again to get a new sandbox."
             )
+
+        # Backfill: a returning visitor whose Space was provisioned before
+        # DEMO_DATASET_CONNECTION_IDS was set (or before the env var
+        # rolled out) ends up with an empty Space — they see the company
+        # name but no connections inside. Re-running the idempotent
+        # binder on every re-login closes that gap without needing a
+        # one-shot migration script.
+        added = await self._ensure_dataset_connections(space)
+        if added:
+            await self.db.commit()
+
         return self._issue_response(
             user,
             space,
