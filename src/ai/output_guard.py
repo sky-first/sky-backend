@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Iterable, List, Set
+from typing import Iterable, List, Optional, Set, Union
 from uuid import UUID
 
 from src.ai.prompt_templates import LAYER_1_PLATFORM
@@ -106,10 +106,10 @@ class GuardedOutput:
 
 def guard_model_output(
     answer: str,
-    authorized_evidence_ids: Iterable[str] | Iterable[UUID] = (),
+    authorized_evidence_ids: Union[Iterable[str], Iterable[UUID]] = (),
     *,
-    user_id: UUID | None = None,
-    evidence_count: int | None = None,
+    user_id: Optional[UUID] = None,
+    evidence_count: Optional[int] = None,
 ) -> GuardedOutput:
     """Run the 4-stage output pipeline.
 
@@ -187,8 +187,8 @@ def _assert_citations_within_authorised(
     *,
     answer: str,
     authorized_ids: Set[str],
-    evidence_count: int | None,
-    user_id: UUID | None,
+    evidence_count: Optional[int],
+    user_id: Optional[UUID],
 ) -> None:
     """Raise ``OutputACLBreach`` when the LLM cites an unauthorised ID.
 

@@ -104,6 +104,13 @@ celery_app.conf.update(
     task_soft_time_limit=25 * 60,  # 25 minutes
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
+    task_queues={
+        "celery": {"exchange": "celery"},
+        "knowledge": {"exchange": "knowledge"},  # dedicated queue, concurrency 4
+    },
+    task_routes={
+        "knowledge.*": {"queue": "knowledge"},
+    },
     include=[
         "src.workers.sync_worker",
         "src.workers.ai_worker",
@@ -112,6 +119,7 @@ celery_app.conf.update(
         "src.workers.insight_agent_worker",
         "src.workers.agent_revocation_worker",
         "src.workers.demo_cleanup_worker",
+        "src.workers.knowledge_worker",
     ],
 )
 

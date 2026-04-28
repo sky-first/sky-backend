@@ -22,6 +22,8 @@ any test that asserts on absolute counts.
 
 from __future__ import annotations
 
+from typing import List, Optional
+
 from prometheus_client import (
     REGISTRY,
     CollectorRegistry,
@@ -105,8 +107,8 @@ def record_input_guard(
     *,
     decision: str,
     reason: str = "none",
-    injection_patterns: list[str] | None = None,
-    policy_category: str | None = None,
+    injection_patterns: Optional[List[str]] = None,
+    policy_category: Optional[str] = None,
 ) -> None:
     ai_guard_decisions_total.labels(
         stage="input", decision=decision, reason=reason,
@@ -122,7 +124,7 @@ def record_output_guard(
     *,
     decision: str,
     reason: str = "none",
-    acl_breach_kind: str | None = None,
+    acl_breach_kind: Optional[str] = None,
 ) -> None:
     ai_guard_decisions_total.labels(
         stage="output", decision=decision, reason=reason,
@@ -163,7 +165,7 @@ def reset_test_metrics() -> None:
 def sample_value(
     metric: Counter | Histogram,
     labels: dict[str, str],
-    sample_name: str | None = None,
+    sample_name: Optional[str] = None,
 ) -> float:
     """Return the current value of a labelled metric sample.
 

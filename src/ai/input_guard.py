@@ -23,7 +23,7 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class ChatInputError(Exception):
     code: str = "CHAT_MALFORMED_INPUT"
     http_status: int = 400
 
-    def __init__(self, message: str, *, code: str | None = None):
+    def __init__(self, message: str, *, code: Optional[str] = None):
         super().__init__(message)
         if code:
             self.code = code
@@ -134,7 +134,7 @@ class GuardedInput:
 def guard_user_input(
     message: str,
     *,
-    user_id: UUID | None = None,
+    user_id: Optional[UUID] = None,
     max_chars: int = MAX_MESSAGE_CHARS,
     max_lines: int = MAX_MESSAGE_LINES,
     max_line_chars: int = MAX_SINGLE_LINE_CHARS,
@@ -219,7 +219,7 @@ def _any_match(text: str, patterns: Tuple[re.Pattern, ...]) -> bool:
     return any(p.search(text) for p in patterns)
 
 
-def _log_refusal(user_id: UUID | None, category: str) -> None:
+def _log_refusal(user_id: Optional[UUID], category: str) -> None:
     logger.warning(
         "Chat input blocked by %s policy (user=%s)",
         category,

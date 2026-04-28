@@ -54,6 +54,10 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/v1/auth/invite/validate",  # Invite validation (public)
         "/api/v1/auth/invite/login",  # Invite login (public)
         "/api/v1/auth/invite/accept",  # Invite accept (public)
+        # Local-dev blob storage — browser PUT/GET goes directly here without a Bearer header.
+        # Both endpoints return 404 in production (_assert_local_mode guard).
+        "/api/v1/knowledge/local-upload",
+        "/api/v1/knowledge/local-download",
         # Legacy API routes (without /v1 prefix)
         "/api/auth/login",
         "/api/auth/logout",

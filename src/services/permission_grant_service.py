@@ -9,7 +9,7 @@ forensic trail.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import select
@@ -81,7 +81,7 @@ class PermissionGrantService:
 
     async def _get_live(
         self, user_id: UUID, permission: str
-    ) -> UserPermissionGrant | None:
+    ) -> Optional[UserPermissionGrant]:
         row = await self.db.execute(
             select(UserPermissionGrant).where(
                 UserPermissionGrant.user_id == user_id,

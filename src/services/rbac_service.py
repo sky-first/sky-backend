@@ -217,6 +217,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "files.upload": True,
         "files.view": True,
         "files.delete": True,
+        "files.approve": True,   # approve navigator uploads
         "templates.view": True,
         "templates.create": True,
         "templates.apply": True,
@@ -388,9 +389,10 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "notifications.read": True,
         "starred.view": True,
         "starred.manage": True,
-        "files.upload": True,
+        "files.upload": True,    # navigator pode fazer upload (fica pending_approval até commander aprovar)
         "files.view": True,
         "files.delete": False,
+        "files.approve": False,  # só commander pode aprovar uploads de navigator
         "templates.view": True,
         "templates.create": False,
         "templates.apply": True,
@@ -558,9 +560,10 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "notifications.read": True,
         "starred.view": True,
         "starred.manage": True,
-        "files.upload": True,
+        "files.upload": False,   # explorer só visualiza
         "files.view": True,
         "files.delete": False,
+        "files.approve": False,
         "templates.view": True,
         "templates.create": False,
         "templates.apply": True,
@@ -728,6 +731,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "files.upload": False,
         "files.view": True,
         "files.delete": False,
+        "files.approve": False,
         "templates.view": True,
         "templates.create": False,
         "templates.apply": False,
