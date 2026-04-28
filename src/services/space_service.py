@@ -67,10 +67,17 @@ class SpaceService:
         member = await self.member_repo.get_by_space_and_user(space_id, user.id)
         if not member:
             raise ForbiddenError("Access denied to this space")
+        # Legacy normalization: pre-A1 demo signups created
+        # SpaceMember.role="admin" (and the original two-axis design
+        # briefly considered "member"). Match RBACService._canonicalize_role
+        # so this path doesn't 403 a legacy admin row that should be
+        # treated as commander.
+        legacy_to_canonical = {"admin": "commander", "member": "explorer", "guest": "explorer"}
+        member_role = legacy_to_canonical.get(member.role, member.role)
         rank = {"explorer": 0, "navigator": 1, "commander": 2}
-        if rank.get(member.role, -1) < rank.get(min_role, 0):
+        if rank.get(member_role, -1) < rank.get(min_role, 0):
             raise ForbiddenError(
-                f"Requires space role '{min_role}' (you have '{member.role}')"
+                f"Requires space role '{min_role}' (you have '{member_role}')"
             )
 
     async def list_spaces(self, user: User, skip: int = 0, limit: int = 100) -> List[SpaceResponse]:
@@ -522,6 +529,35 @@ class SpaceService:
         existing = await self.member_repo.get_by_space_and_user(space_id, member_data.user_id)
         if existing:
             raise BadRequestError("User is already a member of this space")
+
+        # Demo Space invite gate (item C): in a demo sandbox, the
+        # commander can only add members whose email domain matches
+        # the Space owner's domain. Without this, the commander could
+        # subvert the same-domain grouping invariant set up by item D
+        # (where colleagues from one company merge into one Space) by
+        # bringing in arbitrary outside emails.
+        if space.is_demo:
+            from sqlalchemy import select as _select
+            from src.models.user import User as _User
+            owner_q = await self.db.execute(
+                _select(_User.email).where(_User.id == space.created_by)
+            )
+            owner_email = (owner_q.scalar_one_or_none() or "").lower()
+            owner_domain = owner_email.split("@", 1)[1] if "@" in owner_email else ""
+
+            target_q = await self.db.execute(
+                _select(_User.email).where(_User.id == member_data.user_id)
+            )
+            target_email = (target_q.scalar_one_or_none() or "").lower()
+            target_domain = target_email.split("@", 1)[1] if "@" in target_email else ""
+
+            if not owner_domain or owner_domain != target_domain:
+                raise ForbiddenError(
+                    "Demo Spaces only accept teammates from the same email "
+                    f"domain (@{owner_domain}). To bring an outside collaborator "
+                    "in, sign up for a workspace at skyfirstlabs.com — paid "
+                    "plans support cross-domain teams."
+                )
 
         # Validate the requested Space role (two-axis RBAC, Phase 1).
         from src.schemas.space import SPACE_MEMBER_ROLES

@@ -73,14 +73,43 @@ async def _is_sky_operator_without_jit(user: User, db: AsyncSession) -> bool:
         return True
 
 
-CrewRole = str  # commander | navigator | explorer | guest
+CrewRole = str  # commander | navigator | explorer
+
+# A1 (2026-04-28): the "guest" role was retired. It was the lowest-rung
+# fallback for users with no crew membership and showed up everywhere as
+# `return "guest"` — which silently denied AI access for any platform
+# member who hadn't joined a crew yet, including every fresh demo
+# visitor. Now: explorer is the floor (read-only, but still allows
+# AI/chat in their own scope). Legacy DB rows with role="guest" are
+# normalized via _canonicalize_role() at read time.
 
 ROLE_PRECEDENCE: Dict[str, int] = {
-    "guest": 0,
-    "explorer": 1,
-    "navigator": 2,
-    "commander": 3,
+    # "no_access" is the deny-all sentinel for users who have NO membership
+    # in the requested scope (Space/Crew). It's not a real role — it never
+    # appears on a SpaceMember/CrewMember row, only as a return value from
+    # the resolver when the user is an outsider to the requested context.
+    # Tenancy gate: replaces the old guest semantics that enforced this.
+    "no_access": -1,
+    "explorer": 0,
+    "navigator": 1,
+    "commander": 2,
 }
+
+
+def _canonicalize_role(role: Optional[str]) -> CrewRole:
+    """Map any role-string from DB to the canonical commander/navigator/explorer.
+
+    - admin / member: legacy SpaceMember strings (pre-A1 demos)
+    - guest: retired Crew role (A1)
+    - empty / None / unknown: floor to explorer
+    """
+    if not role:
+        return "explorer"
+    return {
+        "admin": "commander",
+        "member": "explorer",
+        "guest": "explorer",
+    }.get(role, role)
 
 
 DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
@@ -599,173 +628,21 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "users.impersonate": False,
     },
     # ═══════════════════════════════════════════════════════════════
-    # Guest/Viewer = Stakeholder. Sees everything shared with them.
-    # Cannot create, edit, delete, or interact beyond viewing.
+    # Retired (A1): the "guest" role lived here as a 164-line dict
+    # that denied AI access by default. Every fresh demo visitor
+    # without a crew membership fell through to it via _resolve_*
+    # helpers and got "no permission to run queries" on first chat.
+    # Replaced by "explorer" as the floor — explorer keeps view + AI
+    # but loses creation/edit. Legacy DB rows with role="guest" are
+    # mapped via _canonicalize_role() so no migration is required.
     # ═══════════════════════════════════════════════════════════════
-    "guest": {
-        # Pages & Dashboards — view only
-        "pages.view": True,
-        "pages.create": False,
-        "pages.edit": False,
-        "pages.edit.others": False,
-        "pages.delete": False,
-        "pages.share": False,
-        "pages.duplicate": False,
-        "pages.members.view": True,
-        "pages.members.manage": False,
-        "pages.star": True,
-        "dashboards.view": True,
-        "dashboards.create": False,
-        "dashboards.edit": False,
-        "dashboards.delete": False,
-        "dashboards.export": False,
-        "dashboards.lock": False,
-        "dashboards.duplicate": False,
-        # Widgets — view only
-        "widgets.view": True,
-        "widgets.create": False,
-        "widgets.edit": False,
-        "widgets.delete": False,
-        "widgets.duplicate": False,
-        "widgets.export": False,
-        "widgets.refresh": False,
-        "widgets.feedback": True,
-        # Connections — view only
-        "connections.view": True,
-        "connections.metadata.view": True,
-        "connections.tables.view": True,
-        "connections.schemas.view": True,
-        "connections.status.view": True,
-        "connections.metrics.view": False,
-        "connections.create": False,
-        "connections.edit": False,
-        "connections.delete": False,
-        "connections.test": False,
-        "connections.sync": False,
-        "connections.validate": False,
-        # AI — no queries
-        "ai.chat": False,
-        "ai.query": False,
-        "ai.history.view": True,
-        "ai.history.delete": False,
-        "ai.history.pin": False,
-        "ai.history.export": False,
-        "ai.generate": False,
-        "ai.feedback": True,
-        "ai.pipeline": False,
-        "ai.davinci": False,
-        # Spaces & Crews — view only
-        "spaces.view": True,
-        "spaces.create": False,
-        "spaces.edit": False,
-        "spaces.delete": False,
-        "spaces.members.view": True,
-        "spaces.members.manage": False,
-        "spaces.connections.view": True,
-        "spaces.connections.manage": False,
-        "spaces.crews.view": True,
-        "spaces.tables.view": True,
-        "spaces.stats.view": False,
-        "crews.view": True,
-        "crews.create": False,
-        "crews.edit": False,
-        "crews.delete": False,
-        "crews.members.view": True,
-        "crews.members.manage": False,
-        "crews.stats.view": False,
-        # Users
-        "users.view": False,
-        "users.permissions.view": False,
-        "users.self.edit": True,
-        "users.self.permissions": True,
-        # Agents — view only (guest can't run/pause/resume)
-        "agents.view": True,
-        "agents.create": False,
-        "agents.edit": False,
-        "agents.delete": False,
-        "agents.run": False,
-        "agents.pause": False,
-        "agents.resume": False,
-        "agents.manage": False,
-        "agents.findings.view": True,
-        "agents.findings.dismiss": False,
-        # Strategy — view only
-        "strategy.view": True,
-        "strategy.pillars.create": False,
-        "strategy.pillars.edit": False,
-        "strategy.pillars.delete": False,
-        "strategy.objectives.create": False,
-        "strategy.objectives.edit": False,
-        "strategy.objectives.delete": False,
-        "strategy.okrs.create": False,
-        "strategy.okrs.edit": False,
-        "strategy.okrs.delete": False,
-        "strategy.keyresults.create": False,
-        "strategy.keyresults.edit": False,
-        "strategy.keyresults.delete": False,
-        "strategy.initiatives.create": False,
-        "strategy.initiatives.edit": False,
-        "strategy.initiatives.delete": False,
-        "strategy.assumptions.create": False,
-        "strategy.assumptions.edit": False,
-        "strategy.assumptions.delete": False,
-        "strategy.cycles.create": False,
-        "strategy.cycles.edit": False,
-        "strategy.cycles.delete": False,
-        # Events & Intelligence — view only
-        "events.view": True,
-        "events.create": False,
-        "events.edit": False,
-        "events.delete": False,
-        "intelligence.view": True,
-        "intelligence.create": False,
-        "intelligence.dismiss": False,
-        "intelligence.delete": False,
-        # Other
-        "comments.view": True,
-        "comments.create": False,
-        "notifications.view": True,
-        "notifications.read": True,
-        "starred.view": True,
-        "starred.manage": True,
-        "files.upload": False,
-        "files.view": True,
-        "files.delete": False,
-        "files.approve": False,
-        "templates.view": True,
-        "templates.create": False,
-        "templates.apply": False,
-        "templates.edit": False,
-        "templates.delete": False,
-        "enterprise.view": True,
-        "enterprise.create": False,
-        "enterprise.edit": False,
-        "enterprise.delete": False,
-        "enterprise.apis.view": True,
-        "enterprise.apis.create": False,
-        "connectors.view": True,
-        "datasets.view": True,
-        "datasets.delete": False,
-        "settings.view": True,
-        "permissions.view": False,
-        "apikeys.manage": False,
-        "integrations.manage": False,
-        "metrics.view": False,
-        "admin.users.manage": False,
-        "users.invite": False,
-        "users.edit": False,
-        "users.delete": False,
-        "users.permissions.edit": False,
-        "settings.edit": False,
-        "permissions.edit": False,
-        "audit.view": False,
-        "audit.verify": False,
-        "privacy.export": False,
-        "privacy.delete": False,
-        "support.settings": False,
-        "support.revoke": False,
-        "users.impersonate": False,
-    },
+
+    # Tenancy gate. Returned by _best_role_for_user_in_space when the
+    # caller has no membership in the requested Space. Empty dict =
+    # eff.permissions.get(key, False) returns False for every key →
+    # assert_permission denies. Must NEVER appear on a SpaceMember /
+    # CrewMember row in the DB; this is a runtime sentinel only.
+    "no_access": {},
 }
 
 
@@ -801,7 +678,7 @@ class RBACService:
             )
             return EffectivePermissions(
                 platform_role=user.role or "sky_support",
-                crew_role="guest",
+                crew_role="explorer",  # floor; permissions={} denies all anyway
                 permissions={},
             )
 
@@ -842,7 +719,7 @@ class RBACService:
             user.id, crew_id=crew_id, space_id=space_id, connection_id=connection_id
         )
 
-        defaults = DEFAULT_ROLE_PERMISSIONS.get(crew_role, DEFAULT_ROLE_PERMISSIONS["guest"])
+        defaults = DEFAULT_ROLE_PERMISSIONS.get(crew_role, DEFAULT_ROLE_PERMISSIONS["explorer"])
         db_role = await self.role_perms.get_by_role(crew_role)
         merged = {
             **defaults,
@@ -993,7 +870,7 @@ class RBACService:
         # Most specific: crew_id
         if crew_id:
             member = await self.crew_members.get_by_crew_and_user(crew_id, user_id)
-            return member.role if member and member.role else "guest"  # type: ignore[return-value]
+            return _canonicalize_role(member.role if member else None)
 
         # Next: resolve from space_id. Prefer the explicit space_members
         # role (two-axis RBAC) and fall back to the best crew role in
@@ -1011,8 +888,18 @@ class RBACService:
                 )
             )
             space_role = res.scalar_one_or_none()
-            if space_role and space_role in ("commander", "navigator", "explorer"):
-                return space_role  # type: ignore[return-value]
+            if space_role:
+                # Legacy normalization: pre-A1 demo signups created
+                # SpaceMember.role="admin" (and the original two-axis
+                # design briefly considered "member"). Treat them as
+                # their commander/explorer equivalents so existing rows
+                # keep working without a DB migration.
+                space_role = {
+                    "admin": "commander",
+                    "member": "explorer",
+                }.get(space_role, space_role)
+                if space_role in ("commander", "navigator", "explorer"):
+                    return space_role  # type: ignore[return-value]
             return await self._best_role_for_user_in_space(user_id, space_id)
 
         # Next: resolve from connection_id (any crew/space permission that user belongs to)
@@ -1026,14 +913,20 @@ class RBACService:
         crew_ids = await self.crew_members.get_crew_ids_by_user_and_space(
             user_id=user_id, space_id=space_id
         )
+        # The SpaceMember lookup at the call site already returned None
+        # (otherwise we wouldn't be here). If the user has no crew in this
+        # Space either, they're an outsider — return the deny-all sentinel
+        # so cross-tenant requests don't accidentally inherit explorer's
+        # ai.query/view grants. This is the tenancy gate that "guest"
+        # used to enforce.
         if not crew_ids:
-            return "guest"
+            return "no_access"
 
-        best_role = "guest"
+        best_role: CrewRole = "explorer"
         best_score = ROLE_PRECEDENCE[best_role]
         for cid in crew_ids:
             member = await self.crew_members.get_by_crew_and_user(cid, user_id)
-            role = member.role if member and member.role else "guest"  # type: ignore[assignment]
+            role = _canonicalize_role(member.role if member else None)
             score = ROLE_PRECEDENCE.get(role, 0)
             if score > best_score:
                 best_score = score
@@ -1056,18 +949,19 @@ class RBACService:
             # resolution below takes over.
             return "commander"
 
-        best_role = "guest"
+        best_role: CrewRole = "explorer"
         best_score = ROLE_PRECEDENCE[best_role]
-        
+
         for role in space_roles:
-            score = ROLE_PRECEDENCE.get(role, 0)
+            canonical = _canonicalize_role(role)
+            score = ROLE_PRECEDENCE.get(canonical, 0)
             if score > best_score:
                 best_score = score
-                best_role = role
-                
+                best_role = canonical
+
         for cid in crew_ids:
             member = await self.crew_members.get_by_crew_and_user(cid, user_id)
-            role = member.role if member and member.role else "guest"  # type: ignore[assignment]
+            role = _canonicalize_role(member.role if member else None)
             score = ROLE_PRECEDENCE.get(role, 0)
             if score > best_score:
                 best_score = score
@@ -1084,13 +978,13 @@ class RBACService:
 
         # Look at connection_permissions, if any, and pick best role in any linked crew/space.
         perms = await self.connection_perms.get_by_connection_id(connection_id)
-        best_role = "guest"
+        best_role: CrewRole = "explorer"
         best_score = ROLE_PRECEDENCE[best_role]
 
         for p in perms:
             if p.crew_id:
                 member = await self.crew_members.get_by_crew_and_user(p.crew_id, user_id)
-                role = member.role if member and member.role else "guest"  # type: ignore[assignment]
+                role = _canonicalize_role(member.role if member else None)
                 score = ROLE_PRECEDENCE.get(role, 0)
                 if score > best_score:
                     best_score = score
