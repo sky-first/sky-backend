@@ -187,6 +187,22 @@ class Settings(BaseSettings):
     # continues — the DB is the source of truth.
     TICKET_ESCALATION_WEBHOOK_TIMEOUT: float = 5.0
 
+    # ─── Slack notification on ticket creation ────────────────────────────
+    # Slack Incoming Webhook URL. When set, every newly-created ticket
+    # fires an async best-effort POST to this URL with a Slack block-kit
+    # payload (subject, severity, reporter, link). Empty = log-only.
+    SLACK_TICKETS_WEBHOOK_URL: str = Field(
+        default="",
+        description=(
+            "Slack Incoming Webhook URL that receives a Slack-formatted "
+            "POST when a ticket is created. Empty disables the webhook."
+        ),
+    )
+    SLACK_TICKETS_WEBHOOK_TIMEOUT: float = 5.0
+    # Public app URL used to render a clickable link back to the ticket
+    # in the Slack message. Falls back to skipping the link if empty.
+    APP_PUBLIC_URL: str = Field(default="")
+
     # Redis
     REDIS_URL: str = Field(
         default="",
