@@ -1360,10 +1360,7 @@ async def suggest_widget_title(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuggestWidgetTitleResponse:
     # RBAC enforcement: same capability as querying (this still incurs AI cost).
-    # Personal-mode parity with /query: when no space is specified, the caller
-    # is acting on their own data within their own scope and authentication
-    # is the right gate — otherwise the check falls through to "guest" for
-    # crewless members and 403s a flow that should just work.
+    # Personal-mode parity with /query — see ai.py:84 rationale.
     rbac = RBACService(db)
     space_uuid: Optional[UUID] = None
     if body.space_id:

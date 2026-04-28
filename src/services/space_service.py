@@ -67,10 +67,17 @@ class SpaceService:
         member = await self.member_repo.get_by_space_and_user(space_id, user.id)
         if not member:
             raise ForbiddenError("Access denied to this space")
+        # Legacy normalization: pre-A1 demo signups created
+        # SpaceMember.role="admin" (and the original two-axis design
+        # briefly considered "member"). Match RBACService._canonicalize_role
+        # so this path doesn't 403 a legacy admin row that should be
+        # treated as commander.
+        legacy_to_canonical = {"admin": "commander", "member": "explorer", "guest": "explorer"}
+        member_role = legacy_to_canonical.get(member.role, member.role)
         rank = {"explorer": 0, "navigator": 1, "commander": 2}
-        if rank.get(member.role, -1) < rank.get(min_role, 0):
+        if rank.get(member_role, -1) < rank.get(min_role, 0):
             raise ForbiddenError(
-                f"Requires space role '{min_role}' (you have '{member.role}')"
+                f"Requires space role '{min_role}' (you have '{member_role}')"
             )
 
     async def list_spaces(self, user: User, skip: int = 0, limit: int = 100) -> List[SpaceResponse]:
