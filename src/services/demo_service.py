@@ -34,6 +34,7 @@ from src.core.security import (
     create_refresh_token,
     get_password_hash,
 )
+from src.models.connection import DataConnection
 from src.models.space import Space, SpaceConnection, SpaceMember
 from src.models.user import User
 from src.schemas.demo import DemoSignupRequest, DemoSignupResponse
@@ -255,6 +256,68 @@ class DemoService:
             user, sibling_space, expires_at, is_returning=False,
         )
 
+    async def _ensure_dataset_connections(self, space: Space) -> int:
+        """Idempotently bind the configured demo dataset connections to ``space``.
+
+        Reads ``DEMO_DATASET_CONNECTION_IDS`` (or the legacy singular)
+        and, for each UUID that:
+          (a) exists as a row in ``data_connections`` (so the FK insert
+              won't 23503 on us), and
+          (b) is not already bridged to this Space,
+        adds a ``SpaceConnection`` row. Missing UUIDs are logged loudly
+        — operationally that means the seed script wasn't run against
+        this DB, or the env var was edited and points at a stale ID.
+
+        Returns the number of rows added (0 on a no-op).
+
+        Called from both ``_issue_new`` (initial provision) and
+        ``_issue_returning`` (backfill for Spaces created before the env
+        var was deployed). The session is NOT committed here — caller
+        commits as part of its own transaction.
+        """
+        wanted = self._parse_connection_ids()
+        if not wanted:
+            return 0
+
+        # 1. Filter to UUIDs that actually exist in data_connections.
+        existing_q = await self.db.execute(
+            select(DataConnection.id).where(DataConnection.id.in_(wanted))
+        )
+        existing_ids: set[UUID] = {row for row in existing_q.scalars().all()}
+        missing = [str(u) for u in wanted if u not in existing_ids]
+        if missing:
+            logger.warning(
+                "demo_dataset_connection_ids reference missing data_connections "
+                "rows — these IDs will be skipped. Did the seed script run "
+                "against this DB? missing=%s",
+                missing,
+            )
+        if not existing_ids:
+            return 0
+
+        # 2. Skip the ones already bound to avoid duplicate-key errors.
+        already_q = await self.db.execute(
+            select(SpaceConnection.connection_id).where(
+                SpaceConnection.space_id == space.id,
+                SpaceConnection.connection_id.in_(existing_ids),
+            )
+        )
+        already: set[UUID] = {row for row in already_q.scalars().all()}
+
+        added = 0
+        for conn_uuid in existing_ids:
+            if conn_uuid in already:
+                continue
+            self.db.add(SpaceConnection(space_id=space.id, connection_id=conn_uuid))
+            added += 1
+
+        if added:
+            logger.info(
+                "demo_space_connections_bound space_id=%s added=%d total_wanted=%d",
+                space.id, added, len(wanted),
+            )
+        return added
+
     async def signup(
         self,
         payload: DemoSignupRequest,
@@ -348,13 +411,18 @@ class DemoService:
         self.db.add(space)
         await self.db.flush()
 
-        # Member bridge — guest is admin of their own sandbox so they
-        # can do every product action without RBAC blocking the experience.
+        # Member bridge — guest is COMMANDER of their own sandbox so
+        # the BE rbac_service.py:1014 path matches commander/navigator/
+        # explorer and grants the full Space-axis capabilities. Earlier
+        # demo signups used role="admin" which fell through to "guest"
+        # because that match-list is strict — that's why every demo
+        # tester before A1 hit "no permission to run queries" the first
+        # time they tried the AI. See test_rbac_space_role_axis.py:S-80.
         member = SpaceMember(
             id=uuid4(),
             space_id=space.id,
             user_id=user.id,
-            role="admin",
+            role="commander",
         )
         self.db.add(member)
 
@@ -369,13 +437,25 @@ class DemoService:
         #      design. Used only when the plural is empty.
         # When both are empty the Space starts with no data — still valid
         # for click-the-buttons demos.
-        connection_uuids = self._parse_connection_ids()
-        for conn_uuid in connection_uuids:
-            self.db.add(SpaceConnection(space_id=space.id, connection_id=conn_uuid))
+        await self._ensure_dataset_connections(space)
 
         await self.db.commit()
         await self.db.refresh(user)
         await self.db.refresh(space)
+
+        # Welcome email (Resend) — sent ONLY on fresh cold signups.
+        # Returning visitors don't get another welcome (already sent
+        # the first time), and same-domain joiners get a different
+        # template (TODO: separate "your colleague invited you" mail).
+        # Fire-and-forget: failures are logged inside the helper so a
+        # vendor outage can't roll back the sandbox.
+        from src.services.demo_email_service import send_demo_welcome_email
+        await send_demo_welcome_email(
+            name=user.name,
+            email=user.email,
+            company=payload.company,
+            expires_at=expires_at,
+        )
 
         return self._issue_response(user, space, expires_at, is_returning=False)
 
@@ -399,12 +479,60 @@ class DemoService:
             raise BadRequestError(
                 "Your previous demo expired. Please submit the form again to get a new sandbox."
             )
+
+        # Backfill #1: a returning visitor whose Space was provisioned
+        # before DEMO_DATASET_CONNECTION_IDS was set ends up with an
+        # empty Space — the idempotent binder closes that gap without
+        # a one-shot migration script.
+        added = await self._ensure_dataset_connections(space)
+
+        # Backfill #2 (A1): pre-A1 signups created SpaceMember.role=
+        # "admin", which falls through to "guest" in rbac_service:1014
+        # (match-list is commander/navigator/explorer). Normalize any
+        # legacy row on every returning login — idempotent, no-op when
+        # already correct. Also handles legacy "member" → "explorer".
+        normalized = await self._normalize_legacy_member_role(space, user)
+
+        if added or normalized:
+            await self.db.commit()
+
         return self._issue_response(
             user,
             space,
             user.demo_expires_at or datetime.now(timezone.utc),
             is_returning=True,
         )
+
+    async def _normalize_legacy_member_role(
+        self, space: Space, user: User,
+    ) -> bool:
+        """Convert SpaceMember.role from legacy admin/member to
+        commander/explorer for this user/space pair. Returns True if
+        a row was actually mutated (caller should commit), False
+        otherwise.
+        """
+        res = await self.db.execute(
+            select(SpaceMember).where(
+                SpaceMember.space_id == space.id,
+                SpaceMember.user_id == user.id,
+            )
+        )
+        member = res.scalar_one_or_none()
+        if member is None:
+            return False
+
+        legacy_to_canonical = {"admin": "commander", "member": "explorer"}
+        new_role = legacy_to_canonical.get(member.role)
+        if new_role is None:
+            return False  # already commander/navigator/explorer or unknown
+
+        logger.info(
+            "demo_legacy_role_normalized space_id=%s user_id=%s "
+            "from=%s to=%s",
+            space.id, user.id, member.role, new_role,
+        )
+        member.role = new_role
+        return True
 
     def _issue_response(
         self,

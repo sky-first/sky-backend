@@ -187,6 +187,49 @@ class Settings(BaseSettings):
     # continues — the DB is the source of truth.
     TICKET_ESCALATION_WEBHOOK_TIMEOUT: float = 5.0
 
+    # ─── Slack notification on ticket creation ────────────────────────────
+    # Slack Incoming Webhook URL. When set, every newly-created ticket
+    # fires an async best-effort POST to this URL with a Slack block-kit
+    # payload (subject, severity, reporter, link). Empty = log-only.
+    SLACK_TICKETS_WEBHOOK_URL: str = Field(
+        default="",
+        description=(
+            "Slack Incoming Webhook URL that receives a Slack-formatted "
+            "POST when a ticket is created. Empty disables the webhook."
+        ),
+    )
+    SLACK_TICKETS_WEBHOOK_TIMEOUT: float = 5.0
+    # Public app URL used to render a clickable link back to the ticket
+    # in the Slack message. Falls back to skipping the link if empty.
+    APP_PUBLIC_URL: str = Field(default="")
+
+    # ─── Resend transactional email (demo welcome, ticket replies) ───────
+    # Resend is the chosen vendor for launch — see
+    # docs/strategy/EMAIL_PROVIDER_DECISION.md. Empty key = log-only
+    # mode (no outbound HTTP, no real email sent). Same dry-run pattern
+    # we use for TURNSTILE_SECRET_KEY.
+    RESEND_API_KEY: str = Field(
+        default="",
+        description=(
+            "Resend API key. Empty = log-only mode (dev/CI). Set in "
+            "Azure KV as `resend-api-key` and reference via "
+            "ExternalSecret in staging."
+        ),
+    )
+    RESEND_API_URL: str = Field(default="https://api.resend.com/emails")
+    RESEND_TIMEOUT: float = 10.0
+    # Sender identity. Lucas's address (not noreply@) so demo recipients
+    # can reply directly to him — the welcome email is the first sales
+    # touchpoint, replies are exactly what we want.
+    EMAIL_FROM_ADDRESS: str = Field(default="lucas.ventura@skyfirstlabs.com")
+    EMAIL_FROM_NAME: str = Field(default="Lucas Ventura — SKY")
+    # Public URL the welcome email links back to. Set to the DEMO
+    # host so the visitor returns to the same origin they signed up
+    # on (the FE pod serves both demo.* and workspace-stg.* — using
+    # the demo host keeps cookies/localStorage consistent and matches
+    # whatever bookmark/back-button they have).
+    EMAIL_DASHBOARD_URL: str = Field(default="https://demo.skyfirstlabs.com")
+
     # Redis
     REDIS_URL: str = Field(
         default="",

@@ -35,6 +35,61 @@ _BLOCKED_DOMAINS = frozenset(
     }
 )
 
+# Personal email providers — blocked so the lead-gen pipeline only
+# captures *work* addresses. Same-domain grouping (item D) keys off
+# the email domain to bind colleagues to one demo Space, which only
+# makes sense if the domain reflects the company. Allowing gmail.com
+# would silently merge unrelated visitors into a single Space.
+#
+# Not exhaustive — the goal is to filter ~95% of casual personal
+# signups, not to be bulletproof. Strong-validation should use a
+# vendor (Clearbit / ZeroBounce); out of scope for the public demo.
+_PERSONAL_EMAIL_DOMAINS = frozenset(
+    {
+        # Big four
+        "gmail.com",
+        "outlook.com",
+        "hotmail.com",
+        "yahoo.com",
+        # Apple
+        "icloud.com",
+        "me.com",
+        "mac.com",
+        # Microsoft variants
+        "live.com",
+        "msn.com",
+        "outlook.com.br",
+        "hotmail.com.br",
+        # Yahoo variants
+        "yahoo.com.br",
+        "ymail.com",
+        "rocketmail.com",
+        # Other big providers
+        "aol.com",
+        "gmx.com",
+        "gmx.net",
+        "mail.com",
+        "zoho.com",
+        # Privacy-focused
+        "protonmail.com",
+        "proton.me",
+        "tutanota.com",
+        "tuta.io",
+        "fastmail.com",
+        # PT-BR popular
+        "uol.com.br",
+        "bol.com.br",
+        "ig.com.br",
+        "globo.com",
+        "terra.com.br",
+        # Education / generic free
+        "edu.com",
+        "qq.com",
+        "163.com",
+        "126.com",
+    }
+)
+
 _NAME_RE = re.compile(r"^[\w\s\-'.]{2,80}$", re.UNICODE)
 _COMPANY_RE = re.compile(r"^[\w\s\-&.,'/]{2,120}$", re.UNICODE)
 
@@ -76,7 +131,16 @@ class DemoSignupRequest(BaseModel):
         domain = v.split("@", 1)[1].lower() if "@" in v else ""
         if domain in _BLOCKED_DOMAINS:
             raise ValueError(
-                "Please use your work email address. Throwaway email providers are not accepted for the demo."
+                "Please use your work email address. Throwaway email "
+                "providers are not accepted for the demo."
+            )
+        if domain in _PERSONAL_EMAIL_DOMAINS:
+            raise ValueError(
+                "Please use your work email address. The public demo "
+                "is for evaluating SKY at your company; personal email "
+                "providers (gmail/outlook/etc) are not accepted. If "
+                "your company uses a personal-email-style domain, "
+                "contact us at lucas@skyfirstlabs.com to whitelist it."
             )
         return v
 
