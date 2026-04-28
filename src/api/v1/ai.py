@@ -81,14 +81,15 @@ async def process_query(
         AIQueryResponse: Query response
     """
     # RBAC enforcement: require ability to run queries in this context.
-    # Personal-mode queries (is_personal=true, no space_id, no crew) are
-    # intrinsically owned by the caller — they're querying their own
-    # personal scope, no cross-tenant data is ever in scope. Skip the
-    # crew/space-based assert_permission check, which falls through to
-    # `_best_role_for_user_anywhere` and denies platform `member` users
-    # who happen to belong to no crew. Authentication itself
-    # (Depends(get_current_user)) is sufficient gate for that path.
-    is_personal = bool(getattr(query_data, "is_personal", False))
+    # Any unscoped query (no space_id) is by definition Personal — the
+    # caller is querying their own data within their own scope, no
+    # cross-tenant access is reachable. We bypass the crew/space-based
+    # check on that path; otherwise it falls through to
+    # `_best_role_for_user_anywhere`, which returns "guest" for
+    # platform members who belong to no crew yet, and denies the call
+    # with a misleading "no permission to run queries in this
+    # workspace" error. Authentication (Depends(get_current_user)) is
+    # the right gate here.
     rbac = RBACService(db)
     space_uuid: Optional[UUID] = None
     if query_data.space_id:
@@ -96,7 +97,7 @@ async def process_query(
             space_uuid = UUID(query_data.space_id)
         except Exception:
             space_uuid = None
-    if not (is_personal and space_uuid is None):
+    if space_uuid is not None:
         await rbac.assert_permission(current_user, "data.query.run", space_id=space_uuid)
 
     ai_service = AIService(db)
