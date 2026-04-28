@@ -26,8 +26,12 @@ async def ensure_default_page_and_space(db: AsyncSession, user: User) -> None:
     if existing_pages:
         return
 
-    # Create a default page
-    page_name = f"{user.name.split(' ')[0]}'s page" if user.name else "My first page"
+    # Create a default page. Use the user's first name when available
+    # ("Lucas's Board") so the topbar Page picker has a personalised
+    # label out of the box; fall back to a friendly generic when the
+    # SSO/demo provider didn't return a name.
+    first_name = (user.name or "").split(" ")[0].strip() if user.name else ""
+    page_name = f"{first_name}'s Board" if first_name else "My Board"
     page = await page_repo.create(
         name=page_name,
         description="Your first page",
