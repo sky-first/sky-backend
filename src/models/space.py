@@ -116,11 +116,23 @@ class SpaceMember(Base):
         index=True,
     )
     # Per-space role — distinct from the platform-wide `users.role`.
-    # Valid values: admin | navigator | explorer. A platform `owner`
-    # or `admin` bypasses this column in RBACService, so the field
-    # only matters for platform `member` users who need scoped
-    # privileges. See docs/rbac-two-axis-design.md for the full
-    # permission matrix.
+    #
+    # Canonical values (A1+): commander | navigator | explorer.
+    #   commander — full Space-axis admin (members, connections,
+    #               crews, settings) + all content writes
+    #   navigator — content writes inside the Space (dashboards,
+    #               widgets, agents, metrics) but not member/space
+    #               management
+    #   explorer  — read-only on Space content
+    #
+    # Legacy values still accepted in DB for compat (no migration
+    # required): "admin" → normalizes to commander, "member" →
+    # normalizes to explorer. RBACService does the mapping; new code
+    # should always write the canonical values.
+    #
+    # Platform `owner` / `admin` bypass this column in RBACService —
+    # the field only governs platform `member` users with scoped
+    # grants. See docs/rbac-two-axis-design.md.
     role = Column(
         String(20),
         nullable=False,

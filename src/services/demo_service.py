@@ -292,13 +292,18 @@ class DemoService:
         self.db.add(space)
         await self.db.flush()
 
-        # Member bridge — guest is admin of their own sandbox so they
-        # can do every product action without RBAC blocking the experience.
+        # Member bridge — guest is COMMANDER of their own sandbox so
+        # the BE rbac_service.py:1014 path matches commander/navigator/
+        # explorer and grants the full Space-axis capabilities. Earlier
+        # demo signups used role="admin" which fell through to "guest"
+        # because that match-list is strict — that's why every demo
+        # tester before A1 hit "no permission to run queries" the first
+        # time they tried the AI. See test_rbac_space_role_axis.py:S-80.
         member = SpaceMember(
             id=uuid4(),
             space_id=space.id,
             user_id=user.id,
-            role="admin",
+            role="commander",
         )
         self.db.add(member)
 
@@ -356,14 +361,20 @@ class DemoService:
                 "Your previous demo expired. Please submit the form again to get a new sandbox."
             )
 
-        # Backfill: a returning visitor whose Space was provisioned before
-        # DEMO_DATASET_CONNECTION_IDS was set (or before the env var
-        # rolled out) ends up with an empty Space — they see the company
-        # name but no connections inside. Re-running the idempotent
-        # binder on every re-login closes that gap without needing a
-        # one-shot migration script.
+        # Backfill #1: a returning visitor whose Space was provisioned
+        # before DEMO_DATASET_CONNECTION_IDS was set ends up with an
+        # empty Space — the idempotent binder closes that gap without
+        # a one-shot migration script.
         added = await self._ensure_dataset_connections(space)
-        if added:
+
+        # Backfill #2 (A1): pre-A1 signups created SpaceMember.role=
+        # "admin", which falls through to "guest" in rbac_service:1014
+        # (match-list is commander/navigator/explorer). Normalize any
+        # legacy row on every returning login — idempotent, no-op when
+        # already correct. Also handles legacy "member" → "explorer".
+        normalized = await self._normalize_legacy_member_role(space, user)
+
+        if added or normalized:
             await self.db.commit()
 
         return self._issue_response(
@@ -372,6 +383,37 @@ class DemoService:
             user.demo_expires_at or datetime.now(timezone.utc),
             is_returning=True,
         )
+
+    async def _normalize_legacy_member_role(
+        self, space: Space, user: User,
+    ) -> bool:
+        """Convert SpaceMember.role from legacy admin/member to
+        commander/explorer for this user/space pair. Returns True if
+        a row was actually mutated (caller should commit), False
+        otherwise.
+        """
+        res = await self.db.execute(
+            select(SpaceMember).where(
+                SpaceMember.space_id == space.id,
+                SpaceMember.user_id == user.id,
+            )
+        )
+        member = res.scalar_one_or_none()
+        if member is None:
+            return False
+
+        legacy_to_canonical = {"admin": "commander", "member": "explorer"}
+        new_role = legacy_to_canonical.get(member.role)
+        if new_role is None:
+            return False  # already commander/navigator/explorer or unknown
+
+        logger.info(
+            "demo_legacy_role_normalized space_id=%s user_id=%s "
+            "from=%s to=%s",
+            space.id, user.id, member.role, new_role,
+        )
+        member.role = new_role
+        return True
 
     def _issue_response(
         self,
