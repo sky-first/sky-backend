@@ -203,6 +203,20 @@ class Settings(BaseSettings):
     # in the Slack message. Falls back to skipping the link if empty.
     APP_PUBLIC_URL: str = Field(default="")
 
+    # ─── Slack lead-gen webhook on demo signup ───────────────────────────
+    # Separate webhook (different channel) from the tickets one. Empty
+    # = log-only mode. Posts on every demo provisioning event:
+    # cold signup, same-domain join, returning visitor.
+    SLACK_DEMO_SIGNUPS_WEBHOOK_URL: str = Field(
+        default="",
+        description=(
+            "Slack Incoming Webhook URL for demo-signup lead-gen events. "
+            "Separate from SLACK_TICKETS_WEBHOOK_URL so support and "
+            "marketing can use different channels."
+        ),
+    )
+    SLACK_DEMO_SIGNUPS_WEBHOOK_TIMEOUT: float = 5.0
+
     # ─── Resend transactional email (demo welcome, ticket replies) ───────
     # Resend is the chosen vendor for launch — see
     # docs/strategy/EMAIL_PROVIDER_DECISION.md. Empty key = log-only
@@ -218,16 +232,8 @@ class Settings(BaseSettings):
     )
     RESEND_API_URL: str = Field(default="https://api.resend.com/emails")
     RESEND_TIMEOUT: float = 10.0
-    # Sender identity. Lucas's address (not noreply@) so demo recipients
-    # can reply directly to him — the welcome email is the first sales
-    # touchpoint, replies are exactly what we want.
     EMAIL_FROM_ADDRESS: str = Field(default="lucas.ventura@skyfirstlabs.com")
     EMAIL_FROM_NAME: str = Field(default="Lucas Ventura — SKY")
-    # Public URL the welcome email links back to. Set to the DEMO
-    # host so the visitor returns to the same origin they signed up
-    # on (the FE pod serves both demo.* and workspace-stg.* — using
-    # the demo host keeps cookies/localStorage consistent and matches
-    # whatever bookmark/back-button they have).
     EMAIL_DASHBOARD_URL: str = Field(default="https://demo.skyfirstlabs.com")
 
     # Redis
