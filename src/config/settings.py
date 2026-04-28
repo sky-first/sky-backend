@@ -187,6 +187,20 @@ class Settings(BaseSettings):
     # continues — the DB is the source of truth.
     TICKET_ESCALATION_WEBHOOK_TIMEOUT: float = 5.0
 
+    # ─── Slack lead-gen webhook on demo signup ───────────────────────────
+    # Separate webhook (different channel) from the tickets one. Empty
+    # = log-only mode. Posts on every demo provisioning event:
+    # cold signup, same-domain join, returning visitor.
+    SLACK_DEMO_SIGNUPS_WEBHOOK_URL: str = Field(
+        default="",
+        description=(
+            "Slack Incoming Webhook URL for demo-signup lead-gen events. "
+            "Separate from SLACK_TICKETS_WEBHOOK_URL so support and "
+            "marketing can use different channels."
+        ),
+    )
+    SLACK_DEMO_SIGNUPS_WEBHOOK_TIMEOUT: float = 5.0
+
     # Redis
     REDIS_URL: str = Field(
         default="",

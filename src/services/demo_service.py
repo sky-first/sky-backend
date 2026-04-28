@@ -258,6 +258,18 @@ class DemoService:
         await self.db.refresh(user)
         await self.db.refresh(space)
 
+        # Lead-gen Slack ping: cold signup — fires AFTER commit so a
+        # webhook failure can't roll back the sandbox.
+        await _post_slack_demo_signup(
+            user=user,
+            space=space,
+            company=payload.company,
+            role=payload.role,
+            is_returning=False,
+            is_same_domain_join=False,
+            client_ip=client_ip,
+        )
+
         return self._issue_response(user, space, expires_at, is_returning=False)
 
     async def _issue_returning(
@@ -280,6 +292,19 @@ class DemoService:
             raise BadRequestError(
                 "Your previous demo expired. Please submit the form again to get a new sandbox."
             )
+
+        # Lead-gen Slack ping: returning visitor — useful signal for
+        # tracking re-engagement separately from cold signups.
+        await _post_slack_demo_signup(
+            user=user,
+            space=space,
+            company=(user.preferences or {}).get("demo_company", "—") if user.preferences else "—",
+            role=(user.preferences or {}).get("demo_role") if user.preferences else None,
+            is_returning=True,
+            is_same_domain_join=False,
+            client_ip=client_ip,
+        )
+
         return self._issue_response(
             user,
             space,
@@ -313,6 +338,118 @@ class DemoService:
             space_id=str(space.id),
             demo_expires_at=expires_at.isoformat(),
             is_returning=is_returning,
+        )
+
+
+# ─── Slack lead-gen webhook on demo signup ─────────────────────────────────
+
+
+def _slack_blocks_for_demo_signup(
+    *,
+    user: User,
+    space: Space,
+    company: str,
+    role: Optional[str],
+    is_returning: bool,
+    is_same_domain_join: bool,
+    client_ip: Optional[str],
+) -> dict:
+    """Slack block-kit payload for a demo sandbox provision event.
+
+    Three event flavours emit this:
+      1. Fresh signup — first @acme.com user
+      2. Same-domain join (item D) — Nth @acme.com user attaches to
+         the existing Space
+      3. Returning visitor — same email re-issuing tokens
+    """
+    if is_returning:
+        emoji = ":arrows_counterclockwise:"
+        headline = f"Returning demo visitor: {company}"
+    elif is_same_domain_join:
+        emoji = ":handshake:"
+        headline = f"Demo team-up: {company} (joined existing Space)"
+    else:
+        emoji = ":rocket:"
+        headline = f"New demo signup: {company}"
+
+    fields = [
+        {"type": "mrkdwn", "text": f"*Visitor*\n{user.name or '—'}"},
+        {"type": "mrkdwn", "text": f"*Email*\n{user.email}"},
+        {"type": "mrkdwn", "text": f"*Company*\n{company}"},
+        {"type": "mrkdwn", "text": f"*Role*\n{role or '—'}"},
+        {"type": "mrkdwn", "text": f"*Space*\n{space.name}"},
+        {
+            "type": "mrkdwn",
+            "text": f"*TTL*\n{space.demo_expires_at.isoformat() if space.demo_expires_at else '—'}",
+        },
+    ]
+    if client_ip:
+        fields.append({"type": "mrkdwn", "text": f"*Client IP*\n`{client_ip}`"})
+
+    blocks: list[dict] = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"{emoji} {headline}",
+                "emoji": True,
+            },
+        },
+        {"type": "section", "fields": fields},
+    ]
+
+    return {
+        "text": f"{headline} — {user.email}",  # fallback for clients without block-kit
+        "blocks": blocks,
+    }
+
+
+async def _post_slack_demo_signup(
+    *,
+    user: User,
+    space: Space,
+    company: str,
+    role: Optional[str],
+    is_returning: bool,
+    is_same_domain_join: bool,
+    client_ip: Optional[str],
+) -> None:
+    """Best-effort Slack POST. Failures are swallowed.
+
+    Empty SLACK_DEMO_SIGNUPS_WEBHOOK_URL = log-only mode (useful for
+    local dev / CI / before lead-gen channel is configured).
+    """
+    url = (getattr(settings, "SLACK_DEMO_SIGNUPS_WEBHOOK_URL", "") or "").strip()
+    if not url:
+        return
+
+    body = _slack_blocks_for_demo_signup(
+        user=user,
+        space=space,
+        company=company,
+        role=role,
+        is_returning=is_returning,
+        is_same_domain_join=is_same_domain_join,
+        client_ip=client_ip,
+    )
+
+    timeout = float(getattr(settings, "SLACK_DEMO_SIGNUPS_WEBHOOK_TIMEOUT", 5.0))
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(url, json=body)
+        if resp.status_code >= 400:
+            logger.error(
+                "slack_demo_signup_webhook_failed status=%s user=%s body=%r",
+                resp.status_code, user.email, resp.text[:300],
+            )
+        else:
+            logger.info(
+                "slack_demo_signup_webhook_delivered user=%s status=%s",
+                user.email, resp.status_code,
+            )
+    except Exception as exc:  # noqa: BLE001 — webhook must not fail signup
+        logger.exception(
+            "slack_demo_signup_webhook_error user=%s err=%s", user.email, exc
         )
 
 
