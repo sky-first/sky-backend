@@ -319,6 +319,20 @@ class DemoService:
         await self.db.refresh(user)
         await self.db.refresh(space)
 
+        # Welcome email (Resend) — sent ONLY on fresh cold signups.
+        # Returning visitors don't get another welcome (already sent
+        # the first time), and same-domain joiners get a different
+        # template (TODO: separate "your colleague invited you" mail).
+        # Fire-and-forget: failures are logged inside the helper so a
+        # vendor outage can't roll back the sandbox.
+        from src.services.demo_email_service import send_demo_welcome_email
+        await send_demo_welcome_email(
+            name=user.name,
+            email=user.email,
+            company=payload.company,
+            expires_at=expires_at,
+        )
+
         return self._issue_response(user, space, expires_at, is_returning=False)
 
     async def _issue_returning(
