@@ -51,6 +51,22 @@ async def list_agents(
         except ValueError:
             pass
     await RBACService(db).assert_permission(current_user, "agents.view", space_id=s_id)
+
+    # SECURITY: when the caller doesn't pin a scope, default to their
+    # own personal agents (created_by=current_user.id) instead of
+    # returning every agent in the tenant. Previously the unfiltered
+    # `created_by=None` path leaked cross-user personal agents
+    # ("Monitor: AI Response..." etc. from other users) to anyone
+    # with agents.view. Org admins/owners can still see the full
+    # list — they bypass at assert_permission, so we keep the
+    # unfiltered path for them. Scoped requests (space / crew) keep
+    # the existing access-checked behaviour because the scope filter
+    # itself constrains the visibility set.
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
+    if not scope and not is_org_admin:
+        return await service.list_agents(
+            scope=None, scope_id=None, created_by=current_user.id
+        )
     return await service.list_agents(scope=scope, scope_id=scope_id, created_by=None)
 
 
