@@ -98,7 +98,7 @@ async def process_query(
         except Exception:
             space_uuid = None
     if space_uuid is not None:
-        await rbac.assert_permission(current_user, "data.query.run", space_id=space_uuid)
+        await rbac.assert_permission(current_user, "ai.query", space_id=space_uuid)
 
     ai_service = AIService(db)
 
@@ -1360,6 +1360,10 @@ async def suggest_widget_title(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuggestWidgetTitleResponse:
     # RBAC enforcement: same capability as querying (this still incurs AI cost).
+    # Personal-mode parity with /query: when no space is specified, the caller
+    # is acting on their own data within their own scope and authentication
+    # is the right gate — otherwise the check falls through to "guest" for
+    # crewless members and 403s a flow that should just work.
     rbac = RBACService(db)
     space_uuid: Optional[UUID] = None
     if body.space_id:
@@ -1367,7 +1371,8 @@ async def suggest_widget_title(
             space_uuid = UUID(body.space_id)
         except Exception:
             space_uuid = None
-    await rbac.assert_permission(current_user, "data.query.run", space_id=space_uuid)
+    if space_uuid is not None:
+        await rbac.assert_permission(current_user, "ai.query", space_id=space_uuid)
 
     ai_service = AIService(db)
 
