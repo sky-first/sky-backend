@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
+from src.core.exceptions import ForbiddenError
 from src.models.user import User
 from src.repositories.crew import CrewMemberRepository
 from src.schemas.common import ErrorResponse, SuccessResponse
@@ -180,6 +181,15 @@ async def create_connection(
     Returns:
         ConnectionResponse: Created connection
     """
+    # Demo guests use a shared, pre-provisioned synthetic dataset —
+    # they cannot create new Connections (would tunnel into real BYO
+    # databases at the visitor's expense, and the cleanup cron would
+    # leave orphan rows after TTL expiry).
+    if getattr(current_user, "is_demo", False):
+        raise ForbiddenError(
+            "Demo guests cannot create connections. Sign up for a "
+            "workspace to wire your own data sources."
+        )
     rbac = RBACService(db)
     await rbac.assert_permission(current_user, "connections.edit")
 
@@ -222,6 +232,18 @@ async def delete_connection(
     )
 
     try:
+        # Demo guests are admins of their own demo Space (so they can
+        # do every other Space-management action), but the 5 demo
+        # Connections themselves are SHARED across every visitor —
+        # one guest deleting one would break the dataset for the
+        # entire public demo. Hard-deny the action up front, before
+        # the standard mutation guard, so a curious visitor can't
+        # take down the demo for everyone else.
+        if getattr(current_user, "is_demo", False):
+            raise ForbiddenError(
+                "Demo guests cannot delete connections. The synthetic "
+                "dataset is shared across every visitor."
+            )
         rbac = RBACService(db)
         await rbac.assert_permission(current_user, "connections.edit", connection_id=connection_id)
 
@@ -265,6 +287,13 @@ async def update_connection(
     Returns:
         ConnectionResponse: Updated connection
     """
+    # Demo guests cannot mutate the shared synthetic Connections.
+    # Same reasoning as the DELETE handler above — see comment there.
+    if getattr(current_user, "is_demo", False):
+        raise ForbiddenError(
+            "Demo guests cannot edit connections. The synthetic "
+            "dataset is shared across every visitor."
+        )
     rbac = RBACService(db)
     await rbac.assert_permission(current_user, "connections.edit", connection_id=connection_id)
 
