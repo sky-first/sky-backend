@@ -89,7 +89,19 @@ class CrewService:
             )
             return [CrewResponse.model_validate(c) for c in crews_data]
         else:
-            crews_data = await self.crew_repo.get_all_with_stats(skip=skip, limit=limit)
+            # SECURITY: previously this called get_all_with_stats which
+            # returned every crew in the tenant — a regular member saw
+            # the names + member counts of every team in the org. Use
+            # the user-scoped variant: org admins/owners still get the
+            # full list; everyone else sees only crews they belong to
+            # (directly) or whose parent Space they belong to.
+            is_org_admin = (user.role or "").lower() in ("owner", "admin")
+            crews_data = await self.crew_repo.get_visible_with_stats(
+                user_id=user.id,
+                is_org_admin=is_org_admin,
+                skip=skip,
+                limit=limit,
+            )
             return [CrewResponse.model_validate(c) for c in crews_data]
 
     async def get_crew(self, crew_id: UUID, user: User) -> CrewResponse:
