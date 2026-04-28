@@ -9,7 +9,7 @@ Knowledge refactor Phase 3.
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
@@ -30,7 +30,7 @@ class GrantRequest(BaseModel):
 class GrantResponse(BaseModel):
     user_id: UUID
     permission: str
-    granted_by_user_id: UUID | None
+    granted_by_user_id: Optional[UUID]
     granted_at: str
 
 

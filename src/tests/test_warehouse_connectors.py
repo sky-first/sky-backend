@@ -15,7 +15,7 @@ a clean error, does the metadata query produce the right shape.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import pytest
 
@@ -41,10 +41,10 @@ from src.connectors.sqlserver import SQLServerConnector
 
 
 class _FakeCursor:
-    def __init__(self, rows: List[Any], description: List[Any] | None = None):
+    def __init__(self, rows: List[Any], description: Optional[List[Any]] = None):
         self._rows = rows
         self.description = description
-        self._last_query: str | None = None
+        self._last_query: Optional[str] = None
         self._as_dict = False
 
     def execute(self, query: str) -> None:

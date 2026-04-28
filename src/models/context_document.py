@@ -16,7 +16,7 @@ import hashlib
 import json
 import uuid
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 from sqlalchemy import (
     CheckConstraint,
@@ -225,7 +225,7 @@ class ContextDocument(Base):
         kind: str,
         title: str,
         body: str,
-        meta: Mapping[str, Any] | None,
+        meta: Optional[Mapping[str, Any]],
     ) -> str:
         """Deterministic SHA-256 over the content that the ingest worker
         considers "the same document". Must be stable across interpreters
