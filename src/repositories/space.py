@@ -68,6 +68,42 @@ class SpaceRepository(BaseRepository[Space]):
 
         return spaces
 
+    async def get_all_with_stats(
+        self, skip: int = 0, limit: int = 100
+    ) -> List[dict]:
+        """Tenant-wide list with the same stats shape as get_by_user_with_stats.
+
+        Used by tenant owner / admin / sky_operator views — they need to
+        see EVERY non-deleted Space (including demo Spaces they did not
+        personally join). The "member or creator" filter from the user
+        variant is intentionally dropped here.
+        """
+        stmt = (
+            select(
+                Space,
+                func.count(distinct(SpaceMember.id)).label("member_count"),
+                func.count(distinct(SpaceConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(SpaceMember, Space.id == SpaceMember.space_id)
+            .outerjoin(SpaceConnection, Space.id == SpaceConnection.space_id)
+            .where(Space.deleted_at.is_(None))
+            .group_by(Space.id)
+            .order_by(Space.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+
+        spaces = []
+        for row in result:
+            space, member_count, connection_count = row
+            space_data = {c.name: getattr(space, c.name) for c in space.__table__.columns}
+            space_data["member_count"] = member_count
+            space_data["connection_count"] = connection_count
+            spaces.append(space_data)
+
+        return spaces
+
     async def get_by_id(self, id: UUID) -> Optional[Space]:
         """
         Get entity by ID. Overridden to include deleted_at filter.

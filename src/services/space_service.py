@@ -91,11 +91,27 @@ class SpaceService:
 
         Returns:
             List[SpaceResponse]: List of spaces
+
+        Notes:
+            Tenant owner / admin / sky_operator see ALL non-deleted
+            Spaces (including demo ones they didn't personally create
+            or join). Lucas reported missing demo Spaces in his
+            sidebar — he is owner of the tenant and should see every
+            Space the demo flow has provisioned.
         """
         try:
-            spaces_data = await self.space_repo.get_by_user_with_stats(
-                user.id, skip=skip, limit=limit
+            is_admin_like = (
+                getattr(user, "role", None) in ("admin", "owner")
+                or getattr(user, "is_sky_operator", False)
             )
+            if is_admin_like:
+                spaces_data = await self.space_repo.get_all_with_stats(
+                    skip=skip, limit=limit
+                )
+            else:
+                spaces_data = await self.space_repo.get_by_user_with_stats(
+                    user.id, skip=skip, limit=limit
+                )
             result = []
             for space_data in spaces_data:
                 try:
