@@ -47,6 +47,8 @@ def user_to_response_dict(user: User) -> dict:
         "name": user.name,
         "avatar": user.avatar,
         "role": user.role,
+        "is_demo": user.is_demo,
+        "demo_expires_at": user.demo_expires_at,
         "email_verified": user.email_verified,
         "email_verified_at": user.email_verified_at,
         "onboarding_step": user.onboarding_step or 0,
