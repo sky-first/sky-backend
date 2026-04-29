@@ -105,11 +105,19 @@ class TicketService:
             ticket.id, user.id, ticket.severity, ticket.category,
         )
 
-        # Best-effort Slack notification — fired AFTER the DB commit so a
-        # webhook failure can't roll back the ticket. The DB is the
-        # source of truth; the Slack ping is just a triage signal.
-        await _post_slack_ticket_created(ticket=ticket, reporter=user)
-
+        # Privacy gate (Lucas's 2026-04-29 demo review): ticket creation
+        # NEVER posts to a Sky-managed Slack channel. The customer's
+        # message, query context, and chat snippet stay inside their
+        # tenant — visible to the tenant's owner/admin via the inbox at
+        # /dashboard/admin/tickets — until that owner/admin explicitly
+        # clicks "Escalate to Sky" (handled in `escalate()`).
+        #
+        # Previously this fired _post_slack_ticket_created which leaked
+        # bug reports straight to #sky-tickets without consent. The
+        # function is preserved (escalation flow still uses the
+        # webhook-resolution helper) so we can wire an opt-in
+        # "Send feedback to SKY team" toggle later without rebuilding
+        # the routing.
         return TicketResponse.model_validate(ticket)
 
     # ------------------------------------------------------------------
@@ -324,6 +332,16 @@ class TicketService:
         # escalation — the DB is the source of truth, the webhook is a
         # best-effort notification. Failures are swallowed and logged.
         await _post_escalation_webhook(ticket=ticket, actor=user, note=payload.note)
+
+        # Slack #sky-tickets ping — fires ONLY on escalate, after the
+        # tenant's owner/admin has explicitly chosen to share with the
+        # SKY team. The ticket-create path no longer pings Slack
+        # (privacy gate). Routes through the same Block Kit payload
+        # used by the legacy create flow so the receiving channel
+        # keeps a consistent format. Forced to the tickets webhook
+        # (not feedback) regardless of category — escalation = "we
+        # need eyes on this", which is what #sky-tickets is for.
+        await _post_slack_ticket_escalated(ticket=ticket, actor=user, note=payload.note)
 
         return TicketResponse.model_validate(ticket)
 
@@ -560,8 +578,66 @@ def _resolve_ticket_webhook_url(category: str) -> str:
     return feedback or tickets
 
 
+async def _post_slack_ticket_escalated(
+    *, ticket: Ticket, actor: User, note: Optional[str]
+) -> None:
+    """Slack ping when an admin escalates a ticket to the SKY team.
+
+    Forced to SLACK_TICKETS_WEBHOOK_URL (#sky-tickets) regardless of
+    category — escalation means "we need to look at this", and the
+    feedback channel is for opt-in feature requests, not incidents.
+    Empty URL = log-only mode (CI / local dev).
+    """
+    url = (settings.SLACK_TICKETS_WEBHOOK_URL or "").strip()
+    if not url:
+        return
+
+    body = _slack_blocks_for_created(ticket, actor)
+    # Tag the fallback text + first block so an inbox skim shows the
+    # escalation status without expanding the message.
+    body["text"] = f"🚨 ESCALATED to SKY: {ticket.subject[:140]}"
+    if (note or "").strip():
+        body.setdefault("blocks", []).append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Escalation note:* {note.strip()[:300]}",
+                    }
+                ],
+            }
+        )
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=settings.SLACK_TICKETS_WEBHOOK_TIMEOUT
+        ) as client:
+            resp = await client.post(url, json=body)
+        if resp.status_code >= 400:
+            logger.error(
+                "slack_ticket_escalated_webhook_failed status=%s ticket_id=%s body=%r",
+                resp.status_code, ticket.id, resp.text[:500],
+            )
+        else:
+            logger.info(
+                "slack_ticket_escalated_webhook_delivered ticket_id=%s status=%s",
+                ticket.id, resp.status_code,
+            )
+    except Exception as exc:  # noqa: BLE001 — webhook must not fail escalation
+        logger.exception(
+            "slack_ticket_escalated_webhook_error ticket_id=%s err=%s", ticket.id, exc
+        )
+
+
 async def _post_slack_ticket_created(*, ticket: Ticket, reporter: User) -> None:
-    """Best-effort Slack POST. Failures are swallowed.
+    """DEPRECATED — left here for the future opt-in feedback flow.
+
+    Was wired into TicketService.create() until 2026-04-29; the
+    ticket-create path no longer posts to Slack (privacy gate) so
+    this is currently dead code. Kept because the upcoming "Send
+    feedback to SKY team" toggle will route consenting feature_request
+    / other categories through this same helper.
 
     Routes by ticket.category:
       bug → tickets channel; feature_request/other → feedback channel.
