@@ -54,74 +54,118 @@ logger = logging.getLogger(__name__)
 _DEMO_WELCOME_SUBJECT = "Your SKY sandbox is live — try this in 10 seconds"
 
 
+# Template adapted from the marketing email_preview.html design (Lucas's
+# 2026-04-29 brief): hero band with the SkyFirst Labs banner, framed
+# personal note from Lucas, single CTA, signature card with social
+# buttons. Social URLs are placeholders until Lucas sends the final
+# links — they fall back to the website root if {social_*} is empty so
+# the layout never breaks.
 _DEMO_WELCOME_HTML = """\
 <!doctype html>
 <html lang="en">
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
-               Roboto, Helvetica, Arial, sans-serif;
-               background:#f8fafc;color:#0f172a;margin:0;padding:32px;">
-    <div style="max-width:560px;margin:0 auto;background:#ffffff;
-                border:1px solid #e2e8f0;border-radius:12px;padding:32px;">
-
-      <h1 style="font-size:22px;line-height:1.3;margin:0 0 16px 0;">
-        Hi {first_name},
-      </h1>
-
-      <p style="font-size:15px;line-height:1.6;margin:0 0 20px 0;">
-        Your SKY demo for <strong>{company}</strong> is live at
-        <a href="{dashboard_url}" style="color:#0f766e;font-weight:600;">
-          demo.skyfirstlabs.com
-        </a>.
-        TTL is {ttl_days} days — invite your team and we'll bring them
-        into your sandbox automatically (same email domain).
-      </p>
-
-      <p style="font-size:15px;line-height:1.6;margin:0 0 12px 0;">
-        Most teams ask the AI this first:
-      </p>
-
-      <div style="background:#f1f5f9;border-left:3px solid #0f766e;
-                  padding:14px 18px;margin:0 0 20px 0;border-radius:6px;
-                  font-family: 'SF Mono', Menlo, Consolas, monospace;
-                  font-size:14px;line-height:1.5;color:#0f172a;">
-        💬 What's our weakest revenue channel and why?
-      </div>
-
-      <p style="font-size:15px;line-height:1.6;margin:0 0 20px 0;">
-        The synthetic dataset spans CRM, Marketing, Finance, Web Analytics
-        and Product Usage. The AI joins all 5 schemas in plain English —
-        no SQL, no clicking through six dashboards.
-      </p>
-
-      <p style="font-size:15px;line-height:1.6;margin:0 0 28px 0;">
-        That's the demo. The real product does the same on
-        <strong>your data</strong> — Salesforce, Snowflake, Postgres,
-        anything you actually use. Same answer, your numbers.
-      </p>
-
-      <p style="font-size:15px;line-height:1.6;margin:0 0 8px 0;
-                font-weight:600;">
-        Next step
-      </p>
-      <p style="font-size:15px;line-height:1.6;margin:0 0 28px 0;">
-        Reply to this email and we'll see SKY on your data in 30 minutes.
-        Founder-led, no slides, real answers from your real systems.
-      </p>
-
-      <p style="font-size:14px;line-height:1.5;color:#64748b;margin:0;">
-        — Lucas Ventura<br/>
-        Founder, SKY<br/>
-        <a href="mailto:lucas.ventura@skyfirstlabs.com"
-           style="color:#64748b;">lucas.ventura@skyfirstlabs.com</a>
-      </p>
-    </div>
-
-    <p style="max-width:560px;margin:16px auto 0 auto;font-size:11px;
-              line-height:1.5;color:#94a3b8;text-align:center;">
-      You're receiving this because you signed up for a SKY demo at
-      demo.skyfirstlabs.com. The sandbox auto-deletes after {ttl_days}
-      days.
-    </p>
+  <head><meta charset="UTF-8"/></head>
+  <body style="margin:0;padding:0;background:#e8e8ea;
+               font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+    <table width="100%" cellpadding="0" cellspacing="0"
+           style="background:#f4f4f5;padding:40px 0;">
+      <tr>
+        <td align="center">
+          <table width="580" cellpadding="0" cellspacing="0"
+                 style="background:#ffffff;border-radius:12px;overflow:hidden;
+                        box-shadow:0 2px 12px rgba(0,0,0,0.07);">
+            <tr>
+              <td style="background:#0a0a0a;padding:0;text-align:center;">
+                <a href="https://www.skyfirstlabs.com" target="_blank">
+                  <img src="https://i.postimg.cc/8z6WZG7V/Chat-GPT-Image-Apr-28-2026-04-25-58-PM.png"
+                       alt="SkyFirst Labs"
+                       width="580"
+                       style="display:block;width:100%;max-width:580px;height:auto;border:0;"/>
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:40px 40px 32px;">
+                <p style="margin:0 0 20px;font-size:16px;color:#111;line-height:1.6;">
+                  Hi {first_name},
+                </p>
+                <p style="margin:0 0 20px;font-size:16px;color:#333;line-height:1.7;">
+                  Your <strong>SKY</strong> sandbox for <strong>{company}</strong> is live.
+                  No installs, no SQL — five connected datasets and the AI is
+                  ready to answer the same questions you'd normally send to
+                  an analyst.
+                </p>
+                <p style="margin:0 0 20px;font-size:16px;color:#333;line-height:1.7;">
+                  The fastest way to feel the product:<br/>
+                  open the chat and ask <em>"What's our weakest revenue
+                  channel and why?"</em><br/>
+                  In 10 seconds you'll have an answer that joins CRM,
+                  Marketing, Finance, Product Usage and Web Analytics — no
+                  ticket, no waiting.
+                </p>
+                <p style="margin:0 0 28px;font-size:16px;color:#333;line-height:1.7;">
+                  Sandbox auto-deletes after <strong>{ttl_days} days</strong>.
+                  Invite teammates with the same email domain — they'll join
+                  the same workspace automatically.
+                </p>
+                <table cellpadding="0" cellspacing="0" style="margin:0 0 32px;">
+                  <tr>
+                    <td style="background:#0a0a0a;border-radius:8px;">
+                      <a href="{dashboard_url}"
+                         target="_blank"
+                         style="display:inline-block;padding:14px 32px;color:#ffffff;
+                                font-size:15px;font-weight:600;text-decoration:none;">
+                        Open your sandbox &rarr;
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 8px;font-size:15px;color:#555;line-height:1.6;">
+                  When you're ready to see SKY on <strong>your real data</strong>,
+                  just reply — I'll set up a 30-minute founder-led session.
+                </p>
+              </td>
+            </tr>
+            <tr><td style="padding:0 40px;"><hr style="border:none;border-top:1px solid #ebebeb;margin:0;"/></td></tr>
+            <tr>
+              <td style="padding:28px 40px 36px;background:#fafafa;">
+                <table cellpadding="0" cellspacing="0" width="100%">
+                  <tr>
+                    <td style="vertical-align:middle;">
+                      <p style="margin:0 0 2px;font-size:15px;font-weight:700;color:#111;letter-spacing:-0.2px;">
+                        Lucas Ventura
+                      </p>
+                      <p style="margin:0 0 16px;font-size:12px;color:#999;text-transform:uppercase;letter-spacing:0.5px;">
+                        Founder &middot; SkyFirst Labs
+                      </p>
+                      <table cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td style="padding-right:8px;">
+                            <a href="https://www.skyfirstlabs.com" target="_blank"
+                               style="display:inline-block;padding:8px 16px;background:#0a0a0a;border-radius:6px;font-size:12px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:0.2px;">
+                              &#127758;&nbsp; Website
+                            </a>
+                          </td>
+                          <td>
+                            <a href="https://www.linkedin.com/company/skyfirstlabs/" target="_blank"
+                               style="display:inline-block;padding:8px 16px;background:#0A66C2;border-radius:6px;font-size:12px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:0.2px;">
+                              &#x1F517;&nbsp; LinkedIn
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:20px 0 0;font-size:11px;color:#aaa;text-align:center;">
+            SkyFirst Labs &mdash; You're receiving this because you signed up
+            for a SKY sandbox at demo.skyfirstlabs.com.
+          </p>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>
 """
@@ -130,30 +174,23 @@ _DEMO_WELCOME_HTML = """\
 _DEMO_WELCOME_TEXT = """\
 Hi {first_name},
 
-Your SKY demo for {company} is live at {dashboard_url}.
-TTL is {ttl_days} days — invite your team and they'll join your
-sandbox automatically (same email domain).
+Your SKY sandbox for {company} is live: {dashboard_url}
 
-Most teams ask the AI this first:
+The fastest way to feel the product:
+open the chat and ask "What's our weakest revenue channel and why?"
+In 10 seconds you'll have an answer that joins CRM, Marketing,
+Finance, Product Usage and Web Analytics — no ticket, no waiting.
 
-  > What's our weakest revenue channel and why?
+Sandbox auto-deletes after {ttl_days} days. Invite teammates with
+the same email domain — they'll join the same workspace automatically.
 
-The synthetic dataset spans CRM, Marketing, Finance, Web Analytics
-and Product Usage. The AI joins all 5 schemas in plain English — no
-SQL, no clicking through six dashboards.
-
-That's the demo. The real product does the same on YOUR data —
-Salesforce, Snowflake, Postgres, anything you actually use. Same
-answer, your numbers.
-
-Next step
----------
-Reply to this email and we'll see SKY on your data in 30 minutes.
-Founder-led, no slides, real answers from your real systems.
+When you're ready to see SKY on your real data, just reply — I'll
+set up a 30-minute founder-led session.
 
 — Lucas Ventura
-Founder, SKY
-lucas.ventura@skyfirstlabs.com
+Founder, SkyFirst Labs
+https://www.skyfirstlabs.com
+https://www.linkedin.com/company/skyfirstlabs/
 """
 
 
