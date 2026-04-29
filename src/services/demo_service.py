@@ -252,6 +252,22 @@ class DemoService:
             email_norm, email_norm.split("@", 1)[1],
         )
 
+        # Welcome email also fires for same-domain joiners. Lucas's
+        # 2026-04-29 review caught that gustavo.mendonca@thedatafirst.com
+        # got the Slack signup ping but never an email — the cold-only
+        # email gate was the bug. Same-domain joiners ARE prospects too,
+        # they just landed via a teammate. Reuses the same template
+        # since the message ("your sandbox is live, ask this question")
+        # applies identically; later we can split into a "your colleague
+        # invited you" variant if Lucas wants.
+        from src.services.demo_email_service import send_demo_welcome_email
+        await send_demo_welcome_email(
+            name=user.name,
+            email=user.email,
+            company=payload.company,
+            expires_at=expires_at,
+        )
+
         return self._issue_response(
             user, sibling_space, expires_at, is_returning=False,
         )
