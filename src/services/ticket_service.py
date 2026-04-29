@@ -540,14 +540,35 @@ def _slack_blocks_for_created(ticket: Ticket, reporter: User) -> Dict[str, Any]:
     }
 
 
+def _resolve_ticket_webhook_url(category: str) -> str:
+    """Pick the right Slack webhook for a ticket's category.
+
+    Routing (per Lucas's 3-channel strategy, 2026-04-29):
+      bug             -> SLACK_TICKETS_WEBHOOK_URL   (#sky-tickets)
+      feature_request -> SLACK_FEEDBACK_WEBHOOK_URL  (#sky-feedback)
+      other           -> SLACK_FEEDBACK_WEBHOOK_URL  (#sky-feedback)
+
+    If SLACK_FEEDBACK_WEBHOOK_URL is empty, non-bug tickets fall
+    back to SLACK_TICKETS_WEBHOOK_URL — keeps the single-channel
+    install working without forcing a second webhook config.
+    """
+    tickets = (settings.SLACK_TICKETS_WEBHOOK_URL or "").strip()
+    feedback = (settings.SLACK_FEEDBACK_WEBHOOK_URL or "").strip()
+
+    if (category or "").lower() == "bug":
+        return tickets
+    return feedback or tickets
+
+
 async def _post_slack_ticket_created(*, ticket: Ticket, reporter: User) -> None:
     """Best-effort Slack POST. Failures are swallowed.
 
-    Empty SLACK_TICKETS_WEBHOOK_URL = log-only mode; useful for local
-    dev and for the test suite (we don't want every CI run pinging the
-    real channel).
+    Routes by ticket.category:
+      bug → tickets channel; feature_request/other → feedback channel.
+    Empty resolved URL = log-only mode (used by CI + local dev so we
+    don't ping the real channels).
     """
-    url = (settings.SLACK_TICKETS_WEBHOOK_URL or "").strip()
+    url = _resolve_ticket_webhook_url(ticket.category)
     if not url:
         return
 
@@ -560,13 +581,13 @@ async def _post_slack_ticket_created(*, ticket: Ticket, reporter: User) -> None:
             resp = await client.post(url, json=body)
         if resp.status_code >= 400:
             logger.error(
-                "slack_ticket_webhook_failed status=%s ticket_id=%s body=%r",
-                resp.status_code, ticket.id, resp.text[:500],
+                "slack_ticket_webhook_failed status=%s category=%s ticket_id=%s body=%r",
+                resp.status_code, ticket.category, ticket.id, resp.text[:500],
             )
         else:
             logger.info(
-                "slack_ticket_webhook_delivered ticket_id=%s status=%s",
-                ticket.id, resp.status_code,
+                "slack_ticket_webhook_delivered category=%s ticket_id=%s status=%s",
+                ticket.category, ticket.id, resp.status_code,
             )
     except Exception as exc:  # noqa: BLE001 — webhook must not fail ticket creation
         logger.exception(

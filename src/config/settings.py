@@ -199,6 +199,22 @@ class Settings(BaseSettings):
         ),
     )
     SLACK_TICKETS_WEBHOOK_TIMEOUT: float = 5.0
+
+    # Slack feedback channel — separate webhook for tickets with
+    # category in {feature_request, other}. Bug tickets continue to
+    # land in SLACK_TICKETS_WEBHOOK_URL. Lucas's brief: "1 canal para
+    # tickets/bugs/escalations, 1 canal para features+feedbacks, 1
+    # canal para demo signups." Empty = falls back to the tickets
+    # webhook (preserves single-channel behaviour for installs that
+    # haven't split yet).
+    SLACK_FEEDBACK_WEBHOOK_URL: str = Field(
+        default="",
+        description=(
+            "Slack Incoming Webhook URL for feature_request + other "
+            "(non-bug) tickets. Empty falls back to SLACK_TICKETS_WEBHOOK_URL."
+        ),
+    )
+
     # Public app URL used to render a clickable link back to the ticket
     # in the Slack message. Falls back to skipping the link if empty.
     APP_PUBLIC_URL: str = Field(default="")
