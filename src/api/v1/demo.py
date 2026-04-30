@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db_session
-from src.api.middleware.auth import get_current_user
+from src.api.deps import get_current_user
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.space import Space
 from src.models.user import User
