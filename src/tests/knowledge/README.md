@@ -19,8 +19,6 @@ Phase ordering (matches §8 of the master plan):
 | 2 | `test_knowledge_visibility.py` | 10 |
 | 2 | `test_knowledge_crud.py` | ~12 |
 | 3 | `test_knowledge_mutation_rbac.py` | 14 |
-| 4 | `test_promotion_flow.py` | 10 |
-| 4 | `test_knowledge_conflicts.py` | 9 |
 | 5 | `test_relationships_nn.py` | 6 |
 | 6 | `test_knowledge_suggest.py` | 6 |
 | 6 | `test_metric_formula_generation.py` | 7 |

@@ -34,7 +34,6 @@ from src.api.v1 import (
     pages,
     permission_grants,
     permissions,
-    promotions,
     presence,
     privacy,
     settings,
@@ -199,22 +198,6 @@ api_router.include_router(glossary.router, prefix="/glossary", tags=["Glossary"]
 # Metrics endpoints (Knowledge refactor Phase 2 — replaces Pillar/OKR/Risk
 # entities with a unified Metric model carrying tags + target + threshold).
 api_router.include_router(metrics.router, prefix="/metrics", tags=["Metrics"])
-
-# Promotion flow (Phase 4) — Personal → Crew → Space → Org with
-# dependency resolver + conflict detection.
-api_router.include_router(
-    promotions.metric_router, prefix="/metrics", tags=["Knowledge Promotion"]
-)
-api_router.include_router(
-    promotions.request_router,
-    prefix="/promotion-requests",
-    tags=["Knowledge Promotion"],
-)
-api_router.include_router(
-    promotions.conflict_router,
-    prefix="/knowledge-conflicts",
-    tags=["Knowledge Promotion"],
-)
 
 # Enterprise Relationship endpoints
 api_router.include_router(
