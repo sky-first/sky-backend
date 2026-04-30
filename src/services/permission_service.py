@@ -604,7 +604,15 @@ class PermissionService:
         if user.role not in ("admin", "owner"):
             raise ForbiddenError("Only admins or the workspace owner can update role permissions")
 
-        valid_roles = ["commander", "navigator", "explorer", "guest"]
+        # Lucas's 2026-04-30 review: Member is the platform-level role
+        # for everyday employees and MUST be editable in the matrix.
+        # Guest was retired (canonicalised to explorer on the BE).
+        # Owner / Admin still bypass on the runtime read path
+        # (rbac_service:697) so flipping their toggles is a no-op,
+        # but the toggle has to land somewhere to persist; we accept
+        # them here so the FE matrix renders the same row count it
+        # already shows.
+        valid_roles = ["owner", "admin", "member", "commander", "navigator", "explorer"]
         if role not in valid_roles:
             raise BadRequestError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
 
