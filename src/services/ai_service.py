@@ -47,6 +47,121 @@ from src.utils.cache import CacheService, ai_response_cache_key
 logger = logging.getLogger(__name__)
 
 
+async def _enrich_citations_with_provenance(
+    citations: Optional[List[Dict[str, Any]]], db: AsyncSession
+) -> Optional[List[Dict[str, Any]]]:
+    """Decorate AI citations with uploader / approver names.
+
+    Lucas's 2026-04-30 brief: when the AI cites a Knowledge Library
+    file, the canvas card needs to show "uploaded by X / approved
+    by Y" so a reviewer knows which human vouched for the data.
+
+    Inputs are AI-side citation dicts (file_id, file_name, chunk_index,
+    page_number, excerpt, score). Each dict is mutated in place to add
+    uploaded_by_name / uploaded_at and, when present in audit_events,
+    approved_by_name / approved_at.
+
+    Designed to fail soft — any DB error returns the citations
+    untouched so the chat answer never blocks on an audit lookup.
+    """
+    if not citations or not isinstance(citations, list):
+        return citations
+
+    file_ids: List[UUID] = []
+    for c in citations:
+        try:
+            fid = c.get("file_id") if isinstance(c, dict) else None
+            if fid:
+                file_ids.append(UUID(str(fid)))
+        except Exception:
+            continue
+    if not file_ids:
+        return citations
+
+    try:
+        from src.models.audit import AuditEvent
+        from src.models.knowledge import KnowledgeFile
+
+        # Uploader join — files + users.
+        files_q = await db.execute(
+            select(
+                KnowledgeFile.id,
+                KnowledgeFile.created_at,
+                User.name,
+            )
+            .join(User, User.id == KnowledgeFile.user_id)
+            .where(KnowledgeFile.id.in_(file_ids))
+        )
+        uploader_by_file: Dict[str, Dict[str, Any]] = {}
+        for row in files_q:
+            uploader_by_file[str(row[0])] = {
+                "uploaded_at": row[1].isoformat() if row[1] else None,
+                "uploaded_by_name": row[2],
+            }
+
+        # Approver — earliest approve event per file.
+        approver_q = await db.execute(
+            select(
+                AuditEvent.resource_id,
+                AuditEvent.actor_email,
+                AuditEvent.occurred_at,
+            )
+            .where(
+                AuditEvent.action == "knowledge.upload.approved",
+                AuditEvent.resource_kind == "knowledge_file",
+                AuditEvent.resource_id.in_([str(fid) for fid in file_ids]),
+            )
+            .order_by(AuditEvent.occurred_at.asc())
+        )
+        approver_by_file: Dict[str, Dict[str, Any]] = {}
+        for row in approver_q:
+            rid = str(row[0])
+            if rid in approver_by_file:
+                # Keep the earliest approval — approver_q is already
+                # asc-ordered so first wins.
+                continue
+            approver_by_file[rid] = {
+                "approved_at": row[2].isoformat() if row[2] else None,
+                "approved_by_email": row[1],
+            }
+
+        # Resolve approver email → user.name in one round-trip.
+        approver_emails = [
+            v["approved_by_email"]
+            for v in approver_by_file.values()
+            if v.get("approved_by_email")
+        ]
+        name_by_email: Dict[str, str] = {}
+        if approver_emails:
+            users_q = await db.execute(
+                select(User.email, User.name).where(User.email.in_(approver_emails))
+            )
+            name_by_email = {row[0]: row[1] for row in users_q if row[1]}
+
+        for c in citations:
+            if not isinstance(c, dict):
+                continue
+            fid = str(c.get("file_id") or "")
+            up = uploader_by_file.get(fid)
+            if up:
+                c.setdefault("uploaded_by_name", up.get("uploaded_by_name"))
+                c.setdefault("uploaded_at", up.get("uploaded_at"))
+            ap = approver_by_file.get(fid)
+            if ap:
+                c.setdefault("approved_at", ap.get("approved_at"))
+                email = ap.get("approved_by_email")
+                if email:
+                    c.setdefault(
+                        "approved_by_name", name_by_email.get(email, email)
+                    )
+    except Exception as exc:  # noqa: BLE001 — never block chat on audit lookup
+        logger.warning(
+            "citation_provenance_enrich_failed err=%s file_ids=%s", exc, file_ids
+        )
+
+    return citations
+
+
 class AIService:
     """AI service."""
 
@@ -908,6 +1023,10 @@ class AIService:
         response_dict["chosen_table"] = chosen_table
         response_dict["chosen_datasets"] = chosen_datasets
         citations = configure_data.get("citations") if isinstance(configure_data, dict) else None
+        # Enrich each citation with uploader + approver names so the
+        # canvas card can render the proveniência popover (Lucas's
+        # 2026-04-30 brief). Read-only; failure-soft.
+        citations = await _enrich_citations_with_provenance(citations, self.db)
         if title or detected_language or citations:
             response_dict["meta"] = {
                 "title": title,
