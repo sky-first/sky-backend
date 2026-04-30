@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db
+from src.core.scope_guard import assert_not_personal_scope
 from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.user import User
 
@@ -78,6 +79,9 @@ async def create_agent(
     service: AgentService = Depends(get_agent_service),
 ):
     """Create a new agent."""
+    # Personal context is read-only — agents must be created inside a
+    # Space or Crew. FE hides the affordance; this guards direct API calls.
+    assert_not_personal_scope(data.scope)
     # RBAC: pass space context if scope is space
     s_id = None
     if data.scope == "space" and data.scope_id:
