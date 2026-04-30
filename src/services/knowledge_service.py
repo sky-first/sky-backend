@@ -241,14 +241,18 @@ class KnowledgeService:
         if file.status != "pending":
             raise BadRequestError("File is not in pending state.")
 
-        # Personal uploads never need approval — owner is their own commander.
-        # For crew/space: check if the confirming user can approve directly.
-        # Commander → files.approve = True → go straight to processing.
-        # Navigator → files.approve = False → wait for commander approval.
-        can_approve = file.scope == "personal" or await self._has_scope_access(
-            user, file.scope, file.scope_id, require_approve=True
-        )
-        new_status = "processing" if can_approve else "pending_approval"
+        # Approval gate (Lucas's 2026-04-30 correction):
+        #   • Owner / Admin (platform role) → auto-approve, status="processing".
+        #   • Commander / Navigator → upload allowed but parks the file in
+        #     `pending_approval` until an Owner or Admin reviews it.
+        #   • Explorer → blocked earlier in request_upload_url.
+        # Personal-scope uploads still self-approve when the uploader is
+        # owner/admin; otherwise they ALSO go to pending_approval so a
+        # commander's "personal" knowledge ends up reviewed before any AI
+        # ever cites it. The audit trail in audit_events plus the
+        # KnowledgeSourceFlag popover then carry the proveniência forward.
+        is_platform_approver = (getattr(user, "role", None) in ("owner", "admin"))
+        new_status = "processing" if is_platform_approver else "pending_approval"
 
         await self.file_repo.update(file_id, status=new_status, sha256_hash=sha256_hash)
 
@@ -271,14 +275,22 @@ class KnowledgeService:
         return KnowledgeFileResponse.model_validate(file)
 
     async def approve_upload(self, user: User, file_id: UUID) -> KnowledgeFileResponse:
-        """Commander approves a navigator-uploaded file and triggers processing."""
+        """Owner / Admin approves an uploaded file and triggers processing.
+
+        Tightened on 2026-04-30: only platform-level Owner / Admin can
+        approve. Commander / Navigator can no longer approve their own
+        scope's uploads — keeps a single audit chokepoint at the
+        tenant level so a commander cannot rubber-stamp a navigator's
+        unverified CSV into the AI context.
+        """
         file = await self.file_repo.get_by_id(file_id)
         if not file or file.deleted_at:
             raise NotFoundError("File not found.")
 
-        await self._assert_scope_access(
-            user, file.scope, file.scope_id, require_approve=True
-        )
+        if getattr(user, "role", None) not in ("owner", "admin"):
+            raise ForbiddenError(
+                "Only platform Owner or Admin can approve Knowledge Library uploads."
+            )
 
         if file.status != "pending_approval":
             raise BadRequestError("File is not awaiting approval.")

@@ -246,7 +246,10 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "files.upload": True,
         "files.view": True,
         "files.delete": True,
-        "files.approve": True,   # approve navigator uploads
+        # Commander uploads still need an Owner/Admin approval —
+        # platform-level chokepoint keeps a single audit trail. The
+        # commander cannot approve their own scope's uploads anymore.
+        "files.approve": False,
         "templates.view": True,
         "templates.create": True,
         "templates.apply": True,
