@@ -1,8 +1,7 @@
 """Metric endpoints — /api/v1/metrics (Knowledge refactor Phase 2).
 
-Phase 2 ships CRUD + scope-aware listing. The promotion flow,
-conflict-detection, certification, and AI rewiring land in later
-phases on top of this surface.
+Phase 2 ships CRUD + scope-aware listing. Certification and AI rewiring
+land in later phases on top of this surface.
 """
 
 from typing import List
