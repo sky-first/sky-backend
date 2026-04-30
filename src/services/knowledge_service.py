@@ -47,6 +47,54 @@ class KnowledgeService:
         self.chunk_repo = KnowledgeChunkRepository(db)
         self.quota_svc = QuotaService(db)
 
+    async def _audit(
+        self,
+        *,
+        user: User,
+        action: str,
+        file: Optional[KnowledgeFile] = None,
+        decision: str = "allow",
+        decision_reason: Optional[str] = None,
+        extra: Optional[dict] = None,
+    ) -> None:
+        """Best-effort audit write for every Knowledge Library mutation.
+
+        Lucas's 2026-04-30 review: an uploaded file ends up as embeddings
+        the AI can cite — so every upload / approve / delete needs a
+        chain-linked audit row that says WHO did WHAT to WHICH file.
+        Failures here are swallowed; the underlying mutation already
+        committed and we don't want a non-functional audit pipe to
+        propagate as a 500 to the caller.
+        """
+        try:
+            from src.services.audit_service import AuditService
+
+            metadata: dict = {
+                "scope": file.scope if file else None,
+                "scope_id": str(file.scope_id) if file and file.scope_id else None,
+                "filename": file.original_name if file else None,
+                "mime_type": file.mime_type if file else None,
+                "size_bytes": file.size_bytes if file else None,
+                "status": file.status if file else None,
+            }
+            if extra:
+                metadata.update(extra)
+
+            await AuditService(self.db).log_event(
+                actor_kind="sky_support" if getattr(user, "is_sky_operator", False) else "user",
+                actor_id=getattr(user, "id", None),
+                actor_email=getattr(user, "email", None),
+                action=action,
+                resource_kind="knowledge_file",
+                resource_id=str(file.id) if file else None,
+                decision=decision,
+                decision_reason=decision_reason,
+                metadata={k: v for k, v in metadata.items() if v is not None},
+            )
+        except Exception:
+            # never raise from audit
+            pass
+
     # ── RBAC helpers ──────────────────────────────────────────────────────────
 
     async def _assert_scope_access(
@@ -171,6 +219,7 @@ class KnowledgeService:
             status="pending",
         )
         await self.db.commit()
+        await self._audit(user=user, action="knowledge.upload.requested", file=file_record)
 
         return UploadUrlResponse(
             file_id=file_record.id,
@@ -212,6 +261,13 @@ class KnowledgeService:
 
         await self.db.commit()
         await self.db.refresh(file)
+        await self._audit(
+            user=user,
+            action="knowledge.upload.confirmed",
+            file=file,
+            decision_reason=f"new_status={new_status}",
+            extra={"sha256_hash": sha256_hash},
+        )
         return KnowledgeFileResponse.model_validate(file)
 
     async def approve_upload(self, user: User, file_id: UUID) -> KnowledgeFileResponse:
@@ -237,6 +293,7 @@ class KnowledgeService:
 
         await self.db.commit()
         await self.db.refresh(file)
+        await self._audit(user=user, action="knowledge.upload.approved", file=file)
         return KnowledgeFileResponse.model_validate(file)
 
     # ── Read ──────────────────────────────────────────────────────────────────
@@ -324,6 +381,7 @@ class KnowledgeService:
         # Decrement quota
         await self.quota_svc.remove_usage(file.scope, file.scope_id, file.size_bytes)
         await self.db.commit()
+        await self._audit(user=user, action="knowledge.file.deleted", file=file)
 
     # ── Reprocess ─────────────────────────────────────────────────────────────
 
@@ -347,4 +405,5 @@ class KnowledgeService:
             pass
 
         await self.db.refresh(file)
+        await self._audit(user=user, action="knowledge.file.reprocessed", file=file)
         return KnowledgeFileResponse.model_validate(file)
