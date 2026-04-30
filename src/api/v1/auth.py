@@ -393,17 +393,21 @@ async def revoke_session(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """Revoke a specific session."""
-    from src.models.auth import RefreshToken
+    from datetime import datetime, timezone
+
     from sqlalchemy import update
 
+    from src.models.user import RefreshToken
+
+    now = datetime.now(timezone.utc)
     result = await db.execute(
         update(RefreshToken)
         .where(
             RefreshToken.id == session_id,
             RefreshToken.user_id == current_user.id,
-            RefreshToken.revoked == False,
+            RefreshToken.revoked_at.is_(None),
         )
-        .values(revoked=True)
+        .values(revoked_at=now)
     )
     await db.commit()
 
