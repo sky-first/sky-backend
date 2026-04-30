@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
 from src.azure.blob_helper import save_local_blob
-from src.core.scope_guard import assert_not_personal_scope
 from src.models.user import User
 from src.schemas.knowledge import (
     ConfirmUploadRequest,
@@ -40,8 +39,6 @@ async def request_upload_url(
     db: AsyncSession = Depends(get_db_session),
 ) -> UploadUrlResponse:
     """Pre-flight: validate quota, create DB record, return signed upload URL."""
-    # Personal context is read-only — uploads must target a Space/Crew.
-    assert_not_personal_scope(body.scope)
     return await _svc(db).request_upload_url(
         user=current_user,
         filename=body.filename,
