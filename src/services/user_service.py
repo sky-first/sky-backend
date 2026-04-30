@@ -283,18 +283,28 @@ class UserService:
 
         user = await self.user_repo.get_by_id(user_id)
 
-        # Sky operator guard. Co-founders / SKY internal staff carry
-        # is_sky_operator=True and must NEVER be auto-deactivated by
-        # the demo TTL sweep, the orphan-agent reaper, or an admin
-        # who clicks the wrong button. Lucas reported (2026-04-29)
-        # that Lais was repeatedly bounced out with the "account
-        # deactivated" toast — preventable at this single chokepoint.
-        # Reactivation is still available via restore_user(), so a
-        # legitimate offboarding only needs to clear the flag first.
+        # Sky operator guard. SKY internal staff doing JIT support of
+        # customer tenants carry is_sky_operator=True and must NEVER be
+        # auto-deactivated by the demo TTL sweep, the orphan-agent
+        # reaper, or an admin who clicks the wrong button.
         if user and getattr(user, "is_sky_operator", False):
             raise ForbiddenError(
                 "Cannot deactivate a SKY operator account. Clear "
                 "is_sky_operator first if this is intentional."
+            )
+
+        # Tenant Owner guard. Tenant founders carry role="owner" and
+        # cannot be deactivated by anyone except via an explicit
+        # ownership-transfer flow. Lucas's 2026-04-30 follow-up: the
+        # 2026-04-17 incident on Lais was a regression *because* her
+        # row could be soft-deleted by a sweep; protecting all owners
+        # at this same chokepoint closes the same hole for the actual
+        # tenant founders without needing to abuse the is_sky_operator
+        # flag (which is for SKY internal staff, not for customers).
+        if user and getattr(user, "role", None) == "owner":
+            raise ForbiddenError(
+                "Cannot deactivate the tenant owner. Transfer ownership "
+                "first via the tenant settings."
             )
         if not user:
             raise NotFoundError("User not found")

@@ -649,6 +649,111 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
 }
 
 
+# Platform-level grants for users with `user.role == "member"` (or the
+# legacy "user"). Lucas's 2026-04-30 brief: Member should be able to
+# do almost everything Commander does — ask the AI, build dashboards
+# and widgets, run agents, upload to Knowledge (subject to approval),
+# view connections / Spaces / Crews / members. The line that
+# differentiates Member from Owner / Admin is restricted to:
+#   - mint / edit / delete connections
+#   - approve Knowledge uploads
+#   - manage users (invite / edit / delete / impersonate)
+#   - billing & ownership transfer
+#   - escalate tickets to SKY support
+#   - audit / privacy controls
+#
+# This mirrors the Commander grant set with members.manage and the
+# admin-only knobs flipped off so a Member with no Space membership
+# is still productive in their personal scope.
+MEMBER_PLATFORM_PERMISSIONS: Dict[str, bool] = {
+    # Pages & Dashboards
+    "pages.view": True, "pages.create": True, "pages.edit": True,
+    "pages.edit.others": False, "pages.delete": True, "pages.share": True,
+    "pages.duplicate": True, "pages.star": True,
+    "pages.members.view": True, "pages.members.manage": False,
+    "dashboards.view": True, "dashboards.create": True, "dashboards.edit": True,
+    "dashboards.delete": True, "dashboards.duplicate": True,
+    "dashboards.export": True, "dashboards.lock": False,
+    # Widgets
+    "widgets.view": True, "widgets.create": True, "widgets.edit": True,
+    "widgets.delete": True, "widgets.duplicate": True,
+    "widgets.export": True, "widgets.refresh": True, "widgets.feedback": True,
+    # Connections — VIEW only. The big one Lucas flagged: Member can
+    # see and query connections that Owner/Admin assigned to a Space
+    # the Member belongs to, but cannot create / edit / delete the
+    # connection itself. Approval / mint stays platform-admin only.
+    "connections.view": True, "connections.metadata.view": True,
+    "connections.tables.view": True, "connections.schemas.view": True,
+    "connections.status.view": True, "connections.metrics.view": True,
+    "connections.create": False, "connections.edit": False,
+    "connections.delete": False, "connections.test": False,
+    "connections.sync": False, "connections.validate": False,
+    # AI — full chat + query so a Member is productive on day one.
+    "ai.chat": True, "ai.query": True,
+    "ai.history.view": True, "ai.history.delete": True,
+    "ai.history.pin": True, "ai.history.export": True,
+    "ai.generate": True, "ai.feedback": True,
+    "ai.pipeline": True, "ai.davinci": True,
+    # Agents — Member can author and run their own agents on data
+    # they're allowed to query.
+    "agents.view": True, "agents.create": True, "agents.edit": True,
+    "agents.delete": True, "agents.run": True,
+    "agents.pause": True, "agents.resume": True, "agents.manage": False,
+    "agents.findings.view": True, "agents.findings.dismiss": True,
+    # Events / Intelligence
+    "events.view": True, "events.create": False,
+    "intelligence.view": True, "intelligence.create": True,
+    "intelligence.dismiss": True,
+    # Strategy (write within a Space they belong to; no destructive)
+    "strategy.view": True,
+    "strategy.pillars.create": True, "strategy.pillars.edit": True,
+    "strategy.objectives.create": True, "strategy.objectives.edit": True,
+    "strategy.okrs.create": True, "strategy.okrs.edit": True,
+    "strategy.keyresults.create": True, "strategy.keyresults.edit": True,
+    "strategy.initiatives.create": True, "strategy.initiatives.edit": True,
+    "strategy.assumptions.create": True, "strategy.assumptions.edit": True,
+    # Spaces / Crews — view only. Member doesn't manage org structure.
+    "spaces.view": True, "spaces.create": False,
+    "spaces.edit": False, "spaces.delete": False,
+    "spaces.members.view": True, "spaces.members.manage": False,
+    "spaces.connections.view": True, "spaces.connections.manage": False,
+    "spaces.crews.view": True, "spaces.tables.view": True,
+    "spaces.stats.view": True,
+    "crews.view": True, "crews.create": False, "crews.edit": False,
+    "crews.delete": False,
+    "crews.members.view": True, "crews.members.manage": False,
+    "crews.stats.view": True,
+    # Self
+    "users.self.edit": True, "users.self.permissions": True,
+    # Templates / Enterprise
+    "templates.view": True, "templates.apply": True,
+    "templates.create": False, "templates.edit": False, "templates.delete": False,
+    "enterprise.view": True, "enterprise.apis.view": True,
+    "connectors.view": True, "datasets.view": True,
+    # Collaboration
+    "comments.view": True, "comments.create": True,
+    "notifications.view": True, "notifications.read": True,
+    "starred.view": True, "starred.manage": True,
+    # Files (Knowledge Library) — Member CAN upload but uploads wait
+    # in pending_approval; cannot approve, cannot delete other
+    # people's files.
+    "files.upload": True, "files.view": True,
+    "files.delete": False, "files.approve": False,
+    # Settings — read-only config lens.
+    "settings.view": True,
+    # Admin-only knobs explicitly denied so the matrix is honest.
+    "admin.users.manage": False,
+    "users.invite": False, "users.edit": False, "users.delete": False,
+    "users.permissions.edit": False, "permissions.view": False,
+    "permissions.edit": False, "settings.edit": False,
+    "apikeys.manage": False, "integrations.manage": False,
+    "metrics.view": False, "audit.view": False, "audit.verify": False,
+    "privacy.export": False, "privacy.delete": False,
+    "support.settings": False, "support.revoke": False,
+    "users.impersonate": False,
+}
+
+
 @dataclass(frozen=True)
 class EffectivePermissions:
     platform_role: str
@@ -716,6 +821,34 @@ class RBACService:
                 merged["billing.manage"] = True
             return EffectivePermissions(
                 platform_role=user.role, crew_role="commander", permissions=merged
+            )
+
+        # Platform-level Member (or legacy "user") gets a baseline grant
+        # set so they can use the AI, build dashboards, run agents and
+        # upload to the Knowledge Library on day one — even before
+        # joining any Space. Lucas's 2026-04-30 brief: "member pode
+        # fazer tudo, so nao pode fazer algumas como de admin".
+        # Scope-level grants (commander/navigator/explorer) still
+        # override on top via the merged path below if the user has a
+        # SpaceMember/CrewMember row.
+        if user.role in ("member", "user"):
+            base = dict(MEMBER_PLATFORM_PERMISSIONS)
+            # Stack the scope role on top so a Member who is also a
+            # Commander in some Space gets the Commander upgrades for
+            # that scope. _resolve_context_crew_role returns "no_access"
+            # when the user has nothing in scope — in that case the base
+            # Member dict is what they get.
+            scope_role = await self._resolve_context_crew_role(
+                user.id, crew_id=crew_id, space_id=space_id, connection_id=connection_id
+            )
+            if scope_role != "no_access":
+                scope_defaults = DEFAULT_ROLE_PERMISSIONS.get(scope_role, {})
+                db_role = await self.role_perms.get_by_role(scope_role)
+                base.update(scope_defaults)
+                if db_role and db_role.permissions:
+                    base.update(db_role.permissions)
+            return EffectivePermissions(
+                platform_role=user.role, crew_role=scope_role, permissions=base
             )
 
         crew_role = await self._resolve_context_crew_role(
