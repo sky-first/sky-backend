@@ -519,18 +519,12 @@ class DemoService:
         if added or normalized:
             await self.db.commit()
 
-        # Lead-gen Slack ping: returning visitor — useful signal for
-        # tracking re-engagement separately from cold signups.
-        await _post_slack_demo_signup(
-            user=user,
-            space=space,
-            company=(user.preferences or {}).get("demo_company", "—") if user.preferences else "—",
-            role=(user.preferences or {}).get("demo_role") if user.preferences else None,
-            is_returning=True,
-            is_same_domain_join=False,
-            client_ip=client_ip,
-        )
-
+        # Slack ping intentionally NOT fired on returning login.
+        # Lucas's 2026-04-30 brief: "se ele ja entrou antes nao
+        # precisamos receber o alerta". Cold signup + same-domain
+        # join still fire (that's lead-gen signal); a returning
+        # visitor is just a re-login and would otherwise spam
+        # #sky-demo-signups every time the prospect comes back.
         return self._issue_response(
             user,
             space,
