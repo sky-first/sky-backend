@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db
+from src.core.scope_guard import assert_not_personal_scope
 from src.models.user import User
 from src.schemas.metric import MetricCreate, MetricRead, MetricUpdate
 from src.services.metric_service import MetricService
@@ -45,6 +46,7 @@ async def create_metric(
     db: AsyncSession = Depends(get_db),
     service: MetricService = Depends(_service),
 ):
+    assert_not_personal_scope(payload.scope)
     await RBACService(db).assert_permission(current_user, "connections.view")
     metric = await service.create(current_user, payload)
     await db.commit()

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db
+from src.core.exceptions import ForbiddenError
 from src.models.user import User
 from src.schemas.glossary import (
     GlossaryTermCreate,
@@ -20,6 +21,18 @@ from src.schemas.glossary import (
 )
 from src.services.glossary_service import GlossaryService
 from src.services.rbac_service import RBACService
+
+
+def _assert_not_personal(space_id, crew_id) -> None:
+    """Glossary terms must be owned by a Space or Crew. Personal is
+    a read-only aggregate — reject mutations whose scope falls back
+    to the implicit Personal bucket (both space_id and crew_id null).
+    """
+    if space_id is None and crew_id is None:
+        raise ForbiddenError(
+            "Personal context is read-only. Pass a space_id or crew_id to "
+            "create or edit glossary terms."
+        )
 
 router = APIRouter()
 
@@ -56,6 +69,7 @@ async def create_glossary(
     service: GlossaryService = Depends(get_glossary_service),
     db: AsyncSession = Depends(get_db),
 ):
+    _assert_not_personal(space_id, crew_id)
     await RBACService(db).assert_permission(current_user, "connections.edit")
     return await service.create_term(
         payload,
@@ -88,6 +102,7 @@ async def update_glossary_term(
     service: GlossaryService = Depends(get_glossary_service),
     db: AsyncSession = Depends(get_db),
 ):
+    _assert_not_personal(space_id, crew_id)
     await RBACService(db).assert_permission(current_user, "connections.edit")
     return await service.update_term(term_id, payload, space_id=space_id, crew_id=crew_id)
 
@@ -101,6 +116,7 @@ async def delete_glossary_term(
     service: GlossaryService = Depends(get_glossary_service),
     db: AsyncSession = Depends(get_db),
 ):
+    _assert_not_personal(space_id, crew_id)
     await RBACService(db).assert_permission(current_user, "connections.edit")
     await service.delete_term(term_id, space_id=space_id, crew_id=crew_id)
     return None
