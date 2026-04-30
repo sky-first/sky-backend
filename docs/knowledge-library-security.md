@@ -14,11 +14,12 @@ This document captures the model.
 
 | Role | View | Upload | Approve | Reprocess | Delete |
 |------|:----:|:------:|:-------:|:---------:|:------:|
-| **Platform Owner / Admin** | ✅ | ✅ direct | ✅ | ✅ | ✅ |
-| **Commander** (Space / Crew) | ✅ | ✅ direct → `processing` | ✅ | ✅ | ✅ |
+| **Platform Owner / Admin** | ✅ | ✅ direct → `processing` | ✅ | ✅ | ✅ |
+| **Commander** (Space / Crew) | ✅ | ✅ → **`pending_approval`** | ❌ | ✅ | ✅ |
 | **Navigator** (Space / Crew) | ✅ | ✅ → **`pending_approval`** | ❌ | ❌ | ❌ |
 | **Explorer** (Space / Crew) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Guest** | view-only | ❌ | ❌ | ❌ | ❌ |
+
+> Approval is intentionally a **platform-level chokepoint** (Owner / Admin only) so a commander cannot rubber-stamp a navigator's CSV into the AI context. Even a commander's own upload waits in `pending_approval` until Owner / Admin reviews — single audit chain, no shortcuts (Lucas's 2026-04-30 correction).
 
 Source of truth:
 - `src/services/knowledge_service.py::_assert_scope_access`
