@@ -157,7 +157,17 @@ class SpaceService:
         if space.created_by != user.id and user.role not in ("admin", "owner"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
-                raise ForbiddenError("Access denied to this space")
+                # Phase 2.5 — Crew membership inside the Space also
+                # grants visibility (a Crew is a sub-team of the Space).
+                from src.models.crew import Crew as _Crew, CrewMember as _CrewMember
+                _crew_check = await self.db.execute(
+                    select(_CrewMember.id)
+                    .join(_Crew, _Crew.id == _CrewMember.crew_id)
+                    .where(_CrewMember.user_id == user.id, _Crew.space_id == space_id)
+                    .limit(1)
+                )
+                if _crew_check.scalar_one_or_none() is None:
+                    raise ForbiddenError("Access denied to this space")
 
         return SpaceResponse.model_validate(space)
 
@@ -370,7 +380,17 @@ class SpaceService:
         if space.created_by != user.id and user.role not in ("admin", "owner"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
-                raise ForbiddenError("Access denied to this space")
+                # Phase 2.5 — Crew membership inside the Space also
+                # grants visibility (a Crew is a sub-team of the Space).
+                from src.models.crew import Crew as _Crew, CrewMember as _CrewMember
+                _crew_check = await self.db.execute(
+                    select(_CrewMember.id)
+                    .join(_Crew, _Crew.id == _CrewMember.crew_id)
+                    .where(_CrewMember.user_id == user.id, _Crew.space_id == space_id)
+                    .limit(1)
+                )
+                if _crew_check.scalar_one_or_none() is None:
+                    raise ForbiddenError("Access denied to this space")
 
         connections = await self.space_repo.get_space_connections(space_id)
         return connections
@@ -487,13 +507,38 @@ class SpaceService:
         if space.created_by != user.id and user.role not in ("admin", "owner"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
-                raise ForbiddenError("Access denied to this space")
+                # Phase 2.5 — Crew membership inside the Space also
+                # grants visibility (a Crew is a sub-team of the Space).
+                from src.models.crew import Crew as _Crew, CrewMember as _CrewMember
+                _crew_check = await self.db.execute(
+                    select(_CrewMember.id)
+                    .join(_Crew, _Crew.id == _CrewMember.crew_id)
+                    .where(_CrewMember.user_id == user.id, _Crew.space_id == space_id)
+                    .limit(1)
+                )
+                if _crew_check.scalar_one_or_none() is None:
+                    raise ForbiddenError("Access denied to this space")
 
         members = await self.member_repo.get_space_members(space_id)
         # Refresh user objects to ensure they're loaded
         for member in members:
             await self.db.refresh(member, ["user"])
-        return [SpaceMemberResponse.model_validate(m) for m in members]
+        # Skip rows whose user has data the response schema cannot
+        # validate (e.g. legacy emails with reserved TLDs like `.local`).
+        # Without this the entire endpoint 500s and the FE permission
+        # gate sees an empty membership list, which collapses every
+        # space/crew role to "Member" in the UI.
+        out: List[SpaceMemberResponse] = []
+        for m in members:
+            try:
+                out.append(SpaceMemberResponse.model_validate(m))
+            except Exception as exc:
+                logger.warning(
+                    "Skipping space_member %s with invalid payload: %s",
+                    m.id,
+                    exc,
+                )
+        return out
 
     async def update_space_member_role(
         self, space_id: UUID, user_id: UUID, role: str
@@ -690,7 +735,17 @@ class SpaceService:
         if space.created_by != user.id and user.role not in ("admin", "owner"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
-                raise ForbiddenError("Access denied to this space")
+                # Phase 2.5 — Crew membership inside the Space also
+                # grants visibility (a Crew is a sub-team of the Space).
+                from src.models.crew import Crew as _Crew, CrewMember as _CrewMember
+                _crew_check = await self.db.execute(
+                    select(_CrewMember.id)
+                    .join(_Crew, _Crew.id == _CrewMember.crew_id)
+                    .where(_CrewMember.user_id == user.id, _Crew.space_id == space_id)
+                    .limit(1)
+                )
+                if _crew_check.scalar_one_or_none() is None:
+                    raise ForbiddenError("Access denied to this space")
 
         # Get space connections
         space_connections = await self.space_repo.get_space_connections(space_id)
@@ -922,7 +977,17 @@ class SpaceService:
         if space.created_by != user.id and user.role not in ("admin", "owner"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
-                raise ForbiddenError("Access denied to this space")
+                # Phase 2.5 — Crew membership inside the Space also
+                # grants visibility (a Crew is a sub-team of the Space).
+                from src.models.crew import Crew as _Crew, CrewMember as _CrewMember
+                _crew_check = await self.db.execute(
+                    select(_CrewMember.id)
+                    .join(_Crew, _Crew.id == _CrewMember.crew_id)
+                    .where(_CrewMember.user_id == user.id, _Crew.space_id == space_id)
+                    .limit(1)
+                )
+                if _crew_check.scalar_one_or_none() is None:
+                    raise ForbiddenError("Access denied to this space")
 
         # Get space connections
         space_connections = await self.space_repo.get_space_connections(space_id)
