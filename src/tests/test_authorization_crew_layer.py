@@ -141,3 +141,27 @@ async def test_crew_id_alone_resolves_when_space_id_omitted(db_session):
         )
         is True
     )
+
+
+@pytest.mark.asyncio
+async def test_crew_owner_escalates_when_only_space_id_passed(db_session):
+    """Regression test for Phase 2.5 footgun: the resolver previously
+    only consulted best_crew_in_space when the user had NO SpaceMember
+    row. A user who is space-viewer + crew-owner must still surface
+    owner UX when the caller passes only space_id (typical UI path
+    where no crew is selected)."""
+    owner = await _user(db_session, role="admin", name="O")
+    user = await _user(db_session, role="member", name="U")
+    space = await _space(db_session, owner)
+    crew = await _crew(db_session, owner, space)
+    db_session.add(SpaceMember(space_id=space.id, user_id=user.id, role="viewer"))
+    db_session.add(CrewMember(crew_id=crew.id, user_id=user.id, role="owner"))
+    await db_session.commit()
+    # No crew_id passed — resolver must walk Crews under this Space and
+    # discover the owner-level membership.
+    assert (
+        await Authorization(db_session).can(
+            user, "pages.delete", space_id=space.id
+        )
+        is True
+    )

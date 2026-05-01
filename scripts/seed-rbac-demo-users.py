@@ -24,6 +24,17 @@ Vocabulary is the new owner/editor/viewer (was commander/navigator/explorer):
   • rbac.demo@…               platform member  + Space editor   (Demo flow)
   • rbac.member-viewer@…      platform member  + Space viewer
 
+Phase 2.5 — Crew layer personas (sub-team membership inside the demo
+Space). All three are platform `member`; the Crew membership decides
+their effective access via max(spaceRole, crewRole):
+  • rbac.crew-only-editor@…   no SpaceMember row,
+                              CrewMember(role=editor) in "RBAC Tax Crew"
+  • rbac.viewer-crewowner@…   SpaceMember(role=viewer) +
+                              CrewMember(role=owner) in "RBAC Tax Crew"
+  • rbac.multi-crew@…         no SpaceMember row, two crews:
+                              "RBAC Tax Crew"  → viewer
+                              "RBAC Audit Crew" → owner   (highest wins)
+
 Common password for all of them: Test@2026!Secure
 
 Each row is idempotent: rerun is safe and only patches the password +
@@ -41,6 +52,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from src.core.security import get_password_hash
+from src.models.crew import Crew, CrewMember
 from src.models.page import Page  # noqa: F401 — register relationship
 from src.models.space import Space, SpaceMember
 from src.models.user import User
@@ -67,7 +79,17 @@ USERS = [
     ("rbac.demo@example.com",              "member", "RBAC Demo Visitor",         "editor"),
     ("rbac.member-viewer@example.com",     "member", "RBAC Member / Viewer",      "viewer"),
 ]
+
+# Phase 2.5 — Crew personas. The 4-tuple is repurposed for these rows:
+#   (email, platform_role, name, space_role_or_None_if_crew_only)
+CREW_USERS = [
+    ("rbac.crew-only-editor@example.com",  "member", "RBAC Crew-Only Editor",     None),
+    ("rbac.viewer-crewowner@example.com",  "member", "RBAC Viewer / Crew Owner",  "viewer"),
+    ("rbac.multi-crew@example.com",        "member", "RBAC Multi-Crew Member",    None),
+]
 SPACE_NAME = "RBAC Demo Space"
+TAX_CREW_NAME = "RBAC Tax Crew"
+AUDIT_CREW_NAME = "RBAC Audit Crew"
 
 
 async def upsert_user(session, email, role, name):
@@ -117,6 +139,35 @@ async def upsert_membership(session, user, space, context_role):
     session.add(SpaceMember(user_id=user.id, space_id=space.id, role=context_role))
 
 
+async def upsert_crew(session, space, owner, name):
+    existing = (
+        await session.execute(
+            select(Crew).where(Crew.space_id == space.id, Crew.name == name)
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return existing
+    crew = Crew(name=name, space_id=space.id, created_by=owner.id)
+    session.add(crew)
+    await session.flush()
+    return crew
+
+
+async def upsert_crew_membership(session, user, crew, role):
+    existing = (
+        await session.execute(
+            select(CrewMember).where(
+                CrewMember.user_id == user.id,
+                CrewMember.crew_id == crew.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        existing.role = role
+        return
+    session.add(CrewMember(user_id=user.id, crew_id=crew.id, role=role))
+
+
 async def main():
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
@@ -130,6 +181,8 @@ async def main():
         users = {}
         for email, role, name, _ in USERS:
             users[email] = await upsert_user(session, email, role, name)
+        for email, role, name, _ in CREW_USERS:
+            users[email] = await upsert_user(session, email, role, name)
 
         admin = users["rbac.admin@example.com"]
         space = await upsert_demo_space(session, admin)
@@ -138,6 +191,21 @@ async def main():
             if context_role:
                 await upsert_membership(session, users[email], space, context_role)
 
+        # Phase 2.5 — Crew personas
+        tax_crew = await upsert_crew(session, space, admin, TAX_CREW_NAME)
+        audit_crew = await upsert_crew(session, space, admin, AUDIT_CREW_NAME)
+
+        await upsert_crew_membership(
+            session, users["rbac.crew-only-editor@example.com"], tax_crew, "editor"
+        )
+        viewer_crewowner = users["rbac.viewer-crewowner@example.com"]
+        await upsert_membership(session, viewer_crewowner, space, "viewer")
+        await upsert_crew_membership(session, viewer_crewowner, tax_crew, "owner")
+
+        multi = users["rbac.multi-crew@example.com"]
+        await upsert_crew_membership(session, multi, tax_crew, "viewer")
+        await upsert_crew_membership(session, multi, audit_crew, "owner")
+
         await session.commit()
 
     print("✅ Seed complete.")
@@ -145,6 +213,15 @@ async def main():
     for email, role, _, ctx in USERS:
         ctx_str = f"  (Space '{SPACE_NAME}': {ctx})" if ctx else ""
         print(f"   {role:8}  {email}{ctx_str}")
+    print()
+    print("   Phase 2.5 — Crew personas (Space '{}'):".format(SPACE_NAME))
+    print(f"   member   rbac.crew-only-editor@example.com  ({TAX_CREW_NAME}: editor)")
+    print(
+        f"   member   rbac.viewer-crewowner@example.com  (Space: viewer, {TAX_CREW_NAME}: owner)"
+    )
+    print(
+        f"   member   rbac.multi-crew@example.com        ({TAX_CREW_NAME}: viewer, {AUDIT_CREW_NAME}: owner)"
+    )
 
 
 if __name__ == "__main__":
