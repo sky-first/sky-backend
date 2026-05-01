@@ -172,3 +172,29 @@ async def test_daily_series_is_sorted_ascending(
     )
     days = [d["day"] for d in resp.json()["daily"]]
     assert days == sorted(days)
+
+
+# ─── C6 — RBAC gate (Phase 7 follow-up) ───────────────────────────────────
+@pytest.mark.asyncio
+async def test_cost_metrics_denied_for_platform_member(
+    test_user_with_tokens, async_client: AsyncClient, db_session: AsyncSession
+):
+    """Tenant-wide cost / spend leaks crew names + budget posture across
+    the org. Restricted to platform Owner / Admin — Members get 403.
+    Regression for the audit gap surfaced after Phase 7 LIMPEZA GERAL."""
+    from src.core.security import create_access_token
+
+    user = test_user_with_tokens["user"]
+    user.role = "member"
+    db_session.add(user)
+    await db_session.commit()
+
+    member_token = create_access_token(
+        {"sub": str(user.id), "email": user.email, "role": "member"}
+    )
+
+    resp = await async_client.get(
+        "/api/v1/settings/metrics/cost",
+        headers=_auth(member_token),
+    )
+    assert resp.status_code == 403, resp.text
