@@ -132,6 +132,8 @@ PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
     "agents.delete":             ("space", "owner"),
     "spaces.members.manage":     ("space", "owner"),
     "crews.members.manage":      ("space", "owner"),
+    # Phase 2 — generic resource sharing key
+    "resources.share":           ("space", "owner"),
 }
 
 
@@ -168,20 +170,56 @@ class Authorization:
             return False
         return SPACE_ROLE_LEVEL[actual] >= SPACE_ROLE_LEVEL[required]
 
+    async def get_resource_acl_level(
+        self,
+        user_id: UUID,
+        resource_type: str,
+        resource_id: UUID,
+    ) -> Optional[SpaceRole]:
+        """Highest level granted to `user` on this resource via the
+        resource_acl table. Considers user grants and tenant-wide grants.
+        Space-principal grants are not resolved here — callers that need
+        them must walk the user's Spaces (Phase 3+ FE concern)."""
+        from src.models.resource_acl import ResourceAcl
+
+        rows = (
+            await self.db.execute(
+                select(ResourceAcl).where(
+                    ResourceAcl.resource_type == resource_type,
+                    ResourceAcl.resource_id == resource_id,
+                    (
+                        (ResourceAcl.principal_type == "user")
+                        & (ResourceAcl.principal_id == user_id)
+                    )
+                    | (ResourceAcl.principal_type == "tenant"),
+                )
+            )
+        ).scalars().all()
+        best: Optional[SpaceRole] = None
+        for r in rows:
+            mapped = LEGACY_TO_NEW_SPACE_ROLE.get(r.level)
+            if mapped is None:
+                continue
+            if best is None or SPACE_ROLE_LEVEL[mapped] > SPACE_ROLE_LEVEL[best]:
+                best = mapped
+        return best
+
     async def can(
         self,
         user: User,
         permission_key: str,
         *,
         space_id: Optional[UUID] = None,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[UUID] = None,
     ) -> bool:
         """Return True iff `user` is allowed to perform `permission_key`.
 
         For space-scoped permissions, `space_id` selects which Space the
-        check runs against. If omitted on a space-scoped permission and
-        the user is not Owner/Admin, the call denies (no Personal-scope
-        bypass at the resolver level — callers that mean "Personal" must
-        pass the user's Personal Space id explicitly)."""
+        check runs against. If `resource_type` + `resource_id` are also
+        passed, explicit grants in `resource_acl` are honoured: a
+        higher-level grant on the resource overrides the user's Space
+        membership level."""
         rule = PERMISSION_RULES.get(permission_key)
         if rule is None:
             # Unknown key — deny conservatively. Phases 2-7 will move every
@@ -209,9 +247,25 @@ class Authorization:
             return False
 
         # scope == "space"
-        if space_id is None:
+        if space_id is None and (resource_type is None or resource_id is None):
             return False
-        actual = await self.get_space_role(user.id, space_id)
+
+        space_level: Optional[SpaceRole] = None
+        if space_id is not None:
+            space_level = await self.get_space_role(user.id, space_id)
+
+        acl_level: Optional[SpaceRole] = None
+        if resource_type is not None and resource_id is not None:
+            acl_level = await self.get_resource_acl_level(
+                user.id, resource_type, resource_id
+            )
+
+        # Effective level = max(space_level, acl_level)
+        candidates = [lv for lv in (space_level, acl_level) if lv is not None]
+        if not candidates:
+            return False
+        actual = max(candidates, key=lambda lv: SPACE_ROLE_LEVEL[lv])
+
         if required == "viewer":
             return self._meets_space_level(actual, SpaceRole.VIEWER)
         if required == "editor":
@@ -226,8 +280,16 @@ class Authorization:
         permission_key: str,
         *,
         space_id: Optional[UUID] = None,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[UUID] = None,
     ) -> None:
-        if not await self.can(user, permission_key, space_id=space_id):
+        if not await self.can(
+            user,
+            permission_key,
+            space_id=space_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        ):
             raise ForbiddenError(
                 f"User {user.id} cannot perform '{permission_key}'"
                 + (f" on Space {space_id}" if space_id else "")
