@@ -971,16 +971,134 @@ class RBACService:
             )
             return
 
-        eff = await self.get_effective_permissions(
-            user, crew_id=crew_id, space_id=space_id, connection_id=connection_id
-        )
+        # Phase 1 of the RBAC rewrite: delegate to the new Authorization
+        # resolver (deterministic translation table, no editable matrix).
+        # The 6×80 DEFAULT_ROLE_PERMISSIONS dict is no longer the source
+        # of truth — every key in active use now lives in
+        # `src/services/authorization.py::PERMISSION_RULES`.
+        from src.services.authorization import Authorization, PERMISSION_RULES
 
-        if not eff.permissions.get(permission_key, False):
+        rule = PERMISSION_RULES.get(permission_key)
+        if rule is None:
             await self._audit_decision(
                 user,
                 permission_key,
                 "deny",
-                f"role={eff.crew_role}",
+                "unknown_permission_key",
+                resource_kind=resource_kind,
+                resource_id=resource_id,
+            )
+            raise ForbiddenError(f"Permission denied: {permission_key}")
+        scope_kind, _required = rule
+
+        # Resolve the effective Space id for space-scoped checks. Crew checks
+        # walk to crew.space_id; connection checks defer to the existing
+        # _best_role_for_user_for_connection logic (multi-Space sharing).
+        effective_space_id: Optional[UUID] = space_id
+        if scope_kind == "space" and effective_space_id is None:
+            if crew_id is not None:
+                from src.models.crew import Crew
+
+                crew_row = (
+                    await self.db.execute(select(Crew).where(Crew.id == crew_id))
+                ).scalar_one_or_none()
+                if crew_row is not None:
+                    effective_space_id = crew_row.space_id
+            elif connection_id is not None:
+                # Connections fan out across Spaces (SpaceConnection +
+                # CrewConnection). Phase 1 uses the existing legacy
+                # walker plus an "anywhere" fallback to preserve the
+                # current allow/deny matrix; Phase 2 will tighten this
+                # via the new resource_acl table (per-resource grants).
+                legacy_role = await self._best_role_for_user_for_connection(
+                    user.id, connection_id
+                )
+                if legacy_role in (None, "no_access"):
+                    legacy_role = await self._best_role_for_user_anywhere(user.id)
+
+                from src.services.authorization import (
+                    LEGACY_TO_NEW_SPACE_ROLE,
+                    SPACE_ROLE_LEVEL,
+                    SpaceRole,
+                )
+
+                actual = LEGACY_TO_NEW_SPACE_ROLE.get(legacy_role)
+                level_to_pass = {
+                    "viewer": SpaceRole.VIEWER,
+                    "editor": SpaceRole.EDITOR,
+                    "owner": SpaceRole.OWNER,
+                }[_required]
+                allowed = (
+                    actual is not None
+                    and SPACE_ROLE_LEVEL[actual] >= SPACE_ROLE_LEVEL[level_to_pass]
+                )
+                if allowed:
+                    await self._audit_decision(
+                        user,
+                        permission_key,
+                        "allow",
+                        f"connection_role={actual.value if actual else None}",
+                        resource_kind=resource_kind,
+                        resource_id=resource_id,
+                    )
+                    return
+                await self._audit_decision(
+                    user,
+                    permission_key,
+                    "deny",
+                    f"connection_role={actual.value if actual else None}",
+                    resource_kind=resource_kind,
+                    resource_id=resource_id,
+                )
+                raise ForbiddenError(f"Permission denied: {permission_key}")
+
+        # No specific scope given for a space-scoped permission: fall back
+        # to the user's best role anywhere (matches old behavior). The
+        # tight per-resource isolation lands in Phase 2 with resource_acl.
+        if scope_kind == "space" and effective_space_id is None:
+            legacy_role = await self._best_role_for_user_anywhere(user.id)
+            from src.services.authorization import (
+                LEGACY_TO_NEW_SPACE_ROLE,
+                SPACE_ROLE_LEVEL,
+                SpaceRole,
+            )
+
+            actual = LEGACY_TO_NEW_SPACE_ROLE.get(legacy_role)
+            level_to_pass = {
+                "viewer": SpaceRole.VIEWER,
+                "editor": SpaceRole.EDITOR,
+                "owner": SpaceRole.OWNER,
+            }[_required]
+            if actual is not None and SPACE_ROLE_LEVEL[actual] >= SPACE_ROLE_LEVEL[level_to_pass]:
+                await self._audit_decision(
+                    user,
+                    permission_key,
+                    "allow",
+                    f"anywhere_role={actual.value}",
+                    resource_kind=resource_kind,
+                    resource_id=resource_id,
+                )
+                return
+            await self._audit_decision(
+                user,
+                permission_key,
+                "deny",
+                f"anywhere_role={actual.value if actual else None}",
+                resource_kind=resource_kind,
+                resource_id=resource_id,
+            )
+            raise ForbiddenError(f"Permission denied: {permission_key}")
+
+        allowed = await Authorization(self.db).can(
+            user, permission_key, space_id=effective_space_id
+        )
+
+        if not allowed:
+            await self._audit_decision(
+                user,
+                permission_key,
+                "deny",
+                "authorization_resolver",
                 resource_kind=resource_kind,
                 resource_id=resource_id,
             )
@@ -990,7 +1108,7 @@ class RBACService:
             user,
             permission_key,
             "allow",
-            f"role={eff.crew_role}",
+            "authorization_resolver",
             resource_kind=resource_kind,
             resource_id=resource_id,
         )
