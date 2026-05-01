@@ -1090,7 +1090,10 @@ class RBACService:
             raise ForbiddenError(f"Permission denied: {permission_key}")
 
         allowed = await Authorization(self.db).can(
-            user, permission_key, space_id=effective_space_id
+            user,
+            permission_key,
+            space_id=effective_space_id,
+            crew_id=crew_id,
         )
 
         if not allowed:

@@ -163,6 +163,54 @@ class Authorization:
             return None
         return LEGACY_TO_NEW_SPACE_ROLE.get(row.role)
 
+    async def get_crew_role(
+        self, user_id: UUID, crew_id: UUID
+    ) -> Optional[SpaceRole]:
+        """Return the user's role in the given Crew, or None if not a member.
+        Same canonical vocabulary as Spaces (owner/editor/viewer); legacy
+        commander/navigator/explorer are normalised at read time."""
+        from src.models.crew import CrewMember
+
+        row = (
+            await self.db.execute(
+                select(CrewMember).where(
+                    CrewMember.user_id == user_id,
+                    CrewMember.crew_id == crew_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return LEGACY_TO_NEW_SPACE_ROLE.get(row.role)
+
+    async def get_best_crew_role_in_space(
+        self, user_id: UUID, space_id: UUID
+    ) -> Optional[SpaceRole]:
+        """Highest Crew role the user holds in any Crew that belongs to
+        this Space. Used when checking a Space-level resource against a
+        user that has no SpaceMember row but is a member of one or more
+        Crews inside the Space."""
+        from src.models.crew import Crew, CrewMember
+
+        rows = (
+            await self.db.execute(
+                select(CrewMember.role)
+                .join(Crew, Crew.id == CrewMember.crew_id)
+                .where(
+                    CrewMember.user_id == user_id,
+                    Crew.space_id == space_id,
+                )
+            )
+        ).scalars().all()
+        best: Optional[SpaceRole] = None
+        for raw in rows:
+            mapped = LEGACY_TO_NEW_SPACE_ROLE.get(raw)
+            if mapped is None:
+                continue
+            if best is None or SPACE_ROLE_LEVEL[mapped] > SPACE_ROLE_LEVEL[best]:
+                best = mapped
+        return best
+
     def _meets_space_level(
         self, actual: Optional[SpaceRole], required: SpaceRole
     ) -> bool:
@@ -210,16 +258,23 @@ class Authorization:
         permission_key: str,
         *,
         space_id: Optional[UUID] = None,
+        crew_id: Optional[UUID] = None,
         resource_type: Optional[str] = None,
         resource_id: Optional[UUID] = None,
     ) -> bool:
         """Return True iff `user` is allowed to perform `permission_key`.
 
-        For space-scoped permissions, `space_id` selects which Space the
-        check runs against. If `resource_type` + `resource_id` are also
-        passed, explicit grants in `resource_acl` are honoured: a
-        higher-level grant on the resource overrides the user's Space
-        membership level."""
+        Three tiers of context, walked in order:
+          1. Space membership (resource lives in a Space)
+          2. Crew membership (resource lives in a Crew inside a Space —
+             a Crew is a sub-team like "Finance > Tax" inside a "Finance"
+             Space). User can be in N Crews of the same Space.
+          3. Resource ACL (explicit per-resource grant via resource_acl)
+
+        Effective level = max(space_role, crew_role, best_crew_in_space,
+                              resource_acl_level). Higher level on any
+        rung overrides the rung above it.
+        """
         rule = PERMISSION_RULES.get(permission_key)
         if rule is None:
             # Unknown key — deny conservatively. Phases 2-7 will move every
@@ -247,12 +302,29 @@ class Authorization:
             return False
 
         # scope == "space"
-        if space_id is None and (resource_type is None or resource_id is None):
+        if (
+            space_id is None
+            and crew_id is None
+            and (resource_type is None or resource_id is None)
+        ):
             return False
 
         space_level: Optional[SpaceRole] = None
         if space_id is not None:
             space_level = await self.get_space_role(user.id, space_id)
+
+        crew_level: Optional[SpaceRole] = None
+        if crew_id is not None:
+            crew_level = await self.get_crew_role(user.id, crew_id)
+
+        # If we have a Space context but no Space membership row, see if
+        # the user is a member of any Crew inside that Space — those Crew
+        # roles imply membership at their level for Space-scope checks.
+        best_crew_in_space: Optional[SpaceRole] = None
+        if space_id is not None and space_level is None:
+            best_crew_in_space = await self.get_best_crew_role_in_space(
+                user.id, space_id
+            )
 
         acl_level: Optional[SpaceRole] = None
         if resource_type is not None and resource_id is not None:
@@ -260,8 +332,11 @@ class Authorization:
                 user.id, resource_type, resource_id
             )
 
-        # Effective level = max(space_level, acl_level)
-        candidates = [lv for lv in (space_level, acl_level) if lv is not None]
+        candidates = [
+            lv
+            for lv in (space_level, crew_level, best_crew_in_space, acl_level)
+            if lv is not None
+        ]
         if not candidates:
             return False
         actual = max(candidates, key=lambda lv: SPACE_ROLE_LEVEL[lv])
@@ -280,6 +355,7 @@ class Authorization:
         permission_key: str,
         *,
         space_id: Optional[UUID] = None,
+        crew_id: Optional[UUID] = None,
         resource_type: Optional[str] = None,
         resource_id: Optional[UUID] = None,
     ) -> None:
@@ -287,10 +363,15 @@ class Authorization:
             user,
             permission_key,
             space_id=space_id,
+            crew_id=crew_id,
             resource_type=resource_type,
             resource_id=resource_id,
         ):
+            scope_str = ""
+            if space_id:
+                scope_str = f" on Space {space_id}"
+            elif crew_id:
+                scope_str = f" on Crew {crew_id}"
             raise ForbiddenError(
-                f"User {user.id} cannot perform '{permission_key}'"
-                + (f" on Space {space_id}" if space_id else "")
+                f"User {user.id} cannot perform '{permission_key}'{scope_str}"
             )
