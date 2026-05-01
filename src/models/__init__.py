@@ -35,6 +35,7 @@ from src.models.glossary import GlossaryTerm
 from src.models.metric import Metric
 from src.models.notification import Notification, NotificationPreference
 from src.models.permission import APIKey, ConnectionPermission, Integration
+from src.models.resource_acl import ResourceAcl
 from src.models.platform_branding import PlatformBranding
 from src.models.page import Page, PageMember
 from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable

@@ -38,6 +38,7 @@ from src.api.v1 import (
     privacy,
     settings,
     settings_metrics,
+    sharing,
     spaces,
     starred,
     support,
@@ -99,6 +100,13 @@ api_router.include_router(permissions.router, prefix="/permissions", tags=["Perm
 # matrix expands). Mounted under /users/{id}/permission-grants.
 api_router.include_router(
     permission_grants.router, prefix="/users", tags=["Permission Grants"]
+)
+
+# Generic per-resource sharing (Phase 2 of RBAC rewrite). Single endpoint
+# family replaces the per-table grant tables (ConnectionPermission etc.)
+# with rows in resource_acl. Resource type is in the path.
+api_router.include_router(
+    sharing.router, prefix="/resources", tags=["Resource Sharing"]
 )
 
 # Audit endpoints — mounted at /audit-logs (resource-oriented naming).
