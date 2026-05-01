@@ -27,7 +27,10 @@ are a member of.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
+from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -38,7 +41,32 @@ from src.core.security import create_access_token, get_password_hash
 from src.models.space import Space, SpaceMember
 from src.models.user import User
 from src.repositories.user import UserRepository
+from src.schemas.ai import AIQueryResponse
 from src.services.onboarding_service import ensure_default_page_and_space
+
+
+# Stub the AI service entry point. We test authorisation only, so the
+# AI pipeline must not reach out to LLM/Redis/Ollama in CI. Returning a
+# canned AIQueryResponse with status="success" lets us assert that the
+# endpoint accepts the call (HTTP 200 + status not "error_unauthorised")
+# without depending on infrastructure that doesn't exist in CI.
+@pytest.fixture(autouse=True)
+def _stub_ai_service():
+    now = datetime.now(timezone.utc)
+    canned = AIQueryResponse(
+        id=uuid4(),
+        question="stub",
+        answer="ok",
+        status="success",
+        page_id=uuid4(),
+        created_at=now,
+        updated_at=now,
+    )
+    with patch(
+        "src.services.ai_service.AIService.process_query",
+        new=AsyncMock(return_value=canned),
+    ):
+        yield
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
