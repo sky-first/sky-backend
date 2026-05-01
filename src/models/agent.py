@@ -183,6 +183,16 @@ class Agent(Base):
         nullable=False,
         server_default="true",
     )
+    # Phase 6 — when true the agent runtime drops every connection whose
+    # tier ≠ 'internal' before issuing the query. Used by compliance-
+    # bound deploys that only want autonomous agents touching low-risk
+    # data sources.
+    auditable_only = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
     consecutive_failures = Column(
         Integer,
         nullable=False,

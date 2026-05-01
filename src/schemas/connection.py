@@ -75,6 +75,13 @@ class ConnectionBase(BaseModel):
     connector_id: str = Field(..., description="Connector type (postgresql, mysql, mongodb, etc)")
     description: Optional[str] = None
     sync_frequency: Optional[str] = Field(None, description="Cron expression for sync frequency")
+    # Phase 6 — sensitivity tier. internal (default) is freely usable
+    # by autonomous agents. confidential and restricted gate the agent
+    # runtime when the agent runs in `auditable_only` mode.
+    tier: Optional[str] = Field(
+        default="internal",
+        pattern="^(internal|confidential|restricted)$",
+    )
 
 
 class ConnectionCreate(ConnectionBase):
@@ -91,6 +98,9 @@ class ConnectionUpdate(BaseModel):
     config: Optional[Dict[str, Any]] = None
     sync_frequency: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(active|inactive|error)$")
+    tier: Optional[str] = Field(
+        None, pattern="^(internal|confidential|restricted)$"
+    )
     metadata: Optional[ConnectionMetadataResponse] = None
 
 

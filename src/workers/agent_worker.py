@@ -99,7 +99,31 @@ async def _execute_agent_async(agent_id: str):
             # 4. Query the AI service for each connection
             answer = ""
             sql_used = ""
-            for conn_id in (agent.connection_ids or []):
+            # Phase 6 — auditable_only mode filters out connections whose
+            # tier is more sensitive than 'internal' before the agent
+            # issues a query. We resolve tiers in one round-trip then
+            # iterate the allowed subset.
+            connection_ids = list(agent.connection_ids or [])
+            if getattr(agent, "auditable_only", False) and connection_ids:
+                from sqlalchemy import select
+                from src.models.connection import DataConnection
+
+                rows = (
+                    await db.execute(
+                        select(DataConnection.id, DataConnection.tier).where(
+                            DataConnection.id.in_(connection_ids)
+                        )
+                    )
+                ).all()
+                allowed = {cid for cid, tier in rows if (tier or "internal") == "internal"}
+                dropped = [str(c) for c in connection_ids if c not in allowed]
+                if dropped:
+                    logger.info(
+                        f"Agent {agent_id}: auditable_only=true; "
+                        f"dropped {len(dropped)} non-internal connection(s): {dropped}"
+                    )
+                connection_ids = [c for c in connection_ids if c in allowed]
+            for conn_id in connection_ids:
                 try:
                     # Pass table_ids as selected_datasets if specified
                     table_ids = getattr(agent, "table_ids", None)
