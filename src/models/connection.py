@@ -30,6 +30,11 @@ class DataConnection(Base):
     status = Column(
         String(50), nullable=False, default="inactive", server_default="inactive"
     )  # active, inactive, error
+    # Phase 6 — sensitivity tier. internal (default) is free to use,
+    # confidential restricts agent access, restricted is human-only.
+    tier = Column(
+        String(20), nullable=False, default="internal", server_default="internal"
+    )
     config = Column(JSON, nullable=False)  # Encrypted credentials
     sync_frequency = Column(String(100), nullable=True)  # Cron expression
     last_sync = Column(DateTime(timezone=True), nullable=True)

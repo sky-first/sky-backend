@@ -98,6 +98,7 @@ class AgentService:
             selected_context=data.selected_context,
             space_ids=data.space_ids,
             relationship_types=data.relationship_types,
+            auditable_only=bool(getattr(data, "auditable_only", False) or False),
             next_execution_at=next_run,
             created_by=user_id,
         )

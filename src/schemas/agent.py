@@ -58,6 +58,10 @@ class AgentCreate(BaseModel):
     # metrics in Phase 2), enterprise_relationships, widgets, insights,
     # pages. Empty arrays or missing keys = "no filter for that kind".
     selected_context: Optional[Dict[str, List[str]]] = None
+    # Phase 6 — when true the agent runtime drops every connection whose
+    # tier ≠ 'internal' before issuing the query. Compliance-bound deploys
+    # opt in here so autonomous agents only touch low-risk data sources.
+    auditable_only: Optional[bool] = False
 
     @field_validator("monitor_type")
     @classmethod
@@ -82,6 +86,8 @@ class AgentUpdate(BaseModel):
     # Shape: {interval_value: int, interval_unit: minute|hour|day|week|month,
     #         end: {type: forever|once|n_runs|until_date, value: int|iso?}}
     schedule_jsonb: Optional[Dict[str, Any]] = None
+    # Phase 6 — auditable_only toggle. See AgentCreate for semantics.
+    auditable_only: Optional[bool] = None
 
     @field_validator("monitor_type")
     @classmethod
@@ -147,6 +153,7 @@ class AgentResponse(BaseModel):
     next_execution_at: Optional[datetime] = None
     executions_this_month: int = 0
     cycles_consumed: int = 0
+    auditable_only: bool = False
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
@@ -184,6 +191,7 @@ class AgentListResponse(BaseModel):
     next_execution_at: Optional[datetime] = None
     executions_this_month: int = 0
     cycles_consumed: int = 0
+    auditable_only: bool = False
     created_at: datetime
     findings: Optional[List[AgentFindingResponse]] = None
 
