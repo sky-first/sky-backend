@@ -88,6 +88,16 @@ RequiredLevel = Literal[
 # and the new (scope, required_level) tuples. Phases 2-7 progressively
 # move call sites from `assert_permission("foo.bar")` to direct
 # `assert_can(action, resource)` calls; this dict is the migration bridge.
+# Permission keys that act on the Space itself rather than on a
+# resource inside it. For these, only space_role counts — Crew
+# membership confers no escalation, even when crew_id is passed.
+# Reason: an "Audit Crew" Owner manages Audit, not the Finance
+# Space's member list.
+SPACE_ADMIN_KEYS: frozenset[str] = frozenset({
+    "spaces.members.manage",
+})
+
+
 PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
     # Owner-exclusive (tenant level)
     "billing.manage":            ("tenant", "owner_only"),
@@ -130,6 +140,12 @@ PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
     "pages.delete":              ("space", "owner"),
     "dashboards.delete":         ("space", "owner"),
     "agents.delete":             ("space", "owner"),
+    # spaces.members.manage acts on the Space's membership list itself —
+    # NOT on a sub-resource that could live inside a Crew. So even when
+    # a crew_id happens to be in the request context, only space_role
+    # counts. A Crew Owner does not get to add/remove members of the
+    # parent Space. Tracked here as a SPACE_ADMIN_KEY exception in
+    # `Authorization.can()`.
     "spaces.members.manage":     ("space", "owner"),
     "crews.members.manage":      ("space", "owner"),
     # Phase 2 — generic resource sharing key
@@ -313,23 +329,41 @@ class Authorization:
         if space_id is not None:
             space_level = await self.get_space_role(user.id, space_id)
 
+        # Space-admin actions: only space_role counts. Short-circuit
+        # before crew_role / best_crew_in_space / acl can contribute,
+        # so a Crew Owner cannot manage the Space's member list.
+        if permission_key in SPACE_ADMIN_KEYS:
+            if space_level is None:
+                return False
+            if required == "viewer":
+                return self._meets_space_level(space_level, SpaceRole.VIEWER)
+            if required == "editor":
+                return self._meets_space_level(space_level, SpaceRole.EDITOR)
+            if required == "owner":
+                return self._meets_space_level(space_level, SpaceRole.OWNER)
+            return False
+
         crew_level: Optional[SpaceRole] = None
         if crew_id is not None:
             crew_level = await self.get_crew_role(user.id, crew_id)
 
-        # Always look up the user's best Crew role inside this Space when
-        # we have a Space context. Crew membership escalates the effective
-        # level even when the user already has a SpaceMember row — a
-        # Crew-owner inside a viewer Space must surface owner UX, and the
-        # caller may not have a specific crew_id to pass (e.g. the user
-        # is on a Space-level page with no Crew selected). Querying every
-        # time is cheap (one indexed scan) and removes a footgun where
-        # passing crew_id explicitly was the only way to escalate.
+        # Crew membership inside a Space confers VISIBILITY only — it lets
+        # a user navigate into the Space (so they can reach their Crew),
+        # but it does NOT escalate Space-level write/admin permissions.
+        # Modelling rationale: Space = department, Crew = team within
+        # the department. An "Audit Crew" owner manages Audit, not the
+        # whole Finance department — they should not be able to delete a
+        # Space-level page like "Company Finance 2026" just because they
+        # own a Crew under the Space. So we cap this contribution at
+        # viewer level and only consider it when no specific crew_id was
+        # passed (when one is, that crew's role is authoritative for the
+        # active context). Owner/editor escalation must come through the
+        # crew_id explicitly tied to the resource being acted on.
         best_crew_in_space: Optional[SpaceRole] = None
-        if space_id is not None:
-            best_crew_in_space = await self.get_best_crew_role_in_space(
-                user.id, space_id
-            )
+        if space_id is not None and crew_id is None:
+            raw = await self.get_best_crew_role_in_space(user.id, space_id)
+            if raw is not None:
+                best_crew_in_space = SpaceRole.VIEWER
 
         acl_level: Optional[SpaceRole] = None
         if resource_type is not None and resource_id is not None:

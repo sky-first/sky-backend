@@ -1,15 +1,20 @@
 """Tests for Phase 2.5 — Crew as first-class citizen in the resolver.
 
-Coverage:
-  • Crew membership alone (no Space membership) grants access at the
-    Crew's role level
-  • Member of N Crews in the same Space — highest Crew role wins
-  • Resource gated on space_id with a member that's only in a Crew
-    inside that Space — best_crew_in_space lookup grants access
-  • Crew member at editor level can perform editor actions; viewer
-    in same Crew cannot
-  • Space-level viewer + Crew-level owner: effective is owner (Crew
-    membership escalates over Space)
+Modelling rules (Space = department, Crew = team within a department):
+
+  • Crew membership inside a Space confers VISIBILITY only — viewer-
+    level read access, so the user can navigate into the Space to
+    reach their Crew. It does NOT escalate Space-level write/admin
+    permissions.
+  • Crew Owner manages Crew-scoped actions, NOT Space-scoped ones.
+    A "Finance > Audit" Crew Owner cannot delete a Space-level page
+    like "Company Finance 2026". The Space Owner can.
+  • When a `crew_id` is passed explicitly, that Crew's role is what
+    governs the active context. The resolver does NOT scan other
+    Crews of the user inside the same Space looking for a higher
+    role — that would let an Audit Crew Viewer impersonate an Audit
+    Crew Owner because the user happens to also be Owner of an
+    unrelated "Payroll" Crew.
 """
 
 from __future__ import annotations
@@ -55,10 +60,30 @@ async def _crew(db: AsyncSession, owner: User, space: Space, name: str = "C") ->
 
 
 @pytest.mark.asyncio
-async def test_crew_membership_alone_grants_access(db_session):
-    """User has NO SpaceMember row but is a Crew member at editor level.
-    Action `connections.create` (editor) on the Space should be allowed
-    via best_crew_in_space."""
+async def test_crew_member_can_read_space_via_visibility(db_session):
+    """Crew member with no SpaceMember row should be able to *view* the
+    Space (visibility), so they can navigate into their Crew."""
+    owner = await _user(db_session, role="admin", name="O")
+    user = await _user(db_session, role="member", name="U")
+    space = await _space(db_session, owner)
+    crew = await _crew(db_session, owner, space)
+    db_session.add(CrewMember(crew_id=crew.id, user_id=user.id, role="editor"))
+    await db_session.commit()
+    # connections.view (viewer-level) is granted via Crew → visibility.
+    assert (
+        await Authorization(db_session).can(
+            user, "connections.view", space_id=space.id
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_crew_editor_cannot_write_at_space_scope_without_crew_id(db_session):
+    """A Crew editor with no SpaceMember row cannot perform a write
+    action at Space scope when no crew_id is in the request — the
+    resource isn't tied to their Crew, so their Crew membership must
+    not escalate beyond visibility."""
     owner = await _user(db_session, role="admin", name="O")
     user = await _user(db_session, role="member", name="U")
     space = await _space(db_session, owner)
@@ -69,40 +94,67 @@ async def test_crew_membership_alone_grants_access(db_session):
         await Authorization(db_session).can(
             user, "connections.create", space_id=space.id
         )
-        is True
+        is False
     )
 
 
 @pytest.mark.asyncio
-async def test_member_of_two_crews_takes_highest_role(db_session):
+async def test_crew_editor_can_write_when_crew_id_passed(db_session):
+    """Same Crew editor — when the action is tied to the Crew via
+    crew_id, the Crew's role IS authoritative and editor passes."""
     owner = await _user(db_session, role="admin", name="O")
     user = await _user(db_session, role="member", name="U")
     space = await _space(db_session, owner)
-    crew_a = await _crew(db_session, owner, space, "A")
-    crew_b = await _crew(db_session, owner, space, "B")
-    db_session.add(CrewMember(crew_id=crew_a.id, user_id=user.id, role="viewer"))
-    db_session.add(CrewMember(crew_id=crew_b.id, user_id=user.id, role="owner"))
+    crew = await _crew(db_session, owner, space)
+    db_session.add(CrewMember(crew_id=crew.id, user_id=user.id, role="editor"))
     await db_session.commit()
-    # Owner-level Crew membership grants spaces.members.manage (Space owner)
     assert (
         await Authorization(db_session).can(
-            user, "spaces.members.manage", space_id=space.id
+            user, "connections.create", space_id=space.id, crew_id=crew.id
         )
         is True
     )
 
 
 @pytest.mark.asyncio
-async def test_crew_owner_escalates_over_space_viewer(db_session):
+async def test_crew_owner_does_not_get_space_owner_powers(db_session):
+    """Crew Owner with no SpaceMember row must NOT be able to perform
+    Space-level admin actions (the user manages their Crew, not the
+    whole Space). A Space-level page delete with no crew_id is denied."""
     owner = await _user(db_session, role="admin", name="O")
     user = await _user(db_session, role="member", name="U")
     space = await _space(db_session, owner)
     crew = await _crew(db_session, owner, space)
-    db_session.add(SpaceMember(space_id=space.id, user_id=user.id, role="viewer"))
     db_session.add(CrewMember(crew_id=crew.id, user_id=user.id, role="owner"))
     await db_session.commit()
-    # Even though Space membership is viewer, the Crew-owner role escalates
-    # the effective level to owner — pages.delete (owner-only) is allowed.
+    # Space-scoped delete (no crew_id) — Crew Owner is NOT Space Owner.
+    assert (
+        await Authorization(db_session).can(
+            user, "pages.delete", space_id=space.id
+        )
+        is False
+    )
+    # spaces.members.manage is Space-only — Crew Owner cannot manage
+    # the Space's membership list either.
+    assert (
+        await Authorization(db_session).can(
+            user, "spaces.members.manage", space_id=space.id
+        )
+        is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_crew_owner_can_act_within_their_own_crew(db_session):
+    """Crew Owner CAN perform owner-level actions when the request is
+    scoped to their Crew via crew_id — that's the whole point of the
+    role. A Crew-scoped page delete is allowed."""
+    owner = await _user(db_session, role="admin", name="O")
+    user = await _user(db_session, role="member", name="U")
+    space = await _space(db_session, owner)
+    crew = await _crew(db_session, owner, space)
+    db_session.add(CrewMember(crew_id=crew.id, user_id=user.id, role="owner"))
+    await db_session.commit()
     assert (
         await Authorization(db_session).can(
             user, "pages.delete", space_id=space.id, crew_id=crew.id
@@ -112,7 +164,66 @@ async def test_crew_owner_escalates_over_space_viewer(db_session):
 
 
 @pytest.mark.asyncio
-async def test_crew_viewer_cannot_perform_editor_action(db_session):
+async def test_space_viewer_with_crew_owner_acts_as_owner_in_crew(db_session):
+    """Space-viewer + Crew-owner: when crew_id is passed, the Crew role
+    wins and the user can perform owner-level actions on Crew-scoped
+    resources. Space-level resources still see them as a viewer."""
+    owner = await _user(db_session, role="admin", name="O")
+    user = await _user(db_session, role="member", name="U")
+    space = await _space(db_session, owner)
+    crew = await _crew(db_session, owner, space)
+    db_session.add(SpaceMember(space_id=space.id, user_id=user.id, role="viewer"))
+    db_session.add(CrewMember(crew_id=crew.id, user_id=user.id, role="owner"))
+    await db_session.commit()
+    # Crew-scoped page delete — allowed via Crew owner role.
+    assert (
+        await Authorization(db_session).can(
+            user, "pages.delete", space_id=space.id, crew_id=crew.id
+        )
+        is True
+    )
+    # Space-scoped page delete (no crew_id) — denied: SpaceMember is
+    # only viewer; Crew owner does NOT escalate to Space owner.
+    assert (
+        await Authorization(db_session).can(
+            user, "pages.delete", space_id=space.id
+        )
+        is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_owning_one_crew_does_not_grant_owner_in_another(db_session):
+    """User is Owner of Crew A and Viewer of Crew B in the same Space.
+    Acting in Crew B context, they are a Viewer — NOT an Owner. The
+    resolver must not pick the highest crew role across the Space when
+    a specific crew_id was passed."""
+    owner = await _user(db_session, role="admin", name="O")
+    user = await _user(db_session, role="member", name="U")
+    space = await _space(db_session, owner)
+    crew_a = await _crew(db_session, owner, space, "A")
+    crew_b = await _crew(db_session, owner, space, "B")
+    db_session.add(CrewMember(crew_id=crew_a.id, user_id=user.id, role="owner"))
+    db_session.add(CrewMember(crew_id=crew_b.id, user_id=user.id, role="viewer"))
+    await db_session.commit()
+    # Acting in Crew B (viewer): cannot delete a Crew B page.
+    assert (
+        await Authorization(db_session).can(
+            user, "pages.delete", space_id=space.id, crew_id=crew_b.id
+        )
+        is False
+    )
+    # Acting in Crew A (owner): can delete a Crew A page.
+    assert (
+        await Authorization(db_session).can(
+            user, "pages.delete", space_id=space.id, crew_id=crew_a.id
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_crew_viewer_cannot_perform_editor_action_in_their_crew(db_session):
     owner = await _user(db_session, role="admin", name="O")
     user = await _user(db_session, role="member", name="U")
     space = await _space(db_session, owner)
@@ -138,30 +249,6 @@ async def test_crew_id_alone_resolves_when_space_id_omitted(db_session):
     assert (
         await Authorization(db_session).can(
             user, "connections.create", crew_id=crew.id
-        )
-        is True
-    )
-
-
-@pytest.mark.asyncio
-async def test_crew_owner_escalates_when_only_space_id_passed(db_session):
-    """Regression test for Phase 2.5 footgun: the resolver previously
-    only consulted best_crew_in_space when the user had NO SpaceMember
-    row. A user who is space-viewer + crew-owner must still surface
-    owner UX when the caller passes only space_id (typical UI path
-    where no crew is selected)."""
-    owner = await _user(db_session, role="admin", name="O")
-    user = await _user(db_session, role="member", name="U")
-    space = await _space(db_session, owner)
-    crew = await _crew(db_session, owner, space)
-    db_session.add(SpaceMember(space_id=space.id, user_id=user.id, role="viewer"))
-    db_session.add(CrewMember(crew_id=crew.id, user_id=user.id, role="owner"))
-    await db_session.commit()
-    # No crew_id passed — resolver must walk Crews under this Space and
-    # discover the owner-level membership.
-    assert (
-        await Authorization(db_session).can(
-            user, "pages.delete", space_id=space.id
         )
         is True
     )

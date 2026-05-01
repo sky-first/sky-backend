@@ -73,45 +73,50 @@ async def main():
         audit = await get_crew(session, space.id, "RBAC Audit Crew")
         auth = Authorization(session)
 
-        # ─── Cenário 1: viewer-crewowner — Crew escala sobre Space ───
-        print("\n=== Cenário 1 — Crew owner escala sobre Space viewer ===")
+        # ─── Cenário 1: viewer-crewowner — owner inside Crew, viewer in Space ───
+        print("\n=== Cenário 1 — Space viewer + Crew owner ===")
         u = await get_user(session, "rbac.viewer-crewowner@example.com")
-        # As space-viewer alone, owner-only actions would be denied; with
-        # crew-owner active, effective is owner.
+        # Inside the Crew context: Crew owner role wins → owner-only OK.
         failures += not await assert_can(
             auth,
-            "viewer-crewowner: pages.delete (owner-only)",
+            "viewer-crewowner: pages.delete (in Crew context)",
             u,
             "pages.delete",
             True,
             space_id=space.id,
             crew_id=tax.id,
         )
+        # spaces.members.manage is a Space-level admin action. Even
+        # passing crew_id, the action operates on the Space and the
+        # user is only Space-viewer → DENIED. Crew owner ≠ Space owner.
         failures += not await assert_can(
             auth,
-            "viewer-crewowner: spaces.members.manage (owner-only)",
+            "viewer-crewowner: spaces.members.manage DENIED (Space-only)",
             u,
             "spaces.members.manage",
-            True,
+            False,
             space_id=space.id,
             crew_id=tax.id,
         )
-        # Without the crew context, falls back to space role = viewer
+        # Without crew_id (Space-scoped action) — Crew owner does NOT
+        # escalate to Space owner. SpaceMember is viewer → owner-only
+        # action denied.
         failures += not await assert_can(
             auth,
-            "viewer-crewowner: pages.delete (no crew_id) — best-crew-in-space",
+            "viewer-crewowner: pages.delete (no crew_id) DENIED",
             u,
             "pages.delete",
-            True,  # best_crew_in_space still finds the owner Crew
+            False,
             space_id=space.id,
         )
 
         # ─── Cenário 2: crew-only-editor — sem SpaceMember row ───
         print("\n=== Cenário 2 — Crew-only editor (sem SpaceMember) ===")
         u = await get_user(session, "rbac.crew-only-editor@example.com")
+        # Inside the Crew context, editor passes
         failures += not await assert_can(
             auth,
-            "crew-only-editor: connections.create (editor)",
+            "crew-only-editor: connections.create (in Crew)",
             u,
             "connections.create",
             True,
@@ -127,47 +132,58 @@ async def main():
             space_id=space.id,
             crew_id=tax.id,
         )
-        # crew_id alone (no space_id) — resolver should still grant
+        # Space-scoped write WITHOUT crew_id — Crew membership is only
+        # visibility, so write is denied.
         failures += not await assert_can(
             auth,
-            "crew-only-editor: connections.create with crew_id only",
+            "crew-only-editor: connections.create (no crew_id) DENIED",
             u,
             "connections.create",
-            True,
-            crew_id=tax.id,
+            False,
+            space_id=space.id,
         )
-
-        # ─── Cenário 3: multi-crew — N crews, maior vence ───
-        print("\n=== Cenário 3 — Multi-Crew (N crews da mesma Space) ===")
-        u = await get_user(session, "rbac.multi-crew@example.com")
-        # With Audit (owner) crew active → owner-only actions allowed
+        # But Space visibility (read) IS granted via Crew membership
         failures += not await assert_can(
             auth,
-            "multi-crew: pages.delete (Audit owner crew active)",
+            "crew-only-editor: connections.view (visibility via Crew)",
+            u,
+            "connections.view",
+            True,
+            space_id=space.id,
+        )
+
+        # ─── Cenário 3: multi-crew — N crews, role per-crew ───
+        print("\n=== Cenário 3 — Multi-Crew (per-crew role wins) ===")
+        u = await get_user(session, "rbac.multi-crew@example.com")
+        # Acting in Audit (owner) → owner-level allowed
+        failures += not await assert_can(
+            auth,
+            "multi-crew: pages.delete in Audit (owner)",
             u,
             "pages.delete",
             True,
             space_id=space.id,
             crew_id=audit.id,
         )
-        # With Tax (viewer) crew active → still allowed because
-        # best_crew_in_space picks the Audit owner role
+        # Acting in Tax (viewer) → owner-only DENIED. Owning another
+        # Crew (Audit) does NOT escalate when acting in Tax.
         failures += not await assert_can(
             auth,
-            "multi-crew: pages.delete with Tax viewer crew (BE max wins)",
+            "multi-crew: pages.delete in Tax (viewer) DENIED",
             u,
             "pages.delete",
-            True,
+            False,
             space_id=space.id,
             crew_id=tax.id,
         )
-        # No crew_id at all — best_crew_in_space lookup
+        # No crew_id — visibility only (viewer level via best_crew),
+        # so spaces.members.manage (owner-only Space) DENIED
         failures += not await assert_can(
             auth,
-            "multi-crew: spaces.members.manage (no crew_id, best-crew wins)",
+            "multi-crew: spaces.members.manage (no crew_id) DENIED",
             u,
             "spaces.members.manage",
-            True,
+            False,
             space_id=space.id,
         )
 
