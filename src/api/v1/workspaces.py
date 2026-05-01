@@ -115,6 +115,11 @@ async def create_workspace(
     Returns:
         WorkspaceResponse: Created workspace
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     return await workspace_service.create_workspace(current_user, workspace_data)
 
@@ -145,6 +150,11 @@ async def update_workspace(
     Returns:
         WorkspaceResponse: Updated workspace
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     return await workspace_service.update_workspace(workspace_id, current_user, workspace_data)
 
@@ -173,6 +183,11 @@ async def delete_workspace(
     Returns:
         SuccessResponse: Success message
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     await workspace_service.delete_workspace(workspace_id, current_user)
     return SuccessResponse(message="Workspace deleted successfully")
@@ -232,6 +247,11 @@ async def add_workspace_member(
     Returns:
         WorkspaceMemberResponse: Created member
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     return await workspace_service.add_member(workspace_id, current_user, member_data)
 
@@ -262,6 +282,11 @@ async def remove_workspace_member(
     Returns:
         SuccessResponse: Success message
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     await workspace_service.remove_member(workspace_id, user_id, current_user)
     return SuccessResponse(message="Member removed successfully")
@@ -295,6 +320,11 @@ async def update_workspace_member_role(
     Returns:
         WorkspaceMemberResponse: Updated member
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     return await workspace_service.update_member_role(
         workspace_id, user_id, role_data.role, current_user
@@ -364,5 +394,10 @@ async def switch_workspace(
     Returns:
         WorkspaceResponse: Active workspace
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     return await workspace_service.switch_workspace(workspace_id, current_user)
