@@ -350,7 +350,7 @@ class PageService:
 
         Personal page: only the owner (``owner_id``) may delete.
         Space page: owner OR someone with pages.delete in the page's
-        space (space admin / commander / platform owner-admin).
+        space (space owner / platform admin).
 
         Red-team HI-003 (2026-04-23): before this, Space-scoped pages
         could only be deleted by the creator, leaving admin cleanup

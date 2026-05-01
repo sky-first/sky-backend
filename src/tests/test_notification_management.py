@@ -564,7 +564,7 @@ class TestNotificationProducers:
         crew = await crew_svc.create_crew(user, CrewCreate(name="Bravo Crew", space_id=space.id))
 
         member_user = await self._create_second_user(db_session, "crew-member@test.com")
-        await crew_svc.add_crew_member(crew.id, user, CrewMemberCreate(user_id=member_user.id, role="explorer"))
+        await crew_svc.add_crew_member(crew.id, user, CrewMemberCreate(user_id=member_user.id, role="viewer"))
 
         svc = NotificationService(db_session)
         notifs = await svc.get_notifications(member_user.id)

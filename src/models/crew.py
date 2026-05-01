@@ -70,7 +70,7 @@ class CrewMember(Base):
         nullable=False,
         index=True,
     )
-    role = Column(String(50), nullable=False)  # commander, navigator, explorer, guest
+    role = Column(String(50), nullable=False)  # owner, editor, viewer
     joined_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

@@ -180,7 +180,7 @@ class RolePermissionRepository(BaseRepository[RolePermission]):
         Get role permission by role name.
 
         Args:
-            role: Role name (commander, navigator, explorer, guest)
+            role: Role name (owner, editor, viewer)
 
         Returns:
             Optional[RolePermission]: Role permission or None

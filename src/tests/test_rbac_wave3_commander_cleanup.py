@@ -1,12 +1,13 @@
 """
-Regression tests for ADR-002 Wave 3 — Commander platform-level leak cleanup.
+Regression tests for ADR-002 Wave 3 — crew-level platform-leak cleanup.
 
 Ensures that DEFAULT_ROLE_PERMISSIONS does NOT grant platform-level
-permissions to crew-level roles (commander, navigator). Those perms
-belong to platform_admin / owner.
+permissions to crew-level roles (owner / editor). Those perms belong
+to platform_admin / tenant-owner.
 
-If someone accidentally re-adds apikeys.manage or metrics.view back to
-commander's defaults, these tests fail loudly.
+Phase 7 vocabulary: the crew-level roles are owner / editor / viewer.
+The pre-Phase-7 commander / navigator / explorer / guest enums were
+retired with the resolver-level normalisation in rbac_service.py.
 """
 import pytest
 from src.services.rbac_service import DEFAULT_ROLE_PERMISSIONS
@@ -36,7 +37,7 @@ PLATFORM_ONLY_PERMISSIONS = [
 ]
 
 
-CREW_ROLES = ["commander", "navigator", "explorer", "guest"]
+CREW_ROLES = ["owner", "editor", "viewer"]
 
 
 @pytest.mark.parametrize("role", CREW_ROLES)
@@ -51,9 +52,9 @@ def test_crew_role_never_grants_platform_permission(role, perm):
     )
 
 
-def test_commander_still_has_crew_content_perms():
-    """Commander remains able to do Crew-content CRUD after the cleanup."""
-    c = DEFAULT_ROLE_PERMISSIONS["commander"]
+def test_owner_still_has_crew_content_perms():
+    """Owner remains able to do Crew-content CRUD after the cleanup."""
+    c = DEFAULT_ROLE_PERMISSIONS["owner"]
     # Content CRUD inside the Crew
     assert c["pages.create"] is True
     assert c["pages.edit"] is True
@@ -68,16 +69,16 @@ def test_commander_still_has_crew_content_perms():
     assert c["agents.manage"] is True
 
 
-def test_commander_can_still_view_own_profile():
+def test_owner_can_still_view_own_profile():
     """Removing `users.view` must not also remove self-edit."""
-    c = DEFAULT_ROLE_PERMISSIONS["commander"]
+    c = DEFAULT_ROLE_PERMISSIONS["owner"]
     assert c["users.self.edit"] is True
     assert c["users.self.permissions"] is True
 
 
-def test_navigator_no_longer_sees_platform_metrics():
+def test_editor_no_longer_sees_platform_metrics():
     """Wave 3 specifically flipped this from True to False."""
-    assert DEFAULT_ROLE_PERMISSIONS["navigator"]["metrics.view"] is False
+    assert DEFAULT_ROLE_PERMISSIONS["editor"]["metrics.view"] is False
 
 
 def test_settings_view_stays_true_for_crew_roles():

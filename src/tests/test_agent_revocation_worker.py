@@ -76,7 +76,7 @@ async def test_sweep_keeps_agent_when_creator_still_member(db_session, monkeypat
     creator = uuid.uuid4()
     space = uuid.uuid4()
 
-    db_session.add(SpaceMember(space_id=space, user_id=creator, role="member"))
+    db_session.add(SpaceMember(space_id=space, user_id=creator, role="editor"))
     agent = Agent(
         id=uuid.uuid4(),
         name="ok",

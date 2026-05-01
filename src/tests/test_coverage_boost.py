@@ -313,7 +313,8 @@ async def test_rbac_admin_effective_permissions():
     user.role = "admin"
     eff = await svc.get_effective_permissions(user)
     assert eff.platform_role == "admin"
-    assert eff.crew_role == "commander"
+    # Phase 7: admin bypass canonicalises crew_role to the new vocabulary.
+    assert eff.crew_role == "owner"
     # Catalog was migrated from legacy short keys (`viewPages`) to canonical
     # `<domain>.<action>` keys (`pages.view`) as part of the RBAC unification
     # with the backend rbac_service. Admin-bypass should grant the canonical key.
@@ -328,15 +329,15 @@ async def test_rbac_effective_permissions_merge_for_crew_role():
     user.role = "user"
 
     crew_id = uuid4()
-    svc.crew_members.get_by_crew_and_user = AsyncMock(return_value=MagicMock(role="explorer"))
+    svc.crew_members.get_by_crew_and_user = AsyncMock(return_value=MagicMock(role="viewer"))
     svc.role_perms.get_by_role = AsyncMock(
         return_value=MagicMock(permissions={"data.query.run": True})
     )
 
     eff = await svc.get_effective_permissions(user, crew_id=crew_id)
     assert eff.platform_role == "user"
-    assert eff.crew_role == "explorer"
-    # default explorer denies, DB override allows
+    assert eff.crew_role == "viewer"
+    # default viewer denies, DB override allows
     assert eff.permissions["data.query.run"] is True
 
 
@@ -350,7 +351,7 @@ async def test_rbac_assert_permission_denied():
     svc.get_effective_permissions = AsyncMock(
         return_value=EffectivePermissions(
             platform_role="user",
-            crew_role="guest",
+            crew_role="viewer",
             permissions={"data.query.run": False},
         )
     )
@@ -369,11 +370,11 @@ async def test_rbac_best_role_for_user_in_space():
 
     async def get_member(cid, _uid):
         if cid == crew1:
-            return MagicMock(role="navigator")
-        return MagicMock(role="commander")
+            return MagicMock(role="editor")
+        return MagicMock(role="owner")
 
     svc.crew_members.get_by_crew_and_user = AsyncMock(side_effect=get_member)
-    assert await svc._best_role_for_user_in_space(user_id, space_id) == "commander"
+    assert await svc._best_role_for_user_in_space(user_id, space_id) == "owner"
 
 
 @pytest.mark.asyncio
@@ -384,7 +385,7 @@ async def test_rbac_best_role_for_user_for_connection_owner_and_perms():
 
     # owner branch
     svc.connection_repo.get_by_id = AsyncMock(return_value=MagicMock(created_by=user_id))
-    assert await svc._best_role_for_user_for_connection(user_id, conn_id) == "commander"
+    assert await svc._best_role_for_user_for_connection(user_id, conn_id) == "owner"
 
     # perms branch
     svc.connection_repo.get_by_id = AsyncMock(return_value=None)
@@ -396,9 +397,9 @@ async def test_rbac_best_role_for_user_for_connection_owner_and_perms():
             MagicMock(crew_id=None, space_id=space_id),
         ]
     )
-    svc.crew_members.get_by_crew_and_user = AsyncMock(return_value=MagicMock(role="explorer"))
-    svc._best_role_for_user_in_space = AsyncMock(return_value="navigator")
-    assert await svc._best_role_for_user_for_connection(user_id, conn_id) == "navigator"
+    svc.crew_members.get_by_crew_and_user = AsyncMock(return_value=MagicMock(role="viewer"))
+    svc._best_role_for_user_in_space = AsyncMock(return_value="editor")
+    assert await svc._best_role_for_user_for_connection(user_id, conn_id) == "editor"
 
 
 # --- Tests for src/services/rbac_service.py ---
@@ -407,7 +408,7 @@ async def test_rbac_best_role_for_user_for_connection_owner_and_perms():
 def test_effective_permissions_helper():
     from src.services.rbac_service import EffectivePermissions
 
-    ep = EffectivePermissions(platform_role="user", crew_role="navigator", permissions={"a": True})
+    ep = EffectivePermissions(platform_role="user", crew_role="editor", permissions={"a": True})
     assert ep.permissions.get("a") is True
     assert ep.permissions.get("b", False) is False
 

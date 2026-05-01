@@ -20,8 +20,8 @@ async def test_space_service_lifecycle(db_session):
     space = await service.create_space(user, create_data)
     assert space.name == "Service Test Space"
     
-    # 1b. Elevate creator to commander (since default is navigator)
-    await service.update_space_member_role(space.id, user.id, "commander")
+    # 1b. Elevate creator to owner (Phase 7 vocabulary).
+    await service.update_space_member_role(space.id, user.id, "owner")
     
     # 2. List Spaces
     spaces = await service.list_spaces(user)
@@ -40,16 +40,16 @@ async def test_space_service_lifecycle(db_session):
     # Add member
     other_user_id = uuid.uuid4()
     # Correct order: (space_id, user, member_data)
-    member = await service.add_space_member(space.id, user, SpaceMemberCreate(user_id=other_user_id, role="navigator"))
-    assert member.role == "navigator"
+    member = await service.add_space_member(space.id, user, SpaceMemberCreate(user_id=other_user_id, role="editor"))
+    assert member.role == "editor"
     
     # List members
     members = await service.get_space_members(space.id, user)
     assert len(members) >= 2 # creator + new member
     
     # Update member
-    member_upd = await service.update_space_member_role(space.id, other_user_id, "commander")
-    assert member_upd.role == "commander"
+    member_upd = await service.update_space_member_role(space.id, other_user_id, "owner")
+    assert member_upd.role == "owner"
     
     # Remove member
     await service.remove_space_member(space.id, other_user_id, user)

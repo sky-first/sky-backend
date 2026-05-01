@@ -160,7 +160,7 @@ class DemoService:
         """Return the active demo Space whose owner shares ``email_domain``.
 
         Used by item D (same-domain grouping): the first signup from
-        @acme.com mints the Space and becomes commander; later signups
+        @acme.com mints the Space and becomes owner; later signups
         from @acme.com join that Space instead of creating new ones.
 
         Returns None if:
@@ -199,7 +199,7 @@ class DemoService:
         sibling_space: Space,
         client_ip: Optional[str],
     ) -> DemoSignupResponse:
-        """Mint a new User and attach them as a navigator of an existing
+        """Mint a new User and attach them as an editor of an existing
         same-domain demo Space. Reuses the parent Space's TTL so the
         whole org's sandbox expires together. Logs loudly so the
         lead-gen pipeline can pick the event up.
@@ -230,15 +230,15 @@ class DemoService:
         self.db.add(user)
         await self.db.flush()
 
-        # Navigator role: full content writes (dashboards, widgets,
-        # agents, AI) but cannot manage members, edit Space settings,
-        # or delete crews. Owner of the demo Space can promote them
-        # via the standard members endpoint.
+        # Editor role (Phase 7 vocabulary): full content writes
+        # (dashboards, widgets, agents, AI) but cannot manage members,
+        # edit Space settings, or delete crews. Owner of the demo
+        # Space can promote them via the standard members endpoint.
         self.db.add(SpaceMember(
             id=uuid4(),
             space_id=sibling_space.id,
             user_id=user.id,
-            role="navigator",
+            role="editor",
         ))
 
         await self.db.commit()
@@ -377,7 +377,7 @@ class DemoService:
         # was "every email = new sandbox" which fragmented teams across
         # parallel demos and made the same-org collaboration story
         # impossible. Now: first signup mints the Space + becomes
-        # commander; subsequent same-domain signups join as navigator
+        # owner; subsequent same-domain signups join as editor
         # (full content access, no member/space/connection management).
         # Owner can promote later if needed.
         sibling_space = await self._find_sibling_demo_space(email_domain)
@@ -427,18 +427,18 @@ class DemoService:
         self.db.add(space)
         await self.db.flush()
 
-        # Member bridge — guest is COMMANDER of their own sandbox so
-        # the BE rbac_service.py:1014 path matches commander/navigator/
-        # explorer and grants the full Space-axis capabilities. Earlier
-        # demo signups used role="admin" which fell through to "guest"
-        # because that match-list is strict — that's why every demo
-        # tester before A1 hit "no permission to run queries" the first
-        # time they tried the AI. See test_rbac_space_role_axis.py:S-80.
+        # Member bridge — guest is OWNER of their own sandbox so the
+        # resolver grants the full Space-axis capabilities (Phase 7
+        # vocabulary; the resolver also accepts the pre-Phase-7
+        # owner alias on read for backward-compat). Earlier demo
+        # signups used role="admin" which fell through to "guest" in
+        # the pre-A1 enforcement and silently denied AI access on
+        # first chat. See test_rbac_space_role_axis.py:S-80.
         member = SpaceMember(
             id=uuid4(),
             space_id=space.id,
             user_id=user.id,
-            role="commander",
+            role="owner",
         )
         self.db.add(member)
 
@@ -511,12 +511,7 @@ class DemoService:
         # empty Space — idempotent binder closes the gap.
         added = await self._ensure_dataset_connections(space)
 
-        # Backfill #2 (A1): pre-A1 signups created SpaceMember.role=
-        # "admin", which falls through to "guest" in rbac_service:1014.
-        # Normalize on every returning login (idempotent).
-        normalized = await self._normalize_legacy_member_role(space, user)
-
-        if added or normalized:
+        if added:
             await self.db.commit()
 
         # Slack ping intentionally NOT fired on returning login.
@@ -531,37 +526,6 @@ class DemoService:
             user.demo_expires_at or datetime.now(timezone.utc),
             is_returning=True,
         )
-
-    async def _normalize_legacy_member_role(
-        self, space: Space, user: User,
-    ) -> bool:
-        """Convert SpaceMember.role from legacy admin/member to
-        commander/explorer for this user/space pair. Returns True if
-        a row was actually mutated (caller should commit), False
-        otherwise.
-        """
-        res = await self.db.execute(
-            select(SpaceMember).where(
-                SpaceMember.space_id == space.id,
-                SpaceMember.user_id == user.id,
-            )
-        )
-        member = res.scalar_one_or_none()
-        if member is None:
-            return False
-
-        legacy_to_canonical = {"admin": "commander", "member": "explorer"}
-        new_role = legacy_to_canonical.get(member.role)
-        if new_role is None:
-            return False  # already commander/navigator/explorer or unknown
-
-        logger.info(
-            "demo_legacy_role_normalized space_id=%s user_id=%s "
-            "from=%s to=%s",
-            space.id, user.id, member.role, new_role,
-        )
-        member.role = new_role
-        return True
 
     def _issue_response(
         self,

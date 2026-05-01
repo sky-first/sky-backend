@@ -418,7 +418,7 @@ async def update_role_permission(
     Update role permission.
 
     Args:
-        role: Role name (commander, navigator, explorer, guest)
+        role: Role name (owner, editor, viewer)
         permission_data: Permission update data
         current_user: Current authenticated user
         db: Database session

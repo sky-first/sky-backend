@@ -22,11 +22,11 @@ Policy (agreed with product, 2026-04-23):
    404 (not 403) so the endpoint does not advertise existence.
 2. **Creator bypass** (Space/Crew): the user who *created* the row can
    always delete/update it, regardless of per-space role. An
-   explorer who owns a widget can remove their own widget.
+   viewer who owns a widget can remove their own widget.
 3. **Non-creator must clear RBAC**: any other caller needs the
    matching ``<entity>.<action>`` permission in the entity's space —
-   this is where role hierarchy kicks in (navigator cannot delete,
-   commander and admin can). We delegate to
+   this is where role hierarchy kicks in (editor cannot delete,
+   owner and platform admin can). We delegate to
    :class:`~src.services.rbac_service.RBACService`.
 4. **Platform admins / owners** bypass 2 + 3 entirely — handled inside
    :class:`RBACService` so we don't have to repeat it.

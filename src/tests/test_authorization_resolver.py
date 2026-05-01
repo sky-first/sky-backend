@@ -22,13 +22,8 @@ Coverage matrix (15 cases):
    10. member + editor  → spaces.members.manage  (owner)      → deny
    11. member + owner   → spaces.members.manage  (owner)      → allow
 
-  Legacy role normalisation (rows still using old strings):
-   12. member + "navigator" (legacy) → connections.create     → allow
-   13. member + "explorer" (legacy)  → connections.create     → deny
-   14. member + "commander" (legacy) → spaces.members.manage  → allow
-
   Negative — unknown permission key:
-   15. owner   → "no.such.key"          → deny
+   12. owner   → "no.such.key"          → deny
 """
 
 from __future__ import annotations
@@ -175,47 +170,6 @@ async def test_space_owner_can_manage_members(db_session):
         is True
     )
 
-
-# ── Legacy role normalisation (existing DB rows) ────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_legacy_navigator_normalises_to_editor(db_session):
-    owner = await _user(db_session, role="admin", name="Owner")
-    user = await _user(db_session, role="member", name="LN")
-    space = await _space_with_member(db_session, owner, user, "navigator")
-    assert (
-        await Authorization(db_session).can(
-            user, "connections.create", space_id=space.id
-        )
-        is True
-    )
-
-
-@pytest.mark.asyncio
-async def test_legacy_explorer_normalises_to_viewer(db_session):
-    owner = await _user(db_session, role="admin", name="Owner")
-    user = await _user(db_session, role="member", name="LE")
-    space = await _space_with_member(db_session, owner, user, "explorer")
-    assert (
-        await Authorization(db_session).can(
-            user, "connections.create", space_id=space.id
-        )
-        is False
-    )
-
-
-@pytest.mark.asyncio
-async def test_legacy_commander_normalises_to_owner(db_session):
-    creator = await _user(db_session, role="admin", name="Owner")
-    user = await _user(db_session, role="member", name="LC")
-    space = await _space_with_member(db_session, creator, user, "commander")
-    assert (
-        await Authorization(db_session).can(
-            user, "spaces.members.manage", space_id=space.id
-        )
-        is True
-    )
 
 
 # ── Negative ────────────────────────────────────────────────────────────────

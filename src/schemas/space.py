@@ -65,19 +65,20 @@ class SpaceResponse(SpaceBase):
 
 
 # Space roles — deliberately NOT reusing platform role names. Using
-# "admin" here was confusing ("Alice is admin of Finance vs admin of
-# the tenant?"). Space vocabulary stays commander / navigator /
-# explorer, which already matched the Sky language in the old
-# permission matrix. Platform stays owner / admin.
-SPACE_MEMBER_ROLES = {"commander", "navigator", "explorer"}
+# Phase 7 — Space-axis vocabulary is exclusively owner / editor / viewer.
+# Writes outside this set 400 at the schema validator. The resolver also
+# floors any unknown value back to viewer at runtime so DB drift fails
+# closed.
+SPACE_MEMBER_ROLES = {"owner", "editor", "viewer"}
 
 
 class SpaceMemberCreate(BaseModel):
     """Space member creation schema."""
 
     user_id: UUID
-    # Per-space role. See docs/rbac-two-axis-design.md.
-    role: str = "navigator"
+    # Per-space role. Default mirrors the BE column default — every
+    # invited member starts as an editor and is promoted explicitly.
+    role: str = "editor"
 
 
 class SpaceMemberUpdate(BaseModel):
@@ -92,7 +93,7 @@ class SpaceMemberResponse(BaseModel):
     id: UUID
     space_id: UUID
     user_id: UUID
-    role: str = "navigator"
+    role: str = "editor"
     user: Optional[UserResponse] = None
     created_at: datetime
 

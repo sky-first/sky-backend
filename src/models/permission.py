@@ -209,14 +209,14 @@ class Integration(Base):
 
 
 class RolePermission(Base):
-    """Role permission model - stores permissions for custom roles (Commander, Navigator, Explorer, Guest)."""
+    """Role permission model - stores permissions for custom roles (Owner, Editor, Viewer, Guest)."""
 
     __tablename__ = "role_permissions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     role = Column(
         String(50), nullable=False, unique=True, index=True
-    )  # commander, navigator, explorer, guest
+    )  # owner, editor, viewer
     permissions = Column(JSON, nullable=False)  # Dictionary of permission keys and boolean values
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(

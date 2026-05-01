@@ -37,16 +37,16 @@ async def test_crew_service_lifecycle(db_session):
     
     # 5. Members Management
     other_user_id = uuid.uuid4()
-    member = await service.add_crew_member(crew.id, user, CrewMemberCreate(user_id=other_user_id, role="navigator"))
-    assert member.role == "navigator"
-    
+    member = await service.add_crew_member(crew.id, user, CrewMemberCreate(user_id=other_user_id, role="editor"))
+    assert member.role == "editor"
+
     # List members
     members = await service.get_crew_members(crew.id, user)
     assert len(members) >= 2
-    
+
     # Update member
-    member_upd = await service.update_crew_member_role(crew.id, other_user_id, CrewMemberUpdate(role="commander"), user)
-    assert member_upd.role == "commander"
+    member_upd = await service.update_crew_member_role(crew.id, other_user_id, CrewMemberUpdate(role="owner"), user)
+    assert member_upd.role == "owner"
     
     # Remove member
     await service.remove_crew_member(crew.id, other_user_id, user)

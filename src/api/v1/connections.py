@@ -194,7 +194,7 @@ async def create_connection(
     # Belt-and-suspenders: assert BOTH connections.create and connections.edit.
     # Pre-A1 the catalog only differentiated edit, but Lucas's spec
     # (2026-04-29 demo review) draws a sharper line — only owner/admin
-    # mint a Connection, navigators/explorers are read-only even when
+    # mint a Connection, editors/viewers are read-only even when
     # linked to a Space. Asserting both keys means a future role tweak
     # that flips one but forgets the other still denies.
     await rbac.assert_permission(current_user, "connections.create")

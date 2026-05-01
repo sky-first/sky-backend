@@ -350,7 +350,7 @@ async def test_non_member_cannot_list_messages_in_crew_conversation(
     db_session.add(crew)
     await db_session.commit()
     await db_session.refresh(crew)
-    db_session.add(CrewMember(crew_id=crew.id, user_id=owner.id, role="commander"))
+    db_session.add(CrewMember(crew_id=crew.id, user_id=owner.id, role="owner"))
     await db_session.commit()
 
     owner_headers = get_auth_headers(test_user_with_tokens["access_token"])

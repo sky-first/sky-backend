@@ -370,10 +370,12 @@ class TestConfirmUpload:
         _stop(svc)
 
     @pytest.mark.asyncio
-    async def test_commander_confirms_crew_file_goes_to_processing(self):
-        # Owner who has files.approve (commander) → goes straight to processing.
+    async def test_admin_confirms_crew_file_goes_to_processing(self):
+        # Platform Admin / Owner auto-approves → goes straight to processing
+        # (Lucas's 2026-04-30 correction: crew-level Owner / Editor must
+        # park in pending_approval; only platform Owner/Admin self-approve).
         svc = _make_service(rbac_decision="allow")
-        user = _user()
+        user = _user(role="admin")
         file = _file(owner_id=user.id, scope="crew", status="pending")
         svc.file_repo.get_by_id = AsyncMock(return_value=file)
         svc.file_repo.update = AsyncMock()

@@ -588,7 +588,7 @@ class PermissionService:
         Update role permission.
 
         Args:
-            role: Role name (commander, navigator, explorer, guest)
+            role: Role name (owner, editor, viewer)
             user: Current user
             permission_data: Permission update data
 
@@ -606,13 +606,13 @@ class PermissionService:
 
         # Lucas's 2026-04-30 review: Member is the platform-level role
         # for everyday employees and MUST be editable in the matrix.
-        # Guest was retired (canonicalised to explorer on the BE).
+        # Guest was retired (canonicalised to viewer on the BE).
         # Owner / Admin still bypass on the runtime read path
         # (rbac_service:697) so flipping their toggles is a no-op,
         # but the toggle has to land somewhere to persist; we accept
         # them here so the FE matrix renders the same row count it
         # already shows.
-        valid_roles = ["owner", "admin", "member", "commander", "navigator", "explorer"]
+        valid_roles = ["owner", "admin", "member", "editor", "viewer"]
         if role not in valid_roles:
             raise BadRequestError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
 

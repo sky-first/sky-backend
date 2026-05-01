@@ -393,7 +393,7 @@ class DashboardService:
 
         # Red-team HI-002: widget mutation also runs through the
         # creator-bypass + RBAC guard. Creator can edit own, otherwise
-        # need widgets.edit (navigator=yes, explorer=no) in the
+        # need widgets.edit (editor=yes, viewer=no) in the
         # widget's space.
         from src.services._mutation_guard import require_mutation_rights
         await require_mutation_rights(

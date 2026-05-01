@@ -62,7 +62,7 @@ async def _make_space(db: AsyncSession, name: str, owner: User) -> Space:
 
 
 async def _add_to_space(
-    db: AsyncSession, user: User, space: Space, *, role: str = "navigator"
+    db: AsyncSession, user: User, space: Space, *, role: str = "editor"
 ) -> None:
     db.add(SpaceMember(space_id=space.id, user_id=user.id, role=role))
     await db.flush()
@@ -76,7 +76,7 @@ async def _make_crew(db: AsyncSession, name: str, space: Space, owner: User) -> 
 
 
 async def _add_to_crew(
-    db: AsyncSession, user: User, crew: Crew, *, role: str = "navigator"
+    db: AsyncSession, user: User, crew: Crew, *, role: str = "editor"
 ) -> None:
     db.add(CrewMember(crew_id=crew.id, user_id=user.id, role=role))
     await db.flush()
@@ -122,9 +122,9 @@ async def test_mut_02_user_cannot_write_to_other_users_personal(
 async def test_mut_03_crew_commander_writes_to_own_crew(db_session, test_user):
     user = test_user["user"]
     space = await _make_space(db_session, "S1", user)
-    await _add_to_space(db_session, user, space, role="admin")
+    await _add_to_space(db_session, user, space, role="owner")
     crew = await _make_crew(db_session, "C1", space, user)
-    await _add_to_crew(db_session, user, crew, role="commander")
+    await _add_to_crew(db_session, user, crew, role="owner")
 
     service = MetricService(db_session)
     m = await service.create(
@@ -139,7 +139,7 @@ async def test_mut_04_crew_navigator_writes_to_own_crew(db_session, test_user):
     space = await _make_space(db_session, "S1", user)
     await _add_to_space(db_session, user, space)
     crew = await _make_crew(db_session, "C1", space, user)
-    await _add_to_crew(db_session, user, crew, role="navigator")
+    await _add_to_crew(db_session, user, crew, role="editor")
 
     service = MetricService(db_session)
     m = await service.create(
@@ -154,7 +154,7 @@ async def test_mut_05_crew_explorer_denied(db_session, test_user):
     space = await _make_space(db_session, "S1", user)
     await _add_to_space(db_session, user, space)
     crew = await _make_crew(db_session, "C1", space, user)
-    await _add_to_crew(db_session, user, crew, role="explorer")
+    await _add_to_crew(db_session, user, crew, role="viewer")
 
     service = MetricService(db_session)
     with pytest.raises(ForbiddenError):
@@ -170,12 +170,12 @@ async def test_mut_06_commander_cannot_write_to_sibling_crew(
     alice = test_user["user"]
     bob = await _resolve_user(db_session, test_second_user_with_tokens["user"])
     space = await _make_space(db_session, "S1", alice)
-    await _add_to_space(db_session, alice, space, role="admin")
+    await _add_to_space(db_session, alice, space, role="owner")
     await _add_to_space(db_session, bob, space)
     c1 = await _make_crew(db_session, "C1", space, alice)
-    await _add_to_crew(db_session, alice, c1, role="commander")
+    await _add_to_crew(db_session, alice, c1, role="owner")
     c2 = await _make_crew(db_session, "C2", space, bob)
-    await _add_to_crew(db_session, bob, c2, role="commander")
+    await _add_to_crew(db_session, bob, c2, role="owner")
 
     service = MetricService(db_session)
     # Alice is Commander of C1 only — she cannot write to C2.
@@ -189,7 +189,7 @@ async def test_mut_06_commander_cannot_write_to_sibling_crew(
 async def test_mut_07_space_commander_writes_to_own_space(db_session, test_user):
     user = test_user["user"]
     space = await _make_space(db_session, "S1", user)
-    await _add_to_space(db_session, user, space, role="admin")  # admin == Commander
+    await _add_to_space(db_session, user, space, role="owner")
 
     service = MetricService(db_session)
     m = await service.create(
@@ -206,7 +206,7 @@ async def test_mut_08_space_navigator_denied(db_session, test_user):
     """
     user = test_user["user"]
     space = await _make_space(db_session, "S1", user)
-    await _add_to_space(db_session, user, space, role="navigator")
+    await _add_to_space(db_session, user, space, role="editor")
 
     service = MetricService(db_session)
     with pytest.raises(ForbiddenError):

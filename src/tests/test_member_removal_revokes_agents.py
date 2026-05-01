@@ -84,7 +84,7 @@ async def test_remove_space_member_pauses_creators_agents(db_session):
     db_session.add(space)
     await db_session.flush()
 
-    db_session.add(SpaceMember(space_id=space.id, user_id=creator.id, role="member"))
+    db_session.add(SpaceMember(space_id=space.id, user_id=creator.id, role="editor"))
     agent = _agent_in_space(creator=creator.id, space=space.id)
     db_session.add(agent)
     await db_session.commit()
@@ -119,8 +119,8 @@ async def test_remove_space_member_does_not_pause_other_users_agents(db_session)
     await db_session.flush()
 
     db_session.add_all([
-        SpaceMember(space_id=space.id, user_id=alice.id, role="member"),
-        SpaceMember(space_id=space.id, user_id=bob.id, role="member"),
+        SpaceMember(space_id=space.id, user_id=alice.id, role="editor"),
+        SpaceMember(space_id=space.id, user_id=bob.id, role="editor"),
     ])
     bob_agent = _agent_in_space(creator=bob.id, space=space.id)
     db_session.add(bob_agent)
@@ -165,11 +165,11 @@ async def test_remove_crew_member_pauses_creators_crew_agents(db_session):
         created_by=admin.id,
     )
     db_session.add(crew)
-    db_session.add(SpaceMember(space_id=space.id, user_id=admin.id, role="admin"))
-    db_session.add(SpaceMember(space_id=space.id, user_id=creator.id, role="member"))
+    db_session.add(SpaceMember(space_id=space.id, user_id=admin.id, role="owner"))
+    db_session.add(SpaceMember(space_id=space.id, user_id=creator.id, role="editor"))
     await db_session.flush()
 
-    db_session.add(CrewMember(crew_id=crew.id, user_id=creator.id, role="explorer"))
+    db_session.add(CrewMember(crew_id=crew.id, user_id=creator.id, role="viewer"))
     agent = _agent_in_crew(creator=creator.id, crew=crew.id)
     db_session.add(agent)
     await db_session.commit()

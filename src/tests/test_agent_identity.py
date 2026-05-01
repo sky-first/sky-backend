@@ -68,7 +68,7 @@ async def _make_crew_with_sp(db: AsyncSession, space_id, owner_id, name="C"):
     await db.refresh(crew)
     sp = ServicePrincipal(crew_id=crew.id, name=f"sa-crew-{str(crew.id)[:8]}")
     db.add(sp)
-    db.add(CrewMember(crew_id=crew.id, user_id=owner_id, role="commander"))
+    db.add(CrewMember(crew_id=crew.id, user_id=owner_id, role="owner"))
     await db.commit()
     return crew, sp
 
