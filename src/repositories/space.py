@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.models.connection import DataConnection
-from src.models.crew import Crew
+from src.models.crew import Crew, CrewMember
 from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable
 from src.repositories.base import BaseRepository
 
@@ -20,13 +20,24 @@ class SpaceRepository(BaseRepository[Space]):
         super().__init__(db, Space)
 
     async def get_by_user(self, user_id: UUID, skip: int = 0, limit: int = 100) -> List[Space]:
-        """Get spaces the user created or is a member of."""
+        """Get spaces the user created or is a member of (Space or Crew)."""
         member_space_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
+        # Phase 2.5 — Crew membership in a Crew inside a Space implies
+        # access to that Space, even without a SpaceMember row.
+        crew_space_ids = (
+            select(Crew.space_id)
+            .join(CrewMember, CrewMember.crew_id == Crew.id)
+            .where(CrewMember.user_id == user_id)
+        )
         result = await self.db.execute(
             select(Space)
             .where(
                 Space.deleted_at.is_(None),
-                or_(Space.created_by == user_id, Space.id.in_(member_space_ids)),
+                or_(
+                    Space.created_by == user_id,
+                    Space.id.in_(member_space_ids),
+                    Space.id.in_(crew_space_ids),
+                ),
             )
             .order_by(Space.created_at.desc())
             .offset(skip)
@@ -37,8 +48,14 @@ class SpaceRepository(BaseRepository[Space]):
     async def get_by_user_with_stats(
         self, user_id: UUID, skip: int = 0, limit: int = 100
     ) -> List[dict]:
-        """Get spaces (created or member) with member and connection counts."""
+        """Get spaces (created or member, including via Crew) with stats."""
         member_space_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
+        # Phase 2.5 — Crew membership implies Space visibility.
+        crew_space_ids = (
+            select(Crew.space_id)
+            .join(CrewMember, CrewMember.crew_id == Crew.id)
+            .where(CrewMember.user_id == user_id)
+        )
         stmt = (
             select(
                 Space,
@@ -49,7 +66,11 @@ class SpaceRepository(BaseRepository[Space]):
             .outerjoin(SpaceConnection, Space.id == SpaceConnection.space_id)
             .where(
                 Space.deleted_at.is_(None),
-                or_(Space.created_by == user_id, Space.id.in_(member_space_ids)),
+                or_(
+                    Space.created_by == user_id,
+                    Space.id.in_(member_space_ids),
+                    Space.id.in_(crew_space_ids),
+                ),
             )
             .group_by(Space.id)
             .order_by(Space.created_at.desc())

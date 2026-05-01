@@ -35,10 +35,15 @@ their effective access via max(spaceRole, crewRole):
                               "RBAC Tax Crew"  → viewer
                               "RBAC Audit Crew" → owner   (highest wins)
 
-Common password for all of them: Test@2026!Secure
+Auth: password login is disabled in production (SSO + public demo
+only). For local visual validation use `scripts/impersonate-rbac-user.py`
+which signs a JWT against the local BE secret and prints a devtools
+snippet you paste into the browser. The `password_hash` column on each
+row is set to a random throwaway value to satisfy the NOT NULL
+constraint — nobody ever logs in with a password.
 
-Each row is idempotent: rerun is safe and only patches the password +
-role + Space membership back to the canonical values.
+Each row is idempotent: rerun is safe and only patches the role +
+Space membership back to the canonical values.
 """
 
 import asyncio
@@ -51,6 +56,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import secrets
+
 from src.core.security import get_password_hash
 from src.models.crew import Crew, CrewMember
 from src.models.page import Page  # noqa: F401 — register relationship
@@ -60,7 +67,12 @@ from src.models.workspace import Workspace  # noqa: F401 — register relationsh
 from src.services.onboarding_service import ensure_default_page_and_space
 
 
-PASSWORD = "Test@2026!Secure"
+# Password login is disabled in production. The hash is only here to
+# satisfy the NOT NULL constraint on `users.password_hash`. Generate a
+# fresh random one each run so it cannot be guessed and so anyone who
+# tries to "log in with the password" gets a clear failure.
+def _throwaway_hash() -> str:
+    return get_password_hash(secrets.token_urlsafe(32))
 
 USERS = [
     # Platform-only (no Space) — owner/admin bypass Space gates; member → Personal.
@@ -95,14 +107,14 @@ AUDIT_CREW_NAME = "RBAC Audit Crew"
 async def upsert_user(session, email, role, name):
     existing = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if existing:
-        existing.password_hash = get_password_hash(PASSWORD)
+        existing.password_hash = _throwaway_hash()
         existing.role = role
         existing.name = name
         await session.flush()
         return existing
     user = User(
         email=email,
-        password_hash=get_password_hash(PASSWORD),
+        password_hash=_throwaway_hash(),
         name=name,
         role=role,
     )
@@ -209,7 +221,9 @@ async def main():
         await session.commit()
 
     print("✅ Seed complete.")
-    print(f"   Common password: {PASSWORD}")
+    print("   Auth: password login is disabled. Use")
+    print("   `scripts/impersonate-rbac-user.py <email>` to drop into a persona.")
+    print()
     for email, role, _, ctx in USERS:
         ctx_str = f"  (Space '{SPACE_NAME}': {ctx})" if ctx else ""
         print(f"   {role:8}  {email}{ctx_str}")
