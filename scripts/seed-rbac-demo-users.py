@@ -3,15 +3,27 @@
 
 Run: python scripts/seed-rbac-demo-users.py
 
-Creates / upserts:
+Creates / upserts the full 3×3 cross-axis matrix plus the 3 no-space
+platform pivots (12 users total). Email naming convention:
+`rbac.<platform>[-<context>]@skyfirstlabs.local`.
 
-  • rbac.owner@skyfirstlabs.local         user.role=owner    (no space)
-  • rbac.admin@skyfirstlabs.local         user.role=admin    (no space)
-  • rbac.member@skyfirstlabs.local        user.role=member   (no space → Personal)
-  • rbac.demo@skyfirstlabs.local          user.role=member + Space "RBAC Demo Space" with role=navigator
-                                          (matches the actual Demo signup flow)
+Platform-only (no Space membership):
+  • rbac.owner@…                  user.role=owner    (no space)
+  • rbac.admin@…                  user.role=admin    (no space)
+  • rbac.member@…                 user.role=member   (no space → Personal)
 
-Common password for all four: Test@2026!Secure
+Cross-axis (member of "RBAC Demo Space" with the listed context role):
+  • rbac.owner-commander@…        owner   + commander
+  • rbac.owner-navigator@…        owner   + navigator
+  • rbac.owner-explorer@…         owner   + explorer
+  • rbac.admin-commander@…        admin   + commander
+  • rbac.admin-navigator@…        admin   + navigator
+  • rbac.admin-explorer@…         admin   + explorer
+  • rbac.member-commander@…       member  + commander
+  • rbac.demo@…                   member  + navigator   (the actual Demo flow)
+  • rbac.member-explorer@…        member  + explorer
+
+Common password for all of them: Test@2026!Secure
 
 Each row is idempotent: rerun is safe and only patches the password +
 role + Space membership back to the canonical values.
@@ -38,10 +50,20 @@ from src.services.onboarding_service import ensure_default_page_and_space
 PASSWORD = "Test@2026!Secure"
 
 USERS = [
-    ("rbac.owner@skyfirstlabs.local",  "owner",  "RBAC Owner",      None),
-    ("rbac.admin@skyfirstlabs.local",  "admin",  "RBAC Admin",      None),
-    ("rbac.member@skyfirstlabs.local", "member", "RBAC Member",     None),
-    ("rbac.demo@skyfirstlabs.local",   "member", "RBAC Demo Visitor", "navigator"),
+    # Platform-only (no Space) — owner/admin bypass Space gates; member → Personal.
+    ("rbac.owner@skyfirstlabs.local",            "owner",  "RBAC Owner",            None),
+    ("rbac.admin@skyfirstlabs.local",            "admin",  "RBAC Admin",            None),
+    ("rbac.member@skyfirstlabs.local",           "member", "RBAC Member",           None),
+    # Full 3×3 platform × context cross-axis (rbac.<plat>-<ctx>@…).
+    ("rbac.owner-commander@skyfirstlabs.local",  "owner",  "RBAC Owner Commander",  "commander"),
+    ("rbac.owner-navigator@skyfirstlabs.local",  "owner",  "RBAC Owner Navigator",  "navigator"),
+    ("rbac.owner-explorer@skyfirstlabs.local",   "owner",  "RBAC Owner Explorer",   "explorer"),
+    ("rbac.admin-commander@skyfirstlabs.local",  "admin",  "RBAC Admin Commander",  "commander"),
+    ("rbac.admin-navigator@skyfirstlabs.local",  "admin",  "RBAC Admin Navigator",  "navigator"),
+    ("rbac.admin-explorer@skyfirstlabs.local",   "admin",  "RBAC Admin Explorer",   "explorer"),
+    ("rbac.member-commander@skyfirstlabs.local", "member", "RBAC Member Commander", "commander"),
+    ("rbac.demo@skyfirstlabs.local",             "member", "RBAC Demo Visitor",     "navigator"),
+    ("rbac.member-explorer@skyfirstlabs.local",  "member", "RBAC Member Explorer",  "explorer"),
 ]
 SPACE_NAME = "RBAC Demo Space"
 

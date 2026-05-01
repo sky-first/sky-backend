@@ -145,12 +145,21 @@ async def query_user(db_session, request):
 
 
 CASES = [
+    # Platform-only (no Space membership) — owner/admin bypass Space gates;
+    # member falls back to Personal scope.
     pytest.param(("owner", None, "Platform Owner"), id="owner-no-space"),
     pytest.param(("admin", None, "Platform Admin"), id="admin-no-space"),
     pytest.param(("member", None, "Member Personal"), id="member-personal"),
+    # Full 3×3 platform × context cross-axis matrix.
+    pytest.param(("owner", "commander", "Owner Commander"), id="owner+commander"),
+    pytest.param(("owner", "navigator", "Owner Navigator"), id="owner+navigator"),
+    pytest.param(("owner", "explorer", "Owner Explorer"), id="owner+explorer"),
+    pytest.param(("admin", "commander", "Admin Commander"), id="admin+commander"),
+    pytest.param(("admin", "navigator", "Admin Navigator"), id="admin+navigator"),
+    pytest.param(("admin", "explorer", "Admin Explorer"), id="admin+explorer"),
+    pytest.param(("member", "commander", "Member Commander"), id="member+commander"),
     pytest.param(("member", "navigator", "Demo Navigator"), id="demo-member+navigator"),
     pytest.param(("member", "explorer", "Member Explorer"), id="member+explorer"),
-    pytest.param(("member", "commander", "Member Commander"), id="member+commander"),
 ]
 
 
