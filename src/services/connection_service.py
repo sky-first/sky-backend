@@ -216,6 +216,10 @@ class ConnectionService:
             sync_frequency=connection_data.sync_frequency,
             next_sync=next_sync,
             status="inactive",
+            # Phase 6 — propagate the sensitivity tier on create. Without
+            # this the repo defaulted every new row to "internal" and the
+            # auditable_only filter never had a chance to kick in.
+            tier=getattr(connection_data, "tier", None) or "internal",
             created_by=user.id,
         )
 
@@ -257,8 +261,8 @@ class ConnectionService:
             raise NotFoundError("Connection not found")
 
         # Red-team HI-002: creator can always edit; non-creator needs
-        # `connections.edit` in the connection's space (explorer/nav-
-        # igator denied, commander/admin allowed).
+        # `connections.edit` in the connection's space (viewer/edit-
+        # or denied, owner/admin allowed).
         from src.services._mutation_guard import require_mutation_rights
         await require_mutation_rights(
             connection, user=user, rbac_permission="connections.edit", db=self.db
@@ -316,7 +320,7 @@ class ConnectionService:
         # bypass + unified on the standard mutation guard so the same
         # rule runs in dev and prod. Creator can always delete; non-
         # creator needs `connections.delete` in the connection's space
-        # (matrix denies navigator/explorer, allows commander/admin).
+        # (matrix denies editor/viewer, allows owner/admin).
         from src.services._mutation_guard import require_mutation_rights
         await require_mutation_rights(
             connection, user=user, rbac_permission="connections.delete", db=self.db

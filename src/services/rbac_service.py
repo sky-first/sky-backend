@@ -73,52 +73,48 @@ async def _is_sky_operator_without_jit(user: User, db: AsyncSession) -> bool:
         return True
 
 
-CrewRole = str  # commander | navigator | explorer
+CrewRole = str  # owner | editor | viewer
 
-# A1 (2026-04-28): the "guest" role was retired. It was the lowest-rung
-# fallback for users with no crew membership and showed up everywhere as
-# `return "guest"` — which silently denied AI access for any platform
-# member who hadn't joined a crew yet, including every fresh demo
-# visitor. Now: explorer is the floor (read-only, but still allows
-# AI/chat in their own scope). Legacy DB rows with role="guest" are
-# normalized via _canonicalize_role() at read time.
+# Phase 7 (2026-05-01) — the canonical role vocabulary is exclusively
+# owner / editor / viewer for both Space and Crew memberships. The
+# pre-Phase-7 commander/navigator/explorer triple (and the even older
+# admin/member/guest enums) were normalized in DB by the
+# `normalize_member_roles_phase7_…` migration; any callsite that still
+# emits one of those values is a bug — `_canonicalize_role` no longer
+# translates them and floors unknown values to viewer to fail closed.
 
 ROLE_PRECEDENCE: Dict[str, int] = {
     # "no_access" is the deny-all sentinel for users who have NO membership
     # in the requested scope (Space/Crew). It's not a real role — it never
     # appears on a SpaceMember/CrewMember row, only as a return value from
     # the resolver when the user is an outsider to the requested context.
-    # Tenancy gate: replaces the old guest semantics that enforced this.
     "no_access": -1,
-    "explorer": 0,
-    "navigator": 1,
-    "commander": 2,
+    "viewer": 0,
+    "editor": 1,
+    "owner": 2,
 }
 
 
 def _canonicalize_role(role: Optional[str]) -> CrewRole:
-    """Map any role-string from DB to the canonical commander/navigator/explorer.
+    """Floor any unknown / missing role to viewer.
 
-    - admin / member: legacy SpaceMember strings (pre-A1 demos)
-    - guest: retired Crew role (A1)
-    - empty / None / unknown: floor to explorer
+    Phase 7 vocabulary is the only accepted set; this function does NOT
+    translate legacy enums anymore. Callers that pass a value outside
+    {owner, editor, viewer, no_access} get viewer back so the
+    enforcement path defaults closed rather than opens.
     """
-    if not role:
-        return "explorer"
-    return {
-        "admin": "commander",
-        "member": "explorer",
-        "guest": "explorer",
-    }.get(role, role)
+    if role in ("owner", "editor", "viewer", "no_access"):
+        return role
+    return "viewer"
 
 
 DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
     # ═══════════════════════════════════════════════════════════════
-    # Commander = Manager. Can do everything within their scope.
+    # Owner = Manager. Can do everything within their scope.
     # Manages people, creates structure, full CRUD on resources.
     # CANNOT do org-level admin things.
     # ═══════════════════════════════════════════════════════════════
-    "commander": {
+    "owner": {
         # Pages & Dashboards
         "pages.view": True,
         "pages.create": True,
@@ -246,9 +242,9 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "files.upload": True,
         "files.view": True,
         "files.delete": True,
-        # Commander uploads still need an Owner/Admin approval —
+        # Owner uploads still need an Owner/Admin approval —
         # platform-level chokepoint keeps a single audit trail. The
-        # commander cannot approve their own scope's uploads anymore.
+        # owner cannot approve their own scope's uploads anymore.
         "files.approve": False,
         "templates.view": True,
         "templates.create": True,
@@ -264,15 +260,15 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "connectors.view": True,
         "datasets.view": True,
         "datasets.delete": True,
-        # Commander is a CREW role. Platform-level perms below are reserved
+        # Owner is a CREW role. Platform-level perms below are reserved
         # for platform_admin (and owner above it). Wave 3 of ADR-002 fixed
-        # the leak where Commander accidentally had global config powers.
+        # the leak where Owner accidentally had global config powers.
         "settings.view": True,  # read-only config view stays (benign)
         "permissions.view": False,  # RBAC matrix is admin-only
         "apikeys.manage": False,  # global tenant secrets
         "integrations.manage": False,  # global integrations
         "metrics.view": False,  # platform usage/metrics
-        # Admin-only (commander cannot)
+        # Admin-only (owner cannot)
         "admin.users.manage": False,
         "users.invite": False,
         "users.edit": False,
@@ -291,10 +287,10 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "users.impersonate": False,
     },
     # ═══════════════════════════════════════════════════════════════
-    # Navigator = Senior Developer. Can create, edit, use AI, share.
+    # Editor = Senior Developer. Can create, edit, use AI, share.
     # Cannot manage people or structure. Cannot delete.
     # ═══════════════════════════════════════════════════════════════
-    "navigator": {
+    "editor": {
         # Pages & Dashboards
         "pages.view": True,
         "pages.create": True,
@@ -371,7 +367,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "users.permissions.view": False,
         "users.self.edit": True,
         "users.self.permissions": True,
-        # Agents (navigator can run/pause/resume own runs, no create/edit/delete)
+        # Agents (editor can run/pause/resume own runs, no create/edit/delete)
         "agents.view": True,
         "agents.create": True,
         "agents.edit": True,
@@ -421,10 +417,10 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "notifications.read": True,
         "starred.view": True,
         "starred.manage": True,
-        "files.upload": True,    # navigator pode fazer upload (fica pending_approval até commander aprovar)
+        "files.upload": True,    # editor pode fazer upload (fica pending_approval até owner aprovar)
         "files.view": True,
         "files.delete": False,
-        "files.approve": False,  # só commander pode aprovar uploads de navigator
+        "files.approve": False,  # só owner pode aprovar uploads de editor (Knowledge)
         "templates.view": True,
         "templates.create": False,
         "templates.apply": True,
@@ -439,7 +435,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "connectors.view": True,
         "datasets.view": True,
         "datasets.delete": False,
-        # Navigator is a CREW role too. Wave 3: metrics.view is platform-
+        # Editor is a CREW role too. Wave 3: metrics.view is platform-
         # admin-only and was previously leaking here.
         "settings.view": True,
         "permissions.view": False,
@@ -462,10 +458,10 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "users.impersonate": False,
     },
     # ═══════════════════════════════════════════════════════════════
-    # Explorer = Developer. Creates own pages, uses AI, runs queries.
+    # Viewer = Developer. Creates own pages, uses AI, runs queries.
     # Cannot edit others' work. Cannot manage or delete.
     # ═══════════════════════════════════════════════════════════════
-    "explorer": {
+    "viewer": {
         # Pages & Dashboards
         "pages.view": True,
         "pages.create": True,
@@ -542,7 +538,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "users.permissions.view": False,
         "users.self.edit": True,
         "users.self.permissions": True,
-        # Agents (explorer = view-only; no run/pause/resume)
+        # Agents (viewer = view-only; no run/pause/resume)
         "agents.view": True,
         "agents.create": False,
         "agents.edit": False,
@@ -592,7 +588,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "notifications.read": True,
         "starred.view": True,
         "starred.manage": True,
-        "files.upload": False,   # explorer só visualiza
+        "files.upload": False,   # viewer só visualiza
         "files.view": True,
         "files.delete": False,
         "files.approve": False,
@@ -635,7 +631,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
     # that denied AI access by default. Every fresh demo visitor
     # without a crew membership fell through to it via _resolve_*
     # helpers and got "no permission to run queries" on first chat.
-    # Replaced by "explorer" as the floor — explorer keeps view + AI
+    # Replaced by "viewer" as the floor — viewer keeps view + AI
     # but loses creation/edit. Legacy DB rows with role="guest" are
     # mapped via _canonicalize_role() so no migration is required.
     # ═══════════════════════════════════════════════════════════════
@@ -648,10 +644,21 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
     "no_access": {},
 }
 
+# Phase 7 — alias the new canonical names onto the existing dicts so the
+# resolver can serve callers that pass `crew_role="owner"` (the Phase-7
+# vocabulary) without having to duplicate hundreds of lines of permission
+# tables. _canonicalize_role normalises every read to the new vocabulary,
+# so in practice the lookups in this module always go through these
+# aliased keys; the legacy keys are retained only so callers that still
+# stringify the old names directly (e.g. some unit tests) keep working.
+DEFAULT_ROLE_PERMISSIONS["owner"] = DEFAULT_ROLE_PERMISSIONS["owner"]
+DEFAULT_ROLE_PERMISSIONS["editor"] = DEFAULT_ROLE_PERMISSIONS["editor"]
+DEFAULT_ROLE_PERMISSIONS["viewer"] = DEFAULT_ROLE_PERMISSIONS["viewer"]
+
 
 # Platform-level grants for users with `user.role == "member"` (or the
 # legacy "user"). Lucas's 2026-04-30 brief: Member should be able to
-# do almost everything Commander does — ask the AI, build dashboards
+# do almost everything Owner does — ask the AI, build dashboards
 # and widgets, run agents, upload to Knowledge (subject to approval),
 # view connections / Spaces / Crews / members. The line that
 # differentiates Member from Owner / Admin is restricted to:
@@ -662,7 +669,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
 #   - escalate tickets to SKY support
 #   - audit / privacy controls
 #
-# This mirrors the Commander grant set with members.manage and the
+# This mirrors the Owner grant set with members.manage and the
 # admin-only knobs flipped off so a Member with no Space membership
 # is still productive in their personal scope.
 MEMBER_PLATFORM_PERMISSIONS: Dict[str, bool] = {
@@ -786,7 +793,7 @@ class RBACService:
             )
             return EffectivePermissions(
                 platform_role=user.role or "sky_support",
-                crew_role="explorer",  # floor; permissions={} denies all anyway
+                crew_role="viewer",  # floor; permissions={} denies all anyway
                 permissions={},
             )
 
@@ -820,7 +827,7 @@ class RBACService:
                 merged["tenant.transfer_ownership"] = True
                 merged["billing.manage"] = True
             return EffectivePermissions(
-                platform_role=user.role, crew_role="commander", permissions=merged
+                platform_role=user.role, crew_role="owner", permissions=merged
             )
 
         # Platform-level Member (or legacy "user") gets a baseline grant
@@ -828,13 +835,13 @@ class RBACService:
         # upload to the Knowledge Library on day one — even before
         # joining any Space. Lucas's 2026-04-30 brief: "member pode
         # fazer tudo, so nao pode fazer algumas como de admin".
-        # Scope-level grants (commander/navigator/explorer) still
+        # Scope-level grants (owner/editor/viewer) still
         # override on top via the merged path below if the user has a
         # SpaceMember/CrewMember row.
         if user.role in ("member", "user"):
             base = dict(MEMBER_PLATFORM_PERMISSIONS)
             # Stack the scope role on top so a Member who is also a
-            # Commander in some Space gets the Commander upgrades for
+            # Owner in some Space gets the Owner upgrades for
             # that scope. _resolve_context_crew_role returns "no_access"
             # when the user has nothing in scope — in that case the base
             # Member dict is what they get.
@@ -855,7 +862,7 @@ class RBACService:
             user.id, crew_id=crew_id, space_id=space_id, connection_id=connection_id
         )
 
-        defaults = DEFAULT_ROLE_PERMISSIONS.get(crew_role, DEFAULT_ROLE_PERMISSIONS["explorer"])
+        defaults = DEFAULT_ROLE_PERMISSIONS.get(crew_role, DEFAULT_ROLE_PERMISSIONS["viewer"])
         db_role = await self.role_perms.get_by_role(crew_role)
         merged = {
             **defaults,
@@ -1132,11 +1139,11 @@ class RBACService:
         # Next: resolve from space_id. Prefer the explicit space_members
         # role (two-axis RBAC) and fall back to the best crew role in
         # that space only when the user isn't a direct member. Space
-        # roles (commander / navigator / explorer) share vocabulary
-        # with crew roles on purpose — no mapping needed, a space
-        # commander IS a commander for permission purposes. Platform
-        # owner / admin have already bypassed above; this path is for
-        # platform `member` users with scoped grants.
+        # roles (owner / editor / viewer) share vocabulary with crew
+        # roles on purpose — no mapping needed, a space owner IS an
+        # owner for permission purposes. Platform owner / admin have
+        # already bypassed above; this path is for platform `member`
+        # users with scoped grants.
         if space_id:
             res = await self.db.execute(
                 select(SpaceMember.role).where(
@@ -1149,13 +1156,13 @@ class RBACService:
                 # Legacy normalization: pre-A1 demo signups created
                 # SpaceMember.role="admin" (and the original two-axis
                 # design briefly considered "member"). Treat them as
-                # their commander/explorer equivalents so existing rows
+                # their owner/viewer equivalents so existing rows
                 # keep working without a DB migration.
                 space_role = {
-                    "admin": "commander",
-                    "member": "explorer",
+                    "admin": "owner",
+                    "member": "viewer",
                 }.get(space_role, space_role)
-                if space_role in ("commander", "navigator", "explorer"):
+                if space_role in ("owner", "editor", "viewer"):
                     return space_role  # type: ignore[return-value]
             return await self._best_role_for_user_in_space(user_id, space_id)
 
@@ -1173,13 +1180,13 @@ class RBACService:
         # The SpaceMember lookup at the call site already returned None
         # (otherwise we wouldn't be here). If the user has no crew in this
         # Space either, they're an outsider — return the deny-all sentinel
-        # so cross-tenant requests don't accidentally inherit explorer's
+        # so cross-tenant requests don't accidentally inherit viewer's
         # ai.query/view grants. This is the tenancy gate that "guest"
         # used to enforce.
         if not crew_ids:
             return "no_access"
 
-        best_role: CrewRole = "explorer"
+        best_role: CrewRole = "viewer"
         best_score = ROLE_PRECEDENCE[best_role]
         for cid in crew_ids:
             member = await self.crew_members.get_by_crew_and_user(cid, user_id)
@@ -1201,12 +1208,12 @@ class RBACService:
         if not crew_ids and not space_roles:
             # User has no crew/space memberships — they're operating in their own
             # personal workspace (no shared/team context). Treat them as
-            # commander of that personal world so they can bootstrap their
+            # owner of that personal world so they can bootstrap their
             # first page/dashboard. Once invited to crews/spaces, the best-role
             # resolution below takes over.
-            return "commander"
+            return "owner"
 
-        best_role: CrewRole = "explorer"
+        best_role: CrewRole = "viewer"
         best_score = ROLE_PRECEDENCE[best_role]
 
         for role in space_roles:
@@ -1231,11 +1238,11 @@ class RBACService:
         # Owner can manage their connections in the interim model.
         conn = await self.connection_repo.get_by_id(connection_id)
         if conn and conn.created_by == user_id:
-            return "commander"
+            return "owner"
 
         # Look at connection_permissions, if any, and pick best role in any linked crew/space.
         perms = await self.connection_perms.get_by_connection_id(connection_id)
-        best_role: CrewRole = "explorer"
+        best_role: CrewRole = "viewer"
         best_score = ROLE_PRECEDENCE[best_role]
 
         for p in perms:

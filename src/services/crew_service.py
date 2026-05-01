@@ -171,13 +171,13 @@ class CrewService:
             created_by=user.id,
         )
 
-        # Auto-add creator as the first member of the crew with commander role.
+        # Auto-add creator as the first member of the crew with owner role.
         # Without this, the creator does not show up in the members list
         # nor in the collaborative presence pill.
         await self.member_repo.create(
             crew_id=crew.id,
             user_id=user.id,
-            role="commander",
+            role="owner",
         )
 
         # Auto-create a service principal for this crew (agent identity)

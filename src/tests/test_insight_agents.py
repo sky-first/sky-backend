@@ -115,7 +115,7 @@ async def _seed_crew_page_with_widget(db: AsyncSession, user_id):
     db.add(crew)
     await db.commit()
     await db.refresh(crew)
-    db.add(CrewMember(crew_id=crew.id, user_id=user_id, role="commander"))
+    db.add(CrewMember(crew_id=crew.id, user_id=user_id, role="owner"))
     sp = ServicePrincipal(crew_id=crew.id, name=f"sa-crew-{str(crew.id)[:8]}")
     db.add(sp)
     await db.commit()

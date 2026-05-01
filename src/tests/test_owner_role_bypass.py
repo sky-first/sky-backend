@@ -152,12 +152,12 @@ async def test_admin_effective_permissions_omit_owner_exclusives(mock_db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_commander_denied_owner_exclusive_regardless_of_role(mock_db):
-    """A plain commander must not get anywhere near tenant.delete."""
-    commander = make_user("commander")
+async def test_member_denied_owner_exclusive_regardless_of_role(mock_db):
+    """A plain member must not get anywhere near tenant.delete."""
+    member = make_user("member")
     svc = RBACService(mock_db)
 
     # No crew/space context + not admin/owner → falls through to effective
     # check which won't have owner-exclusive keys as True.
     with pytest.raises(ForbiddenError):
-        await svc.assert_permission(commander, "tenant.delete")
+        await svc.assert_permission(member, "tenant.delete")

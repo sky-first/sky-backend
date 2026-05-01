@@ -46,13 +46,13 @@ class CrewMemberCreate(BaseModel):
     """Crew member creation schema."""
 
     user_id: UUID
-    role: str = Field(..., pattern="^(commander|navigator|explorer|guest)$")
+    role: str = Field(..., pattern="^(owner|editor|viewer)$")
 
 
 class CrewMemberUpdate(BaseModel):
     """Crew member role update schema."""
 
-    role: str = Field(..., pattern="^(commander|navigator|explorer|guest)$")
+    role: str = Field(..., pattern="^(owner|editor|viewer)$")
 
 
 class CrewMemberResponse(BaseModel):

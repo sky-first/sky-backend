@@ -69,10 +69,10 @@ async def _make_space(db: AsyncSession, name: str, owner: User) -> Space:
 
 
 async def _add_to_space(
-    db: AsyncSession, user: User, space: Space, role: str = "admin"
+    db: AsyncSession, user: User, space: Space, role: str = "owner"
 ) -> None:
-    """Default role is ``admin`` (Commander) so visibility tests that
-    seed space-scoped metrics can pass the Phase 3 mutation gate.
+    """Default role is ``owner`` so visibility tests that seed
+    space-scoped metrics can pass the Phase 3 mutation gate.
     """
     db.add(SpaceMember(space_id=space.id, user_id=user.id, role=role))
     await db.flush()
@@ -85,11 +85,10 @@ async def _make_crew(db: AsyncSession, name: str, space: Space, owner: User) -> 
     return crew
 
 
-async def _add_to_crew(db: AsyncSession, user: User, crew: Crew, role: str = "navigator") -> None:
-    """Default role is ``navigator`` so tests can both READ (visibility)
-    and WRITE (the Phase 3 mutation gate accepts navigator). Explicit
-    explorer / guest is what tests pass when they want to assert the
-    deny path.
+async def _add_to_crew(db: AsyncSession, user: User, crew: Crew, role: str = "editor") -> None:
+    """Default role is ``editor`` so tests can both READ (visibility)
+    and WRITE (the Phase 3 mutation gate accepts editor). Explicit
+    ``viewer`` is what tests pass when they want to assert the deny path.
     """
     db.add(CrewMember(crew_id=crew.id, user_id=user.id, role=role))
     await db.flush()

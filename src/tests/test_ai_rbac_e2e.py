@@ -216,13 +216,13 @@ async def test_ai_query_token_isolation(async_client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_ai_query_member_navigator_matches_demo_setup(async_client, db_session):
+async def test_ai_query_member_editor_matches_demo_setup(async_client, db_session):
     """The Demo flow gives a visitor `user.role = "member"` and a Space
-    membership with `space_members.role = "navigator"`. This pin asserts
+    membership with `space_members.role = "editor"`. This pin asserts
     that exact pair is accepted by the AI gate, the same way it has to
     be in production for `demo.skyfirstlabs.com` to work."""
     demo_user = await _make_user(db_session, platform_role="member", name="Demo Visitor")
-    await _attach_to_space(db_session, user=demo_user, context_role="navigator")
+    await _attach_to_space(db_session, user=demo_user, context_role="editor")
     token = _token_for(demo_user)
 
     resp = await async_client.post(

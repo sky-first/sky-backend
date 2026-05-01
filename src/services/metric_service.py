@@ -36,11 +36,11 @@ from src.models.user_permission_grant import (
 )
 from src.schemas.metric import MetricCreate, MetricUpdate
 
-# Per Knowledge RBAC matrix:
-#   crew: Commander + Navigator can write; Explorer + Guest cannot
-#   space: only Commander (= Space "admin" role) can write
-_CREW_WRITE_ROLES = {"commander", "navigator"}
-_SPACE_WRITE_ROLES = {"admin"}  # Space "admin" ≡ Commander in the matrix
+# Phase 7 RBAC matrix:
+#   crew: owner + editor can write; viewer cannot
+#   space: only owner (the Space-axis "owner" role) can write
+_CREW_WRITE_ROLES = {"owner", "editor"}
+_SPACE_WRITE_ROLES = {"owner"}
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")

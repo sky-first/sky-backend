@@ -50,34 +50,27 @@ class SpaceService:
         space_id: UUID,
         user: User,
         *,
-        min_role: str = "explorer",
+        min_role: str = "viewer",
     ) -> None:
-        """Two-axis RBAC helper.
+        """Two-axis RBAC helper (Phase 7).
 
         Rule: platform `owner`/`admin` bypass unconditionally. Otherwise
-        the user must be a space_member AND their per-space role must be
-        at least `min_role` (ranked explorer < navigator < commander).
-        Raises ForbiddenError on failure — caller just calls and moves
-        on. Replaces the old `if space.created_by != user.id and
-        user.role not in ("admin", "owner")` pattern which ignored the
-        space_members table entirely.
+        the user must be a space_member AND their per-space role must
+        be at least `min_role` (ranked viewer < editor < owner).
+        Anything outside that triple is treated as below-floor and
+        denied — callers must speak Phase 7 vocabulary.
         """
         if user.role in ("admin", "owner"):
             return
         member = await self.member_repo.get_by_space_and_user(space_id, user.id)
         if not member:
             raise ForbiddenError("Access denied to this space")
-        # Legacy normalization: pre-A1 demo signups created
-        # SpaceMember.role="admin" (and the original two-axis design
-        # briefly considered "member"). Match RBACService._canonicalize_role
-        # so this path doesn't 403 a legacy admin row that should be
-        # treated as commander.
-        legacy_to_canonical = {"admin": "commander", "member": "explorer", "guest": "explorer"}
-        member_role = legacy_to_canonical.get(member.role, member.role)
-        rank = {"explorer": 0, "navigator": 1, "commander": 2}
-        if rank.get(member_role, -1) < rank.get(min_role, 0):
+        rank = {"viewer": 0, "editor": 1, "owner": 2}
+        member_rank = rank.get(member.role, -1)
+        min_rank = rank.get(min_role, 0)
+        if member_rank < min_rank:
             raise ForbiddenError(
-                f"Requires space role '{min_role}' (you have '{member_role}')"
+                f"Requires space role '{min_role}' (you have '{member.role}')"
             )
 
     async def list_spaces(self, user: User, skip: int = 0, limit: int = 100) -> List[SpaceResponse]:
@@ -265,7 +258,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        await self._require_space_role(space_id, user, min_role="commander")
+        await self._require_space_role(space_id, user, min_role="owner")
 
         update_data = space_data.model_dump(exclude_unset=True)
         space = await self.space_repo.update(space_id, **update_data)
@@ -418,7 +411,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        await self._require_space_role(space_id, user, min_role="commander")
+        await self._require_space_role(space_id, user, min_role="owner")
 
         connection = await self.connection_repo.get_by_id(connection_id)
         if not connection:
@@ -476,7 +469,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        await self._require_space_role(space_id, user, min_role="commander")
+        await self._require_space_role(space_id, user, min_role="owner")
 
         association = await self.space_repo.get_space_connection(space_id, connection_id)
         if not association:
@@ -584,7 +577,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        await self._require_space_role(space_id, user, min_role="commander")
+        await self._require_space_role(space_id, user, min_role="owner")
 
         # Check if member already exists
         existing = await self.member_repo.get_by_space_and_user(space_id, member_data.user_id)
@@ -592,8 +585,8 @@ class SpaceService:
             raise BadRequestError("User is already a member of this space")
 
         # Demo Space invite gate (item C): in a demo sandbox, the
-        # commander can only add members whose email domain matches
-        # the Space owner's domain. Without this, the commander could
+        # owner can only add members whose email domain matches
+        # the Space owner's domain. Without this, the owner could
         # subvert the same-domain grouping invariant set up by item D
         # (where colleagues from one company merge into one Space) by
         # bringing in arbitrary outside emails.
@@ -622,7 +615,7 @@ class SpaceService:
 
         # Validate the requested Space role (two-axis RBAC, Phase 1).
         from src.schemas.space import SPACE_MEMBER_ROLES
-        role = (member_data.role or "navigator").lower()
+        role = (member_data.role or "editor").lower()
         if role not in SPACE_MEMBER_ROLES:
             raise BadRequestError(
                 f"Invalid space role '{role}'. Use one of: {sorted(SPACE_MEMBER_ROLES)}"
@@ -834,7 +827,7 @@ class SpaceService:
         # link tables to their own. The endpoint already RBAC-checks
         # `spaces.members.manage` — this guard is defence-in-depth for
         # internal callers that bypass the route.
-        await self._require_space_role(space_id, user, min_role="commander")
+        await self._require_space_role(space_id, user, min_role="owner")
 
         # Verify the connection exists — if not, fail fast with a 404
         # instead of letting the FK blow up inside commit() and surface
@@ -912,7 +905,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        await self._require_space_role(space_id, user, min_role="commander")
+        await self._require_space_role(space_id, user, min_role="owner")
 
         association = await self.table_repo.get_space_table(
             space_id, connection_id, table_name, schema_name
@@ -944,7 +937,7 @@ class SpaceService:
         space = await self.space_repo.get_by_id(space_id)
         if not space:
             raise NotFoundError("Space not found")
-        await self._require_space_role(space_id, user, min_role="commander")
+        await self._require_space_role(space_id, user, min_role="owner")
 
         association = await self.table_repo.get_space_table(
             space_id, connection_id, table_name, schema_name

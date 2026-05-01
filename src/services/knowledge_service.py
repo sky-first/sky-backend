@@ -109,10 +109,10 @@ class KnowledgeService:
         """Raise ForbiddenError if user cannot access the requested scope.
 
         Permission keys used (must exist in DEFAULT_ROLE_PERMISSIONS):
-          files.view    — read/list (commander, navigator, explorer, guest)
-          files.upload  — upload (commander, navigator)
-          files.delete  — delete (commander only)
-          files.approve — approve navigator uploads (commander only)
+          files.view    — read/list (owner, editor, viewer)
+          files.upload  — upload (owner, editor)
+          files.delete  — delete (owner only)
+          files.approve — approve editor uploads (owner only)
         """
         if scope == "personal":
             return  # always own personal scope
@@ -243,12 +243,12 @@ class KnowledgeService:
 
         # Approval gate (Lucas's 2026-04-30 correction):
         #   • Owner / Admin (platform role) → auto-approve, status="processing".
-        #   • Commander / Navigator → upload allowed but parks the file in
+        #   • Owner / Editor → upload allowed but parks the file in
         #     `pending_approval` until an Owner or Admin reviews it.
-        #   • Explorer → blocked earlier in request_upload_url.
+        #   • Viewer → blocked earlier in request_upload_url.
         # Personal-scope uploads still self-approve when the uploader is
         # owner/admin; otherwise they ALSO go to pending_approval so a
-        # commander's "personal" knowledge ends up reviewed before any AI
+        # owner's "personal" knowledge ends up reviewed before any AI
         # ever cites it. The audit trail in audit_events plus the
         # KnowledgeSourceFlag popover then carry the proveniência forward.
         is_platform_approver = (getattr(user, "role", None) in ("owner", "admin"))
@@ -278,9 +278,9 @@ class KnowledgeService:
         """Owner / Admin approves an uploaded file and triggers processing.
 
         Tightened on 2026-04-30: only platform-level Owner / Admin can
-        approve. Commander / Navigator can no longer approve their own
+        approve. Owner / Editor can no longer approve their own
         scope's uploads — keeps a single audit chokepoint at the
-        tenant level so a commander cannot rubber-stamp a navigator's
+        tenant level so a owner cannot rubber-stamp an editor's
         unverified CSV into the AI context.
         """
         file = await self.file_repo.get_by_id(file_id)
@@ -401,7 +401,7 @@ class KnowledgeService:
         file = await self.file_repo.get_by_id(file_id)
         if not file or file.deleted_at:
             raise NotFoundError("File not found.")
-        # require_write=True: only commander+ (or the file owner) can trigger reprocessing
+        # require_write=True: only owner+ (or the file owner) can trigger reprocessing
         await self._assert_file_owner_or_scope(user, file, require_write=True)
 
         if file.status not in ("error", "ready"):

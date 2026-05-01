@@ -55,20 +55,21 @@ class SpaceRole(str, Enum):
 SPACE_ROLE_LEVEL = {SpaceRole.VIEWER: 1, SpaceRole.EDITOR: 2, SpaceRole.OWNER: 3}
 
 
-# Legacy → new role mapping. The migration on the DB side rewrites every
-# row to the new vocabulary, but old code paths and external callers may
-# still hand us a legacy string until Phase 7. This map is the bridge.
-LEGACY_TO_NEW_SPACE_ROLE = {
-    "commander": SpaceRole.OWNER,
-    "admin": SpaceRole.OWNER,        # legacy demo seed
-    "navigator": SpaceRole.EDITOR,
-    "member": SpaceRole.EDITOR,      # legacy demo seed
-    "explorer": SpaceRole.VIEWER,
-    "guest": SpaceRole.VIEWER,       # already canonicalised in current code
+# Phase 7 — the Space-axis vocabulary is exclusively owner/editor/viewer.
+# The pre-Phase-7 mapping that translated commander/navigator/explorer
+# (and the older admin/member/guest enums) was retired together with the
+# resolver-level normalisation in rbac_service.py. DB rows were
+# normalised by the `normalize_member_roles_phase7_…` migration; any
+# caller that still emits a pre-Phase-7 string falls through this dict
+# and is treated as an unknown level by SPACE_ROLE_LEVEL.
+SPACE_ROLE_LOOKUP = {
     "owner": SpaceRole.OWNER,
     "editor": SpaceRole.EDITOR,
     "viewer": SpaceRole.VIEWER,
 }
+# Backwards-compat alias — kept for callers that still import the
+# previous name. New code should use SPACE_ROLE_LOOKUP directly.
+LEGACY_TO_NEW_SPACE_ROLE = SPACE_ROLE_LOOKUP
 
 
 # ─── Action rules ────────────────────────────────────────────────────────────
@@ -183,8 +184,9 @@ class Authorization:
         self, user_id: UUID, crew_id: UUID
     ) -> Optional[SpaceRole]:
         """Return the user's role in the given Crew, or None if not a member.
-        Same canonical vocabulary as Spaces (owner/editor/viewer); legacy
-        commander/navigator/explorer are normalised at read time."""
+        Crew vocabulary mirrors Spaces (owner/editor/viewer); rows are
+        looked up directly via SPACE_ROLE_LOOKUP — Phase 7 retired the
+        legacy commander/navigator/explorer translation."""
         from src.models.crew import CrewMember
 
         row = (

@@ -69,9 +69,9 @@ async def create_crew_with_member(db_session: AsyncSession, space_id, owner_id, 
     db_session.add(crew)
     await db_session.commit()
     await db_session.refresh(crew)
-    db_session.add(CrewMember(crew_id=crew.id, user_id=owner_id, role="commander"))
+    db_session.add(CrewMember(crew_id=crew.id, user_id=owner_id, role="owner"))
     if member_id and member_id != owner_id:
-        db_session.add(CrewMember(crew_id=crew.id, user_id=member_id, role="explorer"))
+        db_session.add(CrewMember(crew_id=crew.id, user_id=member_id, role="viewer"))
     await db_session.commit()
     return crew
 

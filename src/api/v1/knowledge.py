@@ -192,5 +192,5 @@ async def approve_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> KnowledgeFileResponse:
-    """Commander approves a navigator-uploaded file and triggers processing."""
+    """Owner approves a editor-uploaded file and triggers processing."""
     return await _svc(db).approve_upload(user=current_user, file_id=file_id)

@@ -427,7 +427,7 @@ async def add_space_member(
         400: {"model": ErrorResponse},
     },
     summary="Change a space member's role",
-    description="Update the per-space role (admin / navigator / explorer) for an existing member.",
+    description="Update the per-space role (owner / editor / viewer) for an existing member.",
 )
 async def update_space_member_role(
     space_id: UUID,
@@ -437,8 +437,8 @@ async def update_space_member_role(
     db: AsyncSession = Depends(get_db_session),
 ) -> SpaceMemberResponse:
     """Change a member's per-space role. Platform owner/admin bypass in
-    RBACService; space admins can reshuffle their own space. Explorers
-    and navigators cannot call this."""
+    RBACService; space admins can reshuffle their own space. Viewers
+    and non-owners cannot call this."""
     await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     return await space_service.update_space_member_role(space_id, user_id, payload.role)

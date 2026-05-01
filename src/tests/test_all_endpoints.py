@@ -1758,7 +1758,7 @@ class TestSpacesEndpoints:
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         # Space roles use commander/navigator/explorer — see SPACE_MEMBER_ROLES (#208).
-        member_data = {"user_id": str(new_user.id), "role": "explorer"}
+        member_data = {"user_id": str(new_user.id), "role": "viewer"}
         response = await async_client.post(
             f"/api/v1/spaces/{space.id}/members", json=member_data, headers=headers
         )
@@ -1965,7 +1965,7 @@ class TestCrewsEndpoints:
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         member_data = {
             "user_id": str(new_user.id),
-            "role": "explorer",
+            "role": "viewer",
         }  # Fixed: use valid role
         response = await async_client.post(
             f"/api/v1/crews/{crew.id}/members", json=member_data, headers=headers
@@ -1988,7 +1988,7 @@ class TestCrewsEndpoints:
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fake_member_id = str(uuid4())
         role_data = {
-            "role": "navigator"
+            "role": "editor"
         }  # Fixed: use valid role (commander|navigator|explorer|guest)
         response = await async_client.put(
             f"/api/v1/crews/{crew.id}/members/{fake_member_id}/role",

@@ -60,7 +60,7 @@ async def test_db_health_forbidden_for_non_admin(
 ):
     """Demote the test user, then verify the endpoint refuses them."""
     user = test_user_with_tokens["user"]
-    user.role = "navigator"
+    user.role = "member"
     db_session.add(user)
     await db_session.commit()
 

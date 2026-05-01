@@ -285,13 +285,20 @@ class TestInputValidation:
             )
 
     def test_role_validation_in_schema(self):
-        """Test role validation in UserBase schema."""
+        """Test role validation in UserBase schema.
+
+        Phase 7 narrows UserBase.role to platform-axis values only
+        (owner / admin / user / member / billing_admin /
+        compliance_auditor / service_account). Crew-axis values
+        (owner / editor / viewer) live on SpaceMember/CrewMember,
+        not on UserBase.
+        """
         from pydantic import ValidationError
 
         from src.schemas.user import UserBase
 
-        # Valid roles
-        valid_roles = ["admin", "user", "viewer"]
+        # Valid platform roles
+        valid_roles = ["admin", "user", "owner", "member"]
         for role in valid_roles:
             user = UserBase(email="test@example.com", name="Test", role=role)
             assert user.role == role
