@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 ResourceType = Literal[
     "connection", "dashboard", "agent", "knowledge_file", "space", "widget", "page"
 ]
-PrincipalType = Literal["user", "space", "tenant"]
+PrincipalType = Literal["user", "space", "crew", "tenant"]
 GrantLevel = Literal["viewer", "editor", "owner"]
 
 
