@@ -317,11 +317,16 @@ class Authorization:
         if crew_id is not None:
             crew_level = await self.get_crew_role(user.id, crew_id)
 
-        # If we have a Space context but no Space membership row, see if
-        # the user is a member of any Crew inside that Space — those Crew
-        # roles imply membership at their level for Space-scope checks.
+        # Always look up the user's best Crew role inside this Space when
+        # we have a Space context. Crew membership escalates the effective
+        # level even when the user already has a SpaceMember row — a
+        # Crew-owner inside a viewer Space must surface owner UX, and the
+        # caller may not have a specific crew_id to pass (e.g. the user
+        # is on a Space-level page with no Crew selected). Querying every
+        # time is cheap (one indexed scan) and removes a footgun where
+        # passing crew_id explicitly was the only way to escalate.
         best_crew_in_space: Optional[SpaceRole] = None
-        if space_id is not None and space_level is None:
+        if space_id is not None:
             best_crew_in_space = await self.get_best_crew_role_in_space(
                 user.id, space_id
             )
