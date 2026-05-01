@@ -1,10 +1,10 @@
 """End-to-end RBAC tests for the AI query endpoint.
 
-The two-axis RBAC model:
+The two-axis RBAC model (post-rewrite):
   • Platform: owner / admin / member
-  • Context (Space/Crew/Page): commander / navigator / explorer
+  • Space:    owner / editor / viewer
 
-This module pins down what every (platform_role, context_role) pair
+This module pins down what every (platform_role, space_role) pair
 can do at `POST /api/v1/ai/query` — the single most user-visible AI
 surface. We assert authorization (gates) — the answer body is mocked
 through the AI service "unavailable" path so we don't depend on the
@@ -12,13 +12,12 @@ LLM being up; the endpoint still returns 200 with status="error" so
 the auth layer is what we're observing.
 
 Cases covered:
-  1. owner       → 200, AI accepted
-  2. admin       → 200, AI accepted
-  3. member (no context)         → 200 (Personal scope)
-  4. member + space.navigator    → 200 (Demo's actual setup)
-  5. member + space.explorer     → 200 (read-mostly access still allows AI)
-  6. unauthenticated             → 401
-  7. cross-tenant isolation      → user A's question doesn't expose user B's data
+  1. owner            → 200, AI accepted
+  2. admin            → 200, AI accepted
+  3. member (no space)              → 200 (Personal scope)
+  4. owner|admin|member × owner|editor|viewer  → 200 (full 3×3)
+  5. unauthenticated                → 401
+  6. cross-tenant isolation         → user A's token doesn't resolve to user B
 
 Adding a new case: append to the parametrize block; the fixture
 auto-creates the user with the right role + (optionally) a Space they
@@ -150,16 +149,17 @@ CASES = [
     pytest.param(("owner", None, "Platform Owner"), id="owner-no-space"),
     pytest.param(("admin", None, "Platform Admin"), id="admin-no-space"),
     pytest.param(("member", None, "Member Personal"), id="member-personal"),
-    # Full 3×3 platform × context cross-axis matrix.
-    pytest.param(("owner", "commander", "Owner Commander"), id="owner+commander"),
-    pytest.param(("owner", "navigator", "Owner Navigator"), id="owner+navigator"),
-    pytest.param(("owner", "explorer", "Owner Explorer"), id="owner+explorer"),
-    pytest.param(("admin", "commander", "Admin Commander"), id="admin+commander"),
-    pytest.param(("admin", "navigator", "Admin Navigator"), id="admin+navigator"),
-    pytest.param(("admin", "explorer", "Admin Explorer"), id="admin+explorer"),
-    pytest.param(("member", "commander", "Member Commander"), id="member+commander"),
-    pytest.param(("member", "navigator", "Demo Navigator"), id="demo-member+navigator"),
-    pytest.param(("member", "explorer", "Member Explorer"), id="member+explorer"),
+    # Full 3×3 platform × Space-role cross-axis. New vocabulary:
+    # owner / editor / viewer (was commander / navigator / explorer).
+    pytest.param(("owner", "owner", "Owner / Space Owner"), id="owner+space-owner"),
+    pytest.param(("owner", "editor", "Owner / Editor"), id="owner+editor"),
+    pytest.param(("owner", "viewer", "Owner / Viewer"), id="owner+viewer"),
+    pytest.param(("admin", "owner", "Admin / Space Owner"), id="admin+space-owner"),
+    pytest.param(("admin", "editor", "Admin / Editor"), id="admin+editor"),
+    pytest.param(("admin", "viewer", "Admin / Viewer"), id="admin+viewer"),
+    pytest.param(("member", "owner", "Member / Space Owner"), id="member+space-owner"),
+    pytest.param(("member", "editor", "Demo Editor"), id="demo-member+editor"),
+    pytest.param(("member", "viewer", "Member / Viewer"), id="member+viewer"),
 ]
 
 
