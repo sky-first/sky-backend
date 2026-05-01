@@ -29,6 +29,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
+from src.core.exceptions import ForbiddenError
 from src.models.agent import Agent, AgentExecution
 from src.models.crew import Crew
 from src.models.user import User
@@ -87,7 +88,16 @@ async def get_cost_metrics(
         * scope='space'     → "Space (no crew)" bucket
         * scope='personal'  → "Personal" bucket
         * scope='organization' or unknown → "Organisation"
+
+    Tenant-wide spend is org-level financial data — restricted to
+    platform Owner / Admin. Members get a 403; the FE Profile page
+    already hides the panel for non-admins via `canSeePlatformUsage`.
     """
+    if getattr(current_user, "role", None) not in ("owner", "admin"):
+        raise ForbiddenError(
+            "Tenant cost metrics are restricted to platform Owner / Admin."
+        )
+
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=window_days)
 
