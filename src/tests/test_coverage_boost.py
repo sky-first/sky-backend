@@ -343,18 +343,18 @@ async def test_rbac_effective_permissions_merge_for_crew_role():
 
 @pytest.mark.asyncio
 async def test_rbac_assert_permission_denied():
+    """Phase 1 routed assert_permission through the new Authorization
+    resolver; the legacy `get_effective_permissions` mock no longer
+    intercepts the call. Stub `_best_role_for_user_anywhere` (the
+    fallback path the resolver hits when no scope is supplied) to
+    return None so the deny path fires."""
     svc = RBACService(AsyncMock())
     user = MagicMock()
     user.id = uuid4()
     user.role = "user"
 
-    svc.get_effective_permissions = AsyncMock(
-        return_value=EffectivePermissions(
-            platform_role="user",
-            crew_role="viewer",
-            permissions={"data.query.run": False},
-        )
-    )
+    svc._best_role_for_user_anywhere = AsyncMock(return_value=None)
+
     with pytest.raises(ForbiddenError):
         await svc.assert_permission(user, "data.query.run")
 
