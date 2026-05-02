@@ -17,6 +17,14 @@ FREQUENCY_HOURS = {"hourly": 1, "daily": 24, "weekly": 168}
 # budget indefinitely. The owner can resume manually after fixing the cause.
 MAX_CONSECUTIVE_FAILURES = 3
 
+# Phase 3 tier-router — when L1 (delta check, no LLM) detects no change in
+# the agent's data sources since the previous run, the worker short-circuits
+# without calling the AI service. We still record the L1 cost (0.2 beats per
+# connection) so the org-wide dashboard can show how often agents skipped
+# vs. ran. L2 (gpt-4o-mini triage) and L3 (gpt-4o deep dive) costs are
+# recorded around the existing AI call. The L2 step is a placeholder today
+# and always escalates to L3 — the real triage prompt lands in a follow-up.
+
 # Substrings that indicate the previous run produced no real answer — only
 # an orchestrator error. We skip prepending these to the next prompt and
 # never store them as `last_answer`, otherwise the next scheduled tick asks
@@ -33,6 +41,56 @@ def _looks_like_orchestrator_error(text: str | None) -> bool:
     if not text:
         return False
     return any(marker in text for marker in _ORCHESTRATOR_ERROR_MARKERS)
+
+
+async def _connections_changed_since(db, connection_ids, since):
+    """L1 delta-check helper. Returns True iff any of the listed connections
+    had its row or its metadata refreshed after `since`. Uses timestamps
+    the BE already maintains (DataConnection.updated_at and
+    DataConnection.last_metadata_update), so the check is cheap (no
+    source-system hit) and honest: if no sync ever happened, we have no
+    signal of new data and skip the run.
+    """
+    if not connection_ids or since is None:
+        # No prior run to compare against — let it run as L3 today, the
+        # next tick will start short-circuiting once `last_execution_at`
+        # is populated.
+        return True
+
+    from sqlalchemy import select
+    from src.models.connection import DataConnection
+
+    rows = (
+        await db.execute(
+            select(
+                DataConnection.updated_at,
+                DataConnection.last_metadata_update,
+            ).where(DataConnection.id.in_(connection_ids))
+        )
+    ).all()
+
+    for conn_updated, meta_updated in rows:
+        latest = max(
+            (t for t in (conn_updated, meta_updated) if t is not None),
+            default=None,
+        )
+        if latest is not None and latest > since:
+            return True
+    return False
+
+
+async def _record_beats_safely(db, user, *, kind: str, source_id=None):
+    """Wrapper around BeatsService.record_only that swallows errors. The
+    tier-router never wants beat-accounting failures to take an agent run
+    down — the L3 call already happened (or will), the budget is
+    advisory at this layer. Failures are logged and execution continues.
+    """
+    try:
+        from src.services.beats_service import BeatsService
+
+        await BeatsService(db).record_only(user, kind=kind, source_id=source_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Beats record_only(%s) failed: %s", kind, exc)
 
 
 def _run_async(coro):
@@ -156,10 +214,74 @@ async def _execute_agent_async(agent_id: str):
                         f"dropped {len(dropped)} non-internal connection(s): {dropped}"
                     )
                 connection_ids = [c for c in connection_ids if c in allowed]
+
+            # ── L1 — delta check ───────────────────────────────────────
+            # If none of the agent's connections have been touched since
+            # the previous successful run, skip the L2/L3 path entirely.
+            # We still record the L1 cost (0.2 beats/connection) so the
+            # tenant dashboard reflects the work the worker actually did.
+            from src.models.user import User
+            from sqlalchemy import select as _sqla_select
+            agent_user = None
+            if agent.created_by:
+                agent_user = (
+                    await db.execute(
+                        _sqla_select(User).where(User.id == agent.created_by)
+                    )
+                ).scalar_one_or_none()
+
+            l1_should_run = await _connections_changed_since(
+                db, connection_ids, agent.last_execution_at
+            )
+            if agent_user is not None:
+                for conn_id in connection_ids:
+                    await _record_beats_safely(
+                        db, agent_user, kind="agent_l1", source_id=conn_id
+                    )
+
+            if not l1_should_run:
+                # Short-circuit: nothing to look at. Mark the execution
+                # as skipped (cycles=0, findings=0) and reschedule on
+                # the agent's normal cadence. Stats and consecutive_
+                # failures stay untouched — a "no-data" tick is not a
+                # failure, just a quiet no-op.
+                execution.status = "skipped_no_delta"
+                execution.cycles_consumed = 0
+                execution.findings_count = 0
+                execution.finished_at = datetime.now(timezone.utc)
+                agent.last_execution_at = datetime.now(timezone.utc)
+                hours = FREQUENCY_HOURS.get(agent.frequency, 24)
+                agent.next_execution_at = datetime.now(timezone.utc) + timedelta(
+                    hours=hours
+                )
+                await db.commit()
+                logger.info(
+                    "Agent %s: L1 delta-check found no new data across "
+                    "%d connection(s); skipping LLM call",
+                    agent_id,
+                    len(connection_ids),
+                )
+                return
+
             for conn_id in connection_ids:
                 try:
                     # Pass table_ids as selected_datasets if specified
                     table_ids = getattr(agent, "table_ids", None)
+
+                    # ── L2 — triage (placeholder). Today we always
+                    # escalate to L3; the real gpt-4o-mini "is this
+                    # worth a deep dive?" prompt lands in a follow-up.
+                    # Recording the cost here keeps the per-connection
+                    # plumbing honest so the dashboard reflects the
+                    # eventual architecture without another schema
+                    # change. ── L3 — deep dive (the existing AI call).
+                    if agent_user is not None:
+                        await _record_beats_safely(
+                            db, agent_user, kind="agent_l2", source_id=conn_id
+                        )
+                        await _record_beats_safely(
+                            db, agent_user, kind="agent_l3", source_id=conn_id
+                        )
 
                     response = await ai_client.query_connection(
                         connection_id=str(conn_id),
