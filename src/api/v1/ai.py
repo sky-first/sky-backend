@@ -80,16 +80,19 @@ async def process_query(
     Returns:
         AIQueryResponse: Query response
     """
-    # RBAC enforcement: require ability to run queries in this context.
-    # Any unscoped query (no space_id) is by definition Personal — the
-    # caller is querying their own data within their own scope, no
-    # cross-tenant access is reachable. We bypass the crew/space-based
-    # check on that path; otherwise it falls through to
-    # `_best_role_for_user_anywhere`, which returns "guest" for
-    # platform members who belong to no crew yet, and denies the call
-    # with a misleading "no permission to run queries in this
-    # workspace" error. Authentication (Depends(get_current_user)) is
-    # the right gate here.
+    # RBAC enforcement: pick the right key based on whether the caller
+    # provided a space_id.
+    #   • space_id present → "ai.query"           (("space","viewer"))
+    #     Caller must be at least a viewer of that Space.
+    #   • space_id absent  → "ai.query.personal"  (("tenant","any_member"))
+    #     Personal scope: any authenticated platform user can ask the
+    #     AI against their own aggregated data. Cross-tenant leakage
+    #     is prevented at the connection layer, not at this gate.
+    # Pre-PR2 the Personal path was unguarded — the FE resolver still
+    # required ai.query.personal because the space-scoped rule
+    # short-circuits without a space_id, surfacing as "You don't
+    # have permission to use AI in this workspace." for Members on
+    # first SSO login.
     rbac = RBACService(db)
     space_uuid: Optional[UUID] = None
     if query_data.space_id:
@@ -97,8 +100,8 @@ async def process_query(
             space_uuid = UUID(query_data.space_id)
         except Exception:
             space_uuid = None
-    if space_uuid is not None:
-        await rbac.assert_permission(current_user, "ai.query", space_id=space_uuid)
+    permission_key = "ai.query" if space_uuid is not None else "ai.query.personal"
+    await rbac.assert_permission(current_user, permission_key, space_id=space_uuid)
 
     ai_service = AIService(db)
 
@@ -1360,7 +1363,8 @@ async def suggest_widget_title(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuggestWidgetTitleResponse:
     # RBAC enforcement: same capability as querying (this still incurs AI cost).
-    # Personal-mode parity with /query — see ai.py:84 rationale.
+    # Personal-mode parity with /query — see the rationale at the top of the
+    # /query handler. Same key-selection logic.
     rbac = RBACService(db)
     space_uuid: Optional[UUID] = None
     if body.space_id:
@@ -1368,8 +1372,8 @@ async def suggest_widget_title(
             space_uuid = UUID(body.space_id)
         except Exception:
             space_uuid = None
-    if space_uuid is not None:
-        await rbac.assert_permission(current_user, "ai.query", space_id=space_uuid)
+    permission_key = "ai.query" if space_uuid is not None else "ai.query.personal"
+    await rbac.assert_permission(current_user, permission_key, space_id=space_uuid)
 
     ai_service = AIService(db)
 
