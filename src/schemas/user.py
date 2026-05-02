@@ -71,6 +71,12 @@ class UserResponse(UserBase):
     last_login_at: Optional[datetime] = None
     last_active_at: Optional[datetime] = None
     status: str = "offline"
+    # Public demo flags — exposed so the FE can render the demo TTL
+    # countdown badge ("5 days left") and the demo welcome banner.
+    # Without these fields, the FE never knows the user is a demo
+    # guest and falls back to the regular paid-plan experience.
+    is_demo: bool = False
+    demo_expires_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

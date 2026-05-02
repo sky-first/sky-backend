@@ -170,15 +170,35 @@ async def upsert_connection(
 
 async def main() -> None:
     print("=" * 60)
-    print("🌱 Seeding fixed demo connections")
+    print("Seeding fixed demo connections")
     print("=" * 60)
     async with AsyncSessionLocal() as db:
         owner = await upsert_owner(db)
         space = await upsert_space(db, owner)
+        created_ids = []
         for spec in DEMO_CONNECTIONS:
-            await upsert_connection(db, owner, space, spec["name"], spec["schema"])
+            conn = await upsert_connection(db, owner, space, spec["name"], spec["schema"])
+            if conn is not None:
+                created_ids.append(conn.id)
         await db.commit()
-    print("\n✨ Done. Demo Space + 5 connections wired.")
+
+    # Run metadata discovery on each connection — without this the AI
+    # service rejects every chat / agent run with
+    # "404 No metadata found for this connection". Done in a fresh
+    # session so the introspection runs against fully-committed rows.
+    if created_ids:
+        from src.services.connection_service import ConnectionService
+        async with AsyncSessionLocal() as db2:
+            svc = ConnectionService(db2)
+            owner2 = (await db2.execute(select(User).where(User.email == OWNER_EMAIL))).scalar_one()
+            for cid in created_ids:
+                try:
+                    await svc.sync_connection(cid, owner2)
+                    print(f"  metadata synced: {cid}")
+                except Exception as exc:
+                    print(f"  WARN: metadata sync failed for {cid}: {exc}")
+
+    print("\nDone. Demo Space + 5 connections wired (metadata discovery included).")
 
 
 if __name__ == "__main__":
