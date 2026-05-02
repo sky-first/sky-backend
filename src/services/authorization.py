@@ -112,8 +112,16 @@ PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
     "users.view":                ("tenant", "admin_or_above"),
 
     # Any member
-    "spaces.create":             ("tenant", "any_member"),
     "crews.create":              ("tenant", "any_member"),
+
+    # Owner / Admin only — Space creation is an org-structure action.
+    # Letting platform Members spawn Spaces creates ungoverned silos
+    # (each one carries its own service principal, RBAC scope, and
+    # knowledge-graph footprint), so we keep it on the same plane as
+    # `users.view` / `audit.view`. Demo signup bypasses this rule by
+    # going through DemoService → repository directly (system action,
+    # not the API gate); see src/services/demo_service.py.
+    "spaces.create":             ("tenant", "admin_or_above"),
 
     # Space — read (≥ viewer)
     "ai.query":                  ("space", "viewer"),

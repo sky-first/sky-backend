@@ -183,12 +183,19 @@ class SpaceService:
             created_by=user.id,
         )
 
-        # Auto-add creator as the first member of the space.
-        # Without this, the creator does not show up in the members list
-        # nor in the collaborative presence pill (see DO2025-collaborative-mode).
+        # Auto-add creator as the first member of the space, with the
+        # `owner` role. The role is required: SpaceMember.role defaults
+        # to "editor" at the model level, which would leave the creator
+        # unable to delete or admin their own Space. The Phase 7 RBAC
+        # rewrite tightened `spaces.create` to admin_or_above, so a
+        # platform Member can no longer reach this code path via the
+        # API anyway — the only callers are platform Owner/Admin and
+        # the demo signup factory, both of whom should own what they
+        # create. See feat/rbac-spaces-create-admin-only-and-creator-owner.
         await self.member_repo.create(
             space_id=space.id,
             user_id=user.id,
+            role="owner",
         )
 
         # Auto-create a service principal for this space (C3 in master plan).
