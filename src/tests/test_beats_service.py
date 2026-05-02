@@ -30,9 +30,28 @@ from src.config.plan_quotas import (
 from src.core.exceptions import PaymentRequiredError
 from src.core.security import get_password_hash
 from src.models.beat_consumption import BeatConsumption
+from src.models.tenant_plan import TenantPlan
 from src.models.user import User
 from src.repositories.user import UserRepository
 from src.services.beats_service import BeatsService
+
+
+async def _set_tenant_tier(db: AsyncSession, tier: str) -> None:
+    """Helper: write the singleton tenant_plan row to a specific tier
+    so a test can exercise the BE path for that contract level. The
+    create_all() fixture leaves the table empty by default, so a test
+    that doesn't call this gets the `tenant_tier=None` fallback path
+    (plan_for_user collapses to "starter") — matching how staging
+    behaves until the migration's seed row is in place.
+    """
+    existing = (
+        await db.execute(select(TenantPlan).where(TenantPlan.id == 1))
+    ).scalar_one_or_none()
+    if existing is None:
+        db.add(TenantPlan(id=1, plan_tier=tier))
+    else:
+        existing.plan_tier = tier
+    await db.flush()
 
 
 async def _user(db: AsyncSession, *, role: str = "member", is_demo: bool = False) -> User:
@@ -197,6 +216,76 @@ async def test_usage_window_excludes_events_older_than_period(db_session):
     snap = await BeatsService(db_session).usage_window(user, scope="user")
     # Old event is outside the 7-day window — must be excluded.
     assert snap.used == Decimal("0")
+
+
+# ─── Tenant plan tier resolution ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_tenant_plan_enterprise_grants_enterprise_quota(db_session):
+    """Once the singleton is set to enterprise, paid users get the
+    enterprise budget (200_000 beats / 30 days) instead of the
+    starter fallback. This is the contract every B2B customer is on
+    after Stripe wiring."""
+    await _set_tenant_tier(db_session, "enterprise")
+    user = await _user(db_session)
+    snap = await BeatsService(db_session).usage_window(user, scope="user")
+    assert snap.plan.tier == "enterprise"
+    assert snap.limit == Decimal("200000")
+
+
+@pytest.mark.asyncio
+async def test_tenant_plan_pro_grants_pro_quota(db_session):
+    await _set_tenant_tier(db_session, "pro")
+    user = await _user(db_session)
+    snap = await BeatsService(db_session).usage_window(user, scope="user")
+    assert snap.plan.tier == "pro"
+    assert snap.limit == Decimal("30000")
+
+
+@pytest.mark.asyncio
+async def test_tenant_plan_demo_user_bypasses_tenant_tier(db_session):
+    """A demo user always rides the demo plan, even if the tenant has
+    been promoted to enterprise. The visitor sandbox is its own bucket."""
+    await _set_tenant_tier(db_session, "enterprise")
+    user = await _user(db_session, is_demo=True)
+    snap = await BeatsService(db_session).usage_window(user, scope="user")
+    assert snap.plan.tier == "demo"
+    assert snap.limit == Decimal("500")
+
+
+@pytest.mark.asyncio
+async def test_tenant_plan_unset_falls_back_to_starter(db_session):
+    """Empty tenant_plan table (the test default — create_all skips
+    seed inserts) means the BE has no signal of contract tier. We
+    fall back to starter rather than crash, matching the documented
+    safe default."""
+    user = await _user(db_session)
+    snap = await BeatsService(db_session).usage_window(user, scope="user")
+    assert snap.plan.tier == "starter"
+    assert snap.limit == Decimal("5000")
+
+
+@pytest.mark.asyncio
+async def test_tenant_plan_is_cached_within_a_service_instance(db_session):
+    """Multiple usage_window calls on one BeatsService instance hit
+    the DB once — the singleton is read at first lookup and cached
+    for the lifetime of the service. Cheap insurance for the chat
+    hot path."""
+    await _set_tenant_tier(db_session, "pro")
+    user = await _user(db_session)
+    svc = BeatsService(db_session)
+
+    # Mutate the row AFTER the first read — a new BeatsService should
+    # see the new value but the existing instance keeps its cache.
+    await svc.usage_window(user, scope="user")
+    await _set_tenant_tier(db_session, "enterprise")
+
+    cached_snap = await svc.usage_window(user, scope="user")
+    assert cached_snap.plan.tier == "pro"  # still pro from cache
+
+    fresh_snap = await BeatsService(db_session).usage_window(user, scope="user")
+    assert fresh_snap.plan.tier == "enterprise"  # fresh instance reloads
 
 
 # ─── record_only (background-worker path) ───────────────────────────────────
