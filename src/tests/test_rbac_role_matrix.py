@@ -288,9 +288,13 @@ async def test_section_iii_64_create_crew(seeded, async_client, role):
 async def test_section_iv_91_create_space(seeded, async_client, role):
     payload = {"name": f"space-{role}", "description": "rbac test"}
     r = await async_client.post("/api/v1/spaces", json=payload, headers=_auth_headers(seeded["tokens"][role]))
-    # spaces.create is a tenant-level "any_member" rule — every platform
-    # member can spin up their own Space (and becomes its Owner).
-    _assert_outcome(r, _expect_for_role("viewer", role), "IV-91")
+    # spaces.create is now ("tenant", "admin_or_above"). Platform
+    # Members can no longer spin up new Spaces because each one
+    # carries its own RBAC scope, service principal and knowledge
+    # footprint — uncontrolled fan-out becomes ungoverned silos.
+    # Demo signup bypasses this rule via DemoService (system action),
+    # not the API gate.
+    _assert_outcome(r, _expect_for_role("platform_admin", role), "IV-91")
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,7 @@ Coverage matrix (15 cases):
     3. owner   → billing.manage          (owner-only)         → allow
     4. admin   → audit.view              (admin_or_above)     → allow
     5. member  → audit.view              (admin_or_above)     → deny
-    6. member  → spaces.create           (any_member)         → allow
+    6. member  → spaces.create           (admin_or_above)     → deny
 
   Space-scoped (member with explicit Space role):
     7. member + viewer  → ai.query               (viewer)     → allow
@@ -100,8 +100,18 @@ async def test_member_cannot_audit_view(db_session):
 
 
 @pytest.mark.asyncio
-async def test_any_member_can_create_space(db_session):
+async def test_member_cannot_create_space(db_session):
+    # spaces.create was tightened from any_member → admin_or_above
+    # because Member-spawned Spaces became ungoverned silos. Demo
+    # signup creates a Space directly via the repository (system
+    # action), so this restriction does not break the public demo.
     user = await _user(db_session, role="member", name="M")
+    assert await Authorization(db_session).can(user, "spaces.create") is False
+
+
+@pytest.mark.asyncio
+async def test_admin_can_create_space(db_session):
+    user = await _user(db_session, role="admin", name="A")
     assert await Authorization(db_session).can(user, "spaces.create") is True
 
 
