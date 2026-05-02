@@ -15,6 +15,7 @@ from src.core.exceptions import (
     ForbiddenError,
     InternalServerError,
     NotFoundError,
+    PaymentRequiredError,
     ServiceUnavailableError,
     UnauthorizedError,
     ValidationError,
@@ -107,17 +108,27 @@ def register_exception_handlers(app: FastAPI):
             ValidationError: "VALIDATION_ERROR",
             BadRequestError: "BAD_REQUEST",
             ConflictError: "CONFLICT",
+            PaymentRequiredError: "PAYMENT_REQUIRED",
             InternalServerError: "SERVER_ERROR",
             ServiceUnavailableError: "SERVICE_UNAVAILABLE",
         }
 
         code = code_map.get(type(exc), "API_ERROR")
 
+        # PaymentRequiredError carries an upgrade_cta string so the FE
+        # can render a button label in the toast/modal without
+        # hardcoding it client-side. Keeping copy on the BE means
+        # changing the marketing message doesn't ship a FE deploy.
+        details = None
+        if isinstance(exc, PaymentRequiredError):
+            details = {"upgrade_cta": exc.upgrade_cta}
+
         return _json_response(
             request=request,
             status_code=exc.status_code,
             code=code,
             message=exc.message,
+            details=details,
             correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
 

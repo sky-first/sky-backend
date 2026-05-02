@@ -7,6 +7,7 @@
 # no such table: <name>` at runtime when the service layer queries it.
 from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.audit import AuditEvent
+from src.models.beat_consumption import BeatConsumption
 from src.models.context_document import (
     ContextDocument,
     ContextDocumentKind,
@@ -57,6 +58,7 @@ __all__ = [
     "AgentFinding",
     "AgentExecution",
     "AuditEvent",
+    "BeatConsumption",
     "ContextDocument",
     "ContextDocumentKind",
     "ContextDocumentVisibility",
