@@ -12,6 +12,28 @@ logger = logging.getLogger(__name__)
 DEPTH_CYCLES = {"quick": 1, "standard": 3, "deep": 5}
 FREQUENCY_HOURS = {"hourly": 1, "daily": 24, "weekly": 168}
 
+# After this many consecutive scheduled-run failures, the agent is auto-paused
+# (status="paused"). Prevents a misconfigured / broken agent from burning LLM
+# budget indefinitely. The owner can resume manually after fixing the cause.
+MAX_CONSECUTIVE_FAILURES = 3
+
+# Substrings that indicate the previous run produced no real answer — only
+# an orchestrator error. We skip prepending these to the next prompt and
+# never store them as `last_answer`, otherwise the next scheduled tick asks
+# the LLM to "compare with the previous error" and the loop never resolves.
+_ORCHESTRATOR_ERROR_MARKERS = (
+    "Error consulting the AI orchestrator",
+    "Agentic Loop",
+    "Recursion limit",
+    "Please try again later",
+)
+
+
+def _looks_like_orchestrator_error(text: str | None) -> bool:
+    if not text:
+        return False
+    return any(marker in text for marker in _ORCHESTRATOR_ERROR_MARKERS)
+
 
 def _run_async(coro):
     """Helper to run async code from sync Celery task."""
@@ -88,8 +110,19 @@ async def _execute_agent_async(agent_id: str):
                     f"'insight', 'opportunity', or 'risk' with severity and confidence."
                 )
 
-            # Optional: add previous answer for comparison
-            if agent.last_answer:
+            # Optional: add previous answer for comparison.
+            # IMPORTANT: skip if previous run errored. Previously we naively
+            # appended ANY last_answer, including agent-orchestrator errors
+            # ("Error consulting the AI orchestrator (Agentic Loop)..."), so
+            # the next scheduled run prepended the error string and asked the
+            # LLM to "compare with the current data and highlight changes" —
+            # which the orchestrator could not satisfy, retrying up to the
+            # langgraph recursion limit each tick. With an hourly Pulse and 3
+            # connections, that drained €15+ in 5 hours of OpenAI tokens.
+            if (
+                agent.last_answer
+                and not _looks_like_orchestrator_error(agent.last_answer)
+            ):
                 question += (
                     f"\n\nIMPORTANT: In the previous analysis, the result was:\n"
                     f'"{agent.last_answer[:500]}"\n\n'
@@ -167,15 +200,36 @@ async def _execute_agent_async(agent_id: str):
             execution.sql_executed = sql_used[:2000] if sql_used else None
             execution.finished_at = datetime.now(timezone.utc)
 
-            # 6. Update agent stats + store last answer for next comparison
+            # 6. Update agent stats + store last answer for next comparison.
+            # Do NOT store orchestrator-error strings as last_answer. If we did,
+            # the next scheduled run would prepend "previous result was 'Error
+            # consulting the AI orchestrator'" and ask the LLM to compare with
+            # current data — which it can't, so it loops to the recursion
+            # limit, burning more tokens. Better to leave last_answer alone
+            # and treat the next run as a fresh attempt.
             agent.last_execution_at = datetime.now(timezone.utc)
-            agent.last_answer = answer[:2000] if answer else None
+            answer_is_real = bool(answer) and not _looks_like_orchestrator_error(answer)
+            if answer_is_real:
+                agent.last_answer = answer[:2000]
+                agent.consecutive_failures = 0
+            else:
+                # Bump the failure counter; pause the agent if it's been
+                # failing repeatedly so it stops eating LLM budget.
+                agent.consecutive_failures = (agent.consecutive_failures or 0) + 1
+                if agent.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    agent.status = "paused"
+                    agent.next_execution_at = None
+                    logger.warning(
+                        f"Agent {agent_id} auto-paused after "
+                        f"{agent.consecutive_failures} consecutive failures"
+                    )
             agent.executions_this_month += 1
             agent.cycles_consumed += cycles
 
-            # Schedule next execution
-            hours = FREQUENCY_HOURS.get(agent.frequency, 24)
-            agent.next_execution_at = datetime.now(timezone.utc) + timedelta(hours=hours)
+            # Schedule next execution (skip if we just auto-paused above)
+            if agent.status == "active":
+                hours = FREQUENCY_HOURS.get(agent.frequency, 24)
+                agent.next_execution_at = datetime.now(timezone.utc) + timedelta(hours=hours)
 
             await db.commit()
 
