@@ -44,6 +44,7 @@ from src.api.v1 import (
     starred,
     support,
     templates,
+    tenant_plan,
     tickets,
     users,
     widgets,
@@ -147,6 +148,11 @@ api_router.include_router(settings.router, prefix="/settings", tags=["Settings"]
 
 # Tenant-wide branding (owner-only writes; reads open to any auth user).
 api_router.include_router(branding.router, prefix="/branding", tags=["Branding"])
+
+# Tenant plan tier (owner-only writes; reads open to any auth user).
+# The topbar usage card reads it to decide which plan label / upgrade
+# CTA to render.
+api_router.include_router(tenant_plan.router, prefix="/tenant-plan", tags=["Tenant Plan"])
 
 # Settings Metrics endpoints
 api_router.include_router(
