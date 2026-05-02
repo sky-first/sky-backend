@@ -93,6 +93,58 @@ async def _record_beats_safely(db, user, *, kind: str, source_id=None):
         logger.warning("Beats record_only(%s) failed: %s", kind, exc)
 
 
+# Adaptive scheduling — agents that consistently produce zero findings
+# get exponentially longer next-run intervals. Saves beats and noise on
+# stale data sources without ever hard-pausing the agent. Cap is 7 days
+# so even a long-quiet agent still ticks at least weekly. Reset to base
+# cadence the moment any of the recent runs has a finding.
+ADAPTIVE_BACKOFF_LOOKBACK = 20
+ADAPTIVE_BACKOFF_THRESHOLD = 3   # need ≥3 empties in a row before backing off
+ADAPTIVE_BACKOFF_MAX_HOURS = 24 * 7
+
+
+async def _adaptive_interval_hours(db, agent_id, base_hours: int, current_findings: int) -> int:
+    """Decide the next-run interval given the recent findings history.
+
+    Streak = the leading run of zero-finding executions, counting the
+    current run's `current_findings` as the most-recent entry. Below
+    `ADAPTIVE_BACKOFF_THRESHOLD` we keep `base_hours`. Beyond it, each
+    extra empty doubles the wait, capped at 7 days.
+    """
+    if base_hours <= 0:
+        return base_hours
+
+    from sqlalchemy import desc, select
+    from src.models.agent import AgentExecution
+
+    history = (
+        await db.execute(
+            select(AgentExecution.findings_count, AgentExecution.id)
+            .where(AgentExecution.agent_id == agent_id)
+            .order_by(desc(AgentExecution.started_at))
+            .limit(ADAPTIVE_BACKOFF_LOOKBACK + 1)
+        )
+    ).all()
+    # Drop any AgentExecution rows that match the run we just flushed —
+    # the caller passes the *current* findings count separately so we
+    # don't double-count if SQLAlchemy autoflush already persisted it.
+    counts = [current_findings] + [c for c, _ in history if c is not None][1:]
+
+    streak = 0
+    for c in counts:
+        if c == 0:
+            streak += 1
+        else:
+            break
+
+    if streak < ADAPTIVE_BACKOFF_THRESHOLD:
+        return base_hours
+
+    # streak == THRESHOLD → 2x; +1 → 4x; capped by MAX_HOURS.
+    multiplier = 2 ** (streak - ADAPTIVE_BACKOFF_THRESHOLD + 1)
+    return min(base_hours * multiplier, ADAPTIVE_BACKOFF_MAX_HOURS)
+
+
 def _run_async(coro):
     """Helper to run async code from sync Celery task."""
     loop = asyncio.new_event_loop()
@@ -348,10 +400,22 @@ async def _execute_agent_async(agent_id: str):
             agent.executions_this_month += 1
             agent.cycles_consumed += cycles
 
-            # Schedule next execution (skip if we just auto-paused above)
+            # Schedule next execution (skip if we just auto-paused above).
+            # Adaptive backoff stretches the interval when recent runs have
+            # been empty — see _adaptive_interval_hours.
             if agent.status == "active":
-                hours = FREQUENCY_HOURS.get(agent.frequency, 24)
+                base_hours = FREQUENCY_HOURS.get(agent.frequency, 24)
+                hours = await _adaptive_interval_hours(
+                    db, agent.id, base_hours, current_findings=findings_created
+                )
                 agent.next_execution_at = datetime.now(timezone.utc) + timedelta(hours=hours)
+                if hours != base_hours:
+                    logger.info(
+                        "Agent %s: adaptive backoff applied (%dh base → %dh next)",
+                        agent_id,
+                        base_hours,
+                        hours,
+                    )
 
             await db.commit()
 
