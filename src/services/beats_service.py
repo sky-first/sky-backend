@@ -39,6 +39,7 @@ from src.config.plan_quotas import (
 )
 from src.core.exceptions import PaymentRequiredError
 from src.models.beat_consumption import BeatConsumption
+from src.models.tenant_plan import TenantPlan
 from src.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,12 @@ class BeatsService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        # Cached for the lifetime of this BeatsService instance — the
+        # tenant plan tier is a singleton row and doesn't change mid-
+        # request. Avoids re-querying for every _plan_for() lookup
+        # within the same handler.
+        self._cached_tenant_tier: Optional[str] = None
+        self._tier_loaded: bool = False
 
     # ─── Public API ─────────────────────────────────────────────────────────
 
@@ -117,7 +124,7 @@ class BeatsService:
         slice. scope="tenant" aggregates across every user in the
         tenant — used by /tenant/beats for Owner/Admin views.
         """
-        plan = self._plan_for(user)
+        plan = await self._plan_for(user)
         period_end = datetime.now(timezone.utc)
         period_start = period_end - plan.period
 
@@ -240,8 +247,22 @@ class BeatsService:
 
     # ─── Internals ──────────────────────────────────────────────────────────
 
-    def _plan_for(self, user: User) -> PlanQuota:
-        return plan_for_user(
-            is_demo=bool(getattr(user, "is_demo", False)),
-            tenant_tier=getattr(user, "tenant_tier", None),
-        )
+    async def _plan_for(self, user: User) -> PlanQuota:
+        """Resolve plan tier for `user`, reading the singleton
+        ``tenant_plan`` row to find the contracted tier. Demo users
+        bypass the DB read entirely — their tier is decided by the
+        ``is_demo`` flag, not by tenant config.
+        """
+        if bool(getattr(user, "is_demo", False)):
+            return plan_for_user(is_demo=True)
+
+        if not self._tier_loaded:
+            row = (
+                await self.db.execute(
+                    select(TenantPlan.plan_tier).where(TenantPlan.id == 1)
+                )
+            ).scalar_one_or_none()
+            self._cached_tenant_tier = row
+            self._tier_loaded = True
+
+        return plan_for_user(is_demo=False, tenant_tier=self._cached_tenant_tier)
