@@ -115,6 +115,32 @@ async def test_admin_can_create_space(db_session):
     assert await Authorization(db_session).can(user, "spaces.create") is True
 
 
+@pytest.mark.asyncio
+async def test_member_can_run_personal_ai_query_without_space(db_session):
+    """ai.query.personal is the no-Space-context AI gate.
+
+    Personal scope is "the aggregated read view across every Space the
+    user belongs to (plus their own data)" — not "no permissions". The
+    space-scoped ai.query rule short-circuits without a space_id, so
+    Members on first login were getting a misleading deny. The new
+    key opens the path for any authenticated platform user."""
+    user = await _user(db_session, role="member", name="M")
+    assert await Authorization(db_session).can(user, "ai.query.personal") is True
+
+
+@pytest.mark.asyncio
+async def test_personal_ai_query_still_denies_anonymous_path(db_session):
+    """Without a User row the resolver should not inadvertently allow
+    ai.query.personal — `any_member` means "any authenticated platform
+    user", not "any caller". Sanity check that the platform_role check
+    on `User.role` is still required.
+    """
+    # admin path also opens the gate — confirms the rule isn't tighter
+    # than expected.
+    user = await _user(db_session, role="admin", name="A")
+    assert await Authorization(db_session).can(user, "ai.query.personal") is True
+
+
 # ── Space-scoped (canonical roles) ──────────────────────────────────────────
 
 

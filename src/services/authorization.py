@@ -113,6 +113,16 @@ PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
 
     # Any member
     "crews.create":              ("tenant", "any_member"),
+    # AI in Personal scope — any authenticated platform user can ask
+    # the AI without being a member of any Space. Personal is the
+    # aggregated read view of every Space the user belongs to (plus
+    # their own data); cross-tenant leakage is prevented at the
+    # connection layer, not here. Without this key the FE resolver
+    # short-circuits Personal-mode chat (space-scoped rules need a
+    # space_id and Personal has none). The /ai/query endpoint picks
+    # this key when the request omits space_id, and ai.query (below)
+    # when present.
+    "ai.query.personal":         ("tenant", "any_member"),
 
     # Owner / Admin only — Space creation is an org-structure action.
     # Letting platform Members spawn Spaces creates ungoverned silos
