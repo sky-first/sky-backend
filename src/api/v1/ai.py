@@ -48,6 +48,7 @@ from src.schemas.ai import (
 )
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.services.ai_service import AIService
+from src.services.beats_service import BeatsService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
@@ -164,6 +165,16 @@ async def process_query(
 
         page_service = PageService(db)
         await page_service.get_user_page_or_404(query_data.page_id, current_user.id)
+
+    # Beats quota gate — fires AFTER rate limit (cheap Redis check)
+    # and AFTER page validation, so users near their cap aren't
+    # charged when those earlier gates would have rejected the call
+    # anyway. Raises 402 PaymentRequiredError before the LLM runs;
+    # records 20 beats on success. Demo: 500 beats / 7d. Starter:
+    # 5K / 30d. See src/config/plan_quotas.py.
+    await BeatsService(db).check_and_record(
+        current_user, kind="chat", source_id=None,
+    )
 
     return await ai_service.process_query(current_user.id, query_data)
 
@@ -1419,6 +1430,14 @@ async def suggest_widget_title(
                 response.headers["Access-Control-Allow-Credentials"] = "true"
                 response.headers.add_vary_header("Origin")
             return response  # type: ignore[return-value]
+
+    # Beats quota gate — fires AFTER rate limit so users near their
+    # cap aren't charged when 429 would have rejected anyway.
+    # suggest_title is 5 beats (single gpt-4o-mini call, much cheaper
+    # than the L3 chat path).
+    await BeatsService(db).check_and_record(
+        current_user, kind="suggest_title", source_id=None,
+    )
 
     client = AIServiceHTTPClient()
     suggested = await client.suggest_widget_title(

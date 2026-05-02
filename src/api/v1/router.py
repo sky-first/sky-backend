@@ -8,6 +8,7 @@ from src.api.v1 import (
     ai,
     audit,
     auth,
+    beats,
     branding,
     comments,
     connections,
@@ -132,6 +133,11 @@ api_router.include_router(crews.router, prefix="/crews", tags=["Crews"])
 
 # AI endpoints
 api_router.include_router(ai.router, prefix="/ai", tags=["AI"])
+
+# Beats / quota usage. /me/beats returns the caller's own slice
+# (everyone can read theirs); /tenant/beats aggregates across the
+# org and is Owner/Admin-only via audit.view.
+api_router.include_router(beats.router, prefix="", tags=["Beats"])
 
 # Template endpoints
 api_router.include_router(templates.router, prefix="/templates", tags=["Templates"])

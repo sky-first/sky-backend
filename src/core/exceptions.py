@@ -52,6 +52,25 @@ class ConflictError(BaseAPIException):
         super().__init__(message, status_code=409)
 
 
+class PaymentRequiredError(BaseAPIException):
+    """Payment required (402) — quota / beat budget exhausted.
+
+    Distinct from 403 (no permission) and 429 (rate-limited per
+    minute/hour). 402 means: you HAVE permission and you're not
+    going too fast — your plan budget for the period ran out. The
+    UX surface should show an upgrade CTA, not a generic error.
+    """
+
+    def __init__(
+        self,
+        message: str = "Beat budget exhausted",
+        *,
+        upgrade_cta: str = "Upgrade your plan to continue",
+    ):
+        super().__init__(message, status_code=402)
+        self.upgrade_cta = upgrade_cta
+
+
 class InternalServerError(BaseAPIException):
     """Internal server error (500)."""
 
