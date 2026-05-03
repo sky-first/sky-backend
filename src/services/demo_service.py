@@ -284,6 +284,12 @@ class DemoService:
         — operationally that means the seed script wasn't run against
         this DB, or the env var was edited and points at a stale ID.
 
+        After binding, fires AI-service ``discover_connection`` once per
+        newly bound (connection, space) pair so the embeddings are
+        re-indexed against the demo guest's space — without that step the
+        AI answers "404 No metadata found" because the seed script
+        indexed against the seed-admin's space, not the visitor's.
+
         Returns the number of rows added (0 on a no-op).
 
         Called from both ``_issue_new`` (initial provision) and
@@ -320,19 +326,45 @@ class DemoService:
         )
         already: set[UUID] = {row for row in already_q.scalars().all()}
 
-        added = 0
+        added_ids: list[UUID] = []
         for conn_uuid in existing_ids:
             if conn_uuid in already:
                 continue
             self.db.add(SpaceConnection(space_id=space.id, connection_id=conn_uuid))
-            added += 1
+            added_ids.append(conn_uuid)
 
-        if added:
+        if added_ids:
             logger.info(
                 "demo_space_connections_bound space_id=%s added=%d total_wanted=%d",
-                space.id, added, len(wanted),
+                space.id, len(added_ids), len(wanted),
             )
-        return added
+
+        # 3. Trigger AI-service discovery so embeddings exist for THIS
+        # space. Fire-and-forget; signup must not be blocked by AI
+        # latency. Failures are logged but never propagated — the user
+        # can still re-sync from the UI if discovery silently fails.
+        if added_ids:
+            from src.ai.http_client import AIServiceHTTPClient
+
+            ai_client = AIServiceHTTPClient()
+            for conn_uuid in added_ids:
+                try:
+                    await ai_client.discover_connection(
+                        connection_id=str(conn_uuid),
+                        space_id=str(space.id),
+                        run_in_background=True,
+                    )
+                    logger.info(
+                        "demo_ai_discover_dispatched conn=%s space=%s",
+                        conn_uuid, space.id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "demo_ai_discover_failed conn=%s space=%s err=%s",
+                        conn_uuid, space.id, exc,
+                    )
+
+        return len(added_ids)
 
     async def signup(
         self,
