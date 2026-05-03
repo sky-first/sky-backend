@@ -103,6 +103,46 @@ class ConnectionService:
 
         return base_time + timedelta(hours=1)
 
+    async def _assert_user_can_access_connection(
+        self, connection_id: UUID, user: User
+    ) -> None:
+        """Allow access for the connection creator OR any member of a Space
+        the connection is bound to.
+
+        Why: connections are owned by a Space (via ``space_connections``),
+        not just by their original creator. Demo guests, invited members
+        and crew users all have legitimate read/sync/test access through
+        the Space membership path. Originally only ``created_by`` was
+        accepted, which broke every demo signup (the seed user creates
+        the connection, the guest is a Space member but not the creator).
+
+        Raises ``ForbiddenError`` if neither path applies. Caller already
+        loaded the connection so we receive the id; this matches the
+        existing pattern in ``get_connection`` / ``get_metrics``.
+        """
+        connection = await self.connection_repo.get_by_id(connection_id)
+        if not connection:
+            raise NotFoundError("Connection not found")
+
+        if connection.created_by == user.id:
+            return
+
+        from sqlalchemy import select
+
+        from src.models.space import SpaceConnection, SpaceMember
+
+        result = await self.db.execute(
+            select(SpaceConnection.space_id)
+            .join(SpaceMember, SpaceMember.space_id == SpaceConnection.space_id)
+            .where(
+                SpaceConnection.connection_id == connection_id,
+                SpaceMember.user_id == user.id,
+            )
+            .limit(1)
+        )
+        if not result.scalar_one_or_none():
+            raise ForbiddenError("Access denied to this connection")
+
     async def list_connections(
         self,
         user: User,
@@ -155,26 +195,7 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        # Check access: owner OR member of a space that has this connection
-        if connection.created_by != user.id:
-            from sqlalchemy import select
-
-            from src.models.space import SpaceConnection, SpaceMember
-
-            result = await self.db.execute(
-                select(SpaceConnection.space_id)
-                .join(
-                    SpaceMember,
-                    SpaceMember.space_id == SpaceConnection.space_id,
-                )
-                .where(
-                    SpaceConnection.connection_id == connection_id,
-                    SpaceMember.user_id == user.id,
-                )
-                .limit(1)
-            )
-            if not result.scalar_one_or_none():
-                raise ForbiddenError("Access denied to this connection")
+        await self._assert_user_can_access_connection(connection_id, user)
 
         return ConnectionResponse.model_validate(connection)
 
@@ -375,8 +396,7 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+        await self._assert_user_can_access_connection(connection_id, user)
 
         try:
             connector = get_connector(connection.connector_id)
@@ -435,8 +455,7 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+        await self._assert_user_can_access_connection(connection_id, user)
 
         try:
             connector = get_connector(connection.connector_id)
@@ -679,8 +698,7 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+        await self._assert_user_can_access_connection(connection_id, user)
 
         metadata = await self.metadata_repo.get_by_connection_id(connection_id)
         if not metadata:
@@ -724,8 +742,7 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+        await self._assert_user_can_access_connection(connection_id, user)
 
         # Get existing metadata
         existing_metadata = await self.metadata_repo.get_by_connection_id(connection_id)
@@ -846,8 +863,7 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+        await self._assert_user_can_access_connection(connection_id, user)
 
         return ConnectionStatusResponse(
             status=connection.status,
@@ -871,23 +887,7 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        # Check access: owner OR member of a space that has this connection
-        if connection.created_by != user.id:
-            from sqlalchemy import select
-
-            from src.models.space import SpaceConnection, SpaceMember
-
-            result = await self.db.execute(
-                select(SpaceConnection.space_id)
-                .join(SpaceMember, SpaceMember.space_id == SpaceConnection.space_id)
-                .where(
-                    SpaceConnection.connection_id == connection_id,
-                    SpaceMember.user_id == user.id,
-                )
-                .limit(1)
-            )
-            if not result.scalar_one_or_none():
-                raise ForbiddenError("Access denied to this connection")
+        await self._assert_user_can_access_connection(connection_id, user)
 
         # 1. AI Queries metrics
         queries_count = await self.ai_query_repo.count_queries_by_connection_id(connection_id)
@@ -950,8 +950,7 @@ class ConnectionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
-        if connection.created_by != user.id:
-            raise ForbiddenError("Access denied to this connection")
+        await self._assert_user_can_access_connection(connection_id, user)
 
         errors = []
         if not connection.config:
