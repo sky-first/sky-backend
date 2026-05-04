@@ -47,7 +47,7 @@ async def test_owner_gets_200_with_snapshot_shape(async_client, db_session):
     assert res.status_code == 200, res.text
     body = res.json()
     # Hero
-    for key in ("insights_total", "hours_saved", "dollar_value_usd"):
+    for key in ("insights_total", "hours_saved", "value_eur"):
         assert key in body
     # Cost transparency
     for key in ("cost_total_usd", "cost_per_insight_usd", "tokens_total", "roi_multiplier"):
@@ -110,7 +110,7 @@ async def test_empty_state_returns_zeros_not_error(async_client, db_session):
     body = res.json()
     assert body["insights_total"] == 0
     assert body["hours_saved"] == 0
-    assert body["dollar_value_usd"] == 0
+    assert body["value_eur"] == 0
 
 
 @pytest.mark.asyncio

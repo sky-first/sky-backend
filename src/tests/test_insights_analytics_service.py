@@ -26,7 +26,7 @@ from src.core.security import get_password_hash
 from src.models.beat_consumption import BeatConsumption
 from src.repositories.user import UserRepository
 from src.services.insights_analytics_service import (
-    DEFAULT_ANALYST_HOURLY_USD,
+    DEFAULT_ANALYST_HOURLY_RATE,
     InsightsAnalyticsService,
 )
 from src.services.insights_tier import HOURS_SAVED_BY_TIER
@@ -68,7 +68,7 @@ async def test_empty_tenant_returns_all_zeros(db_session):
 
     assert snap.insights_total == 0
     assert snap.hours_saved == 0
-    assert snap.dollar_value_usd == 0
+    assert snap.value_eur == 0
     assert snap.cost_total_usd == 0
     assert snap.roi_multiplier == 0
     # Tier buckets are still emitted (zeroed) so the FE can render a
@@ -108,7 +108,7 @@ async def test_hours_saved_uses_tier_weights(db_session):
         + HOURS_SAVED_BY_TIER["l3"]
     )
     assert snap.hours_saved == round(expected, 1)
-    assert snap.dollar_value_usd == round(expected * DEFAULT_ANALYST_HOURLY_USD, 2)
+    assert snap.value_eur == round(expected * DEFAULT_ANALYST_HOURLY_RATE, 2)
 
 
 @pytest.mark.asyncio
@@ -167,10 +167,10 @@ async def test_roi_is_dollar_value_over_cost(db_session):
 
     snap = await InsightsAnalyticsService(db_session, user=user).snapshot("quarter")
     assert snap.cost_total_usd > 0
-    assert snap.dollar_value_usd > snap.cost_total_usd
+    assert snap.value_eur > snap.cost_total_usd
     # ROI = dollar_value / cost — must be the value-to-cost multiple.
     assert snap.roi_multiplier == round(
-        snap.dollar_value_usd / snap.cost_total_usd, 1
+        snap.value_eur / snap.cost_total_usd, 1
     )
     # And it should be a meaningful multiplier — value framing
     # collapses if ROI is anywhere near 1×.
