@@ -72,6 +72,13 @@ async def _seed_runs(
     """Insert AgentExecution rows ordered oldest→newest.
     `findings_counts` is read in that order; the most recent entry
     is `findings_counts[-1]`.
+
+    Note on the helper contract: `_adaptive_interval_hours` drops
+    `history[0]` (the newest row) on the assumption that SQLAlchemy
+    autoflush has already persisted the current run. In tests we don't
+    flush a "current" row, so callers that want streak == N should
+    seed N rows where the newest is a placeholder that the helper
+    will discard, plus pass `current_findings` separately.
     """
     base = datetime.now(timezone.utc) - timedelta(
         minutes=spacing_minutes * len(findings_counts)
@@ -93,8 +100,8 @@ async def _seed_runs(
 async def test_streak_below_threshold_stays_at_base(db_session):
     user = await _user(db_session)
     agent = await _agent(db_session, owner=user)
-    # 2 empty runs in history; current run also empty → streak = 3 (just hits threshold).
-    # We want to be JUST BELOW so we test with 1 historical empty + current empty = 2.
+    # 1 seeded row + current=0; helper drops the newest seed row →
+    # counts = [0_current] → streak=1 → below threshold → base.
     await _seed_runs(db_session, agent_id=agent.id, findings_counts=[0])
     hours = await _adaptive_interval_hours(
         db_session, agent.id, base_hours=24, current_findings=0
@@ -106,8 +113,10 @@ async def test_streak_below_threshold_stays_at_base(db_session):
 async def test_threshold_doubles_interval(db_session):
     user = await _user(db_session)
     agent = await _agent(db_session, owner=user)
-    # 2 historical empties + current empty → streak = 3 → 2× base.
-    await _seed_runs(db_session, agent_id=agent.id, findings_counts=[0, 0])
+    # 3 seeded rows + current=0; helper drops the newest seed row
+    # (autoflush placeholder) → counts = [0_current, 0, 0] → streak=3
+    # → 2× base.
+    await _seed_runs(db_session, agent_id=agent.id, findings_counts=[0, 0, 0])
     hours = await _adaptive_interval_hours(
         db_session, agent.id, base_hours=24, current_findings=0
     )
@@ -118,8 +127,9 @@ async def test_threshold_doubles_interval(db_session):
 async def test_one_extra_empty_quadruples_interval(db_session):
     user = await _user(db_session)
     agent = await _agent(db_session, owner=user)
-    # 3 historical empties + current empty → streak = 4 → 4× base.
-    await _seed_runs(db_session, agent_id=agent.id, findings_counts=[0, 0, 0])
+    # 4 seeded rows + current=0; helper drops the newest seed row →
+    # counts = [0_current, 0, 0, 0] → streak=4 → 4× base.
+    await _seed_runs(db_session, agent_id=agent.id, findings_counts=[0, 0, 0, 0])
     hours = await _adaptive_interval_hours(
         db_session, agent.id, base_hours=24, current_findings=0
     )
@@ -154,13 +164,11 @@ async def test_finding_resets_to_base(db_session):
 async def test_finding_in_history_resets(db_session):
     user = await _user(db_session)
     agent = await _agent(db_session, owner=user)
-    # Pattern: oldest first → 0,0,5,0,0. Most recent two are zero,
-    # but the third-most-recent had a finding, so streak breaks at 2 +
-    # current empty = 3 — still below threshold? No, streak counts the
-    # leading consecutive empties from "now" backwards: current=0,
-    # newest=0, second-newest=0, third-newest=5 → streak stops at 3 →
-    # exactly threshold → 2× base.
-    await _seed_runs(db_session, agent_id=agent.id, findings_counts=[0, 0, 5, 0, 0])
+    # Pattern (oldest→newest): 0, 5, 0, 0, 0. After the helper drops
+    # the newest seed row (autoflush placeholder), counts become
+    # [0_current, 0, 0, 5, 0]. Streak stops at the third zero where
+    # the 5 breaks it — exactly threshold → 2× base.
+    await _seed_runs(db_session, agent_id=agent.id, findings_counts=[0, 5, 0, 0, 0])
     hours = await _adaptive_interval_hours(
         db_session, agent.id, base_hours=24, current_findings=0
     )
