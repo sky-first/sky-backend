@@ -41,10 +41,15 @@ async def _user(db):
 
 
 async def _agent(db, *, owner) -> Agent:
+    # scope_id and scope_name became NOT NULL after the agent-scope
+    # migration; for personal-scope test fixtures we just point at the
+    # owner's own UUID so the row is well-formed.
     a = Agent(
         id=uuid.uuid4(),
         name=f"agent-{uuid.uuid4().hex[:6]}",
         scope="personal",
+        scope_id=owner.id,
+        scope_name="Personal",
         status="active",
         frequency="daily",
         focus="Test focus",
