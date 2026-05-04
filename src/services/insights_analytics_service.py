@@ -46,9 +46,11 @@ Range = Literal["session", "today", "month", "quarter", "year", "all"]
 
 
 # Conservative analyst hourly rate used to convert "hours saved" into a
-# dollar number on the hero metric. Easy to override per-tenant later;
-# the FE never invents a rate of its own.
-DEFAULT_ANALYST_HOURLY_USD = 80
+# monetary number on the hero metric. EUR — Sky operates in Portugal
+# and customers are EU-based, so the value framing reads in their
+# currency. Easy to override per-tenant later; the FE never invents
+# a rate of its own.
+DEFAULT_ANALYST_HOURLY_RATE = 30
 
 
 # Mapping from BeatConsumption.kind onto the customer-visible tier.
@@ -119,7 +121,10 @@ class AnalyticsSnapshot:
     # Hero
     insights_total: int
     hours_saved: float
-    dollar_value_usd: float
+    # Monetary value of `hours_saved` × analyst hourly rate. Always EUR
+    # in this single-tenant deployment. Field name kept generic so a
+    # future per-tenant currency override doesn't force a schema break.
+    value_eur: float
 
     # Cost transparency
     cost_total_usd: float
@@ -304,11 +309,11 @@ class InsightsAnalyticsService:
         by_space = await self._by_space(period_start, period_end)
         top_discoveries = await self._top_discoveries(period_start, period_end)
 
-        dollar_value = round(hours_saved * DEFAULT_ANALYST_HOURLY_USD, 2)
+        value_eur = round(hours_saved * DEFAULT_ANALYST_HOURLY_RATE, 2)
         cost_per_insight = (
             round(cost_total / insights_total, 4) if insights_total else 0.0
         )
-        roi = round(dollar_value / cost_total, 1) if cost_total else 0.0
+        roi = round(value_eur / cost_total, 1) if cost_total else 0.0
 
         return AnalyticsSnapshot(
             range=range_,
@@ -317,7 +322,7 @@ class InsightsAnalyticsService:
             period_end=period_end.isoformat(),
             insights_total=insights_total,
             hours_saved=round(hours_saved, 1),
-            dollar_value_usd=dollar_value,
+            value_eur=value_eur,
             cost_total_usd=round(cost_total, 4),
             cost_per_insight_usd=cost_per_insight,
             tokens_total=tokens_total,
