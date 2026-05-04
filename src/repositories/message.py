@@ -27,6 +27,8 @@ class MessageRepository(BaseRepository[Message]):
         query_id: Optional[UUID] = None,
         cost_tokens: Optional[int] = None,
         cost_usd: Optional[Decimal] = None,
+        tier: Optional[str] = None,
+        duration_ms: Optional[int] = None,
     ) -> Message:
         # Explicit microsecond timestamp — see conversation repo for the
         # SQLite precision rationale.
@@ -37,6 +39,8 @@ class MessageRepository(BaseRepository[Message]):
             query_id=query_id,
             cost_tokens=cost_tokens,
             cost_usd=cost_usd,
+            tier=tier,
+            duration_ms=duration_ms,
             created_at=datetime.utcnow(),
         )
         self.db.add(msg)

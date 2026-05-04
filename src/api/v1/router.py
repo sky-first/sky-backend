@@ -28,6 +28,7 @@ from src.api.v1 import (
     glossary,
     impersonation,
     insight_agents,
+    insights_analytics,
     knowledge,
     messages,
     metrics,
@@ -139,6 +140,11 @@ api_router.include_router(ai.router, prefix="/ai", tags=["AI"])
 # (everyone can read theirs); /tenant/beats aggregates across the
 # org and is Owner/Admin-only via audit.view.
 api_router.include_router(beats.router, prefix="", tags=["Beats"])
+
+# Insights Analytics — Owner-only value-meter dashboard.
+api_router.include_router(
+    insights_analytics.router, prefix="", tags=["Insights Analytics"]
+)
 
 # Template endpoints
 api_router.include_router(templates.router, prefix="/templates", tags=["Templates"])
