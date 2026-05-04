@@ -48,7 +48,8 @@ async def _agent(db, *, owner) -> Agent:
         id=uuid.uuid4(),
         name=f"agent-{uuid.uuid4().hex[:6]}",
         scope="personal",
-        scope_id=owner.id,
+        # scope_id is String(255); SQLite (test backend) won't bind a raw UUID.
+        scope_id=str(owner.id),
         scope_name="Personal",
         status="active",
         frequency="daily",
