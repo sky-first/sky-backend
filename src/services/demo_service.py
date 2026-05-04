@@ -35,10 +35,18 @@ from src.core.security import (
     get_password_hash,
 )
 from src.models.connection import DataConnection
+from src.models.enterprise_relationship import EnterpriseRelationship
+from src.models.glossary import GlossaryTerm
+from src.models.metric import Metric
 from src.models.space import Space, SpaceConnection, SpaceMember
 from src.models.user import User
 from src.schemas.demo import DemoSignupRequest, DemoSignupResponse
 from src.schemas.user import UserResponse
+from src.services.demo_seed_data import (
+    GLOSSARY_TERMS,
+    METRICS_DATA,
+    RELATIONSHIPS_DATA,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +249,11 @@ class DemoService:
             role="editor",
         ))
 
+        # Backfill the Knowledge seed if the sibling Space was minted
+        # before the seed shipped — idempotent so the original owner's
+        # Space stays untouched when it's already hydrated.
+        await self._seed_demo_context(sibling_space, user)
+
         await self.db.commit()
         await self.db.refresh(user)
         await self.db.refresh(sibling_space)
@@ -366,6 +379,143 @@ class DemoService:
 
         return len(added_ids)
 
+    async def _seed_demo_context(self, space: Space, user: User) -> dict[str, int]:
+        """Idempotently hydrate ``space`` with the baseline Knowledge content
+        every demo visitor expects: Glossary terms, Metrics, and Enterprise
+        Relationships connecting them.
+
+        Without this, a fresh demo Space lands with five wired Connections
+        but every Knowledge / Relationships sun-category orbiting Universe
+        Intelligence reads count=0 — the visitor sees an empty graph and
+        the AI has no Glossary/Metric anchor to resolve "what's MRR?".
+
+        Idempotency: each entity is keyed by its natural identifier within
+        the Space scope (term / slug / name) so re-running on a Space that
+        was partially seeded by a prior signup attempt is a safe no-op.
+
+        The session is NOT committed here — caller commits as part of its
+        own transaction (alongside the User/Space/Member writes).
+
+        Returns a counts dict for telemetry: ``{glossary, metrics, relationships}``.
+        """
+        # 1. Glossary — keyed on (space_id, term).
+        existing_terms_q = await self.db.execute(
+            select(GlossaryTerm.term).where(GlossaryTerm.space_id == space.id)
+        )
+        existing_terms = {row for row in existing_terms_q.scalars().all()}
+        glossary_added = 0
+        # Map term → id so the Relationships pass below can resolve targets
+        # even on a re-run that finds them already inserted.
+        term_to_id: dict[str, UUID] = {}
+        for term, definition in GLOSSARY_TERMS:
+            if term in existing_terms:
+                continue
+            row = GlossaryTerm(
+                id=uuid4(),
+                term=term,
+                definition=definition,
+                scope="space",
+                scope_id=space.id,
+                space_id=space.id,  # legacy column kept in sync
+                owner_user_id=user.id,
+                created_by_user_id=user.id,
+            )
+            self.db.add(row)
+            term_to_id[term] = row.id
+            glossary_added += 1
+
+        # Re-fetch to capture rows that were already in place from a
+        # previous partial seed (so the Relationships pass can still
+        # resolve target_id). Cheap because Glossary is small.
+        if glossary_added > 0 or not term_to_id:
+            await self.db.flush()
+            term_q = await self.db.execute(
+                select(GlossaryTerm.id, GlossaryTerm.term).where(GlossaryTerm.space_id == space.id)
+            )
+            for row_id, row_term in term_q.all():
+                term_to_id[row_term] = row_id
+
+        # 2. Metrics — keyed on (scope='space', scope_id, slug).
+        existing_metric_q = await self.db.execute(
+            select(Metric.slug).where(
+                Metric.scope == "space",
+                Metric.scope_id == space.id,
+            )
+        )
+        existing_slugs = {row for row in existing_metric_q.scalars().all()}
+        metrics_added = 0
+        for slug, name, description, unit, aggregation in METRICS_DATA:
+            if slug in existing_slugs:
+                continue
+            self.db.add(
+                Metric(
+                    id=uuid4(),
+                    name=name,
+                    slug=slug,
+                    description=description,
+                    scope="space",
+                    scope_id=space.id,
+                    status="active",
+                    unit=unit,
+                    aggregation=aggregation,
+                    owner_user_id=user.id,
+                    created_by_user_id=user.id,
+                )
+            )
+            metrics_added += 1
+
+        # 3. Enterprise Relationships — keyed on (scope, scope_id, name).
+        # The seed wires Glossary → Glossary so both endpoints exist as
+        # real entities the FE can navigate to.
+        existing_rel_q = await self.db.execute(
+            select(EnterpriseRelationship.name).where(
+                EnterpriseRelationship.scope == "space",
+                EnterpriseRelationship.scope_id == space.id,
+            )
+        )
+        existing_rel_names = {row for row in existing_rel_q.scalars().all()}
+        relationships_added = 0
+        for source_term, target_term, rel_type, description in RELATIONSHIPS_DATA:
+            rel_name = f"{source_term} → {target_term}"
+            if rel_name in existing_rel_names:
+                continue
+            source_id = term_to_id.get(source_term)
+            target_id = term_to_id.get(target_term)
+            if source_id is None or target_id is None:
+                # Defensive — should never trigger because Glossary was
+                # written above, but skip rather than corrupt the row.
+                logger.warning(
+                    "demo_seed: skipping relationship %s — missing glossary anchor",
+                    rel_name,
+                )
+                continue
+            self.db.add(
+                EnterpriseRelationship(
+                    id=uuid4(),
+                    name=rel_name,
+                    description=description,
+                    sources=[{"id": str(source_id), "type": "glossary_term"}],
+                    target_id=str(target_id),
+                    target_type="glossary_term",
+                    relationship_type=rel_type,
+                    scope="space",
+                    scope_id=space.id,
+                    created_by=user.id,
+                )
+            )
+            relationships_added += 1
+
+        if glossary_added or metrics_added or relationships_added:
+            logger.info(
+                "demo_context_seeded space_id=%s glossary=%d metrics=%d relationships=%d",
+                space.id, glossary_added, metrics_added, relationships_added,
+            )
+        return {
+            "glossary": glossary_added,
+            "metrics": metrics_added,
+            "relationships": relationships_added,
+        }
+
     async def signup(
         self,
         payload: DemoSignupRequest,
@@ -487,6 +637,13 @@ class DemoService:
         # for click-the-buttons demos.
         await self._ensure_dataset_connections(space)
 
+        # Hydrate Knowledge (Glossary + Metrics) and Enterprise
+        # Relationships scoped to this Space so the visitor's Universe
+        # Intelligence canvas isn't an empty ring of zero-counts. Same
+        # transaction as the Space/User/Member writes — if it fails the
+        # whole signup rolls back and the visitor retries cleanly.
+        await self._seed_demo_context(space, user)
+
         await self.db.commit()
         await self.db.refresh(user)
         await self.db.refresh(space)
@@ -543,7 +700,14 @@ class DemoService:
         # empty Space — idempotent binder closes the gap.
         added = await self._ensure_dataset_connections(space)
 
-        if added:
+        # Backfill #2: Spaces created before the Knowledge seed shipped
+        # have empty Glossary / Metrics / Relationships. Re-run the
+        # idempotent seed so a returning visitor sees the same hydrated
+        # sandbox a fresh signup would get today.
+        seeded = await self._seed_demo_context(space, user)
+        seeded_any = any(seeded.values())
+
+        if added or seeded_any:
             await self.db.commit()
 
         # Slack ping intentionally NOT fired on returning login.
