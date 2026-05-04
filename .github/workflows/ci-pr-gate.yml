@@ -8,6 +8,7 @@ on:
       - 'scripts/**'
       - 'requirements.txt'
       - 'pyproject.toml'
+      - 'Dockerfile'
       - '.github/workflows/ci-pr-gate.yml'
 
 concurrency:
