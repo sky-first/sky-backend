@@ -7,11 +7,19 @@ Coverage matrix:
   • Connection.last_metadata_update > since → True
   • All timestamps <= since → False (the actual money-saving case)
   • Mix of stale + fresh → True (any one connection moved → escalate)
+
+Note on timezones: the test DB is SQLite, which stores datetimes as
+naive ISO8601 strings even when the column type is TIMESTAMPTZ. If we
+pass aware UTC datetimes here we get a mixed naive/aware comparison
+in `_connections_changed_since` and pytest fails. Using utcnow()
+(naive) keeps both sides comparable inside SQLite while preserving
+the same temporal semantics — production runs on PostgreSQL where
+both ends are aware and the helper handles that branch fine.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -66,18 +74,18 @@ async def test_no_prior_run_always_runs(db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_empty_connection_list_runs(db_session: AsyncSession):
     """Agents without connections preserve the legacy run-anyway path."""
-    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    since = datetime.utcnow() - timedelta(hours=1)
     assert await _connections_changed_since(db_session, [], since) is True
 
 
 @pytest.mark.asyncio
 async def test_connection_updated_after_since_runs(db_session: AsyncSession):
     user = await _user(db_session)
-    since = datetime.now(timezone.utc) - timedelta(hours=2)
+    since = datetime.utcnow() - timedelta(hours=2)
     conn = await _connection(
         db_session,
         owner=user,
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.utcnow(),
     )
     assert await _connections_changed_since(db_session, [conn.id], since) is True
 
@@ -86,13 +94,13 @@ async def test_connection_updated_after_since_runs(db_session: AsyncSession):
 async def test_metadata_refresh_after_since_runs(db_session: AsyncSession):
     """A metadata re-sync must wake the agent up, not just row edits."""
     user = await _user(db_session)
-    since = datetime.now(timezone.utc) - timedelta(hours=2)
-    long_ago = datetime.now(timezone.utc) - timedelta(days=10)
+    since = datetime.utcnow() - timedelta(hours=2)
+    long_ago = datetime.utcnow() - timedelta(days=10)
     conn = await _connection(
         db_session,
         owner=user,
         updated_at=long_ago,
-        last_metadata_update=datetime.now(timezone.utc),
+        last_metadata_update=datetime.utcnow(),
     )
     assert await _connections_changed_since(db_session, [conn.id], since) is True
 
@@ -101,8 +109,8 @@ async def test_metadata_refresh_after_since_runs(db_session: AsyncSession):
 async def test_all_stale_skips(db_session: AsyncSession):
     """The actual budget-saving case: nothing moved since last run."""
     user = await _user(db_session)
-    long_ago = datetime.now(timezone.utc) - timedelta(days=10)
-    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    long_ago = datetime.utcnow() - timedelta(days=10)
+    since = datetime.utcnow() - timedelta(hours=1)
     conn = await _connection(
         db_session,
         owner=user,
@@ -116,14 +124,14 @@ async def test_all_stale_skips(db_session: AsyncSession):
 async def test_any_fresh_connection_triggers_run(db_session: AsyncSession):
     """If at least one connection moved, the whole agent escalates."""
     user = await _user(db_session)
-    since = datetime.now(timezone.utc) - timedelta(hours=1)
-    long_ago = datetime.now(timezone.utc) - timedelta(days=10)
+    since = datetime.utcnow() - timedelta(hours=1)
+    long_ago = datetime.utcnow() - timedelta(days=10)
 
     stale = await _connection(
         db_session, owner=user, updated_at=long_ago, last_metadata_update=long_ago
     )
     fresh = await _connection(
-        db_session, owner=user, updated_at=datetime.now(timezone.utc)
+        db_session, owner=user, updated_at=datetime.utcnow()
     )
     result = await _connections_changed_since(
         db_session, [stale.id, fresh.id], since

@@ -58,7 +58,7 @@ async def test_get_creates_singleton_lazily_when_table_empty(db_session: AsyncSe
 @pytest.mark.asyncio
 async def test_set_tier_updates_existing_row(db_session: AsyncSession, owner_user: User):
     svc = TenantPlanService(db_session)
-    await svc.set_tier(plan_tier="pro", updated_by_user_id=str(owner_user.id))
+    await svc.set_tier(plan_tier="pro", updated_by_user_id=owner_user.id)
 
     rows = (await db_session.execute(select(TenantPlan))).scalars().all()
     assert len(rows) == 1
@@ -69,7 +69,7 @@ async def test_set_tier_updates_existing_row(db_session: AsyncSession, owner_use
 @pytest.mark.asyncio
 async def test_set_tier_then_get_returns_new_value(db_session: AsyncSession, owner_user: User):
     svc = TenantPlanService(db_session)
-    await svc.set_tier(plan_tier="free", updated_by_user_id=str(owner_user.id))
+    await svc.set_tier(plan_tier="free", updated_by_user_id=owner_user.id)
     row = await svc.get()
     assert row.plan_tier == "free"
 
@@ -77,7 +77,7 @@ async def test_set_tier_then_get_returns_new_value(db_session: AsyncSession, own
 @pytest.mark.asyncio
 async def test_set_tier_records_audit_user(db_session: AsyncSession, owner_user: User):
     svc = TenantPlanService(db_session)
-    await svc.set_tier(plan_tier="enterprise", updated_by_user_id=str(owner_user.id))
+    await svc.set_tier(plan_tier="enterprise", updated_by_user_id=owner_user.id)
     row = await svc.get()
     assert str(row.updated_by_user_id) == str(owner_user.id)
 
