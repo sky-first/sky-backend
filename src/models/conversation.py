@@ -103,6 +103,9 @@ class Message(Base):
     )
     cost_tokens = Column(Integer, nullable=True)
     cost_usd = Column(Numeric(10, 4), nullable=True)
+    # Insights-Analytics — see src/services/insights_tier.py.
+    tier = Column(String(2), nullable=True)
+    duration_ms = Column(Integer, nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

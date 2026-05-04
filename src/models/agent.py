@@ -334,6 +334,11 @@ class AgentExecution(Base):
     llm_tokens_used = Column(Integer, nullable=True)
     llm_cost_usd = Column(Numeric(10, 4), nullable=True)
 
+    # Insights-Analytics tier classifier — see src/services/insights_tier.py.
+    # 'l1' = trivial / no findings, 'l2' = triage, 'l3' = deep dive.
+    # NULL on legacy rows; aggregator falls back to 'l1'.
+    tier = Column(String(2), nullable=True)
+
     # --- Identity audit ---
     triggered_by_sp_id = Column(
         UUID(as_uuid=True),

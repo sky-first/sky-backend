@@ -301,6 +301,8 @@ async def _execute_agent_async(agent_id: str):
                 execution.cycles_consumed = 0
                 execution.findings_count = 0
                 execution.finished_at = datetime.now(timezone.utc)
+                # Skipped delta-checks are L1 — quiet no-ops, free.
+                execution.tier = "l1"
                 agent.last_execution_at = datetime.now(timezone.utc)
                 hours = FREQUENCY_HOURS.get(agent.frequency, 24)
                 agent.next_execution_at = datetime.now(timezone.utc) + timedelta(
@@ -373,6 +375,21 @@ async def _execute_agent_async(agent_id: str):
             execution.answer = answer[:3000] if answer else None
             execution.sql_executed = sql_used[:2000] if sql_used else None
             execution.finished_at = datetime.now(timezone.utc)
+            # Insights-Analytics tier — classify by what the run actually
+            # did (findings + delta + monitor type). This drives the
+            # value-meter on Settings → Analytics; uncategorised legacy
+            # rows would fall back to L1 in the aggregator anyway, but
+            # we stamp forward so live dashboards stay honest.
+            from src.services.insights_tier import classify_agent_execution
+
+            execution.tier = classify_agent_execution(
+                findings_count=findings_created,
+                delta_kind=execution.delta_kind,
+                monitor_type=monitor_type,
+                input_tokens=execution.llm_tokens_used,
+                output_tokens=None,
+                error=False,
+            )
 
             # 6. Update agent stats + store last answer for next comparison.
             # Do NOT store orchestrator-error strings as last_answer. If we did,
@@ -456,6 +473,7 @@ async def _execute_agent_async(agent_id: str):
         except Exception as e:
             execution.status = "failed"
             execution.error_message = str(e)[:1000]
+            execution.tier = "l1"
             execution.finished_at = datetime.now(timezone.utc)
             agent.status = "error"
             await db.commit()
