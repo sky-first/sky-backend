@@ -59,4 +59,9 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/healthz', timeout=2)"
 
 # Run application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Single worker per pod — asyncio handles concurrency within the process.
+# Horizontal scaling is done via K8s replicas, not OS-level fork workers.
+# --workers >1 uses Gunicorn Arbiter (fork model): child processes inherit
+# the parent's asyncio state (pool futures, event loop references) which
+# breaks after fork, causing silent worker crashes and supervisor exit-0.
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
