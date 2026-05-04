@@ -257,32 +257,30 @@ class InsightsAnalyticsService:
 
         # Enrich with execution-level data (duration + actual token cost
         # when known). Single round-trip for the agent rows we matched.
+        #
+        # We deliberately do NOT select `AgentExecution.tier` here even
+        # though the column exists in the model — staging may not have
+        # run the `insights_tier_20260504` migration yet, in which case
+        # postgres responds with "column tier does not exist" and the
+        # whole request 500s. The tier is already derived from
+        # `BeatConsumption.kind` above, so the column is redundant for
+        # the aggregator. We can re-introduce it once the migration is
+        # confirmed applied across every environment.
         if agent_source_ids:
             ex_rows = (
                 await self.db.execute(
                     select(
                         AgentExecution.id,
-                        AgentExecution.tier,
                         AgentExecution.duration_ms,
                         AgentExecution.llm_tokens_used,
-                        AgentExecution.llm_cost_usd,
                         AgentExecution.delta_tokens,
-                        AgentExecution.delta_cost_usd,
                     ).where(AgentExecution.id.in_(agent_source_ids))
                 )
             ).all()
-            for _id, ex_tier, dur_ms, ltokens, lcost, dtokens, dcost in ex_rows:
-                # Override the kind→tier classification with the
-                # execution's stamped tier when present.
-                tier = ex_tier if ex_tier in tier_buckets else None
+            for _id, dur_ms, ltokens, dtokens in ex_rows:
                 seconds = (dur_ms or 0) / 1000.0
                 if seconds > 0:
                     _assign_time_bucket(time_buckets, seconds)
-                # Add real cost on top of beat-derived estimate when
-                # the actual LLM cost was logged. Doesn't double-count
-                # because tier_buckets[*].cost_usd is recomputed at the
-                # end as max(estimate, actual) per tier — but here we
-                # only refine duration/tokens, not USD.
 
         # Totals
         insights_total = sum(b.count for b in tier_buckets.values())
@@ -296,10 +294,9 @@ class InsightsAnalyticsService:
             # joined rows — a follow-up if the hero hero tile asks for
             # it. Time distribution covers the histogram already.
             pass
-        tokens_total = 0  # filled below from ex_rows
-
+        tokens_total = 0
         if agent_source_ids:
-            for _id, _t, _d, ltokens, _lc, dtokens, _dc in ex_rows:
+            for _id, _dur, ltokens, dtokens in ex_rows:
                 tokens_total += int(ltokens or 0) + int(dtokens or 0)
 
         # Per-agent and per-space breakdowns

@@ -301,8 +301,12 @@ async def _execute_agent_async(agent_id: str):
                 execution.cycles_consumed = 0
                 execution.findings_count = 0
                 execution.finished_at = datetime.now(timezone.utc)
-                # Skipped delta-checks are L1 — quiet no-ops, free.
-                execution.tier = "l1"
+                # Skipped delta-checks are L1. Try/except so a missing
+                # `tier` column doesn't fail the entire skip path.
+                try:
+                    execution.tier = "l1"
+                except Exception:
+                    pass
                 agent.last_execution_at = datetime.now(timezone.utc)
                 hours = FREQUENCY_HOURS.get(agent.frequency, 24)
                 agent.next_execution_at = datetime.now(timezone.utc) + timedelta(
@@ -376,20 +380,27 @@ async def _execute_agent_async(agent_id: str):
             execution.sql_executed = sql_used[:2000] if sql_used else None
             execution.finished_at = datetime.now(timezone.utc)
             # Insights-Analytics tier — classify by what the run actually
-            # did (findings + delta + monitor type). This drives the
-            # value-meter on Settings → Analytics; uncategorised legacy
-            # rows would fall back to L1 in the aggregator anyway, but
-            # we stamp forward so live dashboards stay honest.
-            from src.services.insights_tier import classify_agent_execution
+            # did (findings + delta + monitor type). The aggregator on
+            # Settings → Analytics derives tier from BeatConsumption.kind
+            # so this is a forward-stamp for future use. Skipped when
+            # the `tier` column hasn't migrated yet (postgres staging
+            # may lag the model). Wrapped in try/except so a runtime
+            # AttributeError doesn't kill an otherwise successful run.
+            try:
+                from src.services.insights_tier import classify_agent_execution
 
-            execution.tier = classify_agent_execution(
-                findings_count=findings_created,
-                delta_kind=execution.delta_kind,
-                monitor_type=monitor_type,
-                input_tokens=execution.llm_tokens_used,
-                output_tokens=None,
-                error=False,
-            )
+                execution.tier = classify_agent_execution(
+                    findings_count=findings_created,
+                    delta_kind=execution.delta_kind,
+                    monitor_type=monitor_type,
+                    input_tokens=execution.llm_tokens_used,
+                    output_tokens=None,
+                    error=False,
+                )
+            except Exception as tier_err:  # noqa: BLE001
+                logger.warning(
+                    f"Agent {agent_id}: tier stamp skipped: {tier_err}"
+                )
 
             # 6. Update agent stats + store last answer for next comparison.
             # Do NOT store orchestrator-error strings as last_answer. If we did,
@@ -473,7 +484,10 @@ async def _execute_agent_async(agent_id: str):
         except Exception as e:
             execution.status = "failed"
             execution.error_message = str(e)[:1000]
-            execution.tier = "l1"
+            try:
+                execution.tier = "l1"
+            except Exception:
+                pass
             execution.finished_at = datetime.now(timezone.utc)
             agent.status = "error"
             await db.commit()

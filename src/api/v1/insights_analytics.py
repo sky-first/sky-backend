@@ -73,5 +73,17 @@ async def get_insights_analytics(
             ),
         )
 
-    snapshot = await InsightsAnalyticsService(db, user=current_user).snapshot(range_)
+    try:
+        snapshot = await InsightsAnalyticsService(db, user=current_user).snapshot(range_)
+    except Exception:
+        # Endpoint is new and rendering is best-effort — surface the
+        # full stack to the structured logger so we can root-cause in
+        # the cluster without inflicting a 500 on the customer. The
+        # generic INTERNAL_ERROR envelope is what they'd otherwise see.
+        logger.exception(
+            "insights_analytics_snapshot_failed user=%s range=%s",
+            current_user.id,
+            range_,
+        )
+        raise
     return snapshot.to_dict()
