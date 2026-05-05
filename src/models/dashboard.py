@@ -158,6 +158,15 @@ class Widget(Base):
         nullable=True,
     )
 
+    # Provenance — Lucas's 2026-05-05 audit asked for a way to tell a
+    # manually-authored widget apart from one Create Analysis stamped
+    # from an AI answer (and especially from one created when the AI
+    # answer was a refusal / mock_fallback). NULL = legacy/unknown,
+    # otherwise one of: 'manual', 'ai_synthesis', 'mock_fallback',
+    # 'agent'. Keeping it as VARCHAR (not Postgres enum) so adding new
+    # categories is a code change, not a migration.
+    source = Column(String(20), nullable=True)
+
     # Relationships
     dashboard = relationship("Dashboard", back_populates="widgets")
     connection = relationship("DataConnection", foreign_keys=[connection_id])
