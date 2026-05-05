@@ -35,6 +35,7 @@ class AIServiceHTTPClient:
         user_id: str,
         space_id: str,
         crew_ids: Optional[List[str]] = None,
+        space_ids: Optional[List[str]] = None,
         thread_id: Optional[str] = None,
         is_personal: Optional[bool] = None,
         selected_datasets: Optional[List[str]] = None,
@@ -76,6 +77,12 @@ class AIServiceHTTPClient:
 
         if crew_ids:
             payload["crew_ids"] = crew_ids
+        if space_ids:
+            # Personal mode: caller's full Space membership. Lets the
+            # AI RAG surface space-scoped rows from every Space the
+            # caller belongs to (vector_store OR-clause keyed on
+            # `caller_space_ids`). Outside Personal this is None.
+            payload["space_ids"] = space_ids
         if thread_id:
             payload["thread_id"] = thread_id
         if is_personal is not None:

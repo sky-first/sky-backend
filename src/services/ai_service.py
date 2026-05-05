@@ -367,6 +367,38 @@ class AIService:
             # Return empty list on error - user will only see global data
             return []
 
+    async def _get_user_space_ids(self, user_id: UUID) -> List[str]:
+        """Resolve every Space the caller belongs to (owner OR member).
+
+        Used by Personal mode to forward the caller's space list to the
+        AI service: the RAG's Personal branch then surfaces (a) the
+        caller's own embeddings (user_id-scoped), (b) shared/global
+        rows (NULL space_id + NULL user_id), AND (c) space-scoped rows
+        for any space the caller is a member of (NULL user_id +
+        space_id IN (caller_space_ids)).
+
+        Without this list, a member of S1 asking in Personal mode
+        would not see the connection-metadata embeddings that S1's
+        admin indexed under S1.id — Personal would only see shared +
+        their own private rows.
+        """
+        try:
+            from src.models.space import Space, SpaceMember
+
+            stmt = (
+                select(Space.id)
+                .outerjoin(SpaceMember, SpaceMember.space_id == Space.id)
+                .where(or_(Space.created_by == user_id, SpaceMember.user_id == user_id))
+                .distinct()
+            )
+            rows = (await self.db.execute(stmt)).all()
+            return [str(r[0]) for r in rows]
+        except Exception as e:
+            logger.error(
+                "Error resolving user space_ids for %s: %s", user_id, e, exc_info=True
+            )
+            return []
+
     async def _resolve_space_id_for_connection(
         self, user_id: UUID, connection_id: str
     ) -> Optional[str]:
@@ -717,12 +749,23 @@ class AIService:
                                 else knowledge_block
                             )
 
+                        # Personal mode: forward the caller's full Space
+                        # membership so the AI RAG can surface
+                        # space-scoped rows from every Space the caller
+                        # belongs to. Skip outside Personal — the
+                        # collaborative branch already scopes to
+                        # `space_id` alone.
+                        caller_space_ids: Optional[List[str]] = None
+                        if is_personal:
+                            caller_space_ids = await self._get_user_space_ids(user_id)
+
                         result = await self.real_ai.process_query(
                             connection_id=connection_id,
                             question=configure_data.question,
                             user_id=str(user_id),
                             space_id=space_id,
                             crew_ids=crew_ids if crew_ids else None,
+                            space_ids=caller_space_ids,
                             thread_id=str(query.id),
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
@@ -1258,12 +1301,19 @@ class AIService:
                             f"space_id={space_id}, crew_ids={crew_ids}, question='{str(message_data.message)[:50]}...'"
                         )
 
+                        # Personal mode: forward caller Space membership.
+                        # See process_query branch for the full rationale.
+                        caller_space_ids: Optional[List[str]] = None
+                        if is_personal:
+                            caller_space_ids = await self._get_user_space_ids(user_id)
+
                         result = await self.real_ai.process_query(
                             connection_id=connection_id,
                             question=message_data.message,
                             user_id=str(user_id),
                             space_id=space_id,
                             crew_ids=crew_ids if crew_ids else None,
+                            space_ids=caller_space_ids,
                             thread_id=str(user_message.id),
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
