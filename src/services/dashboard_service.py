@@ -280,6 +280,11 @@ class DashboardService:
             config=widget_data.config,
             connection_id=widget_data.connection_id,
             query_id=widget_data.query_id,
+            # Provenance default: 'manual' when the FE didn't stamp it.
+            # Audit query becomes ``WHERE source = 'manual'`` etc., so we
+            # avoid NULL for newly-created rows.
+            source=widget_data.source or "manual",
+            created_by=user.id,
         )
 
         await self.db.commit()
