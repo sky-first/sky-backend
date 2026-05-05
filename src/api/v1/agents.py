@@ -267,6 +267,16 @@ async def run_agent_stream(
         collected_rows: Optional[Dict[str, Any]] = None  # {columns, data, truncated?}
         conn_id = str(agent.connection_ids[0]) if agent.connection_ids else None
 
+        # Phase 4.2: explicit handling of every monitor_type the schema
+        # validator accepts. `scan` is the preferred name for autonomous
+        # connection monitoring; `datasource` is a legacy alias. `context`
+        # is reserved for Phase 5 full-context mode and currently behaves
+        # like `scan` with an explicit label for audit logs.
+        # Resolved up-front so the conn_id-fallback branch below can
+        # reference it without tripping UnboundLocalError when the agent
+        # has neither a pinned connection nor a context-mode flag.
+        monitor_type = (agent.monitor_type or "question").lower()
+
         if not conn_id:
             # Fallback: use any active connection the user can read. This
             # lets full-context agents run against the user's aggregate
@@ -279,12 +289,6 @@ async def run_agent_stream(
             yield f"data: {json.dumps({'type': 'error', 'message': 'No data source available. Add a connection in the Edit tab, or switch to Full context mode.'})}\n\n"
             return
 
-        # Phase 4.2: explicit handling of every monitor_type the schema
-        # validator accepts. `scan` is the preferred name for autonomous
-        # connection monitoring; `datasource` is a legacy alias. `context`
-        # is reserved for Phase 5 full-context mode and currently behaves
-        # like `scan` with an explicit label for audit logs.
-        monitor_type = (agent.monitor_type or "question").lower()
         if monitor_type == "question":
             question = agent.focus or "Analyze the data and surface insights, risks, and opportunities."
         elif monitor_type == "sql":
@@ -313,8 +317,14 @@ async def run_agent_stream(
         if agent.last_answer:
             question += f"\n\nPrevious result: \"{agent.last_answer[:500]}\"\nHighlight any changes."
 
-        # Send initial progress
+        # Send initial progress. We emit two stage events back-to-back so
+        # the UI moves immediately even if the AI service takes a few
+        # seconds to start streaming (the first AI cold-start can be
+        # well over a minute on GPU instances). Without the second
+        # nudge the spotlight sits on "Connecting…" with no signal that
+        # anything is happening, which Lucas's QA flagged as a bug.
         yield f"data: {json.dumps({'type': 'progress', 'stage': 'starting', 'message': f'Connecting to {agent.name}...'})}\n\n"
+        yield f"data: {json.dumps({'type': 'progress', 'stage': 'orchestrator', 'message': 'Reaching the AI service…'})}\n\n"
 
         # Forward the agent's full Universe-Intelligence selection to the
         # AI service so the RAG can filter to the pinned subset across
