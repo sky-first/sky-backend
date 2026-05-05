@@ -32,6 +32,11 @@ jobs:
           resource-group: ${{ env.RESOURCE_GROUP }}
           cluster-name: ${{ env.CLUSTER_NAME }}
 
+      - name: Install kubelogin
+        uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: 'latest'
+
       - name: Get Pods
         run: kubectl get pods -n staging -o wide
 
