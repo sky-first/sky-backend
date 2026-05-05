@@ -280,6 +280,14 @@ class DashboardService:
             config=widget_data.config,
             connection_id=widget_data.connection_id,
             query_id=widget_data.query_id,
+            # Stamp the creator so the mutation guard's creator-bypass
+            # (src/services/_mutation_guard.py:80) lets the same user
+            # edit/delete the widget they just made. Without this,
+            # `widget.created_by` is NULL and PUT /widgets/{id} fell
+            # back to RBAC widgets.edit at platform level (where a
+            # plain "user" platformRole has no edit grant) — surfaced
+            # as 403 even when the user was a Space Owner.
+            created_by=user.id,
         )
 
         await self.db.commit()

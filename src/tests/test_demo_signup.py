@@ -271,6 +271,41 @@ async def test_cleanup_deletes_expired_spaces_and_users(db_session: AsyncSession
 
 
 @pytest.mark.asyncio
+async def test_signup_seeds_three_demo_agents(db_session: AsyncSession):
+    """Lucas's 2026-05-05 QA: a fresh demo Space must come pre-loaded with
+    3 ready-to-run agents so the Pulse pill has signal to render and the
+    Set-up-Agent mission has a working entry point. Returning logins are
+    a no-op (the helper is idempotent) and DO NOT mint duplicates."""
+    from src.models.agent import Agent
+
+    service = DemoService(db_session)
+    resp = await service.signup(_ok_payload(), client_ip="1.2.3.4")
+
+    agents_q = await db_session.execute(
+        select(Agent).where(Agent.scope == "space", Agent.scope_id == resp.space_id)
+    )
+    agents = agents_q.scalars().all()
+    assert len(agents) == 3, f"expected 3 demo agents, got {len(agents)}"
+
+    names = {a.name for a in agents}
+    assert names == {"Revenue Pulse", "Customer Health Watch", "Operations Radar"}
+
+    for a in agents:
+        assert a.status == "active"
+        assert a.created_by == resp.user.id
+        assert a.scope == "space"
+        assert a.monitor_type == "question"
+        assert a.focus and len(a.focus) > 20
+
+    # Returning login must not duplicate the agents.
+    await service.signup(_ok_payload(), client_ip="1.2.3.4")
+    again_q = await db_session.execute(
+        select(Agent).where(Agent.scope == "space", Agent.scope_id == resp.space_id)
+    )
+    assert len(again_q.scalars().all()) == 3, "returning login duplicated the agents"
+
+
+@pytest.mark.asyncio
 async def test_signup_endpoint_integration(client, monkeypatch: pytest.MonkeyPatch):
     """End-to-end through FastAPI with the real router wiring."""
     monkeypatch.setattr(settings, "DEMO_ENABLED", True)

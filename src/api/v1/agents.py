@@ -267,6 +267,16 @@ async def run_agent_stream(
         collected_rows: Optional[Dict[str, Any]] = None  # {columns, data, truncated?}
         conn_id = str(agent.connection_ids[0]) if agent.connection_ids else None
 
+        # Phase 4.2: explicit handling of every monitor_type the schema
+        # validator accepts. `scan` is the preferred name for autonomous
+        # connection monitoring; `datasource` is a legacy alias. `context`
+        # is reserved for Phase 5 full-context mode and currently behaves
+        # like `scan` with an explicit label for audit logs.
+        # Resolved up-front so the conn_id-fallback branch below can
+        # reference it without tripping UnboundLocalError when the agent
+        # has neither a pinned connection nor a context-mode flag.
+        monitor_type = (agent.monitor_type or "question").lower()
+
         if not conn_id:
             # Fallback: use any active connection the user can read. This
             # lets full-context agents run against the user's aggregate
@@ -279,12 +289,6 @@ async def run_agent_stream(
             yield f"data: {json.dumps({'type': 'error', 'message': 'No data source available. Add a connection in the Edit tab, or switch to Full context mode.'})}\n\n"
             return
 
-        # Phase 4.2: explicit handling of every monitor_type the schema
-        # validator accepts. `scan` is the preferred name for autonomous
-        # connection monitoring; `datasource` is a legacy alias. `context`
-        # is reserved for Phase 5 full-context mode and currently behaves
-        # like `scan` with an explicit label for audit logs.
-        monitor_type = (agent.monitor_type or "question").lower()
         if monitor_type == "question":
             question = agent.focus or "Analyze the data and surface insights, risks, and opportunities."
         elif monitor_type == "sql":
@@ -313,8 +317,14 @@ async def run_agent_stream(
         if agent.last_answer:
             question += f"\n\nPrevious result: \"{agent.last_answer[:500]}\"\nHighlight any changes."
 
-        # Send initial progress
+        # Send initial progress. We emit two stage events back-to-back so
+        # the UI moves immediately even if the AI service takes a few
+        # seconds to start streaming (the first AI cold-start can be
+        # well over a minute on GPU instances). Without the second
+        # nudge the spotlight sits on "Connecting…" with no signal that
+        # anything is happening, which Lucas's QA flagged as a bug.
         yield f"data: {json.dumps({'type': 'progress', 'stage': 'starting', 'message': f'Connecting to {agent.name}...'})}\n\n"
+        yield f"data: {json.dumps({'type': 'progress', 'stage': 'orchestrator', 'message': 'Reaching the AI service…'})}\n\n"
 
         # Forward the agent's full Universe-Intelligence selection to the
         # AI service so the RAG can filter to the pinned subset across
@@ -497,15 +507,44 @@ async def list_all_insights(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all insights across all agents, optionally filtered by scope."""
+    """List all insights across all agents, optionally filtered by scope.
+
+    SECURITY (audit 2026-05-05): without a scope filter the previous
+    implementation returned findings from every Agent in the tenant
+    to any caller with global ``agents.findings.view``. Now: when the
+    caller is not an org admin/owner AND no explicit scope is pinned,
+    we restrict the agent list to ones they own or are members of.
+    """
     await RBACService(db).assert_permission(current_user, "agents.findings.view")
     from sqlalchemy.orm import selectinload
+
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
 
     query = select(Agent)
     if scope:
         query = query.where(Agent.scope == scope)
     if scope_id:
         query = query.where(Agent.scope_id == scope_id)
+
+    if not is_org_admin and not (scope and scope_id):
+        # No explicit scope and not an org admin — restrict to:
+        #   (a) personal agents created by this user, OR
+        #   (b) Space agents in Spaces the user is a member of.
+        from src.models.space import SpaceMember
+        from sqlalchemy import or_, and_
+        member_q = await db.execute(
+            select(SpaceMember.space_id).where(SpaceMember.user_id == current_user.id)
+        )
+        member_space_ids = [str(sid) for sid in member_q.scalars().all()]
+        clauses = [Agent.created_by == current_user.id]
+        if member_space_ids:
+            clauses.append(
+                and_(
+                    Agent.scope == "space",
+                    Agent.scope_id.in_(member_space_ids),
+                )
+            )
+        query = query.where(or_(*clauses))
 
     result = await db.execute(query.options(selectinload(Agent.findings)))
     agents = result.scalars().all()
@@ -551,8 +590,35 @@ async def get_agent_metrics(
       billing screens and the customer invoice. Included in the
       response so the same endpoint powers both views, but the
       end-user UI never surfaces it.
+
+    SECURITY (audit 2026-05-05): the previous implementation gated on
+    a global ``agents.view`` check, never verifying the caller could
+    actually access THIS specific agent. Resolve the agent first and
+    pass its space scope into the RBAC check so the existing
+    list-agents IDOR fix (which scopes to ``created_by`` for non-admins)
+    is enforced here too.
     """
-    await RBACService(db).assert_permission(current_user, "agents.view")
+    agent_q_pre = await db.execute(select(Agent).where(Agent.id == agent_id))
+    agent_pre = agent_q_pre.scalar_one_or_none()
+    if not agent_pre:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    s_id = None
+    if getattr(agent_pre, "scope", None) == "space" and getattr(agent_pre, "scope_id", None):
+        try:
+            s_id = UUID(getattr(agent_pre, "scope_id"))
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(current_user, "agents.view", space_id=s_id)
+    # Personal agents must additionally match the caller — otherwise
+    # the global ``agents.view`` permission would let any user pull
+    # metrics for any other user's personal agent.
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
+    if (
+        agent_pre.scope == "personal"
+        and not is_org_admin
+        and agent_pre.created_by != current_user.id
+    ):
+        raise HTTPException(status_code=403, detail="Not allowed for this agent")
     import json
     from datetime import datetime, timezone
     from src.models.agent import AgentExecution
@@ -637,16 +703,50 @@ async def get_tenant_agent_metrics(
     Aggregates runs and tokens across every agent the user can see so
     admins can show customers a single "you used X runs / Y tokens this
     month" number per billing cycle.
+
+    SECURITY (audit 2026-05-05): the previous implementation served the
+    SAME numbers to every caller with ``metrics.view``, so a regular
+    member with ``metrics.view`` saw billing-grade aggregates spanning
+    agents they could not otherwise read. We now scope the aggregation
+    to agents the caller can access — same shape as ``list_agents``:
+      • org admin / owner → entire tenant (existing behaviour)
+      • everyone else → personal agents they own + space agents in
+        their member spaces.
     """
     await RBACService(db).assert_permission(current_user, "metrics.view")
     from datetime import datetime, timezone
     from src.models.agent import AgentExecution
 
-    all_agents = await db.execute(select(Agent))
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
+    agent_query = select(Agent)
+    if not is_org_admin:
+        from src.models.space import SpaceMember
+        from sqlalchemy import or_, and_
+        member_q = await db.execute(
+            select(SpaceMember.space_id).where(SpaceMember.user_id == current_user.id)
+        )
+        member_space_ids = [str(sid) for sid in member_q.scalars().all()]
+        clauses = [Agent.created_by == current_user.id]
+        if member_space_ids:
+            clauses.append(
+                and_(
+                    Agent.scope == "space",
+                    Agent.scope_id.in_(member_space_ids),
+                )
+            )
+        agent_query = agent_query.where(or_(*clauses))
+
+    all_agents = await db.execute(agent_query)
     agents = list(all_agents.scalars().all())
 
-    execs_q = await db.execute(select(AgentExecution))
-    executions = list(execs_q.scalars().all())
+    visible_agent_ids = [a.id for a in agents]
+    if visible_agent_ids:
+        execs_q = await db.execute(
+            select(AgentExecution).where(AgentExecution.agent_id.in_(visible_agent_ids))
+        )
+        executions = list(execs_q.scalars().all())
+    else:
+        executions = []
 
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)

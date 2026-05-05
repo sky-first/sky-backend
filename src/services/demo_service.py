@@ -34,6 +34,7 @@ from src.core.security import (
     create_refresh_token,
     get_password_hash,
 )
+from src.models.agent import Agent
 from src.models.connection import DataConnection
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.glossary import GlossaryTerm
@@ -253,6 +254,9 @@ class DemoService:
         # before the seed shipped — idempotent so the original owner's
         # Space stays untouched when it's already hydrated.
         await self._seed_demo_context(sibling_space, user)
+        # Same idempotent backfill for the demo agents seed — keeps the
+        # joiner's Pulse pill in sync with what a fresh signup would have.
+        await self._seed_demo_agents(sibling_space, user)
 
         # Default Personal page — see plain-signup branch above for
         # the rationale. Idempotent.
@@ -538,6 +542,91 @@ class DemoService:
             "relationships": relationships_added,
         }
 
+    async def _seed_demo_agents(self, space: Space, user: User) -> int:
+        """Create 3 ready-to-run agents on a fresh demo Space.
+
+        Lucas's 2026-05-05 QA: the Pulse pill stays empty for new demo
+        visitors because the Space has zero agents at signup, which kills
+        the "look, your AI is already watching!" pitch. Seeding three
+        archetype agents (revenue, customers, ops) gives the visitor
+        immediate signal in the Pulse pill AND a sane payload to "Run now"
+        so the Set-up-Agent mission has actual results to show.
+
+        Idempotent: skips entirely if agents already exist for this Space.
+        Connection-aware: pins the agents to the first dataset Connection
+        bound to the Space so the run-stream endpoint has somewhere to
+        query. Returns the number of agents added.
+        """
+        already_q = await self.db.execute(
+            select(Agent.id).where(
+                Agent.scope == "space",
+                Agent.scope_id == str(space.id),
+            )
+        )
+        if already_q.scalars().first() is not None:
+            return 0
+
+        bound_q = await self.db.execute(
+            select(SpaceConnection.connection_id).where(
+                SpaceConnection.space_id == space.id
+            )
+        )
+        bound_conn_ids = list(bound_q.scalars().all())
+        primary_conn = bound_conn_ids[0] if bound_conn_ids else None
+
+        seeds = [
+            {
+                "name": "Revenue Pulse",
+                "archetype": "growth_intelligence",
+                "focus": (
+                    "Track MRR, pipeline velocity, and win-rate week-over-week. "
+                    "Flag any deviation from trend with a >5% delta and surface "
+                    "the top three accounts driving the swing."
+                ),
+            },
+            {
+                "name": "Customer Health Watch",
+                "archetype": "risk_radar",
+                "focus": (
+                    "Surface accounts with churn-risk signals: declining usage, "
+                    "support ticket spikes, expansion-stalled deals, or NPS drops. "
+                    "Rank by ARR exposure."
+                ),
+            },
+            {
+                "name": "Operations Radar",
+                "archetype": "operations_monitor",
+                "focus": (
+                    "Detect SLA breaches, anomalous error rates, and operational "
+                    "throughput regressions across the connected systems. "
+                    "Highlight the worst offender in the last 24 hours."
+                ),
+            },
+        ]
+
+        for seed in seeds:
+            agent = Agent(
+                id=uuid4(),
+                name=seed["name"],
+                archetype=seed["archetype"],
+                scope="space",
+                scope_id=str(space.id),
+                scope_name=space.name,
+                status="active",
+                monitor_type="question",
+                focus=seed["focus"],
+                frequency="daily",
+                connection_ids=[primary_conn] if primary_conn else [],
+                created_by=user.id,
+            )
+            self.db.add(agent)
+
+        logger.info(
+            "demo_agents_seeded space_id=%s count=%d primary_conn=%s",
+            space.id, len(seeds), primary_conn,
+        )
+        return len(seeds)
+
     async def signup(
         self,
         payload: DemoSignupRequest,
@@ -665,6 +754,7 @@ class DemoService:
         # transaction as the Space/User/Member writes — if it fails the
         # whole signup rolls back and the visitor retries cleanly.
         await self._seed_demo_context(space, user)
+        await self._seed_demo_agents(space, user)
 
         # Default Personal page — required by /ai/query (and other
         # routes) which look up `active_page` to scope the call. The
@@ -739,7 +829,13 @@ class DemoService:
         seeded = await self._seed_demo_context(space, user)
         seeded_any = any(seeded.values())
 
-        if added or seeded_any:
+        # Backfill #3: same-shape backfill for the agents seed. Older
+        # demo Spaces have no agents → Pulse pill stays empty. The
+        # helper is idempotent (skips if any agent already exists for
+        # the Space) so this is safe to run on every returning login.
+        agents_seeded = await self._seed_demo_agents(space, user)
+
+        if added or seeded_any or agents_seeded:
             await self.db.commit()
 
         # Slack ping intentionally NOT fired on returning login.
