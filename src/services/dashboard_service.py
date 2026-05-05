@@ -284,6 +284,13 @@ class DashboardService:
             # Audit query becomes ``WHERE source = 'manual'`` etc., so we
             # avoid NULL for newly-created rows.
             source=widget_data.source or "manual",
+            # Stamp the creator so the mutation guard's creator-bypass
+            # (src/services/_mutation_guard.py:80) lets the same user
+            # edit/delete the widget they just made. Without this,
+            # `widget.created_by` is NULL and PUT /widgets/{id} fell
+            # back to RBAC widgets.edit at platform level (where a
+            # plain "user" platformRole has no edit grant) — surfaced
+            # as 403 even when the user was a Space Owner.
             created_by=user.id,
         )
 
