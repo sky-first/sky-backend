@@ -331,6 +331,11 @@ async def test_connection(
     """
     Test connection.
 
+    SECURITY (Lucas's 2026-05-05 audit): without an explicit RBAC
+    check here an attacker could enumerate connection UUIDs and
+    trigger credential probes against arbitrary tenants' databases.
+    Gate on ``connections.test`` for the specific connection.
+
     Args:
         connection_id: Connection ID
         current_user: Current authenticated user
@@ -339,6 +344,9 @@ async def test_connection(
     Returns:
         ConnectionTestResponse: Test result
     """
+    await RBACService(db).assert_permission(
+        current_user, "connections.test", connection_id=connection_id
+    )
     connection_service = ConnectionService(db)
     return await connection_service.test_connection(connection_id, current_user)
 
@@ -359,6 +367,10 @@ async def sync_connection(
     """
     Sync connection metadata.
 
+    SECURITY: gate on ``connections.sync`` so tenant-foreign callers
+    can't trigger schema discovery / metadata refresh against arbitrary
+    connection IDs (audit 2026-05-05).
+
     Args:
         connection_id: Connection ID
         current_user: Current authenticated user
@@ -367,6 +379,9 @@ async def sync_connection(
     Returns:
         ConnectionSyncResponse: Sync result
     """
+    await RBACService(db).assert_permission(
+        current_user, "connections.sync", connection_id=connection_id
+    )
     connection_service = ConnectionService(db)
     return await connection_service.sync_connection(connection_id, current_user)
 
@@ -419,6 +434,11 @@ async def update_connection_metadata(
     """
     Update connection metadata.
 
+    SECURITY: gate on ``connections.edit``. The endpoint accepts an
+    unbounded ``Dict[str, Any]`` and forwards it to the service —
+    without a permission check, any authenticated caller could mutate
+    metadata on connections owned by other tenants (audit 2026-05-05).
+
     Args:
         connection_id: Connection ID
         metadata_update: Partial metadata update
@@ -428,6 +448,9 @@ async def update_connection_metadata(
     Returns:
         ConnectionMetadataResponse: Updated connection metadata
     """
+    await RBACService(db).assert_permission(
+        current_user, "connections.edit", connection_id=connection_id
+    )
     connection_service = ConnectionService(db)
     return await connection_service.update_metadata(connection_id, current_user, metadata_update)
 
@@ -568,6 +591,9 @@ async def validate_connection(
     """
     Validate connection configuration.
 
+    SECURITY: gate on ``connections.view`` so this endpoint can't be
+    abused for IDOR reconnaissance (audit 2026-05-05).
+
     Args:
         connection_id: Connection ID
         current_user: Current authenticated user
@@ -576,6 +602,9 @@ async def validate_connection(
     Returns:
         ConnectionValidateResponse: Validation result
     """
+    await RBACService(db).assert_permission(
+        current_user, "connections.view", connection_id=connection_id
+    )
     connection_service = ConnectionService(db)
     return await connection_service.validate_connection(connection_id, current_user)
 
@@ -642,7 +671,12 @@ async def refresh_ai_catalog(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
-    # Ensure user has access to this connection
+    # SECURITY: explicit RBAC gate. The previous code relied on
+    # ``get_connection`` raising 403/404 internally — fragile if a
+    # future refactor changes that contract (audit 2026-05-05).
+    await RBACService(db).assert_permission(
+        current_user, "connections.sync", connection_id=connection_id
+    )
     connection_service = ConnectionService(db)
     await connection_service.get_connection(connection_id, current_user)
 
