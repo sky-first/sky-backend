@@ -153,42 +153,56 @@ class AIServiceHTTPClient:
                     if line.strip():
                         yield line
 
+    # Sentinel for shared/global indexing. Use this instead of None
+    # so a forgotten kwarg can't silently turn a tenant-private
+    # connection into a globally-readable index.
+    SHARED_INDEX = "__shared__"
+
     async def discover_connection(
         self,
         connection_id: str,
-        space_id: Optional[str] = None,
+        space_id: str,  # required: pass an actual space UUID, or SHARED_INDEX
         run_in_background: Optional[bool] = None,
         table_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Discover tables/metadata for a connection.
 
-        ``space_id`` semantics (matters for shared connections like the
-        public demo): when None / empty, the AI service stores both
-        TableMetadata and EmbeddingRecord with ``space_id IS NULL`` —
-        every Space that has the connection bridged via SpaceConnection
-        sees the same embeddings via the RAG's ``space_id IN (caller, NULL)``
-        filter (see vector_store._build_embedding_base_query). When
-        space_id is set, the indexing is duplicated per Space, which is
-        the right behaviour for tenant-private connections but wasteful
-        for the demo dataset that every visitor shares.
+        ``space_id`` is REQUIRED to make the caller's intent explicit:
 
-        Args:
-            connection_id: Connection ID
-            space_id: Space ID (omit for shared/global indexing)
-            run_in_background: Optional background execution flag
-            table_names: Optional list of table names to filter discovery
+          • Pass the visitor/owner Space UUID to scope the indexing
+            per-Space — embeddings get stamped with that space_id.
+            This is the right behaviour for tenant-private connections.
 
-        Returns:
-            Dict with discovery results
+          • Pass ``AIServiceHTTPClient.SHARED_INDEX`` to opt in to
+            "every Space that has this connection bridged sees the same
+            index" — embeddings land with ``space_id IS NULL`` and the
+            RAG's ``space_id IN (caller, NULL)`` filter surfaces them
+            for every authorised caller. The demo dataset uses this.
+
+        The sentinel exists because the previous signature
+        (``space_id: Optional[str] = None``) was a footgun: any caller
+        that forgot to pass the kwarg would silently fall through to
+        the shared branch and index a tenant-private connection as
+        globally-readable across the tenant's spaces. Lucas's 2026-05-05
+        adversarial review.
 
         Raises:
-            httpx.HTTPError: If request fails
+            ValueError: If ``space_id`` is empty/None — pass an actual
+                UUID or ``SHARED_INDEX`` explicitly.
+            httpx.HTTPError: If request fails.
         """
+        if not space_id:
+            raise ValueError(
+                "discover_connection requires an explicit space_id — pass a "
+                "Space UUID for per-Space indexing, or "
+                "AIServiceHTTPClient.SHARED_INDEX for shared/global indexing."
+            )
+
         url = f"{self.base_url}/connections/{connection_id}/discover"
 
         params: Dict[str, Any] = {}
-        if space_id:
+        if space_id != self.SHARED_INDEX:
             params["space_id"] = space_id
         if run_in_background is not None:
             params["run_in_background"] = bool(run_in_background)
@@ -198,7 +212,7 @@ class AIServiceHTTPClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(
                 f"Discovering connection: {url} with connection_id={connection_id}, "
-                f"space_id={space_id or '(shared/global)'}"
+                f"space_id={space_id if space_id != self.SHARED_INDEX else '(shared/global)'}"
             )
             response = await client.post(url, params=params)
             response.raise_for_status()

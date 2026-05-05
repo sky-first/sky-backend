@@ -85,6 +85,28 @@ async def test_signup_creates_user_space_and_member(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_signup_provisions_default_personal_page(db_session: AsyncSession):
+    """Lucas's 2026-05-05 review: pure-API callers (smoke tests, our
+    QA, partners) used to hit `No active page found for user` on the
+    first /ai/query because /demo/signup never invoked the onboarding
+    helper. The FE worked around it by creating a page on dashboard
+    mount, but anyone bypassing the FE was stuck. This pins the fix.
+    """
+    from src.repositories.page import PageRepository
+
+    service = DemoService(db_session)
+    resp = await service.signup(_ok_payload(), client_ip="2.2.2.2")
+
+    user_q = await db_session.execute(select(User).where(User.email == resp.user.email))
+    user = user_q.scalar_one()
+
+    pages = await PageRepository(db_session).get_by_owner(user.id)
+    assert pages, "demo signup must create at least one Personal page"
+    assert pages[0].owner_id == user.id
+    assert pages[0].type == "personal"
+
+
+@pytest.mark.asyncio
 async def test_signup_rejects_when_demo_disabled(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ):

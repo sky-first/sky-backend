@@ -258,6 +258,11 @@ class DemoService:
         # joiner's Pulse pill in sync with what a fresh signup would have.
         await self._seed_demo_agents(sibling_space, user)
 
+        # Default Personal page — see plain-signup branch above for
+        # the rationale. Idempotent.
+        from src.services.onboarding_service import ensure_default_page_and_space
+        await ensure_default_page_and_space(self.db, user)
+
         await self.db.commit()
         await self.db.refresh(user)
         await self.db.refresh(sibling_space)
@@ -380,7 +385,12 @@ class DemoService:
                 try:
                     await ai_client.discover_connection(
                         connection_id=str(conn_uuid),
-                        space_id=None,  # shared/global indexing
+                        # Sentinel: explicit "shared/global" intent.
+                        # Footgun-safer than passing None — any caller
+                        # that forgets the kwarg now hits ValueError
+                        # instead of accidentally indexing a private
+                        # connection as globally-readable.
+                        space_id=AIServiceHTTPClient.SHARED_INDEX,
                         run_in_background=True,
                     )
                     logger.info(
@@ -746,6 +756,16 @@ class DemoService:
         await self._seed_demo_context(space, user)
         await self._seed_demo_agents(space, user)
 
+        # Default Personal page — required by /ai/query (and other
+        # routes) which look up `active_page` to scope the call. The
+        # FE creates one on first dashboard mount as a backup, but
+        # any pure-API caller (smoke tests, our QA, partners hitting
+        # the demo programmatically) was left with "No active page
+        # found for user" before this. Idempotent: short-circuits if
+        # the user already owns one.
+        from src.services.onboarding_service import ensure_default_page_and_space
+        await ensure_default_page_and_space(self.db, user)
+
         await self.db.commit()
         await self.db.refresh(user)
         await self.db.refresh(space)
@@ -982,11 +1002,17 @@ async def cleanup_expired_demo_spaces(db: AsyncSession) -> Tuple[int, int]:
     the FK setup. Users are owned by themselves so they need a separate
     delete pass once their Space is gone.
 
+    AI-owned tables (`table_metadata`, `embeddings`) reference
+    `spaces.id` with RESTRICT (no CASCADE), so they're cleared
+    explicitly first. Without this, the Space DELETE would fail with
+    a FK violation and demo Spaces would accumulate forever — Lucas's
+    2026-05-05 review caught seven leftover space_ids in
+    `table_metadata` from old per-visitor signups.
+
     Returns ``(spaces_deleted, users_deleted)``.
     """
     now = datetime.now(timezone.utc)
 
-    # Delete expired Spaces first — FK cascades clean up nested rows.
     expired_spaces_q = await db.execute(
         select(Space.id).where(
             Space.is_demo.is_(True),
@@ -997,6 +1023,32 @@ async def cleanup_expired_demo_spaces(db: AsyncSession) -> Tuple[int, int]:
     space_ids = [row[0] for row in expired_spaces_q.all()]
     spaces_deleted = 0
     if space_ids:
+        # Clear the AI-owned per-space rows first (no CASCADE on the
+        # FK to spaces.id). The order matters — embeddings has an FK
+        # to table_metadata, so embeddings goes first.
+        from sqlalchemy import text as _text
+        try:
+            await db.execute(
+                _text(
+                    "DELETE FROM embeddings WHERE space_id = ANY(:ids)"
+                ),
+                {"ids": [str(s) for s in space_ids]},
+            )
+            await db.execute(
+                _text(
+                    "DELETE FROM table_metadata WHERE space_id = ANY(:ids)"
+                ),
+                {"ids": [str(s) for s in space_ids]},
+            )
+        except Exception:
+            # The AI tables may not exist yet in some test envs.
+            # Don't block Space cleanup on a missing table — the FK
+            # would already be NO-OP if the column has no data there.
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
         await db.execute(delete(Space).where(Space.id.in_(space_ids)))
         spaces_deleted = len(space_ids)
 
