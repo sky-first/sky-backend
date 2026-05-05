@@ -356,10 +356,22 @@ class DemoService:
                 space.id, len(added_ids), len(wanted),
             )
 
-        # 3. Trigger AI-service discovery so embeddings exist for THIS
-        # space. Fire-and-forget; signup must not be blocked by AI
-        # latency. Failures are logged but never propagated — the user
-        # can still re-sync from the UI if discovery silently fails.
+        # 3. Trigger AI-service discovery for SHARED indexing — pass
+        # space_id=None so TableMetadata and EmbeddingRecord land with
+        # space_id IS NULL. Lucas's 2026-05-05 review caught the original
+        # behaviour: we were calling discover with the visitor's Space ID,
+        # which made the AI re-ingest + re-embed the same demo dataset
+        # once per visitor. The RAG retrieval filter
+        # (see sky-poc-ai/core/rag/vector_store.py:_build_embedding_base_query)
+        # already matches embeddings whose space_id IS NULL OR equals the
+        # caller — so a single shared index is enough for every demo
+        # Space that has this connection bridged.
+        #
+        # Why we still call this on every signup that adds new bridge
+        # rows: ingest_from_connection_metadata_cache is idempotent
+        # (DELETE+INSERT keyed by space_id IS NULL + connection_id), so
+        # repeated calls just no-op the data. The AI request itself
+        # stays in the background so signup latency is unaffected.
         if added_ids:
             from src.ai.http_client import AIServiceHTTPClient
 
@@ -368,17 +380,17 @@ class DemoService:
                 try:
                     await ai_client.discover_connection(
                         connection_id=str(conn_uuid),
-                        space_id=str(space.id),
+                        space_id=None,  # shared/global indexing
                         run_in_background=True,
                     )
                     logger.info(
-                        "demo_ai_discover_dispatched conn=%s space=%s",
-                        conn_uuid, space.id,
+                        "demo_ai_discover_dispatched_shared conn=%s",
+                        conn_uuid,
                     )
                 except Exception as exc:
                     logger.warning(
-                        "demo_ai_discover_failed conn=%s space=%s err=%s",
-                        conn_uuid, space.id, exc,
+                        "demo_ai_discover_failed conn=%s err=%s",
+                        conn_uuid, exc,
                     )
 
         return len(added_ids)

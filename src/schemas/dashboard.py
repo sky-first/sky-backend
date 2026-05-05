@@ -54,6 +54,9 @@ class WidgetBase(BaseModel):
     size: Dict[str, float] = Field(..., description="Size {width, height}")
 
 
+_WIDGET_SOURCE_PATTERN = "^(manual|ai_synthesis|mock_fallback|agent)$"
+
+
 class WidgetCreate(WidgetBase):
     """Widget creation schema."""
 
@@ -63,6 +66,11 @@ class WidgetCreate(WidgetBase):
     connection_id: Optional[UUID] = None
     query_id: Optional[UUID] = None
     z_index: Optional[int] = None
+    # Provenance: who/what stamped this widget. Default 'manual' so old
+    # FE clients that don't pass the field still produce auditable rows.
+    source: Optional[str] = Field(
+        default=None, pattern=_WIDGET_SOURCE_PATTERN
+    )
 
 
 class WidgetUpdate(BaseModel):
@@ -88,6 +96,7 @@ class WidgetResponse(WidgetBase):
     connection_id: Optional[UUID] = None
     query_id: Optional[UUID] = None
     z_index: int = 0
+    source: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

@@ -280,6 +280,10 @@ class DashboardService:
             config=widget_data.config,
             connection_id=widget_data.connection_id,
             query_id=widget_data.query_id,
+            # Provenance default: 'manual' when the FE didn't stamp it.
+            # Audit query becomes ``WHERE source = 'manual'`` etc., so we
+            # avoid NULL for newly-created rows.
+            source=widget_data.source or "manual",
             # Stamp the creator so the mutation guard's creator-bypass
             # (src/services/_mutation_guard.py:80) lets the same user
             # edit/delete the widget they just made. Without this,
