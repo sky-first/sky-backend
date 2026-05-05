@@ -156,16 +156,26 @@ class AIServiceHTTPClient:
     async def discover_connection(
         self,
         connection_id: str,
-        space_id: str,
+        space_id: Optional[str] = None,
         run_in_background: Optional[bool] = None,
         table_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Discover tables/metadata for a connection.
 
+        ``space_id`` semantics (matters for shared connections like the
+        public demo): when None / empty, the AI service stores both
+        TableMetadata and EmbeddingRecord with ``space_id IS NULL`` —
+        every Space that has the connection bridged via SpaceConnection
+        sees the same embeddings via the RAG's ``space_id IN (caller, NULL)``
+        filter (see vector_store._build_embedding_base_query). When
+        space_id is set, the indexing is duplicated per Space, which is
+        the right behaviour for tenant-private connections but wasteful
+        for the demo dataset that every visitor shares.
+
         Args:
             connection_id: Connection ID
-            space_id: Space ID
+            space_id: Space ID (omit for shared/global indexing)
             run_in_background: Optional background execution flag
             table_names: Optional list of table names to filter discovery
 
@@ -177,7 +187,9 @@ class AIServiceHTTPClient:
         """
         url = f"{self.base_url}/connections/{connection_id}/discover"
 
-        params: Dict[str, Any] = {"space_id": space_id}
+        params: Dict[str, Any] = {}
+        if space_id:
+            params["space_id"] = space_id
         if run_in_background is not None:
             params["run_in_background"] = bool(run_in_background)
         if table_names:
@@ -186,7 +198,7 @@ class AIServiceHTTPClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(
                 f"Discovering connection: {url} with connection_id={connection_id}, "
-                f"space_id={space_id}"
+                f"space_id={space_id or '(shared/global)'}"
             )
             response = await client.post(url, params=params)
             response.raise_for_status()
