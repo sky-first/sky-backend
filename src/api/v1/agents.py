@@ -439,7 +439,7 @@ async def run_agent_stream(
                             collected_answer += event.get("content", "")
 
                         if event_type == "meta":
-                            collected_meta = event.get("meta", {})
+                            collected_meta = event.get("meta") or {}
 
                         # Tabular data emitted by the AI after the SQL
                         # step (or the datasource scan). Capture a copy
@@ -503,7 +503,7 @@ async def run_agent_stream(
                     type="insight",
                     severity="medium" if has_answer else "low",
                     title=(
-                        collected_meta.get("title", f"Analysis from {agent.name}")[:500]
+                        (collected_meta.get("title") or f"Analysis from {agent.name}")[:500]
                         if has_answer
                         else f"Run produced no output ({agent.name})"[:500]
                     ),

@@ -146,6 +146,9 @@ PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
     # Space — write (≥ editor)
     "connections.create":        ("space", "editor"),
     "connections.edit":          ("space", "editor"),
+    "connections.sync":          ("space", "editor"),
+    "connections.validate":      ("space", "editor"),
+    "connections.test":          ("space", "editor"),
     "pages.create":              ("space", "editor"),
     "pages.edit":                ("space", "editor"),
     "agents.create":             ("space", "editor"),
