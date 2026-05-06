@@ -403,6 +403,17 @@ class DemoService:
                         conn_uuid, exc,
                     )
 
+        # Force the pending SpaceConnection rows to flush before returning.
+        # AsyncSessionLocal runs with autoflush=False, so the inserts above
+        # only become visible to subsequent SELECTs on this session after an
+        # explicit flush. Without this, _seed_demo_agents() runs next in the
+        # same transaction and reads zero rows from space_connections —
+        # primary_conn falls back to None and the three seeded agents land
+        # with connection_ids=[]. POST /agents/{id}/run/stream then 400s on
+        # every "Run now" because it requires at least one connection.
+        if added_ids:
+            await self.db.flush()
+
         return len(added_ids)
 
     async def _seed_demo_context(self, space: Space, user: User) -> dict[str, int]:
