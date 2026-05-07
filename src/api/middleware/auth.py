@@ -66,6 +66,7 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/auth/reset-password",
         "/api/auth/verify-email",
         "/api/auth/register",  # Registration endpoint
+        "/api/auth/sso/",  # All SSO endpoints (legacy prefix, mirrors /api/v1/auth/sso/)
         "/api/v1/auth/register",  # Registration endpoint (v1)
         # Public demo signup — issues its own JWT, no auth required.
         "/api/v1/demo/",
