@@ -422,7 +422,7 @@ async def run_agent_stream(
                 question=question,
                 user_id=str(current_user.id),
                 space_id=agent.scope_id or "default",
-                instructions=agent.focus,
+                instructions=None,
                 is_personal=is_personal,
                 selected_context=selected_ctx,
                 crew_ids=resolved_crew_ids or None,
