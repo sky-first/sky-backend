@@ -68,7 +68,7 @@ def upgrade() -> None:
                          SELECT connection_id
                          FROM space_connections
                          WHERE space_id = s.id
-                         ORDER BY id
+                         ORDER BY connection_id
                          LIMIT 1
                      ) AS sc
                 WHERE a.scope = 'space'

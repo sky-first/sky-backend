@@ -115,6 +115,7 @@ class MockConnector(BaseConnector):
 # Registry of available connectors
 CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "postgresql": PostgreSQLConnector,
+    "postgres": PostgreSQLConnector,
     "mysql": MySQLConnector,
     "mongodb": MongoDBConnector,
     "google-sheets": GoogleSheetsConnector,

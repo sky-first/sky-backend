@@ -360,16 +360,14 @@ async def run_agent_stream(
             question = f"Execute this SQL and analyze results:\n```sql\n{agent.custom_sql or 'SELECT 1'}\n```"
         elif monitor_type in ("scan", "datasource"):
             question = (
-                f"You are an autonomous {agent.archetype or 'custom'} intelligence agent. "
-                f"Scan the configured data sources for anomalies, trends, risks, and opportunities.\n\n"
-                f"{agent.focus or ''}"
-            ).strip()
+                agent.focus
+                or "Show me the latest records and key metrics. Highlight any anomalies, trends, or changes since last period."
+            )
         elif monitor_type == "context":
             question = (
-                f"Full-context scan: traverse every available data source, "
-                f"strategy artefact, and signal in scope and surface what "
-                f"decision-makers should know.\n\n{agent.focus or ''}"
-            ).strip()
+                agent.focus
+                or "Summarize the current state of the data. Surface important trends, risks, and opportunities that decision-makers should know about."
+            )
         else:
             # Schema validator rejects unknown values before we get here,
             # but keep a graceful fallback so a stale row can still run.
@@ -427,6 +425,7 @@ async def run_agent_stream(
                 is_personal=is_personal,
                 selected_context=selected_ctx,
                 crew_ids=resolved_crew_ids or None,
+                agent_mode=monitor_type,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):
@@ -439,7 +438,7 @@ async def run_agent_stream(
                             collected_answer += event.get("content", "")
 
                         if event_type == "meta":
-                            collected_meta = event.get("meta", {})
+                            collected_meta = event.get("meta") or {}
 
                         # Tabular data emitted by the AI after the SQL
                         # step (or the datasource scan). Capture a copy
@@ -503,7 +502,7 @@ async def run_agent_stream(
                     type="insight",
                     severity="medium" if has_answer else "low",
                     title=(
-                        collected_meta.get("title", f"Analysis from {agent.name}")[:500]
+                        (collected_meta.get("title") or f"Analysis from {agent.name}")[:500]
                         if has_answer
                         else f"Run produced no output ({agent.name})"[:500]
                     ),
