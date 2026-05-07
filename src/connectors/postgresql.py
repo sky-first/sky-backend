@@ -38,28 +38,32 @@ class PostgreSQLConnector(BaseConnector):
         replied with `no pg_hba.conf entry for host …, no encryption`
         — surfaced (after #312/#315) as the user's failure to connect.
 
-        Mapping:
-          disable               → False (plain TCP)
-          allow / prefer        → True  (SSL with default context)
-          require               → True  (SSL with default context)
-          verify-ca / verify-full → ssl.SSLContext with cert validation
+        Mapping (matches libpq sslmode semantics — `require`/`prefer`/`allow`
+        encrypt the wire but do NOT validate the server cert; only
+        `verify-ca`/`verify-full` validate. Stock `psql sslmode=require`
+        behaves the same way):
 
-        For Azure Postgres the public CA chain is in the system trust
-        store, so the default SSLContext validates without extra root
-        bundle wiring.
+          disable                   → False (plain TCP)
+          allow / prefer / require  → SSLContext with cert validation OFF
+          verify-ca / verify-full   → SSLContext with cert validation ON
+
+        Until this fix `require` was mapped to asyncpg's `ssl=True`, which
+        expands to a *verifying* default context. That broke the AWS RDS
+        demo seed — the rds-ca-rsa2048-g1 chain isn't in the BE container's
+        CA bundle — and silently behaved like `verify-ca` on Azure too.
+        Users who want validation must explicitly choose `verify-ca` or
+        `verify-full`.
         """
         ssl_mode = (config.get("ssl_mode") or "prefer").strip().lower()
         ssl_param: Any
         if ssl_mode == "disable":
             ssl_param = False
         elif ssl_mode in ("verify-ca", "verify-full"):
-            # Build a context that validates server cert against
-            # system trust store. verify-full also checks hostname
-            # — create_default_context() does both by default.
             ssl_param = ssl_module.create_default_context()
         else:
-            # require / prefer / allow / unknown → SSL with default context
-            ssl_param = True
+            ssl_param = ssl_module.create_default_context()
+            ssl_param.check_hostname = False
+            ssl_param.verify_mode = ssl_module.CERT_NONE
 
         return {
             "host": config.get("host"),
