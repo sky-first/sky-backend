@@ -527,15 +527,22 @@ async def send_chat_message_stream(
     # active connection for the user.
     ai_service = AIService(db)
     resolved_connection_id: Optional[str] = None
+    resolved_all_connection_ids: List[str] = []
     try:
-        # AIService._get_first_active_connection_for_space is used by
-        # the non-streaming chat as the same fallback.
         if getattr(message_data, "space_id", None):
-            resolved_connection_id = await ai_service._get_first_active_connection_for_space(
+            resolved_all_connection_ids = await ai_service._get_all_connections_for_space(
                 current_user.id, str(message_data.space_id)
             )
+        elif getattr(message_data, "is_personal", False):
+            resolved_all_connection_ids = await ai_service._get_all_connections_for_user(
+                current_user.id
+            )
+        if resolved_all_connection_ids:
+            resolved_connection_id = resolved_all_connection_ids[0]
         if not resolved_connection_id:
             resolved_connection_id = await ai_service._get_first_active_connection(current_user.id)
+            if resolved_connection_id:
+                resolved_all_connection_ids = [resolved_connection_id]
     except Exception as exc:
         logger.warning(f"Chat stream — connection resolution failed: {exc}")
 
@@ -589,6 +596,7 @@ async def send_chat_message_stream(
                 instructions=getattr(message_data, "instructions", None),
                 is_personal=scope_is_personal,
                 crew_ids=resolved_crew_ids or None,
+                connection_ids=resolved_all_connection_ids if len(resolved_all_connection_ids) > 1 else None,
             ):
                 if line.startswith("data: "):
                     yield line + "\n\n"

@@ -161,8 +161,8 @@ async def test_chat_stream_collaborative_forwards_user_crew_ids(
     captured: dict = {}
 
     with patch(
-        "src.services.ai_service.AIService._get_first_active_connection_for_space",
-        new=AsyncMock(return_value=fake_conn),
+        "src.services.ai_service.AIService._get_all_connections_for_space",
+        new=AsyncMock(return_value=[fake_conn]),
     ), patch(
         "src.services.ai_service.AIService._get_user_crew_ids",
         new=AsyncMock(return_value=fake_crews),
@@ -210,8 +210,8 @@ async def test_chat_stream_collaborative_clamps_spoofed_crew_id(
     captured: dict = {}
 
     with patch(
-        "src.services.ai_service.AIService._get_first_active_connection_for_space",
-        new=AsyncMock(return_value=fake_conn),
+        "src.services.ai_service.AIService._get_all_connections_for_space",
+        new=AsyncMock(return_value=[fake_conn]),
     ), patch(
         "src.services.ai_service.AIService._get_user_crew_ids",
         new=AsyncMock(return_value=users_actual_crews),

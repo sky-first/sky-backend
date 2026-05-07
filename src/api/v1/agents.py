@@ -327,7 +327,8 @@ async def run_agent_stream(
         collected_answer = ""
         collected_meta = {}
         collected_rows: Optional[Dict[str, Any]] = None  # {columns, data, truncated?}
-        conn_id = str(agent.connection_ids[0]) if agent.connection_ids else None
+        all_conn_ids = [str(cid) for cid in (agent.connection_ids or [])]
+        conn_id = all_conn_ids[0] if all_conn_ids else None
 
         # Phase 4.2: explicit handling of every monitor_type the schema
         # validator accepts. `scan` is the preferred name for autonomous
@@ -426,6 +427,7 @@ async def run_agent_stream(
                 selected_context=selected_ctx,
                 crew_ids=resolved_crew_ids or None,
                 agent_mode=monitor_type,
+                connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):
