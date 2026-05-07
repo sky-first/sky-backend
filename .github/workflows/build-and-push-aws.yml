@@ -49,3 +49,37 @@ jobs:
             ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Replaces argocd-image-updater on the AWS path (broken on ECR
+      # auth in chart 0.12.3 / image-updater 0.16). Push-based bump:
+      # bumps both the BE values file AND the AI worker values file
+      # (the worker reuses the sky-backend image — same Helm chart,
+      # different values file).
+      - name: Bump sky-be-stg-aws + sky-ai-worker-stg-aws values
+        if: github.ref_name == 'staging'
+        env:
+          GITOPS_PUSH_TOKEN: ${{ secrets.GITOPS_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          git clone --depth 1 --branch staging \
+            "https://x-access-token:${GITOPS_PUSH_TOKEN}@github.com/sky-first/sky-infra.git" \
+            /tmp/sky-infra
+          cd /tmp/sky-infra
+
+          NEW_TAG="sha-${{ github.sha }}"
+          BE_VALUES="gitops/charts/common-app/values-sky-be-stg-aws.yaml"
+          WORKER_VALUES="gitops/charts/common-app/values-sky-ai-worker-stg-aws.yaml"
+          yq -i ".image.tag = \"${NEW_TAG}\"" "${BE_VALUES}"
+          yq -i ".image.tag = \"${NEW_TAG}\"" "${WORKER_VALUES}"
+
+          git config user.name  "sky-be-deploy[bot]"
+          git config user.email "sky-be-deploy@users.noreply.github.com"
+          git add "${BE_VALUES}" "${WORKER_VALUES}"
+          git diff --quiet --cached || \
+            git commit -m "build: automatic update of sky-be-stg-aws + sky-ai-worker-stg-aws to ${NEW_TAG}"
+          for i in 1 2 3; do
+            git push && break || git pull --rebase
+          done
