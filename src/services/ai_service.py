@@ -260,6 +260,43 @@ class AIService:
                 pass
             return await self._get_first_active_connection(user_id)
 
+    async def _get_all_connections_for_space(
+        self, user_id: UUID, space_id: str
+    ) -> List[str]:
+        """Return IDs of all active connections linked to the given space."""
+        try:
+            from uuid import UUID as UUIDType
+            from src.repositories.space import SpaceRepository
+
+            space_uuid = UUIDType(space_id)
+            space_repo = SpaceRepository(self.db)
+            space_links = await space_repo.get_space_connections(space_uuid)
+            allowed_ids = {str(link.connection_id) for link in space_links}
+            if not allowed_ids:
+                first = await self._get_first_active_connection(user_id)
+                return [first] if first else []
+            active = await self.connection_repo.get_by_user(
+                user_id, filters={"status": "active"}, limit=100
+            )
+            result = [str(c.id) for c in active if str(c.id) in allowed_ids]
+            return result if result else [await self._get_first_active_connection(user_id) or ""]
+        except Exception as e:
+            logger.error(f"Error getting all connections for space {space_id}: {e}", exc_info=True)
+            first = await self._get_first_active_connection(user_id)
+            return [first] if first else []
+
+    async def _get_all_connections_for_user(self, user_id: UUID) -> List[str]:
+        """Return IDs of all active connections the user has access to (personal mode)."""
+        try:
+            active = await self.connection_repo.get_by_user(
+                user_id, filters={"status": "active"}, limit=200
+            )
+            return [str(c.id) for c in active]
+        except Exception as e:
+            logger.error(f"Error getting all connections for user {user_id}: {e}", exc_info=True)
+            first = await self._get_first_active_connection(user_id)
+            return [first] if first else []
+
     async def _resolve_connection_id_from_tables(
         self, table_names: List[str], user_id: UUID
     ) -> Optional[str]:
