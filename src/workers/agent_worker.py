@@ -218,17 +218,16 @@ async def _execute_agent_async(agent_id: str):
                 agent_instructions = agent.focus or None
             elif monitor_type in ("scan", "datasource"):
                 question = (
-                    "Show me the latest records and key metrics from all available tables. "
-                    "Highlight any anomalies, trends, or changes since the last period."
+                    "What are the most recent records and key aggregate metrics in this dataset? "
+                    "Highlight any notable changes, outliers, or patterns compared to typical values."
                 )
                 agent_instructions = agent.focus or None
             elif monitor_type == "context":
-                # Context mode: scan all tables for a comprehensive data health check.
-                # The focus is the objective — pass as instructions, not as the SQL question.
+                # Ask an analytical question the orchestrator can map to a specific
+                # table — not a "scan all tables" command the LLM selector can't parse.
                 question = (
-                    "Perform a comprehensive scan of all available data tables. "
-                    "For each table report: total record count, most recent activity, "
-                    "and key aggregate metrics. Identify any anomalies, outliers, or notable trends."
+                    "What are the latest trends and key metrics in the available data? "
+                    "Show record counts, recent activity, and flag any anomalies or significant changes."
                 )
                 agent_instructions = agent.focus or None
             else:

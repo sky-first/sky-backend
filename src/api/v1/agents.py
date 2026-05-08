@@ -382,20 +382,20 @@ async def run_agent_stream(
             question = f"Execute this SQL and analyze results:\n```sql\n{agent.custom_sql or 'SELECT 1'}\n```"
             agent_instructions = agent.focus or None
         elif monitor_type in ("scan", "datasource"):
-            # Concrete scan question the orchestrator can translate to SQL.
+            # Ask a concrete analytical question so the orchestrator can pick
+            # a specific table and generate SQL — not a structural "all tables"
+            # command which the LLM table-selector can't parse into a choice.
             question = (
-                "Show me the latest records and key metrics from all available tables. "
-                "Highlight any anomalies, trends, or changes since the last period."
+                "What are the most recent records and key aggregate metrics in this dataset? "
+                "Highlight any notable changes, outliers, or patterns compared to typical values."
             )
             agent_instructions = agent.focus or None
         elif monitor_type == "context":
-            # Context mode: scan all tables for a comprehensive data health check.
-            # The focus contains the user's objective — pass it as instructions so
-            # the AI shapes its analysis accordingly, not as the SQL question.
+            # Same reasoning: ask an analytical question the orchestrator can
+            # map to a table, not a "scan everything" directive it can't parse.
             question = (
-                "Perform a comprehensive scan of all available data tables. "
-                "For each table report: total record count, most recent activity, "
-                "and key aggregate metrics. Identify any anomalies, outliers, or notable trends."
+                "What are the latest trends and key metrics in the available data? "
+                "Show record counts, recent activity, and flag any anomalies or significant changes."
             )
             agent_instructions = agent.focus or None
         else:
