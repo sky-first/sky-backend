@@ -261,6 +261,37 @@ def render_report(results: list[QuestionResult]) -> str:
     return "\n".join(lines) + "\n"
 
 
+async def discover_all(client: httpx.AsyncClient, conn_by_hint: dict[str, str], space_id: str) -> None:
+    """Trigger AI-side metadata discovery + embeddings for each connection.
+
+    The AI service holds its own copy of table metadata and embeddings
+    (separate from the BE's ConnectionService.sync_connection result).
+    Without this the /connections/{id}/query endpoint replies
+    "No metadata found for this connection" — exactly what the first
+    smoke run hit.
+    """
+    print("Discover phase — populating AI-side metadata + embeddings...")
+    for hint, conn_id in conn_by_hint.items():
+        url = (
+            f"{AI_BASE}/connections/{conn_id}/discover"
+            f"?space_id={space_id}"
+            f"&run_in_background=false"
+            f"&auto_generate_embeddings=true"
+            f"&skip_if_recent_seconds=0"
+        )
+        t0 = time.monotonic()
+        try:
+            r = await client.post(url, timeout=180.0)
+            ms = int((time.monotonic() - t0) * 1000)
+            ok = r.status_code == 200
+            tag = "OK  " if ok else "FAIL"
+            print(f"  {tag} {hint:<14} {ms:>5} ms  HTTP {r.status_code}")
+        except Exception as exc:
+            ms = int((time.monotonic() - t0) * 1000)
+            print(f"  FAIL {hint:<14} {ms:>5} ms  {type(exc).__name__}: {exc}")
+    print()
+
+
 async def main() -> None:
     print("=" * 60)
     print(f"Sky smoke test — env={ENV_LABEL}, ai={AI_BASE}")
@@ -275,6 +306,7 @@ async def main() -> None:
 
     results: list[QuestionResult] = []
     async with httpx.AsyncClient() as client:
+        await discover_all(client, conn_by_hint, str(space.id))
         for n, spec in enumerate(QUESTIONS, start=1):
             conn_id = conn_by_hint.get(spec["conn_hint"])
             if not conn_id:
