@@ -372,6 +372,7 @@ async def run_agent_stream(
         # can act on and forward the focus as `instructions` so the AI applies
         # the user's specific intent when interpreting results.
         agent_instructions: Optional[str] = None
+        sql_instructions: Optional[str] = None
 
         if monitor_type == "question":
             # Direct question — focus IS the user's question.
@@ -379,8 +380,23 @@ async def run_agent_stream(
                 agent.focus or "Analyze the data and surface insights, risks, and opportunities."
             )
         elif monitor_type == "sql":
-            question = f"Execute this SQL and analyze results:\n```sql\n{agent.custom_sql or 'SELECT 1'}\n```"
+            # Pass the user's SQL as a template for the specialist, not as the
+            # question itself. The orchestrator gets a neutral analytical question
+            # so it can select the right table; the specialist gets the SQL as a
+            # reference template and generates its own query following security
+            # rules (replacing SELECT *, enforcing LIMIT, etc.). This is safer
+            # for a multi-user demo than a direct SQL bypass.
+            question = "Analyze the key metrics and recent patterns in this dataset."
             agent_instructions = agent.focus or None
+            if agent.custom_sql:
+                sql_instructions = (
+                    "Use the following SQL as a reference template. "
+                    "Follow its structure, table, filters, and intent exactly, "
+                    "but apply all security rules (replace SELECT * with specific "
+                    "columns from the schema, ensure a LIMIT clause is present, "
+                    "no system tables):\n\n"
+                    f"{agent.custom_sql}"
+                )
         elif monitor_type in ("scan", "datasource"):
             # Ask a concrete analytical question so the orchestrator can pick
             # a specific table and generate SQL — not a structural "all tables"
@@ -459,6 +475,7 @@ async def run_agent_stream(
                 agent_mode=monitor_type,
                 connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
                 selected_datasets=table_ids,
+                sql_instructions=sql_instructions,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):
