@@ -205,17 +205,23 @@ async def _execute_agent_async(agent_id: str):
             # the user's specific intent when interpreting results.
             monitor_type = getattr(agent, "monitor_type", "question") or "question"
             agent_instructions: Optional[str] = None
+            sql_instructions: Optional[str] = None
 
             if monitor_type == "question":
                 # Direct question — focus IS the user's question.
                 question = agent.focus or "Analyze the data and surface insights, risks, and opportunities."
             elif monitor_type == "sql":
-                question = (
-                    f"Execute this SQL query and analyze the results. "
-                    f"Identify any anomalies, trends, or significant changes:\n\n"
-                    f"```sql\n{agent.custom_sql or 'SELECT 1'}\n```"
-                )
+                question = "Analyze the key metrics and recent patterns in this dataset."
                 agent_instructions = agent.focus or None
+                if agent.custom_sql:
+                    sql_instructions = (
+                        "Use the following SQL as a reference template. "
+                        "Follow its structure, table, filters, and intent exactly, "
+                        "but apply all security rules (replace SELECT * with specific "
+                        "columns from the schema, ensure a LIMIT clause is present, "
+                        "no system tables):\n\n"
+                        f"{agent.custom_sql}"
+                    )
             elif monitor_type in ("scan", "datasource"):
                 question = (
                     "What are the most recent records and key aggregate metrics in this dataset? "
@@ -367,6 +373,7 @@ async def _execute_agent_async(agent_id: str):
                         selected_datasets=table_ids if table_ids else None,
                         instructions=agent_instructions,
                         agent_mode=monitor_type,
+                        sql_instructions=sql_instructions,
                     )
 
                     answer = response.get("answer", "") if isinstance(response, dict) else str(response)
