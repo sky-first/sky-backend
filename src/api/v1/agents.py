@@ -2,7 +2,8 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from decimal import Decimal
+from datetime import datetime, date, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -28,6 +29,19 @@ from src.services.agent_service import AgentService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
+
+
+def _sanitize_json(obj: Any) -> Any:
+    """Recursively convert Decimal/date/datetime to JSON-safe types."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _sanitize_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_json(v) for v in obj]
+    return obj
 
 
 async def get_agent_service(db: AsyncSession = Depends(get_db)) -> AgentService:
@@ -353,22 +367,53 @@ async def run_agent_stream(
             yield f"data: {json.dumps({'type': 'error', 'message': 'No data source available. Add a connection in the Edit tab, or switch to Full context mode.'})}\n\n"
             return
 
+        # `focus` is the agent's objective/instructions, not a SQL question.
+        # For autonomous scan modes, derive a concrete question the SQL pipeline
+        # can act on and forward the focus as `instructions` so the AI applies
+        # the user's specific intent when interpreting results.
+        agent_instructions: Optional[str] = None
+        sql_instructions: Optional[str] = None
+
         if monitor_type == "question":
+            # Direct question — focus IS the user's question.
             question = (
                 agent.focus or "Analyze the data and surface insights, risks, and opportunities."
             )
         elif monitor_type == "sql":
-            question = f"Execute this SQL and analyze results:\n```sql\n{agent.custom_sql or 'SELECT 1'}\n```"
+            # Pass the user's SQL as a template for the specialist, not as the
+            # question itself. The orchestrator gets a neutral analytical question
+            # so it can select the right table; the specialist gets the SQL as a
+            # reference template and generates its own query following security
+            # rules (replacing SELECT *, enforcing LIMIT, etc.). This is safer
+            # for a multi-user demo than a direct SQL bypass.
+            question = "Analyze the key metrics and recent patterns in this dataset."
+            agent_instructions = agent.focus or None
+            if agent.custom_sql:
+                sql_instructions = (
+                    "Use the following SQL as a reference template. "
+                    "Follow its structure, table, filters, and intent exactly, "
+                    "but apply all security rules (replace SELECT * with specific "
+                    "columns from the schema, ensure a LIMIT clause is present, "
+                    "no system tables):\n\n"
+                    f"{agent.custom_sql}"
+                )
         elif monitor_type in ("scan", "datasource"):
+            # Ask a concrete analytical question so the orchestrator can pick
+            # a specific table and generate SQL — not a structural "all tables"
+            # command which the LLM table-selector can't parse into a choice.
             question = (
-                agent.focus
-                or "Show me the latest records and key metrics. Highlight any anomalies, trends, or changes since last period."
+                "What are the most recent records and key aggregate metrics in this dataset? "
+                "Highlight any notable changes, outliers, or patterns compared to typical values."
             )
+            agent_instructions = agent.focus or None
         elif monitor_type == "context":
+            # Same reasoning: ask an analytical question the orchestrator can
+            # map to a table, not a "scan everything" directive it can't parse.
             question = (
-                agent.focus
-                or "Summarize the current state of the data. Surface important trends, risks, and opportunities that decision-makers should know about."
+                "What are the latest trends and key metrics in the available data? "
+                "Show record counts, recent activity, and flag any anomalies or significant changes."
             )
+            agent_instructions = agent.focus or None
         else:
             # Schema validator rejects unknown values before we get here,
             # but keep a graceful fallback so a stale row can still run.
@@ -417,17 +462,20 @@ async def run_agent_stream(
             )
 
         try:
+            table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
                 question=question,
                 user_id=str(current_user.id),
                 space_id=agent.scope_id or "default",
-                instructions=agent.focus,
+                instructions=agent_instructions,
                 is_personal=is_personal,
                 selected_context=selected_ctx,
                 crew_ids=resolved_crew_ids or None,
                 agent_mode=monitor_type,
                 connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
+                selected_datasets=table_ids,
+                sql_instructions=sql_instructions,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):
@@ -517,7 +565,7 @@ async def run_agent_stream(
                     query=question[:500],
                     connection_id=UUID(conn_id) if conn_id else None,
                     data_sources=[s for s in [collected_meta.get("chosen_table"), conn_id] if s],
-                    rows=collected_rows,
+                    rows=_sanitize_json(collected_rows),
                 )
                 save_db.add(finding)
                 await save_db.flush()
