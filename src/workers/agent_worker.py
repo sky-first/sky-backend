@@ -232,11 +232,16 @@ async def _execute_agent_async(agent_id: str):
                 agent_instructions = agent.focus or None
                 if agent.custom_sql:
                     sql_instructions = (
-                        "Use the following SQL as a reference template. "
-                        "Follow its structure, table, filters, and intent exactly, "
-                        "but apply all security rules (replace SELECT * with specific "
-                        "columns from the schema, ensure a LIMIT clause is present, "
-                        "no system tables):\n\n"
+                        "⚠️ SQL MODE — USER-PROVIDED BASE QUERY:\n"
+                        "Use the query below as the base. Apply ONLY these mandatory adaptations:\n"
+                        "  1. Replace SELECT * with explicit column names from the schema shown above.\n"
+                        "  2. Qualify bare table names with the schema prefix "
+                        "(e.g., INVOICES → finance.invoices, invoices → finance.invoices).\n"
+                        "  3. Add LIMIT 100 at the end if no LIMIT clause is present.\n"
+                        "  4. Prefix with the required -- TITLE: comment.\n"
+                        "DO NOT add date filters, change WHERE clauses, add JOINs, or rewrite any other logic.\n"
+                        "NEVER return IMPOSSIBLE for SQL mode — always apply the adaptations and return SQL.\n"
+                        "USER'S BASE QUERY:\n\n"
                         f"{agent.custom_sql}"
                     )
                     sql_table_hints = _extract_tables_from_sql(agent.custom_sql)

@@ -441,21 +441,25 @@ async def run_agent_stream(
                 agent.focus or "Analyze the data and surface insights, risks, and opportunities."
             )
         elif monitor_type == "sql":
-            # Pass the user's SQL as a template for the specialist, not as the
-            # question itself. The orchestrator gets a neutral analytical question
-            # so it can select the right table; the specialist gets the SQL as a
-            # reference template and generates its own query following security
-            # rules (replacing SELECT *, enforcing LIMIT, etc.). This is safer
-            # for a multi-user demo than a direct SQL bypass.
+            # The orchestrator gets a neutral analytical question so it can select
+            # the right table. The specialist receives the user's exact SQL and must
+            # execute it verbatim — only adding LIMIT if missing or replacing SELECT *
+            # with explicit columns. It must NOT rewrite filters, add date ranges, or
+            # otherwise deviate from the user's intent.
             question = "Analyze the key metrics and recent patterns in this dataset."
             agent_instructions = agent.focus or None
             if agent.custom_sql:
                 sql_instructions = (
-                    "Use the following SQL as a reference template. "
-                    "Follow its structure, table, filters, and intent exactly, "
-                    "but apply all security rules (replace SELECT * with specific "
-                    "columns from the schema, ensure a LIMIT clause is present, "
-                    "no system tables):\n\n"
+                    "⚠️ SQL MODE — USER-PROVIDED BASE QUERY:\n"
+                    "Use the query below as the base. Apply ONLY these mandatory adaptations:\n"
+                    "  1. Replace SELECT * with explicit column names from the schema shown above.\n"
+                    "  2. Qualify bare table names with the schema prefix "
+                    "(e.g., INVOICES → finance.invoices, invoices → finance.invoices).\n"
+                    "  3. Add LIMIT 100 at the end if no LIMIT clause is present.\n"
+                    "  4. Prefix with the required -- TITLE: comment.\n"
+                    "DO NOT add date filters, change WHERE clauses, add JOINs, or rewrite any other logic.\n"
+                    "NEVER return IMPOSSIBLE for SQL mode — always apply the adaptations and return SQL.\n"
+                    "USER'S BASE QUERY:\n\n"
                     f"{agent.custom_sql}"
                 )
                 # Extract the table names from the user's SQL so the orchestrator
