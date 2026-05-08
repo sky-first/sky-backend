@@ -216,12 +216,104 @@ class AIService:
                 pass
             return None
 
+    async def _get_best_connection_for_question(
+        self,
+        user_id: UUID,
+        space_id: str,
+        question: str,
+        allowed_ids: set,
+    ) -> Optional[str]:
+        """Score connections by keyword overlap with the question and return the best match."""
+        try:
+            import re
+            import uuid as _uuid_mod
+            from sqlalchemy import select as sa_select
+            from src.models.connection import ConnectionMetadata
+            from src.models.connection import DataConnection
+
+            # Strip punctuation, lowercase, split
+            clean = re.sub(r"[^\w\s]", " ", question.lower())
+            question_words = set(clean.split())
+            stop = {"what", "is", "the", "a", "an", "how", "many", "show", "me", "our",
+                    "by", "for", "in", "of", "and", "or", "are", "do", "does", "did",
+                    "give", "list", "get", "find", "which", "all", "each", "per",
+                    "top", "total", "average", "count", "number", "last", "first",
+                    "current", "latest", "recent", "between", "with", "without"}
+            question_words -= stop
+
+            if not question_words:
+                return None
+
+            best_id, best_score = None, 0
+
+            # Also fetch connection names for name-based scoring
+            conn_names: dict[str, str] = {}
+            conn_result = await self.db.execute(
+                sa_select(DataConnection.id, DataConnection.name).where(
+                    DataConnection.id.in_(
+                        [_uuid_mod.UUID(cid) for cid in allowed_ids]
+                    )
+                )
+            )
+            for row in conn_result:
+                conn_names[str(row.id)] = (row.name or "").lower()
+
+            meta_result = await self.db.execute(
+                sa_select(ConnectionMetadata).where(
+                    ConnectionMetadata.connection_id.in_(
+                        [_uuid_mod.UUID(cid) for cid in allowed_ids]
+                    )
+                )
+            )
+            metas = meta_result.scalars().all()
+            for meta in metas:
+                cid = str(meta.connection_id)
+                tables = meta.tables or []
+                score = 0
+
+                # Score on connection name (e.g. "Demo — Sales" matches "sales")
+                conn_name = conn_names.get(cid, "")
+                score += sum(2 for w in question_words if w in conn_name)
+
+                # Score on schemas exposed by this connection
+                schemas_raw = meta.schemas or []
+                for schema in schemas_raw:
+                    score += sum(2 for w in question_words if w in str(schema).lower())
+
+                for tbl in tables:
+                    tbl_name = (tbl.get("name") or "").lower()
+                    tbl_schema = (tbl.get("schema") or "").lower()
+                    # Table name / schema match
+                    score += sum(2 for w in question_words if w in tbl_name)
+                    score += sum(2 for w in question_words if w in tbl_schema)
+                    # Column name match
+                    for col in tbl.get("columns") or []:
+                        col_name = (col.get("name") or "").lower()
+                        score += sum(1 for w in question_words if w in col_name)
+                    # Description match
+                    desc = (tbl.get("description") or "").lower()
+                    score += sum(2 for w in question_words if w in desc)
+
+                if score > best_score:
+                    best_score, best_id = score, cid
+
+            if best_id and best_score > 0:
+                logger.info(
+                    "Keyword routing: best connection for question in space %s: %s (score=%d)",
+                    space_id, best_id, best_score,
+                )
+                return best_id
+            return None
+        except Exception as e:
+            logger.warning("Keyword routing failed, falling back: %s", e)
+            return None
+
     async def _get_first_active_connection_for_space(
-        self, user_id: UUID, space_id: str
+        self, user_id: UUID, space_id: str, question: Optional[str] = None
     ) -> Optional[str]:
         """
-        Prefer the first active connection that is linked to the given space.
-        Falls back to the general first active connection when none is linked.
+        Prefer the connection in the given space whose table schema best matches
+        the question (keyword overlap). Falls back to the first active connection.
         """
         try:
             from uuid import UUID as UUIDType
@@ -235,6 +327,14 @@ class AIService:
 
             if not allowed_ids:
                 return await self._get_first_active_connection(user_id)
+
+            # If a question is provided and there are multiple connections, pick semantically.
+            if question and len(allowed_ids) > 1:
+                best = await self._get_best_connection_for_question(
+                    user_id, space_id, question, allowed_ids
+                )
+                if best:
+                    return best
 
             # get active connections for user and pick the first that is linked to the space
             active = await self.connection_repo.get_by_user(
@@ -581,7 +681,7 @@ class AIService:
                     space_id = getattr(query_data, "space_id", None)
                     if space_id:
                         connection_id = await self._get_first_active_connection_for_space(
-                            user_id, space_id
+                            user_id, space_id, question=configure_data.question
                         )
                     else:
                         connection_id = await self._get_first_active_connection(user_id)
@@ -1220,9 +1320,10 @@ class AIService:
                 if not connection_id:
                     # Try to get space_id from context
                     space_id = context.get("space_id") or configure_data_dict.get("space_id")
+                    _q_hint = configure_data_dict.get("question") or context.get("question") or ""
                     if space_id:
                         connection_id = await self._get_first_active_connection_for_space(
-                            user_id, space_id
+                            user_id, space_id, question=_q_hint
                         )
                     else:
                         connection_id = await self._get_first_active_connection(user_id)
