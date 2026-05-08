@@ -355,13 +355,24 @@ async def run_agent_stream(
         monitor_type = (agent.monitor_type or "question").lower()
 
         if not conn_id:
-            # Fallback: use any active connection the user can read. This
-            # lets full-context agents run against the user's aggregate
-            # universe even when the agent row doesn't pin a specific
-            # connection.
+            # Fallback: resolve a connection based on the agent's scope.
+            # Space-scoped agents must look up connections via the Space link
+            # table — _get_first_active_connection only searches personal
+            # connections owned by the user and misses shared Space connections,
+            # returning None and producing a /connections/None/ 403 on the AI
+            # service. Use _get_first_active_connection_for_space (which also
+            # applies the colleague's keyword routing) for space/crew scopes.
             from src.services.ai_service import AIService
 
-            conn_id = await AIService(db)._get_first_active_connection(current_user.id)
+            _ai_svc = AIService(db)
+            _scope = (agent.scope or "").lower()
+            if _scope in ("space", "crew") and agent.scope_id:
+                conn_id = await _ai_svc._get_first_active_connection_for_space(
+                    current_user.id,
+                    str(agent.scope_id),
+                )
+            else:
+                conn_id = await _ai_svc._get_first_active_connection(current_user.id)
 
         if not conn_id and monitor_type != "context":
             yield f"data: {json.dumps({'type': 'error', 'message': 'No data source available. Add a connection in the Edit tab, or switch to Full context mode.'})}\n\n"
