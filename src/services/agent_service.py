@@ -105,23 +105,28 @@ class AgentService:
         self.db.add(agent)
         await self.db.commit()
 
-        # Ingest into knowledge graph — mirrors crew/space create flow.
-        # Failures are logged and swallowed so the agent is always saved.
+        # Ingest into knowledge graph — side-effect enrichment; never blocks the
+        # create response. Capped at 5s so a slow AI cold-start (vectorization)
+        # doesn't hold open the HTTP connection past the frontend's 60s timeout.
         try:
+            import asyncio
             space_id = str(data.scope_id) if data.scope == "space" and data.scope_id else None
             crew_id = str(data.scope_id) if data.scope == "crew" and data.scope_id else None
-            await self.ai_client.ingest_knowledge_graph({
-                "id": str(agent.id),
-                "entity_type": "agent",
-                "name": agent.name,
-                "scope": agent.scope,
-                "space_id": space_id,
-                "crew_id": crew_id,
-                "owner_user_id": str(user_id),
-                "entity_details": {"monitor_type": agent.monitor_type, "focus": agent.focus},
-            })
+            await asyncio.wait_for(
+                self.ai_client.ingest_knowledge_graph({
+                    "id": str(agent.id),
+                    "entity_type": "agent",
+                    "name": agent.name,
+                    "scope": agent.scope,
+                    "space_id": space_id,
+                    "crew_id": crew_id,
+                    "owner_user_id": str(user_id),
+                    "entity_details": {"monitor_type": agent.monitor_type, "focus": agent.focus},
+                }),
+                timeout=5.0,
+            )
         except Exception as exc:
-            logger.warning(f"AI ingest failed for agent {agent.id}: {exc}")
+            logger.warning(f"AI ingest failed or timed out for agent {agent.id}: {exc}")
 
         # Re-fetch with findings so the response serialization (AgentListResponse)
         # doesn't trigger a lazy-load MissingGreenlet error.
