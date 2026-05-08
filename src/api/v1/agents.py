@@ -446,7 +446,7 @@ async def run_agent_stream(
             )
 
         try:
-            table_ids: List[str] = [str(t) for t in (agent.table_ids or [])] or None
+            table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
                 question=question,
