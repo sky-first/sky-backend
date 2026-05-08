@@ -446,6 +446,7 @@ async def run_agent_stream(
             )
 
         try:
+            table_ids: List[str] = [str(t) for t in (agent.table_ids or [])] or None
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
                 question=question,
@@ -457,6 +458,7 @@ async def run_agent_stream(
                 crew_ids=resolved_crew_ids or None,
                 agent_mode=monitor_type,
                 connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
+                selected_datasets=table_ids,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):

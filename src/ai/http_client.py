@@ -124,6 +124,7 @@ class AIServiceHTTPClient:
         crew_ids: Optional[List[str]] = None,
         agent_mode: Optional[str] = None,
         connection_ids: Optional[List[str]] = None,
+        selected_datasets: Optional[List[str]] = None,
     ) -> AsyncIterator[str]:
         """
         Stream a query to the AI service via SSE.
@@ -160,6 +161,8 @@ class AIServiceHTTPClient:
             payload["agent_mode"] = agent_mode
         if connection_ids:
             payload["connection_ids"] = connection_ids
+        if selected_datasets:
+            payload["selected_datasets"] = selected_datasets
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             logger.info(f"Streaming AI service: {url} for connection {connection_id}")
