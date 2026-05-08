@@ -14,11 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_current_user, get_db
 from src.core.exceptions import ForbiddenError
 from src.models.user import User
-from src.schemas.glossary import (
-    GlossaryTermCreate,
-    GlossaryTermResponse,
-    GlossaryTermUpdate,
-)
+from src.schemas.glossary import GlossaryTermCreate, GlossaryTermResponse, GlossaryTermUpdate
 from src.services.glossary_service import GlossaryService
 from src.services.rbac_service import RBACService
 
@@ -33,6 +29,7 @@ def _assert_not_personal(space_id, crew_id) -> None:
             "Personal context is read-only. Pass a space_id or crew_id to "
             "create or edit glossary terms."
         )
+
 
 router = APIRouter()
 
@@ -53,10 +50,17 @@ async def list_glossary(
     db: AsyncSession = Depends(get_db),
 ):
     await RBACService(db).assert_permission(current_user, "connections.view")
+    # Pass the caller identity + platform role so the service can fall
+    # back to a tenant-safe default scope ("only terms in spaces I am a
+    # member of, plus my own") when the FE doesn't pin space_id/crew_id.
+    # Platform Owner / Admin bypass the filter (legacy global view).
+    is_platform_admin = (current_user.role or "").lower() in ("owner", "admin")
     return await service.list_terms(
         space_id=space_id,
         crew_id=crew_id,
         owner_user_id=current_user.id if mine else None,
+        caller_user_id=current_user.id,
+        is_platform_admin=is_platform_admin,
     )
 
 

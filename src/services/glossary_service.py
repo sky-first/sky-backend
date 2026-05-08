@@ -10,14 +10,13 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.models.glossary import GlossaryTerm
+from src.models.space import SpaceMember
 from src.repositories.glossary import GlossaryTermRepository
-from src.schemas.glossary import (
-    GlossaryTermCreate,
-    GlossaryTermResponse,
-    GlossaryTermUpdate,
-)
+from src.schemas.glossary import GlossaryTermCreate, GlossaryTermResponse, GlossaryTermUpdate
 
 
 class GlossaryService:
@@ -31,15 +30,63 @@ class GlossaryService:
         space_id: Optional[UUID] = None,
         crew_id: Optional[UUID] = None,
         owner_user_id: Optional[UUID] = None,
+        caller_user_id: Optional[UUID] = None,
+        is_platform_admin: bool = False,
     ) -> List[GlossaryTermResponse]:
-        filters = {}
-        if space_id:
-            filters["space_id"] = space_id
-        if crew_id:
-            filters["crew_id"] = crew_id
-        if owner_user_id:
-            filters["owner_user_id"] = owner_user_id
-        return await self.repo.get_all(filters=filters, order_by="term", limit=500)
+        """List glossary terms with tenant-aware visibility.
+
+        Scope resolution:
+          1. Caller pinned a scope (any of ``space_id`` / ``crew_id`` /
+             ``owner_user_id``) → apply that filter as-is.
+          2. Caller is platform Owner / Admin (``is_platform_admin``) →
+             return everything (legacy behaviour, used by the admin
+             knowledge-management surfaces).
+          3. Caller is a regular user, no scope pinned → restrict to
+             terms the caller can actually see: those they own
+             (``owner_user_id == caller``) plus those scoped to a Space
+             the caller is a member of.
+
+        Branch (3) is the defence layer that fixes the cross-space leak
+        the previous unfiltered ``repo.get_all({})`` opened — every demo
+        signup seeds 14 terms scoped to its own Space, so the unfiltered
+        list grew as ``14 × #spaces`` and showed every tenant's data to
+        every visitor.
+        """
+        # 1. Pinned-scope path — caller knows what they want.
+        if space_id or crew_id or owner_user_id:
+            filters = {}
+            if space_id:
+                filters["space_id"] = space_id
+            if crew_id:
+                filters["crew_id"] = crew_id
+            if owner_user_id:
+                filters["owner_user_id"] = owner_user_id
+            return await self.repo.get_all(filters=filters, order_by="term", limit=500)
+
+        # 2. Platform admin — full visibility, legacy behaviour.
+        if is_platform_admin:
+            return await self.repo.get_all(filters={}, order_by="term", limit=500)
+
+        # 3. Regular caller, no scope pinned — restrict to what they can see.
+        if caller_user_id is None:
+            # Defence-in-depth. The route gate already requires auth, so this
+            # only triggers for direct callers that forgot to pass the user id.
+            return []
+
+        member_spaces = select(SpaceMember.space_id).where(SpaceMember.user_id == caller_user_id)
+        query = (
+            select(GlossaryTerm)
+            .where(
+                or_(
+                    GlossaryTerm.owner_user_id == caller_user_id,
+                    GlossaryTerm.space_id.in_(member_spaces),
+                )
+            )
+            .order_by(GlossaryTerm.term.asc())
+            .limit(500)
+        )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
 
     async def get_term(
         self,
