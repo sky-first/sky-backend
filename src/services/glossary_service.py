@@ -16,11 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.glossary import GlossaryTerm
 from src.models.space import SpaceMember
 from src.repositories.glossary import GlossaryTermRepository
-from src.schemas.glossary import (
-    GlossaryTermCreate,
-    GlossaryTermResponse,
-    GlossaryTermUpdate,
-)
+from src.schemas.glossary import GlossaryTermCreate, GlossaryTermResponse, GlossaryTermUpdate
 
 
 class GlossaryService:
@@ -77,9 +73,7 @@ class GlossaryService:
             # only triggers for direct callers that forgot to pass the user id.
             return []
 
-        member_spaces = select(SpaceMember.space_id).where(
-            SpaceMember.user_id == caller_user_id
-        )
+        member_spaces = select(SpaceMember.space_id).where(SpaceMember.user_id == caller_user_id)
         query = (
             select(GlossaryTerm)
             .where(

@@ -14,11 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_current_user, get_db
 from src.core.exceptions import ForbiddenError
 from src.models.user import User
-from src.schemas.glossary import (
-    GlossaryTermCreate,
-    GlossaryTermResponse,
-    GlossaryTermUpdate,
-)
+from src.schemas.glossary import GlossaryTermCreate, GlossaryTermResponse, GlossaryTermUpdate
 from src.services.glossary_service import GlossaryService
 from src.services.rbac_service import RBACService
 
@@ -33,6 +29,7 @@ def _assert_not_personal(space_id, crew_id) -> None:
             "Personal context is read-only. Pass a space_id or crew_id to "
             "create or edit glossary terms."
         )
+
 
 router = APIRouter()
 
