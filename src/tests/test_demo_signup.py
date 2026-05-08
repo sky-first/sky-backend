@@ -428,3 +428,71 @@ async def test_provision_for_existing_user_is_idempotent(db_session: AsyncSessio
         )
     )).scalars().all()
     assert len(spaces) == 1
+
+
+@pytest.mark.asyncio
+async def test_personal_demo_status_and_removal(db_session: AsyncSession):
+    """Status reports counts; remove cleans up the Space + the
+    Glossary/Metrics scoped to it (FK on scope_id is informational,
+    not a real CASCADE, so the service must delete them by hand)."""
+    from src.core.security import get_password_hash
+    from src.models.glossary import GlossaryTerm
+    from src.models.metric import Metric
+
+    user = User(
+        email="sso-cleanup@skyfirstlabs.com",
+        password_hash=get_password_hash("placeholder"),
+        name="SSO User",
+        role="user",
+        email_verified=True,
+        is_demo=False,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    service = DemoService(db_session)
+
+    # Pre-state: nothing yet.
+    pre = await service.get_personal_demo_status(user)
+    assert pre["has_demo_space"] is False
+    assert pre["metrics_count"] == 0
+    assert pre["glossary_count"] == 0
+
+    # Provision then re-check status.
+    provisioned = await service.provision_for_existing_user(user)
+    status = await service.get_personal_demo_status(user)
+    assert status["has_demo_space"] is True
+    assert status["space_id"] == provisioned["space_id"]
+    assert status["metrics_count"] >= 1
+    assert status["glossary_count"] >= 1
+
+    # Remove and verify the Space + scoped Knowledge are gone.
+    removed = await service.remove_personal_demo_workspace(user)
+    assert removed["removed"] is True
+    assert removed["space_id"] == provisioned["space_id"]
+    assert removed["deleted"]["metrics"] >= 1
+    assert removed["deleted"]["glossary"] >= 1
+
+    # Space row is gone.
+    assert (await db_session.execute(
+        select(Space).where(Space.id == provisioned["space_id"])
+    )).scalar_one_or_none() is None
+
+    # Knowledge scoped to that space is gone too (no orphans).
+    leftover_metrics = (await db_session.execute(
+        select(Metric).where(
+            Metric.scope == "space",
+            Metric.scope_id == provisioned["space_id"],
+        )
+    )).scalars().all()
+    assert leftover_metrics == []
+    leftover_glossary = (await db_session.execute(
+        select(GlossaryTerm).where(GlossaryTerm.space_id == provisioned["space_id"])
+    )).scalars().all()
+    assert leftover_glossary == []
+
+    # Idempotent re-call: nothing left to remove.
+    again = await service.remove_personal_demo_workspace(user)
+    assert again["removed"] is False
+    assert again["space_id"] is None

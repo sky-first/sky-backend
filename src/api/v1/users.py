@@ -10,6 +10,8 @@ from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.user import (
+    DemoDataRemovedResponse,
+    DemoDataStatusResponse,
     ExploreDemoDataResponse,
     OnboardingUpdate,
     UserCreate,
@@ -158,6 +160,55 @@ async def explore_demo_data(
     service = DemoService(db)
     result = await service.provision_for_existing_user(current_user)
     return ExploreDemoDataResponse(**result)
+
+
+@router.get(
+    "/me/onboarding/explore-demo-data",
+    response_model=DemoDataStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Status of the current user's personal demo workspace",
+    description=(
+        "Reports whether the current user has a personal 'Demo Sky' "
+        "workspace (and what's seeded inside it). Used by the FE banner "
+        "to decide between rendering the first-login modal vs the "
+        "'Remove sample data' button."
+    ),
+)
+async def explore_demo_data_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> DemoDataStatusResponse:
+    service = DemoService(db)
+    return DemoDataStatusResponse(
+        **(await service.get_personal_demo_status(current_user))
+    )
+
+
+@router.delete(
+    "/me/onboarding/explore-demo-data",
+    response_model=DemoDataRemovedResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Remove the current user's personal demo workspace",
+    description=(
+        "Hard-deletes the user's personal 'Demo Sky' Space (created "
+        "via POST explore-demo-data) and all its content — seeded "
+        "metrics, glossary terms, relationships, agents, and the "
+        "Space itself with cascade. Bypasses the platform-level "
+        "RBAC for Space deletion: the user opted into this Space "
+        "and must always be able to clean it up regardless of their "
+        "tenant role.\n\n"
+        "Idempotent: returns ``removed=False`` when the user has no "
+        "Demo Sky to delete."
+    ),
+)
+async def delete_explore_demo_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> DemoDataRemovedResponse:
+    service = DemoService(db)
+    return DemoDataRemovedResponse(
+        **(await service.remove_personal_demo_workspace(current_user))
+    )
 
 
 @router.get(

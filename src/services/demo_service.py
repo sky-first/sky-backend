@@ -892,6 +892,141 @@ class DemoService:
 
     # ─── SSO opt-in: provision the same demo content for an existing user ──
 
+    async def get_personal_demo_status(self, user: User) -> dict:
+        """Reports whether the current user has a personal Demo Sky
+        workspace (and what's in it). Used by the FE banner to decide
+        whether to show "Remove sample data" or the first-login modal.
+
+        The status is derived from a single DB lookup keyed on
+        (created_by=user.id, name='Demo Sky', is_demo=True). Returns:
+
+            {
+                "has_demo_space": bool,
+                "space_id": Optional[str],
+                "space_name": Optional[str],
+                "metrics_count": int,
+                "glossary_count": int,
+                "connections_count": int,
+            }
+        """
+        space_q = await self.db.execute(
+            select(Space).where(
+                Space.created_by == user.id,
+                Space.is_demo.is_(True),
+                Space.deleted_at.is_(None),
+                Space.name == "Demo Sky",
+            )
+        )
+        space = space_q.scalars().first()
+        if space is None:
+            return {
+                "has_demo_space": False,
+                "space_id": None,
+                "space_name": None,
+                "metrics_count": 0,
+                "glossary_count": 0,
+                "connections_count": 0,
+            }
+
+        metrics_q = await self.db.execute(
+            select(Metric.id).where(
+                Metric.scope == "space",
+                Metric.scope_id == space.id,
+            )
+        )
+        glossary_q = await self.db.execute(
+            select(GlossaryTerm.id).where(GlossaryTerm.space_id == space.id)
+        )
+        connections_q = await self.db.execute(
+            select(SpaceConnection.connection_id).where(SpaceConnection.space_id == space.id)
+        )
+
+        return {
+            "has_demo_space": True,
+            "space_id": str(space.id),
+            "space_name": space.name,
+            "metrics_count": len(metrics_q.scalars().all()),
+            "glossary_count": len(glossary_q.scalars().all()),
+            "connections_count": len(connections_q.scalars().all()),
+        }
+
+    async def remove_personal_demo_workspace(self, user: User) -> dict:
+        """Hard-deletes the user's personal Demo Sky workspace and all
+        its content. Bypasses the platform-level Space delete RBAC:
+        the user opted into this space themselves and must always be
+        able to clean it up, regardless of their tenant role
+        (member / editor / viewer cannot normally delete spaces, but
+        the demo space is theirs to control).
+
+        Cascades:
+          - SpaceMember rows (FK ondelete=CASCADE)
+          - Crews and their child rows
+          - SpaceConnection bridges (the underlying data_connections
+            stay — they're shared across users)
+          - Dashboards, widgets, chats inside the Space
+          - Glossary, Metrics, Enterprise Relationships scoped to the
+            Space (we delete these explicitly because their FK is
+            scope_id, not a real FK to spaces.id, so CASCADE doesn't
+            fire automatically)
+
+        Idempotent: returning {removed: False} if no Demo Sky exists.
+        Returns {removed: True, space_id, deleted_counts} on success.
+        """
+        space_q = await self.db.execute(
+            select(Space).where(
+                Space.created_by == user.id,
+                Space.is_demo.is_(True),
+                Space.deleted_at.is_(None),
+                Space.name == "Demo Sky",
+            )
+        )
+        space = space_q.scalars().first()
+        if space is None:
+            return {"removed": False, "space_id": None, "deleted": {}}
+
+        space_id = space.id
+
+        # Knowledge entities — keyed by scope_id (not a real FK to
+        # spaces), so we delete them by hand before the Space goes.
+        m_count = (await self.db.execute(
+            delete(Metric).where(
+                Metric.scope == "space",
+                Metric.scope_id == space_id,
+            )
+        )).rowcount or 0
+        g_count = (await self.db.execute(
+            delete(GlossaryTerm).where(GlossaryTerm.space_id == space_id)
+        )).rowcount or 0
+        r_count = (await self.db.execute(
+            delete(EnterpriseRelationship).where(
+                EnterpriseRelationship.scope == "space",
+                EnterpriseRelationship.scope_id == space_id,
+            )
+        )).rowcount or 0
+
+        # Space deletion CASCADEs through SpaceMember, SpaceConnection,
+        # SpaceTable, Crew, and any FK-attached content (dashboards,
+        # widgets, chats, agents) per the existing FK setup.
+        await self.db.execute(delete(Space).where(Space.id == space_id))
+
+        await self.db.commit()
+
+        logger.info(
+            "demo_personal_workspace_removed user=%s space_id=%s "
+            "metrics=%d glossary=%d relationships=%d",
+            user.email, space_id, m_count, g_count, r_count,
+        )
+
+        return {
+            "removed": True,
+            "space_id": str(space_id),
+            "deleted": {
+                "metrics": m_count,
+                "glossary": g_count,
+                "relationships": r_count,
+            },
+        }
+
     async def provision_for_existing_user(self, user: User) -> dict:
         """Create a personal demo workspace for an already-authenticated
         user (e.g. SSO sign-in landing on an empty platform), populated

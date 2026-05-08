@@ -73,6 +73,32 @@ class ExploreDemoDataResponse(BaseModel):
     connections_added: int
 
 
+class DemoDataStatusResponse(BaseModel):
+    """Response from GET /me/onboarding/explore-demo-data.
+
+    Used by the FE banner inside the Demo Sky workspace to show
+    "you have N metrics + M glossary terms here, [Remove sample data]".
+    """
+
+    has_demo_space: bool
+    space_id: Optional[str] = None
+    space_name: Optional[str] = None
+    metrics_count: int = 0
+    glossary_count: int = 0
+    connections_count: int = 0
+
+
+class DemoDataRemovedResponse(BaseModel):
+    """Response from DELETE /me/onboarding/explore-demo-data.
+
+    Idempotent: ``removed=False`` means there was nothing to remove.
+    """
+
+    removed: bool
+    space_id: Optional[str] = None
+    deleted: dict = Field(default_factory=dict)
+
+
 class UserResponse(UserBase):
     """User response schema."""
 
