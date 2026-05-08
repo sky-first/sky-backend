@@ -19,10 +19,10 @@ def _extract_tables_from_sql(sql: str) -> List[str]:
     matches = re.findall(r'\b(?:FROM|JOIN)\s+((?:\w+\.)?\w+)', sql, re.IGNORECASE)
     seen: dict = {}
     for m in matches:
-        seen[m.lower()] = m
-        bare = m.split(".")[-1]
-        if bare.lower() not in seen:
-            seen[bare.lower()] = bare
+        seen[m.lower()] = m.lower()
+        bare = m.split(".")[-1].lower()
+        if bare not in seen:
+            seen[bare] = bare
     return list(seen.values())
 
 

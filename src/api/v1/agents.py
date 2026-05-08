@@ -36,11 +36,11 @@ def _extract_tables_from_sql(sql: str) -> List[str]:
     )
     seen: dict = {}
     for m in matches:
-        seen[m.lower()] = m
+        seen[m.lower()] = m.lower()
         # Also add the bare table name for schema-qualified refs (schema.table → table)
-        bare = m.split(".")[-1]
-        if bare.lower() not in seen:
-            seen[bare.lower()] = bare
+        bare = m.split(".")[-1].lower()
+        if bare not in seen:
+            seen[bare] = bare
     return list(seen.values())
 
 
