@@ -247,13 +247,23 @@ async def _execute_agent_async(agent_id: str):
                 )
                 agent_instructions = agent.focus or None
             elif monitor_type == "context":
-                # Ask an analytical question the orchestrator can map to a specific
-                # table — not a "scan all tables" command the LLM selector can't parse.
                 question = (
                     "What are the latest trends and key metrics in the available data? "
                     "Show record counts, recent activity, and flag any anomalies or significant changes."
                 )
                 agent_instructions = agent.focus or None
+                sql_instructions = (
+                    "Generate a single SELECT statement that returns exactly one row "
+                    "with the record count of every available table as a separate column. "
+                    "Use scalar subqueries, one per table. Example pattern:\n"
+                    "SELECT\n"
+                    "  (SELECT COUNT(*) FROM schema.table1) AS table1_count,\n"
+                    "  (SELECT COUNT(*) FROM schema.table2) AS table2_count,\n"
+                    "  ...\n"
+                    "Replace schema.tableN with the actual physical table names from the schema. "
+                    "Do NOT use UNION, JOIN, WHERE, or HAVING clauses. "
+                    "This must return exactly one row."
+                )
             else:
                 question = (
                     f"You are an autonomous {agent.archetype or 'custom'} agent. "

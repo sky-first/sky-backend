@@ -473,13 +473,27 @@ async def run_agent_stream(
             )
             agent_instructions = agent.focus or None
         elif monitor_type == "context":
-            # Same reasoning: ask an analytical question the orchestrator can
-            # map to a table, not a "scan everything" directive it can't parse.
             question = (
                 "What are the latest trends and key metrics in the available data? "
                 "Show record counts, recent activity, and flag any anomalies or significant changes."
             )
             agent_instructions = agent.focus or None
+            # Force the specialist to use a single SELECT with scalar subqueries —
+            # one COUNT(*) per table. This avoids cross-schema JOINs that have no
+            # FK path and always returns exactly 1 row regardless of data volume.
+            # Scalar subqueries are a plain SELECT so they pass all validator rules.
+            sql_instructions = (
+                "Generate a single SELECT statement that returns exactly one row "
+                "with the record count of every available table as a separate column. "
+                "Use scalar subqueries, one per table. Example pattern:\n"
+                "SELECT\n"
+                "  (SELECT COUNT(*) FROM schema.table1) AS table1_count,\n"
+                "  (SELECT COUNT(*) FROM schema.table2) AS table2_count,\n"
+                "  ...\n"
+                "Replace schema.tableN with the actual physical table names from the schema. "
+                "Do NOT use UNION, JOIN, WHERE, or HAVING clauses. "
+                "This must return exactly one row."
+            )
         else:
             # Schema validator rejects unknown values before we get here,
             # but keep a graceful fallback so a stale row can still run.
