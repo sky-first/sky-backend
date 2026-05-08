@@ -29,25 +29,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError
-from src.core.security import (
-    create_access_token,
-    create_refresh_token,
-    get_password_hash,
-)
+from src.core.security import create_access_token, create_refresh_token, get_password_hash
 from src.models.agent import Agent
 from src.models.connection import DataConnection
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.glossary import GlossaryTerm
 from src.models.metric import Metric
+from src.models.page import Page, PageMember
 from src.models.space import Space, SpaceConnection, SpaceMember
 from src.models.user import User
 from src.schemas.demo import DemoSignupRequest, DemoSignupResponse
 from src.schemas.user import UserResponse
-from src.services.demo_seed_data import (
-    GLOSSARY_TERMS,
-    METRICS_DATA,
-    RELATIONSHIPS_DATA,
-)
+from src.services.demo_seed_data import GLOSSARY_TERMS, METRICS_DATA, RELATIONSHIPS_DATA
 
 logger = logging.getLogger(__name__)
 
@@ -243,12 +236,14 @@ class DemoService:
         # (dashboards, widgets, agents, AI) but cannot manage members,
         # edit Space settings, or delete crews. Owner of the demo
         # Space can promote them via the standard members endpoint.
-        self.db.add(SpaceMember(
-            id=uuid4(),
-            space_id=sibling_space.id,
-            user_id=user.id,
-            role="editor",
-        ))
+        self.db.add(
+            SpaceMember(
+                id=uuid4(),
+                space_id=sibling_space.id,
+                user_id=user.id,
+                role="editor",
+            )
+        )
 
         # Backfill the Knowledge seed if the sibling Space was minted
         # before the seed shipped — idempotent so the original owner's
@@ -258,20 +253,30 @@ class DemoService:
         # joiner's Pulse pill in sync with what a fresh signup would have.
         await self._seed_demo_agents(sibling_space, user)
 
-        # Default Personal page — see plain-signup branch above for
-        # the rationale. Idempotent.
+        # Default Personal page first (see fresh-signup branch — the
+        # owner-by-id idempotency in ensure_default_page_and_space
+        # forces this to run before the Space-scoped seed below).
         from src.services.onboarding_service import ensure_default_page_and_space
+
         await ensure_default_page_and_space(self.db, user)
+
+        # Default Space page named "{company} Board" — idempotent. The
+        # joiner only triggers a create on Spaces that don't yet have
+        # a Space-scoped page (older sandboxes seeded before this
+        # helper shipped); the original signup already seeded it.
+        await self._seed_demo_space_page(sibling_space, user, payload.company)
 
         await self.db.commit()
         await self.db.refresh(user)
         await self.db.refresh(sibling_space)
 
         logger.info(
-            "demo_same_domain_join space_id=%s owner_id=%s new_user_id=%s "
-            "email=%s domain=%s",
-            sibling_space.id, sibling_space.created_by, user.id,
-            email_norm, email_norm.split("@", 1)[1],
+            "demo_same_domain_join space_id=%s owner_id=%s new_user_id=%s " "email=%s domain=%s",
+            sibling_space.id,
+            sibling_space.created_by,
+            user.id,
+            email_norm,
+            email_norm.split("@", 1)[1],
         )
 
         # Welcome email also fires for same-domain joiners. Lucas's
@@ -283,6 +288,7 @@ class DemoService:
         # applies identically; later we can split into a "your colleague
         # invited you" variant if Lucas wants.
         from src.services.demo_email_service import send_demo_welcome_email
+
         await send_demo_welcome_email(
             name=user.name,
             email=user.email,
@@ -291,7 +297,10 @@ class DemoService:
         )
 
         return self._issue_response(
-            user, sibling_space, expires_at, is_returning=False,
+            user,
+            sibling_space,
+            expires_at,
+            is_returning=False,
         )
 
     async def _ensure_dataset_connections(self, space: Space) -> int:
@@ -358,7 +367,9 @@ class DemoService:
         if added_ids:
             logger.info(
                 "demo_space_connections_bound space_id=%s added=%d total_wanted=%d",
-                space.id, len(added_ids), len(wanted),
+                space.id,
+                len(added_ids),
+                len(wanted),
             )
 
         # 3. Trigger AI-service discovery for SHARED indexing — pass
@@ -400,7 +411,8 @@ class DemoService:
                 except Exception as exc:
                     logger.warning(
                         "demo_ai_discover_failed conn=%s err=%s",
-                        conn_uuid, exc,
+                        conn_uuid,
+                        exc,
                     )
 
         # Force the pending SpaceConnection rows to flush before returning.
@@ -545,13 +557,80 @@ class DemoService:
         if glossary_added or metrics_added or relationships_added:
             logger.info(
                 "demo_context_seeded space_id=%s glossary=%d metrics=%d relationships=%d",
-                space.id, glossary_added, metrics_added, relationships_added,
+                space.id,
+                glossary_added,
+                metrics_added,
+                relationships_added,
             )
         return {
             "glossary": glossary_added,
             "metrics": metrics_added,
             "relationships": relationships_added,
         }
+
+    async def _seed_demo_space_page(self, space: Space, user: User, company: str) -> int:
+        """Create a default Space-scoped Page named "{company} Board".
+
+        Without this, switching from Personal to the demo Space (or to a
+        Crew inside it) lands the user on an empty page picker — either
+        blank or carrying whatever placeholder the FE falls back to.
+        Lucas's UX brief: "deve aparecer com o nome da empresa, ex.
+        Microsoft Board". Naming the seeded page after the visitor's
+        company makes the topbar selector immediately recognisable.
+
+        Idempotent: skips if any Space-scoped page already exists for
+        this Space (the joiner case in _join_sibling_demo_space hits
+        this branch — original signup already seeded the page).
+
+        Returns the number of pages added (0 on no-op, 1 on create).
+        """
+        from sqlalchemy import select as _select
+
+        existing_q = await self.db.execute(
+            _select(Page.id).where(Page.space_id == space.id, Page.deleted_at.is_(None)).limit(1)
+        )
+        if existing_q.scalar_one_or_none() is not None:
+            return 0
+
+        company_label = (company or "").strip() or "Demo"
+        # Naming convention requested by Lucas (2026-05-08): use
+        # "{company} Board's" — same pattern Personal mode uses
+        # ("{first_name} Board's"). Truncate at 240 chars so the
+        # " Board's" suffix never trips the 255-varchar limit on
+        # pages.name.
+        page_name = f"{company_label[:240]} Board's"
+
+        page = Page(
+            id=uuid4(),
+            name=page_name,
+            description="Default board for the demo Space — pre-seeded so the page picker is never empty.",
+            type="team",
+            color="#3B82F6",
+            icon=None,
+            owner_id=user.id,
+            space_id=space.id,
+            crew_id=None,
+            is_active=True,
+        )
+        self.db.add(page)
+        await self.db.flush()
+
+        self.db.add(
+            PageMember(
+                id=uuid4(),
+                page_id=page.id,
+                user_id=user.id,
+                role="owner",
+            )
+        )
+
+        logger.info(
+            "demo_space_page_seeded space_id=%s page_id=%s name=%r",
+            space.id,
+            page.id,
+            page_name,
+        )
+        return 1
 
     async def _seed_demo_agents(self, space: Space, user: User) -> int:
         """Create 3 ready-to-run agents on a fresh demo Space.
@@ -578,9 +657,7 @@ class DemoService:
             return 0
 
         bound_q = await self.db.execute(
-            select(SpaceConnection.connection_id).where(
-                SpaceConnection.space_id == space.id
-            )
+            select(SpaceConnection.connection_id).where(SpaceConnection.space_id == space.id)
         )
         bound_conn_ids = list(bound_q.scalars().all())
         primary_conn = bound_conn_ids[0] if bound_conn_ids else None
@@ -634,7 +711,9 @@ class DemoService:
 
         logger.info(
             "demo_agents_seeded space_id=%s count=%d primary_conn=%s",
-            space.id, len(seeds), primary_conn,
+            space.id,
+            len(seeds),
+            primary_conn,
         )
         return len(seeds)
 
@@ -718,9 +797,14 @@ class DemoService:
         await self.db.flush()
 
         # Space — owned by the demo user, marked is_demo with same TTL.
+        # Name == raw company string ("Microsoft") so the FE perspective
+        # toggle reads cleanly. Earlier signups prefixed "Demo — " which
+        # produced "Demo — Microsoft" in the dropdown; the prefix carries
+        # no information the visitor needs (every Space they see in demo
+        # IS the demo) and clutters the label.
         space = Space(
             id=uuid4(),
-            name=f"Demo — {payload.company}"[:255],
+            name=(payload.company or "Demo")[:255],
             description="Public demo sandbox. Auto-deleted after the TTL expires.",
             privacy="private",
             sensitivity="internal",
@@ -767,15 +851,23 @@ class DemoService:
         await self._seed_demo_context(space, user)
         await self._seed_demo_agents(space, user)
 
-        # Default Personal page — required by /ai/query (and other
-        # routes) which look up `active_page` to scope the call. The
-        # FE creates one on first dashboard mount as a backup, but
-        # any pure-API caller (smoke tests, our QA, partners hitting
-        # the demo programmatically) was left with "No active page
-        # found for user" before this. Idempotent: short-circuits if
-        # the user already owns one.
+        # Default Personal page first — `ensure_default_page_and_space`
+        # short-circuits if the user already owns ANY page (its check
+        # is owner-by-id, not scope-aware), so it must run BEFORE the
+        # Space-scoped seed below; otherwise the Space page would
+        # satisfy its early-return and the visitor lands in Personal
+        # mode without an "Ana's Board" entry. Idempotent.
         from src.services.onboarding_service import ensure_default_page_and_space
+
         await ensure_default_page_and_space(self.db, user)
+
+        # Default Space-scoped page named "{company} Board" — so when
+        # the visitor switches from Personal to the demo Space the page
+        # picker lands on a sensible label (e.g. "Acme Corp Board")
+        # instead of an empty / placeholder selector. Filtered by
+        # space_id so the Personal page above doesn't satisfy the
+        # idempotency check.
+        await self._seed_demo_space_page(space, user, payload.company)
 
         await self.db.commit()
         await self.db.refresh(user)
@@ -798,6 +890,7 @@ class DemoService:
         # joiners get a different template (TODO: separate
         # "your colleague invited you" mail). Fire-and-forget.
         from src.services.demo_email_service import send_demo_welcome_email
+
         await send_demo_welcome_email(
             name=user.name,
             email=user.email,
@@ -846,7 +939,17 @@ class DemoService:
         # the Space) so this is safe to run on every returning login.
         agents_seeded = await self._seed_demo_agents(space, user)
 
-        if added or seeded_any or agents_seeded:
+        # Backfill #4: default Space-scoped Page. Demo Spaces minted
+        # before this seed shipped have no Space-axis page, so the
+        # topbar picker comes up empty when the visitor switches to
+        # Space mode. We pull the company from the user's preferences
+        # (set at signup) so the label matches what a fresh signup
+        # would have produced.
+        prefs = user.preferences or {}
+        cached_company = prefs.get("demo_company") if isinstance(prefs, dict) else ""
+        page_seeded = await self._seed_demo_space_page(space, user, cached_company or "")
+
+        if added or seeded_any or agents_seeded or page_seeded:
             await self.db.commit()
 
         # Slack ping intentionally NOT fired on returning login.
@@ -990,17 +1093,18 @@ async def _post_slack_demo_signup(
         if resp.status_code >= 400:
             logger.error(
                 "slack_demo_signup_webhook_failed status=%s user=%s body=%r",
-                resp.status_code, user.email, resp.text[:300],
+                resp.status_code,
+                user.email,
+                resp.text[:300],
             )
         else:
             logger.info(
                 "slack_demo_signup_webhook_delivered user=%s status=%s",
-                user.email, resp.status_code,
+                user.email,
+                resp.status_code,
             )
     except Exception as exc:  # noqa: BLE001 — webhook must not fail signup
-        logger.exception(
-            "slack_demo_signup_webhook_error user=%s err=%s", user.email, exc
-        )
+        logger.exception("slack_demo_signup_webhook_error user=%s err=%s", user.email, exc)
 
 
 # ─── Cron: cleanup ──────────────────────────────────────────────────────────
@@ -1038,17 +1142,14 @@ async def cleanup_expired_demo_spaces(db: AsyncSession) -> Tuple[int, int]:
         # FK to spaces.id). The order matters — embeddings has an FK
         # to table_metadata, so embeddings goes first.
         from sqlalchemy import text as _text
+
         try:
             await db.execute(
-                _text(
-                    "DELETE FROM embeddings WHERE space_id = ANY(:ids)"
-                ),
+                _text("DELETE FROM embeddings WHERE space_id = ANY(:ids)"),
                 {"ids": [str(s) for s in space_ids]},
             )
             await db.execute(
-                _text(
-                    "DELETE FROM table_metadata WHERE space_id = ANY(:ids)"
-                ),
+                _text("DELETE FROM table_metadata WHERE space_id = ANY(:ids)"),
                 {"ids": [str(s) for s in space_ids]},
             )
         except Exception:

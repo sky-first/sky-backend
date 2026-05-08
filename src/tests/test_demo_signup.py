@@ -81,7 +81,10 @@ async def test_signup_creates_user_space_and_member(db_session: AsyncSession):
     space = space_q.scalar_one()
     assert space.is_demo is True
     assert space.demo_expires_at == user.demo_expires_at
-    assert "Demo — Acme Corp" in space.name
+    # signup() sets space.name to the bare company string (the
+    # "Demo — " prefix was dropped 2026-05-08 — see commit cf6f36b
+    # for the rationale).
+    assert space.name == "Acme Corp"
 
 
 @pytest.mark.asyncio
@@ -102,8 +105,14 @@ async def test_signup_provisions_default_personal_page(db_session: AsyncSession)
 
     pages = await PageRepository(db_session).get_by_owner(user.id)
     assert pages, "demo signup must create at least one Personal page"
-    assert pages[0].owner_id == user.id
-    assert pages[0].type == "personal"
+    # signup() now seeds two pages owned by the visitor: the canonical
+    # Personal page (space_id IS NULL, type='personal') and a Space-
+    # scoped "{company} Board's" page (type='team'). get_by_owner
+    # returns both ordered by created_at desc, so the first row could
+    # be either — pin the assertion to the Personal page specifically.
+    personal_pages = [p for p in pages if p.space_id is None and p.type == "personal"]
+    assert personal_pages, "demo signup must create a Personal-scoped page"
+    assert personal_pages[0].owner_id == user.id
 
 
 @pytest.mark.asyncio
