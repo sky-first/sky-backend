@@ -333,6 +333,14 @@ async def test_signup_endpoint_integration(client, monkeypatch: pytest.MonkeyPat
 # ─── SSO opt-in: provision_for_existing_user ────────────────────────────────
 
 
+def _as_uuid(s):
+    """SQLAlchemy 2.x's UUID type binds the column with .hex on the raw
+    value, which means passing a stringified UUID into a `==` comparison
+    crashes mid-bind. Coerce back to uuid.UUID for queries."""
+    import uuid as _uuid
+    return _uuid.UUID(s) if isinstance(s, str) else s
+
+
 @pytest.mark.asyncio
 async def test_provision_for_existing_user_creates_demo_space_and_seeds(
     db_session: AsyncSession,
@@ -366,7 +374,7 @@ async def test_provision_for_existing_user_creates_demo_space_and_seeds(
     assert result["seeded"]["metrics"] > 0
 
     space = (await db_session.execute(
-        select(Space).where(Space.id == result["space_id"])
+        select(Space).where(Space.id == _as_uuid(result["space_id"]))
     )).scalar_one()
     assert space.is_demo is True
     # Critical: opt-in flow has NO TTL — cleanup_expired_demo_spaces must
@@ -475,20 +483,21 @@ async def test_personal_demo_status_and_removal(db_session: AsyncSession):
     assert removed["deleted"]["glossary"] >= 1
 
     # Space row is gone.
+    space_uuid = _as_uuid(provisioned["space_id"])
     assert (await db_session.execute(
-        select(Space).where(Space.id == provisioned["space_id"])
+        select(Space).where(Space.id == space_uuid)
     )).scalar_one_or_none() is None
 
     # Knowledge scoped to that space is gone too (no orphans).
     leftover_metrics = (await db_session.execute(
         select(Metric).where(
             Metric.scope == "space",
-            Metric.scope_id == provisioned["space_id"],
+            Metric.scope_id == space_uuid,
         )
     )).scalars().all()
     assert leftover_metrics == []
     leftover_glossary = (await db_session.execute(
-        select(GlossaryTerm).where(GlossaryTerm.space_id == provisioned["space_id"])
+        select(GlossaryTerm).where(GlossaryTerm.space_id == space_uuid)
     )).scalars().all()
     assert leftover_glossary == []
 
