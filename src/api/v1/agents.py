@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from decimal import Decimal
 from datetime import datetime, date, timezone
 from typing import Any, Dict, List, Optional
@@ -18,6 +19,31 @@ from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.user import User
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_tables_from_sql(sql: str) -> List[str]:
+    """Extract table names from a SQL query to guide the orchestrator's table selection.
+
+    Returns both schema-qualified (schema.table) and bare (table) names so
+    the orchestrator can match against either physical or logical table names.
+    """
+    if not sql:
+        return []
+    matches = re.findall(
+        r'\b(?:FROM|JOIN)\s+((?:\w+\.)?\w+)',
+        sql,
+        re.IGNORECASE,
+    )
+    seen: dict = {}
+    for m in matches:
+        seen[m.lower()] = m
+        # Also add the bare table name for schema-qualified refs (schema.table → table)
+        bare = m.split(".")[-1]
+        if bare.lower() not in seen:
+            seen[bare.lower()] = bare
+    return list(seen.values())
+
+
 from src.schemas.agent import (
     AgentCreate,
     AgentFindingResponse,
@@ -384,6 +410,7 @@ async def run_agent_stream(
         # the user's specific intent when interpreting results.
         agent_instructions: Optional[str] = None
         sql_instructions: Optional[str] = None
+        sql_table_hints: Optional[List[str]] = None
 
         if monitor_type == "question":
             # Direct question — focus IS the user's question.
@@ -408,6 +435,11 @@ async def run_agent_stream(
                     "no system tables):\n\n"
                     f"{agent.custom_sql}"
                 )
+                # Extract the table names from the user's SQL so the orchestrator
+                # is guided to the same tables the SQL references. Without this
+                # the generic question above causes the orchestrator to pick
+                # unrelated tables and the specialist ignores the SQL template.
+                sql_table_hints = _extract_tables_from_sql(agent.custom_sql)
         elif monitor_type in ("scan", "datasource"):
             # Ask a concrete analytical question so the orchestrator can pick
             # a specific table and generate SQL — not a structural "all tables"
@@ -474,6 +506,10 @@ async def run_agent_stream(
 
         try:
             table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
+            # For SQL mode: prefer the table names extracted from custom_sql over
+            # pinned UUIDs — the orchestrator matches by logical/physical name,
+            # not by UUID, so UUIDs produce no match and the wrong tables get picked.
+            effective_datasets = sql_table_hints or table_ids
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
                 question=question,
@@ -485,7 +521,7 @@ async def run_agent_stream(
                 crew_ids=resolved_crew_ids or None,
                 agent_mode=monitor_type,
                 connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
-                selected_datasets=table_ids,
+                selected_datasets=effective_datasets,
                 sql_instructions=sql_instructions,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service

@@ -2,13 +2,29 @@
 
 import asyncio
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 
 from src.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_tables_from_sql(sql: str) -> List[str]:
+    """Extract table names from a SQL query to guide the orchestrator's table selection."""
+    if not sql:
+        return []
+    matches = re.findall(r'\b(?:FROM|JOIN)\s+((?:\w+\.)?\w+)', sql, re.IGNORECASE)
+    seen: dict = {}
+    for m in matches:
+        seen[m.lower()] = m
+        bare = m.split(".")[-1]
+        if bare.lower() not in seen:
+            seen[bare.lower()] = bare
+    return list(seen.values())
+
 
 DEPTH_CYCLES = {"quick": 1, "standard": 3, "deep": 5}
 FREQUENCY_HOURS = {"hourly": 1, "daily": 24, "weekly": 168}
@@ -206,6 +222,7 @@ async def _execute_agent_async(agent_id: str):
             monitor_type = getattr(agent, "monitor_type", "question") or "question"
             agent_instructions: Optional[str] = None
             sql_instructions: Optional[str] = None
+            sql_table_hints: Optional[List[str]] = None
 
             if monitor_type == "question":
                 # Direct question — focus IS the user's question.
@@ -222,6 +239,7 @@ async def _execute_agent_async(agent_id: str):
                         "no system tables):\n\n"
                         f"{agent.custom_sql}"
                     )
+                    sql_table_hints = _extract_tables_from_sql(agent.custom_sql)
             elif monitor_type in ("scan", "datasource"):
                 question = (
                     "What are the most recent records and key aggregate metrics in this dataset? "
@@ -347,8 +365,11 @@ async def _execute_agent_async(agent_id: str):
 
             for conn_id in connection_ids:
                 try:
-                    # Pass table_ids as selected_datasets if specified
+                    # Pass table_ids as selected_datasets if specified.
+                    # For SQL mode, prefer names extracted from custom_sql — the
+                    # orchestrator matches by logical/physical name, not by UUID.
                     table_ids = getattr(agent, "table_ids", None)
+                    effective_datasets = sql_table_hints or (table_ids if table_ids else None)
 
                     # ── L2 — triage (placeholder). Today we always
                     # escalate to L3; the real gpt-4o-mini "is this
@@ -370,7 +391,7 @@ async def _execute_agent_async(agent_id: str):
                         question=question,
                         user_id=str(agent.created_by) if agent.created_by else "system",
                         space_id=agent.scope_id or "default",
-                        selected_datasets=table_ids if table_ids else None,
+                        selected_datasets=effective_datasets,
                         instructions=agent_instructions,
                         agent_mode=monitor_type,
                         sql_instructions=sql_instructions,
