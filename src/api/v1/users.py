@@ -10,6 +10,7 @@ from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.user import (
+    ExploreDemoDataResponse,
     OnboardingUpdate,
     UserCreate,
     UserInviteRequest,
@@ -18,6 +19,7 @@ from src.schemas.user import (
     UserResponse,
     UserUpdate,
 )
+from src.services.demo_service import DemoService
 from src.services.rbac_service import RBACService
 from src.services.user_service import UserService
 
@@ -129,6 +131,33 @@ async def update_my_onboarding(
     return await user_service.update_onboarding(
         current_user.id, onboarding_data.step, onboarding_data.version, current_user
     )
+
+
+@router.post(
+    "/me/onboarding/explore-demo-data",
+    response_model=ExploreDemoDataResponse,
+    status_code=status.HTTP_200_OK,
+    responses={403: {"model": ErrorResponse}},
+    summary="Provision a personal demo workspace for the current user",
+    description=(
+        "Used by the first-login modal that asks SSO users 'do you want "
+        "to explore with sample data?'. Creates (or returns the existing) "
+        "'Demo Sky' Space owned by the current user, binds the demo "
+        "dataset Connections, and seeds the Glossary, Metrics, "
+        "Relationships and 3 Agents — same baseline a public /demo "
+        "visitor receives, minus the TTL.\n\n"
+        "Idempotent: re-running on a user who already has a 'Demo Sky' "
+        "space returns it as-is and only fills in any missing seed."
+    ),
+)
+async def explore_demo_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ExploreDemoDataResponse:
+    """Provision a sample workspace for the current authenticated user."""
+    service = DemoService(db)
+    result = await service.provision_for_existing_user(current_user)
+    return ExploreDemoDataResponse(**result)
 
 
 @router.get(

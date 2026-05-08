@@ -328,3 +328,103 @@ async def test_signup_endpoint_integration(client, monkeypatch: pytest.MonkeyPat
     assert body["access_token"]
     assert body["space_id"]
     assert body["is_returning"] is False
+
+
+# ─── SSO opt-in: provision_for_existing_user ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_provision_for_existing_user_creates_demo_space_and_seeds(
+    db_session: AsyncSession,
+):
+    """First call mints a 'Demo Sky' Space owned by the user, with the
+    same baseline content (Glossary, Metrics, Relationships, Agents) a
+    public /demo/signup visitor receives — but **without** a TTL,
+    because this is opt-in exploration, not anti-fraud."""
+    from src.core.security import get_password_hash
+    from src.models.glossary import GlossaryTerm
+    from src.models.metric import Metric
+
+    user = User(
+        email="sso-user@skyfirstlabs.com",
+        password_hash=get_password_hash("placeholder"),
+        name="SSO User",
+        role="user",
+        email_verified=True,
+        is_demo=False,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    service = DemoService(db_session)
+    result = await service.provision_for_existing_user(user)
+
+    assert result["is_new"] is True
+    assert result["space_name"] == "Demo Sky"
+    assert result["seeded"]["glossary"] > 0
+    assert result["seeded"]["metrics"] > 0
+
+    space = (await db_session.execute(
+        select(Space).where(Space.id == result["space_id"])
+    )).scalar_one()
+    assert space.is_demo is True
+    # Critical: opt-in flow has NO TTL — cleanup_expired_demo_spaces must
+    # not reap a space the user explicitly chose to create.
+    assert space.demo_expires_at is None
+    assert space.created_by == user.id
+
+    # Seed actually landed in Lucas's space (not in some shared scope).
+    metrics_in_space = (await db_session.execute(
+        select(Metric).where(
+            Metric.scope == "space",
+            Metric.scope_id == space.id,
+        )
+    )).scalars().all()
+    assert len(metrics_in_space) == result["seeded"]["metrics"]
+
+    glossary_in_space = (await db_session.execute(
+        select(GlossaryTerm).where(GlossaryTerm.space_id == space.id)
+    )).scalars().all()
+    assert len(glossary_in_space) == result["seeded"]["glossary"]
+
+
+@pytest.mark.asyncio
+async def test_provision_for_existing_user_is_idempotent(db_session: AsyncSession):
+    """Second call must not mint a second 'Demo Sky' Space — that would
+    leave the user with N copies after every modal click. Reuses the
+    existing one and reports is_new=False with zero seed deltas."""
+    from src.core.security import get_password_hash
+
+    user = User(
+        email="sso-idempotent@skyfirstlabs.com",
+        password_hash=get_password_hash("placeholder"),
+        name="SSO User",
+        role="user",
+        email_verified=True,
+        is_demo=False,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    service = DemoService(db_session)
+    first = await service.provision_for_existing_user(user)
+    second = await service.provision_for_existing_user(user)
+
+    assert first["is_new"] is True
+    assert second["is_new"] is False
+    assert second["space_id"] == first["space_id"]
+    # Re-run finds everything already seeded — counts are 0.
+    assert second["seeded"] == {"glossary": 0, "metrics": 0, "relationships": 0}
+    assert second["agents_added"] == 0
+
+    # Exactly one Space, not two.
+    spaces = (await db_session.execute(
+        select(Space).where(
+            Space.created_by == user.id,
+            Space.name == "Demo Sky",
+            Space.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    assert len(spaces) == 1

@@ -56,6 +56,23 @@ class OnboardingUpdate(BaseModel):
     version: Optional[int] = None
 
 
+class ExploreDemoDataResponse(BaseModel):
+    """Response from POST /me/onboarding/explore-demo-data.
+
+    Returned when an SSO user opts into the "explore with sample data"
+    flow on first login. The FE switches the active workspace to the
+    returned ``space_id`` so the user immediately sees the seeded
+    Connections, Glossary, Metrics, and Agents.
+    """
+
+    space_id: str
+    space_name: str
+    is_new: bool  # False on a re-run that found a pre-existing demo space
+    seeded: dict  # {"glossary": int, "metrics": int, "relationships": int}
+    agents_added: int
+    connections_added: int
+
+
 class UserResponse(UserBase):
     """User response schema."""
 

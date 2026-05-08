@@ -890,6 +890,98 @@ class DemoService:
             is_returning=is_returning,
         )
 
+    # ─── SSO opt-in: provision the same demo content for an existing user ──
+
+    async def provision_for_existing_user(self, user: User) -> dict:
+        """Create a personal demo workspace for an already-authenticated
+        user (e.g. SSO sign-in landing on an empty platform), populated
+        with the same content a public ``/demo/signup`` visitor would
+        get: 5 dataset connections, Glossary, Metrics, Enterprise
+        Relationships, and 3 ready-to-run Agents.
+
+        The Space is marked ``is_demo=True`` so it appears as a demo in
+        the UI, but ``demo_expires_at`` is left ``NULL`` — this is opt-in
+        exploration, not anti-fraud, so we don't reap it. The user can
+        delete it any time from Space settings.
+
+        Idempotent: if the user already owns a Space named ``Demo Sky``
+        (created by a prior call), the function returns it as-is and
+        only fills in any missing seed content.
+
+        Returns a dict suitable for the API response::
+
+            {
+                "space_id": "...",
+                "space_name": "Demo Sky",
+                "is_new": True,
+                "seeded": {"glossary": 14, "metrics": 5, "relationships": 3},
+                "agents_added": 3,
+                "connections_added": 5,
+            }
+        """
+        existing_q = await self.db.execute(
+            select(Space).where(
+                Space.created_by == user.id,
+                Space.is_demo.is_(True),
+                Space.deleted_at.is_(None),
+                Space.name == "Demo Sky",
+            )
+        )
+        space = existing_q.scalars().first()
+        is_new = space is None
+
+        if space is None:
+            space = Space(
+                id=uuid4(),
+                name="Demo Sky",
+                description=(
+                    "Sample workspace pre-loaded with example datasets, "
+                    "metrics, and a glossary so you can explore Sky's "
+                    "capabilities. Safe to delete any time."
+                ),
+                created_by=user.id,
+                is_demo=True,
+                # No demo_expires_at — opt-in exploration, no TTL.
+                privacy="private",
+                sensitivity="internal",
+            )
+            self.db.add(space)
+            await self.db.flush()
+            self.db.add(
+                SpaceMember(
+                    id=uuid4(),
+                    space_id=space.id,
+                    user_id=user.id,
+                    role="owner",
+                )
+            )
+            await self.db.flush()
+
+        connections_added = await self._ensure_dataset_connections(space)
+        seeded = await self._seed_demo_context(space, user)
+        agents_added = await self._seed_demo_agents(space, user)
+
+        await self.db.commit()
+        await self.db.refresh(space)
+
+        logger.info(
+            "demo_provisioned_for_sso_user user=%s space_id=%s is_new=%s "
+            "glossary=%d metrics=%d relationships=%d agents=%d connections=%d",
+            user.email, space.id, is_new,
+            seeded.get("glossary", 0), seeded.get("metrics", 0),
+            seeded.get("relationships", 0),
+            agents_added, connections_added,
+        )
+
+        return {
+            "space_id": str(space.id),
+            "space_name": space.name,
+            "is_new": is_new,
+            "seeded": seeded,
+            "agents_added": agents_added,
+            "connections_added": connections_added,
+        }
+
 
 # ─── Slack lead-gen webhook on demo signup ─────────────────────────────────
 
