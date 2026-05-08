@@ -50,6 +50,8 @@ DEMO_PORT = int(os.environ.get("DEMO_PG_PORT", "5432"))
 DEMO_DB = os.environ.get("DEMO_PG_DB", "postgres")
 DEMO_USER = os.environ.get("DEMO_PG_USER", "")
 DEMO_PASS = os.environ.get("DEMO_PG_PASSWORD", "")
+# Local Docker uses "disable"; Azure requires "require"
+DEMO_SSL_MODE = os.environ.get("DEMO_PG_SSL_MODE", "require")
 
 if not (DEMO_HOST and DEMO_USER and DEMO_PASS):
     print(
@@ -131,7 +133,7 @@ async def upsert_connection(
         "username": DEMO_USER,
         "password": DEMO_PASS,
         "schema": schema_name,
-        "ssl_mode": "require",
+        "ssl_mode": DEMO_SSL_MODE,
     }
     config_stored = encrypt_dict(config_plain)
 

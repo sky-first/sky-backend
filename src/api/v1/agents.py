@@ -2,7 +2,8 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from decimal import Decimal
+from datetime import datetime, date, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -28,6 +29,19 @@ from src.services.agent_service import AgentService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
+
+
+def _sanitize_json(obj: Any) -> Any:
+    """Recursively convert Decimal/date/datetime to JSON-safe types."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _sanitize_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_json(v) for v in obj]
+    return obj
 
 
 async def get_agent_service(db: AsyncSession = Depends(get_db)) -> AgentService:
@@ -422,7 +436,7 @@ async def run_agent_stream(
                 question=question,
                 user_id=str(current_user.id),
                 space_id=agent.scope_id or "default",
-                instructions=agent.focus,
+                instructions=None,
                 is_personal=is_personal,
                 selected_context=selected_ctx,
                 crew_ids=resolved_crew_ids or None,
@@ -517,7 +531,7 @@ async def run_agent_stream(
                     query=question[:500],
                     connection_id=UUID(conn_id) if conn_id else None,
                     data_sources=[s for s in [collected_meta.get("chosen_table"), conn_id] if s],
-                    rows=collected_rows,
+                    rows=_sanitize_json(collected_rows),
                 )
                 save_db.add(finding)
                 await save_db.flush()
