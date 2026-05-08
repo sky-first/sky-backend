@@ -185,7 +185,7 @@ SELECT
     (ARRAY['SaaS','Retail','Finance','Healthcare','Manufacturing','Media','Education','Logistics'])[1 + g % 8],
     (ARRAY['starter','pro','enterprise'])[1 + g % 3],
     (ARRAY['US','EU','APAC','LATAM'])[1 + g % 4],
-    DATE '2024-01-01' + ((g * 7) % 730)::INT,
+    (CURRENT_DATE - INTERVAL '24 months' + ((g * 7) % 730) * INTERVAL '1 day')::DATE,
     g % 11 <> 0  -- ~9% inactive
 FROM generate_series(1, 50) g;
 
@@ -200,13 +200,13 @@ SELECT
     (ARRAY['CEO','CTO','VP Sales','Director','Manager','Engineer','Analyst','PM'])[1 + g % 8]
 FROM generate_series(1, 200) g;
 
--- 100 opportunities
+-- 100 opportunities — close_date spans last 18 months so current-year filters find data
 INSERT INTO crm.opportunities (account_id, stage, amount, close_date, owner_email)
 SELECT
     1 + (g % 50),
     (ARRAY['prospect','qualified','negotiation','closed_won','closed_lost'])[1 + g % 5],
     (5000 + (g * 137) % 95000)::NUMERIC(12,2),
-    DATE '2024-01-01' + ((g * 11) % 730)::INT,
+    (CURRENT_DATE - INTERVAL '18 months' + ((g * 5) % 550) * INTERVAL '1 day')::DATE,
     'rep' || (1 + g % 8) || '@skyfirstlabs.com'
 FROM generate_series(1, 100) g;
 
@@ -246,6 +246,7 @@ SELECT
 FROM generate_series(1, 500) g;
 
 -- 50 subscriptions (one per account, mirror plan)
+-- started_at anchored to recent dates so MRR / cancellation queries find data
 INSERT INTO finance.subscriptions (account_id, plan, monthly_amount, started_at, cancelled_at)
 SELECT
     a.id,
@@ -255,20 +256,23 @@ SELECT
         WHEN 'pro' THEN 199.00
         WHEN 'enterprise' THEN 999.00
     END,
-    a.signup_date,
-    CASE WHEN a.is_active THEN NULL ELSE a.signup_date + INTERVAL '180 days' END::DATE
+    (CURRENT_DATE - INTERVAL '24 months' + ((a.id * 7) % 365) * INTERVAL '1 day')::DATE,
+    CASE WHEN a.is_active THEN NULL
+         ELSE (CURRENT_DATE - INTERVAL '24 months' + ((a.id * 7) % 365) * INTERVAL '1 day' + INTERVAL '180 days')::DATE
+    END
 FROM crm.accounts a;
 
--- 200 invoices (~4 per active subscription)
+-- 12 monthly invoices per active subscription (last 12 months)
+-- issued_at uses NOW()-based offsets so "last 12 months" queries always return data
 INSERT INTO finance.invoices (subscription_id, issued_at, amount, status)
 SELECT
     s.id,
-    s.started_at + (i * INTERVAL '30 days')::INTERVAL,
+    DATE_TRUNC('month', NOW()) - ((12 - i) * INTERVAL '1 month'),
     s.monthly_amount,
-    (ARRAY['paid','paid','paid','paid','sent','overdue'])[1 + i % 6]
+    CASE i WHEN 12 THEN 'sent' WHEN 11 THEN 'paid' ELSE 'paid' END
 FROM finance.subscriptions s
-CROSS JOIN generate_series(1, 4) AS i
-WHERE s.cancelled_at IS NULL OR (s.started_at + (i * INTERVAL '30 days')) < s.cancelled_at;
+CROSS JOIN generate_series(1, 12) AS i
+WHERE s.cancelled_at IS NULL;
 
 -- 1000 sessions (mix of authenticated + anon)
 INSERT INTO web_analytics.sessions (account_id, visitor_uuid, started_at, ended_at, referrer, utm_source, utm_campaign, pages_viewed)
