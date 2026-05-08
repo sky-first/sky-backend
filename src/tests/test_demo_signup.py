@@ -337,3 +337,180 @@ async def test_signup_endpoint_integration(client, monkeypatch: pytest.MonkeyPat
     assert body["access_token"]
     assert body["space_id"]
     assert body["is_returning"] is False
+
+
+# ─── SSO opt-in: provision_for_existing_user ────────────────────────────────
+
+
+def _as_uuid(s):
+    """SQLAlchemy 2.x's UUID type binds the column with .hex on the raw
+    value, which means passing a stringified UUID into a `==` comparison
+    crashes mid-bind. Coerce back to uuid.UUID for queries."""
+    import uuid as _uuid
+    return _uuid.UUID(s) if isinstance(s, str) else s
+
+
+@pytest.mark.asyncio
+async def test_provision_for_existing_user_creates_demo_space_and_seeds(
+    db_session: AsyncSession,
+):
+    """First call mints a 'Demo Sky' Space owned by the user, with the
+    same baseline content (Glossary, Metrics, Relationships, Agents) a
+    public /demo/signup visitor receives — but **without** a TTL,
+    because this is opt-in exploration, not anti-fraud."""
+    from src.core.security import get_password_hash
+    from src.models.glossary import GlossaryTerm
+    from src.models.metric import Metric
+
+    user = User(
+        email="sso-user@skyfirstlabs.com",
+        password_hash=get_password_hash("placeholder"),
+        name="SSO User",
+        role="user",
+        email_verified=True,
+        is_demo=False,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    service = DemoService(db_session)
+    result = await service.provision_for_existing_user(user)
+
+    assert result["is_new"] is True
+    assert result["space_name"] == "Demo Sky"
+    assert result["seeded"]["glossary"] > 0
+    assert result["seeded"]["metrics"] > 0
+
+    space = (await db_session.execute(
+        select(Space).where(Space.id == _as_uuid(result["space_id"]))
+    )).scalar_one()
+    assert space.is_demo is True
+    # Critical: opt-in flow has NO TTL — cleanup_expired_demo_spaces must
+    # not reap a space the user explicitly chose to create.
+    assert space.demo_expires_at is None
+    assert space.created_by == user.id
+
+    # Seed actually landed in Lucas's space (not in some shared scope).
+    metrics_in_space = (await db_session.execute(
+        select(Metric).where(
+            Metric.scope == "space",
+            Metric.scope_id == space.id,
+        )
+    )).scalars().all()
+    assert len(metrics_in_space) == result["seeded"]["metrics"]
+
+    glossary_in_space = (await db_session.execute(
+        select(GlossaryTerm).where(GlossaryTerm.space_id == space.id)
+    )).scalars().all()
+    assert len(glossary_in_space) == result["seeded"]["glossary"]
+
+
+@pytest.mark.asyncio
+async def test_provision_for_existing_user_is_idempotent(db_session: AsyncSession):
+    """Second call must not mint a second 'Demo Sky' Space — that would
+    leave the user with N copies after every modal click. Reuses the
+    existing one and reports is_new=False with zero seed deltas."""
+    from src.core.security import get_password_hash
+
+    user = User(
+        email="sso-idempotent@skyfirstlabs.com",
+        password_hash=get_password_hash("placeholder"),
+        name="SSO User",
+        role="user",
+        email_verified=True,
+        is_demo=False,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    service = DemoService(db_session)
+    first = await service.provision_for_existing_user(user)
+    second = await service.provision_for_existing_user(user)
+
+    assert first["is_new"] is True
+    assert second["is_new"] is False
+    assert second["space_id"] == first["space_id"]
+    # Re-run finds everything already seeded — counts are 0.
+    assert second["seeded"] == {"glossary": 0, "metrics": 0, "relationships": 0}
+    assert second["agents_added"] == 0
+
+    # Exactly one Space, not two.
+    spaces = (await db_session.execute(
+        select(Space).where(
+            Space.created_by == user.id,
+            Space.name == "Demo Sky",
+            Space.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    assert len(spaces) == 1
+
+
+@pytest.mark.asyncio
+async def test_personal_demo_status_and_removal(db_session: AsyncSession):
+    """Status reports counts; remove cleans up the Space + the
+    Glossary/Metrics scoped to it (FK on scope_id is informational,
+    not a real CASCADE, so the service must delete them by hand)."""
+    from src.core.security import get_password_hash
+    from src.models.glossary import GlossaryTerm
+    from src.models.metric import Metric
+
+    user = User(
+        email="sso-cleanup@skyfirstlabs.com",
+        password_hash=get_password_hash("placeholder"),
+        name="SSO User",
+        role="user",
+        email_verified=True,
+        is_demo=False,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    service = DemoService(db_session)
+
+    # Pre-state: nothing yet.
+    pre = await service.get_personal_demo_status(user)
+    assert pre["has_demo_space"] is False
+    assert pre["metrics_count"] == 0
+    assert pre["glossary_count"] == 0
+
+    # Provision then re-check status.
+    provisioned = await service.provision_for_existing_user(user)
+    status = await service.get_personal_demo_status(user)
+    assert status["has_demo_space"] is True
+    assert status["space_id"] == provisioned["space_id"]
+    assert status["metrics_count"] >= 1
+    assert status["glossary_count"] >= 1
+
+    # Remove and verify the Space + scoped Knowledge are gone.
+    removed = await service.remove_personal_demo_workspace(user)
+    assert removed["removed"] is True
+    assert removed["space_id"] == provisioned["space_id"]
+    assert removed["deleted"]["metrics"] >= 1
+    assert removed["deleted"]["glossary"] >= 1
+
+    # Space row is gone.
+    space_uuid = _as_uuid(provisioned["space_id"])
+    assert (await db_session.execute(
+        select(Space).where(Space.id == space_uuid)
+    )).scalar_one_or_none() is None
+
+    # Knowledge scoped to that space is gone too (no orphans).
+    leftover_metrics = (await db_session.execute(
+        select(Metric).where(
+            Metric.scope == "space",
+            Metric.scope_id == space_uuid,
+        )
+    )).scalars().all()
+    assert leftover_metrics == []
+    leftover_glossary = (await db_session.execute(
+        select(GlossaryTerm).where(GlossaryTerm.space_id == space_uuid)
+    )).scalars().all()
+    assert leftover_glossary == []
+
+    # Idempotent re-call: nothing left to remove.
+    again = await service.remove_personal_demo_workspace(user)
+    assert again["removed"] is False
+    assert again["space_id"] is None
