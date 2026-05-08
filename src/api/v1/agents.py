@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from decimal import Decimal
 from datetime import datetime, date, timezone
 from typing import Any, Dict, List, Optional
@@ -9,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
@@ -18,6 +19,31 @@ from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.user import User
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_tables_from_sql(sql: str) -> List[str]:
+    """Extract table names from a SQL query to guide the orchestrator's table selection.
+
+    Returns both schema-qualified (schema.table) and bare (table) names so
+    the orchestrator can match against either physical or logical table names.
+    """
+    if not sql:
+        return []
+    matches = re.findall(
+        r'\b(?:FROM|JOIN)\s+((?:\w+\.)?\w+)',
+        sql,
+        re.IGNORECASE,
+    )
+    seen: dict = {}
+    for m in matches:
+        seen[m.lower()] = m.lower()
+        # Also add the bare table name for schema-qualified refs (schema.table → table)
+        bare = m.split(".")[-1].lower()
+        if bare not in seen:
+            seen[bare] = bare
+    return list(seen.values())
+
+
 from src.schemas.agent import (
     AgentCreate,
     AgentFindingResponse,
@@ -162,6 +188,29 @@ async def create_agent(
         scope_id=data.scope_id,
         permission="agents.create",
     )
+
+    # Demo guard: limit how many agents each user can create so token
+    # consumption stays bounded. Platform owners/admins are exempt.
+    from src.config.settings import settings as _settings
+
+    _max = _settings.DEMO_MAX_AGENTS_PER_USER if _settings.DEMO_ENABLED else 0
+    _role = (current_user.role or "").lower()
+    if _max > 0 and _role not in ("owner", "admin"):
+        _count_result = await db.execute(
+            select(func.count()).select_from(Agent).where(
+                Agent.created_by == current_user.id,
+            )
+        )
+        _count = _count_result.scalar() or 0
+        if _count >= _max:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Agent limit reached. Demo accounts can have up to {_max} agents. "
+                    "Delete an existing agent to create a new one."
+                ),
+            )
+
     return await service.create_agent(data, user_id=current_user.id)
 
 
@@ -355,13 +404,24 @@ async def run_agent_stream(
         monitor_type = (agent.monitor_type or "question").lower()
 
         if not conn_id:
-            # Fallback: use any active connection the user can read. This
-            # lets full-context agents run against the user's aggregate
-            # universe even when the agent row doesn't pin a specific
-            # connection.
+            # Fallback: resolve a connection based on the agent's scope.
+            # Space-scoped agents must look up connections via the Space link
+            # table — _get_first_active_connection only searches personal
+            # connections owned by the user and misses shared Space connections,
+            # returning None and producing a /connections/None/ 403 on the AI
+            # service. Use _get_first_active_connection_for_space (which also
+            # applies the colleague's keyword routing) for space/crew scopes.
             from src.services.ai_service import AIService
 
-            conn_id = await AIService(db)._get_first_active_connection(current_user.id)
+            _ai_svc = AIService(db)
+            _scope = (agent.scope or "").lower()
+            if _scope in ("space", "crew") and agent.scope_id:
+                conn_id = await _ai_svc._get_first_active_connection_for_space(
+                    current_user.id,
+                    str(agent.scope_id),
+                )
+            else:
+                conn_id = await _ai_svc._get_first_active_connection(current_user.id)
 
         if not conn_id and monitor_type != "context":
             yield f"data: {json.dumps({'type': 'error', 'message': 'No data source available. Add a connection in the Edit tab, or switch to Full context mode.'})}\n\n"
@@ -373,6 +433,7 @@ async def run_agent_stream(
         # the user's specific intent when interpreting results.
         agent_instructions: Optional[str] = None
         sql_instructions: Optional[str] = None
+        sql_table_hints: Optional[List[str]] = None
 
         if monitor_type == "question":
             # Direct question — focus IS the user's question.
@@ -380,23 +441,32 @@ async def run_agent_stream(
                 agent.focus or "Analyze the data and surface insights, risks, and opportunities."
             )
         elif monitor_type == "sql":
-            # Pass the user's SQL as a template for the specialist, not as the
-            # question itself. The orchestrator gets a neutral analytical question
-            # so it can select the right table; the specialist gets the SQL as a
-            # reference template and generates its own query following security
-            # rules (replacing SELECT *, enforcing LIMIT, etc.). This is safer
-            # for a multi-user demo than a direct SQL bypass.
+            # The orchestrator gets a neutral analytical question so it can select
+            # the right table. The specialist receives the user's exact SQL and must
+            # execute it verbatim — only adding LIMIT if missing or replacing SELECT *
+            # with explicit columns. It must NOT rewrite filters, add date ranges, or
+            # otherwise deviate from the user's intent.
             question = "Analyze the key metrics and recent patterns in this dataset."
             agent_instructions = agent.focus or None
             if agent.custom_sql:
                 sql_instructions = (
-                    "Use the following SQL as a reference template. "
-                    "Follow its structure, table, filters, and intent exactly, "
-                    "but apply all security rules (replace SELECT * with specific "
-                    "columns from the schema, ensure a LIMIT clause is present, "
-                    "no system tables):\n\n"
+                    "⚠️ SQL MODE — USER-PROVIDED BASE QUERY:\n"
+                    "Use the query below as the base. Apply ONLY these mandatory adaptations:\n"
+                    "  1. Replace SELECT * with explicit column names from the schema shown above.\n"
+                    "  2. Qualify bare table names with the schema prefix "
+                    "(e.g., INVOICES → finance.invoices, invoices → finance.invoices).\n"
+                    "  3. Add LIMIT 100 at the end if no LIMIT clause is present.\n"
+                    "  4. Prefix with the required -- TITLE: comment.\n"
+                    "DO NOT add date filters, change WHERE clauses, add JOINs, or rewrite any other logic.\n"
+                    "NEVER return IMPOSSIBLE for SQL mode — always apply the adaptations and return SQL.\n"
+                    "USER'S BASE QUERY:\n\n"
                     f"{agent.custom_sql}"
                 )
+                # Extract the table names from the user's SQL so the orchestrator
+                # is guided to the same tables the SQL references. Without this
+                # the generic question above causes the orchestrator to pick
+                # unrelated tables and the specialist ignores the SQL template.
+                sql_table_hints = _extract_tables_from_sql(agent.custom_sql)
         elif monitor_type in ("scan", "datasource"):
             # Ask a concrete analytical question so the orchestrator can pick
             # a specific table and generate SQL — not a structural "all tables"
@@ -407,13 +477,27 @@ async def run_agent_stream(
             )
             agent_instructions = agent.focus or None
         elif monitor_type == "context":
-            # Same reasoning: ask an analytical question the orchestrator can
-            # map to a table, not a "scan everything" directive it can't parse.
             question = (
                 "What are the latest trends and key metrics in the available data? "
                 "Show record counts, recent activity, and flag any anomalies or significant changes."
             )
             agent_instructions = agent.focus or None
+            # Force the specialist to use a single SELECT with scalar subqueries —
+            # one COUNT(*) per table. This avoids cross-schema JOINs that have no
+            # FK path and always returns exactly 1 row regardless of data volume.
+            # Scalar subqueries are a plain SELECT so they pass all validator rules.
+            sql_instructions = (
+                "Generate a single SELECT statement that returns exactly one row "
+                "with the record count of every available table as a separate column. "
+                "Use scalar subqueries, one per table. Example pattern:\n"
+                "SELECT\n"
+                "  (SELECT COUNT(*) FROM schema.table1) AS table1_count,\n"
+                "  (SELECT COUNT(*) FROM schema.table2) AS table2_count,\n"
+                "  ...\n"
+                "Replace schema.tableN with the actual physical table names from the schema. "
+                "Do NOT use UNION, JOIN, WHERE, or HAVING clauses. "
+                "This must return exactly one row."
+            )
         else:
             # Schema validator rejects unknown values before we get here,
             # but keep a graceful fallback so a stale row can still run.
@@ -463,6 +547,10 @@ async def run_agent_stream(
 
         try:
             table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
+            # For SQL mode: prefer the table names extracted from custom_sql over
+            # pinned UUIDs — the orchestrator matches by logical/physical name,
+            # not by UUID, so UUIDs produce no match and the wrong tables get picked.
+            effective_datasets = sql_table_hints or table_ids
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
                 question=question,
@@ -474,7 +562,7 @@ async def run_agent_stream(
                 crew_ids=resolved_crew_ids or None,
                 agent_mode=monitor_type,
                 connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
-                selected_datasets=table_ids,
+                selected_datasets=effective_datasets,
                 sql_instructions=sql_instructions,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service

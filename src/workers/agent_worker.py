@@ -2,13 +2,29 @@
 
 import asyncio
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 
 from src.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_tables_from_sql(sql: str) -> List[str]:
+    """Extract table names from a SQL query to guide the orchestrator's table selection."""
+    if not sql:
+        return []
+    matches = re.findall(r'\b(?:FROM|JOIN)\s+((?:\w+\.)?\w+)', sql, re.IGNORECASE)
+    seen: dict = {}
+    for m in matches:
+        seen[m.lower()] = m.lower()
+        bare = m.split(".")[-1].lower()
+        if bare not in seen:
+            seen[bare] = bare
+    return list(seen.values())
+
 
 DEPTH_CYCLES = {"quick": 1, "standard": 3, "deep": 5}
 FREQUENCY_HOURS = {"hourly": 1, "daily": 24, "weekly": 168}
@@ -206,6 +222,7 @@ async def _execute_agent_async(agent_id: str):
             monitor_type = getattr(agent, "monitor_type", "question") or "question"
             agent_instructions: Optional[str] = None
             sql_instructions: Optional[str] = None
+            sql_table_hints: Optional[List[str]] = None
 
             if monitor_type == "question":
                 # Direct question — focus IS the user's question.
@@ -215,13 +232,19 @@ async def _execute_agent_async(agent_id: str):
                 agent_instructions = agent.focus or None
                 if agent.custom_sql:
                     sql_instructions = (
-                        "Use the following SQL as a reference template. "
-                        "Follow its structure, table, filters, and intent exactly, "
-                        "but apply all security rules (replace SELECT * with specific "
-                        "columns from the schema, ensure a LIMIT clause is present, "
-                        "no system tables):\n\n"
+                        "⚠️ SQL MODE — USER-PROVIDED BASE QUERY:\n"
+                        "Use the query below as the base. Apply ONLY these mandatory adaptations:\n"
+                        "  1. Replace SELECT * with explicit column names from the schema shown above.\n"
+                        "  2. Qualify bare table names with the schema prefix "
+                        "(e.g., INVOICES → finance.invoices, invoices → finance.invoices).\n"
+                        "  3. Add LIMIT 100 at the end if no LIMIT clause is present.\n"
+                        "  4. Prefix with the required -- TITLE: comment.\n"
+                        "DO NOT add date filters, change WHERE clauses, add JOINs, or rewrite any other logic.\n"
+                        "NEVER return IMPOSSIBLE for SQL mode — always apply the adaptations and return SQL.\n"
+                        "USER'S BASE QUERY:\n\n"
                         f"{agent.custom_sql}"
                     )
+                    sql_table_hints = _extract_tables_from_sql(agent.custom_sql)
             elif monitor_type in ("scan", "datasource"):
                 question = (
                     "What are the most recent records and key aggregate metrics in this dataset? "
@@ -229,13 +252,23 @@ async def _execute_agent_async(agent_id: str):
                 )
                 agent_instructions = agent.focus or None
             elif monitor_type == "context":
-                # Ask an analytical question the orchestrator can map to a specific
-                # table — not a "scan all tables" command the LLM selector can't parse.
                 question = (
                     "What are the latest trends and key metrics in the available data? "
                     "Show record counts, recent activity, and flag any anomalies or significant changes."
                 )
                 agent_instructions = agent.focus or None
+                sql_instructions = (
+                    "Generate a single SELECT statement that returns exactly one row "
+                    "with the record count of every available table as a separate column. "
+                    "Use scalar subqueries, one per table. Example pattern:\n"
+                    "SELECT\n"
+                    "  (SELECT COUNT(*) FROM schema.table1) AS table1_count,\n"
+                    "  (SELECT COUNT(*) FROM schema.table2) AS table2_count,\n"
+                    "  ...\n"
+                    "Replace schema.tableN with the actual physical table names from the schema. "
+                    "Do NOT use UNION, JOIN, WHERE, or HAVING clauses. "
+                    "This must return exactly one row."
+                )
             else:
                 question = (
                     f"You are an autonomous {agent.archetype or 'custom'} agent. "
@@ -347,8 +380,11 @@ async def _execute_agent_async(agent_id: str):
 
             for conn_id in connection_ids:
                 try:
-                    # Pass table_ids as selected_datasets if specified
+                    # Pass table_ids as selected_datasets if specified.
+                    # For SQL mode, prefer names extracted from custom_sql — the
+                    # orchestrator matches by logical/physical name, not by UUID.
                     table_ids = getattr(agent, "table_ids", None)
+                    effective_datasets = sql_table_hints or (table_ids if table_ids else None)
 
                     # ── L2 — triage (placeholder). Today we always
                     # escalate to L3; the real gpt-4o-mini "is this
@@ -370,7 +406,7 @@ async def _execute_agent_async(agent_id: str):
                         question=question,
                         user_id=str(agent.created_by) if agent.created_by else "system",
                         space_id=agent.scope_id or "default",
-                        selected_datasets=table_ids if table_ids else None,
+                        selected_datasets=effective_datasets,
                         instructions=agent_instructions,
                         agent_mode=monitor_type,
                         sql_instructions=sql_instructions,
