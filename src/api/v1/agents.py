@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
@@ -188,6 +188,29 @@ async def create_agent(
         scope_id=data.scope_id,
         permission="agents.create",
     )
+
+    # Demo guard: limit how many agents each user can create so token
+    # consumption stays bounded. Platform owners/admins are exempt.
+    from src.config.settings import settings as _settings
+
+    _max = _settings.DEMO_MAX_AGENTS_PER_USER if _settings.DEMO_ENABLED else 0
+    _role = (current_user.role or "").lower()
+    if _max > 0 and _role not in ("owner", "admin"):
+        _count_result = await db.execute(
+            select(func.count()).select_from(Agent).where(
+                Agent.created_by == current_user.id,
+            )
+        )
+        _count = _count_result.scalar() or 0
+        if _count >= _max:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Agent limit reached. Demo accounts can have up to {_max} agents. "
+                    "Delete an existing agent to create a new one."
+                ),
+            )
+
     return await service.create_agent(data, user_id=current_user.id)
 
 
