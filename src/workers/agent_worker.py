@@ -4,6 +4,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from src.workers.celery_app import celery_app
 
@@ -198,26 +199,44 @@ async def _execute_agent_async(agent_id: str):
 
         try:
             # 3. Build the question based on monitor_type
+            # `focus` is the agent's objective/instructions, not a SQL question.
+            # For autonomous scan modes, use a concrete question the SQL pipeline
+            # can act on and forward focus as `instructions` so the AI applies
+            # the user's specific intent when interpreting results.
             monitor_type = getattr(agent, "monitor_type", "question") or "question"
+            agent_instructions: Optional[str] = None
 
             if monitor_type == "question":
-                # Direct question — send the user's question as-is to the AI
+                # Direct question — focus IS the user's question.
                 question = agent.focus or "Analyze the data and surface insights, risks, and opportunities."
             elif monitor_type == "sql":
-                # Custom SQL — ask the AI to execute and interpret the SQL
                 question = (
                     f"Execute this SQL query and analyze the results. "
                     f"Identify any anomalies, trends, or significant changes:\n\n"
                     f"```sql\n{agent.custom_sql or 'SELECT 1'}\n```"
                 )
+                agent_instructions = agent.focus or None
+            elif monitor_type in ("scan", "datasource"):
+                question = (
+                    "Show me the latest records and key metrics from all available tables. "
+                    "Highlight any anomalies, trends, or changes since the last period."
+                )
+                agent_instructions = agent.focus or None
+            elif monitor_type == "context":
+                # Context mode: scan all tables for a comprehensive data health check.
+                # The focus is the objective — pass as instructions, not as the SQL question.
+                question = (
+                    "Perform a comprehensive scan of all available data tables. "
+                    "For each table report: total record count, most recent activity, "
+                    "and key aggregate metrics. Identify any anomalies, outliers, or notable trends."
+                )
+                agent_instructions = agent.focus or None
             else:
-                # Datasource — scan mode with focus instructions
                 question = (
                     f"You are an autonomous {agent.archetype or 'custom'} agent. "
                     f"Analyze the data and produce findings based on these instructions:\n\n"
                     f"{agent.focus or 'Look for anomalies, trends, risks, and opportunities.'}\n\n"
-                    f"Respond with a structured analysis. For each finding, classify it as "
-                    f"'insight', 'opportunity', or 'risk' with severity and confidence."
+                    f"Respond with a structured analysis."
                 )
 
             # Optional: add previous answer for comparison.
@@ -347,6 +366,8 @@ async def _execute_agent_async(agent_id: str):
                         user_id=str(agent.created_by) if agent.created_by else "system",
                         space_id=agent.scope_id or "default",
                         selected_datasets=table_ids if table_ids else None,
+                        instructions=agent_instructions,
+                        agent_mode=monitor_type,
                     )
 
                     answer = response.get("answer", "") if isinstance(response, dict) else str(response)

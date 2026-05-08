@@ -367,22 +367,37 @@ async def run_agent_stream(
             yield f"data: {json.dumps({'type': 'error', 'message': 'No data source available. Add a connection in the Edit tab, or switch to Full context mode.'})}\n\n"
             return
 
+        # `focus` is the agent's objective/instructions, not a SQL question.
+        # For autonomous scan modes, derive a concrete question the SQL pipeline
+        # can act on and forward the focus as `instructions` so the AI applies
+        # the user's specific intent when interpreting results.
+        agent_instructions: Optional[str] = None
+
         if monitor_type == "question":
+            # Direct question — focus IS the user's question.
             question = (
                 agent.focus or "Analyze the data and surface insights, risks, and opportunities."
             )
         elif monitor_type == "sql":
             question = f"Execute this SQL and analyze results:\n```sql\n{agent.custom_sql or 'SELECT 1'}\n```"
+            agent_instructions = agent.focus or None
         elif monitor_type in ("scan", "datasource"):
+            # Concrete scan question the orchestrator can translate to SQL.
             question = (
-                agent.focus
-                or "Show me the latest records and key metrics. Highlight any anomalies, trends, or changes since last period."
+                "Show me the latest records and key metrics from all available tables. "
+                "Highlight any anomalies, trends, or changes since the last period."
             )
+            agent_instructions = agent.focus or None
         elif monitor_type == "context":
+            # Context mode: scan all tables for a comprehensive data health check.
+            # The focus contains the user's objective — pass it as instructions so
+            # the AI shapes its analysis accordingly, not as the SQL question.
             question = (
-                agent.focus
-                or "Summarize the current state of the data. Surface important trends, risks, and opportunities that decision-makers should know about."
+                "Perform a comprehensive scan of all available data tables. "
+                "For each table report: total record count, most recent activity, "
+                "and key aggregate metrics. Identify any anomalies, outliers, or notable trends."
             )
+            agent_instructions = agent.focus or None
         else:
             # Schema validator rejects unknown values before we get here,
             # but keep a graceful fallback so a stale row can still run.
@@ -436,7 +451,7 @@ async def run_agent_stream(
                 question=question,
                 user_id=str(current_user.id),
                 space_id=agent.scope_id or "default",
-                instructions=None,
+                instructions=agent_instructions,
                 is_personal=is_personal,
                 selected_context=selected_ctx,
                 crew_ids=resolved_crew_ids or None,
