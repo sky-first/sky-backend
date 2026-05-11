@@ -756,6 +756,21 @@ class PermissionService:
             # For now, return empty if no matches found in collaborative context.
             return []
 
+        # 6. user_datasets fallback (personal mode — demo/shared connections)
+        # When the user has this connection linked via user_datasets (dataset_type='connection'),
+        # grant full read access. This covers demo connections not owned by the user but
+        # explicitly assigned to them for personal-mode queries.
+        if not authorized_tables and not space_id and not crew_ids:
+            from src.models.dataset import UserDataset
+            ud_q = select(UserDataset).where(
+                UserDataset.user_id == user_id,
+                UserDataset.dataset_id == str(connection_id),
+                UserDataset.dataset_type == "connection",
+            )
+            ud_result = await self.db.execute(ud_q)
+            if ud_result.scalar_one_or_none() is not None:
+                return get_all_tables()
+
         # Final safety filter: ensure everything in authorized_tables is a non-None string
         final_list = [t for t in authorized_tables if t and isinstance(t, str)]
         return sorted(list(set(final_list)))

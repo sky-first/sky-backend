@@ -216,6 +216,22 @@ class AIService:
                 pass
             return None
 
+    async def _get_user_dataset_connection_ids(self, user_id: UUID) -> list[str]:
+        """Return connection IDs linked to this user via user_datasets (dataset_type='connection')."""
+        try:
+            from sqlalchemy import select as sa_select
+            from src.models.dataset import UserDataset
+            result = await self.db.execute(
+                sa_select(UserDataset.dataset_id).where(
+                    UserDataset.user_id == user_id,
+                    UserDataset.dataset_type == "connection",
+                )
+            )
+            return [row[0] for row in result.all()]
+        except Exception as exc:
+            logger.warning("_get_user_dataset_connection_ids failed: %s", exc)
+            return []
+
     async def _get_best_connection_for_question(
         self,
         user_id: UUID,
@@ -684,10 +700,26 @@ class AIService:
                             user_id, space_id, question=configure_data.question
                         )
                     else:
-                        connection_id = await self._get_first_active_connection(user_id)
+                        # Personal mode: score user_datasets connections (demo/shared)
+                        # exclusively so that owned background connections don't dilute
+                        # the keyword score with their larger table/column surface area.
+                        ud_ids = await self._get_user_dataset_connection_ids(user_id)
+                        if ud_ids:
+                            connection_id = await self._get_best_connection_for_question(
+                                user_id=user_id,
+                                space_id=str(user_id),
+                                question=configure_data.question,
+                                allowed_ids=set(ud_ids),
+                            )
+                            logger.info(
+                                "personal_mode_ud_routing: user=%s ud_ids=%s best=%s",
+                                user_id, ud_ids, connection_id,
+                            )
+                        if not connection_id:
+                            connection_id = await self._get_first_active_connection(user_id)
                     if connection_id:
                         logger.info(
-                            f"No connection_id in knowledge, using first active connection: {connection_id}"
+                            f"No connection_id in knowledge, using best connection: {connection_id}"
                         )
 
                 if connection_id:
