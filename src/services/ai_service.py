@@ -699,10 +699,21 @@ class AIService:
                             connection_id = resolved_connection_id
 
                 # Tracks all demo/shared connection IDs for the current user in personal
-                # mode. Populated below; reused later to enable multi-source queries
-                # (all demo connections are forwarded to the AI service so it can build
-                # cross-schema SQL via the parallel-specialist + DuckDB merger path).
+                # mode. Reused later to enable multi-source queries — all demo connections
+                # are forwarded to the AI service so the orchestrator can build cross-schema
+                # SQL via the parallel-specialist + DuckDB merger path.
                 _personal_ud_ids: List[str] = []
+                _is_personal_mode = bool(getattr(query_data, "is_personal", False))
+                if _is_personal_mode and not getattr(query_data, "space_id", None):
+                    # Eagerly fetch user_datasets IDs regardless of how connection_id
+                    # was resolved (from knowledge UUID or fallback). This ensures
+                    # extra_connection_ids is populated even when a specific connection
+                    # was passed directly in the request.
+                    _personal_ud_ids = await self._get_user_dataset_connection_ids(user_id)
+                    logger.info(
+                        "personal_mode_multi_source: user=%s ud_ids=%s",
+                        user_id, _personal_ud_ids,
+                    )
 
                 # If still no connection_id, try to get first active connection
                 if not connection_id:
@@ -715,18 +726,17 @@ class AIService:
                         # Personal mode: score user_datasets connections (demo/shared)
                         # exclusively so that owned background connections don't dilute
                         # the keyword score with their larger table/column surface area.
-                        ud_ids = await self._get_user_dataset_connection_ids(user_id)
-                        if ud_ids:
-                            _personal_ud_ids = ud_ids  # save for multi-source forwarding
+                        # _personal_ud_ids was already fetched eagerly above.
+                        if _personal_ud_ids:
                             connection_id = await self._get_best_connection_for_question(
                                 user_id=user_id,
                                 space_id=str(user_id),
                                 question=configure_data.question,
-                                allowed_ids=set(ud_ids),
+                                allowed_ids=set(_personal_ud_ids),
                             )
                             logger.info(
                                 "personal_mode_ud_routing: user=%s ud_ids=%s best=%s",
-                                user_id, ud_ids, connection_id,
+                                user_id, _personal_ud_ids, connection_id,
                             )
                         if not connection_id:
                             connection_id = await self._get_first_active_connection(user_id)
@@ -867,30 +877,54 @@ class AIService:
                         # connections and append them so the AI service orchestrator sees every
                         # table across every demo connection. The extra connection IDs are
                         # forwarded separately so the AI service can route SQL to the right DB.
+                        # Multi-source: forward all other user_datasets connections so the
+                        # AI service orchestrator can build cross-schema queries.
+                        # These connections are already verified via user_datasets, no extra
+                        # permission check needed. The AI service loads their table metadata
+                        # itself via load_agent_config(connection_ids=...).
                         extra_connection_ids: List[str] = []
                         if _personal_ud_ids and space_id_is_personal_fallback:
-                            for extra_cid in _personal_ud_ids:
-                                if extra_cid == connection_id:
-                                    continue  # primary already collected above
+                            extra_connection_ids = [
+                                cid for cid in _personal_ud_ids if cid != connection_id
+                            ]
+                            logger.info(
+                                "multi_source: primary=%s extras=%s",
+                                connection_id, extra_connection_ids,
+                            )
+
+                        # Extend authorized_tables with table names from extra connections.
+                        # This populates the orchestrator's preferred_tables hint with
+                        # tables from ALL demo/shared connections, not just the primary one.
+                        # Without this, cross-DB questions fail because the LLM only sees
+                        # primary-connection tables as candidates and doesn't pick tables
+                        # from the secondary connections.
+                        if extra_connection_ids:
+                            meta_repo = ConnectionMetadataRepository(self.db)
+                            for extra_cid in extra_connection_ids:
                                 try:
-                                    extra_tables = await self.permission_service.get_authorized_tables(
-                                        user_id=user_id,
-                                        connection_id=UUID(extra_cid),
-                                        space_id=None,
-                                        crew_ids=None,
+                                    extra_meta = await meta_repo.get_by_connection_id(
+                                        UUID(extra_cid)
                                     )
-                                    authorized_tables = list(set(authorized_tables) | set(extra_tables))
-                                    extra_connection_ids.append(extra_cid)
-                                except Exception as extra_err:
+                                    if extra_meta and isinstance(extra_meta.tables, list):
+                                        for t in extra_meta.tables:
+                                            if not isinstance(t, dict):
+                                                continue
+                                            tname = (
+                                                t.get("logical_name")
+                                                or t.get("name")
+                                                or ""
+                                            ).strip()
+                                            if tname and tname not in authorized_tables:
+                                                authorized_tables.append(tname)
+                                except Exception as extra_meta_err:
                                     logger.warning(
-                                        "multi_source: failed to get tables for extra conn %s: %s",
-                                        extra_cid, extra_err,
+                                        "multi_source_hint: failed to load tables for extra connection %s: %s",
+                                        extra_cid, extra_meta_err,
                                     )
-                            if extra_connection_ids:
-                                logger.info(
-                                    "multi_source: primary=%s extras=%s total_tables=%d",
-                                    connection_id, extra_connection_ids, len(authorized_tables),
-                                )
+                            logger.info(
+                                "multi_source_hint: authorized_tables extended to %s",
+                                authorized_tables,
+                            )
 
                         # 2. Forward user-selected datasets/tables from configure_data.knowledge,
                         # BUT filter them against authorized_tables.
