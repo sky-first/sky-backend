@@ -313,12 +313,18 @@ class AIService:
                 if score > best_score:
                     best_score, best_id = score, cid
 
+            logger.info(
+                "Keyword routing: best connection for question in space %s: %s (score=%d)",
+                space_id, best_id, best_score,
+            )
             if best_id and best_score > 0:
-                logger.info(
-                    "Keyword routing: best connection for question in space %s: %s (score=%d)",
-                    space_id, best_id, best_score,
-                )
                 return best_id
+            # When restricted to allowed_ids (demo/shared connections), always return
+            # the best match even at score=0 — prevents falling back to owned connections
+            # for questions whose terms don't literally appear in column names (e.g.
+            # "deal size" → "amount").
+            if allowed_ids:
+                return best_id or next(iter(sorted(allowed_ids)))
             return None
         except Exception as e:
             logger.warning("Keyword routing failed, falling back: %s", e)
