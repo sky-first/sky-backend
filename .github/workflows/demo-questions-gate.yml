@@ -1,0 +1,233 @@
+name: Demo questions gate
+
+# Two jobs, one purpose: catch broken demo questions before users do.
+#
+#   sync-check  →  fast, runs on every PR. Reads
+#                  sky-poc-frontend/src/lib/demo-questions.ts and fails
+#                  the PR if the BE smoke script's `DEMO_QUESTIONS`
+#                  drifted from it. Cheap (no LLM cost, no cluster).
+#
+#   staging-smoke → real. Provisions a fresh demo signup against
+#                  staging and fires all 20 FE-canonical questions
+#                  through /api/v1/ai/query. Fails if any returns a
+#                  refusal or empty dataset. Runs:
+#                    • after every push to staging
+#                    • every 30 min during business hours (catches
+#                      AI / data drift even with no merges)
+#                    • on-demand via workflow_dispatch
+#                  Opens a GitHub issue on failure with the markdown
+#                  report attached, so the team gets a trail instead
+#                  of silent CI noise.
+
+on:
+  # PR gate — runs on EVERY PR targeting staging. This is the "stop
+  # broken questions from reaching users" lever the user explicitly
+  # asked for. The smoke is the expensive part (~$5 + 3-4 min per
+  # run), so the workflow only fires for PRs whose target is staging;
+  # feature PRs against other branches are untouched.
+  pull_request:
+    branches: [staging, main]
+  push:
+    branches: [staging]
+  workflow_dispatch:
+    inputs:
+      be_base:
+        description: 'BE base URL to smoke-test (e.g. https://sky-stg.example.com)'
+        required: false
+        default: ''
+  schedule:
+    # Every 30 min, Monday–Friday, 08:00–20:00 UTC. Skipped at night
+    # and on weekends to keep LLM cost down.
+    - cron: '0,30 8-20 * * 1-5'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: demo-questions-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # Sync check — fast lint. Compares the BE smoke list against the FE
+  # source. Soft-skips when SKY_FRONTEND_READ_TOKEN isn't provisioned
+  # (same pattern as red-team-ai-regression.yml) so unrelated PRs
+  # aren't blocked by an org-level secrets gap. Always runs on PR
+  # regardless of paths — cheap, no LLM cost.
+  # ─────────────────────────────────────────────────────────────────
+  sync-check:
+    name: Sync FE ↔ BE question list
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check sky-poc-frontend access
+        id: check_fe
+        env:
+          TOKEN: ${{ secrets.SKY_FRONTEND_READ_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Sync check skipped::SKY_FRONTEND_READ_TOKEN secret is not provisioned. The FE→BE question-list sync lint is being soft-skipped. Provision the token in Settings → Secrets to re-enable the lint (the staging smoke run still catches drift functionally)."
+          fi
+
+      - name: Checkout backend
+        if: steps.check_fe.outputs.available == 'true'
+        uses: actions/checkout@v4
+        with:
+          path: sky-poc-backend
+
+      - name: Checkout sky-poc-frontend
+        if: steps.check_fe.outputs.available == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: sky-first/sky-frontend
+          path: sky-poc-frontend
+          token: ${{ secrets.SKY_FRONTEND_READ_TOKEN }}
+
+      - name: Setup Python
+        if: steps.check_fe.outputs.available == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run sync check
+        if: steps.check_fe.outputs.available == 'true'
+        working-directory: sky-poc-backend
+        env:
+          FE_DEMO_QUESTIONS: ../sky-poc-frontend/src/lib/demo-questions.ts
+        run: python scripts/check_demo_questions_sync.py
+
+  # ─────────────────────────────────────────────────────────────────
+  # Staging smoke — the real gate. Hits a deployed staging BE and
+  # asserts all 20 questions answer. The runner needs network access
+  # to STAGING_BE_BASE_URL (Cloudflare-fronted public hostname is
+  # easiest; for a private endpoint, switch to a self-hosted runner
+  # or a K8s Job pattern like debug-k8s.yml).
+  # ─────────────────────────────────────────────────────────────────
+  staging-smoke:
+    name: Live smoke vs staging (20 questions, 3× retries)
+    # Runs for: every PR targeting staging (the user-facing gate);
+    # every push to staging (catches anything that slipped past PR);
+    # every 30 min during business hours (catches AI / data drift);
+    # manual dispatch.
+    if: |
+      github.event_name == 'workflow_dispatch'
+      || github.event_name == 'schedule'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/staging')
+      || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BE_BASE: ${{ github.event.inputs.be_base || vars.STAGING_BE_BASE_URL }}
+      ENV_LABEL: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'workflow_dispatch' && 'manual' || 'staging') }}
+      REPORT_PATH: ${{ github.workspace }}/demo-questions-report.md
+      TURNSTILE_BYPASS: ${{ secrets.STAGING_TURNSTILE_BYPASS_TOKEN }}
+      # Unique COMPANY_LABEL per run avoids hitting the
+      # returning-visitor path and gives clean isolation between
+      # parallel PR smoke runs.
+      COMPANY_LABEL: SmokeBot ${{ github.run_id }}
+      # 3 attempts per question — absorbs LLM jitter. Override at
+      # workflow level if cost becomes a concern.
+      ATTEMPTS_PER_QUESTION: "3"
+    steps:
+      - name: Validate config
+        run: |
+          if [ -z "$BE_BASE" ]; then
+            echo "::error title=Missing config::STAGING_BE_BASE_URL repository variable is not set. Add it in Settings → Variables → Actions (no protocol-stripping; include https://)."
+            exit 1
+          fi
+          echo "Smoking BE=$BE_BASE"
+
+      - name: Checkout backend
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Run demo-questions smoke
+        id: smoke
+        run: |
+          set +e
+          python scripts/smoke_test_demo_questions.py
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-questions-report-${{ github.run_id }}
+          path: ${{ env.REPORT_PATH }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Print report summary
+        if: always()
+        run: |
+          if [ -f "$REPORT_PATH" ]; then
+            head -30 "$REPORT_PATH"
+          fi
+
+      - name: Open issue on failure
+        # PR failures already block the merge via the failing check —
+        # opening an issue on top of that is noise. Only file an issue
+        # when the smoke fails OUTSIDE a PR context (post-merge push,
+        # schedule, manual) where there's no other surface.
+        if: |
+          steps.smoke.outputs.exit_code != '0'
+          && github.event_name != 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = process.env.REPORT_PATH;
+            const ref = context.sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = `[demo-smoke] Demo questions failing on staging at ${ref}`;
+            let body = `Demo-questions smoke gate failed against staging.\n\n` +
+                       `* run: ${runUrl}\n` +
+                       `* trigger: ${context.eventName}\n\n`;
+            try {
+              const report = fs.readFileSync(reportPath, 'utf-8');
+              body += '<details><summary>Markdown report</summary>\n\n' + report + '\n</details>\n';
+            } catch (_) {
+              body += '_(report file not found)_\n';
+            }
+            // Dedupe: only open one issue at a time; reopen if the
+            // problem recurs after a manual close.
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'demo-smoke',
+              state: 'open',
+              per_page: 1,
+            });
+            if (issues.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues.data[0].number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['demo-smoke', 'production-blocker'],
+              });
+            }
+
+      - name: Fail the workflow on smoke failure
+        if: steps.smoke.outputs.exit_code != '0'
+        run: exit ${{ steps.smoke.outputs.exit_code }}
