@@ -547,10 +547,18 @@ async def run_agent_stream(
 
         try:
             table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
-            # For SQL mode: prefer the table names extracted from custom_sql over
-            # pinned UUIDs — the orchestrator matches by logical/physical name,
-            # not by UUID, so UUIDs produce no match and the wrong tables get picked.
-            effective_datasets = sql_table_hints or table_ids
+            # table_ids are stored as "connectionId::schema.tableName" from the frontend.
+            # The orchestrator matches by logical/physical name only (e.g. "accounts"),
+            # so strip the "connId::" prefix and the "schema." prefix.
+            def _extract_table_name(tid: str) -> str:
+                name = tid.split("::", 1)[-1] if "::" in tid else tid
+                return name.rsplit(".", 1)[-1] if "." in name else name
+
+            table_names: Optional[List[str]] = (
+                [_extract_table_name(tid) for tid in table_ids]
+                if table_ids else None
+            ) or None
+            effective_datasets = sql_table_hints or table_names
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
                 question=question,

@@ -384,7 +384,18 @@ async def _execute_agent_async(agent_id: str):
                     # For SQL mode, prefer names extracted from custom_sql — the
                     # orchestrator matches by logical/physical name, not by UUID.
                     table_ids = getattr(agent, "table_ids", None)
-                    effective_datasets = sql_table_hints or (table_ids if table_ids else None)
+                    # table_ids are stored as "connectionId::schema.tableName" — strip both
+                    # the "connId::" prefix and the "schema." prefix so the orchestrator
+                    # can match by logical/physical name (e.g. "accounts").
+                    def _extract_table_name(tid: str) -> str:
+                        name = tid.split("::", 1)[-1] if "::" in tid else tid
+                        return name.rsplit(".", 1)[-1] if "." in name else name
+
+                    table_names = (
+                        [_extract_table_name(tid) for tid in table_ids]
+                        if table_ids else None
+                    ) or None
+                    effective_datasets = sql_table_hints or table_names
 
                     # ── L2 — triage (placeholder). Today we always
                     # escalate to L3; the real gpt-4o-mini "is this
