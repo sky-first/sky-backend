@@ -509,9 +509,12 @@ class ConnectionService:
 
                     user_data = existing_user_data.get(key, {})
 
-                    # Preserve description and tags from user edits
+                    # Preserve description and tags from user edits.
+                    # Use truthy check so an empty stored description does NOT
+                    # overwrite a freshly-computed hint (e.g. "Possible values: …")
+                    # from the connector.
                     merged = dict(fresh_table)
-                    if user_data.get("description") is not None:
+                    if user_data.get("description"):
                         merged["description"] = user_data["description"]
                     if user_data.get("tags") is not None:
                         merged["tags"] = user_data["tags"]
@@ -525,7 +528,7 @@ class ConnectionService:
                                 col_name = col.get("name", "")
                                 col_user = cols_meta.get(col_name, {})
                                 merged_col = dict(col)
-                                if col_user.get("description") is not None:
+                                if col_user.get("description"):
                                     merged_col["description"] = col_user["description"]
                                 if col_user.get("tags") is not None:
                                     merged_col["tags"] = col_user["tags"]
