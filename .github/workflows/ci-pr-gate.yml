@@ -9,7 +9,7 @@ on:
       - 'requirements.txt'
       - 'pyproject.toml'
       - 'Dockerfile'
-      - '.github/workflows/ci-pr-gate.yml'
+      - '.github/workflows/**'
 
 concurrency:
   group: ci-backend-${{ github.event.pull_request.number || github.ref }}
