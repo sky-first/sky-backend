@@ -225,14 +225,60 @@ async def _call_ai_run_agent(
     # ── 5. Write new result back to the widget ────────────────────────
     # Only when the data actually changed — skip writes on delta_kind='none'
     # so we don't dirty the row on every no-op tick.
+    # Each widget type expects a specific shape in widget.data; we format
+    # accordingly so the frontend component renders the updated content.
     if delta_kind in ("first_run", "material") and answer:
         now_ts = datetime.now(timezone.utc)
-        widget.data = {
-            **(widget.data or {}),
-            "answer": answer,
-            "data_sample": data_sample[:15],
-            "last_agent_run_at": now_ts.isoformat(),
-        }
+        existing = widget.data or {}
+        base = {**existing, "last_agent_run_at": now_ts.isoformat()}
+
+        if widget.type == "insight":
+            widget.data = {
+                **base,
+                "answer": answer,
+                "text_block": {
+                    **(existing.get("text_block") or {}),
+                    "body": answer,
+                },
+            }
+        elif widget.type == "infographic":
+            try:
+                infographic_resp = await ai_client.generate_infographic(
+                    question=question,
+                    answer=answer,
+                    data_sample=data_sample[:15],
+                )
+                widget.data = {
+                    **base,
+                    "answer": answer,
+                    "infographic_data": (
+                        infographic_resp.get("infographic_data") or infographic_resp
+                    ),
+                }
+            except Exception:
+                logger.warning(
+                    "generate_infographic failed for widget %s — answer-only update",
+                    widget.id,
+                )
+                widget.data = {**base, "answer": answer}
+        elif widget.type == "kpi":
+            value = None
+            if data_sample and isinstance(data_sample[0], dict):
+                vals = list(data_sample[0].values())
+                value = vals[0] if vals else None
+            widget.data = {**base, "answer": answer, "value": value, "data": data_sample}
+        elif widget.type == "chart":
+            widget.data = {**base, "answer": answer, "data": data_sample}
+        elif widget.type == "table":
+            columns = (
+                list(data_sample[0].keys())
+                if data_sample and isinstance(data_sample[0], dict)
+                else []
+            )
+            widget.data = {**base, "answer": answer, "columns": columns, "rows": data_sample}
+        else:
+            widget.data = {**base, "answer": answer, "data_sample": data_sample[:15]}
+
         widget.updated_at = now_ts
 
     return {
