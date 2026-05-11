@@ -1811,21 +1811,85 @@ class AIService:
 
         return [AIHistoryItem.model_validate(item) for item in history_items]
 
-    async def generate_sql(self, request: GenerateSQLRequest) -> GenerateSQLResponse:
+    async def generate_sql(
+        self, user_id: UUID, request: GenerateSQLRequest
+    ) -> GenerateSQLResponse:
         """
-        Generate SQL from natural language.
+        Generate SQL from natural language using the real AI service.
 
-        Args:
-            request: Generate SQL request
-
-        Returns:
-            GenerateSQLResponse: Generated SQL
+        Resolves the connection the same way as personal-mode queries:
+        explicit UUID in knowledge → user_datasets connections → error.
+        Runs the full orchestrator+specialist pipeline but discards the
+        natural-language answer, returning only the SQL so the caller can
+        show the generation flow without executing the query.
         """
-        context = {"tables": [{"name": table} for table in request.knowledge]}
+        if not self.real_ai:
+            from src.core.exceptions import ServiceUnavailableError
+            raise ServiceUnavailableError("Real AI service not configured.")
 
-        sql = await self.mock_ai.generate_sql(request.question, context)
+        # Resolve connection_id: prefer explicit UUID in knowledge field
+        connection_id: Optional[str] = None
+        ud_ids: List[str] = []
+        for item in (request.knowledge or []):
+            if isinstance(item, str) and len(item) == 36 and item.count("-") == 4:
+                connection_id = item
+                break
 
-        return GenerateSQLResponse(sql=sql, explanation="Generated SQL query")
+        if not connection_id:
+            ud_ids = await self._get_user_dataset_connection_ids(user_id)
+            if ud_ids:
+                connection_id = ud_ids[0]
+
+        if not connection_id:
+            from src.core.exceptions import ServiceUnavailableError
+            raise ServiceUnavailableError("No data connection available to generate SQL.")
+
+        extra_ids = [c for c in ud_ids if c != connection_id]
+
+        # Extend authorized_tables hint with tables from all connections
+        authorized_tables: List[str] = []
+        all_ids = [connection_id] + extra_ids
+        meta_repo = ConnectionMetadataRepository(self.db)
+        for cid in all_ids:
+            try:
+                meta = await meta_repo.get_by_connection_id(UUID(cid))
+                if meta and isinstance(meta.tables, list):
+                    for t in meta.tables:
+                        tname = (t.get("logical_name") or t.get("name") or "").strip()
+                        if tname and tname not in authorized_tables:
+                            authorized_tables.append(tname)
+            except Exception:
+                pass
+
+        # Table names in knowledge (non-UUID strings) act as a dataset hint
+        requested = [
+            t for t in (request.knowledge or [])
+            if not (len(t) == 36 and t.count("-") == 4)
+        ]
+        selected = [t for t in requested if t in authorized_tables] or authorized_tables
+
+        logger.info(
+            "[generate_sql] connection=%s extra=%s question='%s...'",
+            connection_id, extra_ids, request.question[:60],
+        )
+
+        result = await self.real_ai.process_query(
+            connection_id=connection_id,
+            question=request.question,
+            user_id=str(user_id),
+            space_id=str(user_id),   # personal mode: use user_id as space
+            is_personal=True,
+            selected_datasets=selected,
+            authorized_tables=authorized_tables,
+            connection_ids=extra_ids or None,
+        )
+
+        sql = (result.get("sql") or "").strip()
+        if not sql:
+            from src.core.exceptions import ServiceUnavailableError
+            raise ServiceUnavailableError("AI service did not return SQL for this question.")
+
+        return GenerateSQLResponse(sql=sql, explanation=result.get("answer") or "Generated SQL query")
 
     async def execute_pipeline(
         self, user_id: UUID, request: PipelineExecuteRequest

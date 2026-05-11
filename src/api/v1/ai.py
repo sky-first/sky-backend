@@ -1161,7 +1161,7 @@ async def generate_sql(
         GenerateSQLResponse: Generated SQL
     """
     ai_service = AIService(db)
-    return await ai_service.generate_sql(request)
+    return await ai_service.generate_sql(current_user.id, request)
 
 
 @router.post(
