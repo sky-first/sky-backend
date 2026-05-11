@@ -1425,20 +1425,35 @@ class AIService:
                         if resolved_connection_id:
                             connection_id = resolved_connection_id
 
-                # If still no connection_id, try to get first active connection
+                # If still no connection_id, resolve by mode (mirrors process_query).
+                # Personal mode uses user_datasets connections so the AI sees ALL
+                # demo tables and can do cross-DB joins — same as /ai/query.
+                _chat_ud_ids: List[str] = []
                 if not connection_id:
-                    # Try to get space_id from context
                     space_id = context.get("space_id") or configure_data_dict.get("space_id")
                     _q_hint = configure_data_dict.get("question") or context.get("question") or ""
+                    _is_personal_flag = bool(
+                        message_data.is_personal
+                        if message_data.is_personal is not None
+                        else context.get("is_personal", False)
+                    )
                     if space_id:
                         connection_id = await self._get_first_active_connection_for_space(
                             user_id, space_id, question=_q_hint
                         )
+                    elif _is_personal_flag:
+                        _chat_ud_ids = await self._get_user_dataset_connection_ids(user_id)
+                        if _chat_ud_ids:
+                            connection_id = _chat_ud_ids[0]
+                            logger.info(
+                                "[send_chat_message] personal_mode_multi_source: user=%s ud_ids=%s",
+                                user_id, _chat_ud_ids,
+                            )
                     else:
                         connection_id = await self._get_first_active_connection(user_id)
                     if connection_id:
                         logger.info(
-                            f"[send_chat_message] No connection_id in knowledge, using first active connection: {connection_id}"
+                            "[send_chat_message] resolved connection_id=%s", connection_id
                         )
 
                 if connection_id:
@@ -1543,9 +1558,36 @@ class AIService:
                             )
                             selected_datasets = []
 
+                        # Multi-source: extend authorized_tables hint with tables
+                        # from the extra user_dataset connections so the orchestrator
+                        # can select them for cross-DB joins (mirrors process_query).
+                        extra_connection_ids: List[str] = [
+                            c for c in _chat_ud_ids if c != connection_id
+                        ]
+                        if extra_connection_ids:
+                            meta_repo = ConnectionMetadataRepository(self.db)
+                            for extra_cid in extra_connection_ids:
+                                try:
+                                    extra_meta = await meta_repo.get_by_connection_id(UUID(extra_cid))
+                                    if extra_meta and isinstance(extra_meta.tables, list):
+                                        for t in extra_meta.tables:
+                                            if not isinstance(t, dict):
+                                                continue
+                                            tname = (t.get("logical_name") or t.get("name") or "").strip()
+                                            if tname and tname not in authorized_tables:
+                                                authorized_tables.append(tname)
+                                except Exception as extra_err:
+                                    logger.warning(
+                                        "[send_chat_message] multi_source_hint failed for %s: %s",
+                                        extra_cid, extra_err,
+                                    )
+                            logger.info(
+                                "[send_chat_message] authorized_tables extended to %s", authorized_tables
+                            )
+
                         logger.info(
-                            f"[send_chat_message] Calling real AI service with connection_id={connection_id}, "
-                            f"space_id={space_id}, crew_ids={crew_ids}, question='{str(message_data.message)[:50]}...'"
+                            "[send_chat_message] calling AI connection_id=%s extra=%s question='%s...'",
+                            connection_id, extra_connection_ids, str(message_data.message)[:50],
                         )
 
                         # Personal mode: forward caller Space membership.
@@ -1567,6 +1609,7 @@ class AIService:
                             authorized_tables=list(authorized_tables),
                             ai_tone=message_data.ai_tone,
                             ai_style=message_data.ai_style,
+                            connection_ids=extra_connection_ids or None,
                         )
 
                         answer = result.get("answer", "")

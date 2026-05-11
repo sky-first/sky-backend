@@ -534,7 +534,9 @@ async def send_chat_message_stream(
                 current_user.id, str(message_data.space_id)
             )
         elif getattr(message_data, "is_personal", False):
-            resolved_all_connection_ids = await ai_service._get_all_connections_for_user(
+            # Personal mode: use user_datasets connections so the AI sees all
+            # demo tables and can do cross-DB joins — same logic as /ai/query.
+            resolved_all_connection_ids = await ai_service._get_user_dataset_connection_ids(
                 current_user.id
             )
         if resolved_all_connection_ids:
