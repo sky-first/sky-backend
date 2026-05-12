@@ -257,18 +257,35 @@ async def test_worker_failure_path_applies_backoff_and_flips_to_error_after_budg
 
 @pytest.mark.asyncio
 async def test_ai_stub_returns_expected_shape(
-    test_user_with_tokens, db_session: AsyncSession
+    test_user_with_tokens, db_session: AsyncSession, monkeypatch
 ):
-    """The Phase 1 stub's response contract is what Phase 2's real HTTP
-    call will also return — if this shape changes, callers break."""
+    """Verify _call_ai_run_agent returns the required response shape.
+    The AI service call is mocked so this test focuses on the contract,
+    not on the live HTTP round-trip."""
+    import hashlib, json
+    from decimal import Decimal
+
     user = test_user_with_tokens["user"]
     agent = await _make_active_insight_agent(
-        db_session, user.id, next_execution_at=datetime.utcnow()
+        db_session, user.id, next_execution_at=datetime.now(timezone.utc)
     )
     service = AgentRunService(db_session)
     run = await service.enqueue(agent.id)
 
-    response = await worker_mod._call_ai_run_agent(agent, run)
+    _fixed_response = {
+        "result_hash": hashlib.sha256(b"[]").hexdigest(),
+        "result_payload": {"answer": "mocked", "data_sample": []},
+        "delta": {"kind": "first_run", "summary": None, "tokens": 0},
+        "tokens": 0,
+        "cost_usd": Decimal("0"),
+        "duration_ms": 1,
+    }
+
+    async def _mock_call(a, r, db):
+        return _fixed_response
+
+    monkeypatch.setattr(worker_mod, "_call_ai_run_agent", _mock_call)
+    response = await worker_mod._call_ai_run_agent(agent, run, db_session)
 
     for key in ("result_hash", "result_payload", "delta", "tokens", "cost_usd", "duration_ms"):
         assert key in response

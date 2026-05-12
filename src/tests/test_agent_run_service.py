@@ -9,7 +9,7 @@ Covers master plan use cases D-series (agent_runs lifecycle):
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -67,7 +67,7 @@ async def _make_agent(
         notify_on_change=True,
         delta_strategy="hash",
         consecutive_failures=0,
-        next_execution_at=datetime.utcnow(),
+        next_execution_at=datetime.now(timezone.utc),
     )
     db.add(agent)
     await db.commit()
@@ -173,7 +173,7 @@ async def test_success_resets_failure_counter_and_schedules_next(
     assert refreshed.last_execution_at is not None
     assert refreshed.next_execution_at is not None
     # 30 minutes out, ±2 minutes slack
-    delta = refreshed.next_execution_at - datetime.utcnow()
+    delta = refreshed.next_execution_at - datetime.now(timezone.utc)
     assert timedelta(minutes=28) <= delta <= timedelta(minutes=32)
 
 
@@ -246,7 +246,7 @@ async def test_first_failure_schedules_five_minute_retry(
     assert refreshed.consecutive_failures == 1
     assert refreshed.status == "active"  # not yet exhausted
     # ~5 minutes out
-    delta = refreshed.next_execution_at - datetime.utcnow()
+    delta = refreshed.next_execution_at - datetime.now(timezone.utc)
     assert timedelta(minutes=4) <= delta <= timedelta(minutes=6)
 
 
@@ -309,7 +309,7 @@ async def test_success_after_ends_at_stops_rescheduling(
     agent = await _make_agent(
         db_session, user.id,
         schedule={"interval_value": 1, "interval_unit": "hour"},
-        ends_at=datetime.utcnow() + timedelta(minutes=5),  # ends before next run
+        ends_at=datetime.now(timezone.utc) + timedelta(minutes=5),  # ends before next run
     )
     service = AgentRunService(db_session)
     run = await service.enqueue(agent.id)

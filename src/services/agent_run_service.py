@@ -112,7 +112,10 @@ class AgentRunService:
         now = datetime.now(timezone.utc)
         run.finished_at = now
         if run.started_at:
-            run.duration_ms = int((now - run.started_at).total_seconds() * 1000)
+            started = run.started_at
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            run.duration_ms = int((now - started).total_seconds() * 1000)
 
         run.result_hash = result_hash
         run.result_payload = result_payload
@@ -165,7 +168,10 @@ class AgentRunService:
         run.finished_at = now
         run.error_message = error_message
         if run.started_at:
-            run.duration_ms = int((now - run.started_at).total_seconds() * 1000)
+            started = run.started_at
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            run.duration_ms = int((now - started).total_seconds() * 1000)
 
         agent = await self._require_agent(run.agent_id)
         agent.consecutive_failures = (agent.consecutive_failures or 0) + 1
@@ -197,7 +203,10 @@ class AgentRunService:
         run.finished_at = now
         run.delta_kind = "none"
         if run.started_at:
-            run.duration_ms = int((now - run.started_at).total_seconds() * 1000)
+            started = run.started_at
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            run.duration_ms = int((now - started).total_seconds() * 1000)
 
         agent = await self._require_agent(run.agent_id)
         agent.consecutive_failures = 0  # a skipped run counts as a success
@@ -251,6 +260,10 @@ def _project_next_run_from_schedule(agent: Agent, now: datetime) -> Optional[dat
     }[unit]
 
     projected = now + delta
-    if agent.ends_at and projected > agent.ends_at:
-        return None
+    if agent.ends_at:
+        ends_at = agent.ends_at
+        if ends_at.tzinfo is None:
+            ends_at = ends_at.replace(tzinfo=timezone.utc)
+        if projected > ends_at:
+            return None
     return projected
