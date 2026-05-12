@@ -217,7 +217,37 @@ class AIService:
             return None
 
     async def _get_user_dataset_connection_ids(self, user_id: UUID) -> list[str]:
-        """Return connection IDs linked to this user via user_datasets (dataset_type='connection')."""
+        """Return connection IDs for this user's dataset connections.
+
+        Demo users always receive all DEMO_DATASET_CONNECTION_IDS from settings so
+        every demo schema (CRM, Marketing, Finance, Web Analytics, Product Usage) is
+        visible in both personal and collaborative mode — no dependency on DB structure.
+
+        Regular users fall back to user_datasets (dataset_type='connection').
+        """
+        demo_conn_ids = [
+            cid.strip()
+            for cid in (settings.DEMO_DATASET_CONNECTION_IDS or "").split(",")
+            if cid.strip()
+        ]
+
+        if demo_conn_ids:
+            try:
+                from sqlalchemy import select as sa_select
+                user_result = await self.db.execute(
+                    sa_select(User.is_demo).where(User.id == user_id)
+                )
+                is_demo = user_result.scalar_one_or_none()
+                if is_demo:
+                    logger.info(
+                        "demo_user_connections: user=%s injecting %d demo connections",
+                        user_id,
+                        len(demo_conn_ids),
+                    )
+                    return demo_conn_ids
+            except Exception as exc:
+                logger.warning("demo user is_demo check failed: %s", exc)
+
         try:
             from sqlalchemy import select as sa_select
             from src.models.dataset import UserDataset
@@ -227,10 +257,14 @@ class AIService:
                     UserDataset.dataset_type == "connection",
                 )
             )
-            return [row[0] for row in result.all()]
+            ids = [row[0] for row in result.all()]
+            if ids:
+                return ids
         except Exception as exc:
             logger.warning("_get_user_dataset_connection_ids failed: %s", exc)
             return []
+
+        return []
 
     async def _get_best_connection_for_question(
         self,
@@ -1590,6 +1624,34 @@ class AIService:
                             connection_id, extra_connection_ids, str(message_data.message)[:50],
                         )
 
+                        # Load knowledge context (OKRs, strategies, table relationships)
+                        # and merge into instructions — same as process_query does.
+                        merged_instructions = getattr(message_data, "instructions", None) or ""
+                        try:
+                            from src.services.knowledge_context_loader import (
+                                load_knowledge_context_for_user,
+                                render_knowledge_for_prompt,
+                            )
+                            from sqlalchemy import select as _kc_select
+                            from src.models.user import User as _KCUser
+                            _user_row = await self.db.execute(
+                                _kc_select(_KCUser).where(_KCUser.id == user_id)
+                            )
+                            _user_obj = _user_row.scalar_one_or_none()
+                            if _user_obj is not None:
+                                _kc = await load_knowledge_context_for_user(self.db, _user_obj)
+                                _rendered = render_knowledge_for_prompt(_kc)
+                                if _rendered:
+                                    merged_instructions = (
+                                        f"{_rendered}\n\n{merged_instructions}"
+                                        if merged_instructions
+                                        else _rendered
+                                    )
+                        except Exception as _kc_err:
+                            logger.debug(
+                                "[send_chat_message] knowledge_context_loader skipped: %s", _kc_err
+                            )
+
                         # Personal mode: forward caller Space membership.
                         # See process_query branch for the full rationale.
                         caller_space_ids: Optional[List[str]] = None
@@ -1609,6 +1671,7 @@ class AIService:
                             authorized_tables=list(authorized_tables),
                             ai_tone=message_data.ai_tone,
                             ai_style=message_data.ai_style,
+                            instructions=merged_instructions or None,
                             connection_ids=extra_connection_ids or None,
                         )
 
@@ -2280,7 +2343,12 @@ class AIService:
                     user.id, request.connection_id
                 )
 
-            # If still no space_id, raise error (space_id is required for AI Engine)
+            # Personal mode fallback — same pattern as /ai/chat and /ai/query.
+            # The AI engine only uses space_id as a cache/audit key so using
+            # user_id is semantically safe when there's no real Space context.
+            if not space_id and request.is_personal:
+                space_id = str(user.id)
+
             if not space_id:
                 raise HTTPException(
                     status_code=400, detail="space_id is required for SQL validation"
