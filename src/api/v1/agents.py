@@ -545,6 +545,7 @@ async def run_agent_stream(
                 current_user.id, str(agent.scope_id)
             )
 
+        # ── Normal single-query path ───────────────────────────────────────────
         try:
             table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
             # table_ids are stored as "connectionId::schema.tableName" from the frontend.
@@ -609,6 +610,12 @@ async def run_agent_stream(
                                     "truncated": bool(event.get("truncated"))
                                     or len(clean_data) > 200,
                                 }
+
+                        # Suppress the AI service's own "done" — the backend
+                        # emits its own after the finding is persisted, which
+                        # is the only "done" the frontend should act on.
+                        if event_type == "done":
+                            continue
 
                         # Forward to frontend
                         yield f"data: {raw}\n\n"

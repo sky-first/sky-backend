@@ -339,6 +339,33 @@ async def _execute_agent_async(agent_id: str):
                     )
                 ).scalar_one_or_none()
 
+            # Inject business knowledge context (OKRs, metrics, glossary)
+            # into agent_instructions so the LLM can cross-reference findings
+            # with the user's actual business objectives across all 4 scopes
+            # (org, space, crew, personal). Best-effort — never blocks the run.
+            if agent_user is not None:
+                try:
+                    from src.services.knowledge_context_loader import (
+                        load_knowledge_context_for_user,
+                        render_knowledge_for_prompt,
+                    )
+                    _kc = await load_knowledge_context_for_user(db, agent_user)
+                    _rendered = render_knowledge_for_prompt(_kc)
+                    if _rendered:
+                        agent_instructions = (
+                            f"{_rendered}\n\n{agent_instructions}"
+                            if agent_instructions
+                            else _rendered
+                        )
+                        logger.info(
+                            "Agent %s: injected knowledge context (%d metrics, %d glossary terms)",
+                            agent_id,
+                            len(_kc.get("metrics", [])),
+                            len(_kc.get("glossary", [])),
+                        )
+                except Exception as _kc_err:
+                    logger.debug("Agent %s: knowledge context load skipped: %s", agent_id, _kc_err)
+
             l1_should_run = await _connections_changed_since(
                 db, connection_ids, agent.last_execution_at
             )
