@@ -246,6 +246,25 @@ async def get_dashboard_widgets(
     return await dashboard_service.get_dashboard_widgets(dashboard_id, current_user)
 
 
+@router.get(
+    "/{dashboard_id}/widgets/{widget_id}",
+    response_model=WidgetResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get single widget",
+    description="Fetch a single widget by ID. Used by the frontend to refresh agent-updated widget data.",
+)
+async def get_widget(
+    dashboard_id: UUID,
+    widget_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> WidgetResponse:
+    dashboard_service = DashboardService(db)
+    await dashboard_service.get_dashboard(dashboard_id, current_user)
+    return await dashboard_service.get_widget(widget_id, current_user)
+
+
 @router.post(
     "/{dashboard_id}/widgets",
     response_model=WidgetResponse,

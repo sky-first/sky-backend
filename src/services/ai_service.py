@@ -216,6 +216,56 @@ class AIService:
                 pass
             return None
 
+    async def _get_user_dataset_connection_ids(self, user_id: UUID) -> list[str]:
+        """Return connection IDs for this user's dataset connections.
+
+        Demo users always receive all DEMO_DATASET_CONNECTION_IDS from settings so
+        every demo schema (CRM, Marketing, Finance, Web Analytics, Product Usage) is
+        visible in both personal and collaborative mode — no dependency on DB structure.
+
+        Regular users fall back to user_datasets (dataset_type='connection').
+        """
+        demo_conn_ids = [
+            cid.strip()
+            for cid in (settings.DEMO_DATASET_CONNECTION_IDS or "").split(",")
+            if cid.strip()
+        ]
+
+        if demo_conn_ids:
+            try:
+                from sqlalchemy import select as sa_select
+                user_result = await self.db.execute(
+                    sa_select(User.is_demo).where(User.id == user_id)
+                )
+                is_demo = user_result.scalar_one_or_none()
+                if is_demo:
+                    logger.info(
+                        "demo_user_connections: user=%s injecting %d demo connections",
+                        user_id,
+                        len(demo_conn_ids),
+                    )
+                    return demo_conn_ids
+            except Exception as exc:
+                logger.warning("demo user is_demo check failed: %s", exc)
+
+        try:
+            from sqlalchemy import select as sa_select
+            from src.models.dataset import UserDataset
+            result = await self.db.execute(
+                sa_select(UserDataset.dataset_id).where(
+                    UserDataset.user_id == user_id,
+                    UserDataset.dataset_type == "connection",
+                )
+            )
+            ids = [row[0] for row in result.all()]
+            if ids:
+                return ids
+        except Exception as exc:
+            logger.warning("_get_user_dataset_connection_ids failed: %s", exc)
+            return []
+
+        return []
+
     async def _get_best_connection_for_question(
         self,
         user_id: UUID,
@@ -297,12 +347,18 @@ class AIService:
                 if score > best_score:
                     best_score, best_id = score, cid
 
+            logger.info(
+                "Keyword routing: best connection for question in space %s: %s (score=%d)",
+                space_id, best_id, best_score,
+            )
             if best_id and best_score > 0:
-                logger.info(
-                    "Keyword routing: best connection for question in space %s: %s (score=%d)",
-                    space_id, best_id, best_score,
-                )
                 return best_id
+            # When restricted to allowed_ids (demo/shared connections), always return
+            # the best match even at score=0 — prevents falling back to owned connections
+            # for questions whose terms don't literally appear in column names (e.g.
+            # "deal size" → "amount").
+            if allowed_ids:
+                return best_id or next(iter(sorted(allowed_ids)))
             return None
         except Exception as e:
             logger.warning("Keyword routing failed, falling back: %s", e)
@@ -676,6 +732,23 @@ class AIService:
                         if resolved_connection_id:
                             connection_id = resolved_connection_id
 
+                # Tracks all demo/shared connection IDs for the current user in personal
+                # mode. Reused later to enable multi-source queries — all demo connections
+                # are forwarded to the AI service so the orchestrator can build cross-schema
+                # SQL via the parallel-specialist + DuckDB merger path.
+                _personal_ud_ids: List[str] = []
+                _is_personal_mode = bool(getattr(query_data, "is_personal", False))
+                if _is_personal_mode and not getattr(query_data, "space_id", None):
+                    # Eagerly fetch user_datasets IDs regardless of how connection_id
+                    # was resolved (from knowledge UUID or fallback). This ensures
+                    # extra_connection_ids is populated even when a specific connection
+                    # was passed directly in the request.
+                    _personal_ud_ids = await self._get_user_dataset_connection_ids(user_id)
+                    logger.info(
+                        "personal_mode_multi_source: user=%s ud_ids=%s",
+                        user_id, _personal_ud_ids,
+                    )
+
                 # If still no connection_id, try to get first active connection
                 if not connection_id:
                     space_id = getattr(query_data, "space_id", None)
@@ -684,10 +757,26 @@ class AIService:
                             user_id, space_id, question=configure_data.question
                         )
                     else:
-                        connection_id = await self._get_first_active_connection(user_id)
+                        # Personal mode: score user_datasets connections (demo/shared)
+                        # exclusively so that owned background connections don't dilute
+                        # the keyword score with their larger table/column surface area.
+                        # _personal_ud_ids was already fetched eagerly above.
+                        if _personal_ud_ids:
+                            connection_id = await self._get_best_connection_for_question(
+                                user_id=user_id,
+                                space_id=str(user_id),
+                                question=configure_data.question,
+                                allowed_ids=set(_personal_ud_ids),
+                            )
+                            logger.info(
+                                "personal_mode_ud_routing: user=%s ud_ids=%s best=%s",
+                                user_id, _personal_ud_ids, connection_id,
+                            )
+                        if not connection_id:
+                            connection_id = await self._get_first_active_connection(user_id)
                     if connection_id:
                         logger.info(
-                            f"No connection_id in knowledge, using first active connection: {connection_id}"
+                            f"No connection_id in knowledge, using best connection: {connection_id}"
                         )
 
                 if connection_id:
@@ -818,6 +907,59 @@ class AIService:
                             logger.error(f"Error checking authorized tables: {e}", exc_info=True)
                             authorized_tables = []  # Fail closed
 
+                        # Multi-source: collect authorized tables from ALL other demo/shared
+                        # connections and append them so the AI service orchestrator sees every
+                        # table across every demo connection. The extra connection IDs are
+                        # forwarded separately so the AI service can route SQL to the right DB.
+                        # Multi-source: forward all other user_datasets connections so the
+                        # AI service orchestrator can build cross-schema queries.
+                        # These connections are already verified via user_datasets, no extra
+                        # permission check needed. The AI service loads their table metadata
+                        # itself via load_agent_config(connection_ids=...).
+                        extra_connection_ids: List[str] = []
+                        if _personal_ud_ids and space_id_is_personal_fallback:
+                            extra_connection_ids = [
+                                cid for cid in _personal_ud_ids if cid != connection_id
+                            ]
+                            logger.info(
+                                "multi_source: primary=%s extras=%s",
+                                connection_id, extra_connection_ids,
+                            )
+
+                        # Extend authorized_tables with table names from extra connections.
+                        # This populates the orchestrator's preferred_tables hint with
+                        # tables from ALL demo/shared connections, not just the primary one.
+                        # Without this, cross-DB questions fail because the LLM only sees
+                        # primary-connection tables as candidates and doesn't pick tables
+                        # from the secondary connections.
+                        if extra_connection_ids:
+                            meta_repo = ConnectionMetadataRepository(self.db)
+                            for extra_cid in extra_connection_ids:
+                                try:
+                                    extra_meta = await meta_repo.get_by_connection_id(
+                                        UUID(extra_cid)
+                                    )
+                                    if extra_meta and isinstance(extra_meta.tables, list):
+                                        for t in extra_meta.tables:
+                                            if not isinstance(t, dict):
+                                                continue
+                                            tname = (
+                                                t.get("logical_name")
+                                                or t.get("name")
+                                                or ""
+                                            ).strip()
+                                            if tname and tname not in authorized_tables:
+                                                authorized_tables.append(tname)
+                                except Exception as extra_meta_err:
+                                    logger.warning(
+                                        "multi_source_hint: failed to load tables for extra connection %s: %s",
+                                        extra_cid, extra_meta_err,
+                                    )
+                            logger.info(
+                                "multi_source_hint: authorized_tables extended to %s",
+                                authorized_tables,
+                            )
+
                         # 2. Forward user-selected datasets/tables from configure_data.knowledge,
                         # BUT filter them against authorized_tables.
                         requested_datasets: List[str] = []
@@ -911,6 +1053,7 @@ class AIService:
                             response_format=configure_data.response_format,
                             security_config=sec_config,
                             mentioned_file_ids=getattr(query_data, "mentioned_file_ids", None),
+                            connection_ids=extra_connection_ids or None,
                         )
 
                         # Update query with real AI results
@@ -1316,20 +1459,35 @@ class AIService:
                         if resolved_connection_id:
                             connection_id = resolved_connection_id
 
-                # If still no connection_id, try to get first active connection
+                # If still no connection_id, resolve by mode (mirrors process_query).
+                # Personal mode uses user_datasets connections so the AI sees ALL
+                # demo tables and can do cross-DB joins — same as /ai/query.
+                _chat_ud_ids: List[str] = []
                 if not connection_id:
-                    # Try to get space_id from context
                     space_id = context.get("space_id") or configure_data_dict.get("space_id")
                     _q_hint = configure_data_dict.get("question") or context.get("question") or ""
+                    _is_personal_flag = bool(
+                        message_data.is_personal
+                        if message_data.is_personal is not None
+                        else context.get("is_personal", False)
+                    )
                     if space_id:
                         connection_id = await self._get_first_active_connection_for_space(
                             user_id, space_id, question=_q_hint
                         )
+                    elif _is_personal_flag:
+                        _chat_ud_ids = await self._get_user_dataset_connection_ids(user_id)
+                        if _chat_ud_ids:
+                            connection_id = _chat_ud_ids[0]
+                            logger.info(
+                                "[send_chat_message] personal_mode_multi_source: user=%s ud_ids=%s",
+                                user_id, _chat_ud_ids,
+                            )
                     else:
                         connection_id = await self._get_first_active_connection(user_id)
                     if connection_id:
                         logger.info(
-                            f"[send_chat_message] No connection_id in knowledge, using first active connection: {connection_id}"
+                            "[send_chat_message] resolved connection_id=%s", connection_id
                         )
 
                 if connection_id:
@@ -1434,10 +1592,65 @@ class AIService:
                             )
                             selected_datasets = []
 
+                        # Multi-source: extend authorized_tables hint with tables
+                        # from the extra user_dataset connections so the orchestrator
+                        # can select them for cross-DB joins (mirrors process_query).
+                        extra_connection_ids: List[str] = [
+                            c for c in _chat_ud_ids if c != connection_id
+                        ]
+                        if extra_connection_ids:
+                            meta_repo = ConnectionMetadataRepository(self.db)
+                            for extra_cid in extra_connection_ids:
+                                try:
+                                    extra_meta = await meta_repo.get_by_connection_id(UUID(extra_cid))
+                                    if extra_meta and isinstance(extra_meta.tables, list):
+                                        for t in extra_meta.tables:
+                                            if not isinstance(t, dict):
+                                                continue
+                                            tname = (t.get("logical_name") or t.get("name") or "").strip()
+                                            if tname and tname not in authorized_tables:
+                                                authorized_tables.append(tname)
+                                except Exception as extra_err:
+                                    logger.warning(
+                                        "[send_chat_message] multi_source_hint failed for %s: %s",
+                                        extra_cid, extra_err,
+                                    )
+                            logger.info(
+                                "[send_chat_message] authorized_tables extended to %s", authorized_tables
+                            )
+
                         logger.info(
-                            f"[send_chat_message] Calling real AI service with connection_id={connection_id}, "
-                            f"space_id={space_id}, crew_ids={crew_ids}, question='{str(message_data.message)[:50]}...'"
+                            "[send_chat_message] calling AI connection_id=%s extra=%s question='%s...'",
+                            connection_id, extra_connection_ids, str(message_data.message)[:50],
                         )
+
+                        # Load knowledge context (OKRs, strategies, table relationships)
+                        # and merge into instructions — same as process_query does.
+                        merged_instructions = getattr(message_data, "instructions", None) or ""
+                        try:
+                            from src.services.knowledge_context_loader import (
+                                load_knowledge_context_for_user,
+                                render_knowledge_for_prompt,
+                            )
+                            from sqlalchemy import select as _kc_select
+                            from src.models.user import User as _KCUser
+                            _user_row = await self.db.execute(
+                                _kc_select(_KCUser).where(_KCUser.id == user_id)
+                            )
+                            _user_obj = _user_row.scalar_one_or_none()
+                            if _user_obj is not None:
+                                _kc = await load_knowledge_context_for_user(self.db, _user_obj)
+                                _rendered = render_knowledge_for_prompt(_kc)
+                                if _rendered:
+                                    merged_instructions = (
+                                        f"{_rendered}\n\n{merged_instructions}"
+                                        if merged_instructions
+                                        else _rendered
+                                    )
+                        except Exception as _kc_err:
+                            logger.debug(
+                                "[send_chat_message] knowledge_context_loader skipped: %s", _kc_err
+                            )
 
                         # Personal mode: forward caller Space membership.
                         # See process_query branch for the full rationale.
@@ -1458,6 +1671,8 @@ class AIService:
                             authorized_tables=list(authorized_tables),
                             ai_tone=message_data.ai_tone,
                             ai_style=message_data.ai_style,
+                            instructions=merged_instructions or None,
+                            connection_ids=extra_connection_ids or None,
                         )
 
                         answer = result.get("answer", "")
@@ -1659,21 +1874,85 @@ class AIService:
 
         return [AIHistoryItem.model_validate(item) for item in history_items]
 
-    async def generate_sql(self, request: GenerateSQLRequest) -> GenerateSQLResponse:
+    async def generate_sql(
+        self, user_id: UUID, request: GenerateSQLRequest
+    ) -> GenerateSQLResponse:
         """
-        Generate SQL from natural language.
+        Generate SQL from natural language using the real AI service.
 
-        Args:
-            request: Generate SQL request
-
-        Returns:
-            GenerateSQLResponse: Generated SQL
+        Resolves the connection the same way as personal-mode queries:
+        explicit UUID in knowledge → user_datasets connections → error.
+        Runs the full orchestrator+specialist pipeline but discards the
+        natural-language answer, returning only the SQL so the caller can
+        show the generation flow without executing the query.
         """
-        context = {"tables": [{"name": table} for table in request.knowledge]}
+        if not self.real_ai:
+            from src.core.exceptions import ServiceUnavailableError
+            raise ServiceUnavailableError("Real AI service not configured.")
 
-        sql = await self.mock_ai.generate_sql(request.question, context)
+        # Resolve connection_id: prefer explicit UUID in knowledge field
+        connection_id: Optional[str] = None
+        ud_ids: List[str] = []
+        for item in (request.knowledge or []):
+            if isinstance(item, str) and len(item) == 36 and item.count("-") == 4:
+                connection_id = item
+                break
 
-        return GenerateSQLResponse(sql=sql, explanation="Generated SQL query")
+        if not connection_id:
+            ud_ids = await self._get_user_dataset_connection_ids(user_id)
+            if ud_ids:
+                connection_id = ud_ids[0]
+
+        if not connection_id:
+            from src.core.exceptions import ServiceUnavailableError
+            raise ServiceUnavailableError("No data connection available to generate SQL.")
+
+        extra_ids = [c for c in ud_ids if c != connection_id]
+
+        # Extend authorized_tables hint with tables from all connections
+        authorized_tables: List[str] = []
+        all_ids = [connection_id] + extra_ids
+        meta_repo = ConnectionMetadataRepository(self.db)
+        for cid in all_ids:
+            try:
+                meta = await meta_repo.get_by_connection_id(UUID(cid))
+                if meta and isinstance(meta.tables, list):
+                    for t in meta.tables:
+                        tname = (t.get("logical_name") or t.get("name") or "").strip()
+                        if tname and tname not in authorized_tables:
+                            authorized_tables.append(tname)
+            except Exception:
+                pass
+
+        # Table names in knowledge (non-UUID strings) act as a dataset hint
+        requested = [
+            t for t in (request.knowledge or [])
+            if not (len(t) == 36 and t.count("-") == 4)
+        ]
+        selected = [t for t in requested if t in authorized_tables] or authorized_tables
+
+        logger.info(
+            "[generate_sql] connection=%s extra=%s question='%s...'",
+            connection_id, extra_ids, request.question[:60],
+        )
+
+        result = await self.real_ai.process_query(
+            connection_id=connection_id,
+            question=request.question,
+            user_id=str(user_id),
+            space_id=str(user_id),   # personal mode: use user_id as space
+            is_personal=True,
+            selected_datasets=selected,
+            authorized_tables=authorized_tables,
+            connection_ids=extra_ids or None,
+        )
+
+        sql = (result.get("sql") or "").strip()
+        if not sql:
+            from src.core.exceptions import ServiceUnavailableError
+            raise ServiceUnavailableError("AI service did not return SQL for this question.")
+
+        return GenerateSQLResponse(sql=sql, explanation=result.get("answer") or "Generated SQL query")
 
     async def execute_pipeline(
         self, user_id: UUID, request: PipelineExecuteRequest
@@ -2064,7 +2343,12 @@ class AIService:
                     user.id, request.connection_id
                 )
 
-            # If still no space_id, raise error (space_id is required for AI Engine)
+            # Personal mode fallback — same pattern as /ai/chat and /ai/query.
+            # The AI engine only uses space_id as a cache/audit key so using
+            # user_id is semantically safe when there's no real Space context.
+            if not space_id and request.is_personal:
+                space_id = str(user.id)
+
             if not space_id:
                 raise HTTPException(
                     status_code=400, detail="space_id is required for SQL validation"

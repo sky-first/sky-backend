@@ -48,6 +48,7 @@ class AIServiceHTTPClient:
         mentioned_file_ids: Optional[List[str]] = None,
         agent_mode: Optional[str] = None,
         sql_instructions: Optional[str] = None,
+        connection_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Query a connection using the AI service.
@@ -106,11 +107,15 @@ class AIServiceHTTPClient:
             payload["agent_mode"] = agent_mode
         if sql_instructions:
             payload["sql_instructions"] = sql_instructions
+        if connection_ids:
+            # Extra connections whose metadata the AI service will merge so the
+            # orchestrator can build cross-schema queries (multi-source path).
+            payload["connection_ids"] = connection_ids
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             logger.info(
                 f"Calling AI service: {url} with connection_id={connection_id}, "
-                f"space_id={space_id}"
+                f"space_id={space_id}, extra_connection_ids={connection_ids}"
             )
             response = await client.post(url, json=payload)
             response.raise_for_status()

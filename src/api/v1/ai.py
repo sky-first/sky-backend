@@ -534,7 +534,9 @@ async def send_chat_message_stream(
                 current_user.id, str(message_data.space_id)
             )
         elif getattr(message_data, "is_personal", False):
-            resolved_all_connection_ids = await ai_service._get_all_connections_for_user(
+            # Personal mode: use user_datasets connections so the AI sees all
+            # demo tables and can do cross-DB joins — same logic as /ai/query.
+            resolved_all_connection_ids = await ai_service._get_user_dataset_connection_ids(
                 current_user.id
             )
         if resolved_all_connection_ids:
@@ -576,6 +578,23 @@ async def send_chat_message_stream(
     import json as _json
     ai_client = AIServiceHTTPClient()
 
+    # Load knowledge context (OKRs, strategies, table relationships) and merge
+    # into instructions — same as process_query and send_chat_message do.
+    stream_instructions = getattr(message_data, "instructions", None) or ""
+    try:
+        from src.services.knowledge_context_loader import (
+            load_knowledge_context_for_user,
+            render_knowledge_for_prompt,
+        )
+        _kc = await load_knowledge_context_for_user(db, current_user)
+        _rendered = render_knowledge_for_prompt(_kc)
+        if _rendered:
+            stream_instructions = (
+                f"{_rendered}\n\n{stream_instructions}" if stream_instructions else _rendered
+            )
+    except Exception as _kc_err:
+        logger.debug("[chat/stream] knowledge_context_loader skipped: %s", _kc_err)
+
     async def event_stream():
         """Forward AI service SSE lines to the client. Adds a final
         'done' event when the upstream stream completes."""
@@ -593,12 +612,18 @@ async def send_chat_message_stream(
                 question=message_data.message,
                 user_id=str(current_user.id),
                 space_id=str(scope_space_id),
-                instructions=getattr(message_data, "instructions", None),
+                instructions=stream_instructions or None,
                 is_personal=scope_is_personal,
                 crew_ids=resolved_crew_ids or None,
                 connection_ids=resolved_all_connection_ids if len(resolved_all_connection_ids) > 1 else None,
             ):
                 if line.startswith("data: "):
+                    try:
+                        _ev = _json.loads(line[6:])
+                        if _ev.get("type") == "done":
+                            continue  # Suppress AI service's done — backend emits its own below
+                    except _json.JSONDecodeError:
+                        pass
                     yield line + "\n\n"
                 elif line.strip():
                     yield f"data: {line.strip()}\n\n"
@@ -1159,7 +1184,7 @@ async def generate_sql(
         GenerateSQLResponse: Generated SQL
     """
     ai_service = AIService(db)
-    return await ai_service.generate_sql(request)
+    return await ai_service.generate_sql(current_user.id, request)
 
 
 @router.post(

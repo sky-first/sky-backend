@@ -339,6 +339,33 @@ async def _execute_agent_async(agent_id: str):
                     )
                 ).scalar_one_or_none()
 
+            # Inject business knowledge context (OKRs, metrics, glossary)
+            # into agent_instructions so the LLM can cross-reference findings
+            # with the user's actual business objectives across all 4 scopes
+            # (org, space, crew, personal). Best-effort — never blocks the run.
+            if agent_user is not None:
+                try:
+                    from src.services.knowledge_context_loader import (
+                        load_knowledge_context_for_user,
+                        render_knowledge_for_prompt,
+                    )
+                    _kc = await load_knowledge_context_for_user(db, agent_user)
+                    _rendered = render_knowledge_for_prompt(_kc)
+                    if _rendered:
+                        agent_instructions = (
+                            f"{_rendered}\n\n{agent_instructions}"
+                            if agent_instructions
+                            else _rendered
+                        )
+                        logger.info(
+                            "Agent %s: injected knowledge context (%d metrics, %d glossary terms)",
+                            agent_id,
+                            len(_kc.get("metrics", [])),
+                            len(_kc.get("glossary", [])),
+                        )
+                except Exception as _kc_err:
+                    logger.debug("Agent %s: knowledge context load skipped: %s", agent_id, _kc_err)
+
             l1_should_run = await _connections_changed_since(
                 db, connection_ids, agent.last_execution_at
             )
@@ -384,7 +411,18 @@ async def _execute_agent_async(agent_id: str):
                     # For SQL mode, prefer names extracted from custom_sql — the
                     # orchestrator matches by logical/physical name, not by UUID.
                     table_ids = getattr(agent, "table_ids", None)
-                    effective_datasets = sql_table_hints or (table_ids if table_ids else None)
+                    # table_ids are stored as "connectionId::schema.tableName" — strip both
+                    # the "connId::" prefix and the "schema." prefix so the orchestrator
+                    # can match by logical/physical name (e.g. "accounts").
+                    def _extract_table_name(tid: str) -> str:
+                        name = tid.split("::", 1)[-1] if "::" in tid else tid
+                        return name.rsplit(".", 1)[-1] if "." in name else name
+
+                    table_names = (
+                        [_extract_table_name(tid) for tid in table_ids]
+                        if table_ids else None
+                    ) or None
+                    effective_datasets = sql_table_hints or table_names
 
                     # ── L2 — triage (placeholder). Today we always
                     # escalate to L3; the real gpt-4o-mini "is this

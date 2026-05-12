@@ -7,7 +7,7 @@ point — there is no place in the codebase where an agent_execution row
 should be updated directly.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
@@ -67,7 +67,7 @@ class AgentRunService:
             findings_count=0,
             attributed_to_user_id=agent.created_by,
             triggered_by_sp_id=agent.service_principal_id,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
         )
         self.db.add(run)
         await self.db.commit()
@@ -82,7 +82,7 @@ class AgentRunService:
         run = await self._require_run(run_id)
         new_state = transition(run.status, CLAIM)  # raises IllegalTransition
         run.status = new_state
-        run.started_at = datetime.utcnow()
+        run.started_at = datetime.now(timezone.utc)
         await self.db.commit()
         await self.db.refresh(run)
         return run
@@ -109,10 +109,13 @@ class AgentRunService:
         run = await self._require_run(run_id)
         run.status = transition(run.status, REPORT_SUCCESS)
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         run.finished_at = now
         if run.started_at:
-            run.duration_ms = int((now - run.started_at).total_seconds() * 1000)
+            started = run.started_at
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            run.duration_ms = int((now - started).total_seconds() * 1000)
 
         run.result_hash = result_hash
         run.result_payload = result_payload
@@ -161,11 +164,14 @@ class AgentRunService:
         run = await self._require_run(run_id)
         run.status = transition(run.status, REPORT_FAILURE)
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         run.finished_at = now
         run.error_message = error_message
         if run.started_at:
-            run.duration_ms = int((now - run.started_at).total_seconds() * 1000)
+            started = run.started_at
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            run.duration_ms = int((now - started).total_seconds() * 1000)
 
         agent = await self._require_agent(run.agent_id)
         agent.consecutive_failures = (agent.consecutive_failures or 0) + 1
@@ -193,11 +199,14 @@ class AgentRunService:
         run = await self._require_run(run_id)
         run.status = transition(run.status, REPORT_SKIP)
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         run.finished_at = now
         run.delta_kind = "none"
         if run.started_at:
-            run.duration_ms = int((now - run.started_at).total_seconds() * 1000)
+            started = run.started_at
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            run.duration_ms = int((now - started).total_seconds() * 1000)
 
         agent = await self._require_agent(run.agent_id)
         agent.consecutive_failures = 0  # a skipped run counts as a success
@@ -251,6 +260,10 @@ def _project_next_run_from_schedule(agent: Agent, now: datetime) -> Optional[dat
     }[unit]
 
     projected = now + delta
-    if agent.ends_at and projected > agent.ends_at:
-        return None
+    if agent.ends_at:
+        ends_at = agent.ends_at
+        if ends_at.tzinfo is None:
+            ends_at = ends_at.replace(tzinfo=timezone.utc)
+        if projected > ends_at:
+            return None
     return projected

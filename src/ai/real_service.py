@@ -39,6 +39,7 @@ class RealAIService:
         ai_tone: Optional[str] = None,
         ai_style: Optional[str] = None,
         mentioned_file_ids: Optional[List[str]] = None,
+        connection_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Process a query using the real AI service.
@@ -131,6 +132,7 @@ class RealAIService:
                 ai_tone=ai_tone,
                 ai_style=ai_style,
                 mentioned_file_ids=mentioned_file_ids,
+                connection_ids=connection_ids,
             )
 
             # Map response from AI service to our format
