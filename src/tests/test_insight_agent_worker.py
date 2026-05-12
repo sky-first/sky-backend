@@ -79,13 +79,13 @@ async def test_beat_picks_up_only_due_insight_agents(
     due = await _make_active_insight_agent(
         db_session,
         user.id,
-        next_execution_at=datetime.utcnow() - timedelta(minutes=10),
+        next_execution_at=datetime.now(timezone.utc) - timedelta(minutes=10),
     )
     # Not due yet
     future = await _make_active_insight_agent(
         db_session,
         user.id,
-        next_execution_at=datetime.utcnow() + timedelta(hours=1),
+        next_execution_at=datetime.now(timezone.utc) + timedelta(hours=1),
     )
     # Wrong mode
     legacy = Agent(
@@ -93,7 +93,7 @@ async def test_beat_picks_up_only_due_insight_agents(
         scope="personal", scope_id=str(user.id),
         status="active", frequency="hourly",
         connection_ids=[], created_by=user.id,
-        next_execution_at=datetime.utcnow() - timedelta(minutes=10),
+        next_execution_at=datetime.now(timezone.utc) - timedelta(minutes=10),
     )
     db_session.add(legacy)
     await db_session.commit()
@@ -171,7 +171,7 @@ async def test_worker_success_path_updates_agent_and_run(
     agent = await _make_active_insight_agent(
         db_session,
         user.id,
-        next_execution_at=datetime.utcnow() - timedelta(seconds=1),
+        next_execution_at=datetime.now(timezone.utc) - timedelta(seconds=1),
     )
     service = AgentRunService(db_session)
     run = await service.enqueue(agent.id)
@@ -206,7 +206,7 @@ async def test_worker_success_path_updates_agent_and_run(
     assert refreshed.consecutive_failures == 0
     assert refreshed.next_execution_at is not None
     # About an hour in the future (slack for test jitter)
-    delta = refreshed.next_execution_at - datetime.utcnow()
+    delta = refreshed.next_execution_at - datetime.now(timezone.utc)
     assert timedelta(minutes=58) <= delta <= timedelta(minutes=62)
 
 
@@ -221,7 +221,7 @@ async def test_worker_failure_path_applies_backoff_and_flips_to_error_after_budg
     agent = await _make_active_insight_agent(
         db_session,
         user.id,
-        next_execution_at=datetime.utcnow() - timedelta(seconds=1),
+        next_execution_at=datetime.now(timezone.utc) - timedelta(seconds=1),
     )
 
     service = AgentRunService(db_session)
@@ -243,7 +243,7 @@ async def test_worker_failure_path_applies_backoff_and_flips_to_error_after_budg
         if exp_backoff is None:
             assert refreshed.next_execution_at is None
         else:
-            delta = refreshed.next_execution_at - datetime.utcnow()
+            delta = refreshed.next_execution_at - datetime.now(timezone.utc)
             # Slack 1 min either way for jitter
             assert (
                 timedelta(minutes=exp_backoff - 1)
@@ -308,11 +308,11 @@ async def test_legacy_scheduler_skips_insight_agents(
     insight_agent = await _make_active_insight_agent(
         db_session,
         user.id,
-        next_execution_at=datetime.utcnow() - timedelta(minutes=1),
+        next_execution_at=datetime.now(timezone.utc) - timedelta(minutes=1),
     )
 
     # Simulate the legacy scheduler's query — MUST exclude insight
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     result = await db_session.execute(
         _sel(Agent).where(
             Agent.status == "active",
