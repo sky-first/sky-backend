@@ -633,19 +633,27 @@ class DemoService:
         return 1
 
     async def _seed_demo_agents(self, space: Space, user: User) -> int:
-        """Create 3 ready-to-run agents on a fresh demo Space.
+        """Create 10 ready-to-run agents on a fresh demo Space.
 
-        Lucas's 2026-05-05 QA: the Pulse pill stays empty for new demo
-        visitors because the Space has zero agents at signup, which kills
-        the "look, your AI is already watching!" pitch. Seeding three
-        archetype agents (revenue, customers, ops) gives the visitor
-        immediate signal in the Pulse pill AND a sane payload to "Run now"
-        so the Set-up-Agent mission has actual results to show.
+        Lucas's 2026-05-13 brief: a new demo account should land with a
+        rich agent constellation so the Pulse panel reads as "already
+        watching the business" the moment the user logs in. The mix
+        mirrors the B2B exec tier model:
 
-        Idempotent: skips entirely if agents already exist for this Space.
-        Connection-aware: pins the agents to the first dataset Connection
-        bound to the Space so the run-stream endpoint has somewhere to
-        query. Returns the number of agents added.
+          * 1 × L3 (deep, weekly) — cross-domain strategic audit
+          * 3 × L2 (standard, daily) — domain monitors
+          * 6 × L1 (quick, hourly/daily) — delta detectors
+
+        L1/L2/L3 are encoded on the existing ``depth`` column
+        (``quick``/``standard``/``deep``). No schema change required.
+
+        Idempotent: skips entirely if any agent already exists for this
+        Space — that keeps returning visitors (and the older 3-agent
+        demos) from accidentally collecting duplicates.
+
+        Connection-aware: pins every agent to the first dataset
+        Connection bound to the Space so the run-stream endpoint has
+        somewhere to query. Returns the number of agents added.
         """
         already_q = await self.db.execute(
             select(Agent.id).where(
@@ -662,10 +670,32 @@ class DemoService:
         bound_conn_ids = list(bound_q.scalars().all())
         primary_conn = bound_conn_ids[0] if bound_conn_ids else None
 
-        seeds = [
+        # Tier-coded seed list. ``depth`` is the canonical L1/L2/L3 marker
+        # in the data model — the FE reads it to render tier badges and
+        # the worker uses it to gate execution budget. Frequency is set
+        # per tier (L1 cheap+fast, L3 expensive+weekly) so the demo's
+        # beat consumption stays demo-friendly.
+        seeds: list[dict] = [
+            # ── 1 × L3 (deep) ───────────────────────────────────────
+            {
+                "name": "Strategic Health Audit",
+                "archetype": "strategy_tracker",
+                "depth": "deep",
+                "frequency": "weekly",
+                "focus": (
+                    "Cross-domain board-level audit. Correlate revenue trend, "
+                    "customer health, and operations bottlenecks. Each run, "
+                    "surface the top 3 strategic risks and the top 3 growth "
+                    "openings the rest of the agent fleet missed, with the "
+                    "underlying evidence chain."
+                ),
+            },
+            # ── 3 × L2 (standard) ───────────────────────────────────
             {
                 "name": "Revenue Pulse",
                 "archetype": "growth_intelligence",
+                "depth": "standard",
+                "frequency": "daily",
                 "focus": (
                     "Track MRR, pipeline velocity, and win-rate week-over-week. "
                     "Flag any deviation from trend with a >5% delta and surface "
@@ -675,6 +705,8 @@ class DemoService:
             {
                 "name": "Customer Health Watch",
                 "archetype": "risk_radar",
+                "depth": "standard",
+                "frequency": "daily",
                 "focus": (
                     "Surface accounts with churn-risk signals: declining usage, "
                     "support ticket spikes, expansion-stalled deals, or NPS drops. "
@@ -684,10 +716,75 @@ class DemoService:
             {
                 "name": "Operations Radar",
                 "archetype": "operations_monitor",
+                "depth": "standard",
+                "frequency": "daily",
                 "focus": (
                     "Detect SLA breaches, anomalous error rates, and operational "
                     "throughput regressions across the connected systems. "
                     "Highlight the worst offender in the last 24 hours."
+                ),
+            },
+            # ── 6 × L1 (quick) ──────────────────────────────────────
+            {
+                "name": "Pipeline Velocity Delta",
+                "archetype": "growth_intelligence",
+                "depth": "quick",
+                "frequency": "hourly",
+                "focus": (
+                    "Compare hourly stage-time on open deals vs the 7-day "
+                    "rolling average. Flag stages where deal age jumps >20%."
+                ),
+            },
+            {
+                "name": "Support Ticket Spike",
+                "archetype": "operations_monitor",
+                "depth": "quick",
+                "frequency": "hourly",
+                "focus": (
+                    "Detect hourly inbound ticket volume spikes vs the same "
+                    "hour-of-week baseline. Group by product area and severity."
+                ),
+            },
+            {
+                "name": "Payment Failure Tracker",
+                "archetype": "risk_radar",
+                "depth": "quick",
+                "frequency": "hourly",
+                "focus": (
+                    "Count failed-payment events per hour and compare to the "
+                    "7-day mean. Surface impacted accounts and total ARR exposure."
+                ),
+            },
+            {
+                "name": "Sign-up Anomaly",
+                "archetype": "growth_intelligence",
+                "depth": "quick",
+                "frequency": "hourly",
+                "focus": (
+                    "Compare hourly new-user sign-up count to the 14-day "
+                    "baseline. Anomaly when |z-score| > 2. Slice by acquisition "
+                    "channel."
+                ),
+            },
+            {
+                "name": "Login Failure Watch",
+                "archetype": "risk_radar",
+                "depth": "quick",
+                "frequency": "hourly",
+                "focus": (
+                    "Track authentication failures per hour. Alert on >3× the "
+                    "7-day mean — potential security event or product regression."
+                ),
+            },
+            {
+                "name": "Campaign ROI Watch",
+                "archetype": "growth_intelligence",
+                "depth": "quick",
+                "frequency": "daily",
+                "focus": (
+                    "Daily CAC per marketing channel vs the 28-day moving "
+                    "average. Flag channels where CAC rose >15% or conversion "
+                    "fell >10%."
                 ),
             },
         ]
@@ -703,7 +800,8 @@ class DemoService:
                 status="active",
                 monitor_type="question",
                 focus=seed["focus"],
-                frequency="daily",
+                frequency=seed["frequency"],
+                depth=seed["depth"],
                 connection_ids=[primary_conn] if primary_conn else [],
                 created_by=user.id,
             )

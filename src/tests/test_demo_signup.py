@@ -280,11 +280,13 @@ async def test_cleanup_deletes_expired_spaces_and_users(db_session: AsyncSession
 
 
 @pytest.mark.asyncio
-async def test_signup_seeds_three_demo_agents(db_session: AsyncSession):
-    """Lucas's 2026-05-05 QA: a fresh demo Space must come pre-loaded with
-    3 ready-to-run agents so the Pulse pill has signal to render and the
-    Set-up-Agent mission has a working entry point. Returning logins are
-    a no-op (the helper is idempotent) and DO NOT mint duplicates."""
+async def test_signup_seeds_ten_demo_agents(db_session: AsyncSession):
+    """Lucas's 2026-05-13 brief: a fresh demo Space must come pre-loaded
+    with 10 ready-to-run agents (1 × L3 + 3 × L2 + 6 × L1) so the Pulse
+    panel reads as "already watching" the second the user lands. L1/L2/L3
+    is encoded on the ``depth`` column (quick/standard/deep). Returning
+    logins are a no-op (the helper is idempotent) and DO NOT mint
+    duplicates."""
     from src.models.agent import Agent
 
     service = DemoService(db_session)
@@ -294,10 +296,32 @@ async def test_signup_seeds_three_demo_agents(db_session: AsyncSession):
         select(Agent).where(Agent.scope == "space", Agent.scope_id == resp.space_id)
     )
     agents = agents_q.scalars().all()
-    assert len(agents) == 3, f"expected 3 demo agents, got {len(agents)}"
+    assert len(agents) == 10, f"expected 10 demo agents, got {len(agents)}"
 
     names = {a.name for a in agents}
-    assert names == {"Revenue Pulse", "Customer Health Watch", "Operations Radar"}
+    assert names == {
+        # L3
+        "Strategic Health Audit",
+        # L2
+        "Revenue Pulse",
+        "Customer Health Watch",
+        "Operations Radar",
+        # L1
+        "Pipeline Velocity Delta",
+        "Support Ticket Spike",
+        "Payment Failure Tracker",
+        "Sign-up Anomaly",
+        "Login Failure Watch",
+        "Campaign ROI Watch",
+    }
+
+    # Tier distribution check — exactly 1 deep, 3 standard, 6 quick.
+    by_depth: dict[str, int] = {}
+    for a in agents:
+        by_depth[a.depth] = by_depth.get(a.depth, 0) + 1
+    assert by_depth.get("deep") == 1, f"expected 1 L3 (deep), got {by_depth}"
+    assert by_depth.get("standard") == 3, f"expected 3 L2 (standard), got {by_depth}"
+    assert by_depth.get("quick") == 6, f"expected 6 L1 (quick), got {by_depth}"
 
     for a in agents:
         assert a.status == "active"
@@ -311,7 +335,7 @@ async def test_signup_seeds_three_demo_agents(db_session: AsyncSession):
     again_q = await db_session.execute(
         select(Agent).where(Agent.scope == "space", Agent.scope_id == resp.space_id)
     )
-    assert len(again_q.scalars().all()) == 3, "returning login duplicated the agents"
+    assert len(again_q.scalars().all()) == 10, "returning login duplicated the agents"
 
 
 @pytest.mark.asyncio
