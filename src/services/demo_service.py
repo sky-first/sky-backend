@@ -117,6 +117,69 @@ async def _verify_turnstile(token: str, remoteip: Optional[str]) -> bool:
         return False
 
 
+# ─── Universe embeddings auto-seed ──────────────────────────────────────────
+
+
+def _trigger_universe_embedding_seed(space_id: str) -> None:
+    """Fires the AI service's per-Space seed-embeddings endpoint without
+    blocking the caller.
+
+    The Universe Intelligence v2 canvas reads from the AI service's
+    ``embeddings`` table. Until this hook landed, demo Spaces minted at
+    signup had zero embeddings for metrics / glossary / relationships /
+    agents — only the tables from the shared dataset connection (which
+    were pre-embedded out-of-band) showed up. Visitors landed on a
+    half-empty constellation for their first 30s on the platform.
+
+    Implementation: ``asyncio.create_task`` so the POST runs in the
+    background of the request's event loop. The response to the user
+    returns immediately; the seed catches up within a few seconds.
+    Errors are logged, never re-raised — if the AI service is down,
+    the signup still succeeds and an admin can backfill manually via
+    the ``seed_knowledge_embeddings.py`` CLI script.
+    """
+    import asyncio
+
+    base = (settings.AI_SERVICE_URL or "http://localhost:8001").rstrip("/")
+    url = f"{base}/spaces/{space_id}/seed-embeddings"
+
+    async def _fire() -> None:
+        try:
+            # 90s caps the OpenAI batch — bigger Spaces (org-scope demos
+            # with hundreds of metrics) might run slower; we never want
+            # to retry mid-flight because the script's idempotent skip
+            # keeps a partial run safe to re-seed later.
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                resp = await client.post(url)
+                if resp.status_code >= 400:
+                    logger.warning(
+                        "universe_embedding_seed_failed space_id=%s status=%s body=%s",
+                        space_id,
+                        resp.status_code,
+                        resp.text[:200],
+                    )
+                else:
+                    logger.info(
+                        "universe_embedding_seed_ok space_id=%s",
+                        space_id,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "universe_embedding_seed_unreachable space_id=%s err=%s",
+                space_id,
+                exc,
+            )
+
+    try:
+        loop = asyncio.get_event_loop()
+        loop.create_task(_fire())
+    except RuntimeError:
+        # No running loop (e.g. called from a sync test). Run blocking
+        # rather than skipping — better to slow a single test than to
+        # silently lose the seed in production.
+        asyncio.run(_fire())
+
+
 # ─── Signup ─────────────────────────────────────────────────────────────────
 
 
@@ -272,6 +335,13 @@ class DemoService:
         await self.db.commit()
         await self.db.refresh(user)
         await self.db.refresh(sibling_space)
+
+        # Fire-and-forget: hydrate the AI service's `embeddings` table
+        # for this Space so the Universe canvas shows the full
+        # constellation on first load. Sibling-join uses the original
+        # owner's Space; if those embeddings already exist this is a
+        # cheap idempotent no-op.
+        _trigger_universe_embedding_seed(str(sibling_space.id))
 
         logger.info(
             "demo_same_domain_join space_id=%s owner_id=%s new_user_id=%s " "email=%s domain=%s",
@@ -1216,6 +1286,12 @@ class DemoService:
         await self.db.refresh(user)
         await self.db.refresh(space)
 
+        # Fire-and-forget: hydrate the AI service's `embeddings` table
+        # so the Universe canvas shows agents + knowledge + relationships
+        # on first load. Runs in the request's event-loop background;
+        # the 201 response is not blocked by the OpenAI roundtrip.
+        _trigger_universe_embedding_seed(str(space.id))
+
         # Lead-gen Slack ping: cold signup — fires AFTER commit so a
         # webhook failure can't roll back the sandbox.
         await _post_slack_demo_signup(
@@ -1301,6 +1377,11 @@ class DemoService:
 
         if added or seeded_any or agents_seeded or findings_seeded or page_seeded:
             await self.db.commit()
+
+        # Fire-and-forget: backfill the universe embeddings if any new
+        # BE data was added in this returning-login path. Idempotent on
+        # the AI side, so the call is safe even when nothing changed.
+        _trigger_universe_embedding_seed(str(space.id))
 
         # Slack ping intentionally NOT fired on returning login.
         # Lucas's 2026-04-30 brief: "se ele ja entrou antes nao
@@ -1552,6 +1633,11 @@ class DemoService:
 
         await self.db.commit()
         await self.db.refresh(space)
+
+        # Fire-and-forget: hydrate the AI service's embeddings for the
+        # SSO-demo Space too. Same idempotent guarantees as the cold
+        # signup path — re-seeding an already-embedded Space is free.
+        _trigger_universe_embedding_seed(str(space.id))
 
         logger.info(
             "demo_provisioned_for_sso_user user=%s space_id=%s is_new=%s "
