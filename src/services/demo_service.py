@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError
 from src.core.security import create_access_token, create_refresh_token, get_password_hash
-from src.models.agent import Agent
+from src.models.agent import Agent, AgentFinding
 from src.models.connection import DataConnection
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.glossary import GlossaryTerm
@@ -252,6 +252,9 @@ class DemoService:
         # Same idempotent backfill for the demo agents seed — keeps the
         # joiner's Pulse pill in sync with what a fresh signup would have.
         await self._seed_demo_agents(sibling_space, user)
+        # Findings backfill: gives the Pulse panel pre-canned insights
+        # so the joiner doesn't land on an empty "All clear" state.
+        await self._seed_demo_findings(sibling_space)
 
         # Default Personal page first (see fresh-signup branch — the
         # owner-by-id idempotency in ensure_default_page_and_space
@@ -815,6 +818,244 @@ class DemoService:
         )
         return len(seeds)
 
+    async def _seed_demo_findings(self, space: Space) -> int:
+        """Pre-populate one canned finding per demo agent.
+
+        Lucas's 2026-05-13 brief: the Pulse panel needs to look "alive"
+        the moment a demo visitor lands — empty cards kill the pitch.
+        We can't run the real agents at signup (they'd hammer OpenAI and
+        block the request) so we mint hand-crafted findings keyed off
+        each agent's archetype. Severity / type mix is intentional:
+        risks dominate L1/L2 so the eye lands on red rails first, the
+        L3 surfaces a board-level summary insight.
+
+        Idempotent: skips if any of this Space's agents already carry
+        findings. Connection-aware: stamps the same primary_connection
+        used by the agents so the Sources tab resolves to a real name.
+        Returns the number of findings inserted.
+        """
+        agents_q = await self.db.execute(
+            select(Agent).where(
+                Agent.scope == "space",
+                Agent.scope_id == str(space.id),
+            )
+        )
+        agents_list = list(agents_q.scalars().all())
+        if not agents_list:
+            return 0
+
+        # Already-seeded check: if ANY of these agents has a finding,
+        # bail. Prevents re-runs from minting duplicates.
+        agent_ids = [a.id for a in agents_list]
+        existing_q = await self.db.execute(
+            select(AgentFinding.id).where(AgentFinding.agent_id.in_(agent_ids)).limit(1)
+        )
+        if existing_q.scalars().first() is not None:
+            return 0
+
+        bound_q = await self.db.execute(
+            select(SpaceConnection.connection_id).where(SpaceConnection.space_id == space.id)
+        )
+        bound_conn_ids = list(bound_q.scalars().all())
+        primary_conn = bound_conn_ids[0] if bound_conn_ids else None
+
+        # Index agents by name for direct lookup; this is more readable
+        # than positional indexing into the seed list, and survives any
+        # future reordering of the agent seeds above.
+        by_name = {a.name: a for a in agents_list}
+
+        # One canned finding per seeded agent. Each entry is keyed by
+        # the agent's name (must match _seed_demo_agents exactly). When
+        # an agent isn't present (e.g. partial seed, future renames)
+        # we silently skip rather than KeyError.
+        canned: dict[str, dict] = {
+            "Strategic Health Audit": {
+                "type": "insight",
+                "severity": "high",
+                "title": "Q-to-date health snapshot: revenue +12%, churn 4.8%, ops SLA 98.4%",
+                "description": (
+                    "Cross-domain audit consolidates Revenue Pulse, Customer Health "
+                    "Watch and Operations Radar over the last 7 days. Net: growth "
+                    "is healthy but customer-tier concentration is approaching the "
+                    "guardrail. The next quarterly review should debate dependency "
+                    "on the top 5 accounts."
+                ),
+                "recommendation": (
+                    "Brief the leadership team on the top-5 ARR concentration "
+                    "before contract renewals open in 6 weeks."
+                ),
+                "confidence": 0.91,
+            },
+            "Revenue Pulse": {
+                "type": "opportunity",
+                "severity": "medium",
+                "title": "Pipeline velocity up 18% WoW, driven by 3 mid-market deals",
+                "description": (
+                    "Stage-to-close time on Series B-stage prospects dropped from "
+                    "34d to 28d week-over-week. Three accounts (Tessera, Lumen "
+                    "Health, Northwind) account for 71% of the swing. Win-rate on "
+                    "the same cohort stable at 32%."
+                ),
+                "recommendation": (
+                    "Run a post-mortem on the Tessera deal — its 11-day close is "
+                    "an outlier worth turning into a playbook."
+                ),
+                "confidence": 0.82,
+            },
+            "Customer Health Watch": {
+                "type": "risk",
+                "severity": "high",
+                "title": "Acme Corp: NPS down 22 pts, support tickets up 3×",
+                "description": (
+                    "Acme Corp's monthly NPS dropped from 58 to 36 after the Q1 "
+                    "outage. Support volume tripled in the same window. ARR "
+                    "exposure: €184k (8-month contract, renewal in 64 days)."
+                ),
+                "recommendation": (
+                    "Schedule a CSM call this week. Offer a service credit and a "
+                    "roadmap review to rebuild trust before renewal."
+                ),
+                "confidence": 0.88,
+            },
+            "Operations Radar": {
+                "type": "risk",
+                "severity": "high",
+                "title": "Payment API p95 latency +340ms over 24h",
+                "description": (
+                    "p95 climbed from 180ms to 520ms in the last 24h. p99 doubled. "
+                    "Error rate stable at 0.2% — the failure mode is slowness, "
+                    "not exceptions. Connection pool saturation suspected."
+                ),
+                "recommendation": (
+                    "Page the payments oncall. Increase pool size or roll back "
+                    "the connection-handling change shipped on the 12th."
+                ),
+                "confidence": 0.86,
+            },
+            "Pipeline Velocity Delta": {
+                "type": "insight",
+                "severity": "medium",
+                "title": "Stage 'Negotiation' deal age up 31% — 7 deals stalled >21d",
+                "description": (
+                    "Average time-in-stage for Negotiation jumped from 12.4 to "
+                    "16.3 days. Seven open deals (€312k pipeline) have been in "
+                    "Negotiation more than 21 days."
+                ),
+                "recommendation": (
+                    "AE team review of the 7 stalled deals tomorrow. Surface "
+                    "common blockers (legal, security, pricing) to GTM ops."
+                ),
+                "confidence": 0.79,
+            },
+            "Support Ticket Spike": {
+                "type": "risk",
+                "severity": "medium",
+                "title": "Inbound tickets 2.3× hourly baseline — likely related to v4.2 release",
+                "description": (
+                    "Last hour: 47 tickets vs. 20 baseline (same hour-of-week, "
+                    "trailing 4w). 68% mention 'export' or 'CSV'. v4.2 shipped "
+                    "the new export pipeline at 09:00 UTC."
+                ),
+                "recommendation": (
+                    "Notify the v4.2 release captain. Consider hot-fix on the "
+                    "export pipeline or temporary rollback of the change."
+                ),
+                "confidence": 0.84,
+            },
+            "Payment Failure Tracker": {
+                "type": "risk",
+                "severity": "critical",
+                "title": "Failed payments doubled in last 4h — €18.4k ARR at risk",
+                "description": (
+                    "Failed-payment events: 142 in the last 4h vs. 65 baseline. "
+                    "Top decline reasons: card_expired (38%), insufficient_funds "
+                    "(24%), do_not_honor (19%). 12 accounts affected with active "
+                    "subscriptions; €18.4k MRR exposure."
+                ),
+                "recommendation": (
+                    "Trigger the dunning email sequence for the 12 affected "
+                    "accounts. Investigate the do_not_honor spike with Stripe."
+                ),
+                "confidence": 0.93,
+            },
+            "Sign-up Anomaly": {
+                "type": "opportunity",
+                "severity": "low",
+                "title": "Organic channel sign-ups +47% (z = 3.1) — possible PR mention",
+                "description": (
+                    "Hourly organic sign-ups jumped from 22 to 32 (mean over "
+                    "trailing 14d, σ = 3.2). UTM-less landings driving the lift. "
+                    "Press monitor flagged a TechCrunch citation 90 min before "
+                    "the surge."
+                ),
+                "recommendation": (
+                    "Marketing: confirm the TechCrunch attribution and amplify on "
+                    "LinkedIn while the wave is fresh."
+                ),
+                "confidence": 0.71,
+            },
+            "Login Failure Watch": {
+                "type": "insight",
+                "severity": "low",
+                "title": "Auth failure rate stable at 0.8% — no anomaly this hour",
+                "description": (
+                    "Failed-login events: 14 in the last hour vs. 13 baseline. "
+                    "All within healthy z-score range (|z| < 1). No password-"
+                    "spraying signature. Continuing to monitor."
+                ),
+                "confidence": 0.95,
+            },
+            "Campaign ROI Watch": {
+                "type": "opportunity",
+                "severity": "medium",
+                "title": "LinkedIn campaign CAC down 22% — scale budget",
+                "description": (
+                    "LinkedIn 'AI for Finance' campaign: CAC dropped from €182 "
+                    "to €142 over 7 days. Conversion rate up 14%, click-through "
+                    "stable. Cohort quality (7-day activation) unchanged."
+                ),
+                "recommendation": (
+                    "Marketing ops: lift LinkedIn daily budget by 30% next "
+                    "Monday. Watch CAC for 14 days before further scale."
+                ),
+                "confidence": 0.80,
+            },
+        }
+
+        # Insert findings + bump the parent agent's last_execution_at /
+        # executions_this_month so the FE renders the agent as "ran
+        # recently" instead of "Never". We don't create AgentExecution
+        # rows — the canned data is hand-crafted, not a real run.
+        now = datetime.now(timezone.utc)
+        inserted = 0
+        for name, payload in canned.items():
+            agent = by_name.get(name)
+            if agent is None:
+                continue
+            finding = AgentFinding(
+                id=uuid4(),
+                agent_id=agent.id,
+                type=payload["type"],
+                severity=payload["severity"],
+                title=payload["title"],
+                description=payload["description"],
+                recommendation=payload.get("recommendation"),
+                confidence=payload.get("confidence"),
+                connection_id=primary_conn,
+                dismissed=False,
+            )
+            self.db.add(finding)
+            agent.last_execution_at = now
+            agent.executions_this_month = (agent.executions_this_month or 0) + 1
+            inserted += 1
+
+        logger.info(
+            "demo_findings_seeded space_id=%s count=%d",
+            space.id,
+            inserted,
+        )
+        return inserted
+
     async def signup(
         self,
         payload: DemoSignupRequest,
@@ -948,6 +1189,10 @@ class DemoService:
         # whole signup rolls back and the visitor retries cleanly.
         await self._seed_demo_context(space, user)
         await self._seed_demo_agents(space, user)
+        # Findings seed runs after agents so the FK references are
+        # already in the session. Pre-canned content per agent gives
+        # the Pulse panel something to render on the very first load.
+        await self._seed_demo_findings(space)
 
         # Default Personal page first — `ensure_default_page_and_space`
         # short-circuits if the user already owns ANY page (its check
@@ -1037,6 +1282,13 @@ class DemoService:
         # the Space) so this is safe to run on every returning login.
         agents_seeded = await self._seed_demo_agents(space, user)
 
+        # Backfill #3b: pre-canned findings per agent. Idempotent —
+        # skips if any of the Space's agents already carry a finding.
+        # Returning visitors whose agents have been running for real
+        # therefore keep their organic findings; cold visitors get the
+        # demo-ready insights so the Pulse panel doesn't read empty.
+        findings_seeded = await self._seed_demo_findings(space)
+
         # Backfill #4: default Space-scoped Page. Demo Spaces minted
         # before this seed shipped have no Space-axis page, so the
         # topbar picker comes up empty when the visitor switches to
@@ -1047,7 +1299,7 @@ class DemoService:
         cached_company = prefs.get("demo_company") if isinstance(prefs, dict) else ""
         page_seeded = await self._seed_demo_space_page(space, user, cached_company or "")
 
-        if added or seeded_any or agents_seeded or page_seeded:
+        if added or seeded_any or agents_seeded or findings_seeded or page_seeded:
             await self.db.commit()
 
         # Slack ping intentionally NOT fired on returning login.
@@ -1296,6 +1548,7 @@ class DemoService:
         connections_added = await self._ensure_dataset_connections(space)
         seeded = await self._seed_demo_context(space, user)
         agents_added = await self._seed_demo_agents(space, user)
+        await self._seed_demo_findings(space)
 
         await self.db.commit()
         await self.db.refresh(space)

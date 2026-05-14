@@ -339,6 +339,64 @@ async def test_signup_seeds_ten_demo_agents(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_signup_seeds_one_finding_per_demo_agent(db_session: AsyncSession):
+    """A fresh demo Space must ship with one pre-canned finding per
+    seeded agent (10 total) so the Pulse panel never lands on an empty
+    "All clear" on the very screen we record for sales videos. Type +
+    severity mix is intentional: at least one critical, several risks,
+    a couple opportunities, the rest insights.
+
+    Idempotent: a returning login does NOT mint duplicates."""
+    from src.models.agent import Agent, AgentFinding
+
+    service = DemoService(db_session)
+    resp = await service.signup(_ok_payload(), client_ip="2.3.4.5")
+
+    agent_ids_q = await db_session.execute(
+        select(Agent.id).where(
+            Agent.scope == "space", Agent.scope_id == resp.space_id
+        )
+    )
+    agent_ids = [a for a in agent_ids_q.scalars().all()]
+    assert len(agent_ids) == 10
+
+    findings_q = await db_session.execute(
+        select(AgentFinding).where(AgentFinding.agent_id.in_(agent_ids))
+    )
+    findings = list(findings_q.scalars().all())
+    assert len(findings) == 10, f"expected 10 demo findings, got {len(findings)}"
+
+    by_agent = {f.agent_id for f in findings}
+    assert len(by_agent) == 10, "each agent should carry exactly one finding"
+
+    # Severity mix sanity — must include at least one critical so the
+    # red rail / animated halo gets a chance to shine in the video.
+    severities = {f.severity for f in findings}
+    assert "critical" in severities, "expected at least one critical finding"
+    assert "high" in severities
+    assert "medium" in severities
+
+    # Type mix — all three Pulse columns must have content.
+    types = {f.type for f in findings}
+    assert types == {"insight", "opportunity", "risk"}
+
+    # Title/description are non-trivial — guards against accidental
+    # placeholder commits.
+    for f in findings:
+        assert f.title and len(f.title) > 20
+        assert f.description and len(f.description) > 40
+
+    # Returning login must not mint duplicate findings.
+    await service.signup(_ok_payload(), client_ip="2.3.4.5")
+    again_q = await db_session.execute(
+        select(AgentFinding).where(AgentFinding.agent_id.in_(agent_ids))
+    )
+    assert len(list(again_q.scalars().all())) == 10, (
+        "returning login duplicated the canned findings"
+    )
+
+
+@pytest.mark.asyncio
 async def test_signup_endpoint_integration(client, monkeypatch: pytest.MonkeyPatch):
     """End-to-end through FastAPI with the real router wiring."""
     monkeypatch.setattr(settings, "DEMO_ENABLED", True)
