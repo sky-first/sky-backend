@@ -15,6 +15,7 @@ from src.api.v1 import (
     connectors,
     context_health,
     context_rows,
+    context_semantic,
     conversations,
     cost_metrics,
     crews,
@@ -177,6 +178,7 @@ api_router.include_router(db_health.router, prefix="/db-health", tags=["DB Healt
 # ingest worker to fetch the full source row before embedding. Paired
 # with the Redis event stream in src/core/context_events.py.
 api_router.include_router(context_rows.router, prefix="/context", tags=["Context Rows"])
+api_router.include_router(context_semantic.router, prefix="/context", tags=["Universe Intelligence v2"])
 
 # Admin actions (pause-all, audit export) — admin-only.
 api_router.include_router(admin_actions.router, prefix="/admin", tags=["Admin Actions"])

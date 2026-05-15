@@ -109,6 +109,9 @@ class AgentFindingResponse(BaseModel):
     recommendation: Optional[str] = None
     data_sources: Optional[List[Optional[str]]] = None
     rows: Optional[Dict[str, Any]] = None  # {columns, data, truncated?} — consumed by Cockpit
+    # Sprint 1.17 round 5 — visualisation hint the Pulse FE uses to
+    # pick the card variant + the widget kind on "Add to page".
+    viz_kind: Optional[str] = None
     connection_id: Optional[UUID] = None
     connection_name: Optional[str] = None
     dismissed: bool = False

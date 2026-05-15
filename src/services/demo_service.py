@@ -403,6 +403,22 @@ class DemoService:
         """
         wanted = self._parse_connection_ids()
         if not wanted:
+            # Sprint 1.17 round 6 (Lucas 2026-05-15): "cade os agentes? cade
+            # as conexoes?" — silent no-op meant a fresh demo signup
+            # landed on an empty Sources panel. Now we log loudly so the
+            # operator sees the missing env var in the BE logs and can
+            # set DEMO_DATASET_CONNECTION_IDS / DEMO_DATASET_CONNECTION_ID
+            # without having to read the source code to know what's
+            # blocking the seed.
+            logger.warning(
+                "demo_dataset_connection_ids missing — both "
+                "DEMO_DATASET_CONNECTION_IDS and DEMO_DATASET_CONNECTION_ID "
+                "are empty/invalid. Set them to a CSV of data_connection "
+                "UUIDs (run scripts/seed_demo_connections.py first to mint "
+                "them, then copy the IDs into your env). Demo space %s "
+                "will end up with NO connections.",
+                space.id,
+            )
             return 0
 
         # 1. Filter to UUIDs that actually exist in data_connections.
@@ -419,6 +435,14 @@ class DemoService:
                 missing,
             )
         if not existing_ids:
+            logger.warning(
+                "demo_dataset_connection_ids ALL stale — none of %d "
+                "configured UUIDs exist in data_connections. Demo space "
+                "%s will end up with NO connections. Re-run "
+                "scripts/seed_demo_connections.py and update the env var.",
+                len(wanted),
+                space.id,
+            )
             return 0
 
         # 2. Skip the ones already bound to avoid duplicate-key errors.
@@ -942,6 +966,7 @@ class DemoService:
             "Strategic Health Audit": {
                 "type": "insight",
                 "severity": "high",
+                "viz_kind": "line",
                 "title": "Q-to-date health snapshot: revenue +12%, churn 4.8%, ops SLA 98.4%",
                 "description": (
                     "Cross-domain audit consolidates Revenue Pulse, Customer Health "
@@ -959,6 +984,7 @@ class DemoService:
             "Revenue Pulse": {
                 "type": "opportunity",
                 "severity": "medium",
+                "viz_kind": "callout",
                 "title": "Pipeline velocity up 18% WoW, driven by 3 mid-market deals",
                 "description": (
                     "Stage-to-close time on Series B-stage prospects dropped from "
@@ -975,6 +1001,7 @@ class DemoService:
             "Customer Health Watch": {
                 "type": "risk",
                 "severity": "high",
+                "viz_kind": "area",
                 "title": "Acme Corp: NPS down 22 pts, support tickets up 3×",
                 "description": (
                     "Acme Corp's monthly NPS dropped from 58 to 36 after the Q1 "
@@ -986,10 +1013,24 @@ class DemoService:
                     "roadmap review to rebuild trust before renewal."
                 ),
                 "confidence": 0.88,
+                # Sprint 1.17 round 3 — every demo finding ships a small
+                # `rows` payload so the FE sparkline / chart variant has
+                # a series to render. Lucas asked for "cards where the
+                # chart actually shows up"; without rows the FE falls
+                # back to a text card.
+                "rows": {
+                    "columns": ["month", "nps"],
+                    "data": [
+                        ["Nov", 58], ["Dec", 56], ["Jan", 51],
+                        ["Feb", 47], ["Mar", 41], ["Apr", 38], ["May", 36],
+                    ],
+                    "truncated": False,
+                },
             },
             "Operations Radar": {
                 "type": "risk",
                 "severity": "high",
+                "viz_kind": "kpi",
                 "title": "Payment API p95 latency +340ms over 24h",
                 "description": (
                     "p95 climbed from 180ms to 520ms in the last 24h. p99 doubled. "
@@ -1001,10 +1042,20 @@ class DemoService:
                     "the connection-handling change shipped on the 12th."
                 ),
                 "confidence": 0.86,
+                "rows": {
+                    "columns": ["hour", "p95_ms"],
+                    "data": [
+                        ["00:00", 180], ["04:00", 195], ["08:00", 220],
+                        ["12:00", 280], ["16:00", 360], ["20:00", 460],
+                        ["24:00", 520],
+                    ],
+                    "truncated": False,
+                },
             },
             "Pipeline Velocity Delta": {
                 "type": "insight",
                 "severity": "medium",
+                "viz_kind": "bullet_list",
                 "title": "Stage 'Negotiation' deal age up 31% — 7 deals stalled >21d",
                 "description": (
                     "Average time-in-stage for Negotiation jumped from 12.4 to "
@@ -1016,10 +1067,20 @@ class DemoService:
                     "common blockers (legal, security, pricing) to GTM ops."
                 ),
                 "confidence": 0.79,
+                "rows": {
+                    "columns": ["week", "avg_days"],
+                    "data": [
+                        ["W-6", 11.8], ["W-5", 12.0], ["W-4", 12.4],
+                        ["W-3", 13.2], ["W-2", 14.6], ["W-1", 15.5],
+                        ["W-0", 16.3],
+                    ],
+                    "truncated": False,
+                },
             },
             "Support Ticket Spike": {
                 "type": "risk",
                 "severity": "medium",
+                "viz_kind": "pie",
                 "title": "Inbound tickets 2.3× hourly baseline — likely related to v4.2 release",
                 "description": (
                     "Last hour: 47 tickets vs. 20 baseline (same hour-of-week, "
@@ -1031,10 +1092,20 @@ class DemoService:
                     "export pipeline or temporary rollback of the change."
                 ),
                 "confidence": 0.84,
+                "rows": {
+                    "columns": ["hour", "tickets"],
+                    "data": [
+                        ["06:00", 18], ["07:00", 21], ["08:00", 23],
+                        ["09:00", 28], ["10:00", 36], ["11:00", 42],
+                        ["12:00", 47],
+                    ],
+                    "truncated": False,
+                },
             },
             "Payment Failure Tracker": {
                 "type": "risk",
                 "severity": "critical",
+                "viz_kind": "comparison_kpi",
                 "title": "Failed payments doubled in last 4h — €18.4k ARR at risk",
                 "description": (
                     "Failed-payment events: 142 in the last 4h vs. 65 baseline. "
@@ -1047,10 +1118,20 @@ class DemoService:
                     "accounts. Investigate the do_not_honor spike with Stripe."
                 ),
                 "confidence": 0.93,
+                "rows": {
+                    "columns": ["hour", "failures"],
+                    "data": [
+                        ["-6h", 12], ["-5h", 15], ["-4h", 18],
+                        ["-3h", 22], ["-2h", 28], ["-1h", 33],
+                        ["now", 42],
+                    ],
+                    "truncated": False,
+                },
             },
             "Sign-up Anomaly": {
                 "type": "opportunity",
                 "severity": "low",
+                "viz_kind": "big_number",
                 "title": "Organic channel sign-ups +47% (z = 3.1) — possible PR mention",
                 "description": (
                     "Hourly organic sign-ups jumped from 22 to 32 (mean over "
@@ -1063,10 +1144,20 @@ class DemoService:
                     "LinkedIn while the wave is fresh."
                 ),
                 "confidence": 0.71,
+                "rows": {
+                    "columns": ["hour", "signups"],
+                    "data": [
+                        ["-6h", 18], ["-5h", 21], ["-4h", 22],
+                        ["-3h", 24], ["-2h", 27], ["-1h", 30],
+                        ["now", 32],
+                    ],
+                    "truncated": False,
+                },
             },
             "Login Failure Watch": {
                 "type": "insight",
                 "severity": "low",
+                "viz_kind": "bar",
                 "title": "Auth failure rate stable at 0.8% — no anomaly this hour",
                 "description": (
                     "Failed-login events: 14 in the last hour vs. 13 baseline. "
@@ -1074,10 +1165,20 @@ class DemoService:
                     "spraying signature. Continuing to monitor."
                 ),
                 "confidence": 0.95,
+                "rows": {
+                    "columns": ["hour", "failures"],
+                    "data": [
+                        ["-6h", 13], ["-5h", 14], ["-4h", 12],
+                        ["-3h", 15], ["-2h", 13], ["-1h", 14],
+                        ["now", 14],
+                    ],
+                    "truncated": False,
+                },
             },
             "Campaign ROI Watch": {
                 "type": "opportunity",
                 "severity": "medium",
+                "viz_kind": "scatter",
                 "title": "LinkedIn campaign CAC down 22% — scale budget",
                 "description": (
                     "LinkedIn 'AI for Finance' campaign: CAC dropped from €182 "
@@ -1089,6 +1190,15 @@ class DemoService:
                     "Monday. Watch CAC for 14 days before further scale."
                 ),
                 "confidence": 0.80,
+                "rows": {
+                    "columns": ["day", "cac_eur"],
+                    "data": [
+                        ["D-7", 182], ["D-6", 178], ["D-5", 168],
+                        ["D-4", 161], ["D-3", 154], ["D-2", 148],
+                        ["D-1", 142],
+                    ],
+                    "truncated": False,
+                },
             },
         }
 
@@ -1112,6 +1222,15 @@ class DemoService:
                 recommendation=payload.get("recommendation"),
                 confidence=payload.get("confidence"),
                 connection_id=primary_conn,
+                # Sprint 1.17 round 3 — chart rows attached so the FE
+                # sparkline renders on the agent insight card. Without
+                # this the card falls back to a text layout.
+                rows=payload.get("rows"),
+                # Sprint 1.17 round 5 — viz hint tells the Pulse FE
+                # which card variant + widget kind to render so the
+                # masonry has the variety Lucas asked for AND the
+                # "Add to page" flow lands a consistent widget.
+                viz_kind=payload.get("viz_kind"),
                 dismissed=False,
             )
             self.db.add(finding)
@@ -1655,6 +1774,60 @@ class DemoService:
             "seeded": seeded,
             "agents_added": agents_added,
             "connections_added": connections_added,
+        }
+
+    async def reseed_space(self, space_id: UUID, user: User) -> dict:
+        """Idempotent re-seed for an existing Space — Sprint 1.17 round 6.
+
+        Lucas review (2026-05-15): "cade os agentes? cade as conexoes?
+        entrei com um usuário demo e nao vejo, entrei com minha conta
+        owner e tambem nao vejo os agentes do space demo que deveria ter".
+        The cold signup path was silently no-op'ing the connection
+        bridge when the env var pointed at stale UUIDs, leaving demo
+        Spaces empty. This admin-callable method re-runs every demo
+        seed step (connections, knowledge, agents, findings) against
+        an arbitrary Space so an operator can heal a broken sandbox
+        in one HTTP call rather than re-running 4 CLI scripts.
+
+        Safe to run on the same Space repeatedly — each seed step is
+        idempotent. Returns a dict with the counts of what was added
+        so the operator can confirm the heal happened.
+        """
+        space_q = await self.db.execute(
+            select(Space).where(Space.id == space_id, Space.deleted_at.is_(None))
+        )
+        space = space_q.scalar_one_or_none()
+        if space is None:
+            raise BadRequestError(f"Space {space_id} not found.")
+
+        connections_added = await self._ensure_dataset_connections(space)
+        seeded = await self._seed_demo_context(space, user)
+        agents_added = await self._seed_demo_agents(space, user)
+        findings_added = await self._seed_demo_findings(space)
+
+        await self.db.commit()
+        await self.db.refresh(space)
+
+        _trigger_universe_embedding_seed(str(space.id))
+
+        logger.info(
+            "demo_reseed_completed space_id=%s by=%s connections=%d "
+            "knowledge=%s agents=%d findings=%d",
+            space.id,
+            user.email,
+            connections_added,
+            seeded,
+            agents_added,
+            findings_added,
+        )
+
+        return {
+            "space_id": str(space.id),
+            "space_name": space.name,
+            "connections_added": connections_added,
+            "knowledge": seeded,
+            "agents_added": agents_added,
+            "findings_added": findings_added,
         }
 
 

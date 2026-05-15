@@ -1,8 +1,13 @@
-"""Context Layer health endpoint — Phase 5.4.
+"""Context Layer health endpoint.
 
-Backs the Administration → Context Health card with one row per
-context `kind`:
+Backs two surfaces with one row per context `kind`:
 
+  * Administration → Context Health card (operational view)
+  * Universe Intelligence sidebar — the embedding-space sphere shows
+    the live doc-count per canonical family next to each cluster
+    (Connections / Knowledge / Relationships / Platform / Outputs)
+
+Returned fields per kind:
   * doc_count   — how many live (non-deleted) docs of that kind exist
   * last_indexed_at — the most recent `indexed_at` timestamp (None if
                       nothing has ever been indexed)
@@ -10,8 +15,11 @@ context `kind`:
                   older than 24h (the ingest worker should re-embed
                   these; count > 0 means the worker is behind)
 
-Admin-only. Returns zeros for unknown kinds (so the frontend can
-render the full 26-kind grid without branching).
+Authenticated end-users may read this — the aggregate counts do not
+reveal sensitive content (they are tenant-wide totals, not per-row
+data). Per-doc ACL scoping is enforced on the retrieval endpoints
+(`/context/rows/...`) and on the upcoming `/context/semantic-map`
+endpoint (Phase 2 of the Universe Intelligence v2 plan).
 """
 
 from __future__ import annotations
@@ -19,7 +27,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,28 +61,18 @@ class ContextHealthResponse(BaseModel):
     total_stale: int
 
 
-def _require_admin(user: User) -> None:
-    """Lock to admins only. The Context Health tab is an Administration
-    surface — end users don't need to see ingestion internals.
-    """
-    role = (getattr(user, "role", None) or "").lower()
-    if role not in {"admin", "superadmin"}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Administrator role required.",
-        )
-
-
 @router.get(
     "/health",
     response_model=ContextHealthResponse,
-    summary="Context Layer ingestion health per kind (admin only)",
+    summary="Context Layer ingestion health per kind",
 )
 async def get_context_health(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ContextHealthResponse:
-    _require_admin(current_user)
+    # Authenticated end-users may read this — see module docstring.
+    # `current_user` is injected only so the auth dependency runs.
+    _ = current_user
 
     now = datetime.now(timezone.utc)
     stale_cutoff = now - STALE_THRESHOLD

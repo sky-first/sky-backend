@@ -279,6 +279,16 @@ class AgentFinding(Base):
     # Cockpit chart picker.
     rows = Column(_JSONB_OR_JSON, nullable=True)
 
+    # Sprint 1.17 round 5 — viz_kind tells the Pulse FE which card
+    # variant + recharts widget kind to render. When NULL the FE
+    # falls back to a deterministic hash on the finding id, which
+    # keeps legacy findings rendering, but new agents should always
+    # tag themselves so the user sees a consistent "agent → widget"
+    # contract end-to-end. Allowed kinds mirror the toolbar chart
+    # picker registry: bar, line, donut, pie, kpi, big_number,
+    # delta, range, heatmap, sparkline, text, list.
+    viz_kind = Column(String(40), nullable=True)
+
     # Context
     connection_id = Column(UUID(as_uuid=True), nullable=True)
     connection_name = Column(String(255), nullable=True)
