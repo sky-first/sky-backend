@@ -155,3 +155,34 @@ async def extend_demo_user(
         "demo_expires_at": new_ttl.isoformat(),
         "extended_by_days": days,
     }
+
+
+@router.post(
+    "/reseed-space/{space_id}",
+    status_code=status.HTTP_200_OK,
+    responses={
+        400: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+    summary="Re-run the demo seed on an existing Space",
+    description=(
+        "Owner / Admin only. Idempotently re-applies every demo seed step "
+        "(connections → knowledge → agents → findings) to the supplied "
+        "Space. Use this to heal a Space whose Sources / Agents panel "
+        "ended up empty because the DEMO_DATASET_CONNECTION_IDS env var "
+        "was missing or pointed at stale UUIDs when the visitor signed "
+        "up. Each underlying step is idempotent so the action is safe "
+        "to retry. Returns the counts of what was added."
+    ),
+)
+async def reseed_space(
+    space_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    if current_user.role not in ("owner", "admin"):
+        raise ForbiddenError(
+            "Only the tenant Owner or an Admin can reseed a demo Space."
+        )
+    return await DemoService(db).reseed_space(space_id, current_user)

@@ -44,12 +44,14 @@ async def _seed_doc(
 
 # ─── H1 ───────────────────────────────────────────────────────────────────
 @pytest.mark.asyncio
-async def test_non_admin_is_forbidden(
+async def test_non_admin_can_read_aggregate_counts(
     test_user_with_tokens, async_client: AsyncClient, db_session: AsyncSession
 ):
-    # Force the user to a non-admin role — the fixture defaults to
-    # 'admin' to simplify other suites, so the role-lock test has
-    # to opt out explicitly.
+    # The Universe Intelligence sidebar shows the live per-family
+    # embedding counts to every end-user — the previous admin-only
+    # gate was removed when this surface became product, not admin
+    # tooling. The endpoint must still require authentication; only
+    # the role check is gone.
     test_user_with_tokens["user"].role = "user"
     await db_session.commit()
 
@@ -57,7 +59,17 @@ async def test_non_admin_is_forbidden(
         "/api/v1/context/health",
         headers=_auth(test_user_with_tokens["access_token"]),
     )
-    assert resp.status_code == status.HTTP_403_FORBIDDEN
+    assert resp.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_request_is_rejected(async_client: AsyncClient):
+    resp = await async_client.get("/api/v1/context/health")
+    # Auth dependency rejects missing/invalid bearer with 401.
+    assert resp.status_code in {
+        status.HTTP_401_UNAUTHORIZED,
+        status.HTTP_403_FORBIDDEN,  # Some auth middlewares prefer 403 for missing token.
+    }
 
 
 # ─── H2 ───────────────────────────────────────────────────────────────────

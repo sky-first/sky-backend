@@ -171,6 +171,82 @@ def _run_async(coro):
         loop.close()
 
 
+# Sprint 1.17 round 5 — viz_kind heuristics for new agent findings.
+# Pure helper, no side effects. Inferred from response shape so every
+# autonomous agent run carries an authoritative viz hint the Pulse FE
+# can render without guessing.
+import re as _re_viz
+
+
+_PERCENT_DELTA_RE = _re_viz.compile(r"[+\-]?\s?\d+(?:\.\d+)?\s?%")
+_NUMERIC_RE = _re_viz.compile(r"\d+(?:\.\d+)?")
+
+
+def _normalize_rows(rows):
+    if not rows:
+        return None, None
+    if isinstance(rows, dict) and "columns" in rows and "data" in rows:
+        return rows.get("columns") or [], rows.get("data") or []
+    if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+        cols = list(rows[0].keys())
+        data = [[r.get(c) for c in cols] for r in rows]
+        return cols, data
+    return None, None
+
+
+def _infer_viz_kind(response, answer: str) -> str:
+    rows = (response or {}).get("data") if isinstance(response, dict) else None
+    cols, data = _normalize_rows(rows)
+
+    title = ""
+    if isinstance(response, dict):
+        title = response.get("title") or ""
+
+    # Sprint 1.17 round 7 — emit only canonical viz_kinds the FE
+    # registry knows about (bar / line / area / pie / scatter / kpi /
+    # big_number / comparison_kpi / callout / bullet_list). Earlier
+    # legacy strings ("delta", "sparkline", "text", "range") forced
+    # the FE into a fallback layout, defeating the point of the hint.
+    if _PERCENT_DELTA_RE.search(title) or _PERCENT_DELTA_RE.search(answer or ""):
+        return "big_number"
+
+    if cols and data:
+        numeric_cols = sum(
+            1
+            for c_idx in range(len(cols))
+            if any(
+                isinstance(row[c_idx], (int, float))
+                for row in data
+                if len(row) > c_idx
+            )
+        )
+        if numeric_cols == 1:
+            label_col = next(
+                (
+                    c_idx
+                    for c_idx in range(len(cols))
+                    if any(
+                        isinstance(row[c_idx], str)
+                        for row in data
+                        if len(row) > c_idx
+                    )
+                ),
+                None,
+            )
+            if label_col is not None:
+                distinct = {row[label_col] for row in data if len(row) > label_col}
+                if 2 <= len(distinct) <= 8:
+                    return "pie"
+            return "line"
+        if numeric_cols >= 2:
+            return "bar"
+
+    if answer and len(_NUMERIC_RE.findall(answer)) >= 1 and len(answer) < 240:
+        return "kpi"
+
+    return "callout"
+
+
 async def _execute_agent_async(agent_id: str):
     """
     Core agent execution logic:
@@ -454,6 +530,16 @@ async def _execute_agent_async(agent_id: str):
                     sql_used = response.get("sql", "") if isinstance(response, dict) else ""
 
                     if answer:
+                        # Sprint 1.17 round 5 — viz_kind is picked by a
+                        # heuristic from the response shape so every
+                        # finding the worker emits ships with an
+                        # authoritative card variant. The Pulse FE
+                        # reads this and the "Add to page" picker
+                        # mirrors it onto the spawned widget kind.
+                        viz_kind = _infer_viz_kind(
+                            response=response if isinstance(response, dict) else None,
+                            answer=answer,
+                        )
                         finding = AgentFinding(
                             agent_id=agent.id,
                             execution_id=execution.id,
@@ -465,6 +551,7 @@ async def _execute_agent_async(agent_id: str):
                             query=question[:500],
                             connection_id=conn_id,
                             data_sources=table_ids or [str(conn_id)],
+                            viz_kind=viz_kind,
                         )
                         db.add(finding)
                         findings_created += 1
