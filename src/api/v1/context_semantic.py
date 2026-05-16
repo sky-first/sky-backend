@@ -83,6 +83,57 @@ class SemanticSearchRequest(BaseModel):
 # ─── ACL resolution ───────────────────────────────────────────────────
 
 
+def _trigger_universe_seed_background(space_id: str) -> None:
+    """Fire-and-forget POST to the AI service's per-Space seed hook.
+
+    Called when a /semantic-map call lands a non-empty scope with zero
+    embeddings (legacy demo signup, AI service was down at signup time,
+    or a manual reseed is needed). The script behind that endpoint is
+    idempotent — re-triggers cost only the OpenAI batch overhead for
+    rows that actually need an embedding. Errors stay in the BE log
+    and never propagate to the caller; the FE shows the "no embeddings"
+    state once and the next refresh picks up the new rows.
+    """
+    import asyncio
+
+    base = _ai_base_url()
+    url = f"{base}/spaces/{space_id}/seed-embeddings"
+
+    async def _fire() -> None:
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                resp = await client.post(url)
+                if resp.status_code >= 400:
+                    logger.warning(
+                        "universe_seed_lazy_failed space_id=%s status=%s body=%s",
+                        space_id,
+                        resp.status_code,
+                        resp.text[:200],
+                    )
+                else:
+                    logger.info(
+                        "universe_seed_lazy_ok space_id=%s",
+                        space_id,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "universe_seed_lazy_unreachable space_id=%s err=%s",
+                space_id,
+                exc,
+            )
+
+    try:
+        loop = asyncio.get_event_loop()
+        loop.create_task(_fire())
+    except RuntimeError:
+        # No running loop — nothing else we can do here. The endpoint
+        # is reachable for admins via the /demo/reseed-embeddings CLI.
+        logger.warning(
+            "universe_seed_lazy_no_loop space_id=%s",
+            space_id,
+        )
+
+
 async def _expand_with_shared_connection_spaces(
     db: AsyncSession,
     member_space_ids: List[UUID],
@@ -255,7 +306,17 @@ async def get_semantic_map(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"AI service error {response.status_code}",
         )
-    return SemanticMapResponse(**response.json())
+    parsed = SemanticMapResponse(**response.json())
+    # Lazy embedding seed — when a caller has Spaces visible (with
+    # shared data connections) but the AI returned no embeddings, the
+    # per-Space seed-embeddings hook never ran (e.g. demo predates the
+    # auto-seed commit, or the original POST failed silently). Fire it
+    # in the background so the next refresh has data. The script is
+    # idempotent at the SQL layer so repeated triggers cost nothing.
+    if parsed.count == 0 and acl.get("space_ids"):
+        for sid in acl["space_ids"][:5]:  # cap fan-out for safety
+            _trigger_universe_seed_background(sid)
+    return parsed
 
 
 # ─── /context/semantic-search ─────────────────────────────────────────
