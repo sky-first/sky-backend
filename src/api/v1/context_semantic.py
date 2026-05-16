@@ -83,55 +83,50 @@ class SemanticSearchRequest(BaseModel):
 # ─── ACL resolution ───────────────────────────────────────────────────
 
 
-def _trigger_universe_seed_background(space_id: str) -> None:
-    """Fire-and-forget POST to the AI service's per-Space seed hook.
+async def _seed_synchronously(space_ids: List[str]) -> bool:
+    """Trigger ``/spaces/{id}/seed-embeddings`` on the AI service and
+    wait for each call to return before continuing. Returns True if at
+    least one space's seed completed without error.
 
-    Called when a /semantic-map call lands a non-empty scope with zero
-    embeddings (legacy demo signup, AI service was down at signup time,
-    or a manual reseed is needed). The script behind that endpoint is
-    idempotent — re-triggers cost only the OpenAI batch overhead for
-    rows that actually need an embedding. Errors stay in the BE log
-    and never propagate to the caller; the FE shows the "no embeddings"
-    state once and the next refresh picks up the new rows.
+    Why synchronous: FastAPI closes the request scope as soon as the
+    response is returned, which cancels any in-flight ``create_task``
+    coroutines hanging off the same scope. Earlier versions used
+    fire-and-forget and embeddings never landed for legacy spaces.
+    The trade-off is latency on the first /semantic-map call (~10-30s
+    for a typical demo Space, longer for OpenAI cold starts); after
+    that, embeddings are cached and the call is instant.
     """
-    import asyncio
-
     base = _ai_base_url()
-    url = f"{base}/spaces/{space_id}/seed-embeddings"
-
-    async def _fire() -> None:
-        try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
+    seeded_any = False
+    # 50s cap per-seed so the FE's 90s budget still has room for the
+    # re-query + transport overhead.
+    async with httpx.AsyncClient(timeout=50.0) as client:
+        for space_id in space_ids:
+            url = f"{base}/spaces/{space_id}/seed-embeddings"
+            try:
                 resp = await client.post(url)
-                if resp.status_code >= 400:
-                    logger.warning(
-                        "universe_seed_lazy_failed space_id=%s status=%s body=%s",
-                        space_id,
-                        resp.status_code,
-                        resp.text[:200],
-                    )
-                else:
-                    logger.info(
-                        "universe_seed_lazy_ok space_id=%s",
-                        space_id,
-                    )
-        except Exception as exc:
-            logger.warning(
-                "universe_seed_lazy_unreachable space_id=%s err=%s",
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "universe_seed_lazy_unreachable space_id=%s err=%s",
+                    space_id,
+                    exc,
+                )
+                continue
+            if resp.status_code >= 400:
+                logger.warning(
+                    "universe_seed_lazy_failed space_id=%s status=%s body=%s",
+                    space_id,
+                    resp.status_code,
+                    resp.text[:200],
+                )
+                continue
+            logger.info(
+                "universe_seed_lazy_ok space_id=%s body=%s",
                 space_id,
-                exc,
+                resp.text[:120],
             )
-
-    try:
-        loop = asyncio.get_event_loop()
-        loop.create_task(_fire())
-    except RuntimeError:
-        # No running loop — nothing else we can do here. The endpoint
-        # is reachable for admins via the /demo/reseed-embeddings CLI.
-        logger.warning(
-            "universe_seed_lazy_no_loop space_id=%s",
-            space_id,
-        )
+            seeded_any = True
+    return seeded_any
 
 
 async def _expand_with_shared_connection_spaces(
@@ -309,13 +304,30 @@ async def get_semantic_map(
     parsed = SemanticMapResponse(**response.json())
     # Lazy embedding seed — when a caller has Spaces visible (with
     # shared data connections) but the AI returned no embeddings, the
-    # per-Space seed-embeddings hook never ran (e.g. demo predates the
-    # auto-seed commit, or the original POST failed silently). Fire it
-    # in the background so the next refresh has data. The script is
-    # idempotent at the SQL layer so repeated triggers cost nothing.
+    # per-Space seed-embeddings hook never ran (legacy demo / failed
+    # signup-time POST / staff-impersonated user with seeded entities
+    # but no embeddings). Trigger the same seed used at signup and
+    # WAIT briefly so this very response contains the data — earlier
+    # versions used asyncio.create_task fire-and-forget but FastAPI
+    # closes the request scope before the task finishes, dropping it.
     if parsed.count == 0 and acl.get("space_ids"):
-        for sid in acl["space_ids"][:5]:  # cap fan-out for safety
-            _trigger_universe_seed_background(sid)
+        seeded_any = await _seed_synchronously(acl["space_ids"][:5])
+        if seeded_any:
+            logger.info(
+                "universe_seed_lazy_completed re-querying AI for the seeded map"
+            )
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                try:
+                    response2 = await client.post(url, json=payload)
+                    if response2.status_code == 200:
+                        parsed = SemanticMapResponse(**response2.json())
+                        logger.info(
+                            "universe_seed_lazy_requery count=%d", parsed.count
+                        )
+                except httpx.HTTPError as e:
+                    logger.warning(
+                        "universe_seed_lazy_requery_failed err=%s", e
+                    )
     return parsed
 
 
