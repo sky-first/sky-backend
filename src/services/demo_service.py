@@ -880,10 +880,12 @@ class DemoService:
                 "frequency": "daily",
                 "connections": _conns("product"),
                 "focus": (
-                    "Which accounts have the lowest health scores? Show all "
-                    "accounts in account_health with their score, risk_level, "
-                    "seats_used, seats_paid, and last_login_at ordered by "
-                    "score ascending."
+                    "Which features have the lowest average usage in the last "
+                    "30 days? From product_usage.feature_adoption, show "
+                    "average times_used_30d per feature_name and count of "
+                    "accounts where times_used_30d is below 5. Rank features "
+                    "from least used to most used. This identifies which "
+                    "product areas cause the most customer friction."
                 ),
             },
             {
@@ -917,10 +919,12 @@ class DemoService:
                 "frequency": "daily",
                 "connections": _conns("web"),
                 "focus": (
-                    "How many sessions started per week? Show weekly session "
-                    "counts, average pages viewed per session, and identify "
-                    "weeks with significantly fewer sessions than the overall "
-                    "average."
+                    "Show session volume by week from web_analytics.sessions "
+                    "(count of started_at per week) and average pages_viewed "
+                    "per session. Flag weeks where session count drops more "
+                    "than 20% compared to the previous week. Also show the "
+                    "top 3 pages (by page_path) visited in web_analytics."
+                    "events grouped by page_path."
                 ),
             },
             {
