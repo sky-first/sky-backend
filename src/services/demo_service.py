@@ -520,8 +520,11 @@ class DemoService:
         # primary_conn falls back to None and the three seeded agents land
         # with connection_ids=[]. POST /agents/{id}/run/stream then 400s on
         # every "Run now" because it requires at least one connection.
-        if added_ids:
-            await self.db.flush()
+        # Always flush — not just when rows were added. If all connections
+        # were already bound in a previous call within the same transaction,
+        # added_ids is empty and the conditional flush was skipped, leaving
+        # _seed_demo_agents() unable to read those rows (autoflush=False).
+        await self.db.flush()
 
         return len(added_ids)
 
