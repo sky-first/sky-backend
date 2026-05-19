@@ -520,8 +520,11 @@ class DemoService:
         # primary_conn falls back to None and the three seeded agents land
         # with connection_ids=[]. POST /agents/{id}/run/stream then 400s on
         # every "Run now" because it requires at least one connection.
-        if added_ids:
-            await self.db.flush()
+        # Always flush — not just when rows were added. If all connections
+        # were already bound in a previous call within the same transaction,
+        # added_ids is empty and the conditional flush was skipped, leaving
+        # _seed_demo_agents() unable to read those rows (autoflush=False).
+        await self.db.flush()
 
         return len(added_ids)
 
@@ -767,11 +770,44 @@ class DemoService:
         bound_conn_ids = list(bound_q.scalars().all())
         primary_conn = bound_conn_ids[0] if bound_conn_ids else None
 
+        # Build a domain-label → connection_id map so each agent is pinned
+        # to the right source(s) instead of the generic primary_conn.
+        # Keys match the "connections" lists in the seed entries below.
+        conn_by_label: dict[str, UUID] = {}
+        if bound_conn_ids:
+            label_q = await self.db.execute(
+                select(DataConnection.id, DataConnection.name)
+                .where(DataConnection.id.in_(bound_conn_ids))
+            )
+            for cid, cname in label_q.all():
+                n = (cname or "").lower()
+                if "sales" in n or "crm" in n:
+                    conn_by_label["sales"] = cid
+                if "finance" in n:
+                    conn_by_label["finance"] = cid
+                if "marketing" in n:
+                    conn_by_label["marketing"] = cid
+                if "web" in n or "analytics" in n:
+                    conn_by_label["web"] = cid
+                if "product" in n or "usage" in n:
+                    conn_by_label["product"] = cid
+
+        def _conns(*labels: str) -> list[UUID]:
+            """Return connection UUIDs for the requested labels.
+            Falls back to primary_conn so agents always have at least one."""
+            result = [conn_by_label[lbl] for lbl in labels if lbl in conn_by_label]
+            return result if result else ([primary_conn] if primary_conn else [])
+
         # Tier-coded seed list. ``depth`` is the canonical L1/L2/L3 marker
         # in the data model — the FE reads it to render tier badges and
         # the worker uses it to gate execution budget. Frequency is set
         # per tier (L1 cheap+fast, L3 expensive+weekly) so the demo's
         # beat consumption stays demo-friendly.
+        #
+        # ``connections`` lists which domain labels to wire — translated to
+        # real UUIDs by _conns(). Focus texts are direct, answerable SQL
+        # questions (not multi-objective directives) so the AI orchestrator
+        # can map them to a specific table without ambiguity.
         seeds: list[dict] = [
             # ── 1 × L3 (deep) ───────────────────────────────────────
             {
@@ -779,12 +815,12 @@ class DemoService:
                 "archetype": "strategy_tracker",
                 "depth": "deep",
                 "frequency": "weekly",
+                "connections": _conns("finance", "product"),
                 "focus": (
-                    "Cross-domain board-level audit. Correlate revenue trend, "
-                    "customer health, and operations bottlenecks. Each run, "
-                    "surface the top 3 strategic risks and the top 3 growth "
-                    "openings the rest of the agent fleet missed, with the "
-                    "underlying evidence chain."
+                    "Show a summary: (1) total MRR from active subscriptions "
+                    "grouped by plan type (starter, pro, enterprise), and "
+                    "(2) count of accounts by health risk_level (churn, risk, "
+                    "watch, healthy) from account_health. Return both results."
                 ),
             },
             # ── 3 × L2 (standard) ───────────────────────────────────
@@ -793,10 +829,12 @@ class DemoService:
                 "archetype": "growth_intelligence",
                 "depth": "standard",
                 "frequency": "daily",
+                "connections": _conns("finance", "sales"),
                 "focus": (
-                    "Track MRR, pipeline velocity, and win-rate week-over-week. "
-                    "Flag any deviation from trend with a >5% delta and surface "
-                    "the top three accounts driving the swing."
+                    "What is the current total MRR from active subscriptions? "
+                    "Also show total open pipeline value grouped by stage "
+                    "(prospect, qualified, negotiation) and the win rate from "
+                    "closed deals."
                 ),
             },
             {
@@ -804,10 +842,12 @@ class DemoService:
                 "archetype": "risk_radar",
                 "depth": "standard",
                 "frequency": "daily",
+                "connections": _conns("product", "sales"),
                 "focus": (
-                    "Surface accounts with churn-risk signals: declining usage, "
-                    "support ticket spikes, expansion-stalled deals, or NPS drops. "
-                    "Rank by ARR exposure."
+                    "Show all accounts with risk_level of churn or risk in "
+                    "account_health. Include their health score, seats used "
+                    "versus seats paid, and last login date. Also show accounts "
+                    "with no last_login_at."
                 ),
             },
             {
@@ -815,10 +855,12 @@ class DemoService:
                 "archetype": "operations_monitor",
                 "depth": "standard",
                 "frequency": "daily",
+                "connections": _conns("product"),
                 "focus": (
-                    "Detect SLA breaches, anomalous error rates, and operational "
-                    "throughput regressions across the connected systems. "
-                    "Highlight the worst offender in the last 24 hours."
+                    "Show accounts where seats_used divided by seats_paid is "
+                    "below 0.5 (underutilization). Also show accounts where "
+                    "last_login_at is NULL or older than 30 days. Include "
+                    "account_id, score, and risk_level for each."
                 ),
             },
             # ── 6 × L1 (quick) ──────────────────────────────────────
@@ -826,51 +868,67 @@ class DemoService:
                 "name": "Pipeline Velocity Delta",
                 "archetype": "growth_intelligence",
                 "depth": "quick",
-                "frequency": "hourly",
+                "frequency": "daily",
+                "connections": _conns("sales"),
                 "focus": (
-                    "Compare hourly stage-time on open deals vs the 7-day "
-                    "rolling average. Flag stages where deal age jumps >20%."
+                    "How many open deals (prospect, qualified, negotiation "
+                    "stages) are there and what is the total pipeline value "
+                    "per stage? Show average deal size and count by stage."
                 ),
             },
             {
                 "name": "Support Ticket Spike",
                 "archetype": "operations_monitor",
                 "depth": "quick",
-                "frequency": "hourly",
+                "frequency": "daily",
+                "connections": _conns("product"),
                 "focus": (
-                    "Detect hourly inbound ticket volume spikes vs the same "
-                    "hour-of-week baseline. Group by product area and severity."
+                    "From product_usage.feature_adoption, show average "
+                    "times_used_30d per feature_name and count of accounts "
+                    "where times_used_30d is below 50. Do not apply any date "
+                    "filter — times_used_30d is already a pre-computed 30-day "
+                    "metric. Rank features from least used to most used. "
+                    "This identifies which product areas cause the most "
+                    "customer friction."
                 ),
             },
             {
                 "name": "Payment Failure Tracker",
                 "archetype": "risk_radar",
                 "depth": "quick",
-                "frequency": "hourly",
+                "frequency": "daily",
+                "connections": _conns("finance"),
                 "focus": (
-                    "Count failed-payment events per hour and compare to the "
-                    "7-day mean. Surface impacted accounts and total ARR exposure."
+                    "Show all invoices with status overdue or sent. How many "
+                    "are there and what is the total amount unpaid? Show count "
+                    "and sum grouped by status."
                 ),
             },
             {
                 "name": "Sign-up Anomaly",
                 "archetype": "growth_intelligence",
                 "depth": "quick",
-                "frequency": "hourly",
+                "frequency": "daily",
+                "connections": _conns("web", "marketing"),
                 "focus": (
-                    "Compare hourly new-user sign-up count to the 14-day "
-                    "baseline. Anomaly when |z-score| > 2. Slice by acquisition "
-                    "channel."
+                    "How many signup events occurred in the web analytics events "
+                    "table? Show counts by month and by UTM source from sessions. "
+                    "Also show total leads by source from the marketing leads table."
                 ),
             },
             {
                 "name": "Login Failure Watch",
                 "archetype": "risk_radar",
                 "depth": "quick",
-                "frequency": "hourly",
+                "frequency": "daily",
+                "connections": _conns("web"),
                 "focus": (
-                    "Track authentication failures per hour. Alert on >3× the "
-                    "7-day mean — potential security event or product regression."
+                    "Show session volume by week from web_analytics.sessions "
+                    "(count of started_at per week) and average pages_viewed "
+                    "per session. Flag weeks where session count drops more "
+                    "than 20% compared to the previous week. Also show the "
+                    "top 3 pages (by page_path) visited in web_analytics."
+                    "events grouped by page_path."
                 ),
             },
             {
@@ -878,10 +936,12 @@ class DemoService:
                 "archetype": "growth_intelligence",
                 "depth": "quick",
                 "frequency": "daily",
+                "connections": _conns("marketing"),
                 "focus": (
-                    "Daily CAC per marketing channel vs the 28-day moving "
-                    "average. Flag channels where CAC rose >15% or conversion "
-                    "fell >10%."
+                    "Show all marketing campaigns with their budget, spend, and "
+                    "lead count. Which channels have the most leads? Group "
+                    "campaigns by channel and show total budget vs total spend "
+                    "per channel."
                 ),
             },
         ]
@@ -899,7 +959,7 @@ class DemoService:
                 focus=seed["focus"],
                 frequency=seed["frequency"],
                 depth=seed["depth"],
-                connection_ids=[primary_conn] if primary_conn else [],
+                connection_ids=seed["connections"],
                 created_by=user.id,
             )
             self.db.add(agent)

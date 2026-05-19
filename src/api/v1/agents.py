@@ -1,5 +1,6 @@
 """Agent API endpoints — CRUD, pause/resume, findings, streaming execution."""
 
+import asyncio
 import json
 import logging
 import re
@@ -625,9 +626,10 @@ async def run_agent_stream(
                 elif line.strip():
                     yield f"{line}\n\n"
 
-        except Exception as e:
+        except (Exception, asyncio.CancelledError) as e:
             logger.error(f"Agent stream failed for {agent_id}: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            if not isinstance(e, asyncio.CancelledError):
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
         # Save finding — always create one row, even when the AI produced
         # no content, so the user sees a concrete result in the halo /
@@ -701,12 +703,21 @@ async def run_agent_stream(
                 "title": collected_meta.get("title", "Analysis complete"),
                 "has_answer": bool(collected_answer),
             }
-            yield f"data: {json.dumps(payload)}\n\n"
-        except Exception as e:
+            try:
+                yield f"data: {json.dumps(payload)}\n\n"
+            except (GeneratorExit, asyncio.CancelledError):
+                pass
+        except (Exception, asyncio.CancelledError) as e:
             logger.exception("Failed to save agent finding")
-            yield f"data: {json.dumps({'type': 'error', 'message': f'Could not persist finding: {e}'})}\n\n"
+            try:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Could not persist finding: {e}'})}\n\n"
+            except (GeneratorExit, asyncio.CancelledError):
+                pass
 
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        try:
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        except (GeneratorExit, asyncio.CancelledError):
+            pass
 
     return StreamingResponse(
         event_generator(),
