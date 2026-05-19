@@ -886,7 +886,7 @@ class DemoService:
                     "Which features have the lowest average usage in the last "
                     "30 days? From product_usage.feature_adoption, show "
                     "average times_used_30d per feature_name and count of "
-                    "accounts where times_used_30d is below 5. Rank features "
+                    "accounts where times_used_30d is below 50. Rank features "
                     "from least used to most used. This identifies which "
                     "product areas cause the most customer friction."
                 ),
