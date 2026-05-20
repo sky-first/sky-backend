@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.agent_identity import resolve_identity_for_page
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.agent import Agent
-from src.models.dashboard import Dashboard, Widget
+from src.models.widget import Widget
 from src.models.user import User
 from src.schemas.insight_agent import (
     AgentScheduleConfig,
@@ -68,18 +68,20 @@ class InsightAgentService:
     def _can_mutate(self, agent: Agent, user: User) -> bool:
         return user.role == "admin" or agent.created_by == user.id
 
-    async def _load_widget_with_page(self, widget_id: UUID) -> tuple[Widget, Dashboard]:
+    async def _load_widget_with_page(self, widget_id: UUID) -> tuple[Widget, "Page"]:
+        from src.models.page import Page
+
         widget = (
             await self.db.execute(select(Widget).where(Widget.id == widget_id))
         ).scalar_one_or_none()
         if widget is None:
             raise NotFoundError(f"Widget {widget_id} not found")
-        dashboard = (
-            await self.db.execute(select(Dashboard).where(Dashboard.id == widget.dashboard_id))
+        page = (
+            await self.db.execute(select(Page).where(Page.id == widget.page_id))
         ).scalar_one_or_none()
-        if dashboard is None:
-            raise NotFoundError("Widget has no dashboard — orphaned")
-        return widget, dashboard
+        if page is None:
+            raise NotFoundError("Widget has no page — orphaned")
+        return widget, page
 
     # ── create ──
 
@@ -89,10 +91,10 @@ class InsightAgentService:
         The identity is resolved from the widget's page; the caller's user
         id is always recorded as `created_by` / `attributed_to_user`.
         """
-        widget, dashboard = await self._load_widget_with_page(payload.widget_id)
+        widget, page = await self._load_widget_with_page(payload.widget_id)
         resolved = await resolve_identity_for_page(
             db=self.db,
-            page_id=dashboard.page_id,
+            page_id=page.id,
             creator_user_id=user.id,
         )
 

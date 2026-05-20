@@ -21,7 +21,7 @@ from src.ai.tools.sql_guard import GuardedSQL, SQLGuardViolation, guard_sql
 class ToolSpec:
     name: str
     permissions: Tuple[str, ...]     # every perm must be held by the caller
-    scope: str                       # "authorized_tables" | "current_dashboard_id" | "none"
+    scope: str                       # "authorized_tables" | "current_page_id" | "none"
     rate_limit: Tuple[int, str]      # (count, window) — e.g. (60, "minute")
     audit_level: str                 # "info" | "high" | "critical"
     description: str
@@ -46,7 +46,7 @@ TOOL_REGISTRY: Dict[str, ToolSpec] = {
     "widget.create": ToolSpec(
         name="widget.create",
         permissions=("dashboard.write",),
-        scope="current_dashboard_id",
+        scope="current_page_id",
         rate_limit=(10, "minute"),
         audit_level="high",
         description="Create a widget on the caller's current dashboard.",
@@ -54,7 +54,7 @@ TOOL_REGISTRY: Dict[str, ToolSpec] = {
     "insight.pin": ToolSpec(
         name="insight.pin",
         permissions=("dashboard.write",),
-        scope="current_dashboard_id",
+        scope="current_page_id",
         rate_limit=(20, "minute"),
         audit_level="info",
         description="Pin a generated insight to the caller's page.",

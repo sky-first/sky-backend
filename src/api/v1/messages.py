@@ -149,6 +149,6 @@ async def pin_message(
         "widget_id": str(widget.id),
         "conversation_id": str(widget.conversation_id),
         "pinned_message_id": str(widget.pinned_message_id),
-        "dashboard_id": str(widget.dashboard_id),
+        "page_id": str(widget.page_id),
         "title": widget.title,
     }

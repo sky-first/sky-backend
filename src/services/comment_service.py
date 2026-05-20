@@ -25,7 +25,7 @@ class CommentService:
         """Create a new comment and trigger notifications."""
         db_comment = Comment(
             user_id=user_id,
-            dashboard_id=comment_data.dashboard_id,
+            page_id=comment_data.page_id,
             widget_id=comment_data.widget_id,
             content=comment_data.content,
             mentions=[str(m) for m in comment_data.mentions],
@@ -43,9 +43,9 @@ class CommentService:
         # carry `insight=<widget_id>` when the comment is anchored to
         # a widget so the dashboard page's Phase-3.4 scroll-to-widget
         # handler highlights the right one on arrival.
-        dashboard_id = comment_data.dashboard_id
+        page_id = comment_data.page_id
         widget_id = comment_data.widget_id
-        deep_link = f"/dashboard?id={dashboard_id}"
+        deep_link = f"/dashboard?id={page_id}"
         if widget_id:
             deep_link += f"&insight={widget_id}"
         for mentioned_user_id in comment_data.mentions:
@@ -66,11 +66,11 @@ class CommentService:
 
         return db_comment
 
-    async def get_by_dashboard(self, dashboard_id: UUID) -> List[Comment]:
-        """Get comments for a dashboard."""
+    async def get_by_page(self, page_id: UUID) -> List[Comment]:
+        """Get comments for a page."""
         query = (
             select(Comment)
-            .where(Comment.dashboard_id == dashboard_id)
+            .where(Comment.page_id == page_id)
             .order_by(desc(Comment.created_at))
         )
         result = await self.db.execute(query)

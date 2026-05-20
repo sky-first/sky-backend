@@ -65,15 +65,14 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     import src.models.workspace  # noqa: F401
     from src.ai.http_client import AIServiceHTTPClient
     from src.config.database import AsyncSessionLocal
-    from src.models.dashboard_build_job import DashboardBuildJob
+    from src.models.page_build_job import PageBuildJob
     from src.models.notification import NotificationType
     from src.repositories.base import BaseRepository
-    from src.repositories.dashboard import WidgetRepository
+    from src.repositories.widget import WidgetRepository
     from src.repositories.user import UserRepository
-    from src.schemas.dashboard import DashboardCreate
     from src.schemas.notification import NotificationCreate
     from src.services.ai_service import AIService
-    from src.services.dashboard_service import DashboardService
+    from src.services.widget_service import WidgetService
     from src.services.notification_service import NotificationService
 
     async with AsyncSessionLocal() as db:
@@ -156,7 +155,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     rl_buckets = default_buckets_for_request(
                         tenant_key=tenant_key,
                         user_id=str(user_id),
-                        route_key="dashboards.widget_exec",
+                        route_key="pages.widget_exec",
                         user_per_min=settings.AI_RATE_LIMIT_USER_PER_MINUTE,
                         user_per_hour=settings.AI_RATE_LIMIT_USER_PER_HOUR,
                         tenant_per_min=settings.AI_RATE_LIMIT_TENANT_PER_MINUTE,
@@ -288,35 +287,30 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             await db.commit()
             await db.refresh(job)
 
-            # Create dashboard once
-            dashboard_service = DashboardService(db)
-            if not job.dashboard_id:
-                dashboard = await dashboard_service.create_dashboard(
-                    user=user,
-                    dashboard_data=DashboardCreate(
-                        name=str(plan_payload.get("dashboard_name") or goal),
-                        description=plan_payload.get("description"),
-                        page_id=job.page_id,
-                    ),
+            # Page is the canvas now — apply plan-derived canvas state directly
+            # onto the page. (Dashboard layer dropped 2026-05-20.)
+            widget_service = WidgetService(db)
+            from src.models.page import Page
+            page = (
+                await db.execute(select(Page).where(Page.id == job.page_id))
+            ).scalar_one_or_none()
+            if page is None:
+                raise RuntimeError(f"Page {job.page_id} not found for build job {job_id}")
+
+            # If the plan contains filters, persist them to canvas_settings so the
+            # frontend can hydrate the filter bar without an extra round-trip.
+            plan_filters = plan_payload.get("filters")
+            if plan_filters and isinstance(plan_filters, list):
+                page.canvas_settings = {"filters": plan_filters}
+                logger.info(
+                    "build_page_job(%s): saved %d filters to canvas_settings",
+                    job_id,
+                    len(plan_filters),
                 )
-                job.dashboard_id = dashboard.id
-
-                # ── Filters ───────────────────────────────────────────────────────────
-                # If the plan contains filters, persist them to canvas_settings so the
-                # frontend can hydrate the filter bar without an extra round-trip.
-                plan_filters = plan_payload.get("filters")
-                if plan_filters and isinstance(plan_filters, list):
-                    dashboard.canvas_settings = {"filters": plan_filters}
-                    logger.info(
-                        "build_dashboard_job(%s): saved %d filters to canvas_settings",
-                        job_id,
-                        len(plan_filters),
-                    )
-
                 await db.commit()
                 await db.refresh(job)
 
-            dashboard_id = job.dashboard_id
+            page_id = job.page_id
 
             # Plan widgets (cap to max_widgets)
             widgets = list(plan_payload.get("widgets") or [])[:max_widgets]
@@ -416,7 +410,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         placeholder_data["mapping"] = viz.get("mapping")
 
                 created = await widget_repo.create(
-                    dashboard_id=dashboard_id,
+                    page_id=page_id,
                     type=wtype,
                     title=w.get("title")
                     or (wtype.capitalize() if isinstance(wtype, str) else "Widget"),
@@ -761,10 +755,10 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         space_id=job.space_id,
                         type=NotificationType.NEW_INSIGHT_AVAILABLE,
                         title="New Insights Ready",
-                        description=f"Your dashboard '{job.goal[:30]}...' has been built with new insights.",
-                        entity_type="dashboard",
-                        entity_id=job.dashboard_id,
-                        deep_link=f"/dashboards/{job.dashboard_id}",
+                        description=f"Your page '{job.goal[:30]}...' has been built with new insights.",
+                        entity_type="page",
+                        entity_id=job.page_id,
+                        deep_link=f"/pages/{job.page_id}",
                     )
                 )
             except Exception as e:

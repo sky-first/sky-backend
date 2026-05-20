@@ -5,7 +5,7 @@ import pytest
 
 from src.models.ai import AIQuery
 from src.models.connection import DataConnection
-from src.models.dashboard import Dashboard, Widget
+from src.models.widget import Widget
 from src.models.page import Page
 from src.models.space import Space, SpaceConnection
 from src.models.user import User
@@ -59,14 +59,6 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
     )
 
     # Dashboard + widget linked to connection
-    dash = Dashboard(
-        id=dashboard_id,
-        name="D1",
-        page_id=page_id,
-        created_by=user_id,
-        created_at=now,
-        updated_at=now,
-    )
     w = Widget(
         id=widget_id,
         dashboard_id=dashboard_id,

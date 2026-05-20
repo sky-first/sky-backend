@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
-from src.schemas.dashboard import (
+from src.schemas.widget import (
     WidgetDataResponse,
     WidgetExportResponse,
     WidgetFeedbackCreate,
@@ -16,7 +16,7 @@ from src.schemas.dashboard import (
     WidgetResponse,
     WidgetUpdate,
 )
-from src.services.dashboard_service import DashboardService
+from src.services.widget_service import WidgetService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
@@ -49,8 +49,8 @@ async def update_widget(
     Returns:
         WidgetResponse: Updated widget
     """
-    dashboard_service = DashboardService(db)
-    return await dashboard_service.update_widget(widget_id, current_user, widget_data)
+    widget_service = WidgetService(db)
+    return await widget_service.update_widget(widget_id, current_user, widget_data)
 
 
 @router.delete(
@@ -78,8 +78,8 @@ async def delete_widget(
     Returns:
         SuccessResponse: Success message
     """
-    dashboard_service = DashboardService(db)
-    await dashboard_service.delete_widget(widget_id, current_user)
+    widget_service = WidgetService(db)
+    await widget_service.delete_widget(widget_id, current_user)
     return SuccessResponse(message="Widget deleted successfully")
 
 
@@ -108,8 +108,8 @@ async def duplicate_widget(
     Returns:
         WidgetResponse: Duplicated widget
     """
-    dashboard_service = DashboardService(db)
-    return await dashboard_service.duplicate_widget(widget_id, current_user)
+    widget_service = WidgetService(db)
+    return await widget_service.duplicate_widget(widget_id, current_user)
 
 
 @router.post(
@@ -137,8 +137,8 @@ async def export_widget(
     Returns:
         WidgetExportResponse: Widget export data
     """
-    dashboard_service = DashboardService(db)
-    export_data = await dashboard_service.export_widget(widget_id, current_user)
+    widget_service = WidgetService(db)
+    export_data = await widget_service.export_widget(widget_id, current_user)
     return WidgetExportResponse(**export_data)
 
 
@@ -167,8 +167,8 @@ async def get_widget_data(
     Returns:
         WidgetDataResponse: Widget data
     """
-    dashboard_service = DashboardService(db)
-    data = await dashboard_service.get_widget_data(widget_id, current_user)
+    widget_service = WidgetService(db)
+    data = await widget_service.get_widget_data(widget_id, current_user)
     return WidgetDataResponse(**data)
 
 
@@ -197,8 +197,8 @@ async def refresh_widget_data(
     Returns:
         WidgetDataResponse: Refreshed widget data
     """
-    dashboard_service = DashboardService(db)
-    data = await dashboard_service.refresh_widget_data(widget_id, current_user)
+    widget_service = WidgetService(db)
+    data = await widget_service.refresh_widget_data(widget_id, current_user)
     return WidgetDataResponse(**data)
 
 
@@ -229,5 +229,5 @@ async def add_widget_feedback(
     Returns:
         WidgetFeedbackResponse: Created/Updated feedback
     """
-    dashboard_service = DashboardService(db)
-    return await dashboard_service.add_widget_feedback(widget_id, current_user, feedback_data)
+    widget_service = WidgetService(db)
+    return await widget_service.add_widget_feedback(widget_id, current_user, feedback_data)

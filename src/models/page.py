@@ -1,8 +1,25 @@
-"""Page models."""
+"""Page models.
+
+A Page is the canonical "thing you're looking at" in the canvas: a
+container with its own widgets, canvas settings, and (when shared) a
+member list. The old Dashboard concept was folded into this model
+in 2026-05-20 — every page IS the canvas.
+"""
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -10,7 +27,7 @@ from src.config.database import Base
 
 
 class Page(Base):
-    """Page model."""
+    """Page model — the single canvas container."""
 
     __tablename__ = "pages"
 
@@ -35,6 +52,22 @@ class Page(Base):
         nullable=True,
         comment="Set = space-level page (all space members see, no crew required)",
     )
+
+    # ─── Canvas state (absorbed from the former Dashboard model) ────────────
+    canvas_settings = Column(
+        JSON,
+        nullable=True,
+        comment="Canvas viewport: {scale, position, snapToGrid, gridSize}",
+    )
+    is_locked = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    template_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     is_active = Column(Boolean, nullable=False, default=False, server_default="false")
     last_accessed = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
@@ -50,10 +83,16 @@ class Page(Base):
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Relationships
+    # ─── Relationships ─────────────────────────────────────────────────────
     owner = relationship("User", foreign_keys=[owner_id], back_populates="owned_pages")
     members = relationship("PageMember", back_populates="page", cascade="all, delete-orphan")
-    dashboards = relationship("Dashboard", back_populates="page", cascade="all, delete-orphan")
+    widgets = relationship(
+        "Widget", back_populates="page", cascade="all, delete-orphan"
+    )
+    widget_connections = relationship(
+        "Connection", back_populates="page", cascade="all, delete-orphan"
+    )
+    template = relationship("Template", foreign_keys=[template_id])
 
     __table_args__ = (
         Index("idx_pages_owner_id", "owner_id", postgresql_where=deleted_at.is_(None)),

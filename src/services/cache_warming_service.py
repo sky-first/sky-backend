@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.ai import AIQuery
-from src.models.dashboard import Widget
+from src.models.widget import Widget
 from src.models.space import SpaceConnection
 
 

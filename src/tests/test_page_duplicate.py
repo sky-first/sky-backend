@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.models.dashboard import Dashboard, Widget
+from src.models.widget import Widget
 from src.models.page import Page
 from src.services.page_service import PageService
 
@@ -37,22 +37,10 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
     db_session.add(page)
     await db_session.flush()
 
-    dash_a = Dashboard(
-        id=uuid4(),
-        name="Revenue",
-        description="Rev",
-        page_id=page.id,
-        created_by=user.id,
-        canvas_settings={"scale": 1.5, "position": {"x": 120, "y": 40}},
-        is_locked=True,
-    )
-    dash_b = Dashboard(
-        id=uuid4(),
-        name="Costs",
-        page_id=page.id,
-        created_by=user.id,
-    )
-    db_session.add_all([dash_a, dash_b])
+    # Dashboard concept folded into Page in 2026-05-20. Canvas state moved
+    # onto the page itself; we update it here to mirror what dash_a held.
+    page.canvas_settings = {"scale": 1.5, "position": {"x": 120, "y": 40}}
+    page.is_locked = True
     await db_session.flush()
 
     conn_id = uuid4()
@@ -61,7 +49,7 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
     widgets = [
         Widget(
             id=uuid4(),
-            dashboard_id=dash_a.id,
+            page_id=page.id,
             type="chart",
             title="Sales trend",
             position={"x": 0, "y": 0},
@@ -73,7 +61,7 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
         ),
         Widget(
             id=uuid4(),
-            dashboard_id=dash_a.id,
+            page_id=page.id,
             type="infographic",
             title="Coffee infographic",
             position={"x": 420, "y": 0},
@@ -83,7 +71,7 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
         ),
         Widget(
             id=uuid4(),
-            dashboard_id=dash_a.id,
+            page_id=page.id,
             type="kpi",
             title="Margin",
             position={"x": 0, "y": 320},
@@ -93,7 +81,7 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
         ),
         Widget(
             id=uuid4(),
-            dashboard_id=dash_b.id,
+            page_id=page.id,
             type="text",
             title="Notes",
             position={"x": 0, "y": 0},
@@ -101,7 +89,7 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
         ),
         Widget(
             id=uuid4(),
-            dashboard_id=dash_b.id,
+            page_id=page.id,
             type="table",
             title="Line items",
             position={"x": 0, "y": 120},
@@ -120,29 +108,18 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
     assert result.name == "Weekly Ops (Copy)"
     assert result.owner_id == user.id
 
-    # Dashboards were cloned with fresh UUIDs; counts match; canvas/is_locked are
-    # copied / reset correctly
+    # Canvas state cloned from the original page; is_locked resets to False
+    # (copies always start unlocked).
     from sqlalchemy import select
 
-    copied_dashboards = (
-        (await db_session.execute(select(Dashboard).where(Dashboard.page_id == result.id)))
-        .scalars()
-        .all()
-    )
-    assert len(copied_dashboards) == 2
+    assert result.canvas_settings == {"scale": 1.5, "position": {"x": 120, "y": 40}}
+    assert result.is_locked is False
 
-    original_dashboard_ids = {dash_a.id, dash_b.id}
-    for cd in copied_dashboards:
-        assert cd.id not in original_dashboard_ids
-        assert cd.is_locked is False  # always start unlocked
-        if cd.name == "Revenue":
-            assert cd.canvas_settings == {"scale": 1.5, "position": {"x": 120, "y": 40}}
-
-    # Widgets cloned for each dashboard; UUIDs are fresh; infographic is among them
+    # Widgets cloned onto the new page; UUIDs are fresh; infographic preserved
     copied_widget_rows = (
         (
             await db_session.execute(
-                select(Widget).where(Widget.dashboard_id.in_([cd.id for cd in copied_dashboards]))
+                select(Widget).where(Widget.page_id == result.id)
             )
         )
         .scalars()
@@ -165,7 +142,7 @@ async def test_duplicate_page_copies_everything_with_fresh_ids(db_session, test_
     original_widgets_still = (
         (
             await db_session.execute(
-                select(Widget).where(Widget.dashboard_id.in_([dash_a.id, dash_b.id]))
+                select(Widget).where(Widget.page_id == page.id)
             )
         )
         .scalars()
@@ -193,14 +170,10 @@ async def test_duplicate_page_strips_stuck_isloading_on_infographic(db_session, 
     db_session.add(page)
     await db_session.flush()
 
-    dash = Dashboard(id=uuid4(), name="D", page_id=page.id, created_by=user.id)
-    db_session.add(dash)
-    await db_session.flush()
-
     db_session.add(
         Widget(
             id=uuid4(),
-            dashboard_id=dash.id,
+            page_id=page.id,
             type="infographic",
             title="Stuck",
             position={"x": 0, "y": 0},
@@ -219,11 +192,8 @@ async def test_duplicate_page_strips_stuck_isloading_on_infographic(db_session, 
 
     from sqlalchemy import select
 
-    copied_dash = (
-        await db_session.execute(select(Dashboard).where(Dashboard.page_id == result.id))
-    ).scalar_one()
     copied_widget = (
-        await db_session.execute(select(Widget).where(Widget.dashboard_id == copied_dash.id))
+        await db_session.execute(select(Widget).where(Widget.page_id == result.id))
     ).scalar_one()
 
     assert copied_widget.data["isLoading"] is False
@@ -248,9 +218,6 @@ async def test_duplicate_page_deep_copies_nested_widget_data(db_session, test_us
     )
     db_session.add(page)
     await db_session.flush()
-    dash = Dashboard(id=uuid4(), name="D", page_id=page.id, created_by=user.id)
-    db_session.add(dash)
-    await db_session.flush()
     original_data = {
         "infographic_data": {
             "title": "X",
@@ -261,7 +228,7 @@ async def test_duplicate_page_deep_copies_nested_widget_data(db_session, test_us
     db_session.add(
         Widget(
             id=uuid4(),
-            dashboard_id=dash.id,
+            page_id=page.id,
             type="infographic",
             title="Keep",
             position={"x": 0, "y": 0},
@@ -281,9 +248,7 @@ async def test_duplicate_page_deep_copies_nested_widget_data(db_session, test_us
 
     copied = (
         await db_session.execute(
-            select(Widget).where(
-                Widget.dashboard_id.in_(select(Dashboard.id).where(Dashboard.page_id != page.id))
-            )
+            select(Widget).where(Widget.page_id != page.id)
         )
     ).scalar_one()
     assert copied.data["infographic_data"]["drivers"][0]["name"] == "a"

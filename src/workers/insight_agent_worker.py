@@ -141,7 +141,7 @@ async def _call_ai_run_agent(
 
     from src.ai.http_client import AIServiceHTTPClient
     from src.models.ai import AIQuery
-    from src.models.dashboard import Widget
+    from src.models.widget import Widget
 
     # ── 1. Load widget ────────────────────────────────────────────────
     if not agent.widget_id:

@@ -16,10 +16,10 @@ async def test_build_dashboard_job_async_success(monkeypatch):
     from src.ai import http_client as http_client_module
     from src.config import database as database_module
     from src.repositories import base as base_repo_module
-    from src.repositories import dashboard as dashboard_repo_module
+    from src.repositories import widget as dashboard_repo_module
     from src.repositories import user as user_repo_module
     from src.services import ai_service as ai_service_module
-    from src.services import dashboard_service as dashboard_service_module
+    from src.services import widget_service as widget_service_module
     from src.workers import ai_worker
 
     job_id = str(uuid4())
@@ -127,7 +127,7 @@ async def test_build_dashboard_job_async_success(monkeypatch):
         async def create_dashboard(self, **_kwargs):  # noqa: ANN003
             return SimpleNamespace(id=uuid4())
 
-    monkeypatch.setattr(dashboard_service_module, "DashboardService", FakeDashboardService)
+    monkeypatch.setattr(widget_service_module, "WidgetService", FakeDashboardService)
 
     class FakeWidgetRepo:
         def __init__(self, _db):

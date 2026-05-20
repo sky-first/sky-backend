@@ -27,8 +27,8 @@ from src.models.comment import Comment
 from src.models.conversation import Conversation, Message
 from src.models.connection import ColumnMetadata, ConnectionMetadata, DataConnection, TableMetadata
 from src.models.crew import Crew, CrewMember
-from src.models.dashboard import Connection, Dashboard, Widget
-from src.models.dashboard_build_job import DashboardBuildJob
+from src.models.widget import Connection, Widget, WidgetFeedback
+from src.models.page_build_job import PageBuildJob
 from src.models.enterprise_api import EnterpriseAPI
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.file import FileUpload
@@ -68,10 +68,10 @@ __all__ = [
     "Page",
     "PageMember",
     "StarredItem",
-    "Dashboard",
     "Widget",
+    "WidgetFeedback",
     "Connection",
-    "DashboardBuildJob",
+    "PageBuildJob",
     "DataConnection",
     "ConnectionMetadata",
     "TableMetadata",

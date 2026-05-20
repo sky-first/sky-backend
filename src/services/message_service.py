@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.conversation import Conversation, Message
-from src.models.dashboard import Widget
+from src.models.widget import Widget
 from src.models.user import User
 from src.repositories.conversation import ConversationRepository
 from src.repositories.message import MessageRepository
@@ -138,7 +138,7 @@ class MessageService:
             or msg.content.splitlines()[0][:255] if msg.content else "Insight"
         )
         widget = Widget(
-            dashboard_id=payload.dashboard_id,
+            page_id=payload.page_id,
             type=payload.widget_type,
             title=title,
             position=payload.position or {"x": 0, "y": 0},

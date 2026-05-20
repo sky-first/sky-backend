@@ -358,7 +358,7 @@ def _register_default_mappings() -> None:
     from src.models.connection import DataConnection
     from src.models.conversation import Conversation, Message
     from src.models.crew import Crew, CrewMember
-    from src.models.dashboard import Widget
+    from src.models.widget import Widget
     from src.models.enterprise_relationship import EnterpriseRelationship
     from src.models.glossary import GlossaryTerm
     from src.models.space import Space, SpaceMember

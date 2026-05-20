@@ -204,10 +204,10 @@ def _patch_worker_deps(monkeypatch, job, plan_from_http=None, widget_answer="ok"
     from src.ai import http_client as http_client_module
     from src.config import database as database_module
     from src.repositories import base as base_repo_module
-    from src.repositories import dashboard as dashboard_repo_module
+    from src.repositories import widget as dashboard_repo_module
     from src.repositories import user as user_repo_module
     from src.services import ai_service as ai_service_module
-    from src.services import dashboard_service as dashboard_service_module
+    from src.services import widget_service as widget_service_module
 
     db = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
 
@@ -273,8 +273,8 @@ def _patch_worker_deps(monkeypatch, job, plan_from_http=None, widget_answer="ok"
         ),
     )
     monkeypatch.setattr(
-        dashboard_service_module,
-        "DashboardService",
+        widget_service_module,
+        "WidgetService",
         lambda _db: SimpleNamespace(
             create_dashboard=AsyncMock(return_value=SimpleNamespace(id=uuid4()))
         ),
@@ -356,10 +356,10 @@ async def test_filters_saved_to_canvas_settings(monkeypatch):
     """When plan has filters, dashboard.canvas_settings must be set to {filters: [...]}."""
     from src.config import database as database_module
     from src.repositories import base as base_repo_module
-    from src.repositories import dashboard as dashboard_repo_module
+    from src.repositories import widget as dashboard_repo_module
     from src.repositories import user as user_repo_module
     from src.services import ai_service as ai_service_module
-    from src.services import dashboard_service as dashboard_service_module
+    from src.services import widget_service as widget_service_module
     from src.workers import ai_worker
 
     job_id = str(uuid4())
@@ -449,7 +449,7 @@ async def test_filters_saved_to_canvas_settings(monkeypatch):
             captured_dashboard["obj"] = d
             return d
 
-    monkeypatch.setattr(dashboard_service_module, "DashboardService", _DashboardService)
+    monkeypatch.setattr(widget_service_module, "WidgetService", _DashboardService)
     monkeypatch.setattr(
         dashboard_repo_module,
         "WidgetRepository",
@@ -480,10 +480,10 @@ async def test_layout_from_plan_overrides_textual_layout(monkeypatch):
     """Widgets with explicit layout in the plan must use those coordinates, not the textual layout."""
     from src.config import database as database_module
     from src.repositories import base as base_repo_module
-    from src.repositories import dashboard as dashboard_repo_module
+    from src.repositories import widget as dashboard_repo_module
     from src.repositories import user as user_repo_module
     from src.services import ai_service as ai_service_module
-    from src.services import dashboard_service as dashboard_service_module
+    from src.services import widget_service as widget_service_module
     from src.workers import ai_worker
 
     job_id = str(uuid4())
@@ -565,8 +565,8 @@ async def test_layout_from_plan_overrides_textual_layout(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        dashboard_service_module,
-        "DashboardService",
+        widget_service_module,
+        "WidgetService",
         lambda _db: SimpleNamespace(
             create_dashboard=AsyncMock(return_value=SimpleNamespace(id=uuid4()))
         ),

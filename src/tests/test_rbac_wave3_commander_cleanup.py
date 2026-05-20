@@ -59,7 +59,7 @@ def test_owner_still_has_crew_content_perms():
     assert c["pages.create"] is True
     assert c["pages.edit"] is True
     assert c["pages.delete"] is True
-    assert c["dashboards.create"] is True
+    assert c["pages.duplicate"] is True
     assert c["widgets.create"] is True
     # Crew membership management
     assert c["crews.members.manage"] is True
