@@ -45,15 +45,15 @@ async def create_user(db_session: AsyncSession, email: str):
 
 
 async def create_page_with_dashboard(db_session: AsyncSession, owner_id):
+    """Seed a Page (which IS the canvas now — Dashboard concept retired
+    2026-05-20). The function still returns a 2-tuple to match callers;
+    the second element aliases the page so any `dash.id` usage works.
+    """
     page = Page(name="P", type="personal", color="#3b82f6", owner_id=owner_id)
     db_session.add(page)
     await db_session.commit()
     await db_session.refresh(page)
-    dash = Dashboard(name="D", page_id=page.id, created_by=owner_id)
-    db_session.add(dash)
-    await db_session.commit()
-    await db_session.refresh(dash)
-    return page, dash
+    return page, page
 
 
 async def make_conversation(client: AsyncClient, page_id, headers, body=None):
@@ -170,7 +170,7 @@ async def test_pin_assistant_message_creates_widget(
 
     r = await async_client.post(
         f"/api/v1/messages/{msg.id}/pin",
-        json={"dashboard_id": str(dash.id), "widget_type": "insight"},
+        json={"page_id": str(dash.id), "widget_type": "insight"},
         headers=headers,
     )
     assert r.status_code == 201
@@ -197,7 +197,7 @@ async def test_pin_user_message_rejected(
 
     r2 = await async_client.post(
         f"/api/v1/messages/{user_msg_id}/pin",
-        json={"dashboard_id": str(dash.id)},
+        json={"page_id": str(dash.id)},
         headers=headers,
     )
     assert r2.status_code == 400
@@ -220,12 +220,12 @@ async def test_pin_same_message_twice_returns_same_widget(
 
     r1 = await async_client.post(
         f"/api/v1/messages/{msg.id}/pin",
-        json={"dashboard_id": str(dash.id)},
+        json={"page_id": str(dash.id)},
         headers=headers,
     )
     r2 = await async_client.post(
         f"/api/v1/messages/{msg.id}/pin",
-        json={"dashboard_id": str(dash.id)},
+        json={"page_id": str(dash.id)},
         headers=headers,
     )
     assert r1.status_code == 201
@@ -247,12 +247,12 @@ async def test_pin_two_different_messages_creates_two_widgets(
 
     r_a = await async_client.post(
         f"/api/v1/messages/{msg_a.id}/pin",
-        json={"dashboard_id": str(dash.id)},
+        json={"page_id": str(dash.id)},
         headers=headers,
     )
     r_b = await async_client.post(
         f"/api/v1/messages/{msg_b.id}/pin",
-        json={"dashboard_id": str(dash.id)},
+        json={"page_id": str(dash.id)},
         headers=headers,
     )
     assert r_a.json()["widget_id"] != r_b.json()["widget_id"]

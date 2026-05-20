@@ -55,15 +55,17 @@ async def test_widget_emits_widget_kind(
     from src.models.page import Page
 
     owner = uuid.uuid4()
-    dashboard = Dashboard(name="Test", page_id=uuid.uuid4())
-    db_session.add(dashboard)
+    page = Page(
+        name="Test", type="personal", color="#000000", owner_id=owner,
+    )
+    db_session.add(page)
     await db_session.flush()
-    event_sink.clear()  # dashboard itself doesn't emit (not mapped)
+    event_sink.clear()  # page itself doesn't emit a widget event
 
     w = Widget(
         title="Revenue chart",
         type="chart",
-        dashboard_id=dashboard.id,
+        page_id=page.id,
         position={"x": 0, "y": 0},
         size={"width": 4, "height": 3},
         config={"chart_type": "line"},

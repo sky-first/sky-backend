@@ -48,9 +48,7 @@ PRODUCTIVE_PERMS = [
     # Canvas writes
     "pages.create",
     "pages.edit",
-    "dashboards.create",
-    "dashboards.edit",
-    "dashboards.duplicate",
+    "pages.duplicate",
     "widgets.create",
     "widgets.edit",
     "widgets.delete",

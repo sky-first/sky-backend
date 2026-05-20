@@ -11,7 +11,7 @@ class CommentBase(BaseModel):
     """Base comment schema."""
 
     content: str
-    dashboard_id: UUID
+    page_id: UUID
     widget_id: Optional[UUID] = None
     mentions: List[UUID] = []
 

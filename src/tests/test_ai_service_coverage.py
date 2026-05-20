@@ -16,21 +16,18 @@ async def _seed_ai_fixtures(db_session):
     user = User(id=uuid.uuid4(), email=f"ai.{uuid.uuid4().hex[:8]}@example.com", role="user", password_hash="dummy", name="Test User")
     space = Space(id=uuid.uuid4(), name="AI Test Space", created_by=user.id)
     page = Page(id=uuid.uuid4(), name="AI Test Page", space_id=space.id, type="team", color="#000000", owner_id=user.id)
-    from src.models.page import Page
-    dashboard = Dashboard(id=uuid.uuid4(), name="AI Test Dash", page_id=page.id, created_by=user.id)
     widget = Widget(
         id=uuid.uuid4(),
         title="AI Test Widget",
         type="ai-box",
         position={"x": 0, "y": 0},
         size={"width": 100, "height": 100},
-        dashboard_id=dashboard.id,
+        page_id=page.id,
         created_by=user.id,
     )
     db_session.add(user)
     db_session.add(space)
     db_session.add(page)
-    db_session.add(dashboard)
     db_session.add(widget)
     await db_session.flush()
     return user, space, page, widget

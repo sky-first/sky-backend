@@ -59,14 +59,6 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
     )
 
     # Dashboard + widget linked to connection
-    dash = Dashboard(
-        id=dashboard_id,
-        name="D1",
-        page_id=page_id,
-        created_by=user_id,
-        created_at=now,
-        updated_at=now,
-    )
     w = Widget(
         id=widget_id,
         dashboard_id=dashboard_id,

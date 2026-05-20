@@ -55,12 +55,8 @@ async def _seed_personal_page_with_widget(db: AsyncSession, user_id):
     db.add(page)
     await db.commit()
     await db.refresh(page)
-    dash = Dashboard(name="D", page_id=page.id, created_by=user_id)
-    db.add(dash)
-    await db.commit()
-    await db.refresh(dash)
     widget = Widget(
-        dashboard_id=dash.id,
+        page_id=page.id,
         type="insight",
         title="Revenue YoY",
         position={"x": 0, "y": 0},
@@ -70,7 +66,7 @@ async def _seed_personal_page_with_widget(db: AsyncSession, user_id):
     db.add(widget)
     await db.commit()
     await db.refresh(widget)
-    return page, dash, widget
+    return page, widget
 
 
 async def _seed_space_page_with_widget(db: AsyncSession, user_id):
@@ -90,18 +86,14 @@ async def _seed_space_page_with_widget(db: AsyncSession, user_id):
     db.add(page)
     await db.commit()
     await db.refresh(page)
-    dash = Dashboard(name="D", page_id=page.id, created_by=user_id)
-    db.add(dash)
-    await db.commit()
-    await db.refresh(dash)
     widget = Widget(
-        dashboard_id=dash.id, type="insight", title="Space KPI",
+        page_id=page.id, type="insight", title="Space KPI",
         position={"x": 0, "y": 0}, size={"width": 400, "height": 300}, data={},
     )
     db.add(widget)
     await db.commit()
     await db.refresh(widget)
-    return page, dash, widget, space, sp
+    return page, widget, space, sp
 
 
 async def _seed_crew_page_with_widget(db: AsyncSession, user_id):
@@ -128,18 +120,14 @@ async def _seed_crew_page_with_widget(db: AsyncSession, user_id):
     db.add(page)
     await db.commit()
     await db.refresh(page)
-    dash = Dashboard(name="D", page_id=page.id, created_by=user_id)
-    db.add(dash)
-    await db.commit()
-    await db.refresh(dash)
     widget = Widget(
-        dashboard_id=dash.id, type="insight", title="Crew KPI",
+        page_id=page.id, type="insight", title="Crew KPI",
         position={"x": 0, "y": 0}, size={"width": 400, "height": 300}, data={},
     )
     db.add(widget)
     await db.commit()
     await db.refresh(widget)
-    return page, dash, widget, crew, sp
+    return page, widget, crew, sp
 
 
 # ─── B1: create ───────────────────────────────────────────────────────────
@@ -150,7 +138,7 @@ async def test_create_insight_agent_for_personal_widget(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
     user = test_user_with_tokens["user"]
-    _, _, widget = await _seed_personal_page_with_widget(db_session, user.id)
+    _, widget = await _seed_personal_page_with_widget(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
     r = await async_client.post(
@@ -181,7 +169,7 @@ async def test_create_insight_agent_on_space_page_uses_space_sp(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
     user = test_user_with_tokens["user"]
-    _, _, widget, space, sp = await _seed_space_page_with_widget(db_session, user.id)
+    _, widget, space, sp = await _seed_space_page_with_widget(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
     r = await async_client.post(
@@ -205,7 +193,7 @@ async def test_create_insight_agent_on_crew_page_uses_crew_sp(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
     user = test_user_with_tokens["user"]
-    _, _, widget, crew, sp = await _seed_crew_page_with_widget(db_session, user.id)
+    _, widget, crew, sp = await _seed_crew_page_with_widget(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
     r = await async_client.post(
@@ -257,7 +245,7 @@ async def test_update_schedule_recomputes_next_execution_at(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
     user = test_user_with_tokens["user"]
-    _, _, widget = await _seed_personal_page_with_widget(db_session, user.id)
+    _, widget = await _seed_personal_page_with_widget(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
     r = await async_client.post(
@@ -293,7 +281,7 @@ async def test_pause_clears_next_execution_and_resume_sets_it_to_now(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
     user = test_user_with_tokens["user"]
-    _, _, widget = await _seed_personal_page_with_widget(db_session, user.id)
+    _, widget = await _seed_personal_page_with_widget(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
     r = await async_client.post(
@@ -332,7 +320,7 @@ async def test_run_now_sets_next_execution_to_now(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
     user = test_user_with_tokens["user"]
-    _, _, widget = await _seed_personal_page_with_widget(db_session, user.id)
+    _, widget = await _seed_personal_page_with_widget(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
     r = await async_client.post(
@@ -365,7 +353,7 @@ async def test_delete_marks_ended_but_preserves_row(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
     user = test_user_with_tokens["user"]
-    _, _, widget = await _seed_personal_page_with_widget(db_session, user.id)
+    _, widget = await _seed_personal_page_with_widget(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
     r = await async_client.post(
@@ -402,7 +390,7 @@ async def test_non_creator_cannot_pause(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
     user = test_user_with_tokens["user"]
-    _, _, widget = await _seed_personal_page_with_widget(db_session, user.id)
+    _, widget = await _seed_personal_page_with_widget(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
     r = await async_client.post(
@@ -430,7 +418,7 @@ async def test_ended_agent_cannot_be_paused(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
     user = test_user_with_tokens["user"]
-    _, _, widget = await _seed_personal_page_with_widget(db_session, user.id)
+    _, widget = await _seed_personal_page_with_widget(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
     r = await async_client.post(

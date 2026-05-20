@@ -41,15 +41,11 @@ async def test_page(db_session, test_user):
 
 @pytest.fixture
 async def test_dashboard(db_session, test_user, test_page):
-    dashboard = Dashboard(
-        id=uuid4(),
-        name="Test Dashboard",
-        created_by=test_user.id,
-        page_id=test_page.id,
-    )
-    db_session.add(dashboard)
-    await db_session.commit()
-    return dashboard
+    # Dashboard concept was folded into Page in 2026-05-20; this fixture
+    # used to materialize a Dashboard row + return it. Now the page IS
+    # the canvas, so any consumer that needed `dashboard.id` should use
+    # `test_page.id` instead.
+    return test_page
 
 
 async def test_create_notification(db_session, test_user):

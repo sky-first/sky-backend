@@ -204,7 +204,7 @@ class TemplateService:
         if not template:
             raise NotFoundError("Template not found")
 
-        dashboard = await self.page_repo.get_by_id(apply_data.dashboard_id)
+        dashboard = await self.page_repo.get_by_id(apply_data.page_id)
         if not dashboard or dashboard.deleted_at:
             raise NotFoundError("Dashboard not found")
 
@@ -222,7 +222,7 @@ class TemplateService:
             }
 
             widget = await self.widget_repo.create(
-                dashboard_id=apply_data.dashboard_id,
+                page_id=apply_data.page_id,
                 type=widget_def.get("type", "chart"),
                 title=widget_def.get("title", "Widget"),
                 position=position,

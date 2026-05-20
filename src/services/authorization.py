@@ -160,7 +160,6 @@ PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
 
     # Space — owner only (admin actions on the Space itself)
     "pages.delete":              ("space", "owner"),
-    "dashboards.delete":         ("space", "owner"),
     "agents.delete":             ("space", "owner"),
     # spaces.members.manage acts on the Space's membership list itself —
     # NOT on a sub-resource that could live inside a Crew. So even when

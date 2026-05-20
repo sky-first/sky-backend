@@ -56,7 +56,7 @@ class TemplateResponse(TemplateBase):
 class TemplateApplyRequest(BaseModel):
     """Template apply request schema."""
 
-    dashboard_id: UUID
+    page_id: UUID
     position: Optional[Dict[str, float]] = Field(None, description="Optional position {x, y}")
 
 

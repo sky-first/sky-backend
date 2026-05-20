@@ -138,7 +138,7 @@ class MessageService:
             or msg.content.splitlines()[0][:255] if msg.content else "Insight"
         )
         widget = Widget(
-            dashboard_id=payload.dashboard_id,
+            page_id=payload.page_id,
             type=payload.widget_type,
             title=title,
             position=payload.position or {"x": 0, "y": 0},

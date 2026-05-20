@@ -166,20 +166,12 @@ class TestCommentAPI:
         db_session.add(page)
         await db_session.commit()
 
-        dashboard = Dashboard(
-            id=uuid4(),
-            name="Test Dash",
-            created_by=user.id,
-            page_id=page.id,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-        db_session.add(dashboard)
-        await db_session.commit()
+        # Dashboard concept folded into Page (2026-05-20); use page directly.
+        dashboard = page  # alias kept for downstream `.id` references
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         comment_data = {
-            "dashboard_id": str(dashboard.id),
+            "page_id": str(dashboard.id),
             "content": "Hello @other",
             "mentions": [str(other_user.id)],
         }
@@ -227,22 +219,14 @@ class TestCommentAPI:
         db_session.add(page)
         await db_session.commit()
 
-        dashboard = Dashboard(
-            id=uuid4(),
-            name="Test Dash",
-            created_by=user.id,
-            page_id=page.id,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-        db_session.add(dashboard)
-        await db_session.commit()
+        # Dashboard concept folded into Page (2026-05-20); use page directly.
+        dashboard = page  # alias kept for downstream `.id` references
 
         # Create a comment
         comment = Comment(
             id=uuid4(),
             user_id=user.id,
-            dashboard_id=dashboard.id,
+            page_id=page.id,
             content="Comment 1",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
@@ -252,7 +236,7 @@ class TestCommentAPI:
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.get(
-            f"/api/v1/comments?dashboard_id={dashboard.id}", headers=headers
+            f"/api/v1/comments?page_id={dashboard.id}", headers=headers
         )
         assert response.status_code == 200
         data = response.json()

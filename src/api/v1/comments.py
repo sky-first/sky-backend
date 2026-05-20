@@ -29,11 +29,11 @@ async def create_comment(
 
 @router.get("", response_model=List[CommentResponse])
 async def list_comments(
-    dashboard_id: UUID = Query(...),
+    page_id: UUID = Query(...),
     current_user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    """List comments for a dashboard."""
+    """List comments for a page."""
     await RBACService(db).assert_permission(current_user, "pages.view")
     service = CommentService(db)
-    return await service.get_by_dashboard(dashboard_id)
+    return await service.get_by_page(page_id)

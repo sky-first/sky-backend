@@ -106,7 +106,7 @@ def widget_cache_key(widget_id: str) -> str:
     return f"widget:{widget_id}"
 
 
-def dashboard_cache_key(dashboard_id: str) -> str:
+def page_cache_key(dashboard_id: str) -> str:
     """Generate cache key for dashboard."""
     return f"dashboard:{dashboard_id}"
 

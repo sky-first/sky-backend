@@ -155,7 +155,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     rl_buckets = default_buckets_for_request(
                         tenant_key=tenant_key,
                         user_id=str(user_id),
-                        route_key="dashboards.widget_exec",
+                        route_key="pages.widget_exec",
                         user_per_min=settings.AI_RATE_LIMIT_USER_PER_MINUTE,
                         user_per_hour=settings.AI_RATE_LIMIT_USER_PER_HOUR,
                         tenant_per_min=settings.AI_RATE_LIMIT_TENANT_PER_MINUTE,

@@ -47,7 +47,7 @@ class MessageListResponse(BaseModel):
 class PinRequest(BaseModel):
     """Materialise a widget pinned to this message."""
 
-    dashboard_id: UUID
+    page_id: UUID
     title: Optional[str] = Field(None, max_length=255)
     widget_type: str = Field(default="insight", max_length=50)
     position: Optional[dict] = None  # {x, y}
