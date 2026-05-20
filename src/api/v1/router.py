@@ -10,6 +10,7 @@ from src.api.v1 import (
     auth,
     beats,
     branding,
+    change_requests,
     comments,
     connections,
     connectors,
@@ -208,6 +209,14 @@ api_router.include_router(starred.router, prefix="/starred", tags=["Starred"])
 
 # Comment endpoints
 api_router.include_router(comments.router, prefix="/comments", tags=["Comments"])
+
+# Change-request endpoints — chat ↔ widget bridge (chat-threads-master-plan PR3).
+api_router.include_router(
+    change_requests.router, prefix="/change-requests", tags=["Change Requests"]
+)
+api_router.include_router(
+    change_requests.widget_router, prefix="/widgets", tags=["Change Requests"]
+)
 
 # Signal Events / Intelligence Signals endpoints removed in the Knowledge
 # refactor Phase 1b (2026-04-25). They were not part of the new Knowledge
