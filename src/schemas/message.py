@@ -14,25 +14,37 @@ class MessageCreate(BaseModel):
     Callers can only create messages with role='user'. Assistant / system
     messages are produced internally (by the AI service callback in Phase 2,
     or by the agent runtime). The validator below rejects anything else.
+
+    ``kind`` further qualifies the message inside the collaborative-thread
+    semantics (chat-threads-master-plan PR1):
+      - question → owner asks AI (fires a build job)
+      - comment  → non-owner discussion; AI doesn't reply directly
+    ``ai_response`` and ``system`` are server-produced and rejected if a
+    client tries to set them.
     """
 
     role: str = Field(default="user", pattern="^(user|assistant|system)$")
+    kind: Optional[str] = Field(default=None, pattern="^(question|comment)$")
     content: str = Field(..., min_length=1, max_length=100_000)
     query_id: Optional[UUID] = None
     cost_tokens: Optional[int] = Field(None, ge=0)
     cost_usd: Optional[Decimal] = Field(None, ge=0)
+    parent_message_id: Optional[UUID] = None
 
 
 class MessageResponse(BaseModel):
     id: UUID
     conversation_id: UUID
     role: str
+    kind: Optional[str] = None
     content: str
     query_id: Optional[UUID]
     cost_tokens: Optional[int]
     cost_usd: Optional[Decimal]
     created_at: datetime
     pinned_widget_id: Optional[UUID]
+    parent_message_id: Optional[UUID] = None
+    incorporated_in_message_id: Optional[UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -366,3 +366,213 @@ async def test_non_member_cannot_list_messages_in_crew_conversation(
         f"/api/v1/conversations/{conv['id']}/messages", headers=outsider_headers
     )
     assert r.status_code == 404
+
+
+# ─── chat-threads PR1: comment vs question + pin/resolve ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_comment_from_non_owner_is_accepted(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """A non-owner posting kind='comment' succeeds; AI is not fired."""
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    # Space-scoped conv so a second member can view it.
+    space = Space(name="S", created_by=owner.id)
+    db_session.add(space)
+    await db_session.commit()
+    await db_session.refresh(space)
+    db_session.add(SpaceMember(space_id=space.id, user_id=owner.id, role="owner"))
+
+    other = await create_user(db_session, "other@example.com")
+    db_session.add(SpaceMember(space_id=space.id, user_id=other.id, role="editor"))
+    await db_session.commit()
+
+    conv = await make_conversation(
+        async_client, page.id, owner_headers,
+        body={"space_id": str(space.id)},
+    )
+
+    other_token = create_access_token({"sub": str(other.id)})
+    other_headers = get_auth_headers(other_token)
+
+    r = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/messages",
+        json={"role": "user", "kind": "comment", "content": "I disagree"},
+        headers=other_headers,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["kind"] == "comment"
+
+
+@pytest.mark.asyncio
+async def test_question_from_non_owner_is_forbidden(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """A non-owner cannot post kind='question' — only the conv creator can."""
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    space = Space(name="S", created_by=owner.id)
+    db_session.add(space)
+    await db_session.commit()
+    await db_session.refresh(space)
+    db_session.add(SpaceMember(space_id=space.id, user_id=owner.id, role="owner"))
+    other = await create_user(db_session, "other@example.com")
+    db_session.add(SpaceMember(space_id=space.id, user_id=other.id, role="editor"))
+    await db_session.commit()
+
+    conv = await make_conversation(
+        async_client, page.id, owner_headers,
+        body={"space_id": str(space.id)},
+    )
+
+    other_token = create_access_token({"sub": str(other.id)})
+    other_headers = get_auth_headers(other_token)
+
+    r = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/messages",
+        json={"role": "user", "kind": "question", "content": "Ask AI"},
+        headers=other_headers,
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_owner_can_post_question(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    headers = get_auth_headers(test_user_with_tokens["access_token"])
+    conv = await make_conversation(async_client, page.id, headers)
+
+    r = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/messages",
+        json={"role": "user", "kind": "question", "content": "What is X?"},
+        headers=headers,
+    )
+    assert r.status_code == 201
+    assert r.json()["kind"] == "question"
+
+
+@pytest.mark.asyncio
+async def test_message_kind_defaults_to_question(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """Backward-compat: omitting kind on a user message defaults to 'question'."""
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    headers = get_auth_headers(test_user_with_tokens["access_token"])
+    conv = await make_conversation(async_client, page.id, headers)
+
+    r = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/messages",
+        json={"role": "user", "content": "no kind"},
+        headers=headers,
+    )
+    assert r.status_code == 201
+    assert r.json()["kind"] == "question"
+
+
+@pytest.mark.asyncio
+async def test_pin_message_on_conversation(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    headers = get_auth_headers(test_user_with_tokens["access_token"])
+    conv = await make_conversation(async_client, page.id, headers)
+    msg = await make_assistant_message(db_session, conv["id"])
+
+    r = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/pin",
+        json={"message_id": str(msg.id)},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["pinned_message_id"] == str(msg.id)
+
+    # Unpin clears it.
+    r2 = await async_client.delete(
+        f"/api/v1/conversations/{conv['id']}/pin", headers=headers,
+    )
+    assert r2.status_code == 200
+    assert r2.json()["pinned_message_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_pin_message_from_other_conversation_rejected(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """A message from conv B can't be pinned on conv A — leak guard."""
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    headers = get_auth_headers(test_user_with_tokens["access_token"])
+    conv_a = await make_conversation(async_client, page.id, headers)
+    conv_b = await make_conversation(async_client, page.id, headers)
+    msg_b = await make_assistant_message(db_session, conv_b["id"])
+
+    r = await async_client.post(
+        f"/api/v1/conversations/{conv_a['id']}/pin",
+        json={"message_id": str(msg_b.id)},
+        headers=headers,
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_resolve_and_unresolve_conversation(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    headers = get_auth_headers(test_user_with_tokens["access_token"])
+    conv = await make_conversation(async_client, page.id, headers)
+
+    r = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/resolve", headers=headers
+    )
+    assert r.status_code == 200
+    assert r.json()["resolved_at"] is not None
+
+    r2 = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/unresolve", headers=headers
+    )
+    assert r2.status_code == 200
+    assert r2.json()["resolved_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_non_owner_cannot_resolve_conversation(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    space = Space(name="S", created_by=owner.id)
+    db_session.add(space)
+    await db_session.commit()
+    await db_session.refresh(space)
+    db_session.add(SpaceMember(space_id=space.id, user_id=owner.id, role="owner"))
+    other = await create_user(db_session, "other@example.com")
+    db_session.add(SpaceMember(space_id=space.id, user_id=other.id, role="editor"))
+    await db_session.commit()
+
+    conv = await make_conversation(
+        async_client, page.id, owner_headers,
+        body={"space_id": str(space.id)},
+    )
+
+    other_token = create_access_token({"sub": str(other.id)})
+    other_headers = get_auth_headers(other_token)
+
+    r = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/resolve", headers=other_headers
+    )
+    assert r.status_code == 403

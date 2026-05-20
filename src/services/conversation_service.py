@@ -181,3 +181,91 @@ class ConversationService:
 
         await self.repo.delete(conversation_id)
         await self.db.commit()
+
+    # ─── Pin / Resolve (chat-threads-master-plan PR1) ───────────────────
+
+    async def pin_message(
+        self, conversation_id: UUID, message_id: UUID, user: User
+    ) -> Conversation:
+        conv = await self.repo.get_by_id(conversation_id)
+        if not conv:
+            raise NotFoundError("Conversation not found")
+        if not await self._can_view(conv, user):
+            raise NotFoundError("Conversation not found")
+        if not self._can_mutate(conv, user):
+            raise ForbiddenError(
+                "Only the conversation owner can pin a message"
+            )
+
+        # Validate the message belongs to this conversation; otherwise
+        # an attacker could pin a message from a thread they don't own.
+        from src.models.conversation import Message  # avoid circular import
+
+        msg = await self.db.get(Message, message_id)
+        if msg is None or msg.conversation_id != conversation_id:
+            raise NotFoundError("Message not found in this conversation")
+
+        conv.pinned_message_id = message_id
+        conv.updated_at = datetime.utcnow()
+        await self.db.commit()
+        await self.db.refresh(conv)
+        return conv
+
+    async def unpin(self, conversation_id: UUID, user: User) -> Conversation:
+        conv = await self.repo.get_by_id(conversation_id)
+        if not conv:
+            raise NotFoundError("Conversation not found")
+        if not await self._can_view(conv, user):
+            raise NotFoundError("Conversation not found")
+        if not self._can_mutate(conv, user):
+            raise ForbiddenError(
+                "Only the conversation owner can unpin a message"
+            )
+
+        conv.pinned_message_id = None
+        conv.updated_at = datetime.utcnow()
+        await self.db.commit()
+        await self.db.refresh(conv)
+        return conv
+
+    async def resolve(
+        self, conversation_id: UUID, user: User
+    ) -> Conversation:
+        conv = await self.repo.get_by_id(conversation_id)
+        if not conv:
+            raise NotFoundError("Conversation not found")
+        if not await self._can_view(conv, user):
+            raise NotFoundError("Conversation not found")
+        # Resolve is allowed for owner OR page-editors (mirrors the
+        # chat-threads permission matrix). For PR1 we approximate
+        # "page editor" with _can_mutate; a future PR will read the
+        # pages.edit gate from the RBAC catalog.
+        if not self._can_mutate(conv, user):
+            raise ForbiddenError(
+                "Only the conversation owner can resolve the thread"
+            )
+
+        conv.resolved_at = datetime.utcnow()
+        conv.updated_at = datetime.utcnow()
+        await self.db.commit()
+        await self.db.refresh(conv)
+        return conv
+
+    async def unresolve(
+        self, conversation_id: UUID, user: User
+    ) -> Conversation:
+        conv = await self.repo.get_by_id(conversation_id)
+        if not conv:
+            raise NotFoundError("Conversation not found")
+        if not await self._can_view(conv, user):
+            raise NotFoundError("Conversation not found")
+        if not self._can_mutate(conv, user):
+            raise ForbiddenError(
+                "Only the conversation owner can re-open the thread"
+            )
+
+        conv.resolved_at = None
+        conv.updated_at = datetime.utcnow()
+        await self.db.commit()
+        await self.db.refresh(conv)
+        return conv
