@@ -152,6 +152,25 @@ CREATE TABLE IF NOT EXISTS product_usage.account_health (
     seats_paid      INT NOT NULL DEFAULT 0
 );
 
+-- Table descriptions — used by the AI orchestrator to map natural language
+-- to the correct table without guessing from column names alone.
+COMMENT ON TABLE crm.accounts IS 'Top-level customer accounts. Contains plan tier (starter/pro/enterprise), geographic region, signup date, and active status. Use for account counts, segmentation, and joining to contacts or opportunities.';
+COMMENT ON TABLE crm.contacts IS 'Individual contacts at customer accounts. Each contact has a role_title and belongs to one account. Use to count contacts per account or find contacts by role.';
+COMMENT ON TABLE crm.opportunities IS 'Sales pipeline opportunities. Tracks deal amount (revenue), stage (prospect/qualified/negotiation/closed_won/closed_lost), close date, and the owner (sales rep email). Use for pipeline value, win rates, and deal size analysis.';
+
+COMMENT ON TABLE finance.subscriptions IS 'Active and historical subscriptions — one per account. monthly_amount is the MRR contribution for that account. cancelled_at IS NOT NULL for churned accounts. Use for MRR analysis, churn tracking, and subscription counts by plan.';
+COMMENT ON TABLE finance.invoices IS 'Invoices raised against subscriptions. status values: draft/sent/paid/overdue/void. Use for revenue collected (sum of paid invoices), outstanding balances, or invoice aging by month.';
+
+COMMENT ON TABLE marketing.campaigns IS 'Marketing campaigns with channel (email/social/search/display/event), budget allocated, and actual spend. Use for channel performance, ROI, and budget vs spend comparison.';
+COMMENT ON TABLE marketing.leads IS 'Marketing leads acquired via campaigns. score is lead quality 0–100. source is the acquisition channel (organic/paid/direct/partner/referral). converted_to_opportunity_id links converted leads to crm.opportunities. Use for lead volume, conversion rates, and lead quality by source.';
+COMMENT ON TABLE marketing.email_events IS 'Email interaction events per campaign and lead. event_type: sent/open/click/bounce/unsubscribe. Use to measure open rates, click-through rates, and unsubscribes.';
+
+COMMENT ON TABLE product_usage.account_health IS 'Account health metrics — one row per account. score (0–100) is the composite health score. risk_level classifies each account as healthy/watch/risk/churn. seats_used and seats_paid track seat utilization (seats_used < seats_paid means underutilized). last_login_at tracks recency. Use for churn risk analysis, health score averages, and seat utilization.';
+COMMENT ON TABLE product_usage.feature_adoption IS 'Product feature usage per account. feature_name is the specific product feature; times_used_30d is the usage count in the last 30 days; first_used_at is when the account first used the feature. Use for feature popularity rankings, adoption rates, and usage trends.';
+
+COMMENT ON TABLE web_analytics.sessions IS 'Website traffic sessions. Each session tracks a visitor via visitor_uuid, attribution via utm_source and utm_campaign, pages_viewed (engagement depth), and session duration. account_id is nullable for anonymous visitors. Use for traffic source analysis, session counts, and pages-per-session metrics.';
+COMMENT ON TABLE web_analytics.events IS 'Individual web events within sessions. event_name values: page_view/signup/cta_click/demo_request/form_submit/download. page_path is the URL path. Use for funnel analysis, event frequency, and conversion event counts.';
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_crm_contacts_account_id    ON crm.contacts(account_id);
 CREATE INDEX IF NOT EXISTS idx_crm_opps_account_id        ON crm.opportunities(account_id);
