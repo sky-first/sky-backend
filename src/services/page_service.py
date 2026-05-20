@@ -22,7 +22,7 @@ def _deep_copy_json(value: Any) -> Any:
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.page import Page
 from src.models.user import User
-from src.repositories.dashboard import DashboardRepository, WidgetRepository
+from src.repositories.widget import WidgetRepository
 from src.repositories.page import PageMemberRepository, PageRepository
 from src.schemas.page import (
     PageCreate,
@@ -46,7 +46,6 @@ class PageService:
         self.db = db
         self.page_repo = PageRepository(db)
         self.member_repo = PageMemberRepository(db)
-        self.dashboard_repo = DashboardRepository(db)
         self.widget_repo = WidgetRepository(db)
 
     async def create_page(self, user: User, page_data: PageCreate) -> PageResponse:
@@ -259,7 +258,7 @@ class PageService:
             if not member:
                 raise ForbiddenError("Permission denied")
 
-        # 1. Create the new page
+        # 1. Create the new page — absorbs canvas_settings + template_id
         new_page = await self.page_repo.create(
             name=f"{original.name} (Copy)",
             description=original.description,
@@ -270,6 +269,11 @@ class PageService:
             crew_id=original.crew_id,
             space_id=original.space_id,
             is_active=False,
+            canvas_settings=(
+                original.canvas_settings.copy() if original.canvas_settings else None
+            ),
+            is_locked=False,  # copies always start unlocked
+            template_id=original.template_id,
         )
         await self.db.flush()
 
@@ -280,64 +284,45 @@ class PageService:
             role="owner",
         )
 
-        # 2. Clone dashboards
-        original_dashboards = await self.dashboard_repo.get_by_page(page_id)
-        for original_dashboard in original_dashboards:
-            new_dashboard = await self.dashboard_repo.create(
-                name=original_dashboard.name,
-                description=original_dashboard.description,
+        # 2. Clone widgets (infographics included — they are `type='infographic'`
+        # rows in the same widgets table). Dashboard layer dropped 2026-05-20;
+        # widgets attach directly to pages now.
+        original_widgets = await self.widget_repo.get_by_page(page_id)
+        for original_widget in original_widgets:
+            # Deep copy via json round-trip so nested dicts/lists don't share
+            # references with the original row.
+            cloned_data = _deep_copy_json(original_widget.data)
+            cloned_config = _deep_copy_json(original_widget.config)
+
+            # Defensive: if the original widget was left in a transient
+            # loading state (infographic AI save race, aborted generation,
+            # etc.), strip `isLoading:true` on the clone.
+            if isinstance(cloned_data, dict) and cloned_data.get("isLoading"):
+                cloned_data["isLoading"] = False
+            if isinstance(cloned_config, dict) and cloned_config.get("isLoading"):
+                cloned_config["isLoading"] = False
+
+            await self.widget_repo.create(
                 page_id=new_page.id,
-                template_id=original_dashboard.template_id,
-                created_by=user.id,
-                canvas_settings=(
-                    original_dashboard.canvas_settings.copy()
-                    if original_dashboard.canvas_settings
-                    else None
+                type=original_widget.type,
+                title=original_widget.title,
+                position=(
+                    original_widget.position.copy()
+                    if original_widget.position
+                    else {"x": 0, "y": 0}
                 ),
-                is_locked=False,  # copies always start unlocked
+                size=(
+                    original_widget.size.copy()
+                    if original_widget.size
+                    else {"width": 400, "height": 300}
+                ),
+                data=cloned_data,
+                config=cloned_config,
+                connection_id=original_widget.connection_id,
+                query_id=original_widget.query_id,
+                z_index=getattr(original_widget, "z_index", 0) or 0,
+                created_by=user.id,
             )
-            await self.db.flush()
-
-            # 3. Clone widgets for this dashboard (infographics included — they
-            # are `type='infographic'` rows in the same widgets table)
-            original_widgets = await self.widget_repo.get_by_dashboard(original_dashboard.id)
-            for original_widget in original_widgets:
-                # Deep copy via json round-trip so nested dicts/lists don't
-                # share references with the original row.
-                cloned_data = _deep_copy_json(original_widget.data)
-                cloned_config = _deep_copy_json(original_widget.config)
-
-                # Defensive: if the original widget was left in a transient
-                # loading state (infographic AI save race, aborted generation,
-                # etc.), strip `isLoading:true` on the clone. Keeping it
-                # would make the copy spin forever even though no generation
-                # is in flight anymore. Preserves `infographic_data` so the
-                # clone renders whatever content did make it to the row.
-                if isinstance(cloned_data, dict) and cloned_data.get("isLoading"):
-                    cloned_data["isLoading"] = False
-                if isinstance(cloned_config, dict) and cloned_config.get("isLoading"):
-                    cloned_config["isLoading"] = False
-
-                await self.widget_repo.create(
-                    dashboard_id=new_dashboard.id,
-                    type=original_widget.type,
-                    title=original_widget.title,
-                    position=(
-                        original_widget.position.copy()
-                        if original_widget.position
-                        else {"x": 0, "y": 0}
-                    ),
-                    size=(
-                        original_widget.size.copy()
-                        if original_widget.size
-                        else {"width": 400, "height": 300}
-                    ),
-                    data=cloned_data,
-                    config=cloned_config,
-                    connection_id=original_widget.connection_id,
-                    query_id=original_widget.query_id,
-                    z_index=getattr(original_widget, "z_index", 0) or 0,
-                )
 
         await self.db.commit()
         await self.db.refresh(new_page)

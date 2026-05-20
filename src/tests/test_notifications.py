@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.models.dashboard import Dashboard
+from src.models.page import Page
 from src.models.notification import NotificationType
 from src.models.page import Page
 from src.models.user import User

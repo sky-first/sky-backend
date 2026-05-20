@@ -20,7 +20,6 @@ from src.api.v1 import (
     cost_metrics,
     crews,
     cursor,
-    dashboards,
     db_health,
     datasets,
     demo,
@@ -88,10 +87,10 @@ api_router.include_router(messages.router, prefix="/messages", tags=["Messages"]
 # pre-existing /agents (question/datasource/sql) CRUD stays untouched.
 api_router.include_router(insight_agents.router, prefix="/agents/insight", tags=["Insight Agents"])
 
-# Dashboard endpoints
-api_router.include_router(dashboards.router, prefix="/dashboards", tags=["Dashboards"])
-
 # Widget endpoints
+# (Former /dashboards/* router removed 2026-05-20 — dashboard concept
+# folded into Page; widget CRUD lives under /pages/{page_id}/widgets
+# in pages.py and direct widget mutations under /widgets/{widget_id}.)
 api_router.include_router(widgets.router, prefix="/widgets", tags=["Widgets"])
 
 # Connection endpoints

@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
-from src.schemas.dashboard import DashboardResponse
 from src.schemas.page import (
     PageCreate,
     PageMemberCreate,
@@ -18,7 +17,12 @@ from src.schemas.page import (
     PageResponse,
     PageUpdate,
 )
-from src.services.dashboard_service import DashboardService
+from src.schemas.widget import (
+    PageExportResponse,
+    WidgetCreate,
+    WidgetResponse,
+)
+from src.services.widget_service import WidgetService
 from src.services.page_service import PageService
 from src.services.rbac_service import RBACService
 from src.services.starred_service import StarredItemService
@@ -339,42 +343,110 @@ async def update_page_member_role(
 
 
 @router.get(
-    "/{page_id}/dashboards",
-    response_model=List[DashboardResponse],
+    "/{page_id}/widgets",
+    response_model=List[WidgetResponse],
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Get page dashboards",
-    description="Get all dashboards in a page",
+    summary="Get page widgets",
+    description="Get all widgets in a page (replaces the legacy "
+    "/dashboards/{id}/widgets endpoint).",
 )
-async def get_page_dashboards(
+async def get_page_widgets(
     page_id: UUID,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> List[DashboardResponse]:
-    """
-    Get all dashboards in a page.
-
-    Args:
-        page_id: Page ID
-        skip: Number of records to skip
-        limit: Maximum number of records to return
-        current_user: Current authenticated user
-        db: Database session
-
-    Returns:
-        List[DashboardResponse]: List of dashboards
-    """
-    # Verify page access
+):
+    """Get all widgets on a page."""
+    await RBACService(db).assert_permission(current_user, "pages.view")
     page_service = PageService(db)
     await page_service.get_page(page_id, current_user)
 
-    # Get dashboards
-    dashboard_service = DashboardService(db)
-    return await dashboard_service.get_page_dashboards(
-        page_id, current_user, skip=skip, limit=limit
+    widget_service = WidgetService(db)
+    return await widget_service.get_page_widgets(page_id, current_user)
+
+
+@router.post(
+    "/{page_id}/widgets",
+    response_model=WidgetResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Create widget on page",
+    description="Create a widget on this page (replaces the legacy "
+    "/dashboards/{id}/widgets POST endpoint).",
+)
+async def create_page_widget(
+    page_id: UUID,
+    widget_data: WidgetCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Create a widget on the given page."""
+    await RBACService(db).assert_permission(current_user, "pages.edit")
+    # Force path param to win over body
+    widget_data.page_id = page_id
+    widget_service = WidgetService(db)
+    return await widget_service.create_widget(current_user, widget_data)
+
+
+@router.post(
+    "/{page_id}/lock",
+    response_model=PageResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Lock page",
+    description="Lock page so widgets can't be moved/resized.",
+)
+async def lock_page(
+    page_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PageResponse:
+    """Lock the page (replaces /dashboards/{id}/lock)."""
+    await RBACService(db).assert_permission(current_user, "pages.edit")
+    page_service = PageService(db)
+    return await page_service.update_page(
+        page_id, current_user, PageUpdate(is_locked=True)
     )
+
+
+@router.post(
+    "/{page_id}/unlock",
+    response_model=PageResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Unlock page",
+    description="Unlock page so widgets can be moved/resized.",
+)
+async def unlock_page(
+    page_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PageResponse:
+    """Unlock the page (replaces /dashboards/{id}/unlock)."""
+    await RBACService(db).assert_permission(current_user, "pages.edit")
+    page_service = PageService(db)
+    return await page_service.update_page(
+        page_id, current_user, PageUpdate(is_locked=False)
+    )
+
+
+@router.post(
+    "/{page_id}/export",
+    response_model=PageExportResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Export page",
+    description="Export page with all widgets + connections.",
+)
+async def export_page(
+    page_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Export page (replaces /dashboards/{id}/export)."""
+    await RBACService(db).assert_permission(current_user, "pages.view")
+    widget_service = WidgetService(db)
+    return await widget_service.export_page(page_id, current_user)
 
 
 @router.post(

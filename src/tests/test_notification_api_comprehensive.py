@@ -6,7 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.comment import Comment
-from src.models.dashboard import Dashboard
+from src.models.page import Page
 from src.models.notification import Notification, NotificationType
 from src.models.page import Page
 from src.schemas.notification import NotificationCreate

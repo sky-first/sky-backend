@@ -1,4 +1,9 @@
-"""Dashboard and widget schemas."""
+"""Widget and widget-connection schemas.
+
+Renamed from ``schemas/dashboard.py`` in 2026-05-20. The old
+``Dashboard*`` schemas were dropped — every dashboard operation is
+now a page operation (see ``schemas/page.py``).
+"""
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -6,43 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-class DashboardBase(BaseModel):
-    """Base dashboard schema."""
-
-    name: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = None
-
-
-class DashboardCreate(DashboardBase):
-    """Dashboard creation schema."""
-
-    page_id: UUID
-    template_id: Optional[UUID] = None
-
-
-class DashboardUpdate(BaseModel):
-    """Dashboard update schema."""
-
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    canvas_settings: Optional[Dict[str, Any]] = None
-    is_locked: Optional[bool] = None
-
-
-class DashboardResponse(DashboardBase):
-    """Dashboard response schema."""
-
-    id: UUID
-    page_id: UUID
-    template_id: Optional[UUID] = None
-    canvas_settings: Optional[Dict[str, Any]] = None
-    is_locked: bool
-    created_by: Optional[UUID] = None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
+from src.schemas.page import PageResponse
 
 
 class WidgetBase(BaseModel):
@@ -60,7 +29,7 @@ _WIDGET_SOURCE_PATTERN = "^(manual|ai_synthesis|mock_fallback|agent)$"
 class WidgetCreate(WidgetBase):
     """Widget creation schema."""
 
-    dashboard_id: UUID
+    page_id: UUID
     data: Optional[Dict[str, Any]] = None
     config: Optional[Dict[str, Any]] = None
     connection_id: Optional[UUID] = None
@@ -90,7 +59,7 @@ class WidgetResponse(WidgetBase):
     """Widget response schema."""
 
     id: UUID
-    dashboard_id: UUID
+    page_id: UUID
     data: Optional[Dict[str, Any]] = None
     config: Optional[Dict[str, Any]] = None
     connection_id: Optional[UUID] = None
@@ -115,14 +84,14 @@ class ConnectionBase(BaseModel):
 class ConnectionCreate(ConnectionBase):
     """Widget connection creation schema."""
 
-    dashboard_id: UUID
+    page_id: UUID
 
 
 class ConnectionResponse(ConnectionBase):
     """Widget connection response schema."""
 
     id: UUID
-    dashboard_id: UUID
+    page_id: UUID
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -150,28 +119,13 @@ class WidgetExportResponse(BaseModel):
     exported_at: str
 
 
-class DashboardExportResponse(BaseModel):
-    """Dashboard export response schema."""
+class PageExportResponse(BaseModel):
+    """Page export response schema — full canvas + widgets + connections."""
 
-    dashboard: DashboardResponse
+    page: PageResponse
     widgets: List[WidgetResponse]
     connections: List[ConnectionResponse]
     exported_at: str
-
-
-class DashboardDuplicateRequest(BaseModel):
-    """Dashboard duplicate request schema."""
-
-    name: Optional[str] = Field(
-        None,
-        min_length=1,
-        max_length=255,
-        description="Name for duplicated dashboard (defaults to '{original_name} (Copy)')",
-    )
-    page_id: Optional[UUID] = Field(
-        None,
-        description="Page ID for duplicated dashboard (defaults to original page)",
-    )
 
 
 class WidgetFeedbackCreate(BaseModel):

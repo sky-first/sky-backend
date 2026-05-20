@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.security import create_access_token, get_password_hash
 from src.models.conversation import Message
-from src.models.dashboard import Dashboard, Widget
+from src.models.widget import Widget
 from src.models.page import Page
 from src.models.space import Space, SpaceMember
 from src.models.crew import Crew, CrewMember

@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.conversation import Conversation, Message
-from src.models.dashboard import Widget
+from src.models.widget import Widget
 from src.models.user import User
 from src.repositories.conversation import ConversationRepository
 from src.repositories.message import MessageRepository

@@ -24,7 +24,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core import context_events as ce
-from src.models.dashboard import Widget
+from src.models.widget import Widget
 
 
 @pytest_asyncio.fixture
@@ -52,7 +52,7 @@ async def event_sink(db_session: AsyncSession):
 async def test_widget_emits_widget_kind(
     db_session: AsyncSession, event_sink: list[ce.ContextEvent]
 ):
-    from src.models.dashboard import Dashboard
+    from src.models.page import Page
 
     owner = uuid.uuid4()
     dashboard = Dashboard(name="Test", page_id=uuid.uuid4())

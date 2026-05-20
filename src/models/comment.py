@@ -10,7 +10,7 @@ from src.config.database import Base
 
 
 class Comment(Base):
-    """Comment model."""
+    """Comment model — scoped to a page (optionally a specific widget on it)."""
 
     __tablename__ = "comments"
 
@@ -21,9 +21,9 @@ class Comment(Base):
         nullable=False,
         index=True,
     )
-    dashboard_id = Column(
+    page_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("dashboards.id", ondelete="CASCADE"),
+        ForeignKey("pages.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -50,8 +50,8 @@ class Comment(Base):
 
     # Relationships
     user = relationship("User", backref="comments")
-    dashboard = relationship("Dashboard")
+    page = relationship("Page")
     widget = relationship("Widget")
 
     def __repr__(self) -> str:
-        return f"<Comment(id={self.id}, user_id={self.user_id}, dashboard_id={self.dashboard_id})>"
+        return f"<Comment(id={self.id}, user_id={self.user_id}, page_id={self.page_id})>"

@@ -1,7 +1,7 @@
 """Page schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -30,6 +30,7 @@ class PageCreate(PageBase):
         None,
         description="Set for space-level pages (all space members see, no crew required).",
     )
+    template_id: Optional[UUID] = None
 
 
 class PageUpdate(BaseModel):
@@ -40,6 +41,9 @@ class PageUpdate(BaseModel):
     type: Optional[str] = Field(None, pattern="^(personal|team)$")
     color: Optional[str] = Field(None, pattern="^#[0-9A-Fa-f]{6}$")
     icon: Optional[str] = None
+    # Canvas state (absorbed from former Dashboard model in 2026-05-20)
+    canvas_settings: Optional[Dict[str, Any]] = None
+    is_locked: Optional[bool] = None
 
 
 class PageResponse(PageBase):
@@ -49,6 +53,10 @@ class PageResponse(PageBase):
     owner_id: UUID
     crew_id: Optional[UUID] = None
     space_id: Optional[UUID] = None
+    # Canvas state (absorbed from former Dashboard model in 2026-05-20)
+    canvas_settings: Optional[Dict[str, Any]] = None
+    is_locked: bool = False
+    template_id: Optional[UUID] = None
     is_active: bool
     last_accessed: Optional[datetime] = None
     created_at: datetime

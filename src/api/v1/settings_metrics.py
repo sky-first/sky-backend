@@ -18,7 +18,7 @@ from src.api.deps import get_current_user, get_db_session
 from src.models.ai import AIFeedback, AIHistory
 from src.models.connection import DataConnection
 from src.models.crew import Crew, CrewMember
-from src.models.dashboard import Widget
+from src.models.widget import Widget
 from src.models.space import Space, SpaceMember
 from src.models.user import User
 from src.schemas.settings_metrics import (

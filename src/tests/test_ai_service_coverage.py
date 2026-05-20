@@ -7,7 +7,7 @@ from src.schemas.ai import AIQueryRequest, ChatMessageRequest
 from src.models.ai import AIQuery, AIHistory, ChatMessage
 from src.models.space import Space
 from src.models.page import Page
-from src.models.dashboard import Widget
+from src.models.widget import Widget
 from src.models.user import User
 from src.core.exceptions import ServiceUnavailableError
 
@@ -16,7 +16,7 @@ async def _seed_ai_fixtures(db_session):
     user = User(id=uuid.uuid4(), email=f"ai.{uuid.uuid4().hex[:8]}@example.com", role="user", password_hash="dummy", name="Test User")
     space = Space(id=uuid.uuid4(), name="AI Test Space", created_by=user.id)
     page = Page(id=uuid.uuid4(), name="AI Test Page", space_id=space.id, type="team", color="#000000", owner_id=user.id)
-    from src.models.dashboard import Dashboard
+    from src.models.page import Page
     dashboard = Dashboard(id=uuid.uuid4(), name="AI Test Dash", page_id=page.id, created_by=user.id)
     widget = Widget(
         id=uuid.uuid4(),

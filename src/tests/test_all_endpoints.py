@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.schemas.page import PageCreate
 from src.schemas.user import UserCreate
-from src.services.dashboard_service import DashboardService
+from src.services.widget_service import WidgetService
 from src.services.page_service import PageService
 
 # ============================================================================
@@ -64,10 +64,10 @@ async def create_test_dashboard(
     db_session: AsyncSession, user, page_id, name: str = "Test Dashboard"
 ):
     """Helper to create a test dashboard."""
-    from src.repositories.dashboard import DashboardRepository
+    from src.repositories.page import PageRepository
 
     # Create directly to avoid server_default issues with SQLite
-    dashboard_repo = DashboardRepository(db_session)
+    dashboard_repo = PageRepository(db_session)
     now = datetime.now(timezone.utc)
     dashboard = await dashboard_repo.create(
         name=name,
@@ -90,7 +90,7 @@ async def create_test_dashboard(
 
 async def create_test_widget(db_session: AsyncSession, user, dashboard_id):
     """Helper to create a test widget."""
-    from src.repositories.dashboard import WidgetRepository
+    from src.repositories.widget import WidgetRepository
 
     # Create directly to avoid server_default issues with SQLite
     widget_repo = WidgetRepository(db_session)
@@ -676,8 +676,8 @@ class TestDashboardsEndpoints:
         dashboard = await create_test_dashboard(db_session, user, page.id)
 
         # Lock first
-        dashboard_service = DashboardService(db_session)
-        await dashboard_service.lock_dashboard(dashboard.id, user)
+        widget_service = WidgetService(db_session)
+        await widget_service.lock_dashboard(dashboard.id, user)
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         response = await async_client.post(

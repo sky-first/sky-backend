@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.models.dashboard import Dashboard, Widget
+from src.models.widget import Widget
 from src.models.page import Page
 from src.services.page_service import PageService
 

@@ -1,4 +1,9 @@
-"""Dashboard build job model (async dashboard generation)."""
+"""Page build job model (async page generation via AI).
+
+Renamed from ``DashboardBuildJob`` (2026-05-20 consolidation) — the
+job now writes widgets directly onto a page; there's no longer a
+separate "dashboard" to point at on completion.
+"""
 
 import uuid
 from datetime import datetime
@@ -9,15 +14,15 @@ from sqlalchemy.dialects.postgresql import UUID
 from src.config.database import Base
 
 
-class DashboardBuildJob(Base):
+class PageBuildJob(Base):
     """
-    Tracks an async dashboard build running in background (Celery).
+    Tracks an async page build running in background (Celery).
 
-    The frontend polls this table (via API) to show progress and know when
-    the dashboard is ready.
+    The frontend polls this table (via API) to show progress and know
+    when the page is ready.
     """
 
-    __tablename__ = "dashboard_build_jobs"
+    __tablename__ = "page_build_jobs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
@@ -56,13 +61,6 @@ class DashboardBuildJob(Base):
     total_widgets = Column(Integer, nullable=False, server_default="0")
     completed_widgets = Column(Integer, nullable=False, server_default="0")
 
-    dashboard_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("dashboards.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-
     # Optional: ids of widgets already created (for idempotency / progressive UI)
     created_widget_ids = Column(JSON, nullable=True)
 
@@ -82,6 +80,6 @@ class DashboardBuildJob(Base):
     finished_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        Index("idx_dashboard_build_jobs_user_status", "user_id", "status"),
-        Index("idx_dashboard_build_jobs_created_at", "created_at"),
+        Index("idx_page_build_jobs_user_status", "user_id", "status"),
+        Index("idx_page_build_jobs_created_at", "created_at"),
     )

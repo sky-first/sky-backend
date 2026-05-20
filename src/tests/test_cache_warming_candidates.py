@@ -5,7 +5,7 @@ import pytest
 
 from src.models.ai import AIQuery
 from src.models.connection import DataConnection
-from src.models.dashboard import Dashboard, Widget
+from src.models.widget import Widget
 from src.models.page import Page
 from src.models.space import Space, SpaceConnection
 from src.models.user import User
