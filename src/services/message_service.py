@@ -12,6 +12,7 @@ constraint and we return the pre-existing widget instead of raising.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
 
@@ -126,6 +127,132 @@ class MessageService:
         await self._load_viewable_conversation(conversation_id, user)
         return await self.repo.list_for_conversation(
             conversation_id=conversation_id, limit=limit, cursor=cursor
+        )
+
+    # ─── Ask-AI bundling (chat-threads-master-plan PR2) ─────────────────
+
+    async def list_pending_comments(
+        self, conversation_id: UUID, user: User
+    ) -> List[Message]:
+        """Comments since the last ai_response, not yet incorporated.
+
+        Used by the FE to preview "X comments will be included" before the
+        owner fires a new question, and by the bundling code below to
+        assemble the prompt.
+        """
+        await self._load_viewable_conversation(conversation_id, user)
+        return await self.repo.list_pending_comments(
+            conversation_id=conversation_id
+        )
+
+    async def ask_ai_with_bundle(
+        self,
+        conversation_id: UUID,
+        user: User,
+        question_content: str,
+        ai_answer_content: str,
+        *,
+        query_id: Optional[UUID] = None,
+        tier: Optional[str] = None,
+        duration_ms: Optional[int] = None,
+        cost_tokens: Optional[int] = None,
+        cost_usd: Optional[Decimal] = None,
+    ) -> dict:
+        """Owner-gated bundle flow.
+
+        1. Load pending comments since the last AI response.
+        2. Insert the question (kind='question').
+        3. Insert the AI response (kind='ai_response') with parent =
+           question.id.
+        4. Stamp each bundled comment's incorporated_in_message_id =
+           ai_response.id so the FE renders the "incorporated in #N"
+           badge.
+
+        Returns the bundle dict {question, ai_response, incorporated:
+        [comment_ids]} so the caller can ship them on the WebSocket in
+        a single broadcast.
+
+        The AI call itself is the *caller's* responsibility — this
+        service stays pure-DB so it doesn't pull the AI client into the
+        chat module. The caller passes the answer in. PR4 wires the
+        broadcast.
+        """
+        conv = await self._load_viewable_conversation(conversation_id, user)
+        if conv.created_by != user.id and user.role != "admin":
+            raise ForbiddenError(
+                "Only the conversation owner can fire an Ask-AI bundle"
+            )
+
+        pending = await self.repo.list_pending_comments(
+            conversation_id=conversation_id
+        )
+
+        # 2. Question
+        question = await self.repo.create(
+            conversation_id=conv.id,
+            role="user",
+            kind="question",
+            content=question_content,
+            query_id=query_id,
+        )
+
+        # 3. AI response (kind=ai_response, role=assistant)
+        ai_response = await self.repo.create(
+            conversation_id=conv.id,
+            role="assistant",
+            kind="ai_response",
+            content=ai_answer_content,
+            query_id=query_id,
+            tier=tier,
+            duration_ms=duration_ms,
+            cost_tokens=cost_tokens,
+            cost_usd=cost_usd,
+            parent_message_id=question.id,
+        )
+
+        # 4. Stamp incorporated comments
+        if pending:
+            await self.repo.mark_incorporated(
+                message_ids=[c.id for c in pending],
+                ai_response_id=ai_response.id,
+            )
+
+        conv.updated_at = datetime.utcnow()
+        await self.db.commit()
+        await self.db.refresh(question)
+        await self.db.refresh(ai_response)
+
+        return {
+            "question": question,
+            "ai_response": ai_response,
+            "incorporated_message_ids": [c.id for c in pending],
+        }
+
+    @staticmethod
+    def build_bundled_prompt(
+        question_content: str, pending_comments: List[Message]
+    ) -> str:
+        """Pure helper: stitches the question + pending comments into a
+        single LLM-ready prompt.
+
+        The LLM is asked to (a) skim the discussion, (b) reach a
+        "consensus" reading, then (c) answer the question grounded in
+        that consensus. Caller passes the resulting text to whatever
+        AI client is in use; we keep the prompt assembly here so unit
+        tests can lock in the format.
+        """
+        if not pending_comments:
+            return question_content
+
+        comments_block = "\n".join(
+            f"- {c.content}" for c in pending_comments
+        )
+        return (
+            "You are answering a follow-up question on a shared discussion. "
+            "Below are the comments the team posted since your last answer. "
+            "Briefly synthesise the consensus, then answer the question.\n\n"
+            f"Team comments since last answer:\n{comments_block}\n\n"
+            f"Question:\n{question_content}"
         )
 
     # ─── Pin ─────────────────────────────────────────────────────────────
