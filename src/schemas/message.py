@@ -70,3 +70,39 @@ class ForkRequest(BaseModel):
     """Branch a conversation from a specific message."""
 
     from_message_id: UUID
+
+
+class AskAIBundleRequest(BaseModel):
+    """Owner fires Ask-AI with bundled comments (chat-threads PR2).
+
+    The FE sends the question text + (optionally) the AI's answer text;
+    server inserts both as messages, stamps any pending comments as
+    incorporated into the new ai_response, and returns the bundle.
+
+    For wave 1 the AI text is computed by the existing AI pipeline on
+    the FE side and shipped here for persistence. PR4 will move the
+    AI call server-side and broadcast over WebSocket.
+    """
+
+    question: str = Field(..., min_length=1, max_length=100_000)
+    ai_answer: str = Field(..., min_length=1, max_length=200_000)
+    query_id: Optional[UUID] = None
+    tier: Optional[str] = None
+    duration_ms: Optional[int] = Field(None, ge=0)
+    cost_tokens: Optional[int] = Field(None, ge=0)
+    cost_usd: Optional[Decimal] = Field(None, ge=0)
+
+
+class AskAIBundleResponse(BaseModel):
+    question: MessageResponse
+    ai_response: MessageResponse
+    incorporated_message_ids: List[UUID]
+
+
+class BundledPromptResponse(BaseModel):
+    """Preview the prompt that *would* be sent to the LLM if the owner
+    hit Ask AI right now. Used by the FE chip "X comments will be
+    included" — the owner can see exactly what the LLM will receive."""
+
+    prompt: str
+    incorporated_count: int

@@ -576,3 +576,221 @@ async def test_non_owner_cannot_resolve_conversation(
         f"/api/v1/conversations/{conv['id']}/resolve", headers=other_headers
     )
     assert r.status_code == 403
+
+
+# ─── chat-threads PR2: Ask-AI bundling ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pending_comments_starts_empty(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    headers = get_auth_headers(test_user_with_tokens["access_token"])
+    conv = await make_conversation(async_client, page.id, headers)
+
+    r = await async_client.get(
+        f"/api/v1/conversations/{conv['id']}/pending-comments", headers=headers
+    )
+    assert r.status_code == 200
+    assert r.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_ask_ai_bundles_pending_comments(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """Three comments + an Ask-AI should mark all three as incorporated."""
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    space = Space(name="S", created_by=owner.id)
+    db_session.add(space)
+    await db_session.commit()
+    await db_session.refresh(space)
+    db_session.add(SpaceMember(space_id=space.id, user_id=owner.id, role="owner"))
+    other = await create_user(db_session, "other@example.com")
+    db_session.add(SpaceMember(space_id=space.id, user_id=other.id, role="editor"))
+    await db_session.commit()
+
+    conv = await make_conversation(
+        async_client, page.id, owner_headers, body={"space_id": str(space.id)},
+    )
+
+    other_token = create_access_token({"sub": str(other.id)})
+    other_headers = get_auth_headers(other_token)
+
+    for content in ("first comment", "second comment", "third comment"):
+        rc = await async_client.post(
+            f"/api/v1/conversations/{conv['id']}/messages",
+            json={"role": "user", "kind": "comment", "content": content},
+            headers=other_headers,
+        )
+        assert rc.status_code == 201
+
+    # Pending list shows three.
+    r_pending = await async_client.get(
+        f"/api/v1/conversations/{conv['id']}/pending-comments",
+        headers=owner_headers,
+    )
+    assert r_pending.status_code == 200
+    assert len(r_pending.json()["items"]) == 3
+
+    # Owner fires Ask-AI.
+    r_ask = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/ask-ai",
+        json={
+            "question": "Given the discussion above, what's the answer?",
+            "ai_answer": "The team agrees on X; therefore the answer is X.",
+        },
+        headers=owner_headers,
+    )
+    assert r_ask.status_code == 201, r_ask.text
+    bundle = r_ask.json()
+    assert len(bundle["incorporated_message_ids"]) == 3
+    assert bundle["question"]["kind"] == "question"
+    assert bundle["ai_response"]["kind"] == "ai_response"
+    assert bundle["ai_response"]["parent_message_id"] == bundle["question"]["id"]
+
+    # Pending now empty.
+    r_pending2 = await async_client.get(
+        f"/api/v1/conversations/{conv['id']}/pending-comments",
+        headers=owner_headers,
+    )
+    assert r_pending2.status_code == 200
+    assert r_pending2.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_ask_ai_only_owner(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    space = Space(name="S", created_by=owner.id)
+    db_session.add(space)
+    await db_session.commit()
+    await db_session.refresh(space)
+    db_session.add(SpaceMember(space_id=space.id, user_id=owner.id, role="owner"))
+    other = await create_user(db_session, "other@example.com")
+    db_session.add(SpaceMember(space_id=space.id, user_id=other.id, role="editor"))
+    await db_session.commit()
+
+    conv = await make_conversation(
+        async_client, page.id, owner_headers, body={"space_id": str(space.id)},
+    )
+
+    other_token = create_access_token({"sub": str(other.id)})
+    other_headers = get_auth_headers(other_token)
+
+    r = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/ask-ai",
+        json={"question": "ask", "ai_answer": "answer"},
+        headers=other_headers,
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_preview_prompt_bundles_text(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """Preview returns the same prompt the bundling code would assemble.
+
+    Used by the FE chip "X comments will be included" — owner sees the
+    LLM-ready text before firing Ask AI.
+    """
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    space = Space(name="S", created_by=owner.id)
+    db_session.add(space)
+    await db_session.commit()
+    await db_session.refresh(space)
+    db_session.add(SpaceMember(space_id=space.id, user_id=owner.id, role="owner"))
+    other = await create_user(db_session, "other@example.com")
+    db_session.add(SpaceMember(space_id=space.id, user_id=other.id, role="editor"))
+    await db_session.commit()
+
+    conv = await make_conversation(
+        async_client, page.id, owner_headers, body={"space_id": str(space.id)},
+    )
+
+    other_token = create_access_token({"sub": str(other.id)})
+    other_headers = get_auth_headers(other_token)
+
+    await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/messages",
+        json={"role": "user", "kind": "comment", "content": "tip A"},
+        headers=other_headers,
+    )
+
+    r = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/preview-prompt",
+        json={"role": "user", "content": "What about retention?"},
+        headers=owner_headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["incorporated_count"] == 1
+    assert "tip A" in body["prompt"]
+    assert "What about retention?" in body["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_pending_comments_resets_after_ai_response(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """Comments posted AFTER an AI response are pending again for the next bundle."""
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    space = Space(name="S", created_by=owner.id)
+    db_session.add(space)
+    await db_session.commit()
+    await db_session.refresh(space)
+    db_session.add(SpaceMember(space_id=space.id, user_id=owner.id, role="owner"))
+    other = await create_user(db_session, "other@example.com")
+    db_session.add(SpaceMember(space_id=space.id, user_id=other.id, role="editor"))
+    await db_session.commit()
+
+    conv = await make_conversation(
+        async_client, page.id, owner_headers, body={"space_id": str(space.id)},
+    )
+
+    other_token = create_access_token({"sub": str(other.id)})
+    other_headers = get_auth_headers(other_token)
+
+    # Round 1 — one comment, owner asks.
+    await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/messages",
+        json={"role": "user", "kind": "comment", "content": "round-1 comment"},
+        headers=other_headers,
+    )
+    await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/ask-ai",
+        json={"question": "q1", "ai_answer": "a1"},
+        headers=owner_headers,
+    )
+
+    # Round 2 — fresh comment, pending should be 1 (not 2).
+    await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/messages",
+        json={"role": "user", "kind": "comment", "content": "round-2 comment"},
+        headers=other_headers,
+    )
+
+    r = await async_client.get(
+        f"/api/v1/conversations/{conv['id']}/pending-comments",
+        headers=owner_headers,
+    )
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert len(items) == 1
+    assert items[0]["content"] == "round-2 comment"
