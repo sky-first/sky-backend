@@ -27,8 +27,15 @@ from src.models.change_request import ChangeRequest
 from src.models.conversation import Conversation, Message
 from src.models.user import User
 from src.models.widget import Widget
-from src.schemas.change_request import ChangeRequestCreate
+from src.schemas.change_request import ChangeRequestCreate, ChangeRequestResponse
 from src.services.conversation_service import ConversationService
+
+try:
+    # PR4 broadcast helper — fanout the new/resolved CR over /ws/chat.
+    from src.api.v1.chat_ws import broadcast_event_nowait
+except Exception:  # pragma: no cover
+    def broadcast_event_nowait(*args, **kwargs):
+        return None
 
 
 _VALID_STATUSES = ("pending", "accepted", "dismissed")
@@ -81,6 +88,11 @@ class ChangeRequestService:
         self.db.add(cr)
         await self.db.commit()
         await self.db.refresh(cr)
+        broadcast_event_nowait(
+            str(conv.page_id),
+            "change_request.created",
+            ChangeRequestResponse.model_validate(cr).model_dump(mode="json"),
+        )
         return cr
 
     async def list_for_widget(
@@ -138,6 +150,15 @@ class ChangeRequestService:
         cr.resolved_by = user.id
         await self.db.commit()
         await self.db.refresh(cr)
+        # Lookup the page_id via the conversation so we know which
+        # WS channel to fan out on.
+        conv = await self.db.get(Conversation, cr.conversation_id)
+        if conv is not None:
+            broadcast_event_nowait(
+                str(conv.page_id),
+                "change_request.resolved",
+                ChangeRequestResponse.model_validate(cr).model_dump(mode="json"),
+            )
         return cr
 
     async def dismiss(self, change_request_id: UUID, user: User) -> ChangeRequest:
@@ -160,4 +181,13 @@ class ChangeRequestService:
         cr.resolved_by = user.id
         await self.db.commit()
         await self.db.refresh(cr)
+        # Lookup the page_id via the conversation so we know which
+        # WS channel to fan out on.
+        conv = await self.db.get(Conversation, cr.conversation_id)
+        if conv is not None:
+            broadcast_event_nowait(
+                str(conv.page_id),
+                "change_request.resolved",
+                ChangeRequestResponse.model_validate(cr).model_dump(mode="json"),
+            )
         return cr
