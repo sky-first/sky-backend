@@ -105,6 +105,16 @@ jobs:
       # still requires the field to be present to load.
       JWT_SECRET_KEY: "ci-test-only-never-used-for-real-tokens"
       DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+      # Disable rate limiting in CI. The RedisFixedWindowRateLimiter
+      # inside /ai/query hangs past pytest's 120s per-test timeout when
+      # REDIS_URL isn't configured in a way it can reach (the bundled
+      # `services: redis` runs but tests don't export REDIS_URL to it).
+      # This has been blocking every PR-gate run since PR #430 — the
+      # endpoint-level rate limiter is not the unit under test in any of
+      # the auth/RBAC unit tests, so disabling it for CI is the correct
+      # scope. Production keeps the limiter on by default.
+      RATE_LIMIT_ENABLED: "false"
+      AI_RATE_LIMIT_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
 
