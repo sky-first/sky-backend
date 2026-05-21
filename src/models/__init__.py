@@ -23,6 +23,7 @@ from src.models.ai import (
     Pipeline,
     PipelineStep,
 )
+from src.models.change_request import ChangeRequest
 from src.models.comment import Comment
 from src.models.conversation import Conversation, Message
 from src.models.connection import ColumnMetadata, ConnectionMetadata, DataConnection, TableMetadata
@@ -101,6 +102,7 @@ __all__ = [
     "WorkspaceMember",
     "Notification",
     "NotificationPreference",
+    "ChangeRequest",
     "Comment",
     "Conversation",
     "Message",
