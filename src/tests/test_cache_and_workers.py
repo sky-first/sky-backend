@@ -38,15 +38,17 @@ async def test_cache_service_happy_path():
 
 
 def test_cache_key_helpers():
+    # PR0a renamed dashboard_cache_key → page_cache_key but kept the
+    # "dashboard:N" prefix for cache back-compat.
     from src.utils.cache import (
         connection_metadata_cache_key,
-        dashboard_cache_key,
+        page_cache_key,
         widget_cache_key,
         workspace_cache_key,
     )
 
     assert widget_cache_key("1") == "widget:1"
-    assert dashboard_cache_key("2") == "dashboard:2"
+    assert page_cache_key("2") == "dashboard:2"
     assert workspace_cache_key("3") == "workspace:3"
     assert connection_metadata_cache_key("4") == "connection:metadata:4"
 

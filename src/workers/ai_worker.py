@@ -76,12 +76,13 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     from src.services.notification_service import NotificationService
 
     async with AsyncSessionLocal() as db:
-        repo = BaseRepository(db, DashboardBuildJob)
+        # Renamed in PR0a from DashboardBuildJob → PageBuildJob.
+        repo = BaseRepository(db, PageBuildJob)
 
         job_uuid = UUID(job_id)
         job = await repo.get_by_id(job_uuid)
         if not job:
-            logger.warning(f"DashboardBuildJob not found: {job_id}")
+            logger.warning(f"PageBuildJob not found: {job_id}")
             return
 
         if job.status in ("succeeded", "failed", "cancelled"):
