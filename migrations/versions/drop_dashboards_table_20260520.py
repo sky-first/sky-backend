@@ -163,13 +163,25 @@ def upgrade() -> None:
                 )
 
         # Backfill page canvas settings from the most recent live dashboard
-        # per page (DISTINCT ON guarantees determinism when a page has >1)
+        # per page (DISTINCT ON guarantees determinism when a page has >1).
+        #
+        # The is_locked CASE is defensive: some legacy demo/dev databases
+        # declared dashboards.is_locked as VARCHAR instead of BOOLEAN,
+        # which made the previous COALESCE(d.is_locked, false) explode
+        # with "COALESCE types character varying and boolean cannot be
+        # matched". Casting through ::text + canonical truthy set makes
+        # the migration apply cleanly regardless of how the source
+        # column was originally typed.
         op.execute(
             sa.text(
                 """
                 UPDATE pages AS p
                 SET canvas_settings = d.canvas_settings,
-                    is_locked       = COALESCE(d.is_locked, false),
+                    is_locked       = CASE
+                        WHEN d.is_locked IS NULL THEN false
+                        WHEN LOWER(d.is_locked::text) IN ('t','true','1','y','yes') THEN true
+                        ELSE false
+                    END,
                     template_id     = d.template_id
                 FROM (
                     SELECT DISTINCT ON (page_id)
@@ -211,38 +223,60 @@ def upgrade() -> None:
             op.create_index(idx_name, table, ["page_id"])
 
     # ─── 6. DROP dashboard_id COLUMNS (with FKs + indexes) ──────────────────
-
+    #
+    # IMPORTANT: previous version used try/except around op.drop_constraint
+    # so a missing-with-this-name constraint wouldn't abort the migration.
+    # But Postgres aborts the *whole transaction* the moment any DDL
+    # fails — the Python except catches the SQLAlchemy error but PG has
+    # already poisoned the transaction, and the next op.drop_column
+    # gets InFailedSqlTransaction.
+    #
+    # Fix: use Postgres's native idempotent IF EXISTS form instead of
+    # Python try/except. It's a no-op when the object is missing
+    # (transaction stays clean) so the migration completes even when
+    # the source schema has constraint names we didn't anticipate.
+    refreshed = sa.inspect(bind)
     for table in dependent_tables:
-        if not _has_column(inspector, table, "dashboard_id"):
+        if not _has_column(refreshed, table, "dashboard_id"):
             continue
-        # Drop named FK if alembic created one (legacy names)
+        # Drop any FK that might be pointing at dashboard_id, by all
+        # the names alembic / sqlalchemy could have used historically.
         for fk_candidate in (
             f"fk_{table}_dashboard_id",
             f"{table}_dashboard_id_fkey",
         ):
-            if _has_fk(inspector, table, fk_candidate):
-                try:
-                    op.drop_constraint(fk_candidate, table, type_="foreignkey")
-                except Exception:
-                    pass
-        # Fallback: look up the FK by column
-        fk_name = _find_fk_by_column(inspector, table, "dashboard_id")
+            op.execute(
+                sa.text(
+                    f'ALTER TABLE {table} '
+                    f'DROP CONSTRAINT IF EXISTS "{fk_candidate}"'
+                )
+            )
+        # Also drop the FK found by column introspection, in case it
+        # has a non-conventional name.
+        fk_name = _find_fk_by_column(refreshed, table, "dashboard_id")
         if fk_name:
-            try:
-                op.drop_constraint(fk_name, table, type_="foreignkey")
-            except Exception:
-                pass
-        # Drop indexes referencing dashboard_id
+            op.execute(
+                sa.text(
+                    f'ALTER TABLE {table} '
+                    f'DROP CONSTRAINT IF EXISTS "{fk_name}"'
+                )
+            )
+        # Drop indexes (also IF EXISTS so a missing one doesn't poison
+        # the transaction).
         for idx_candidate in (
             f"idx_{table}_dashboard_id",
             f"{table}_dashboard_id_idx",
         ):
-            if _has_index(inspector, table, idx_candidate):
-                try:
-                    op.drop_index(idx_candidate, table_name=table)
-                except Exception:
-                    pass
-        op.drop_column(table, "dashboard_id")
+            op.execute(
+                sa.text(f'DROP INDEX IF EXISTS "{idx_candidate}"')
+            )
+        # Finally drop the column itself (IF EXISTS for resumability —
+        # if a previous partial migration already dropped it, move on).
+        op.execute(
+            sa.text(
+                f'ALTER TABLE {table} DROP COLUMN IF EXISTS dashboard_id'
+            )
+        )
 
     # ─── 7. DROP dashboards TABLE ───────────────────────────────────────────
 
@@ -266,19 +300,30 @@ def upgrade() -> None:
                 op.execute(sa.text(f"ALTER INDEX IF EXISTS {old_idx} RENAME TO {new_idx}"))
             except Exception:
                 pass
-        # Rename the FK we just created (it was fk_dashboard_build_jobs_page_id)
-        try:
-            op.execute(
-                sa.text(
-                    """
-                    ALTER TABLE page_build_jobs
-                    RENAME CONSTRAINT fk_dashboard_build_jobs_page_id
-                    TO fk_page_build_jobs_page_id
-                    """
-                )
+        # Rename the FK we created in step 5 (named
+        # fk_dashboard_build_jobs_page_id at create time). Postgres has
+        # no `ALTER TABLE ... RENAME CONSTRAINT IF EXISTS`, so we wrap
+        # the rename in a DO block that introspects pg_constraint first.
+        # This keeps the transaction clean even when the constraint name
+        # doesn't match (e.g. an older partial migration left a
+        # different name).
+        op.execute(
+            sa.text(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'fk_dashboard_build_jobs_page_id'
+                    ) THEN
+                        ALTER TABLE page_build_jobs
+                        RENAME CONSTRAINT fk_dashboard_build_jobs_page_id
+                        TO fk_page_build_jobs_page_id;
+                    END IF;
+                END $$;
+                """
             )
-        except Exception:
-            pass
+        )
 
 
 # ─── downgrade ──────────────────────────────────────────────────────────────
