@@ -29,7 +29,18 @@ from src.models.crew import CrewMember
 from src.models.space import SpaceMember
 from src.models.user import User
 from src.repositories.conversation import ConversationRepository
-from src.schemas.conversation import ConversationCreate, ConversationUpdate
+from src.schemas.conversation import (
+    ConversationCreate,
+    ConversationResponse,
+    ConversationUpdate,
+)
+
+try:
+    # PR4 broadcast helper — see message_service for the import dance.
+    from src.api.v1.chat_ws import broadcast_event_nowait
+except Exception:  # pragma: no cover
+    def broadcast_event_nowait(*args, **kwargs):
+        return None
 
 
 class ConversationService:
@@ -209,6 +220,11 @@ class ConversationService:
         conv.updated_at = datetime.utcnow()
         await self.db.commit()
         await self.db.refresh(conv)
+        broadcast_event_nowait(
+            str(conv.page_id),
+            "conversation.pinned",
+            ConversationResponse.model_validate(conv).model_dump(mode="json"),
+        )
         return conv
 
     async def unpin(self, conversation_id: UUID, user: User) -> Conversation:
@@ -226,6 +242,11 @@ class ConversationService:
         conv.updated_at = datetime.utcnow()
         await self.db.commit()
         await self.db.refresh(conv)
+        broadcast_event_nowait(
+            str(conv.page_id),
+            "conversation.pinned",
+            ConversationResponse.model_validate(conv).model_dump(mode="json"),
+        )
         return conv
 
     async def resolve(
@@ -249,6 +270,11 @@ class ConversationService:
         conv.updated_at = datetime.utcnow()
         await self.db.commit()
         await self.db.refresh(conv)
+        broadcast_event_nowait(
+            str(conv.page_id),
+            "conversation.resolved",
+            ConversationResponse.model_validate(conv).model_dump(mode="json"),
+        )
         return conv
 
     async def unresolve(
@@ -268,4 +294,9 @@ class ConversationService:
         conv.updated_at = datetime.utcnow()
         await self.db.commit()
         await self.db.refresh(conv)
+        broadcast_event_nowait(
+            str(conv.page_id),
+            "conversation.resolved",
+            ConversationResponse.model_validate(conv).model_dump(mode="json"),
+        )
         return conv

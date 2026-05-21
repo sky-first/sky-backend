@@ -26,8 +26,18 @@ from src.models.widget import Widget
 from src.models.user import User
 from src.repositories.conversation import ConversationRepository
 from src.repositories.message import MessageRepository
-from src.schemas.message import ForkRequest, MessageCreate, PinRequest
+from src.schemas.message import ForkRequest, MessageCreate, PinRequest, MessageResponse
 from src.services.conversation_service import ConversationService
+
+try:
+    # chat-threads PR4: broadcast new messages on the page WebSocket so
+    # every connected peer renders the new comment/question/ai_response
+    # without polling. Import is wrapped so circular-import or
+    # not-loaded-yet doesn't crash CLI / migration code paths.
+    from src.api.v1.chat_ws import broadcast_event_nowait
+except Exception:  # pragma: no cover — relay is optional
+    def broadcast_event_nowait(*args, **kwargs):
+        return None
 
 
 # Only the AI service / agent runtime should write these. Humans submit
@@ -112,6 +122,15 @@ class MessageService:
         conv.updated_at = datetime.utcnow()
         await self.db.commit()
         await self.db.refresh(msg)
+
+        # PR4: broadcast to every WS subscriber on this page. Fire-and-forget
+        # so the HTTP response doesn't wait on peer acks.
+        broadcast_event_nowait(
+            str(conv.page_id),
+            "message.created",
+            MessageResponse.model_validate(msg).model_dump(mode="json"),
+        )
+
         return msg
 
     # ─── List ────────────────────────────────────────────────────────────
@@ -221,6 +240,21 @@ class MessageService:
         await self.db.commit()
         await self.db.refresh(question)
         await self.db.refresh(ai_response)
+
+        # PR4: broadcast the bundle so peers render the question/AI pair
+        # immediately. We send both events (clients can render the AI
+        # answer as it lands while keeping the question above it).
+        page_id = str(conv.page_id)
+        broadcast_event_nowait(
+            page_id,
+            "message.created",
+            MessageResponse.model_validate(question).model_dump(mode="json"),
+        )
+        broadcast_event_nowait(
+            page_id,
+            "message.created",
+            MessageResponse.model_validate(ai_response).model_dump(mode="json"),
+        )
 
         return {
             "question": question,

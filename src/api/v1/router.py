@@ -11,6 +11,7 @@ from src.api.v1 import (
     beats,
     branding,
     change_requests,
+    chat_ws,
     comments,
     connections,
     connectors,
@@ -258,6 +259,11 @@ api_router.include_router(presence.router, prefix="", tags=["Presence"])
 
 # Cursor relay (WebSocket) endpoints
 api_router.include_router(cursor.router, prefix="", tags=["Cursor"])
+
+# Chat WebSocket relay — broadcasts message.created / conversation.pinned /
+# conversation.resolved / change_request.created / change_request.resolved
+# to every connected peer on a page (chat-threads-master-plan PR4).
+api_router.include_router(chat_ws.router, prefix="", tags=["Chat WS"])
 
 # Customer-raised support tickets — distinct from /support which manages
 # Sky-operator JIT sessions.
