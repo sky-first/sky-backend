@@ -23,7 +23,7 @@ from src.services.auth0_service import Auth0Service
 from src.services.rbac_service import EffectivePermissions, RBACService
 from src.utils.cache import CacheService
 from src.utils.cache import connection_metadata_cache_key as conn_cache_key
-from src.utils.cache import dashboard_cache_key, widget_cache_key, workspace_cache_key
+from src.utils.cache import page_cache_key, widget_cache_key, workspace_cache_key
 from src.workers.ai_worker import build_dashboard_job, process_ai_query
 from src.workers.cache_warming_worker import _warm_ai_response_cache_async
 from src.workers.celery_app import build_redis_url_from_env, encode_password_in_redis_url
@@ -52,7 +52,10 @@ async def test_cache_service_methods():
 
 def test_cache_keys():
     assert widget_cache_key("1") == "widget:1"
-    assert dashboard_cache_key("2") == "dashboard:2"
+    # Post page-consolidation (2026-05-20): the function was renamed
+    # `dashboard_cache_key` → `page_cache_key` but the returned key
+    # prefix is still "dashboard:N" for cache-warming back-compat.
+    assert page_cache_key("2") == "dashboard:2"
     assert workspace_cache_key("3") == "workspace:3"
     assert conn_cache_key("4") == "connection:metadata:4"
 

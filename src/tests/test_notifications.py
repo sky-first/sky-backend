@@ -131,7 +131,7 @@ async def test_comment_mention_trigger(db_session, test_user, test_dashboard):
     comment = await comment_service.create(
         user_id=uuid4(),  # Different user
         comment_data=CommentCreate(
-            content="Hey @test", dashboard_id=test_dashboard.id, mentions=[test_user.id]
+            content="Hey @test", page_id=test_dashboard.id, mentions=[test_user.id]
         ),
     )
 
@@ -146,8 +146,8 @@ async def test_comment_mention_trigger(db_session, test_user, test_dashboard):
 async def test_get_comments_by_dashboard(db_session, test_dashboard):
     service = CommentService(db_session)
     user_id = uuid4()
-    await service.create(user_id, CommentCreate(content="C1", dashboard_id=test_dashboard.id))
-    await service.create(user_id, CommentCreate(content="C2", dashboard_id=test_dashboard.id))
+    await service.create(user_id, CommentCreate(content="C1", page_id=test_dashboard.id))
+    await service.create(user_id, CommentCreate(content="C2", page_id=test_dashboard.id))
 
-    comments = await service.get_by_dashboard(test_dashboard.id)
+    comments = await service.get_by_page(test_dashboard.id)
     assert len(comments) == 2

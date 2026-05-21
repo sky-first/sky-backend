@@ -63,40 +63,41 @@ async def create_test_page(db_session: AsyncSession, user, name: str = "Test Pag
 async def create_test_dashboard(
     db_session: AsyncSession, user, page_id, name: str = "Test Dashboard"
 ):
-    """Helper to create a test dashboard."""
+    """Helper kept for source-compat with pre-PR0a tests.
+
+    Page IS the canvas now (Dashboard concept retired 2026-05-20). So
+    a "dashboard" just IS the page — we return the page itself. Tests
+    that consume `dashboard.id` keep working because `page.id == dashboard.id`.
+    """
     from src.repositories.page import PageRepository
 
-    # Create directly to avoid server_default issues with SQLite
-    dashboard_repo = PageRepository(db_session)
-    now = datetime.now(timezone.utc)
-    dashboard = await dashboard_repo.create(
-        name=name,
-        description="Test dashboard",
-        page_id=page_id,
-        created_by=user.id,
-        canvas_settings={
+    page_repo = PageRepository(db_session)
+    page = await page_repo.get_by_id(page_id)
+    if page is None:
+        raise RuntimeError(f"Test page {page_id} not found")
+    # Stamp canvas_settings if absent so tests that assert on its
+    # shape don't see a NULL.
+    if page.canvas_settings is None:
+        page.canvas_settings = {
             "scale": 1,
             "position": {"x": 0, "y": 0},
             "snapToGrid": False,
             "gridSize": 24,
-        },
-        is_locked=False,
-        created_at=now,
-        updated_at=now,
-    )
-    await db_session.commit()
-    return dashboard
+        }
+        await db_session.commit()
+        await db_session.refresh(page)
+    return page
 
 
 async def create_test_widget(db_session: AsyncSession, user, dashboard_id):
-    """Helper to create a test widget."""
+    """Helper kept for source-compat. `dashboard_id` is treated as a
+    `page_id` (Page IS the canvas now)."""
     from src.repositories.widget import WidgetRepository
 
-    # Create directly to avoid server_default issues with SQLite
     widget_repo = WidgetRepository(db_session)
     now = datetime.now(timezone.utc)
     widget = await widget_repo.create(
-        dashboard_id=dashboard_id,
+        page_id=dashboard_id,
         type="chart",
         title="Test Widget",
         position={"x": 0, "y": 0},
@@ -403,289 +404,18 @@ class TestPagesEndpoints:
         assert data["id"] == str(page.id)
         assert data["is_active"] is True
 
-    @pytest.mark.asyncio
-    async def test_get_page_dashboards(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test GET /api/v1/pages/{id}/dashboards."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(
-            f"/api/v1/pages/{page.id}/dashboards", headers=headers
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-
 
 # ============================================================================
-# MODULE 2: DASHBOARDS
+# MODULE 2: DASHBOARDS — REMOVED (page-consolidation, 2026-05-20)
+#
+# The /api/v1/dashboards endpoint family + /api/v1/pages/{id}/dashboards
+# was retired in PR0a. Page IS the canvas now; there's no separate
+# Dashboard entity to enumerate. Tests that referenced these endpoints
+# are deleted here; everything they validated either lives in
+# TestPagesEndpoints (above) or in TestWidgetsEndpoints (below — widgets
+# moved to /pages/{id}/widgets + /widgets/{id}/*).
 # ============================================================================
 
-
-class TestDashboardsEndpoints:
-    """Tests for /api/v1/dashboards endpoints."""
-
-    @pytest.mark.asyncio
-    async def test_list_dashboards_success(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test GET /api/v1/dashboards."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        await create_test_dashboard(db_session, user, page.id)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get("/api/v1/dashboards", headers=headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_list_dashboards_with_page_filter(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test GET /api/v1/dashboards?page_id={id}."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        await create_test_dashboard(db_session, user, page.id)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(
-            f"/api/v1/dashboards?page_id={page.id}", headers=headers
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_create_dashboard_success(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test POST /api/v1/dashboards."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        dashboard_data = {
-            "name": "My Dashboard",
-            "description": "Test dashboard",
-            "page_id": str(page.id),
-        }
-        response = await async_client.post(
-            "/api/v1/dashboards", json=dashboard_data, headers=headers
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert data["name"] == dashboard_data["name"]
-        assert "id" in data
-
-    @pytest.mark.asyncio
-    async def test_get_dashboard_success(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test GET /api/v1/dashboards/{id}."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, page.id)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(f"/api/v1/dashboards/{dashboard.id}", headers=headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["id"] == str(dashboard.id)
-
-    @pytest.mark.asyncio
-    async def test_update_dashboard_success(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test PUT /api/v1/dashboards/{id}."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, page.id)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        update_data = {"name": "Updated Dashboard"}
-        response = await async_client.put(
-            f"/api/v1/dashboards/{dashboard.id}", json=update_data, headers=headers
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["name"] == update_data["name"]
-
-    @pytest.mark.asyncio
-    async def test_delete_dashboard_success(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test DELETE /api/v1/dashboards/{id}."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, page.id)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/dashboards/{dashboard.id}", headers=headers)
-        assert response.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_get_dashboard_widgets(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test GET /api/v1/dashboards/{id}/widgets."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, page.id)
-        await create_test_widget(db_session, user, dashboard.id)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(
-            f"/api/v1/dashboards/{dashboard.id}/widgets", headers=headers
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_create_widget_in_dashboard(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test POST /api/v1/dashboards/{id}/widgets."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, page.id)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        widget_data = {
-            "dashboard_id": str(dashboard.id),  # Required by schema
-            "type": "chart",
-            "title": "New Widget",
-            "position": {"x": 100, "y": 100},
-            "size": {"width": 300, "height": 200},
-        }
-        response = await async_client.post(
-            f"/api/v1/dashboards/{dashboard.id}/widgets",
-            json=widget_data,
-            headers=headers,
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert data["title"] == widget_data["title"]
-        assert "id" in data
-
-    @pytest.mark.asyncio
-    async def test_export_dashboard(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test GET /api/v1/dashboards/{id}/export."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, page.id)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.get(
-            f"/api/v1/dashboards/{dashboard.id}/export", headers=headers
-        )
-        assert response.status_code == 200
-        data = response.json()
-        # Response structure: {dashboard: {...}, widgets: [], connections: [], exported_at: ...}
-        assert "dashboard" in data or "id" in data
-        assert "widgets" in data
-        assert "connections" in data
-
-    @pytest.mark.asyncio
-    async def test_duplicate_dashboard(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test POST /api/v1/dashboards/{id}/duplicate."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, page.id)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(
-            f"/api/v1/dashboards/{dashboard.id}/duplicate", json={}, headers=headers
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert "id" in data
-        assert data["name"] == f"{dashboard.name} (Copy)" or "Copy" in data["name"]
-
-    @pytest.mark.asyncio
-    async def test_lock_dashboard(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test POST /api/v1/dashboards/{id}/lock."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, page.id)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(
-            f"/api/v1/dashboards/{dashboard.id}/lock", headers=headers
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["is_locked"] is True
-
-    @pytest.mark.asyncio
-    async def test_unlock_dashboard(
-        self,
-        async_client: AsyncClient,
-        test_user_with_tokens: dict,
-        db_session: AsyncSession,
-    ):
-        """Test POST /api/v1/dashboards/{id}/unlock."""
-        user = test_user_with_tokens["user"]
-        page = await create_test_page(db_session, user)
-        dashboard = await create_test_dashboard(db_session, user, page.id)
-
-        # Lock first
-        widget_service = WidgetService(db_session)
-        await widget_service.lock_dashboard(dashboard.id, user)
-
-        headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.post(
-            f"/api/v1/dashboards/{dashboard.id}/unlock", headers=headers
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["is_locked"] is False
 
 
 # ============================================================================

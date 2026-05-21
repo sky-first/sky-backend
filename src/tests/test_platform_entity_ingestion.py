@@ -210,6 +210,14 @@ async def test_create_page_ingests_page_with_owner_for_personal_type(
     assert page_payloads[0]["space_id"] is None
 
 
+@pytest.mark.skip(
+    reason=(
+        "Dashboard entity removed in PR0a (2026-05-20). The endpoint "
+        "POST /api/v1/dashboards no longer exists; canvas IS the page "
+        "now. The page-level ingestion test above already covers the "
+        "equivalent personal-scope inheritance for the new entity."
+    )
+)
 @pytest.mark.asyncio
 async def test_create_dashboard_ingests_with_personal_scope_inherited_from_page(
     async_client: AsyncClient, test_user_with_tokens: dict

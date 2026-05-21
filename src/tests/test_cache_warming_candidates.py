@@ -17,9 +17,12 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
     user_id = uuid4()
     space_id = uuid4()
     conn_id = uuid4()
-    dashboard_id = uuid4()
     widget_id = uuid4()
     page_id = uuid4()
+    # Page IS the canvas after PR0a — there's no separate dashboard_id.
+    # Tests that used to scope a widget under a child dashboard now
+    # scope it directly under the page.
+    dashboard_id = page_id
 
     # Minimal user
     user = User(
@@ -58,10 +61,10 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
         updated_at=now,
     )
 
-    # Dashboard + widget linked to connection
+    # Widget linked to connection (page_id, post-PR0a)
     w = Widget(
         id=widget_id,
-        dashboard_id=dashboard_id,
+        page_id=dashboard_id,
         type="kpi",
         title="t",
         position={"x": 0, "y": 0},
@@ -98,7 +101,7 @@ async def test_get_ai_cache_warm_candidates_basic(db_session):
         updated_at=now - timedelta(minutes=1),
     )
 
-    db_session.add_all([user, page, conn, space, sc, dash, w, aq1, aq2])
+    db_session.add_all([user, page, conn, space, sc, w, aq1, aq2])
     await db_session.commit()
 
     candidates = await get_ai_cache_warm_candidates(

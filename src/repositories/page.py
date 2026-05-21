@@ -58,7 +58,10 @@ class PageRepository(BaseRepository[Page]):
                 Page.is_active == True,  # noqa: E712
                 Page.deleted_at.is_(None),
             )
-            .options(selectinload(Page.members), selectinload(Page.dashboards))
+            # Page-consolidation (2026-05-20): Page IS the canvas now,
+            # so Page.dashboards collection is gone. Only Page.members
+            # remains as a relationship to eager-load.
+            .options(selectinload(Page.members))
         )
         page = result.scalar_one_or_none()
 
@@ -71,7 +74,10 @@ class PageRepository(BaseRepository[Page]):
             .where(Page.owner_id == user_id, Page.deleted_at.is_(None))
             .order_by(Page.last_accessed.desc().nulls_last(), Page.created_at.desc())
             .limit(1)
-            .options(selectinload(Page.members), selectinload(Page.dashboards))
+            # Page-consolidation (2026-05-20): Page IS the canvas now,
+            # so Page.dashboards collection is gone. Only Page.members
+            # remains as a relationship to eager-load.
+            .options(selectinload(Page.members))
         )
         return result.scalar_one_or_none()
 

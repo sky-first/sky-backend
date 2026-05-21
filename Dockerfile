@@ -64,4 +64,20 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
 # --workers >1 uses Gunicorn Arbiter (fork model): child processes inherit
 # the parent's asyncio state (pool futures, event loop references) which
 # breaks after fork, causing silent worker crashes and supervisor exit-0.
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+#
+# --proxy-headers + --forwarded-allow-ips='*' are required because the
+# pod sits behind an Ingress that terminates TLS. Without these, uvicorn
+# only trusts X-Forwarded-Proto from 127.0.0.1, so request.url.scheme
+# reports "http" inside the pod even when the real client requested
+# "https". That breaks anything that builds a public URL off the
+# request scheme — most visibly the SSO redirect_uri:
+#
+#     /api/v1/auth/sso/google/login  →  302 to Google with
+#     redirect_uri=http://sky-stg... (not https), and Google refuses
+#     to redirect back to a non-HTTPS host → SSO appears "broken".
+#
+# Trusting '*' is safe here because nothing external talks directly to
+# the pod — only the cluster Ingress does. The Ingress sets
+# X-Forwarded-Proto correctly.
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "1", "--proxy-headers", "--forwarded-allow-ips=*"]

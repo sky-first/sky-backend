@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.core.permissions import check_permission
 from src.models.user import User
+from src.repositories.page import PageRepository
 from src.repositories.widget import WidgetRepository
 from src.repositories.template import TemplateRepository
 from src.schemas.widget import WidgetResponse

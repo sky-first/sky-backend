@@ -645,8 +645,39 @@ async def sso_login(
 
     # Get redirect URI
     if not redirect_uri:
-        base_url = str(request.base_url)
-        redirect_uri = f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
+        # Belt-and-suspenders: the Dockerfile launches uvicorn with
+        # --proxy-headers --forwarded-allow-ips='*' so request.base_url
+        # already reports the real scheme. This block normalises one
+        # more time in case the deploy lands without the Dockerfile
+        # change (or someone runs the BE without those flags locally).
+        # Google rejects http:// redirect URIs for non-localhost hosts,
+        # which silently breaks SSO end-to-end — the cost of a stray
+        # regex is much smaller than the cost of debugging a broken
+        # login flow on staging again.
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        forwarded_host = request.headers.get("x-forwarded-host")
+        scheme = (
+            forwarded_proto.split(",", 1)[0].strip()
+            if forwarded_proto
+            else request.url.scheme
+        )
+        host = (
+            forwarded_host.split(",", 1)[0].strip()
+            if forwarded_host
+            else (request.url.netloc or request.headers.get("host", ""))
+        )
+        # Hosted public domain → force https regardless of what the
+        # ASGI app saw, because Google/Azure/Okta all refuse http://
+        # callbacks for production hosts.
+        if host and not host.startswith(("localhost", "127.0.0.1")):
+            scheme = "https"
+        if host:
+            redirect_uri = f"{scheme}://{host}/api/v1/auth/sso/{provider}/callback"
+        else:
+            base_url = str(request.base_url)
+            redirect_uri = (
+                f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
+            )
 
     # Get OAuth URL based on provider
     if provider == "google":
@@ -732,10 +763,33 @@ async def sso_callback(
 
     auth0_service = Auth0Service(db)
 
-    # Build redirect URI from request base URL if not explicitly provided
+    # Build redirect URI from request base URL if not explicitly provided.
+    # MUST match the redirect_uri sent in the /login step exactly, or the
+    # provider rejects the token exchange. See the /login handler for the
+    # same belt-and-suspenders normaliser — Google/Azure/Okta all reject
+    # http:// callbacks for non-localhost hosts.
     if not redirect_uri:
-        base_url = str(request.base_url)
-        redirect_uri = f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        forwarded_host = request.headers.get("x-forwarded-host")
+        scheme = (
+            forwarded_proto.split(",", 1)[0].strip()
+            if forwarded_proto
+            else request.url.scheme
+        )
+        host = (
+            forwarded_host.split(",", 1)[0].strip()
+            if forwarded_host
+            else (request.url.netloc or request.headers.get("host", ""))
+        )
+        if host and not host.startswith(("localhost", "127.0.0.1")):
+            scheme = "https"
+        if host:
+            redirect_uri = f"{scheme}://{host}/api/v1/auth/sso/{provider}/callback"
+        else:
+            base_url = str(request.base_url)
+            redirect_uri = (
+                f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
+            )
 
     # Handle callback based on provider
     if provider == "google":
