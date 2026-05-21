@@ -24,17 +24,21 @@ class MessageRepository(BaseRepository[Message]):
         conversation_id: UUID,
         role: str,
         content: str,
+        kind: Optional[str] = None,
         query_id: Optional[UUID] = None,
         cost_tokens: Optional[int] = None,
         cost_usd: Optional[Decimal] = None,
         tier: Optional[str] = None,
         duration_ms: Optional[int] = None,
+        parent_message_id: Optional[UUID] = None,
+        incorporated_in_message_id: Optional[UUID] = None,
     ) -> Message:
         # Explicit microsecond timestamp — see conversation repo for the
         # SQLite precision rationale.
         msg = Message(
             conversation_id=conversation_id,
             role=role,
+            kind=kind,
             content=content,
             query_id=query_id,
             cost_tokens=cost_tokens,
@@ -42,6 +46,8 @@ class MessageRepository(BaseRepository[Message]):
             tier=tier,
             duration_ms=duration_ms,
             created_at=datetime.utcnow(),
+            parent_message_id=parent_message_id,
+            incorporated_in_message_id=incorporated_in_message_id,
         )
         self.db.add(msg)
         await self.db.flush()

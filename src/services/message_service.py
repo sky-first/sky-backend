@@ -69,13 +69,42 @@ class MessageService:
                 "Only role='user' messages can be created via this endpoint"
             )
 
+        # chat-threads-master-plan PR1: derive `kind` and enforce
+        # owner-gating for questions.
+        #   - kind='question' (or unspecified) → fires AI; only the
+        #     conversation owner (creator) may submit. Page editors
+        #     and admins also pass (they can run AI on shared threads
+        #     to unblock the team).
+        #   - kind='comment' → any viewer may post; never fires AI.
+        kind = payload.kind or "question"
+        if kind == "question":
+            if conv.created_by != user.id and user.role != "admin":
+                # Mirror "owner gates AI re-runs in that thread" from
+                # the chat-threads-master-plan. Non-owners must post
+                # comments instead, which the FE renders as the "Leave
+                # comment" button.
+                raise ForbiddenError(
+                    "Only the conversation owner can post a question; "
+                    "non-owners can leave comments instead"
+                )
+        elif kind != "comment":
+            # Should be unreachable thanks to the pattern validator on the
+            # schema, but guard explicitly so the service is the canonical
+            # policy gate.
+            raise ForbiddenError(
+                "Invalid message kind; only 'question' and 'comment' are "
+                "accepted from clients"
+            )
+
         msg = await self.repo.create(
             conversation_id=conv.id,
             role=payload.role,
+            kind=kind,
             content=payload.content,
             query_id=payload.query_id,
             cost_tokens=payload.cost_tokens,
             cost_usd=payload.cost_usd,
+            parent_message_id=payload.parent_message_id,
         )
 
         # Touch the conversation so list ordering surfaces it as recent.

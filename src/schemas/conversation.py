@@ -39,6 +39,9 @@ class ConversationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     archived_at: Optional[datetime]
+    # chat-threads-master-plan PR1, 2026-05-20
+    resolved_at: Optional[datetime] = None
+    pinned_message_id: Optional[UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
 

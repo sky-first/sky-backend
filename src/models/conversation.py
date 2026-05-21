@@ -69,13 +69,26 @@ class Conversation(Base):
         server_default=text("CURRENT_TIMESTAMP"),
     )
     archived_at = Column(DateTime(timezone=True), nullable=True)
+    # Thread state (added in chat-threads-master-plan PR1, 2026-05-20).
+    # resolved_at: owner or page-editor closed the thread (/resolve).
+    # pinned_message_id: message highlighted at top of the thread (/pin).
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    pinned_message_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # Relationships
+    # The `foreign_keys` is required because Conversation also points at
+    # messages.id via pinned_message_id (chat-threads PR1), so SQLAlchemy
+    # can no longer infer which FK relates the parent/child collection.
     messages = relationship(
         "Message",
         back_populates="conversation",
         cascade="all, delete-orphan",
         order_by="Message.created_at",
+        foreign_keys="Message.conversation_id",
     )
 
     def __repr__(self) -> str:
@@ -95,6 +108,14 @@ class Message(Base):
         index=True,
     )
     role = Column(String(20), nullable=False)  # 'user' | 'assistant' | 'system'
+    # ``kind`` further partitions the user/assistant axis along the
+    # collaborative-thread semantics (chat-threads-master-plan PR1,
+    # 2026-05-20):
+    #   - question     → owner's prompt that fires AI
+    #   - ai_response  → LLM reply
+    #   - comment      → non-owner discussion (does NOT fire AI)
+    #   - system       → pin/resolve/transfer audit events
+    kind = Column(String(20), nullable=True)
     content = Column(Text, nullable=False)
     query_id = Column(
         UUID(as_uuid=True),
@@ -116,14 +137,41 @@ class Message(Base):
         ForeignKey("widgets.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Threading + AI-bundling (chat-threads-master-plan PR1, 2026-05-20).
+    # parent_message_id: a reply to a comment points at the comment;
+    # an ai_response points at the triggering question.
+    # incorporated_in_message_id: when a comment was bundled into an
+    # Ask-AI call, set to the resulting ai_response id; FE renders
+    # "incorporated in AI response #N" badges from this.
+    parent_message_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    incorporated_in_message_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
-    # Relationships
-    conversation = relationship("Conversation", back_populates="messages")
+    # Relationships — the `foreign_keys` disambiguates against the
+    # parent_message_id / incorporated_in_message_id self-FKs added in
+    # chat-threads PR1 (otherwise SQLAlchemy can't infer which FK pairs
+    # parent ↔ child for the messages collection).
+    conversation = relationship(
+        "Conversation",
+        back_populates="messages",
+        foreign_keys=[conversation_id],
+    )
 
     __table_args__ = (
         CheckConstraint(
             "role IN ('user', 'assistant', 'system')",
             name="ck_messages_role_valid",
+        ),
+        CheckConstraint(
+            "kind IS NULL OR kind IN ('question', 'ai_response', 'comment', 'system')",
+            name="ck_messages_kind_valid",
         ),
         Index(
             "idx_messages_conversation_created",

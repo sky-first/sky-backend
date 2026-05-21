@@ -14,6 +14,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
@@ -190,3 +191,97 @@ async def delete_conversation(
         raise HTTPException(status_code=404, detail=str(err))
     except ForbiddenError as err:
         raise HTTPException(status_code=403, detail=str(err))
+
+
+# ─── Pin / Resolve (chat-threads-master-plan PR1) ─────────────────────────
+
+
+class _PinRequest(BaseModel):
+    message_id: UUID
+
+
+@router.post(
+    "/{conversation_id}/pin",
+    response_model=ConversationResponse,
+    summary="Pin a message at the top of the thread (owner only)",
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def pin_conversation_message(
+    conversation_id: UUID,
+    payload: _PinRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConversationResponse:
+    service = ConversationService(db)
+    try:
+        conv = await service.pin_message(
+            conversation_id, payload.message_id, current_user
+        )
+    except NotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+    except ForbiddenError as err:
+        raise HTTPException(status_code=403, detail=str(err))
+    return ConversationResponse.model_validate(conv)
+
+
+@router.delete(
+    "/{conversation_id}/pin",
+    response_model=ConversationResponse,
+    summary="Unpin whatever message is currently pinned",
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def unpin_conversation_message(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConversationResponse:
+    service = ConversationService(db)
+    try:
+        conv = await service.unpin(conversation_id, current_user)
+    except NotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+    except ForbiddenError as err:
+        raise HTTPException(status_code=403, detail=str(err))
+    return ConversationResponse.model_validate(conv)
+
+
+@router.post(
+    "/{conversation_id}/resolve",
+    response_model=ConversationResponse,
+    summary="Close the thread as resolved (owner or page-editor)",
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def resolve_conversation(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConversationResponse:
+    service = ConversationService(db)
+    try:
+        conv = await service.resolve(conversation_id, current_user)
+    except NotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+    except ForbiddenError as err:
+        raise HTTPException(status_code=403, detail=str(err))
+    return ConversationResponse.model_validate(conv)
+
+
+@router.post(
+    "/{conversation_id}/unresolve",
+    response_model=ConversationResponse,
+    summary="Re-open a previously resolved thread",
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def unresolve_conversation(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConversationResponse:
+    service = ConversationService(db)
+    try:
+        conv = await service.unresolve(conversation_id, current_user)
+    except NotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+    except ForbiddenError as err:
+        raise HTTPException(status_code=403, detail=str(err))
+    return ConversationResponse.model_validate(conv)
