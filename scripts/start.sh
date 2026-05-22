@@ -124,16 +124,44 @@ async def main():
 
 asyncio.run(main())
 PYEOF
-        # Now stamp & upgrade can run cleanly.
+        # Now we need to figure out where on the migration graph to
+        # land. `alembic stamp head` would mark everything as applied
+        # without actually applying — so any DDL that the orphan
+        # branch skipped stays missing and the API crashes at runtime
+        # (e.g. "column conversations.resolved_at does not exist").
+        #
+        # Strategy: stamp at the parent of the current head and run
+        # `upgrade head`. The migrations on this checkout's tip are
+        # written idempotently (`_has_column`, `IF EXISTS`,
+        # `inspector.has_table`), so re-applying any that were
+        # already partly run is a no-op. If multiple migrations
+        # were skipped, we walk further back until upgrade-head
+        # succeeds — each fall back stamps one revision earlier.
         HEAD_REV=$($ALEMBIC_CMD heads 2>/dev/null | awk '{print $1}' | head -1)
         if [ -z "$HEAD_REV" ]; then
             echo "❌ Não foi possível identificar a head conhecida. Aborto."
             exit 1
         fi
-        if $ALEMBIC_CMD stamp "$HEAD_REV" && $ALEMBIC_CMD upgrade head; then
-            echo "✅ Banco sincronizado (re-stampado em $HEAD_REV) e migrations aplicadas."
-        else
-            echo "❌ Não foi possível recuperar automaticamente. Verifique as migrações manualmente."
+        # Walk up to N revisions back through the linear chain. N=10
+        # is generous enough to absorb several merged feature
+        # branches without unbounded looping.
+        ANCESTOR="$HEAD_REV"
+        APPLIED="no"
+        for _step in 1 2 3 4 5 6 7 8 9 10; do
+            PARENT=$($ALEMBIC_CMD show "$ANCESTOR" 2>/dev/null | grep -E "^Parent:" | awk '{print $2}')
+            if [ -z "$PARENT" ] || [ "$PARENT" = "<base>" ]; then
+                break
+            fi
+            ANCESTOR="$PARENT"
+            if $ALEMBIC_CMD stamp "$ANCESTOR" 2>/dev/null && $ALEMBIC_CMD upgrade head; then
+                APPLIED="yes"
+                echo "✅ Banco sincronizado (re-stampado em $ANCESTOR) e migrations aplicadas até $HEAD_REV."
+                break
+            fi
+        done
+        if [ "$APPLIED" != "yes" ]; then
+            echo "❌ Não foi possível recuperar automaticamente após 10 tentativas."
+            echo "   Cole o output acima ao DevOps para inspecionar a tabela alembic_version."
             exit 1
         fi
     else
