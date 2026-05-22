@@ -30,8 +30,16 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
     if request.method == "OPTIONS":
         return cast(Response, await call_next(request))
 
-    # Skip rate limiting for health checks
-    if request.url.path in ["/health", "/ready", "/live", "/metrics"]:
+    # Skip rate limiting for health checks (both legacy and k8s-style)
+    if request.url.path in [
+        "/health",
+        "/healthz",
+        "/healthz/ready",
+        "/healthz/live",
+        "/ready",
+        "/live",
+        "/metrics",
+    ]:
         return cast(Response, await call_next(request))
 
     # Skip rate limiting for low-cost polling/status endpoints (frontend may poll frequently).
