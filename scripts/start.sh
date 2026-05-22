@@ -91,12 +91,47 @@ fi
 
 if ! $ALEMBIC_CMD upgrade head; then
     echo "⚠️  Falha nas migrações. Verificando se há revisões órfãs..."
-    # Se o erro for "Can't locate revision", tentamos sincronizar com stamp head
-    if $ALEMBIC_CMD current 2>&1 | grep -q "Can't locate revision"; then
-        echo "💡 Detectada revisão órfã (possivelmente de outra branch) na tabela alembic_version."
-        echo "🔧 Tentando sincronizar banco de dados com 'alembic stamp head'..."
-        if $ALEMBIC_CMD stamp head && $ALEMBIC_CMD upgrade head; then
-            echo "✅ Banco de dados sincronizado e atualizado com sucesso!"
+    # Se o erro for "Can't locate revision", a tabela alembic_version aponta
+    # para uma migration que não existe nesta checkout — tipicamente quando
+    # mudas de branch e a branch antiga tinha uma migration que esta não tem.
+    UPGRADE_ERR=$($ALEMBIC_CMD upgrade head 2>&1 || true)
+    if echo "$UPGRADE_ERR" | grep -q "Can't locate revision"; then
+        ORPHAN_REV=$(echo "$UPGRADE_ERR" | grep -oE "identified by '[^']+'" | head -1 | sed -E "s/identified by '(.+)'/\1/")
+        echo "💡 Detectada revisão órfã '$ORPHAN_REV' (provavelmente de outra branch)."
+        echo "🔧 Limpando alembic_version e re-stampando com a head válida..."
+        # 1. Apaga a row órfã via Python+SQLAlchemy (usa a mesma DATABASE_URL
+        #    que o resto do app, sem precisar de psql instalado).
+        # 2. Roda stamp <head> para gravar a head conhecida desta checkout.
+        # 3. Roda upgrade head para garantir que nada está em falta (no-op
+        #    se já estiver no head).
+        if [ -d "venv" ]; then PY="venv/bin/python"; elif [ -d ".venv" ]; then PY=".venv/bin/python"; else PY="python3"; fi
+        $PY - <<'PYEOF'
+import asyncio, os
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
+
+async def main():
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise SystemExit("DATABASE_URL not set")
+    if "asyncpg" not in url:
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    eng = create_async_engine(url)
+    async with eng.begin() as c:
+        await c.execute(text("DELETE FROM alembic_version"))
+    await eng.dispose()
+    print("   alembic_version cleared")
+
+asyncio.run(main())
+PYEOF
+        # Now stamp & upgrade can run cleanly.
+        HEAD_REV=$($ALEMBIC_CMD heads 2>/dev/null | awk '{print $1}' | head -1)
+        if [ -z "$HEAD_REV" ]; then
+            echo "❌ Não foi possível identificar a head conhecida. Aborto."
+            exit 1
+        fi
+        if $ALEMBIC_CMD stamp "$HEAD_REV" && $ALEMBIC_CMD upgrade head; then
+            echo "✅ Banco sincronizado (re-stampado em $HEAD_REV) e migrations aplicadas."
         else
             echo "❌ Não foi possível recuperar automaticamente. Verifique as migrações manualmente."
             exit 1
