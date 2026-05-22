@@ -27,6 +27,17 @@ class ConversationUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=500)
 
 
+class TransferOwnershipRequest(BaseModel):
+    """Move thread ownership from the current owner to another member.
+
+    Authorised callers: the current thread owner, or a space admin/editor
+    (covers HR off-boarding flows). The BE writes an audit log entry
+    capturing the previous owner, the new owner and the actor.
+    """
+
+    new_owner_id: UUID
+
+
 class ConversationResponse(BaseModel):
     """Full conversation state returned to the frontend."""
 
