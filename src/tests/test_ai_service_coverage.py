@@ -41,12 +41,14 @@ async def test_process_query_returns_empty_state_when_no_connection_available(db
     # answer pointing the user to Sources → Connect. The endpoint still
     # replies 200 with a user-facing friendly message.
     #
-    # This used to assert status="error" because the disabled mock raised
-    # ServiceUnavailableError that the endpoint translated into a banner;
-    # the new contract is to render a clear chat reply instead, since a
-    # banner on top of an empty chat is more confusing than helpful.
+    # CI default is AI_SERVICE_TYPE=mock so service.real_ai is None and
+    # the guard branch (which lives INSIDE `if self.real_ai:`) never
+    # executes. Local devs have AI_SERVICE_TYPE=real in .env.local so it
+    # does fire there. We force real_ai to a truthy sentinel so the test
+    # exercises the same branch in both environments.
     user, space, page, widget = await _seed_ai_fixtures(db_session)
     service = AIService(db_session)
+    service.real_ai = object()  # type: ignore[assignment]
 
     query_data = AIQueryRequest(
         question="What is the meaning of life?",
