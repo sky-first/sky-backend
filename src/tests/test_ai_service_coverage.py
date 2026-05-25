@@ -34,10 +34,17 @@ async def _seed_ai_fixtures(db_session):
 
 
 @pytest.mark.asyncio
-async def test_process_query_marks_error_when_ai_unavailable(db_session):
-    # Mock AI was intentionally disabled (see PR: fix-agents-500-and-disable-ai-mock).
-    # process_query catches the ServiceUnavailableError internally and returns a response with status="error"
-    # so the endpoint still replies 200 with a user-facing friendly message + error_key for the error banner.
+async def test_process_query_returns_empty_state_when_no_connection_available(db_session):
+    # When no data connection is wired up the no-connection fast-fail
+    # guard (work/ai-no-connection-fastfail) intercepts before the AI
+    # engine runs, returning status="completed" with an empty-state
+    # answer pointing the user to Sources → Connect. The endpoint still
+    # replies 200 with a user-facing friendly message.
+    #
+    # This used to assert status="error" because the disabled mock raised
+    # ServiceUnavailableError that the endpoint translated into a banner;
+    # the new contract is to render a clear chat reply instead, since a
+    # banner on top of an empty chat is more confusing than helpful.
     user, space, page, widget = await _seed_ai_fixtures(db_session)
     service = AIService(db_session)
 
@@ -47,7 +54,9 @@ async def test_process_query_marks_error_when_ai_unavailable(db_session):
         page_id=page.id,
     )
     response = await service.process_query(user.id, query_data)
-    assert response.status == "error"
+    assert response.status == "completed"
+    assert response.answer is not None
+    assert "no data connections" in response.answer.lower()
 
 
 @pytest.mark.asyncio
@@ -85,11 +94,54 @@ async def test_ai_service_history_basic(db_session):
 async def test_ai_service_helpers(db_session):
     user_id = uuid.uuid4()
     service = AIService(db_session)
-    
+
     # Test _get_first_active_connection when none exists
     conn = await service._get_first_active_connection(user_id)
     assert conn is None
-    
+
     # Test _get_user_crew_ids with no space
     crews = await service._get_user_crew_ids(user_id, None)
     assert crews == []
+
+
+@pytest.mark.asyncio
+async def test_process_query_returns_empty_state_when_no_connection(db_session, monkeypatch):
+    """No-connection fast-fail (work/ai-no-connection-fastfail).
+
+    When AI_SERVICE_TYPE=real but the user has zero connections, the guard
+    must short-circuit with status="completed" and an empty-state answer
+    pointing the user to Sources → Connect. Without this guard the real
+    AI engine would hang for 90s, surfacing as "AI didn't respond in time"
+    on the chat UI.
+    """
+    user, space, page, widget = await _seed_ai_fixtures(db_session)
+    service = AIService(db_session)
+
+    # Force the real_ai branch on without standing up the real engine —
+    # we just need a truthy value so the guard executes.
+    service.real_ai = object()
+
+    # Make every connection-resolution helper return None so the guard
+    # branch fires.
+    async def _none(*args, **kwargs):
+        return None
+
+    async def _empty_list(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(service, "_resolve_connection_id_from_tables", _none)
+    monkeypatch.setattr(service, "_get_first_active_connection_for_space", _none)
+    monkeypatch.setattr(service, "_get_first_active_connection", _none)
+    monkeypatch.setattr(service, "_get_user_dataset_connection_ids", _empty_list)
+    monkeypatch.setattr(service, "_get_best_connection_for_question", _none)
+
+    query_data = AIQueryRequest(
+        question="what is our retention?",
+        knowledge=[],
+        page_id=page.id,
+    )
+    response = await service.process_query(user.id, query_data)
+
+    assert response.status == "completed"
+    assert response.answer is not None
+    assert "no data connections" in response.answer.lower()
