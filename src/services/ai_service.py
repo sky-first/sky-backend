@@ -779,6 +779,30 @@ class AIService:
                             f"No connection_id in knowledge, using best connection: {connection_id}"
                         )
 
+                # Fast-fail: no connection resolved after every fallback.
+                # Without this guard the request falls through to the real
+                # AI engine (which times out at ~90s waiting for SQL it
+                # can never run) or to the mock (which produces noise the
+                # user cannot trust). Returning a clear answer here lets
+                # the chat UI render a friendly note instead of looking
+                # broken. The endpoint still returns 200 with status
+                # "completed" so the FE doesn't surface an error banner.
+                if not connection_id:
+                    logger.info(
+                        "process_query: no connection resolved (user=%s, space=%s) — returning empty-state answer",
+                        user_id,
+                        getattr(query_data, "space_id", None),
+                    )
+                    query.answer = (
+                        "This space has no data connections yet. "
+                        "Connect a data source from the toolbar (Sources → Connect) "
+                        "so I can answer questions grounded in your data."
+                    )
+                    query.status = "completed"
+                    await self.db.commit()
+                    await self.db.refresh(query)
+                    return query
+
                 if connection_id:
                     # --- KILL SWITCH (HARD CAP) ---
                     try:
