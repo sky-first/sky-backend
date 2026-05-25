@@ -491,3 +491,138 @@ async def test_non_creator_member_cannot_delete_crew_conversation(
         f"/api/v1/conversations/{conv_id}", headers=member_headers
     )
     assert r_del.status_code == 403
+
+
+# ─── Ownership transfer (chat-threads master plan PR6) ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_owner_can_hand_off_to_member(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    member = await create_user(db_session, "transfer-target@x.com")
+    page = await create_page(db_session, owner.id)
+    space = await create_space_with_member(db_session, owner.id, member_id=member.id)
+    crew = await create_crew_with_member(
+        db_session, space.id, owner.id, member_id=member.id
+    )
+
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    r = await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations",
+        json={"space_id": str(space.id), "crew_id": str(crew.id)},
+        headers=owner_headers,
+    )
+    conv_id = r.json()["id"]
+
+    r_xfer = await async_client.post(
+        f"/api/v1/conversations/{conv_id}/transfer-ownership",
+        json={"new_owner_id": str(member.id)},
+        headers=owner_headers,
+    )
+    assert r_xfer.status_code == 200
+    assert r_xfer.json()["created_by"] == str(member.id)
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_non_owner_gets_403(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    member = await create_user(db_session, "non-owner@x.com")
+    bystander = await create_user(db_session, "bystander@x.com")
+    page = await create_page(db_session, owner.id)
+    space = await create_space_with_member(db_session, owner.id, member_id=member.id)
+    crew = await create_crew_with_member(
+        db_session, space.id, owner.id, member_id=member.id
+    )
+
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+    from src.core.security import create_access_token
+    member_headers = get_auth_headers(create_access_token({"sub": str(member.id)}))
+
+    r = await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations",
+        json={"space_id": str(space.id), "crew_id": str(crew.id)},
+        headers=owner_headers,
+    )
+    conv_id = r.json()["id"]
+
+    r_xfer = await async_client.post(
+        f"/api/v1/conversations/{conv_id}/transfer-ownership",
+        json={"new_owner_id": str(bystander.id)},
+        headers=member_headers,
+    )
+    assert r_xfer.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_self_transfer_is_noop(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    page = await create_page(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    r = await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations", json={}, headers=owner_headers
+    )
+    conv_id = r.json()["id"]
+
+    r_xfer = await async_client.post(
+        f"/api/v1/conversations/{conv_id}/transfer-ownership",
+        json={"new_owner_id": str(owner.id)},
+        headers=owner_headers,
+    )
+    assert r_xfer.status_code == 200
+    # Owner stays the same — no change, no error.
+    assert r_xfer.json()["created_by"] == str(owner.id)
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_unknown_conversation_404(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    # Generated UUID that doesn't exist in the DB.
+    fake_conv_id = "00000000-0000-0000-0000-000000000123"
+    r_xfer = await async_client.post(
+        f"/api/v1/conversations/{fake_conv_id}/transfer-ownership",
+        json={"new_owner_id": str(owner.id)},
+        headers=owner_headers,
+    )
+    assert r_xfer.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_invalid_payload_422(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    page = await create_page(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    r = await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations", json={}, headers=owner_headers
+    )
+    conv_id = r.json()["id"]
+
+    # Missing new_owner_id
+    r_xfer = await async_client.post(
+        f"/api/v1/conversations/{conv_id}/transfer-ownership",
+        json={},
+        headers=owner_headers,
+    )
+    assert r_xfer.status_code == 422
+
+    # Malformed UUID
+    r_xfer2 = await async_client.post(
+        f"/api/v1/conversations/{conv_id}/transfer-ownership",
+        json={"new_owner_id": "not-a-uuid"},
+        headers=owner_headers,
+    )
+    assert r_xfer2.status_code == 422

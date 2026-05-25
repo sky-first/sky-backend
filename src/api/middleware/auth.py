@@ -36,6 +36,9 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     # Skip auth for public endpoints
     public_paths = [
         "/health",
+        "/healthz",       # k8s convention — same payload as /health, kept
+        "/healthz/ready", # so external probes that follow the k8s naming
+        "/healthz/live",  # convention (Docker HEALTHCHECK + cluster probes)
         "/ready",
         "/live",
         "/metrics",

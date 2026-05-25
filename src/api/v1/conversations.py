@@ -26,6 +26,7 @@ from src.schemas.conversation import (
     ConversationListResponse,
     ConversationResponse,
     ConversationUpdate,
+    TransferOwnershipRequest,
 )
 from src.services.conversation_service import ConversationService
 
@@ -280,6 +281,35 @@ async def unresolve_conversation(
     service = ConversationService(db)
     try:
         conv = await service.unresolve(conversation_id, current_user)
+    except NotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+    except ForbiddenError as err:
+        raise HTTPException(status_code=403, detail=str(err))
+    return ConversationResponse.model_validate(conv)
+
+
+@router.post(
+    "/{conversation_id}/transfer-ownership",
+    response_model=ConversationResponse,
+    summary="Reassign the thread to another member (owner / platform admin)",
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def transfer_ownership(
+    conversation_id: UUID,
+    payload: TransferOwnershipRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConversationResponse:
+    """chat-threads master plan PR6 — covers HR off-boarding flows
+    and "this conversation no longer belongs to me" handoffs. The
+    service records an audit event capturing the previous + new owner
+    and the actor; the change is broadcast over /ws/chat so other
+    page members see the new owner in real time."""
+    service = ConversationService(db)
+    try:
+        conv = await service.transfer_ownership(
+            conversation_id, payload.new_owner_id, current_user
+        )
     except NotFoundError as err:
         raise HTTPException(status_code=404, detail=str(err))
     except ForbiddenError as err:

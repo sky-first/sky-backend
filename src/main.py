@@ -152,8 +152,15 @@ setattr(app, "openapi", custom_openapi)
 
 
 @app.get("/health", tags=["Health"])
+@app.get("/healthz", tags=["Health"], include_in_schema=False)
 async def health():
-    """Health check endpoint."""
+    """Health check endpoint.
+
+    Exposed under both /health (legacy) and /healthz (k8s convention).
+    The Dockerfile HEALTHCHECK uses /healthz; local dev agents
+    (k8s extensions, Datadog, etc.) also follow that name. Keeping
+    both stops dev-mode log floods of 404s while we migrate callers.
+    """
     from datetime import datetime, timezone
 
     return {
@@ -164,6 +171,7 @@ async def health():
 
 
 @app.get("/ready", tags=["Health"])
+@app.get("/healthz/ready", tags=["Health"], include_in_schema=False)
 async def ready():
     """Readiness check endpoint."""
     # TODO: Check database and Redis connections
@@ -171,6 +179,7 @@ async def ready():
 
 
 @app.get("/live", tags=["Health"])
+@app.get("/healthz/live", tags=["Health"], include_in_schema=False)
 async def live():
     """Liveness check endpoint."""
     return {"status": "alive"}

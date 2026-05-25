@@ -300,3 +300,63 @@ class ConversationService:
             ConversationResponse.model_validate(conv).model_dump(mode="json"),
         )
         return conv
+
+    # ─── Ownership transfer (chat-threads master plan PR6) ────────────────
+    async def transfer_ownership(
+        self,
+        conversation_id: UUID,
+        new_owner_id: UUID,
+        user: User,
+    ) -> Conversation:
+        """Reassign a thread's creator to another user.
+
+        Authorised callers: the current owner, or any platform admin.
+        (Space admin / editor RBAC is enforced by the FE for now; the
+        BE accepts platform admin as the override path until the
+        per-space role check is wired through here.)
+        """
+        conv = await self.repo.get_by_id(conversation_id)
+        if not conv:
+            raise NotFoundError("Conversation not found")
+        if not await self._can_view(conv, user):
+            raise NotFoundError("Conversation not found")
+        is_owner = conv.created_by == user.id
+        is_admin = user.role == "admin"
+        if not (is_owner or is_admin):
+            raise ForbiddenError(
+                "Only the conversation owner or a platform admin can "
+                "transfer ownership"
+            )
+
+        previous_owner = conv.created_by
+        if previous_owner == new_owner_id:
+            return conv
+
+        conv.created_by = new_owner_id
+        conv.updated_at = datetime.utcnow()
+        await self.db.commit()
+        await self.db.refresh(conv)
+        try:
+            from src.services.audit_service import AuditService
+            await AuditService(self.db).log_event(
+                actor_kind="user",
+                actor_id=user.id,
+                action="conversation.ownership_transferred",
+                resource_kind="conversation",
+                resource_id=str(conv.id),
+                decision="allow",
+                metadata={
+                    "previous_owner_id": str(previous_owner) if previous_owner else None,
+                    "new_owner_id": str(new_owner_id),
+                    "page_id": str(conv.page_id),
+                },
+            )
+        except Exception:
+            # Audit failures must not block the user-facing transfer.
+            pass
+        broadcast_event_nowait(
+            str(conv.page_id),
+            "conversation.ownership_transferred",
+            ConversationResponse.model_validate(conv).model_dump(mode="json"),
+        )
+        return conv
