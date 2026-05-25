@@ -2,12 +2,43 @@
 
 import logging
 import os
+import ssl
 from datetime import timedelta
 from urllib.parse import quote_plus, unquote_plus
 
 from celery import Celery
 
 from src.config.settings import settings
+
+
+# Managed Redis (ElastiCache, Upstash) presents the URL as `rediss://` —
+# Celery's redis backend then refuses to start with:
+#   "A rediss:// URL must have parameter ssl_cert_reqs and this must be
+#    set to CERT_REQUIRED, CERT_OPTIONAL, or CERT_NONE"
+# unless ssl options are supplied via Celery config (it does NOT read
+# them from the URL query string for the result backend, only via the
+# `broker_use_ssl` / `redis_backend_use_ssl` settings).
+#
+# Map string → ssl enum (we accept the string form for parity with the
+# rest of the codebase / env var conventions).
+_SSL_CERT_REQS_MAP: dict[str, int] = {
+    "CERT_NONE":     ssl.CERT_NONE,
+    "CERT_OPTIONAL": ssl.CERT_OPTIONAL,
+    "CERT_REQUIRED": ssl.CERT_REQUIRED,
+}
+
+
+def _redis_ssl_options(url: str) -> dict | None:
+    """Return Celery ssl options dict for a `rediss://` URL, else None.
+
+    Reads CELERY_REDIS_SSL_CERT_REQS env var (default CERT_NONE — matches
+    ElastiCache-in-VPC posture where the TLS hop terminates at a private
+    endpoint and chain validation against an internal CA adds no value).
+    """
+    if not url.startswith("rediss://"):
+        return None
+    name = (os.getenv("CELERY_REDIS_SSL_CERT_REQS") or "CERT_NONE").upper()
+    return {"ssl_cert_reqs": _SSL_CERT_REQS_MAP.get(name, ssl.CERT_NONE)}
 
 
 def build_redis_url_from_env(host: str, port: int, password: str, db: int) -> str:
@@ -91,6 +122,9 @@ celery_app = Celery(
     backend=backend_url,
 )
 
+_broker_ssl = _redis_ssl_options(broker_url)
+_backend_ssl = _redis_ssl_options(backend_url)
+
 # Update configuration
 celery_app.conf.update(
     task_serializer="json",
@@ -104,6 +138,10 @@ celery_app.conf.update(
     task_soft_time_limit=25 * 60,  # 25 minutes
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
+    # SSL config for `rediss://` URLs (managed Redis like ElastiCache).
+    # None values are skipped by Celery, so plain `redis://` is unaffected.
+    broker_use_ssl=_broker_ssl,
+    redis_backend_use_ssl=_backend_ssl,
     task_queues={
         "celery": {"exchange": "celery"},
         "knowledge": {"exchange": "knowledge"},  # dedicated queue, concurrency 4
