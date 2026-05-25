@@ -3,13 +3,13 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.models.connection import DataConnection
-from src.models.crew import Crew
-from src.models.space import Space, SpaceConnection, SpaceMember
+from src.models.crew import Crew, CrewMember
+from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable
 from src.repositories.base import BaseRepository
 
 
@@ -20,25 +20,110 @@ class SpaceRepository(BaseRepository[Space]):
         super().__init__(db, Space)
 
     async def get_by_user(self, user_id: UUID, skip: int = 0, limit: int = 100) -> List[Space]:
-        """
-        Get spaces by user.
-
-        Args:
-            user_id: User ID
-            skip: Number of records to skip
-            limit: Maximum number of records
-
-        Returns:
-            List[Space]: List of spaces
-        """
+        """Get spaces the user created or is a member of (Space or Crew)."""
+        member_space_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
+        # Phase 2.5 — Crew membership in a Crew inside a Space implies
+        # access to that Space, even without a SpaceMember row.
+        crew_space_ids = (
+            select(Crew.space_id)
+            .join(CrewMember, CrewMember.crew_id == Crew.id)
+            .where(CrewMember.user_id == user_id)
+        )
         result = await self.db.execute(
             select(Space)
-            .where(Space.created_by == user_id, Space.deleted_at.is_(None))
+            .where(
+                Space.deleted_at.is_(None),
+                or_(
+                    Space.created_by == user_id,
+                    Space.id.in_(member_space_ids),
+                    Space.id.in_(crew_space_ids),
+                ),
+            )
             .order_by(Space.created_at.desc())
             .offset(skip)
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def get_by_user_with_stats(
+        self, user_id: UUID, skip: int = 0, limit: int = 100
+    ) -> List[dict]:
+        """Get spaces (created or member, including via Crew) with stats."""
+        member_space_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
+        # Phase 2.5 — Crew membership implies Space visibility.
+        crew_space_ids = (
+            select(Crew.space_id)
+            .join(CrewMember, CrewMember.crew_id == Crew.id)
+            .where(CrewMember.user_id == user_id)
+        )
+        stmt = (
+            select(
+                Space,
+                func.count(distinct(SpaceMember.id)).label("member_count"),
+                func.count(distinct(SpaceConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(SpaceMember, Space.id == SpaceMember.space_id)
+            .outerjoin(SpaceConnection, Space.id == SpaceConnection.space_id)
+            .where(
+                Space.deleted_at.is_(None),
+                or_(
+                    Space.created_by == user_id,
+                    Space.id.in_(member_space_ids),
+                    Space.id.in_(crew_space_ids),
+                ),
+            )
+            .group_by(Space.id)
+            .order_by(Space.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+
+        spaces = []
+        for row in result:
+            space, member_count, connection_count = row
+            space_data = {c.name: getattr(space, c.name) for c in space.__table__.columns}
+            space_data["member_count"] = member_count
+            space_data["connection_count"] = connection_count
+            spaces.append(space_data)
+
+        return spaces
+
+    async def get_all_with_stats(
+        self, skip: int = 0, limit: int = 100
+    ) -> List[dict]:
+        """Tenant-wide list with the same stats shape as get_by_user_with_stats.
+
+        Used by tenant owner / admin / sky_operator views — they need to
+        see EVERY non-deleted Space (including demo Spaces they did not
+        personally join). The "member or creator" filter from the user
+        variant is intentionally dropped here.
+        """
+        stmt = (
+            select(
+                Space,
+                func.count(distinct(SpaceMember.id)).label("member_count"),
+                func.count(distinct(SpaceConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(SpaceMember, Space.id == SpaceMember.space_id)
+            .outerjoin(SpaceConnection, Space.id == SpaceConnection.space_id)
+            .where(Space.deleted_at.is_(None))
+            .group_by(Space.id)
+            .order_by(Space.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+
+        spaces = []
+        for row in result:
+            space, member_count, connection_count = row
+            space_data = {c.name: getattr(space, c.name) for c in space.__table__.columns}
+            space_data["member_count"] = member_count
+            space_data["connection_count"] = connection_count
+            spaces.append(space_data)
+
+        return spaces
 
     async def get_by_id(self, id: UUID) -> Optional[Space]:
         """
@@ -88,8 +173,30 @@ class SpaceRepository(BaseRepository[Space]):
                 SpaceConnection.space_id == space_id,
                 DataConnection.deleted_at.is_(None),
             )
+            .options(selectinload(SpaceConnection.connection))
         )
         return list(result.scalars().all())
+
+    async def get_space_connection(
+        self, space_id: UUID, connection_id: UUID
+    ) -> Optional[SpaceConnection]:
+        """
+        Get a specific space connection association.
+
+        Args:
+            space_id: Space ID
+            connection_id: Connection ID
+
+        Returns:
+            Optional[SpaceConnection]: The association or None
+        """
+        result = await self.db.execute(
+            select(SpaceConnection).where(
+                SpaceConnection.space_id == space_id,
+                SpaceConnection.connection_id == connection_id,
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def get_spaces_by_connection_id(self, connection_id: UUID) -> List[Space]:
         """
@@ -106,7 +213,7 @@ class SpaceRepository(BaseRepository[Space]):
             .join(SpaceConnection, Space.id == SpaceConnection.space_id)
             .where(
                 SpaceConnection.connection_id == connection_id,
-                Space.deleted_at.is_(None)
+                Space.deleted_at.is_(None),
             )
         )
         return list(result.scalars().all())
@@ -153,3 +260,55 @@ class SpaceMemberRepository(BaseRepository[SpaceMember]):
             .options(selectinload(SpaceMember.user))
         )
         return list(result.scalars().all())
+
+
+class SpaceTableRepository(BaseRepository[SpaceTable]):
+    """Space table repository."""
+
+    def __init__(self, db: AsyncSession):
+        super().__init__(db, SpaceTable)
+
+    async def get_space_tables(self, space_id: UUID) -> List[SpaceTable]:
+        """
+        Get all tables linked to a space.
+
+        Args:
+            space_id: Space ID
+
+        Returns:
+            List[SpaceTable]: List of linked tables
+        """
+        result = await self.db.execute(select(SpaceTable).where(SpaceTable.space_id == space_id))
+        return list(result.scalars().all())
+
+    async def get_space_table(
+        self,
+        space_id: UUID,
+        connection_id: UUID,
+        table_name: str,
+        schema_name: Optional[str] = None,
+    ) -> Optional[SpaceTable]:
+        """
+        Get a specific space table connection.
+
+        Args:
+            space_id: Space ID
+            connection_id: Connection ID
+            table_name: Table name
+            schema_name: Schema name
+
+        Returns:
+            Optional[SpaceTable]: The association or None
+        """
+        query = select(SpaceTable).where(
+            SpaceTable.space_id == space_id,
+            SpaceTable.connection_id == connection_id,
+            SpaceTable.table_name == table_name,
+        )
+        if schema_name:
+            query = query.where(SpaceTable.schema_name == schema_name)
+        else:
+            query = query.where(SpaceTable.schema_name.is_(None))
+
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()

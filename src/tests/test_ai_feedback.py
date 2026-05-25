@@ -1,14 +1,14 @@
-"""Tests for AI feedback endpoint."""
-
 from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.ai import AIFeedback, AIQuery
 from src.repositories.base import BaseRepository
+
+"""Tests for AI feedback endpoint."""
 
 
 def get_auth_headers(access_token: str) -> dict:
@@ -16,12 +16,24 @@ def get_auth_headers(access_token: str) -> dict:
     return {"Authorization": f"Bearer {access_token}"}
 
 
-async def create_test_query(db_session: AsyncSession, user_id):
+async def create_test_query(db_session: AsyncSession, user_id, page_id=None):
     """Helper to create a test AI query."""
+    from src.repositories.page import PageRepository
+
+    if not page_id:
+        page_repo = PageRepository(db_session)
+        pages = await page_repo.get_by_owner(user_id, limit=1)
+        if not pages:
+            # Fallback for tests if no page exists
+            page_id = uuid4()
+        else:
+            page_id = pages[0].id
+
     query_repo = BaseRepository(db_session, AIQuery)
     now = datetime.now(timezone.utc)
     query = await query_repo.create(
         user_id=user_id,
+        page_id=page_id,
         question="How many users?",
         answer="There are 10 users.",
         status="completed",
@@ -37,7 +49,10 @@ async def create_test_query(db_session: AsyncSession, user_id):
 class TestAIFeedback:
     @pytest.mark.asyncio
     async def test_submit_feedback_success(
-        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/feedback - create and update."""
         user = test_user_with_tokens["user"]
@@ -46,7 +61,7 @@ class TestAIFeedback:
 
         # 1. Create 'good' feedback
         fb_data = {"query_id": str(query.id), "feedback": "good"}
-        response = client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
+        response = await async_client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
         assert response.status_code == 200
         assert response.json()["message"] == "Feedback submitted successfully"
 
@@ -67,7 +82,7 @@ class TestAIFeedback:
             "feedback": "bad",
             "comment": "The count is actually 12.",
         }
-        response = client.post("/api/v1/ai/feedback", json=fb_update, headers=headers)
+        response = await async_client.post("/api/v1/ai/feedback", json=fb_update, headers=headers)
         assert response.status_code == 200
 
         # Verify update in DB
@@ -81,7 +96,10 @@ class TestAIFeedback:
 
     @pytest.mark.asyncio
     async def test_submit_feedback_ownership_validation(
-        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         """Test POST /api/v1/ai/feedback - cannot give feedback on other user's query."""
         # Create query for a different user
@@ -90,23 +108,27 @@ class TestAIFeedback:
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fb_data = {"query_id": str(query.id), "feedback": "good"}
-        response = client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
+        response = await async_client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
         # Should return 404 (NotFoundError) as per implementation
         assert response.status_code == 404
 
-    def test_submit_feedback_invalid_rating(self, client: TestClient, test_user_with_tokens: dict):
+    @pytest.mark.asyncio
+    async def test_submit_feedback_invalid_rating(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
         """Test POST /api/v1/ai/feedback - invalid rating enum."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fb_data = {"query_id": str(uuid4()), "feedback": "not_good_or_bad"}
-        response = client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
+        response = await async_client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
         assert response.status_code == 422
 
-    def test_submit_feedback_deprecated_message_id(
-        self, client: TestClient, test_user_with_tokens: dict
+    @pytest.mark.asyncio
+    async def test_submit_feedback_deprecated_message_id(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
     ):
         """Test POST /api/v1/ai/feedback - deprecated flow still returns 200 (but does nothing)."""
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         fb_data = {"message_id": "msg-123", "feedback": "good"}
-        response = client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
+        response = await async_client.post("/api/v1/ai/feedback", json=fb_data, headers=headers)
         assert response.status_code == 200
         assert response.json()["message"] == "Feedback submitted successfully"

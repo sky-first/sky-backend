@@ -4,7 +4,7 @@ from typing import List, Optional
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,7 @@ from src.api.deps import (  # get_current_user usado em outros endpoints
     get_db_session,
 )
 from src.config.auth0 import auth0_settings
-from src.core.exceptions import BadRequestError
+from src.core.exceptions import BadRequestError, ForbiddenError
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.permission import EffectivePermissionsResponse
@@ -54,27 +54,11 @@ router = APIRouter()
 async def register(
     register_data: RegisterRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
-    """
-    Register endpoint.
-
-    Args:
-        register_data: Registration data (email, password, optional name and token)
-        db: Database session
-
-    Returns:
-        LoginResponse: Access token, refresh token, and user data
-
-    Raises:
-        BadRequestError: If email already exists or validation fails
-    """
-    auth_service = AuthenticationService(db)
-    return await auth_service.register_with_tokens(
-        register_data,
-        user_agent=request.headers.get("user-agent"),
-        ip_address=request.client.host if request.client else None,
-    )
+    """Self-registration is disabled. Access is granted via SSO or admin invite."""
+    raise ForbiddenError("Self-registration is disabled. Please sign in with your company account via SSO.")
 
 
 @router.post(
@@ -88,6 +72,7 @@ async def register(
 async def login(
     login_data: LoginRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
     """
@@ -100,23 +85,7 @@ async def login(
     Returns:
         LoginResponse: Access token, refresh token, and user data
     """
-    try:
-        auth_service = AuthenticationService(db)
-        result = await auth_service.login(
-            login_data.email,
-            login_data.password,
-            user_agent=request.headers.get("user-agent"),
-            ip_address=request.client.host if request.client else None,
-        )
-        return result
-    except Exception as e:
-        # Log the error for debugging
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"Login error: {str(e)}", exc_info=True)
-        # Re-raise to let FastAPI handle it properly
-        raise
+    raise ForbiddenError("Password login is disabled. Please sign in with your company account via SSO.")
 
 
 @router.post(
@@ -133,15 +102,35 @@ async def logout(
     """
     Logout endpoint.
 
-    Args:
-        refresh_token_data: Refresh token to revoke
-        db: Database session
+    Revokes the caller's refresh token AND all outstanding access
+    tokens for the same user. The access-token invalidation uses a
+    "revoke tokens issued before now" marker stored in Redis and
+    checked by the auth middleware — the old access token keeps its
+    JWT shape but stops being accepted immediately.
 
-    Returns:
-        SuccessResponse: Success message
+    Red-team HI (2026-04-23): before this change, a stolen access
+    token kept working until its JWT exp (15 min) regardless of
+    logout.
     """
+    import time
+    from jose import jwt as _jwt
+
     auth_service = AuthenticationService(db)
     await auth_service.logout(refresh_token_data.refresh_token)
+
+    # Decode the refresh to get `sub` (user id) so we can revoke all
+    # the access tokens for the SAME user. We only need the sub
+    # claim; signature was checked inside auth_service.logout above.
+    try:
+        claims = _jwt.get_unverified_claims(refresh_token_data.refresh_token)
+        user_id = claims.get("sub")
+    except Exception:
+        user_id = None
+
+    if user_id:
+        from src.core.token_blocklist import revoke_user_tokens
+        await revoke_user_tokens(user_id, issued_before_epoch=int(time.time()))
+
     return SuccessResponse(message="Logged out successfully")
 
 
@@ -252,9 +241,7 @@ async def forgot_password(
     Returns:
         SuccessResponse: Success message (always returns success for security)
     """
-    # TODO: Implement email sending
-    # For now, just return success to prevent email enumeration
-    return SuccessResponse(message="If the email exists, a password reset link has been sent")
+    raise ForbiddenError("Password reset is disabled. Please sign in with your company account via SSO.")
 
 
 @router.post(
@@ -282,9 +269,7 @@ async def reset_password(
     Raises:
         BadRequestError: If token is invalid
     """
-    # TODO: Implement password reset token validation
-    # For now, return error
-    raise BadRequestError("Password reset not implemented yet")
+    raise ForbiddenError("Password reset is disabled. Please sign in with your company account via SSO.")
 
 
 @router.post(
@@ -312,9 +297,7 @@ async def verify_email(
     Raises:
         BadRequestError: If token is invalid
     """
-    # TODO: Implement email verification
-    # For now, return error
-    raise BadRequestError("Email verification not implemented yet")
+    raise ForbiddenError("Email verification is not applicable. Authentication is handled via SSO.")
 
 
 @router.get(
@@ -363,7 +346,8 @@ async def get_sessions(
         List[SessionResponse]: List of active sessions
     """
     auth_service = AuthenticationService(db)
-    sessions = await auth_service.get_active_sessions(current_user.id)
+    assert current_user.id is not None
+    sessions = await auth_service.get_active_sessions(UUID(str(current_user.id)))
     return [SessionResponse(**s) for s in sessions]
 
 
@@ -390,8 +374,48 @@ async def revoke_all_sessions(
         SuccessResponse: Success message
     """
     auth_service = AuthenticationService(db)
-    await auth_service.revoke_all_tokens(current_user.id)
+    assert current_user.id is not None
+    await auth_service.revoke_all_tokens(UUID(str(current_user.id)))
     return SuccessResponse(message="All sessions revoked successfully")
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    summary="Revoke specific session",
+    description="Revoke a specific session by ID",
+)
+async def revoke_session(
+    session_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """Revoke a specific session."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import update
+
+    from src.models.user import RefreshToken
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.id == session_id,
+            RefreshToken.user_id == current_user.id,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
+    await db.commit()
+
+    if result.rowcount == 0:  # type: ignore[attr-defined]
+        from src.core.exceptions import NotFoundError
+        raise NotFoundError("Session not found or already revoked")
+
+    return SuccessResponse(message="Session revoked successfully")
 
 
 @router.post(
@@ -418,11 +442,7 @@ async def change_password(
     Returns:
         SuccessResponse: Success message
     """
-    auth_service = AuthenticationService(db)
-    await auth_service.change_password(
-        current_user.id, request_data.current_password, request_data.new_password
-    )
-    return SuccessResponse(message="Password changed successfully")
+    raise ForbiddenError("Password management is disabled. Authentication is handled via SSO.")
 
 
 # Invite Endpoints
@@ -499,6 +519,36 @@ async def login_with_invite(
     """
     invite_service = InviteService(db)
     login_response = await invite_service.login_with_invite(login_data.token, login_data.password)
+    return LoginResponse(**login_response)
+
+
+@router.post(
+    "/invite/accept",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}},
+    summary="Accept Invite",
+    description="Accept invite, set password and login",
+)
+async def accept_invite_endpoint(
+    login_data: InviteLoginRequest,
+    db: AsyncSession = Depends(get_db_session),
+) -> LoginResponse:
+    """
+    Accept invite endpoint.
+
+    Args:
+        login_data: Invite token and new password
+        db: Database session
+
+    Returns:
+        LoginResponse: Access token, refresh token, and user data
+
+    Raises:
+        BadRequestError: If token is invalid or expired
+    """
+    invite_service = InviteService(db)
+    login_response = await invite_service.accept_invite(login_data.token, login_data.password)
     return LoginResponse(**login_response)
 
 
@@ -595,8 +645,39 @@ async def sso_login(
 
     # Get redirect URI
     if not redirect_uri:
-        base_url = str(request.base_url)
-        redirect_uri = f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
+        # Belt-and-suspenders: the Dockerfile launches uvicorn with
+        # --proxy-headers --forwarded-allow-ips='*' so request.base_url
+        # already reports the real scheme. This block normalises one
+        # more time in case the deploy lands without the Dockerfile
+        # change (or someone runs the BE without those flags locally).
+        # Google rejects http:// redirect URIs for non-localhost hosts,
+        # which silently breaks SSO end-to-end — the cost of a stray
+        # regex is much smaller than the cost of debugging a broken
+        # login flow on staging again.
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        forwarded_host = request.headers.get("x-forwarded-host")
+        scheme = (
+            forwarded_proto.split(",", 1)[0].strip()
+            if forwarded_proto
+            else request.url.scheme
+        )
+        host = (
+            forwarded_host.split(",", 1)[0].strip()
+            if forwarded_host
+            else (request.url.netloc or request.headers.get("host", ""))
+        )
+        # Hosted public domain → force https regardless of what the
+        # ASGI app saw, because Google/Azure/Okta all refuse http://
+        # callbacks for production hosts.
+        if host and not host.startswith(("localhost", "127.0.0.1")):
+            scheme = "https"
+        if host:
+            redirect_uri = f"{scheme}://{host}/api/v1/auth/sso/{provider}/callback"
+        else:
+            base_url = str(request.base_url)
+            redirect_uri = (
+                f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
+            )
 
     # Get OAuth URL based on provider
     if provider == "google":
@@ -655,6 +736,7 @@ async def sso_login(
 )
 async def sso_callback(
     provider: str,
+    request: Request,
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: Optional[str] = Query(None, description="State parameter from OAuth flow"),
     redirect_uri: Optional[str] = Query(None, description="Redirect URI used in authorization"),
@@ -681,10 +763,33 @@ async def sso_callback(
 
     auth0_service = Auth0Service(db)
 
-    # Get redirect URI if not provided
-    # Note: redirect_uri should be provided by the frontend
+    # Build redirect URI from request base URL if not explicitly provided.
+    # MUST match the redirect_uri sent in the /login step exactly, or the
+    # provider rejects the token exchange. See the /login handler for the
+    # same belt-and-suspenders normaliser — Google/Azure/Okta all reject
+    # http:// callbacks for non-localhost hosts.
     if not redirect_uri:
-        redirect_uri = "http://localhost:3000/login/sso/callback"
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        forwarded_host = request.headers.get("x-forwarded-host")
+        scheme = (
+            forwarded_proto.split(",", 1)[0].strip()
+            if forwarded_proto
+            else request.url.scheme
+        )
+        host = (
+            forwarded_host.split(",", 1)[0].strip()
+            if forwarded_host
+            else (request.url.netloc or request.headers.get("host", ""))
+        )
+        if host and not host.startswith(("localhost", "127.0.0.1")):
+            scheme = "https"
+        if host:
+            redirect_uri = f"{scheme}://{host}/api/v1/auth/sso/{provider}/callback"
+        else:
+            base_url = str(request.base_url)
+            redirect_uri = (
+                f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
+            )
 
     # Handle callback based on provider
     if provider == "google":

@@ -12,7 +12,7 @@ from src.core.exceptions import BadRequestError, UnauthorizedError
 from src.core.security import create_access_token, create_refresh_token, get_password_hash
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
-from src.services.onboarding_service import ensure_default_planet_and_space
+from src.services.onboarding_service import ensure_default_page_and_space
 
 logger = logging.getLogger(__name__)
 
@@ -207,8 +207,8 @@ class InviteService:
         await self.db.commit()
         await self.db.refresh(user)
 
-        # Ensure default planet/space for new users
-        await ensure_default_planet_and_space(self.db, user)
+        # Ensure default page/space for new users
+        await ensure_default_page_and_space(self.db, user)
 
         logger.info(f"✅ User created from invite: {user.email}")
         return user
@@ -265,7 +265,8 @@ class InviteService:
         await self.db.refresh(user)
 
         # Create tokens
-        from src.schemas.user import UserResponse, user_to_response_dict
+        from src.schemas.user import UserResponse
+        from src.services.auth_service import user_to_response_dict
 
         token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
         access_token = create_access_token(token_data)
@@ -287,5 +288,79 @@ class InviteService:
             "access_token": access_token,
             "refresh_token": refresh_token,
             "expires_in": 365 * 100 * 24 * 60 * 60,  # 100 years in seconds
+            "user": UserResponse.model_validate(user_to_response_dict(user)),
+        }
+
+    async def accept_invite(self, token: str, password: str) -> dict:
+        """
+        Accept invite: set password and login.
+
+        Args:
+            token: Invite token
+            password: New password
+
+        Returns:
+            dict: Login response
+
+        Raises:
+            BadRequestError: If token is invalid or expired
+        """
+        # Validate token first
+        await self.validate_invite_token(token)
+
+        # Find user with this invite token
+        from sqlalchemy import select
+
+        result = await self.db.execute(
+            select(User).where(
+                User.invite_token == token,
+                User.deleted_at.is_(None),
+            )
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise BadRequestError("Invalid invite token")
+
+        # Update user
+        user.password_hash = get_password_hash(password)
+        user.invite_token = None
+        user.invite_expires_at = None
+        user.email_verified = True
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.status = "active"
+        user.last_active_at = datetime.now(timezone.utc)
+        user.last_login_at = datetime.now(timezone.utc)
+
+        await self.db.commit()
+        await self.db.refresh(user)
+
+        # Ensure default page/space
+        await ensure_default_page_and_space(self.db, user)
+
+        # Create tokens
+        from src.schemas.user import UserResponse
+        from src.services.auth_service import user_to_response_dict
+
+        token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token(token_data)
+
+        # Save refresh token
+        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)
+        refresh_token_model = RefreshToken(
+            user_id=user.id,
+            token=refresh_token,
+            expires_at=expires_at,
+        )
+        self.db.add(refresh_token_model)
+        await self.db.commit()
+
+        logger.info(f"✅ Invite accepted by user: {user.email}")
+
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expires_in": 365 * 100 * 24 * 60 * 60,
             "user": UserResponse.model_validate(user_to_response_dict(user)),
         }

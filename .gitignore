@@ -34,3 +34,18 @@ uploads/
 coverage.xml
 htmlcov/
 celerybeat-schedule
+coverage.json
+
+# Databases
+dev.db
+*.db
+*.sqlite
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Ruff
+.ruff_cache/
+.deps-installed

@@ -1,9 +1,8 @@
-
 import logging
 import sys
-from typing import Any, Dict
 
 import structlog
+
 from src.config import settings
 
 # Configure standard logging to intercept all logs
@@ -29,7 +28,8 @@ def configure_logging():
     ]
 
     structlog.configure(
-        processors=shared_processors + [
+        processors=shared_processors
+        + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
@@ -64,8 +64,9 @@ def configure_logging():
     root_logger.setLevel(settings.LOG_LEVEL.upper())
 
     # Mute noisy loggers
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
+    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+    logging.getLogger("uvicorn.error").setLevel(logging.INFO)
+    logging.getLogger("uvicorn").setLevel(logging.INFO)
 
 
 def get_logger(name: str):

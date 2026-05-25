@@ -10,9 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from src.config.database import Base
 from src.core.security import get_password_hash
-from src.models.planet import Planet  # noqa: F401
+from src.models.page import Page  # noqa: F401
 from src.models.user import User
 
 # Import related models to register relationships (avoid mapper lookup errors)
@@ -25,7 +24,8 @@ async def create_test_user():
 
     # Database URL from environment or default
     database_url = os.getenv(
-        "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db"
+        "DATABASE_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db",
     )
 
     engine = create_async_engine(database_url, echo=False)
@@ -39,13 +39,14 @@ async def create_test_user():
         existing_user = result.scalar_one_or_none()
 
         if existing_user:
-            # Update password to ensure it matches current reference
+            # Update password and role to ensure it matches current reference
             existing_user.password_hash = get_password_hash("Test@2024!Secure")
+            existing_user.role = "admin"
             session.add(existing_user)
             await session.commit()
-            print("✅ Test user already exists (password refreshed).")
-            print(f"   Email: test@example.com")
-            print(f"   Password: Test@2024!Secure")
+            print("✅ Test user already exists (permissions elevated to admin).")
+            print("   Email: test@example.com")
+            print("   Password: Test@2024!Secure")
             return
 
         # Create test user
@@ -53,7 +54,7 @@ async def create_test_user():
             email="test@example.com",
             password_hash=get_password_hash("Test@2024!Secure"),
             name="Test User",
-            role="user",
+            role="admin",
             email_verified=True,
             has_completed_onboarding=True,
         )
@@ -62,8 +63,8 @@ async def create_test_user():
         await session.commit()
 
         print("✅ Test user created successfully!")
-        print(f"   Email: test@example.com")
-        print(f"   Password: Test@2024!Secure")
+        print("   Email: test@example.com")
+        print("   Password: Test@2024!Secure")
 
     await engine.dispose()
 

@@ -2,7 +2,19 @@
 
 import uuid
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -27,13 +39,32 @@ class User(Base):
     )  # admin, user, viewer
     email_verified = Column(Boolean, nullable=False, default=False, server_default="false")
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
-    onboarding_step = Column(String(50), nullable=False, default="0", server_default="0")
+    onboarding_step = Column(Integer, nullable=True, default=0, server_default="0")
+    onboarding_version = Column(Integer, nullable=False, default=0, server_default="0")
     has_completed_onboarding = Column(
         Boolean, nullable=False, default=False, server_default="false"
     )
     selected_domain = Column(String(255), nullable=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+    last_active_at = Column(DateTime(timezone=True), nullable=True)
+    status = Column(
+        String(50),
+        nullable=False,
+        default="offline",
+        server_default="offline",
+    )  # active, away, offline
     preferences = Column(JSON, nullable=True, default={}, server_default=text("'{}'"))
+
+    # Sky Support operator flag
+    is_sky_operator = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    # Public demo guest (Cenário B). is_demo=true marks users provisioned
+    # via /demo/signup; the cleanup cron uses demo_expires_at to decide
+    # whether the user (and its Space, dashboards, chats) is past TTL and
+    # can be deleted. Demo users have a placeholder password_hash and
+    # cannot log in via /auth/login — only via the JWT issued at signup.
+    is_demo = Column(Boolean, nullable=False, default=False, server_default="false")
+    demo_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Auth0 Integration
     auth0_id = Column(String(255), unique=True, nullable=True, index=True)
@@ -53,7 +84,9 @@ class User(Base):
     sso_metadata = Column(JSON, nullable=True)  # Store provider-specific data
 
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     updated_at = Column(
         DateTime(timezone=True),
@@ -67,8 +100,8 @@ class User(Base):
     refresh_tokens = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
     )
-    owned_planets = relationship("Planet", back_populates="owner", foreign_keys="Planet.owner_id")
-    planet_memberships = relationship("PlanetMember", back_populates="user")
+    owned_pages = relationship("Page", back_populates="owner", foreign_keys="Page.owner_id")
+    page_memberships = relationship("PageMember", back_populates="user")
     owned_workspaces = relationship(
         "Workspace", back_populates="owner", foreign_keys="Workspace.owner_id"
     )
@@ -80,8 +113,16 @@ class User(Base):
         Index("idx_users_role", "role", postgresql_where=deleted_at.is_(None)),
         Index("idx_users_created_at", "created_at"),
         Index("idx_users_auth0_id", "auth0_id", postgresql_where=deleted_at.is_(None)),
-        Index("idx_users_auth_provider", "auth_provider", postgresql_where=deleted_at.is_(None)),
-        Index("idx_users_invite_token", "invite_token", postgresql_where=invite_token.isnot(None)),
+        Index(
+            "idx_users_auth_provider",
+            "auth_provider",
+            postgresql_where=deleted_at.is_(None),
+        ),
+        Index(
+            "idx_users_invite_token",
+            "invite_token",
+            postgresql_where=invite_token.isnot(None),
+        ),
     )
 
     def __repr__(self) -> str:
@@ -105,7 +146,9 @@ class RefreshToken(Base):
     )  # Changed from String(255) to Text for JWT tokens
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     user_agent = Column(String(255), nullable=True)

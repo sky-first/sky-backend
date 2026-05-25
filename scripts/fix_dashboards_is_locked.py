@@ -15,7 +15,8 @@ load_dotenv()
 
 async def fix_is_locked():
     database_url = os.getenv(
-        "DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost:5433/ai_saas_db"
+        "DATABASE_URL",
+        "postgresql+asyncpg://postgres:password@localhost:5433/ai_saas_db",
     )
     db_url = database_url.replace("+asyncpg", "")
     parsed = urlparse(db_url)
@@ -32,8 +33,8 @@ async def fix_is_locked():
     print("=== CHECKING is_locked COLUMN TYPE ===")
     col_info = await conn.fetch(
         """
-        SELECT column_name, data_type 
-        FROM information_schema.columns 
+        SELECT column_name, data_type
+        FROM information_schema.columns
         WHERE table_name = 'dashboards' AND column_name = 'is_locked';
     """
     )
@@ -55,7 +56,7 @@ async def fix_is_locked():
             # First, remove the default
             await conn.execute(
                 """
-                ALTER TABLE dashboards 
+                ALTER TABLE dashboards
                 ALTER COLUMN is_locked DROP DEFAULT;
             """
             )
@@ -63,8 +64,8 @@ async def fix_is_locked():
             # Update existing string values to boolean
             await conn.execute(
                 """
-                UPDATE dashboards 
-                SET is_locked = CASE 
+                UPDATE dashboards
+                SET is_locked = CASE
                     WHEN is_locked IN ('true', 'True', '1', 'yes') THEN true
                     ELSE false
                 END;
@@ -74,8 +75,8 @@ async def fix_is_locked():
             # Change column type to boolean
             await conn.execute(
                 """
-                ALTER TABLE dashboards 
-                ALTER COLUMN is_locked TYPE boolean 
+                ALTER TABLE dashboards
+                ALTER COLUMN is_locked TYPE boolean
                 USING is_locked::boolean;
             """
             )
@@ -83,7 +84,7 @@ async def fix_is_locked():
             # Set new default
             await conn.execute(
                 """
-                ALTER TABLE dashboards 
+                ALTER TABLE dashboards
                 ALTER COLUMN is_locked SET DEFAULT false;
             """
             )
@@ -91,7 +92,7 @@ async def fix_is_locked():
             # Ensure NOT NULL
             await conn.execute(
                 """
-                ALTER TABLE dashboards 
+                ALTER TABLE dashboards
                 ALTER COLUMN is_locked SET NOT NULL;
             """
             )

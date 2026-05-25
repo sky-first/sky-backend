@@ -13,7 +13,7 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: str = Field(default="user", pattern="^(admin|user|viewer)$")
+    role: str = Field(default="user", pattern="^(owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
 
 
 class UserCreate(UserBase):
@@ -36,15 +36,67 @@ class UserUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: Optional[str] = Field(None, pattern="^(admin|user|viewer)$")
+    role: Optional[str] = Field(None, pattern="^(owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
     email_verified: Optional[bool] = None
     onboarding_step: Optional[int] = None
+    onboarding_version: Optional[int] = None
     has_completed_onboarding: Optional[bool] = None
     selected_domain: Optional[str] = None
     preferences: Optional[dict] = None
     ai_tone: Optional[str] = None
     ai_style: Optional[str] = None
     ai_context: Optional[str] = None
+    status: Optional[str] = Field(None, pattern="^(active|away|offline)$")
+
+
+class OnboardingUpdate(BaseModel):
+    """Onboarding update schema."""
+
+    step: Optional[int] = None
+    version: Optional[int] = None
+
+
+class ExploreDemoDataResponse(BaseModel):
+    """Response from POST /me/onboarding/explore-demo-data.
+
+    Returned when an SSO user opts into the "explore with sample data"
+    flow on first login. The FE switches the active workspace to the
+    returned ``space_id`` so the user immediately sees the seeded
+    Connections, Glossary, Metrics, and Agents.
+    """
+
+    space_id: str
+    space_name: str
+    is_new: bool  # False on a re-run that found a pre-existing demo space
+    seeded: dict  # {"glossary": int, "metrics": int, "relationships": int}
+    agents_added: int
+    connections_added: int
+
+
+class DemoDataStatusResponse(BaseModel):
+    """Response from GET /me/onboarding/explore-demo-data.
+
+    Used by the FE banner inside the Demo Sky workspace to show
+    "you have N metrics + M glossary terms here, [Remove sample data]".
+    """
+
+    has_demo_space: bool
+    space_id: Optional[str] = None
+    space_name: Optional[str] = None
+    metrics_count: int = 0
+    glossary_count: int = 0
+    connections_count: int = 0
+
+
+class DemoDataRemovedResponse(BaseModel):
+    """Response from DELETE /me/onboarding/explore-demo-data.
+
+    Idempotent: ``removed=False`` means there was nothing to remove.
+    """
+
+    removed: bool
+    space_id: Optional[str] = None
+    deleted: dict = Field(default_factory=dict)
 
 
 class UserResponse(UserBase):
@@ -53,11 +105,21 @@ class UserResponse(UserBase):
     id: UUID
     email_verified: bool
     email_verified_at: Optional[datetime] = None
-    onboarding_step: int
+    onboarding_step: Optional[int] = 0
+    onboarding_version: int = 0
+    needs_onboarding: bool = False
     has_completed_onboarding: bool
     selected_domain: Optional[str] = None
     preferences: dict = Field(default_factory=dict)
     last_login_at: Optional[datetime] = None
+    last_active_at: Optional[datetime] = None
+    status: str = "offline"
+    # Public demo flags — exposed so the FE can render the demo TTL
+    # countdown badge ("5 days left") and the demo welcome banner.
+    # Without these fields, the FE never knows the user is a demo
+    # guest and falls back to the regular paid-plan experience.
+    is_demo: bool = False
+    demo_expires_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -125,14 +187,14 @@ class UserPermissionsResponse(BaseModel):
 class UserPermissionsUpdate(BaseModel):
     """User permissions update schema."""
 
-    role: str = Field(..., pattern="^(admin|user|viewer)$")
+    role: str = Field(..., pattern="^(owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
 
 
 class UserInviteRequest(BaseModel):
     """User invite request schema."""
 
     workspace_id: Optional[UUID] = None
-    role: Optional[str] = Field(None, pattern="^(admin|user|viewer)$")
+    role: Optional[str] = Field(None, pattern="^(owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
 
 
 # Invite System Schemas

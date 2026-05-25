@@ -1,9 +1,11 @@
 """Alembic environment configuration."""
 
+import os
 from logging.config import fileConfig
+from urllib.parse import quote_plus
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import pool
 
 from src.config.database import Base
 from src.config.settings import settings
@@ -20,27 +22,44 @@ if config.config_file_name is not None:
 
 # Set SQLAlchemy URL from settings
 # Build URL directly if POSTGRES_PASSWORD env var is available (Docker Compose)
-import os
-from urllib.parse import quote_plus
-
-postgres_password = os.getenv('POSTGRES_PASSWORD')
+postgres_password = os.getenv("POSTGRES_PASSWORD")
 if postgres_password:
     # Build URL from separate env vars with properly encoded password
-    postgres_user = os.getenv('POSTGRES_USER', 'postgres')
-    postgres_host = os.getenv('POSTGRES_HOST', 'postgres')
-    postgres_port = os.getenv('POSTGRES_PORT', '5432')
-    postgres_db = os.getenv('POSTGRES_DB', 'ai_saas_db')
+    postgres_user = os.getenv("POSTGRES_USER", "postgres")
+    postgres_host = os.getenv("POSTGRES_HOST", "postgres")
+    postgres_port = os.getenv("POSTGRES_PORT", "5432")
+    postgres_db = os.getenv("POSTGRES_DB", "ai_saas_db")
     encoded_password = quote_plus(postgres_password)
     sync_url = f"postgresql://{postgres_user}:{encoded_password}@{postgres_host}:{postgres_port}/{postgres_db}"
     # Escape % for ConfigParser (doubles % to prevent interpolation)
-    sync_url = sync_url.replace('%', '%%')
+    sync_url = sync_url.replace("%", "%%")
 else:
     # Use settings URL and escape % for ConfigParser
-    sync_url = settings.database_url_sync.replace('%', '%%')
+    sync_url = settings.database_url_sync.replace("%", "%%")
 
 config.set_main_option("sqlalchemy.url", sync_url)
 
 # Add your model's MetaData object here
+# list of tables to ignore (managed by sky-poc-ai or langgraph)
+IGNORED_TABLES = {
+    "table_metadata",
+    "chat_history", 
+    "semantic_cache",
+    "embeddings",
+    "checkpoint_migrations",
+    "checkpoints",
+    "checkpoint_blobs",
+    "user_permissions",
+    "pipeline_jobs",
+    "checkpoint_writes",
+    "dashboards"
+}
+
+def include_object(obj, name, type_, reflected, compare_to):
+    if type_ == "table" and name in IGNORED_TABLES:
+        return False
+    return True
+
 target_metadata = Base.metadata
 
 
@@ -49,12 +68,13 @@ def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     # Unescape %% back to % (ConfigParser doubles % to escape interpolation)
     if url:
-        url = url.replace('%%', '%')
+        url = url.replace("%%", "%")
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -66,26 +86,31 @@ def run_migrations_online() -> None:
     # Build URL directly to avoid ConfigParser interpolation issues
     import os
     from urllib.parse import quote_plus
-    
-    postgres_password = os.getenv('POSTGRES_PASSWORD')
+
+    postgres_password = os.getenv("POSTGRES_PASSWORD")
     if postgres_password:
         # Build URL from separate env vars with properly encoded password
-        postgres_user = os.getenv('POSTGRES_USER', 'postgres')
-        postgres_host = os.getenv('POSTGRES_HOST', 'postgres')
-        postgres_port = os.getenv('POSTGRES_PORT', '5432')
-        postgres_db = os.getenv('POSTGRES_DB', 'ai_saas_db')
+        postgres_user = os.getenv("POSTGRES_USER", "postgres")
+        postgres_host = os.getenv("POSTGRES_HOST", "postgres")
+        postgres_port = os.getenv("POSTGRES_PORT", "5432")
+        postgres_db = os.getenv("POSTGRES_DB", "ai_saas_db")
         encoded_password = quote_plus(postgres_password)
         sync_url = f"postgresql://{postgres_user}:{encoded_password}@{postgres_host}:{postgres_port}/{postgres_db}"
     else:
         # Use settings URL and unescape %% if present
-        sync_url = settings.database_url_sync.replace('%%', '%')
-    
+        sync_url = settings.database_url_sync.replace("%%", "%")
+
     # Create engine directly with URL to avoid ConfigParser issues
     from sqlalchemy import create_engine
+
     connectable = create_engine(sync_url, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection, 
+            target_metadata=target_metadata,
+            include_object=include_object
+        )
 
         with context.begin_transaction():
             context.run_migrations()
@@ -95,4 +120,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

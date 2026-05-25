@@ -5,13 +5,12 @@ Revises: fix_missing_tables_20260123
 Create Date: 2026-01-26 09:28:57.196060
 
 """
+
 from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '3f17472d08d9'
-down_revision = 'fix_missing_tables_20260123'
+revision = "3f17472d08d9"
+down_revision = "fix_missing_tables_20260123"
 branch_labels = None
 depends_on = None
 
@@ -32,15 +31,15 @@ def upgrade() -> None:
 
     # Create indexes
     op.execute("""
-        CREATE INDEX IF NOT EXISTS idx_widget_connections_dashboard_id 
+        CREATE INDEX IF NOT EXISTS idx_widget_connections_dashboard_id
         ON widget_connections(dashboard_id);
     """)
 
     op.execute("""
-        CREATE INDEX IF NOT EXISTS idx_widget_connections_from_to 
+        CREATE INDEX IF NOT EXISTS idx_widget_connections_from_to
         ON widget_connections(from_widget_id, to_widget_id);
     """)
 
 
 def downgrade() -> None:
-    op.drop_table('widget_connections')
+    pass

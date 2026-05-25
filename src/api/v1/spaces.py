@@ -1,10 +1,10 @@
 """Space endpoints."""
 
 import logging
-from typing import List
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
@@ -14,10 +14,15 @@ from src.schemas.crew import CrewResponse
 from src.schemas.space import (
     SpaceCreate,
     SpaceMemberCreate,
+    SpaceMemberUpdate,
     SpaceMemberResponse,
     SpaceResponse,
+    SpaceStatsResponse,
+    SpaceTableCreate,
     SpaceUpdate,
 )
+from src.services.crew_service import CrewService
+from src.services.rbac_service import RBACService
 from src.services.space_service import SpaceService
 
 router = APIRouter()
@@ -50,6 +55,11 @@ async def list_spaces(
     Returns:
         List[SpaceResponse]: List of spaces
     """
+    # Phase 0 note: GET list relies on service-layer membership filter.
+    # A dedicated "spaces.read" permission key will be added in Phase 1
+    # (RBAC catalog migration). For now the service already filters by
+    # the user's space membership, which is sufficient for intra-deploy
+    # isolation. The gap is documented in RBAC_GOVERNANCE_PLAN.md.
     space_service = SpaceService(db)
     return await space_service.list_spaces(current_user, skip=skip, limit=limit)
 
@@ -78,6 +88,7 @@ async def get_space(
     Returns:
         SpaceResponse: Space data
     """
+    # Phase 0 note: GET by-id relies on service-layer membership filter.
     space_service = SpaceService(db)
     return await space_service.get_space(space_id, current_user)
 
@@ -106,6 +117,8 @@ async def create_space(
     Returns:
         SpaceResponse: Created space
     """
+    # Phase 0 RBAC: viewer / guest cannot create spaces.
+    await RBACService(db).assert_permission(current_user, "spaces.create")
     space_service = SpaceService(db)
     logger.info(
         "[spaces:create] request user_id=%s name=%r description=%r",
@@ -190,6 +203,7 @@ async def delete_space(
     Returns:
         SuccessResponse: Success message
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     logger.info(
         "[spaces:delete] request user_id=%s space_id=%s",
@@ -229,9 +243,12 @@ async def get_space_crews(
     Returns:
         List[CrewResponse]: List of crews
     """
+    # Verify access (raises ForbiddenError if user is not creator or member)
     space_service = SpaceService(db)
-    crews = await space_service.get_space_crews(space_id, current_user)
-    return [CrewResponse.model_validate(c) for c in crews]
+    await space_service.get_space_crews(space_id, current_user)
+
+    crew_service = CrewService(db)
+    return await crew_service.list_crews(current_user, space_id=space_id)
 
 
 @router.get(
@@ -263,6 +280,78 @@ async def get_space_connections(
     return [
         {"space_id": str(c.space_id), "connection_id": str(c.connection_id)} for c in connections
     ]
+
+
+@router.post(
+    "/{space_id}/connections/{connection_id}",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Add space connection",
+    description="Link a connection to a space",
+)
+async def add_space_connection(
+    space_id: UUID,
+    connection_id: UUID,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """
+    Link a connection to a space.
+
+    Args:
+        space_id: Space ID
+        connection_id: Connection ID
+        background_tasks: FastAPI BackgroundTasks object
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        dict: Success message and linked IDs
+    """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    space_service = SpaceService(db)
+    await space_service.add_space_connection(
+        space_id, connection_id, current_user, background_tasks
+    )
+    return {
+        "message": "Connection linked successfully",
+        "space_id": str(space_id),
+        "connection_id": str(connection_id),
+    }
+
+
+@router.delete(
+    "/{space_id}/connections/{connection_id}",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Remove space connection",
+    description="Unlink a connection from a space",
+)
+async def remove_space_connection(
+    space_id: UUID,
+    connection_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Unlink a connection from a space.
+
+    Args:
+        space_id: Space ID
+        connection_id: Connection ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SuccessResponse: Success message
+    """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    space_service = SpaceService(db)
+    await space_service.remove_space_connection(space_id, connection_id, current_user)
+    return SuccessResponse(message="Connection unlinked successfully")
 
 
 @router.get(
@@ -323,8 +412,36 @@ async def add_space_member(
     Returns:
         SpaceMemberResponse: Created member
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     return await space_service.add_space_member(space_id, current_user, member_data)
+
+
+@router.patch(
+    "/{space_id}/members/{user_id}",
+    response_model=SpaceMemberResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        404: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+    summary="Change a space member's role",
+    description="Update the per-space role (owner / editor / viewer) for an existing member.",
+)
+async def update_space_member_role(
+    space_id: UUID,
+    user_id: UUID,
+    payload: SpaceMemberUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SpaceMemberResponse:
+    """Change a member's per-space role. Platform owner/admin bypass in
+    RBACService; space admins can reshuffle their own space. Viewers
+    and non-owners cannot call this."""
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    space_service = SpaceService(db)
+    return await space_service.update_space_member_role(space_id, user_id, payload.role)
 
 
 @router.delete(
@@ -353,6 +470,7 @@ async def remove_space_member(
     Returns:
         SuccessResponse: Success message
     """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
     space_service = SpaceService(db)
     await space_service.remove_space_member(space_id, user_id, current_user)
     return SuccessResponse(message="Member removed successfully")
@@ -360,27 +478,146 @@ async def remove_space_member(
 
 @router.get(
     "/{space_id}/tables",
-    response_model=List[dict],
+    response_model=List[Dict[str, Any]],
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
     summary="Get space tables",
-    description="Get all tables from connections in a space",
+    description="Get list of tables from all connections in a space",
 )
 async def get_space_tables(
     space_id: UUID,
+    only_selected: bool = Query(
+        False, description="If true, only returns tables explicitly linked to the space"
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> List[dict]:
+) -> List[Dict[str, Any]]:
     """
-    Get all tables from connections in a space.
+    Get space tables.
 
     Args:
         space_id: Space ID
+        only_selected: Filter for only selected tables
         current_user: Current authenticated user
         db: Database session
 
     Returns:
-        List[dict]: List of tables with connection info
+        List[Dict[str, Any]]: List of tables
     """
     space_service = SpaceService(db)
-    return await space_service.get_space_tables(space_id, current_user)
+    return await space_service.get_space_tables(space_id, current_user, only_selected=only_selected)
+
+
+@router.post(
+    "/{space_id}/tables",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Add space table",
+    description="Link a specific table to a space",
+)
+async def add_space_table(
+    space_id: UUID,
+    table_data: SpaceTableCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """
+    Link a specific table to a space.
+    """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    space_service = SpaceService(db)
+    return await space_service.add_space_table(space_id, table_data, current_user)
+
+
+@router.delete(
+    "/{space_id}/connections/{connection_id}/tables/{table_name}",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Remove space table",
+    description="Unlink a specific table from a space",
+)
+async def remove_space_table(
+    space_id: UUID,
+    connection_id: UUID,
+    table_name: str,
+    schema_name: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """
+    Unlink a specific table from a space.
+    """
+    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    space_service = SpaceService(db)
+    await space_service.remove_space_table(
+        space_id, connection_id, table_name, schema_name, current_user
+    )
+    return SuccessResponse(message="Table unlinked successfully")
+
+
+@router.patch(
+    "/{space_id}/connections/{connection_id}/tables/{table_name}/columns",
+    response_model=SuccessResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Set hidden columns for a space-linked table",
+    description=(
+        "Replace the list of columns this Space chooses to hide on this "
+        "connection/table. The connection itself still owns the full "
+        "schema — hidden columns are filtered out on retrieval / render."
+    ),
+)
+async def set_space_table_hidden_columns(
+    space_id: UUID,
+    connection_id: UUID,
+    table_name: str,
+    payload: Dict[str, Any],
+    schema_name: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SuccessResponse:
+    """Set the hidden_columns list for the (space, connection, table) row.
+
+    Payload: `{"hidden_columns": ["col1", "col2", ...]}`. Empty list
+    means every column is visible (default).
+    """
+    await RBACService(db).assert_permission(current_user, "connections.edit", space_id=space_id)
+    hidden = payload.get("hidden_columns")
+    if not isinstance(hidden, list) or not all(isinstance(c, str) for c in hidden):
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="hidden_columns must be a list of strings",
+        )
+    space_service = SpaceService(db)
+    await space_service.set_space_table_hidden_columns(
+        space_id,
+        connection_id,
+        table_name,
+        schema_name,
+        list(hidden),
+        current_user,
+    )
+    return SuccessResponse(message="Hidden columns updated")
+
+
+@router.get(
+    "/{space_id}/stats",
+    response_model=SpaceStatsResponse,
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get space statistics",
+    description="Get aggregated metrics and activity for a space",
+)
+async def get_space_stats(
+    space_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SpaceStatsResponse:
+    """
+    Get statistics for a space.
+    """
+    space_service = SpaceService(db)
+    return await space_service.get_space_stats(space_id, current_user)

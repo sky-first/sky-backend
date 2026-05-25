@@ -1,8 +1,9 @@
 """Dataset management endpoints."""
 
 import logging
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
@@ -10,6 +11,7 @@ from src.core.exceptions import NotFoundError
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.services.dataset_service import DatasetService
+from src.services.rbac_service import RBACService
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,7 @@ async def delete_dataset(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
+    await RBACService(db).assert_permission(current_user, "connections.edit")
     Delete dataset.
 
     Args:
@@ -74,6 +77,7 @@ async def get_excluded_datasets(
     db: AsyncSession = Depends(get_db_session),
 ) -> list[str]:
     """
+    await RBACService(db).assert_permission(current_user, "connections.view")
     Get excluded datasets.
 
     Args:
@@ -85,3 +89,40 @@ async def get_excluded_datasets(
     """
     dataset_service = DatasetService(db)
     return await dataset_service.get_excluded_datasets(current_user)
+
+
+@router.get(
+    "",
+    response_model=List[Dict[str, Any]],
+    status_code=status.HTTP_200_OK,
+    summary="List datasets",
+    description="Get list of available datasets (tables and files) across all pages",
+)
+async def list_datasets(
+    connection_id: Optional[str] = Query(None),
+    page_id: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[Dict[str, Any]]:
+    """
+    await RBACService(db).assert_permission(current_user, "connections.view")
+    List all available datasets.
+
+    For now, returns an empty list as a placeholder to satisfy frontend requirements.
+    Future implementations can aggregate tables from connections and uploaded files.
+
+    Args:
+        connection_id: Optional connection filter
+        page_id: Optional page filter
+        skip: Pagination offset
+        limit: Pagination limit
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        List[Dict[str, Any]]: List of dataset objects
+    """
+    # This endpoint is currently a placeholder to prevent frontend 404 errors
+    return []

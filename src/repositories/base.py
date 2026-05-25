@@ -1,6 +1,7 @@
 """Base repository with common CRUD operations."""
 
-from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
+from datetime import datetime, timezone
+from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, cast
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -35,7 +36,7 @@ class BaseRepository(Generic[ModelType]):
         Returns:
             Optional[ModelType]: Entity or None
         """
-        result = await self.db.execute(select(self.model).where(self.model.id == id))
+        result = await self.db.execute(select(self.model).where(cast(Any, self.model).id == id))
         return result.scalar_one_or_none()
 
     async def get_all(
@@ -108,10 +109,16 @@ class BaseRepository(Generic[ModelType]):
             ModelType: Created entity
         """
         # Set created_at, updated_at, and other timestamp fields if not provided and model has these fields
-        # This is needed for SQLite which doesn't support server_default="now()"
-        from datetime import datetime, timezone
+        # This is needed for SQLite which doesn't support server_default=func.now()
 
-        now = datetime.now(timezone.utc)
+        # Use naive utcnow to match existing pattern and avoid asyncpg aware/naive mismatch
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        # Ensure ALL datetime objects in kwargs are naive
+        for key, value in kwargs.items():
+            if isinstance(value, datetime) and value.tzinfo is not None:
+                kwargs[key] = value.replace(tzinfo=None)
+
         if hasattr(self.model, "created_at") and "created_at" not in kwargs:
             kwargs["created_at"] = now
         if hasattr(self.model, "updated_at") and "updated_at" not in kwargs:
@@ -154,7 +161,9 @@ class BaseRepository(Generic[ModelType]):
         if not kwargs:
             return await self.get_by_id(id)
 
-        await self.db.execute(update(self.model).where(self.model.id == id).values(**kwargs))
+        await self.db.execute(
+            update(self.model).where(cast(Any, self.model).id == id).values(**kwargs)
+        )
         await self.db.flush()
         return await self.get_by_id(id)
 
@@ -177,7 +186,9 @@ class BaseRepository(Generic[ModelType]):
             from sqlalchemy import func
 
             await self.db.execute(
-                update(self.model).where(self.model.id == id).values(deleted_at=func.now())
+                update(self.model)
+                .where(cast(Any, self.model).id == id)
+                .values(deleted_at=func.now())
             )
         else:
             await self.db.delete(entity)

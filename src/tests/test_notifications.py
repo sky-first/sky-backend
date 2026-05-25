@@ -1,12 +1,10 @@
 from uuid import uuid4
 
 import pytest
-from sqlalchemy.future import select
 
-from src.models.comment import Comment
-from src.models.dashboard import Dashboard
-from src.models.notification import Notification, NotificationType
-from src.models.planet import Planet
+from src.models.page import Page
+from src.models.notification import NotificationType
+from src.models.page import Page
 from src.models.user import User
 from src.schemas.comment import CommentCreate
 from src.schemas.notification import NotificationCreate
@@ -28,23 +26,26 @@ async def test_user(db_session):
 
 
 @pytest.fixture
-async def test_planet(db_session, test_user):
-    planet = Planet(
-        id=uuid4(), name="Test Planet", owner_id=test_user.id, type="team", color="#000000"
+async def test_page(db_session, test_user):
+    page = Page(
+        id=uuid4(),
+        name="Test Page",
+        owner_id=test_user.id,
+        type="team",
+        color="#000000",
     )
-    db_session.add(planet)
+    db_session.add(page)
     await db_session.commit()
-    return planet
+    return page
 
 
 @pytest.fixture
-async def test_dashboard(db_session, test_user, test_planet):
-    dashboard = Dashboard(
-        id=uuid4(), name="Test Dashboard", created_by=test_user.id, planet_id=test_planet.id
-    )
-    db_session.add(dashboard)
-    await db_session.commit()
-    return dashboard
+async def test_dashboard(db_session, test_user, test_page):
+    # Dashboard concept was folded into Page in 2026-05-20; this fixture
+    # used to materialize a Dashboard row + return it. Now the page IS
+    # the canvas, so any consumer that needed `dashboard.id` should use
+    # `test_page.id` instead.
+    return test_page
 
 
 async def test_create_notification(db_session, test_user):
@@ -130,7 +131,7 @@ async def test_comment_mention_trigger(db_session, test_user, test_dashboard):
     comment = await comment_service.create(
         user_id=uuid4(),  # Different user
         comment_data=CommentCreate(
-            content="Hey @test", dashboard_id=test_dashboard.id, mentions=[test_user.id]
+            content="Hey @test", page_id=test_dashboard.id, mentions=[test_user.id]
         ),
     )
 
@@ -145,8 +146,8 @@ async def test_comment_mention_trigger(db_session, test_user, test_dashboard):
 async def test_get_comments_by_dashboard(db_session, test_dashboard):
     service = CommentService(db_session)
     user_id = uuid4()
-    await service.create(user_id, CommentCreate(content="C1", dashboard_id=test_dashboard.id))
-    await service.create(user_id, CommentCreate(content="C2", dashboard_id=test_dashboard.id))
+    await service.create(user_id, CommentCreate(content="C1", page_id=test_dashboard.id))
+    await service.create(user_id, CommentCreate(content="C2", page_id=test_dashboard.id))
 
-    comments = await service.get_by_dashboard(test_dashboard.id)
+    comments = await service.get_by_page(test_dashboard.id)
     assert len(comments) == 2

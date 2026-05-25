@@ -104,10 +104,22 @@ celery_app.conf.update(
     task_soft_time_limit=25 * 60,  # 25 minutes
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
+    task_queues={
+        "celery": {"exchange": "celery"},
+        "knowledge": {"exchange": "knowledge"},  # dedicated queue, concurrency 4
+    },
+    task_routes={
+        "knowledge.*": {"queue": "knowledge"},
+    },
     include=[
         "src.workers.sync_worker",
         "src.workers.ai_worker",
         "src.workers.cache_warming_worker",
+        "src.workers.agent_worker",
+        "src.workers.insight_agent_worker",
+        "src.workers.agent_revocation_worker",
+        "src.workers.demo_cleanup_worker",
+        "src.workers.knowledge_worker",
     ],
 )
 
@@ -125,6 +137,35 @@ try:
             "warm-ai-response-cache": {
                 "task": "src.workers.cache_warming_worker.warm_ai_response_cache",
                 "schedule": timedelta(seconds=interval),
+            },
+            "schedule-agents": {
+                "task": "src.workers.agent_worker.schedule_agents",
+                "schedule": timedelta(minutes=5),
+            },
+            # Insight-mode agents have their own scheduler because they
+            # use the new AgentRunService state machine (iteration 1.6)
+            # and run at finer granularities (down to 1 minute). Legacy
+            # agents stay on the 5-minute beat.
+            "schedule-insight-agents": {
+                "task": "src.workers.insight_agent_worker.schedule_insight_agents",
+                "schedule": timedelta(minutes=1),
+            },
+            # Agent revocation safety net — every 15 minutes, sweep
+            # every ACTIVE agent and pause any whose creator no longer
+            # belongs to the agent's scope (HI-002 / W12). Synchronous
+            # hook in space/crew remove_member is best-effort; this is
+            # the guarantee of eventual consistency.
+            "sweep-orphan-agents": {
+                "task": "src.workers.agent_revocation_worker.sweep_orphan_agents",
+                "schedule": timedelta(minutes=15),
+            },
+            # Public demo (Cenário B) sandbox cleanup. Daily pass deletes
+            # any Space/User past its TTL — keeps the table small and
+            # protects against vandalism living on the public surface
+            # for more than the advertised window.
+            "cleanup-expired-demo-spaces": {
+                "task": "src.workers.demo_cleanup_worker.cleanup_expired_demo_spaces",
+                "schedule": timedelta(hours=24),
             },
         }
 except Exception:

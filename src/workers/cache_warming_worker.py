@@ -5,7 +5,7 @@ Subtask 2: scheduler/worker that warms the short-lived AI response cache.
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from src.ai.real_service import RealAIService
 from src.config.settings import settings
@@ -171,4 +171,5 @@ async def _warm_ai_response_cache_async() -> Dict[str, Any]:
         # CRITICAL: dispose engine to prevent "Event loop is closed" errors in subsequent runs
         # since each celery task creates a new loop via asyncio.run()
         from src.config.database import engine
+
         await engine.dispose()

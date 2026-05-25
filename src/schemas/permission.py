@@ -21,6 +21,7 @@ class ConnectionPermissionCreate(PermissionBase):
 
     space_id: Optional[UUID] = None
     crew_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
 
 
 class PermissionUpdate(BaseModel):
@@ -37,6 +38,7 @@ class PermissionResponse(PermissionBase):
     connection_id: UUID
     space_id: Optional[UUID] = None
     crew_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
 

@@ -1,0 +1,65 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # ArgoCD generates a unique name per sync via the BeforeHookCreation
+  # delete policy below, so a fixed `name` is fine — the previous Job
+  # is removed before a new one is created.
+  name: sky-poc-backend-migrate
+  namespace: staging
+  labels:
+    app: sky-poc-backend
+    role: migrate
+  annotations:
+    # Run BEFORE the Deployment is synced. If the migration fails the
+    # whole sync is aborted, which protects us from PR #430's failure
+    # mode (BE pod boots with a code that references columns that the
+    # DB doesn't have yet).
+    argocd.argoproj.io/hook: PreSync
+    # Always clear the previous attempt's Job before starting a new
+    # one — keeps the namespace clean and prevents "Job already exists"
+    # errors on repeat syncs.
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  # We do not want a migration retried automatically — if it fails we
+  # want a human to investigate (PR #430 taught us that silent retries
+  # would have masked the original schema-drift bug for even longer).
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: sky-poc-backend
+        role: migrate
+    spec:
+      serviceAccountName: default
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          # Same image as the Deployment — ArgoCD Image Updater
+          # rewrites both at the same time, so the Job always runs the
+          # alembic head that matches the code about to be deployed.
+          image: skyacrstagingj3minh.azurecr.io/sky-poc-backend:staging
+          imagePullPolicy: Always
+          workingDir: /app
+          # Single-shot: apply pending migrations and exit. The exit
+          # code is what ArgoCD uses to decide whether to continue
+          # the sync.
+          command:
+            - "alembic"
+            - "upgrade"
+            - "head"
+          env:
+            - name: ENVIRONMENT
+              value: "staging"
+          envFrom:
+            # Same secrets as the runtime Deployment so we hit the
+            # right DATABASE_URL.
+            - secretRef:
+                name: sky-poc-backend-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

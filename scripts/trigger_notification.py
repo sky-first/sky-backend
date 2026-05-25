@@ -1,23 +1,22 @@
 import asyncio
-import sys
 import os
+import sys
 
 # Add the src directory to the path
 sys.path.append(os.getcwd())
 
-from src.config.database import init_db, get_db
-from src.services.notification_service import NotificationService
-from src.services.comment_service import CommentService
-from src.schemas.notification import NotificationCreate
-from src.schemas.comment import CommentCreate
-from src.models.notification import NotificationType, Notification
-from src.models.user import User
-from src.models.dashboard import Dashboard
-from sqlalchemy.future import select
-from sqlalchemy import delete
+from sqlalchemy import delete  # noqa: E402
+from sqlalchemy.future import select  # noqa: E402
 
 # Trigger all models registration
-import src.models
+from src.config.database import get_db, init_db  # noqa: E402
+from src.models.dashboard import Dashboard  # noqa: E402
+from src.models.notification import Notification, NotificationType  # noqa: E402
+from src.models.user import User  # noqa: E402
+from src.schemas.comment import CommentCreate  # noqa: E402
+from src.schemas.notification import NotificationCreate  # noqa: E402
+from src.services.comment_service import CommentService  # noqa: E402
+from src.services.notification_service import NotificationService  # noqa: E402
 
 
 async def trigger_test_notification():
@@ -56,7 +55,7 @@ async def trigger_test_notification():
                 description="This notification was generated via script to test the frontend bell.",
                 entity_type="test",
                 entity_id=str(user.id),
-                deep_link=f"/dashboards/{dashboard_id}" if dashboard else None
+                deep_link=f"/dashboards/{dashboard_id}" if dashboard else None,
             )
         )
         print("✅ Direct Notification created!")
@@ -69,13 +68,14 @@ async def trigger_test_notification():
                 comment_data=CommentCreate(
                     content="Check this out! @test",
                     dashboard_id=dashboard.id,
-                    mentions=[user.id]
-                )
+                    mentions=[user.id],
+                ),
             )
             print("✅ Comment Mention triggered!")
 
         print("\n✨ Done! Now check your Dashboard Bell 🔔 (you might need to refresh).")
         break
+
 
 if __name__ == "__main__":
     asyncio.run(trigger_test_notification())

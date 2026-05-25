@@ -1,32 +1,41 @@
-"""Onboarding helpers to ensure default planet/space for new users."""
+"""Onboarding helpers to ensure default page for new users.
+
+Default Space creation was removed in favour of Personal-first onboarding
+— a fresh Owner no longer gets an auto-generated "Default space". They
+start in Personal mode and create a Space on demand when they need
+shared scope.
+"""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.user import User
-from src.repositories.planet import PlanetMemberRepository, PlanetRepository
-from src.repositories.space import SpaceRepository
+from src.repositories.page import PageMemberRepository, PageRepository
 
 
-async def ensure_default_planet_and_space(db: AsyncSession, user: User) -> None:
+async def ensure_default_page_and_space(db: AsyncSession, user: User) -> None:
     """
-    Ensure a user has at least one planet and a default space.
+    Ensure a user has at least one Personal page.
 
-    Idempotent: if the user already owns a planet, it does nothing.
+    Idempotent: if the user already owns a page, it does nothing.
     """
-    planet_repo = PlanetRepository(db)
-    space_repo = SpaceRepository(db)
-    planet_member_repo = PlanetMemberRepository(db)
+    page_repo = PageRepository(db)
+    page_member_repo = PageMemberRepository(db)
 
-    # Already has planet? Do nothing.
-    existing_planets = await planet_repo.get_by_owner(user.id, limit=1)
-    if existing_planets:
+    # Already has page? Do nothing.
+    existing_pages = await page_repo.get_by_owner(user.id, limit=1)
+    if existing_pages:
         return
 
-    # Create a default planet
-    planet_name = f"{user.name.split(' ')[0]}'s planet" if user.name else "My first planet"
-    planet = await planet_repo.create(
-        name=planet_name,
-        description="Your first planet",
+    # Create a default page. Naming convention (Lucas 2026-05-08):
+    # "{first_name} Board's" — same pattern the demo Space-scoped seed
+    # uses ("{company} Board's") so the page picker reads consistently
+    # across Personal and Space/Crew. Fall back to "My Board" when the
+    # SSO/demo provider didn't return a name.
+    first_name = (user.name or "").split(" ")[0].strip() if user.name else ""
+    page_name = f"{first_name} Board's" if first_name else "My Board"
+    page = await page_repo.create(
+        name=page_name,
+        description="Your first page",
         type="personal",
         color="#3B82F6",  # default blue
         icon=None,
@@ -35,20 +44,15 @@ async def ensure_default_planet_and_space(db: AsyncSession, user: User) -> None:
     )
 
     # Add the user as owner/member
-    await planet_member_repo.create(
-        planet_id=planet.id,
+    await page_member_repo.create(
+        page_id=page.id,
         user_id=user.id,
         role="owner",
     )
 
-    # Create a default space
-    await space_repo.create(
-        name="Default space",
-        description="Your first space",
-        color="#3B82F6",
-        icon=None,
-        created_by=user.id,
-    )
+    # Default space creation removed — Personal-first onboarding. The
+    # page above is enough to start. Connections / agents / rules
+    # created in Personal can be promoted to a Space later.
 
     await db.commit()
-    await db.refresh(planet)
+    await db.refresh(page)

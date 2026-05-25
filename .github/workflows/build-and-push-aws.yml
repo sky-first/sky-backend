@@ -1,0 +1,92 @@
+name: Build & Push to ECR (AWS staging)
+
+# Runs in parallel with the Azure ACR workflow during the migration window.
+# Once AWS staging is validated, the Azure workflow will be removed.
+
+on:
+  push:
+    branches: [staging, main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC to AWS
+  contents: read
+
+env:
+  AWS_REGION: eu-west-1
+  ECR_REGISTRY: 741375879811.dkr.ecr.eu-west-1.amazonaws.com
+  IMAGE_NAME: sky-backend
+  ROLE_TO_ASSUME: arn:aws:iam::741375879811:role/sky-gha-sky-backend
+
+jobs:
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC, no keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push (AMD64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          # Only the SHA-pinned tag — it's unique per commit and is
+          # what ArgoCD references via the Helm values bump in the
+          # next step. The previous `:${{ github.ref_name }}` tag
+          # failed every staging deploy after PR0a because the ECR
+          # repo has tag-immutability enabled (so re-pushing `:staging`
+          # is rejected, and docker buildx pushes all tags atomically —
+          # one conflict failed both pushes, stranding every BE merge
+          # since 2026-05-21 on the old c4f2195 image).
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Replaces argocd-image-updater on the AWS path (broken on ECR
+      # auth in chart 0.12.3 / image-updater 0.16). Push-based bump:
+      # bumps both the BE values file AND the AI worker values file
+      # (the worker reuses the sky-backend image — same Helm chart,
+      # different values file).
+      - name: Bump sky-be-stg-aws + sky-ai-worker-stg-aws values
+        if: github.ref_name == 'staging'
+        env:
+          GITOPS_PUSH_TOKEN: ${{ secrets.GITOPS_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          git clone --depth 1 --branch staging \
+            "https://x-access-token:${GITOPS_PUSH_TOKEN}@github.com/sky-first/sky-infra.git" \
+            /tmp/sky-infra
+          cd /tmp/sky-infra
+
+          NEW_TAG="sha-${{ github.sha }}"
+          BE_VALUES="gitops/charts/common-app/values-sky-be-stg-aws.yaml"
+          WORKER_VALUES="gitops/charts/common-app/values-sky-ai-worker-stg-aws.yaml"
+          yq -i ".image.tag = \"${NEW_TAG}\"" "${BE_VALUES}"
+          yq -i ".image.tag = \"${NEW_TAG}\"" "${WORKER_VALUES}"
+
+          git config user.name  "sky-be-deploy[bot]"
+          git config user.email "sky-be-deploy@users.noreply.github.com"
+          git add "${BE_VALUES}" "${WORKER_VALUES}"
+          git diff --quiet --cached || \
+            git commit -m "build: automatic update of sky-be-stg-aws + sky-ai-worker-stg-aws to ${NEW_TAG}"
+          for i in 1 2 3; do
+            git push && break || git pull --rebase
+          done

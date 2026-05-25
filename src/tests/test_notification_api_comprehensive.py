@@ -2,13 +2,13 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.comment import Comment
-from src.models.dashboard import Dashboard
+from src.models.page import Page
 from src.models.notification import Notification, NotificationType
-from src.models.planet import Planet
+from src.models.page import Page
 from src.schemas.notification import NotificationCreate
 from src.services.notification_service import NotificationService
 
@@ -22,7 +22,10 @@ class TestNotificationAPI:
     """Tests for notification API endpoints."""
 
     async def test_list_notifications(
-        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
         service = NotificationService(db_session)
@@ -39,14 +42,17 @@ class TestNotificationAPI:
         )
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = client.get("/api/v1/notifications/", headers=headers)
+        response = await async_client.get("/api/v1/notifications", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert len(data) >= 1
         assert data[0]["title"] == "Update"
 
     async def test_unread_count(
-        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
         service = NotificationService(db_session)
@@ -62,13 +68,16 @@ class TestNotificationAPI:
         )
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = client.get("/api/v1/notifications/unread-count", headers=headers)
+        response = await async_client.get("/api/v1/notifications/unread-count", headers=headers)
         assert response.status_code == 200
         data = response.json()
         assert data["count"] >= 1
 
     async def test_mark_as_read(
-        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
         service = NotificationService(db_session)
@@ -84,7 +93,9 @@ class TestNotificationAPI:
         )
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = client.post(f"/api/v1/notifications/{notif.id}/read", headers=headers)
+        response = await async_client.post(
+            f"/api/v1/notifications/{notif.id}/read", headers=headers
+        )
         assert response.status_code == 200
         assert response.json()["updated"] == 1
 
@@ -93,7 +104,10 @@ class TestNotificationAPI:
         assert updated_notif.is_read is True
 
     async def test_mark_all_as_read(
-        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
         service = NotificationService(db_session)
@@ -110,7 +124,7 @@ class TestNotificationAPI:
             )
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = client.post("/api/v1/notifications/read-all", headers=headers)
+        response = await async_client.post("/api/v1/notifications/read-all", headers=headers)
         assert response.status_code == 200
         assert response.json()["updated"] >= 2
 
@@ -120,7 +134,10 @@ class TestCommentAPI:
     """Tests for comment API endpoints."""
 
     async def test_create_comment_and_trigger_notification(
-        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
 
@@ -128,43 +145,38 @@ class TestCommentAPI:
         from src.models.user import User
 
         other_user = User(
-            id=uuid4(), email="other@example.com", name="Other User", password_hash="hash"
+            id=uuid4(),
+            email="other@example.com",
+            name="Other User",
+            password_hash="hash",
         )
         db_session.add(other_user)
         await db_session.commit()
 
-        # Setup: Planet and Dashboard
-        planet = Planet(
+        # Setup: Page and Dashboard
+        page = Page(
             id=uuid4(),
-            name="Test Planet",
+            name="Test Page",
             owner_id=user.id,
             type="team",
             color="#000000",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        db_session.add(planet)
+        db_session.add(page)
         await db_session.commit()
 
-        dashboard = Dashboard(
-            id=uuid4(),
-            name="Test Dash",
-            created_by=user.id,
-            planet_id=planet.id,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-        db_session.add(dashboard)
-        await db_session.commit()
+        # Dashboard concept folded into Page (2026-05-20); use page directly.
+        dashboard = page  # alias kept for downstream `.id` references
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
         comment_data = {
-            "dashboard_id": str(dashboard.id),
+            "page_id": str(dashboard.id),
             "content": "Hello @other",
             "mentions": [str(other_user.id)],
         }
 
-        response = client.post("/api/v1/comments/", json=comment_data, headers=headers)
+        response = await async_client.post("/api/v1/comments", json=comment_data, headers=headers)
         assert response.status_code == 201
 
         # Verify notification was created for the mention
@@ -175,7 +187,7 @@ class TestCommentAPI:
         db_session.expire_all()
         stmt = select(Notification).where(Notification.user_id == other_user_id)
         result = await db_session.execute(stmt)
-        all_notifs = result.scalars().all()
+        result.scalars().all()
 
         stmt = select(Notification).where(
             Notification.user_id == other_user_id,
@@ -187,39 +199,34 @@ class TestCommentAPI:
         assert "mentioned" in notif.title.lower()
 
     async def test_get_dashboard_comments(
-        self, client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+        self,
+        async_client: AsyncClient,
+        test_user_with_tokens: dict,
+        db_session: AsyncSession,
     ):
         user = test_user_with_tokens["user"]
 
-        # Setup: Planet and Dashboard
-        planet = Planet(
+        # Setup: Page and Dashboard
+        page = Page(
             id=uuid4(),
-            name="Test Planet",
+            name="Test Page",
             owner_id=user.id,
             type="team",
             color="#000000",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        db_session.add(planet)
+        db_session.add(page)
         await db_session.commit()
 
-        dashboard = Dashboard(
-            id=uuid4(),
-            name="Test Dash",
-            created_by=user.id,
-            planet_id=planet.id,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-        db_session.add(dashboard)
-        await db_session.commit()
+        # Dashboard concept folded into Page (2026-05-20); use page directly.
+        dashboard = page  # alias kept for downstream `.id` references
 
         # Create a comment
         comment = Comment(
             id=uuid4(),
             user_id=user.id,
-            dashboard_id=dashboard.id,
+            page_id=page.id,
             content="Comment 1",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
@@ -228,7 +235,9 @@ class TestCommentAPI:
         await db_session.commit()
 
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = client.get(f"/api/v1/comments?dashboard_id={dashboard.id}", headers=headers)
+        response = await async_client.get(
+            f"/api/v1/comments?page_id={dashboard.id}", headers=headers
+        )
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 1

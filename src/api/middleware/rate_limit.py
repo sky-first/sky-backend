@@ -1,7 +1,7 @@
 """Rate limiting middleware."""
 
 import logging
-from typing import Callable
+from typing import Callable, cast
 
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
@@ -24,29 +24,44 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         Response: HTTP response
     """
     if not settings.RATE_LIMIT_ENABLED:
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     # Skip rate limiting for CORS preflight requests
     if request.method == "OPTIONS":
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     # Skip rate limiting for health checks
     if request.url.path in ["/health", "/ready", "/live", "/metrics"]:
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     # Skip rate limiting for low-cost polling/status endpoints (frontend may poll frequently).
-    # These endpoints should not be blocked by the generic IP/user limiter.
+    # Also skip for auth endpoints to prevent login issues (auth has its own protections or higher needs).
     path = getattr(getattr(request, "url", None), "path", "") or ""
-    if isinstance(path, str) and path.startswith("/api/v1/dashboards/ai/build-jobs/"):
-        return await call_next(request)
+    if isinstance(path, str):
+        if path.startswith("/api/v1/dashboards/ai/build-jobs/"):
+            return cast(Response, await call_next(request))
+        if "/auth/" in path:
+            return cast(Response, await call_next(request))
 
+    # Track whether we've started the downstream call — critical because
+    # ASGI consumes the receive channel on the first call_next and a
+    # retry will deadlock the request.
+    response: Response | None = None
     try:
         redis = await get_redis()
         if redis is None:
             # Redis not available, skip rate limiting
             logger.debug("Redis not available, skipping rate limiting")
-            return await call_next(request)
-        client_ip = request.client.host if request.client else "unknown"
+            response = cast(Response, await call_next(request))
+            return response
+
+        # Try to get real IP if behind a proxy
+        client_ip = request.headers.get("X-Forwarded-For")
+        if client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+        else:
+            client_ip = request.client.host if request.client else "unknown"
+
         user_id = (
             getattr(request.state, "user_id", None) if hasattr(request.state, "user_id") else None
         )
@@ -100,7 +115,8 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
 
         response = await call_next(request)
 
-        # Add rate limit headers
+        # Add rate limit headers — skip if response is already finalized
+        # (StreamingResponse may lock headers after starting the body).
         response.headers["X-RateLimit-Limit-Minute"] = str(settings.RATE_LIMIT_PER_MINUTE)
         response.headers["X-RateLimit-Remaining-Minute"] = str(
             max(0, settings.RATE_LIMIT_PER_MINUTE - minute_count)
@@ -113,6 +129,20 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         return response
     except Exception as e:
         logger.warning(f"Rate limiting error (continuing without rate limit): {str(e)}")
-        # On error, allow request to proceed without rate limiting
-        # Don't reset request.state - just continue
-        return await call_next(request)
+        # ASGI consumes the receive channel on the first call_next, so
+        # we must never call it twice on the same request. Three cases:
+        #   1) Failure BEFORE call_next started (response is None): we
+        #      safely invoke it once, skipping rate-limit work.
+        #   2) Failure AFTER call_next produced a response (e.g. header
+        #      mutation threw): return the response as-is.
+        #   3) Failure INSIDE call_next itself: exception bubbled from
+        #      the app — surface a 500 rather than hang.
+        if response is not None:
+            return response
+        try:
+            return cast(Response, await call_next(request))
+        except Exception:
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"error": "Internal Server Error", "message": "Request failed"},
+            )

@@ -1,45 +1,254 @@
 """PostgreSQL connector."""
 
+import re
+import ssl as ssl_module
 from typing import Any, Dict, List, Optional
 
 import asyncpg
 
 from src.connectors.base import BaseConnector
 
+# Column sampling config — tune without touching logic
+_ENUM_DISTINCT_LIMIT = 20    # if ≤ N distinct values → treat as categorical
+_ENUM_MAX_TABLE_ROWS = 200_000  # skip expensive sampling on large tables
+
+# Postgres identifier rule (unquoted): letter/_underscore + letters/digits/_
+# Strict on purpose — the value is interpolated into SET search_path,
+# which can't use bind parameters. Anything not matching is ignored.
+_SCHEMA_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _safe_schema(config: Dict[str, Any]) -> Optional[str]:
+    """Return the configured schema name iff it's a valid Postgres
+    identifier; otherwise None. Used to gate metadata filtering AND
+    search_path setting against injection."""
+    raw = (config.get("schema") or "").strip()
+    if raw and _SCHEMA_IDENT_RE.match(raw):
+        return raw
+    return None
+
+
+async def _sample_distinct_values(
+    conn, schema: str, table: str, column: str
+) -> Optional[List[str]]:
+    """Return up to _ENUM_DISTINCT_LIMIT+1 distinct non-null values for a column.
+
+    Identifiers are double-quoted (SQL standard) — schema/table/column come
+    from pg_catalog, not user input, so interpolation is safe here.
+    Returns None on any error so the caller can skip silently.
+    """
+    try:
+        esc = lambda s: s.replace('"', '""')  # noqa: E731
+        q = (
+            f'SELECT DISTINCT "{esc(column)}" '
+            f'FROM "{esc(schema)}"."{esc(table)}" '
+            f'WHERE "{esc(column)}" IS NOT NULL '
+            f"LIMIT {_ENUM_DISTINCT_LIMIT + 1}"
+        )
+        rows = await conn.fetch(q)
+        return [str(r[0]) for r in rows]
+    except Exception:
+        return None
+
 
 class PostgreSQLConnector(BaseConnector):
     """PostgreSQL connector."""
 
+    def _get_connection_params(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize connection parameters from config.
+
+        ssl_mode (FE form field) is mapped to asyncpg's `ssl` argument.
+        asyncpg.connect() accepts `ssl=True | False | ssl.SSLContext`
+        — strings like "require"/"prefer" are NOT recognized. Passing
+        a string was silently treated as truthy by some code paths
+        but the actual SSL handshake never fired, so Azure Postgres
+        replied with `no pg_hba.conf entry for host …, no encryption`
+        — surfaced (after #312/#315) as the user's failure to connect.
+
+        Mapping (matches libpq sslmode semantics — `require`/`prefer`/`allow`
+        encrypt the wire but do NOT validate the server cert; only
+        `verify-ca`/`verify-full` validate. Stock `psql sslmode=require`
+        behaves the same way):
+
+          disable                   → False (plain TCP)
+          allow / prefer / require  → SSLContext with cert validation OFF
+          verify-ca / verify-full   → SSLContext with cert validation ON
+
+        Until this fix `require` was mapped to asyncpg's `ssl=True`, which
+        expands to a *verifying* default context. That broke the AWS RDS
+        demo seed — the rds-ca-rsa2048-g1 chain isn't in the BE container's
+        CA bundle — and silently behaved like `verify-ca` on Azure too.
+        Users who want validation must explicitly choose `verify-ca` or
+        `verify-full`.
+        """
+        ssl_mode = (config.get("ssl_mode") or "prefer").strip().lower()
+        ssl_param: Any
+        if ssl_mode == "disable":
+            ssl_param = False
+        elif ssl_mode in ("verify-ca", "verify-full"):
+            ssl_param = ssl_module.create_default_context()
+        else:
+            ssl_param = ssl_module.create_default_context()
+            ssl_param.check_hostname = False
+            ssl_param.verify_mode = ssl_module.CERT_NONE
+
+        return {
+            "host": config.get("host"),
+            "port": int(config.get("port") or 5432),
+            "user": config.get("username"),
+            "password": config.get("password"),
+            "database": config.get("database"),
+            "timeout": float(config.get("timeout", 5.0)),
+            "ssl": ssl_param,
+        }
+
     async def test_connection(self, config: Dict[str, Any]) -> bool:
-        """Test PostgreSQL connection."""
+        """Test PostgreSQL connection.
+
+        Intentionally does NOT swallow exceptions — the calling
+        ConnectionService catches them and surfaces `str(exc)` as the
+        UI message (handlers.py line 408). Swallowing here was the
+        reason every Test Connection failure showed the useless
+        "Connection test failed" placeholder regardless of whether
+        the actual cause was wrong password, SSL handshake, host
+        unreachable, or a typo'd database name.
+        """
+        # asyncpg.connect() is a coroutine that returns a Connection
+        # — it is NOT itself an async context manager, so the original
+        # `async with asyncpg.connect(...)` was always broken (the
+        # try/except: return False that previously surrounded it just
+        # hid the TypeError as a generic "Connection test failed").
+        # Use the explicit await + close pattern instead.
+        params = self._get_connection_params(config)
+        conn = await asyncpg.connect(**params)
         try:
-            conn = await asyncpg.connect(
-                host=config.get("host"),
-                port=config.get("port", 5432),
-                user=config.get("username"),
-                password=config.get("password"),
-                database=config.get("database"),
-            )
+            pass  # successful connect proves the credentials work
+        finally:
             await conn.close()
-            return True
-        except Exception:
-            return False
+        return True
 
     async def get_metadata(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Get PostgreSQL metadata."""
-        # TODO: Implement metadata extraction
-        return {"tables": [], "schemas": []}
+        """
+        Get PostgreSQL metadata including comments.
+
+        Note: row_count is an estimate based on reltuples from pg_class for performance.
+
+        If config["schema"] is set to a valid identifier, only tables in
+        that schema are returned. This is what makes the per-department
+        Demo connections (e.g. `Demo — Sales` → schema crm) show only
+        their schema's tables instead of the full multi-schema dataset.
+        """
+        params = self._get_connection_params(config)
+        schema = _safe_schema(config)
+        conn = await asyncpg.connect(**params)
+        try:
+            # Better query using pg_catalog to get comments (descriptions)
+            base_query = """
+                SELECT
+                    n.nspname AS schema_name,
+                    c.relname AS table_name,
+                    obj_description(c.oid) AS description,
+                    c.reltuples AS row_count
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname NOT IN ('information_schema', 'pg_catalog')
+                AND c.relkind = 'r'
+            """
+            if schema:
+                tables = await conn.fetch(base_query + " AND n.nspname = $1", schema)
+            else:
+                tables = await conn.fetch(base_query)
+
+            result_tables = []
+            schemas = set()
+
+            for table in tables:
+                schema = table["schema_name"]
+                name = table["table_name"]
+                description = table["description"]
+                row_count = int(table["row_count"]) if table["row_count"] else 0
+                schemas.add(schema)
+
+                # Fetch columns with comments using parameterized query ($1, $2)
+                columns_query = """
+                    SELECT
+                        a.attname AS column_name,
+                        format_type(a.atttypid, a.atttypmod) AS data_type,
+                        NOT a.attnotnull AS is_nullable,
+                        col_description(c.oid, a.attnum) AS description
+                    FROM pg_attribute a
+                    JOIN pg_class c ON c.oid = a.attrelid
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = $1
+                    AND c.relname = $2
+                    AND a.attnum > 0
+                    AND NOT a.attisdropped
+                """
+                columns = await conn.fetch(columns_query, schema, name)
+
+                column_data = []
+                for col in columns:
+                    column_data.append(
+                        {
+                            "name": col["column_name"],
+                            "type": col["data_type"],
+                            "nullable": col["is_nullable"],
+                            "description": col["description"],
+                        }
+                    )
+
+                # Enrich text/enum columns with sampled distinct values so
+                # the LLM generates correct filter literals (e.g. status IN ('sent','paid'))
+                if row_count < _ENUM_MAX_TABLE_ROWS:
+                    for col_info in column_data:
+                        type_lower = col_info["type"].lower()
+                        if not ("text" in type_lower or "char" in type_lower):
+                            continue
+                        vals = await _sample_distinct_values(conn, schema, name, col_info["name"])
+                        if vals is None or len(vals) > _ENUM_DISTINCT_LIMIT:
+                            continue
+                        if not vals:
+                            continue
+                        hint = "Possible values: " + ", ".join(
+                            f"'{v}'" for v in sorted(vals)
+                        )
+                        existing = (col_info["description"] or "").strip()
+                        col_info["description"] = f"{existing}. {hint}" if existing else hint
+
+                result_tables.append(
+                    {
+                        "name": name,
+                        "schema": schema,
+                        "description": description,
+                        "row_count": row_count,
+                        "columns": column_data,
+                        "last_updated": None,
+                        "health": "Healthy",
+                        "usage_score": 0,
+                        "tags": [],
+                    }
+                )
+
+            return {"tables": result_tables, "schemas": list(schemas)}
+        finally:
+            await conn.close()
 
     async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
-        """Execute PostgreSQL query."""
-        conn = await asyncpg.connect(
-            host=config.get("host"),
-            port=config.get("port", 5432),
-            user=config.get("username"),
-            password=config.get("password"),
-            database=config.get("database"),
-        )
+        """Execute PostgreSQL query using a context manager.
+
+        If config["schema"] is set to a valid identifier, the session
+        search_path is scoped to that schema (then `public` as fallback)
+        before the query runs — so unqualified table references resolve
+        to the configured schema. Schema name is regex-validated up
+        front (asyncpg can't bind-param a SET command, so the value
+        IS interpolated; the regex blocks injection).
+        """
+        params = self._get_connection_params(config)
+        schema = _safe_schema(config)
+        conn = await asyncpg.connect(**params)
         try:
+            if schema:
+                await conn.execute(f'SET search_path TO "{schema}", public')
             rows = await conn.fetch(query)
             return [dict(row) for row in rows]
         finally:

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -34,13 +34,19 @@ class ConnectionPermission(Base):
         nullable=True,
         index=True,
     )
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     access_level = Column(String(50), nullable=False)  # full, read-only, custom
     table_access = Column(JSON, nullable=True)  # Array of table names (if access_level = 'custom')
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -48,12 +54,20 @@ class ConnectionPermission(Base):
     connection = relationship("DataConnection", back_populates="permissions")
     space = relationship("Space")
     crew = relationship("Crew")
+    user = relationship("User")
 
     __table_args__ = (
-        UniqueConstraint("connection_id", "space_id", "crew_id", name="uq_connection_permissions"),
+        UniqueConstraint(
+            "connection_id",
+            "space_id",
+            "crew_id",
+            "user_id",
+            name="uq_connection_permissions",
+        ),
         Index("idx_connection_permissions_connection_id", "connection_id"),
         Index("idx_connection_permissions_space_id", "space_id"),
         Index("idx_connection_permissions_crew_id", "crew_id"),
+        Index("idx_connection_permissions_user_id", "user_id"),
     )
 
     def __repr__(self) -> str:
@@ -88,11 +102,11 @@ class TableMemberPermission(Base):
     has_access = Column(
         String(10), nullable=False, default="true", server_default="true"
     )  # "true" or "false"
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -103,7 +117,10 @@ class TableMemberPermission(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "connection_id", "table_name", "member_id", name="uq_table_member_permissions"
+            "connection_id",
+            "table_name",
+            "member_id",
+            name="uq_table_member_permissions",
         ),
         Index("idx_table_member_permissions_connection_id", "connection_id"),
         Index("idx_table_member_permissions_table_name", "table_name"),
@@ -134,11 +151,11 @@ class APIKey(Base):
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -171,11 +188,11 @@ class Integration(Base):
     type = Column(String(100), nullable=False)  # slack, webhook, email, etc.
     config = Column(JSON, nullable=False)  # Integration configuration
     enabled = Column(String(10), nullable=False, default="true", server_default="true")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -192,20 +209,20 @@ class Integration(Base):
 
 
 class RolePermission(Base):
-    """Role permission model - stores permissions for custom roles (Commander, Navigator, Explorer, Guest)."""
+    """Role permission model - stores permissions for custom roles (Owner, Editor, Viewer, Guest)."""
 
     __tablename__ = "role_permissions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     role = Column(
         String(50), nullable=False, unique=True, index=True
-    )  # commander, navigator, explorer, guest
+    )  # owner, editor, viewer
     permissions = Column(JSON, nullable=False)  # Dictionary of permission keys and boolean values
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 

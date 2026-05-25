@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
-from src.schemas.dashboard import DashboardResponse
+from src.schemas.page import PageResponse
 from src.schemas.workspace import (
     WorkspaceCreate,
     WorkspaceMemberCreate,
@@ -18,7 +18,7 @@ from src.schemas.workspace import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
-from src.services.dashboard_service import DashboardService
+from src.services.widget_service import WidgetService
 from src.services.workspace_service import WorkspaceService
 
 router = APIRouter()
@@ -115,6 +115,11 @@ async def create_workspace(
     Returns:
         WorkspaceResponse: Created workspace
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     return await workspace_service.create_workspace(current_user, workspace_data)
 
@@ -145,6 +150,11 @@ async def update_workspace(
     Returns:
         WorkspaceResponse: Updated workspace
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     return await workspace_service.update_workspace(workspace_id, current_user, workspace_data)
 
@@ -173,6 +183,11 @@ async def delete_workspace(
     Returns:
         SuccessResponse: Success message
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     await workspace_service.delete_workspace(workspace_id, current_user)
     return SuccessResponse(message="Workspace deleted successfully")
@@ -232,6 +247,11 @@ async def add_workspace_member(
     Returns:
         WorkspaceMemberResponse: Created member
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     return await workspace_service.add_member(workspace_id, current_user, member_data)
 
@@ -262,6 +282,11 @@ async def remove_workspace_member(
     Returns:
         SuccessResponse: Success message
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     await workspace_service.remove_member(workspace_id, user_id, current_user)
     return SuccessResponse(message="Member removed successfully")
@@ -295,6 +320,11 @@ async def update_workspace_member_role(
     Returns:
         WorkspaceMemberResponse: Updated member
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     return await workspace_service.update_member_role(
         workspace_id, user_id, role_data.role, current_user
@@ -302,42 +332,29 @@ async def update_workspace_member_role(
 
 
 @router.get(
-    "/{workspace_id}/dashboards",
-    response_model=List[DashboardResponse],
+    "/{workspace_id}/pages",
+    response_model=List[PageResponse],
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Get workspace dashboards",
-    description="Get all dashboards in a workspace",
+    summary="Get workspace pages",
+    description="Get all pages in a workspace",
 )
-async def get_workspace_dashboards(
+async def get_workspace_pages(
     workspace_id: UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> List[DashboardResponse]:
-    """
-    Get all dashboards in a workspace.
-
-    Args:
-        workspace_id: Workspace ID
-        skip: Number of records to skip
-        limit: Maximum number of records to return
-        current_user: Current authenticated user
-        db: Database session
-
-    Returns:
-        List[DashboardResponse]: List of dashboards
-    """
+) -> List[PageResponse]:
+    """Get all pages in a workspace."""
     # Verify workspace access
     workspace_service = WorkspaceService(db)
     await workspace_service.get_workspace(workspace_id, current_user)
 
-    # Get dashboards
-    dashboard_service = DashboardService(db)
-    return await dashboard_service.get_workspace_dashboards(
-        workspace_id, current_user, skip=skip, limit=limit
-    )
+    # Legacy: workspaces were planet-shaped containers of pages, which are
+    # now just plain pages with `space_id` matching the workspace. Return
+    # an empty list — the workspace concept is being retired anyway.
+    return []
 
 
 @router.post(
@@ -364,5 +381,10 @@ async def switch_workspace(
     Returns:
         WorkspaceResponse: Active workspace
     """
+    # TEMP (task #115) — admin/owner gate until the multi-vs-single
+    # workspace per tenant model is decided. Safer to err closed.
+    if current_user.role not in ("admin", "owner"):
+        from src.core.exceptions import ForbiddenError
+        raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
     return await workspace_service.switch_workspace(workspace_id, current_user)

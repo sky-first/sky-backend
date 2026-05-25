@@ -12,9 +12,11 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -53,23 +55,32 @@ class AIQuery(Base):
         ForeignKey("pipelines.id", ondelete="SET NULL"),
         nullable=True,
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    page_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("pages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
     # Relationships
     user = relationship("User")
     widget = relationship("Widget", foreign_keys=[widget_id])
+    page = relationship("Page")
 
     __table_args__ = (
         Index("idx_ai_queries_user_id", "user_id"),
         Index("idx_ai_queries_widget_id", "widget_id"),
+        Index("idx_ai_queries_page_id", "page_id"),
         Index("idx_ai_queries_status", "status"),
         Index("idx_ai_queries_created_at", "created_at"),
+        Index("idx_ai_queries_page_created", "page_id", "created_at"),
     )
 
     def __repr__(self) -> str:
@@ -91,27 +102,47 @@ class AIHistory(Base):
     query = Column(Text, nullable=False)
     preview = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
-    date = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
+    date = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
     tags = Column(JSON, nullable=False, default=list, server_default="[]")
     category = Column(String(50), nullable=True)  # Finance, Marketing, Sales, General, Logistics
     pinned = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    page_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("pages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Collaborative context: used to scope history by active crew/space
+    space_id = Column(String, nullable=True, index=True)
+    crew_id = Column(String, nullable=True, index=True)
+    # Real end-to-end query latency in milliseconds. Written by the AI
+    # chat endpoint when a history row is saved. Settings → Usage
+    # aggregates non-null rows to compute real avgLatency + SLA
+    # compliance; old rows predate the column and stay NULL (filtered
+    # out on aggregation).
+    duration_ms = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
     # Relationships
     user = relationship("User")
+    page = relationship("Page")
 
     __table_args__ = (
         Index("idx_ai_history_user_id", "user_id"),
+        Index("idx_ai_history_page_id", "page_id"),
         Index("idx_ai_history_pinned", "pinned"),
         Index("idx_ai_history_category", "category"),
         Index("idx_ai_history_date", "date"),
         Index("idx_ai_history_user_date", "user_id", "date"),
+        Index("idx_ai_history_page_created", "page_id", "created_at"),
+        Index("idx_ai_history_crew_id", "crew_id"),
+        Index("idx_ai_history_space_id", "space_id"),
     )
 
     def __repr__(self) -> str:
@@ -137,13 +168,15 @@ class Pipeline(Base):
     current_step = Column(String(255), nullable=True)
     errors = Column(JSON, nullable=True)  # Array of errors
     logs = Column(Text, nullable=True)
-    started_at = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
+    started_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
     completed_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -198,15 +231,26 @@ class ChatMessage(Base):
     )
     type = Column(String(50), nullable=False)  # user, assistant
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    page_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("pages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    timestamp = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relationships
     widget = relationship("Widget")
+    page = relationship("Page")
 
     __table_args__ = (
         Index("idx_chat_messages_widget_id", "widget_id"),
+        Index("idx_chat_messages_page_id", "page_id"),
         Index("idx_chat_messages_timestamp", "timestamp"),
+        Index("idx_chat_messages_page_created", "page_id", "created_at"),
     )
 
     def __repr__(self) -> str:
@@ -226,9 +270,11 @@ class AIResponse(Base):
         index=True,
     )
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
+    timestamp = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
     is_active = Column(Boolean, nullable=False, default=True, server_default="true", index=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relationships
     widget = relationship("Widget")
@@ -263,11 +309,11 @@ class AIFeedback(Base):
     )
     rating = Column(String(10), nullable=False)
     comment = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 

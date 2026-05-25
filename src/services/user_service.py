@@ -1,10 +1,12 @@
 """User service."""
 
-from typing import List
+import logging
+from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.core.permissions import check_permission, get_user_permissions
 from src.core.security import get_password_hash
@@ -12,7 +14,10 @@ from src.models.user import User
 from src.repositories.user import UserRepository
 from src.schemas.user import UserCreate, UserResponse, UserUpdate
 from src.services.auth_service import user_to_response_dict
-from src.services.onboarding_service import ensure_default_planet_and_space
+from src.services.email_service import EmailService
+from src.services.onboarding_service import ensure_default_page_and_space
+
+logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -99,20 +104,53 @@ class UserService:
         if existing_user:
             raise BadRequestError("User with this email already exists")
 
-        # Create user
+        # Generate secure invite token
+        import secrets
+        from datetime import datetime, timedelta, timezone
+
+        invite_token = secrets.token_urlsafe(32)
+        invite_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+
+        # Override password with a random secure one (user must set it via invite)
+        # This prevents the fixed "TempPassword123!" from being usable
+        secure_random_password = secrets.token_urlsafe(16)
+
+        # Create user with invite data
         user = await self.user_repo.create(
             email=user_data.email,
-            password_hash=get_password_hash(user_data.password),
+            password_hash=get_password_hash(secure_random_password),
             name=user_data.name,
             avatar=user_data.avatar,
             role=user_data.role,
+            invite_token=invite_token,
+            invite_expires_at=invite_expires_at,
+            invited_by=current_user.id,
         )
 
         await self.db.commit()
         await self.db.refresh(user)
 
-        # Ensure default planet/space for new users created by admins
-        await ensure_default_planet_and_space(self.db, user)
+        # Ensure default page/space for new users created by admins
+        await ensure_default_page_and_space(self.db, user)
+
+        # Send invite email
+        try:
+            email_service = EmailService()
+            # Define frontend URL (should be in settings, fallback to localhost)
+            frontend_url = "http://localhost:3000"
+            if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
+                # Take first origin as frontend URL
+                frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
+
+            invite_link = f"{frontend_url}/auth/accept-invite?token={invite_token}"
+
+            email_success = email_service.send_invite_email(
+                user.email, invite_link, current_user.name
+            )
+            if not email_success:
+                logger.warning(f"Failed to send invite email to {user.email}")
+        except Exception as e:
+            logger.error(f"Error sending invite email: {e}")
 
         return UserResponse.model_validate(user_to_response_dict(user))
 
@@ -185,6 +223,45 @@ class UserService:
 
         return UserResponse.model_validate(user_to_response_dict(user))
 
+    async def update_onboarding(
+        self,
+        user_id: UUID,
+        step: Optional[int],
+        version: Optional[int],
+        current_user: User,
+    ) -> UserResponse:
+        """
+        Update user onboarding progress.
+
+        Args:
+            user_id: User ID
+            step: Current onboarding step
+            version: Onboarding version (e.g., when completed)
+            current_user: Current authenticated user
+
+        Returns:
+            UserResponse: Updated user data
+        """
+        if user_id != current_user.id:
+            raise ForbiddenError("You can only update your own onboarding progress")
+
+        user = await self.user_repo.get_by_id(user_id)
+        if not user:
+            raise NotFoundError("User not found")
+
+        if step is not None:
+            user.onboarding_step = step
+        if version is not None:
+            user.onboarding_version = version
+            if version >= 1:  # Assuming 1 is the completed version for now
+                user.has_completed_onboarding = True
+                user.onboarding_step = None  # Clear step on completion
+
+        await self.db.commit()
+        await self.db.refresh(user)
+
+        return UserResponse.model_validate(user_to_response_dict(user))
+
     async def delete_user(self, user_id: UUID, current_user: User) -> None:
         """
         Delete user (soft delete).
@@ -205,11 +282,103 @@ class UserService:
             raise BadRequestError("You cannot delete your own account")
 
         user = await self.user_repo.get_by_id(user_id)
+
+        # Sky operator guard. SKY internal staff doing JIT support of
+        # customer tenants carry is_sky_operator=True and must NEVER be
+        # auto-deactivated by the demo TTL sweep, the orphan-agent
+        # reaper, or an admin who clicks the wrong button.
+        if user and getattr(user, "is_sky_operator", False):
+            raise ForbiddenError(
+                "Cannot deactivate a SKY operator account. Clear "
+                "is_sky_operator first if this is intentional."
+            )
+
+        # Tenant Owner guard. Tenant founders carry role="owner" and
+        # cannot be deactivated by anyone except via an explicit
+        # ownership-transfer flow. Lucas's 2026-04-30 follow-up: the
+        # 2026-04-17 incident on Lais was a regression *because* her
+        # row could be soft-deleted by a sweep; protecting all owners
+        # at this same chokepoint closes the same hole for the actual
+        # tenant founders without needing to abuse the is_sky_operator
+        # flag (which is for SKY internal staff, not for customers).
+        if user and getattr(user, "role", None) == "owner":
+            raise ForbiddenError(
+                "Cannot deactivate the tenant owner. Transfer ownership "
+                "first via the tenant settings."
+            )
         if not user:
             raise NotFoundError("User not found")
 
         await self.user_repo.delete(user_id)
+
+        # W12 wire-in — pause every active agent the deactivated user
+        # created, regardless of scope (Personal / Space / Crew / Org).
+        # Best-effort: failures here are logged but do NOT roll back
+        # the user deletion. The 15-min periodic sweep
+        # (sweep_orphan_agents) catches any miss.
+        try:
+            from src.services.agent_revocation_service import (
+                AgentRevocationService,
+            )
+            await AgentRevocationService(self.db).revoke_on_user_deactivation(
+                user_id=user_id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            import logging
+            logging.getLogger(__name__).warning(
+                "Agent revocation on user deactivation failed (user=%s): %s. "
+                "Periodic sweep will catch up.",
+                user_id, exc,
+            )
+
         await self.db.commit()
+
+    async def restore_user(self, user_id: UUID, current_user: User) -> UserResponse:
+        """
+        Restore a soft-deleted user.
+
+        Reverses delete_user() — clears `deleted_at` so the user can
+        sign in via SSO again. Required because the SSO callback now
+        REJECTS soft-deleted users (with a clear "deactivated" error)
+        instead of silently auto-restoring them on login. This gives
+        admins explicit, opt-in control: a delete that shouldn't have
+        happened can be undone here without a SQL UPDATE.
+
+        Same permission as delete (`user:delete`) — the same group of
+        people who can deactivate are the ones who can reactivate.
+
+        Raises:
+            NotFoundError: if no soft-deleted user with that id exists
+            ForbiddenError: if caller lacks user:delete permission
+        """
+        if not check_permission(current_user, "user", "delete"):
+            raise ForbiddenError("You don't have permission to restore users")
+
+        # Use the explicit "including deleted" lookup — get_by_id
+        # filters deleted_at IS NULL so it would 404 the very user
+        # we're trying to restore.
+        from sqlalchemy import select as _select
+
+        from src.models.user import User as _User
+
+        result = await self.db.execute(_select(_User).where(_User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise NotFoundError("User not found")
+        if user.deleted_at is None:
+            # Idempotent — already active, nothing to do
+            return UserResponse.model_validate(user_to_response_dict(user))
+
+        user.deleted_at = None
+        await self.db.commit()
+        await self.db.refresh(user)
+
+        import logging
+        logging.getLogger(__name__).info(
+            "🔄 User restored by admin: user_id=%s admin_id=%s",
+            user_id, current_user.id,
+        )
+        return UserResponse.model_validate(user_to_response_dict(user))
 
     async def get_user_permissions(self, user_id: UUID, current_user: User) -> dict:
         """
@@ -297,6 +466,48 @@ class UserService:
         if not user:
             raise NotFoundError("User not found")
 
-        # TODO: Implement email sending for invitation
-        # For now, just return the user
+        # Check if user needs a new invite token
+        import secrets
+        from datetime import datetime, timedelta, timezone
+
+        should_generate_token = False
+        if not user.invite_token:
+            should_generate_token = True
+        elif user.invite_expires_at:
+            # Check expiry (normalize to UTC)
+            expires_at = user.invite_expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+            if expires_at < datetime.now(timezone.utc):
+                should_generate_token = True
+
+        if should_generate_token:
+            user.invite_token = secrets.token_urlsafe(32)
+            user.invite_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+            user.invited_by = current_user.id
+            await self.db.commit()
+            await self.db.refresh(user)
+
+        # Send invite email
+        try:
+            email_service = EmailService()
+            # Define frontend URL (should be in settings, fallback to localhost)
+            frontend_url = "http://localhost:3000"
+            if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
+                # Take first origin as frontend URL
+                frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
+
+            invite_link = f"{frontend_url}/auth/accept-invite?token={user.invite_token}"
+
+            email_success = email_service.send_invite_email(
+                user.email, invite_link, current_user.name
+            )
+            if not email_success:
+                logger.warning(f"Failed to send invite email to {user.email}")
+            else:
+                logger.info(f"✅ Invite email sent to {user.email}")
+        except Exception as e:
+            logger.error(f"Error sending invite email: {e}")
+
         return UserResponse.model_validate(user_to_response_dict(user))

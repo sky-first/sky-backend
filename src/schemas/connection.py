@@ -7,6 +7,67 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+# Connectors that fetch an arbitrary URL supplied by the user. Each
+# entry maps connector_id → list of config keys that must be validated
+# as outbound URLs. If a connector is added later that opens up any
+# user-controlled URL (webhooks, OAuth callback overrides, proxies…)
+# add it here or this file becomes stale and a SSRF regression slips.
+_URL_CONFIG_KEYS_BY_CONNECTOR: Dict[str, tuple[str, ...]] = {
+    "rest-api": ("base_url",),
+    "rest_api": ("base_url",),
+}
+
+
+class ColumnMetadataSchema(BaseModel):
+    """Column metadata schema."""
+
+    name: str
+    type: str
+    nullable: Optional[bool] = True
+    description: Optional[str] = None
+    tags: Optional[List[str]] = []
+
+
+class TableMetadataSchema(BaseModel):
+    """Table metadata schema."""
+
+    name: str
+    schema_name: Optional[str] = Field(None, alias="schema", description="Database schema name")
+    row_count: Optional[int] = None
+    columns: Optional[List[ColumnMetadataSchema]] = None
+    last_updated: Optional[datetime] = None
+    usage: Optional[str] = Field(None, description="Usage level (High, Medium, Low)")
+    health: Optional[str] = "Healthy"
+    usage_score: Optional[int] = 0
+    tags: Optional[List[str]] = []
+    description: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class TableRelationshipSchema(BaseModel):
+    """Table relationship schema."""
+
+    from_table: str
+    from_column: str
+    to_table: str
+    to_column: str
+    join_type: str = "INNER"
+    label: Optional[str] = None
+    confidence: str = "explicit"
+
+
+class ConnectionMetadataResponse(BaseModel):
+    """Connection metadata response schema."""
+
+    tables: Optional[List[TableMetadataSchema]] = []
+    schemas: Optional[List[str]] = []
+    relationships: Optional[List[TableRelationshipSchema]] = []
+    last_metadata_update: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ConnectionBase(BaseModel):
     """Base connection schema."""
 
@@ -14,6 +75,13 @@ class ConnectionBase(BaseModel):
     connector_id: str = Field(..., description="Connector type (postgresql, mysql, mongodb, etc)")
     description: Optional[str] = None
     sync_frequency: Optional[str] = Field(None, description="Cron expression for sync frequency")
+    # Phase 6 — sensitivity tier. internal (default) is freely usable
+    # by autonomous agents. confidential and restricted gate the agent
+    # runtime when the agent runs in `auditable_only` mode.
+    tier: Optional[str] = Field(
+        default="internal",
+        pattern="^(internal|confidential|restricted)$",
+    )
 
 
 class ConnectionCreate(ConnectionBase):
@@ -30,6 +98,23 @@ class ConnectionUpdate(BaseModel):
     config: Optional[Dict[str, Any]] = None
     sync_frequency: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(active|inactive|error)$")
+    tier: Optional[str] = Field(
+        None, pattern="^(internal|confidential|restricted)$"
+    )
+    metadata: Optional[ConnectionMetadataResponse] = None
+
+
+class ConnectionMetrics(BaseModel):
+    """Connection metrics schema."""
+
+    queries_count: int = 0
+    active_users: int = 0
+    latency_ms: int = 0
+    uptime_pct: float = 0.0
+    satisfaction_pct: float = 0.0
+    ai_roi_hours: float = 0.0
+    top_users: Optional[List[Dict[str, Any]]] = []
+    usage_history: Optional[List[Dict[str, Any]]] = []
 
 
 class ConnectionResponse(ConnectionBase):
@@ -41,9 +126,13 @@ class ConnectionResponse(ConnectionBase):
     next_sync: Optional[datetime] = None
     last_metadata_update: Optional[datetime] = None
     error: Optional[Dict[str, Any]] = None
+    metrics: Optional[ConnectionMetrics] = None
     created_by: UUID
     created_at: datetime
     updated_at: datetime
+    connection_metadata: Optional[ConnectionMetadataResponse] = Field(
+        None, serialization_alias="metadata"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -63,35 +152,6 @@ class ConnectionSyncResponse(BaseModel):
     last_sync: Optional[datetime] = None
     next_sync: Optional[datetime] = None
     message: Optional[str] = None
-
-
-class ColumnMetadataSchema(BaseModel):
-    """Column metadata schema."""
-
-    name: str
-    type: str
-    nullable: bool = True
-    description: Optional[str] = None
-
-
-class TableMetadataSchema(BaseModel):
-    """Table metadata schema."""
-
-    name: str
-    schema_name: Optional[str] = Field(None, alias="schema", description="Database schema name")
-    row_count: Optional[int] = None
-    columns: Optional[List[ColumnMetadataSchema]] = None
-    last_updated: Optional[datetime] = None
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class ConnectionMetadataResponse(BaseModel):
-    """Connection metadata response schema."""
-
-    tables: List[TableMetadataSchema] = []
-    schemas: List[str] = []
-    last_metadata_update: Optional[datetime] = None
 
 
 class ConnectionStatusResponse(BaseModel):

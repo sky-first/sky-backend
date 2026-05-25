@@ -1,10 +1,16 @@
 """Authentication service."""
 
+import logging
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from uuid import UUID
 
+from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger(__name__)
+
+from src.config.settings import settings
 from src.core.exceptions import BadRequestError, UnauthorizedError
 from src.core.security import (
     create_access_token,
@@ -22,7 +28,7 @@ from src.schemas.user import (
     UserCreate,
     UserResponse,
 )
-from src.services.onboarding_service import ensure_default_planet_and_space
+from src.services.onboarding_service import ensure_default_page_and_space
 
 
 def user_to_response_dict(user: User) -> dict:
@@ -41,20 +47,38 @@ def user_to_response_dict(user: User) -> dict:
         "name": user.name,
         "avatar": user.avatar,
         "role": user.role,
+        "is_demo": user.is_demo,
+        "demo_expires_at": user.demo_expires_at,
         "email_verified": user.email_verified,
         "email_verified_at": user.email_verified_at,
-        "onboarding_step": (
-            int(user.onboarding_step)
-            if user.onboarding_step and str(user.onboarding_step).isdigit()
-            else 0
+        "onboarding_step": user.onboarding_step or 0,
+        "onboarding_version": user.onboarding_version or 0,
+        "needs_onboarding": (
+            user.role == "admin"
+            and (user.onboarding_version or 0) < settings.ADMIN_ONBOARDING_VERSION
         ),
         "has_completed_onboarding": user.has_completed_onboarding,
         "selected_domain": user.selected_domain,
         "preferences": user.preferences or {},
         "last_login_at": user.last_login_at,
+        "last_active_at": user.last_active_at,
+        "status": user.status or "offline",
         "created_at": user.created_at,
         "updated_at": user.updated_at,
     }
+
+
+async def perform_onboarding_task(user_id: UUID):
+    """Background task to ensure default page and space for a user."""
+    from src.config.database import AsyncSessionLocal
+    from src.repositories.user import UserRepository
+    from src.services.onboarding_service import ensure_default_page_and_space
+
+    async with AsyncSessionLocal() as db:
+        user_repo = UserRepository(db)
+        user = await user_repo.get_by_id(user_id)
+        if user:
+            await ensure_default_page_and_space(db, user)
 
 
 class AuthenticationService:
@@ -70,7 +94,9 @@ class AuthenticationService:
         self.db = db
         self.user_repo = UserRepository(db)
 
-    async def register(self, user_data: UserCreate) -> UserResponse:
+    async def register(
+        self, user_data: UserCreate, background_tasks: Optional[BackgroundTasks] = None
+    ) -> UserResponse:
         """
         Register a new user.
 
@@ -98,18 +124,49 @@ class AuthenticationService:
         )
 
         await self.db.commit()
-        await self.db.refresh(user)  # Refresh to ensure all fields are loaded
+        await self.db.refresh(user)
+        # Note: redundant refresh removed due to expire_on_commit=False
 
-        # Ensure default planet/space for new users
-        await ensure_default_planet_and_space(self.db, user)
+        # Ensure default page/space for new users
+        if user.id:
+            if background_tasks:
+                background_tasks.add_task(perform_onboarding_task, UUID(str(user.id)))
+            else:
+                await ensure_default_page_and_space(self.db, user)
 
-        return UserResponse.model_validate(user_to_response_dict(user))
+        # Ingest the user into the RAG so agents + chat can answer
+        # questions like "who is on my team?" or "who reported that
+        # finding?". Personal scope (owner_user_id = self) so the
+        # user's profile only shows up in their own retrieval unless
+        # they end up as a member of shared scopes.
+        try:
+            from src.ai.http_client import AIServiceHTTPClient
+            ai_client = AIServiceHTTPClient()
+            await ai_client.ingest_knowledge_graph({
+                "id": str(user.id),
+                "entity_type": "user",
+                "name": user.name,
+                "description": f"Platform user — {user.role}" if user.role else "Platform user",
+                "space_id": None,
+                "crew_id": None,
+                "owner_user_id": str(user.id),
+                "entity_details": {
+                    "email": user.email,
+                    "role": user.role,
+                },
+            })
+        except Exception as exc:
+            logger.warning(f"AI ingest failed for user {user.id}: {exc}")
+
+        user_response_data = user_to_response_dict(user)
+        return UserResponse.model_validate(user_response_data)
 
     async def register_with_tokens(
         self,
         register_data: RegisterRequest,
-        user_agent: str = None,
-        ip_address: str = None,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
     ) -> LoginResponse:
         """
         Register a new user and return tokens (auto-login after registration).
@@ -140,7 +197,7 @@ class AuthenticationService:
         )
 
         # Register user (this will check for existing email and create user)
-        user_response = await self.register(user_data)
+        user_response = await self.register(user_data, background_tasks=background_tasks)
 
         # Get the created user from database
         user = await self.user_repo.get_by_email(register_data.email)
@@ -153,7 +210,9 @@ class AuthenticationService:
         refresh_token = create_refresh_token(token_data)
 
         # Save refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
+        )
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,
@@ -167,7 +226,7 @@ class AuthenticationService:
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
+            expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
             user=user_response,
         )
 
@@ -175,8 +234,9 @@ class AuthenticationService:
         self,
         email: str,
         password: str,
-        user_agent: str = None,
-        ip_address: str = None,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
     ) -> LoginResponse:
         """
         Authenticate user and return tokens (hybrid: traditional, SSO, or invite).
@@ -213,16 +273,19 @@ class AuthenticationService:
                 )
 
         # Verify password (for traditional and completed invite users)
-        if not verify_password(password, user.password_hash):
+        if not user.password_hash or not verify_password(password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")
 
         # Update last login
         user.last_login_at = datetime.now(timezone.utc)
-        await self.db.commit()
-        await self.db.refresh(user)  # Refresh to ensure all fields are loaded
+        # Note: redundant refresh removed due to expire_on_commit=False
 
-        # Ensure default planet/space exists (fallback for legacy users)
-        await ensure_default_planet_and_space(self.db, user)
+        # Ensure default page/space exists (fallback for legacy users)
+        if user.id:
+            if background_tasks:
+                background_tasks.add_task(perform_onboarding_task, UUID(str(user.id)))
+            else:
+                await ensure_default_page_and_space(self.db, user)
 
         # Create tokens
         token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
@@ -230,7 +293,9 @@ class AuthenticationService:
         refresh_token = create_refresh_token(token_data)
 
         # Save refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
+        )
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,
@@ -239,12 +304,15 @@ class AuthenticationService:
             ip_address=ip_address,
         )
         self.db.add(refresh_token_model)
+
+        # Flush to avoid greenlet issues when accessing attributes in sync function later
         await self.db.commit()
+        await self.db.refresh(user)
 
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
+            expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
             user=UserResponse.model_validate(user_to_response_dict(user)),
         )
 
@@ -322,7 +390,9 @@ class AuthenticationService:
         new_refresh_token = create_refresh_token(token_data)
 
         # Save new refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=365 * 100)
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
+        )
         new_token_model = RefreshToken(
             user_id=user.id,
             token=new_refresh_token,
@@ -334,23 +404,33 @@ class AuthenticationService:
         return RefreshTokenResponse(
             access_token=new_access_token,
             refresh_token=new_refresh_token,
-            expires_in=365 * 100 * 24 * 60 * 60,  # 100 years in seconds (effectively infinite)
+            expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         )
 
     async def logout(self, refresh_token: str) -> None:
         """
-        Logout user by revoking refresh token.
+        Logout user by revoking refresh token and marking them offline.
 
         Args:
             refresh_token: Refresh token to revoke
         """
-        from sqlalchemy import update
+        from sqlalchemy import select, update
 
+        # Revoke the token
         await self.db.execute(
             update(RefreshToken)
             .where(RefreshToken.token == refresh_token)
             .values(revoked_at=datetime.now(timezone.utc))
         )
+
+        # Mark the user offline so presence reflects the logout
+        result = await self.db.execute(
+            select(RefreshToken.user_id).where(RefreshToken.token == refresh_token)
+        )
+        user_id = result.scalar_one_or_none()
+        if user_id:
+            await self.db.execute(update(User).where(User.id == user_id).values(status="offline"))
+
         await self.db.commit()
 
     async def revoke_all_tokens(self, user_id: UUID) -> None:
@@ -441,7 +521,7 @@ class AuthenticationService:
         if not user:
             raise UnauthorizedError("User not found")
 
-        if not verify_password(current_password, user.password_hash):
+        if not user.password_hash or not verify_password(current_password, user.password_hash):
             raise UnauthorizedError("Invalid current password")
 
         user.password_hash = get_password_hash(new_password)

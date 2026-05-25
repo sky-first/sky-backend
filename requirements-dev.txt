@@ -9,6 +9,8 @@ alembic==1.13.1
 asyncpg>=0.30.0
 # psycopg2-binary==2.9.9  # Opcional - só necessário se usar PostgreSQL síncrono
 aiosqlite==0.19.0
+pgvector==0.3.6
+
 
 # Redis
 redis==5.0.1
@@ -21,6 +23,7 @@ hiredis==2.2.3
 # Authentication & Security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1  # Must stay <4.1 - passlib 1.7.4 is incompatible with bcrypt>=4.1 (causes login timeout)
 cryptography==42.0.2
 
 # Validation

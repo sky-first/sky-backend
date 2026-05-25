@@ -7,14 +7,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.ai import AIQuery
-from src.models.dashboard import Widget
+from src.models.widget import Widget
 from src.models.space import SpaceConnection
 
 
@@ -60,7 +60,12 @@ def _pick_top_n_per_connection(
     groups value: (count, last_used_at, user_id, original_question)
     """
     by_conn: Dict[str, List[Tuple[str, int, datetime, UUID, str]]] = {}
-    for (conn_id, norm_q), (count, last_used, user_id, original_question) in groups.items():
+    for (conn_id, norm_q), (
+        count,
+        last_used,
+        user_id,
+        original_question,
+    ) in groups.items():
         by_conn.setdefault(conn_id, []).append(
             (norm_q, count, last_used, user_id, original_question)
         )
@@ -144,7 +149,9 @@ async def get_ai_cache_warm_candidates(
         if not connection_uuid:
             try:
                 # This matches what AIService does when connection is missing.
-                user_conns = await conn_repo.get_by_user(user_id, filters={"status": "active"}, limit=1)
+                user_conns = await conn_repo.get_by_user(
+                    user_id, filters={"status": "active"}, limit=1
+                )
                 if user_conns:
                     connection_uuid = user_conns[0].id
             except Exception:
@@ -195,8 +202,10 @@ async def get_ai_cache_warm_candidates(
         # we try to find ANY space the user belongs to as a target for warming.
         if not space_id:
             if user_id not in user_primary_space:
-                from src.models.space import Space, SpaceMember
                 from sqlalchemy import or_
+
+                from src.models.space import Space, SpaceMember
+
                 stmt_space = (
                     select(Space.id)
                     .outerjoin(SpaceMember, SpaceMember.space_id == Space.id)

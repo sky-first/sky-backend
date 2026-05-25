@@ -1,7 +1,7 @@
 """Crew schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,6 +36,8 @@ class CrewResponse(CrewBase):
     created_by: UUID
     created_at: datetime
     updated_at: datetime
+    member_count: int = 0
+    connection_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,13 +46,13 @@ class CrewMemberCreate(BaseModel):
     """Crew member creation schema."""
 
     user_id: UUID
-    role: str = Field(..., pattern="^(commander|navigator|explorer|guest)$")
+    role: str = Field(..., pattern="^(owner|editor|viewer)$")
 
 
 class CrewMemberUpdate(BaseModel):
     """Crew member role update schema."""
 
-    role: str = Field(..., pattern="^(commander|navigator|explorer|guest)$")
+    role: str = Field(..., pattern="^(owner|editor|viewer)$")
 
 
 class CrewMemberResponse(BaseModel):
@@ -63,5 +65,54 @@ class CrewMemberResponse(BaseModel):
     user: Optional[dict] = None
     joined_at: datetime
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CrewStatusResponse(BaseModel):
+    """Crew status response with running tasks info."""
+
+    crew_id: UUID
+    has_running_tasks: bool
+    running_tasks_count: int
+    last_task_started_at: Optional[datetime] = None
+    active_task_ids: Optional[list[str]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CrewMetric(BaseModel):
+    """Schema for a metric in the crew overview."""
+
+    value: str
+    change: str
+    trend: str  # 'up', 'down', 'neutral'
+
+
+class CrewPIIAccess(BaseModel):
+    """Schema for PII access status in the crew overview."""
+
+    status: str  # e.g., 'RESTRICTED', 'OPEN'
+    description: str
+
+
+class CrewActivity(BaseModel):
+    """Schema for an activity event in the crew feed."""
+
+    id: str
+    user: str
+    action: str
+    target: str
+    time: str
+    status: str  # "allow" | "deny"
+
+
+class CrewStatsResponse(BaseModel):
+    """Schema for a crew's statistics."""
+
+    usage_summary: CrewMetric
+    insights_contributed: CrewMetric
+    pii_access: CrewPIIAccess
+    activity_feed: List[CrewActivity] = []
 
     model_config = ConfigDict(from_attributes=True)

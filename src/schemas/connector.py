@@ -39,3 +39,8 @@ class ConnectorResponse(BaseModel):
     config_schema: Dict[str, Any] = Field(default_factory=dict)
     sync_frequency: Optional[Dict[str, Any]] = None
     metadata_schema: Optional[Dict[str, Any]] = None
+    # True when the registry binds this connector id to a real driver
+    # (test_connection actually hits the third party). False for entries
+    # still wired to MockConnector — UI shows a "Coming soon" pill so
+    # users don't configure credentials for a no-op connector.
+    is_real: bool = False

@@ -78,7 +78,8 @@ class DatasetService:
                 logger.debug(f"Dataset {dataset_id} already marked as excluded")
             except Exception as e:
                 logger.error(
-                    f"Error marking dataset {dataset_id} as excluded: {str(e)}", exc_info=True
+                    f"Error marking dataset {dataset_id} as excluded: {str(e)}",
+                    exc_info=True,
                 )
                 await self.db.rollback()
                 raise

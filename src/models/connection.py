@@ -6,14 +6,14 @@ from datetime import datetime
 # Forward reference for SyncLog
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.config.database import Base
 
 if TYPE_CHECKING:
-    pass
+    from src.models.permission import ConnectionPermission
 
 
 class DataConnection(Base):
@@ -21,7 +21,7 @@ class DataConnection(Base):
 
     __tablename__ = "data_connections"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     connector_id = Column(
         String(100), nullable=False
@@ -30,33 +30,44 @@ class DataConnection(Base):
     status = Column(
         String(50), nullable=False, default="inactive", server_default="inactive"
     )  # active, inactive, error
+    # Phase 6 — sensitivity tier. internal (default) is free to use,
+    # confidential restricts agent access, restricted is human-only.
+    tier = Column(
+        String(20), nullable=False, default="internal", server_default="internal"
+    )
     config = Column(JSON, nullable=False)  # Encrypted credentials
     sync_frequency = Column(String(100), nullable=True)  # Cron expression
     last_sync = Column(DateTime(timezone=True), nullable=True)
     next_sync = Column(DateTime(timezone=True), nullable=True)
     last_metadata_update = Column(DateTime(timezone=True), nullable=True)
     error = Column(JSON, nullable=True)  # {message: string, timestamp: timestamp}
-    created_by = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
+    metrics = Column(JSON, nullable=True)  # Aggregated usage metrics
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    connection_metadata = relationship(
+    connection_metadata: Mapped["ConnectionMetadata"] = relationship(
         "ConnectionMetadata",
         back_populates="connection",
         uselist=False,
         cascade="all, delete-orphan",
     )
-    permissions = relationship(
-        "ConnectionPermission", back_populates="connection", cascade="all, delete-orphan"
+    permissions: Mapped[List["ConnectionPermission"]] = relationship(
+        "ConnectionPermission",
+        back_populates="connection",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (
@@ -65,9 +76,15 @@ class DataConnection(Base):
             "connector_id",
             postgresql_where=deleted_at.is_(None),
         ),
-        Index("idx_data_connections_status", "status", postgresql_where=deleted_at.is_(None)),
         Index(
-            "idx_data_connections_created_by", "created_by", postgresql_where=deleted_at.is_(None)
+            "idx_data_connections_status",
+            "status",
+            postgresql_where=deleted_at.is_(None),
+        ),
+        Index(
+            "idx_data_connections_created_by",
+            "created_by",
+            postgresql_where=deleted_at.is_(None),
         ),
         Index("idx_data_connections_last_sync", "last_sync"),
     )
@@ -81,8 +98,8 @@ class ConnectionMetadata(Base):
 
     __tablename__ = "connection_metadata"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    connection_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("data_connections.id", ondelete="CASCADE"),
         nullable=False,
@@ -93,17 +110,22 @@ class ConnectionMetadata(Base):
     schemas = Column(JSON, nullable=True)  # Array of SchemaMetadata
     documents = Column(JSON, nullable=True)  # Array of DocumentMetadata
     endpoints = Column(JSON, nullable=True)  # Array of EndpointMetadata
-    last_metadata_update = Column(DateTime(timezone=True), nullable=False, server_default="now()")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    relationships = Column(JSON, nullable=True)  # Array of TableRelationship data
+    last_metadata_update = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
     # Relationships
-    connection = relationship("DataConnection", back_populates="connection_metadata")
+    connection: Mapped["DataConnection"] = relationship(
+        "DataConnection", back_populates="connection_metadata"
+    )
 
     __table_args__ = (Index("idx_connection_metadata_connection_id", "connection_id"),)
 
@@ -119,15 +141,23 @@ class TableMetadata:
         self,
         name: str,
         schema: Optional[str] = None,
+        description: Optional[str] = None,
         row_count: Optional[int] = None,
         columns: Optional[List["ColumnMetadata"]] = None,
         last_updated: Optional[datetime] = None,
+        health: str = "Healthy",  # Healthy, Stale, Broken
+        usage_score: int = 0,  # 0-100
+        tags: Optional[List[str]] = None,
     ):
         self.name = name
         self.schema = schema
+        self.description = description
         self.row_count = row_count
         self.columns = columns or []
         self.last_updated = last_updated
+        self.health = health
+        self.usage_score = usage_score
+        self.tags = tags or []
 
 
 class ColumnMetadata:

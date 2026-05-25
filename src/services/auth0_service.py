@@ -211,6 +211,28 @@ class Auth0Service:
             else:
                 raise BadRequestError("User with this email already exists")
 
+        # Soft-deleted-user check. We DO NOT auto-restore — that would
+        # defeat admin intent (any deactivated user could just log
+        # back in). But we MUST detect the case explicitly, otherwise
+        # the INSERT below would collide with the unique-email index
+        # and surface as a generic auth error that looks like a bug.
+        # Instead: raise a 403 Forbidden with a clear message so the
+        # user knows their account was disabled and how to recover.
+        # Admin restores explicitly via POST /api/v1/users/{id}/restore.
+        from src.core.exceptions import ForbiddenError
+
+        soft_deleted = await self.user_repo.get_by_email_including_deleted(email)
+        if soft_deleted is not None and soft_deleted.deleted_at is not None:
+            logger.info(
+                "🚫 SSO callback for soft-deleted user — rejecting: %s (provider=%s, deleted_at=%s)",
+                email,
+                provider,
+                soft_deleted.deleted_at,
+            )
+            raise ForbiddenError(
+                "Your account has been deactivated. Contact your administrator to restore access."
+            )
+
         # Create new user
         # For SSO users, we don't set a password (they authenticate via provider)
         # Use a random hash that will never match (SSO users can't login with password)
@@ -240,10 +262,10 @@ class Auth0Service:
 
         logger.info(f"✅ Created new user from Auth0: {email}, provider: {provider}")
 
-        # Ensure default planet/space for new users
-        from src.services.onboarding_service import ensure_default_planet_and_space
+        # Ensure default page/space for new users
+        from src.services.onboarding_service import ensure_default_page_and_space
 
-        await ensure_default_planet_and_space(self.db, user)
+        await ensure_default_page_and_space(self.db, user)
 
         return user
 
@@ -427,9 +449,17 @@ class Auth0Service:
                         },
                     )
 
+                # Ensure default page exists (idempotent — safe for new and existing users)
+                from src.services.onboarding_service import ensure_default_page_and_space
+                await ensure_default_page_and_space(self.db, user)
+
                 logger.info(f"✅ Google SSO authentication successful: {email}")
                 return user
 
+        except httpx.HTTPStatusError as e:
+            body = e.response.text if e.response is not None else "(no body)"
+            logger.error(f"❌ Google OAuth callback failed: {e.response.status_code} — {body}")
+            raise BadRequestError(f"Google OAuth callback failed: {body}")
         except httpx.HTTPError as e:
             logger.error(f"❌ Google OAuth callback failed: {str(e)}")
             raise BadRequestError(f"Google OAuth callback failed: {str(e)}")
@@ -500,7 +530,10 @@ class Auth0Service:
                         provider="azure",
                         provider_id=azure_id,
                         avatar=avatar,
-                        sso_metadata={"azure_id": azure_id, "job_title": user_info.get("jobTitle")},
+                        sso_metadata={
+                            "azure_id": azure_id,
+                            "job_title": user_info.get("jobTitle"),
+                        },
                     )
                 else:
                     # Sync user data
@@ -509,8 +542,14 @@ class Auth0Service:
                         email=email,
                         name=name,
                         avatar=avatar,
-                        sso_metadata={"azure_id": azure_id, "job_title": user_info.get("jobTitle")},
+                        sso_metadata={
+                            "azure_id": azure_id,
+                            "job_title": user_info.get("jobTitle"),
+                        },
                     )
+
+                from src.services.onboarding_service import ensure_default_page_and_space
+                await ensure_default_page_and_space(self.db, user)
 
                 logger.info(f"✅ Azure AD SSO authentication successful: {email}")
                 return user
@@ -601,6 +640,9 @@ class Auth0Service:
                             "email_verified": user_info.get("email_verified"),
                         },
                     )
+
+                from src.services.onboarding_service import ensure_default_page_and_space
+                await ensure_default_page_and_space(self.db, user)
 
                 logger.info(f"✅ Okta SSO authentication successful: {email}")
                 return user

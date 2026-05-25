@@ -1,14 +1,16 @@
 """AI endpoints."""
 
+import logging
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
+from src.middleware.request_limits import depth_guard_dependency
 from src.config.settings import settings
 from src.models.user import User
 from src.rate_limit.core import (
@@ -17,7 +19,7 @@ from src.rate_limit.core import (
     default_buckets_for_request,
     resolve_tenant_key,
 )
-from src.repositories.planet import PlanetRepository
+from src.repositories.page import PageRepository
 from src.repositories.space import SpaceRepository
 from src.schemas.ai import (
     AIHistoryItem,
@@ -32,6 +34,8 @@ from src.schemas.ai import (
     FeedbackRequest,
     GenerateAnswerRequest,
     GenerateAnswerResponse,
+    GenerateInfographicRequest,
+    GenerateInfographicResponse,
     GenerateSQLRequest,
     GenerateSQLResponse,
     PipelineExecuteRequest,
@@ -44,9 +48,11 @@ from src.schemas.ai import (
 )
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.services.ai_service import AIService
+from src.services.beats_service import BeatsService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -56,6 +62,7 @@ router = APIRouter()
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
     summary="Process AI query",
     description="Process a natural language question and return answer",
+    dependencies=[Depends(depth_guard_dependency)],
 )
 async def process_query(
     query_data: AIQueryRequest,
@@ -74,7 +81,19 @@ async def process_query(
     Returns:
         AIQueryResponse: Query response
     """
-    # RBAC enforcement: require ability to run queries in this context.
+    # RBAC enforcement: pick the right key based on whether the caller
+    # provided a space_id.
+    #   • space_id present → "ai.query"           (("space","viewer"))
+    #     Caller must be at least a viewer of that Space.
+    #   • space_id absent  → "ai.query.personal"  (("tenant","any_member"))
+    #     Personal scope: any authenticated platform user can ask the
+    #     AI against their own aggregated data. Cross-tenant leakage
+    #     is prevented at the connection layer, not at this gate.
+    # Pre-PR2 the Personal path was unguarded — the FE resolver still
+    # required ai.query.personal because the space-scoped rule
+    # short-circuits without a space_id, surfacing as "You don't
+    # have permission to use AI in this workspace." for Members on
+    # first SSO login.
     rbac = RBACService(db)
     space_uuid: Optional[UUID] = None
     if query_data.space_id:
@@ -82,7 +101,8 @@ async def process_query(
             space_uuid = UUID(query_data.space_id)
         except Exception:
             space_uuid = None
-    await rbac.assert_permission(current_user, "data.query.run", space_id=space_uuid)
+    permission_key = "ai.query" if space_uuid is not None else "ai.query.personal"
+    await rbac.assert_permission(current_user, permission_key, space_id=space_uuid)
 
     ai_service = AIService(db)
 
@@ -131,6 +151,31 @@ async def process_query(
                 response.headers.add_vary_header("Origin")
             return response  # type: ignore[return-value]
 
+    # Resolve and validate page_id
+    if not query_data.page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active page found for user")
+        query_data.page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(query_data.page_id, current_user.id)
+
+    # Beats quota gate — fires AFTER rate limit (cheap Redis check)
+    # and AFTER page validation, so users near their cap aren't
+    # charged when those earlier gates would have rejected the call
+    # anyway. Raises 402 PaymentRequiredError before the LLM runs;
+    # records 20 beats on success. Demo: 500 beats / 7d. Starter:
+    # 5K / 30d. See src/config/plan_quotas.py.
+    await BeatsService(db).check_and_record(
+        current_user, kind="chat", source_id=None,
+    )
+
     return await ai_service.process_query(current_user.id, query_data)
 
 
@@ -147,6 +192,10 @@ async def chat_bootstrap(
         None,
         description="Space ID used as context for permissions/catalog. In Personal mode, currentSpace is usually set.",
     ),
+    crew_id: Optional[str] = Query(
+        None,
+        description="Active crew ID. When provided, the AI suggestions are scoped to that crew (collaborative mode).",
+    ),
     language: Optional[str] = Query(None, description="Optional language hint (e.g. en, pt, es)"),
     max_suggestions: int = Query(4, ge=1, le=8),
     current_user: User = Depends(get_current_user),
@@ -156,17 +205,17 @@ async def chat_bootstrap(
     Returns greeting + suggestion cards for a new chat session.
 
     Current behavior:
-    - Only enabled when the active planet is in Personal mode (planet.type == 'personal').
+    - Only enabled when the active page is in Personal mode (page.type == 'personal').
     - Uses the first active DataConnection for the user (Option A).
     """
     try:
         # 1) Mode hint (Personal mode is a client-side toggle today).
         # We don't hard-block here because the frontend is the source of truth for the
         # current "work mode" and we still need to return suggestions even if the
-        # active planet in DB isn't synced yet.
-        planet_repo = PlanetRepository(db)
-        active_planet = await planet_repo.get_active_planet(current_user.id)
-        is_personal = getattr(active_planet, "type", None) == "personal"
+        # active page in DB isn't synced yet.
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        is_personal = getattr(active_page, "type", None) == "personal"
 
         # 2) Ensure we have a space_id (fallback: first space owned by user)
         resolved_space_id = space_id
@@ -204,7 +253,7 @@ async def chat_bootstrap(
                 meta={
                     "enabled": True,
                     "reason": "NO_SPACE_CONTEXT",
-                    "active_planet_type": getattr(active_planet, "type", None),
+                    "active_page_type": getattr(active_page, "type", None),
                 },
             )
 
@@ -243,16 +292,45 @@ async def chat_bootstrap(
                     "enabled": True,
                     "space_id": resolved_space_id,
                     "reason": "NO_ACTIVE_CONNECTION",
-                    "active_planet_type": getattr(active_planet, "type", None),
+                    "active_page_type": getattr(active_page, "type", None),
                 },
             )
 
-        # 4) Resolve crew_ids for this user in this space (Personal => all crews user belongs to)
-        crew_ids = await ai_service._get_user_crew_ids(
-            current_user.id, resolved_space_id
-        )  # noqa: SLF001
+        # 4) Resolve crew_ids for this user in this space
+        #    Collaborative mode: restrict to active crew_id if provided and user is a member
+        if crew_id:
+            all_user_crew_ids = await ai_service._get_user_crew_ids(  # noqa: SLF001
+                current_user.id, resolved_space_id
+            )
+            if crew_id in all_user_crew_ids:
+                crew_ids = [crew_id]
+            else:
+                logger.warning(
+                    f"[chat_bootstrap] User {current_user.id} not member of crew {crew_id}, "
+                    "falling back to all crews"
+                )
+                crew_ids = all_user_crew_ids
+        else:
+            crew_ids = await ai_service._get_user_crew_ids(  # noqa: SLF001
+                current_user.id, resolved_space_id
+            )
 
-        # 5) Call AI Engine
+        # 5) Mandatory Permission Filtering: Get authorized tables
+        permission_service = ai_service.permission_service
+        try:
+            from uuid import UUID
+
+            authorized_tables = await permission_service.get_authorized_tables(
+                user_id=current_user.id,
+                connection_id=UUID(connection_id),
+                space_id=UUID(resolved_space_id) if resolved_space_id else None,
+                crew_ids=[UUID(cid) for cid in crew_ids] if crew_ids else None,
+            )
+        except Exception as e:
+            logger.error(f"[chat_bootstrap] Error checking authorized tables: {e}", exc_info=True)
+            authorized_tables = []  # Fail closed
+
+        # 6) Call AI Engine
         client = AIServiceHTTPClient()
         payload = await client.chat_bootstrap(
             connection_id=connection_id,
@@ -262,20 +340,61 @@ async def chat_bootstrap(
             language=language,
             max_suggestions=max_suggestions,
             is_personal=is_personal,
+            authorized_tables=list(authorized_tables),
         )
 
-        # 6) Return as schema
+        # 7) Return as schema (enforce non-null keys if AI service is flaky)
+        if not payload or not isinstance(payload, dict):
+            logger.warning(f"[chat_bootstrap] AI service returned invalid payload: {payload}")
+            return ChatBootstrapResponse(
+                greeting="How can I help you today?",
+                suggestions=[
+                    {
+                        "title": "Available data",
+                        "kind": "question",
+                        "question": "What data do I have access to?",
+                    },
+                    {
+                        "title": "Examples",
+                        "kind": "question",
+                        "question": "Give me examples of questions I can ask.",
+                    },
+                ][:max_suggestions],
+                meta={"enabled": True, "reason": "AI_SERVICE_EMPTY_PAYLOAD"},
+            )
+
+        # Ensure required fields are present even if payload is a dict
+        if "greeting" not in payload:
+            payload["greeting"] = "How can I help you today?"
+        if "suggestions" not in payload or not payload["suggestions"]:
+            payload["suggestions"] = [
+                {
+                    "title": "Available data",
+                    "kind": "question",
+                    "question": "What data do I have access to?",
+                },
+                {
+                    "title": "Examples",
+                    "kind": "question",
+                    "question": "Give me examples of questions I can ask.",
+                },
+            ][:max_suggestions]
+
         out = ChatBootstrapResponse.model_validate(payload)
         out.meta = {
             **(out.meta or {}),
-            "active_planet_type": getattr(active_planet, "type", None),
+            "active_page_type": getattr(active_page, "type", None),
         }
         return out
     except Exception as e:
         return ChatBootstrapResponse(
             greeting="How can I help you with your data?",
             suggestions=[
-                {"title": "Create dashboard", "kind": "action", "action_id": "create_dashboard"},
+                {
+                    "title": "Create dashboard",
+                    "kind": "action",
+                    "action_id": "create_dashboard",
+                },
                 {
                     "title": "Available data",
                     "kind": "question",
@@ -307,6 +426,7 @@ async def chat_bootstrap(
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
     summary="Send chat message",
     description="Send a chat message in a widget",
+    dependencies=[Depends(depth_guard_dependency)],
 )
 async def send_chat_message(
     message_data: ChatMessageRequest,
@@ -324,8 +444,258 @@ async def send_chat_message(
     Returns:
         ChatMessageResponse: Chat response
     """
+    # Resolve and validate page_id
+    if not message_data.page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active page found for user")
+        message_data.page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(message_data.page_id, current_user.id)
+
+    # AI Customization fallback: if the client didn't pass tone/style in the
+    # request, pull them from the user's saved preferences (Settings → AI
+    # Customization). Request-level values always win over saved defaults.
+    prefs = current_user.preferences or {}
+    if message_data.ai_tone is None:
+        message_data.ai_tone = prefs.get("ai_tone")
+    if message_data.ai_style is None:
+        message_data.ai_style = prefs.get("ai_style")
+
     ai_service = AIService(db)
     return await ai_service.send_chat_message(current_user.id, message_data)
+
+
+@router.post(
+    "/chat/stream",
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    summary="Send chat message (SSE streaming)",
+    dependencies=[Depends(depth_guard_dependency)],
+    description=(
+        "Same contract as POST /chat but streams the AI response back as "
+        "Server-Sent Events. Each event is a `data: {...}` line with a "
+        "`type` field: 'progress', 'chunk', 'rows', 'meta', 'done', or "
+        "'error'. Lets the UI render tokens as they arrive instead of "
+        "waiting for the full response — first-visible-content typically "
+        "2-3 seconds vs. ~8-30s end-to-end."
+    ),
+)
+async def send_chat_message_stream(
+    message_data: ChatMessageRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Stream chat response via SSE.
+
+    Resolution rules mirror POST /chat: page_id, tone/style fallback,
+    and the same scope-to-connection resolution the non-streaming path
+    uses. The difference is the response is forwarded from the AI
+    service's streaming endpoint (stream_query_connection) line-by-line
+    instead of waiting for the final JSON.
+    """
+    # Page resolution — same as /chat.
+    if not message_data.page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+            raise NotFoundError("No active page found for user")
+        message_data.page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(message_data.page_id, current_user.id)
+
+    # Tone/style fallback — same as /chat.
+    prefs = current_user.preferences or {}
+    if message_data.ai_tone is None:
+        message_data.ai_tone = prefs.get("ai_tone")
+    if message_data.ai_style is None:
+        message_data.ai_style = prefs.get("ai_style")
+
+    # Resolve scope inline. We can't reuse AIService.send_chat_message
+    # because it persists and returns a single blob; streaming needs us
+    # to flush events as they arrive. Connection resolution uses the
+    # same fallbacks as the non-streaming path: explicit field → first
+    # active connection for the user.
+    ai_service = AIService(db)
+    resolved_connection_id: Optional[str] = None
+    resolved_all_connection_ids: List[str] = []
+    try:
+        if getattr(message_data, "space_id", None):
+            resolved_all_connection_ids = await ai_service._get_all_connections_for_space(
+                current_user.id, str(message_data.space_id)
+            )
+        elif getattr(message_data, "is_personal", False):
+            # Personal mode: use user_datasets connections so the AI sees all
+            # demo tables and can do cross-DB joins — same logic as /ai/query.
+            resolved_all_connection_ids = await ai_service._get_user_dataset_connection_ids(
+                current_user.id
+            )
+        if resolved_all_connection_ids:
+            resolved_connection_id = resolved_all_connection_ids[0]
+        if not resolved_connection_id:
+            resolved_connection_id = await ai_service._get_first_active_connection(current_user.id)
+            if resolved_connection_id:
+                resolved_all_connection_ids = [resolved_connection_id]
+    except Exception as exc:
+        logger.warning(f"Chat stream — connection resolution failed: {exc}")
+
+    scope_is_personal = bool(getattr(message_data, "is_personal", False))
+    scope_space_id = getattr(message_data, "space_id", None) or "default"
+
+    # Resolve the caller's crew membership so the RAG restricts the
+    # retrieval to their own crews (or crew_id IS NULL). Without this,
+    # a Space member asking a question inside their own Crew page would
+    # silently miss Crew-scoped embeddings because the AI defaults to
+    # crew_ids=[] → crew_id IS NULL only. See collaborative RAG audit.
+    resolved_crew_ids: List[str] = []
+    if not scope_is_personal:
+        explicit_crew_id = getattr(message_data, "crew_id", None)
+        if explicit_crew_id:
+            # Trust the page-level crew signal but intersect with the
+            # user's actual membership so a compromised client can't
+            # read a Crew they don't belong to.
+            user_crews = await ai_service._get_user_crew_ids(
+                current_user.id, str(scope_space_id)
+            )
+            if str(explicit_crew_id) in user_crews:
+                resolved_crew_ids = [str(explicit_crew_id)]
+            # else: the client asked for a Crew the user doesn't belong
+            # to — fall back to the space-wide view (no crew filter).
+        else:
+            resolved_crew_ids = await ai_service._get_user_crew_ids(
+                current_user.id, str(scope_space_id)
+            )
+
+    import json as _json
+    ai_client = AIServiceHTTPClient()
+
+    # Load knowledge context (OKRs, strategies, table relationships) and merge
+    # into instructions — same as process_query and send_chat_message do.
+    stream_instructions = getattr(message_data, "instructions", None) or ""
+    try:
+        from src.services.knowledge_context_loader import (
+            load_knowledge_context_for_user,
+            render_knowledge_for_prompt,
+        )
+        _kc = await load_knowledge_context_for_user(db, current_user)
+        _rendered = render_knowledge_for_prompt(_kc)
+        if _rendered:
+            stream_instructions = (
+                f"{_rendered}\n\n{stream_instructions}" if stream_instructions else _rendered
+            )
+    except Exception as _kc_err:
+        logger.debug("[chat/stream] knowledge_context_loader skipped: %s", _kc_err)
+
+    async def event_stream():
+        """Forward AI service SSE lines to the client. Adds a final
+        'done' event when the upstream stream completes."""
+        started = False
+        try:
+            if not resolved_connection_id:
+                yield f"data: {_json.dumps({'type': 'error', 'message': 'No data source available for this chat.'})}\n\n"
+                return
+
+            yield f"data: {_json.dumps({'type': 'progress', 'stage': 'starting', 'message': 'Thinking...'})}\n\n"
+            started = True
+
+            async for line in ai_client.stream_query_connection(
+                connection_id=str(resolved_connection_id),
+                question=message_data.message,
+                user_id=str(current_user.id),
+                space_id=str(scope_space_id),
+                instructions=stream_instructions or None,
+                is_personal=scope_is_personal,
+                crew_ids=resolved_crew_ids or None,
+                connection_ids=resolved_all_connection_ids if len(resolved_all_connection_ids) > 1 else None,
+            ):
+                if line.startswith("data: "):
+                    try:
+                        _ev = _json.loads(line[6:])
+                        if _ev.get("type") == "done":
+                            continue  # Suppress AI service's done — backend emits its own below
+                    except _json.JSONDecodeError:
+                        pass
+                    yield line + "\n\n"
+                elif line.strip():
+                    yield f"data: {line.strip()}\n\n"
+
+            yield f"data: {_json.dumps({'type': 'done'})}\n\n"
+        except Exception as exc:
+            logger.error(f"Chat stream failed: {exc}", exc_info=True)
+            if started:
+                yield f"data: {_json.dumps({'type': 'error', 'message': str(exc)[:200]})}\n\n"
+            else:
+                yield f"data: {_json.dumps({'type': 'error', 'message': 'Unable to start chat stream.'})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.get(
+    "/popular-questions",
+    response_model=List[dict],
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="List popular AI questions (anonymised)",
+    description=(
+        "Returns the most-asked questions across the org over the last 30 days, "
+        "grouped by normalised question text and ordered by count desc. No user "
+        "attribution — used to seed the chat bootstrap suggestions with what "
+        "other people in the same space have actually been asking."
+    ),
+)
+async def get_popular_questions(
+    limit: int = Query(5, ge=1, le=20),
+    space_id: Optional[UUID] = Query(None, description="Restrict to a Space (optional)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[dict]:
+    """List popular questions, anonymised. Each row: {question, count}."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, select
+    from src.models.ai import AIQuery
+
+    # Last 30 days, completed only — incomplete/error queries shouldn't drive
+    # recommendations because we're inferring "this question worked".
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+    # Normalise to lowercase trimmed text so "What is MRR?" and "what is mrr"
+    # collapse into one bucket. We keep the original-cased question of the
+    # most recent occurrence as the displayed string.
+    norm = func.lower(func.trim(AIQuery.question))
+    stmt = (
+        select(
+            norm.label("norm"),
+            func.count().label("cnt"),
+            func.max(AIQuery.question).label("display"),
+        )
+        .where(AIQuery.status == "completed")
+        .where(AIQuery.created_at >= since)
+        .where(AIQuery.user_id != current_user.id)  # exclude my own
+        .group_by(norm)
+        .order_by(func.count().desc())
+        .limit(limit * 3)
+    )
+    rows = (await db.execute(stmt)).all()
+    out: List[dict] = []
+    for r in rows:
+        q = (r.display or "").strip()
+        if not q or len(q) < 8:
+            continue
+        # Filter out boring stuff that shouldn't be surfaced as a suggestion.
+        if q.lower() in {"hi", "hello", "test", "what?"}:
+            continue
+        out.append({"question": q, "count": int(r.cnt)})
+        if len(out) >= limit:
+            break
+    return out
 
 
 @router.get(
@@ -340,8 +710,14 @@ async def get_history(
     filter: Optional[str] = Query(None, description="Filter: today, week, pinned"),
     search: Optional[str] = Query(None, description="Search query"),
     category: Optional[str] = Query(None, description="Category filter"),
+    crew_id: Optional[str] = Query(
+        None, description="Filter history by active crew (collaborative mode)"
+    ),
+    space_id: Optional[str] = Query(None, description="Filter history by space"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
+    page_id: Optional[UUID] = Query(None, description="Page ID for filtering"),
+    is_personal: bool = Query(False, description="Whether to fetch personal history"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[AIHistoryItem]:
@@ -360,14 +736,41 @@ async def get_history(
     Returns:
         List[AIHistoryItem]: History items
     """
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if crew_id:
+        # Collaborative crew mode: page_id is optional.
+        # History is scoped by crew_id, no page ownership check needed.
+        # If page_id is provided alongside crew_id, use it as-is (no validation required).
+        pass
+    elif not resolved_page_id:
+        # Personal mode with no page_id: resolve the active page
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
+    else:
+        # Personal mode with explicit page_id: validate ownership
+        from src.services.page_service import PageService
+
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.get_history(
         current_user.id,
+        page_id=resolved_page_id,
         filter_type=filter,
         search=search,
         category=category,
         skip=skip,
         limit=limit,
+        crew_id=crew_id,
+        space_id=space_id,
+        is_personal=is_personal,
     )
 
 
@@ -395,6 +798,21 @@ async def create_history(
     Returns:
         AIHistoryItem: Created history item
     """
+    # Resolve and validate page_id
+    if not history_data.page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active page found for user")
+        history_data.page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(history_data.page_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.create_history(current_user.id, history_data)
 
@@ -409,6 +827,7 @@ async def create_history(
 )
 async def get_history_by_id(
     history_id: UUID,
+    page_id: Optional[UUID] = Query(None, description="Page ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -423,8 +842,24 @@ async def get_history_by_id(
     Returns:
         AIHistoryItem: History item
     """
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
+
     ai_service = AIService(db)
-    return await ai_service.get_history_by_id(history_id, current_user.id)
+    return await ai_service.get_history_by_id(history_id, current_user.id, resolved_page_id)
 
 
 @router.delete(
@@ -437,6 +872,7 @@ async def get_history_by_id(
 )
 async def delete_history(
     history_id: UUID,
+    page_id: Optional[UUID] = Query(None, description="Page ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
@@ -451,8 +887,24 @@ async def delete_history(
     Returns:
         SuccessResponse: Success message
     """
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
+
     ai_service = AIService(db)
-    await ai_service.delete_history(history_id, current_user.id)
+    await ai_service.delete_history(history_id, current_user.id, resolved_page_id)
     return SuccessResponse(message="History item deleted successfully")
 
 
@@ -466,6 +918,7 @@ async def delete_history(
 )
 async def pin_history(
     history_id: UUID,
+    page_id: Optional[UUID] = Query(None, description="Page ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -480,8 +933,24 @@ async def pin_history(
     Returns:
         AIHistoryItem: Updated history item
     """
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
+
     ai_service = AIService(db)
-    return await ai_service.pin_history(history_id, current_user.id)
+    return await ai_service.pin_history(history_id, current_user.id, resolved_page_id)
 
 
 @router.post(
@@ -494,6 +963,7 @@ async def pin_history(
 )
 async def unpin_history(
     history_id: UUID,
+    page_id: Optional[UUID] = Query(None, description="Page ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AIHistoryItem:
@@ -508,8 +978,24 @@ async def unpin_history(
     Returns:
         AIHistoryItem: Updated history item
     """
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
+
     ai_service = AIService(db)
-    return await ai_service.unpin_history(history_id, current_user.id)
+    return await ai_service.unpin_history(history_id, current_user.id, resolved_page_id)
 
 
 @router.get(
@@ -520,6 +1006,7 @@ async def unpin_history(
     description="Export history as CSV",
 )
 async def export_history(
+    page_id: Optional[UUID] = Query(None, description="Page ID for isolation"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> StreamingResponse:
@@ -533,8 +1020,24 @@ async def export_history(
     Returns:
         StreamingResponse: CSV file
     """
+    # Resolve and validate page_id
+    resolved_page_id = page_id
+    if not resolved_page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active page found for user")
+        resolved_page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(resolved_page_id, current_user.id)
+
     ai_service = AIService(db)
-    csv_content = await ai_service.export_history(current_user.id)
+    csv_content = await ai_service.export_history(current_user.id, resolved_page_id)
 
     return StreamingResponse(
         iter([csv_content]),
@@ -567,6 +1070,21 @@ async def execute_pipeline(
     Returns:
         PipelineExecuteResponse: Pipeline response
     """
+    # Resolve and validate page_id
+    if not request.page_id:
+        page_repo = PageRepository(db)
+        active_page = await page_repo.get_active_page(current_user.id)
+        if not active_page:
+            from src.core.exceptions import NotFoundError
+
+            raise NotFoundError("No active page found for user")
+        request.page_id = active_page.id
+    else:
+        from src.services.page_service import PageService
+
+        page_service = PageService(db)
+        await page_service.get_user_page_or_404(request.page_id, current_user.id)
+
     ai_service = AIService(db)
     return await ai_service.execute_pipeline(current_user.id, request)
 
@@ -666,7 +1184,7 @@ async def generate_sql(
         GenerateSQLResponse: Generated SQL
     """
     ai_service = AIService(db)
-    return await ai_service.generate_sql(request)
+    return await ai_service.generate_sql(current_user.id, request)
 
 
 @router.post(
@@ -698,6 +1216,90 @@ async def generate_answer(
     ai_service = AIService(db)
     answer = await ai_service.generate_answer(request.question, request.knowledge, request.context)
     return GenerateAnswerResponse(answer=answer, timestamp=datetime.now(timezone.utc))
+
+
+@router.post(
+    "/generate-infographic",
+    response_model=GenerateInfographicResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    summary="Generate infographic data",
+    description="Generate structured JSON data for an infographic widget from a question and AI answer.",
+)
+async def generate_infographic(
+    request: GenerateInfographicRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> GenerateInfographicResponse:
+    """
+    Generate structured infographic data.
+
+    Uses the real AI service when AI_SERVICE_TYPE=real, otherwise falls back to mock.
+
+    Args:
+        request: question, answer, optional data_sample, language, style
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        GenerateInfographicResponse: Structured infographic data
+    """
+    from datetime import datetime, timezone
+
+    ai_service = AIService(db)
+    logger.info(
+        f"Generating infographic for user {current_user.id}, question: {str(request.question)[:50]}..."
+    )
+
+    try:
+        raw = await ai_service.generate_infographic(current_user.id, request)
+        logger.info(f"AI service returned raw data type: {type(raw)}")
+
+        # The AI service returns a plain dict; validate it into the typed schema.
+        from src.schemas.ai import InfographicData
+
+        if isinstance(raw, (dict, GenerateInfographicResponse)):
+            # If it's already a response (fallback from AIService), use its data
+            if hasattr(raw, "data") and isinstance(raw.data, InfographicData):
+                infographic_data = raw.data
+            elif isinstance(raw, dict):
+                try:
+                    infographic_data = InfographicData.model_validate(raw)
+                    logger.info("Successfully validated infographic data")
+                except Exception as val_err:
+                    logger.error(f"Validation error for infographic data: {val_err}")
+                    logger.debug(f"Raw data that failed validation: {raw}")
+                    # Fallback to empty but with title
+                    infographic_data = InfographicData()
+            else:
+                infographic_data = InfographicData()
+        else:
+            logger.warning(f"AI service returned non-dict: {type(raw)}")
+            infographic_data = InfographicData()
+
+        # ✅ ENSURE DATA FOR UI: If the AI failed to provide a title or summary,
+        # we provide minimal fallbacks to avoid the "Grey Box" empty state in the frontend.
+        if not infographic_data.title:
+            infographic_data.title = "Analysis Result"
+        if not infographic_data.summary and not infographic_data.mainValue:
+            infographic_data.summary = "Strategic analysis based on the provided query context."
+
+        return GenerateInfographicResponse(
+            data=infographic_data,
+            timestamp=datetime.now(timezone.utc),
+        )
+    except Exception as e:
+        logger.exception(f"Unexpected error in generating infographic: {e}")
+        # Return a safe response instead of 500
+        from src.schemas.ai import InfographicData
+
+        return GenerateInfographicResponse(
+            data=InfographicData(
+                title="Analysis Error",
+                summary=f"Error: {str(e)}. Please check backend logs.",
+            ),
+            timestamp=datetime.now(timezone.utc),
+        )
 
 
 @router.post(
@@ -805,6 +1407,8 @@ async def suggest_widget_title(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuggestWidgetTitleResponse:
     # RBAC enforcement: same capability as querying (this still incurs AI cost).
+    # Personal-mode parity with /query — see the rationale at the top of the
+    # /query handler. Same key-selection logic.
     rbac = RBACService(db)
     space_uuid: Optional[UUID] = None
     if body.space_id:
@@ -812,7 +1416,8 @@ async def suggest_widget_title(
             space_uuid = UUID(body.space_id)
         except Exception:
             space_uuid = None
-    await rbac.assert_permission(current_user, "data.query.run", space_id=space_uuid)
+    permission_key = "ai.query" if space_uuid is not None else "ai.query.personal"
+    await rbac.assert_permission(current_user, permission_key, space_id=space_uuid)
 
     ai_service = AIService(db)
 
@@ -858,6 +1463,14 @@ async def suggest_widget_title(
                 response.headers["Access-Control-Allow-Credentials"] = "true"
                 response.headers.add_vary_header("Origin")
             return response  # type: ignore[return-value]
+
+    # Beats quota gate — fires AFTER rate limit so users near their
+    # cap aren't charged when 429 would have rejected anyway.
+    # suggest_title is 5 beats (single gpt-4o-mini call, much cheaper
+    # than the L3 chat path).
+    await BeatsService(db).check_and_record(
+        current_user, kind="suggest_title", source_id=None,
+    )
 
     client = AIServiceHTTPClient()
     suggested = await client.suggest_widget_title(

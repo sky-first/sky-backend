@@ -25,19 +25,25 @@ elif [ -d ".venv" ]; then
 fi
 
 # Instala dependências se necessário
-if [ ! -f ".deps_installed" ]; then
-    echo "📦 Instalando dependências..."
-    if [ -d "venv" ]; then
-        venv/bin/pip install -q -r requirements.txt
-    elif [ -d ".venv" ]; then
-        .venv/bin/pip install -q -r requirements.txt
-    else
-        pip install -q -r requirements.txt
-    fi
-    touch .deps_installed
+# Sempre verifica e instala dependências para garantir ambiente atualizado
+echo "📦 Verificando dependências..."
+if [ -d "venv" ]; then
+    venv/bin/pip install -q -r requirements.txt
+elif [ -d ".venv" ]; then
+    .venv/bin/pip install -q -r requirements.txt
+else
+    pip install -q -r requirements.txt
 fi
 
 # Configura variáveis de ambiente
+# Carrega .env.local primeiro (pydantic-settings usa, mas alembic roda no shell e precisa de env vars exportadas)
+if [ -f ".env.local" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source .env.local
+    set +a
+fi
+# sky_poc_postgres está exposto em 5432 no host (mapeamento definido em deploy/docker-compose.yml)
 export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db}"
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 export CELERY_BROKER_URL="${CELERY_BROKER_URL:-redis://localhost:6379/1}"
@@ -45,7 +51,7 @@ export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/2}
 export AI_SERVICE_URL="${AI_SERVICE_URL:-http://localhost:8001}"
 
 # Cache Warming settings
-export CACHE_WARMING_ENABLED="${CACHE_WARMING_ENABLED:-true}"
+export CACHE_WARMING_ENABLED="${CACHE_WARMING_ENABLED:-false}"
 export CACHE_WARMING_INTERVAL_SECONDS="${CACHE_WARMING_INTERVAL_SECONDS:-60}"
 
 echo "✅ Variáveis de ambiente configuradas"
@@ -76,12 +82,29 @@ trap cleanup EXIT
 
 # Executa migrações
 echo "🔄 Executando migrações do banco de dados..."
+ALEMBIC_CMD="python3 -m alembic"
 if [ -d "venv" ]; then
-    venv/bin/python -m alembic upgrade head
+    ALEMBIC_CMD="venv/bin/python -m alembic"
 elif [ -d ".venv" ]; then
-    .venv/bin/python -m alembic upgrade head
-else
-    python3 -m alembic upgrade head
+    ALEMBIC_CMD=".venv/bin/python -m alembic"
+fi
+
+if ! $ALEMBIC_CMD upgrade head; then
+    echo "⚠️  Falha nas migrações. Verificando se há revisões órfãs..."
+    # Se o erro for "Can't locate revision", tentamos sincronizar com stamp head
+    if $ALEMBIC_CMD current 2>&1 | grep -q "Can't locate revision"; then
+        echo "💡 Detectada revisão órfã (possivelmente de outra branch) na tabela alembic_version."
+        echo "🔧 Tentando sincronizar banco de dados com 'alembic stamp head'..."
+        if $ALEMBIC_CMD stamp head && $ALEMBIC_CMD upgrade head; then
+            echo "✅ Banco de dados sincronizado e atualizado com sucesso!"
+        else
+            echo "❌ Não foi possível recuperar automaticamente. Verifique as migrações manualmente."
+            exit 1
+        fi
+    else
+        echo "❌ Falha crítica nas migrações. Por favor, verifique os logs acima."
+        exit 1
+    fi
 fi
 echo ""
 
@@ -99,11 +122,11 @@ echo ""
 # Cria usuário de teste
 echo "👤 Verificando/Criando usuário de teste..."
 if [ -d "venv" ]; then
-    venv/bin/python create_user.py
+    venv/bin/python scripts/create-test-user.py
 elif [ -d ".venv" ]; then
-    .venv/bin/python create_user.py
+    .venv/bin/python scripts/create-test-user.py
 else
-    python3 create_user.py
+    python3 scripts/create-test-user.py
 fi
 echo ""
 

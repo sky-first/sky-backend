@@ -5,8 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from src.api.middleware import auth, cors
-from src.api.middleware import rate_limit
+from src.api.middleware import auth, cors, idempotency, rate_limit
 from src.api.v1.router import api_router
 from src.config import settings
 from src.config.database import (
@@ -18,9 +17,10 @@ from src.config.database import (
     log_connection_stats,
 )
 from src.config.redis import close_redis, init_redis
+from src.core.context_events import init_context_events
+from src.core.errors.handlers import register_exception_handlers
 from src.core.logging import configure_logging, get_logger
 from src.core.middleware.correlation import CorrelationIdMiddleware
-from src.core.errors.handlers import register_exception_handlers
 
 # Configure structured logging
 configure_logging()
@@ -31,9 +31,17 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown."""
     # Startup
+    logger.info("VERIFY_RELOAD_SUCCESSFUL")
     logger.info("application_startup")
     await init_db()
     await init_redis()
+    # Context Layer — register domain-event listeners that publish to the
+    # `context:ingest` Redis stream consumed by the AI service ingest
+    # worker. Bound to the base `sqlalchemy.orm.Session` class
+    # internally; every AsyncSession flush fires through a sync
+    # Session so that's where the after_flush / after_commit /
+    # after_rollback events exist. No sessionmaker arg needed.
+    init_context_events()
     # Log initial connection stats
     await log_connection_stats()
     logger.info("application_ready")
@@ -64,15 +72,31 @@ cors.setup_cors(app)
 # 2. Correlation ID (Should be early to trace everything)
 app.add_middleware(CorrelationIdMiddleware)
 
+# 3. Security response headers (HSTS/CSP/nosniff/frame-options + server
+# fingerprint strip). Added late so it wraps every response including
+# ones produced by exception handlers. Red-team infra findings
+# 2026-04-23.
+from src.middleware.security_headers import SecurityHeadersMiddleware  # noqa: E402
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 4. Request size limit — rejects >1 MiB bodies at Content-Length
+# before they hit a handler. Closes the "5 MB chat message melts the
+# LLM" DoS vector found by red-team. Large-body routes (file upload,
+# ingest) are explicitly allowlisted inside the middleware.
+from src.middleware.request_limits import RequestSizeLimitMiddleware  # noqa: E402
+app.add_middleware(RequestSizeLimitMiddleware)
+
 # Setup HTTP middlewares
 # IMPORTANT: In FastAPI, middleware added with app.middleware("http")() executes in REVERSE order
 # Desired execution order:
 # 1. auth (FIRST - sets request.state.user_id)
 # 2. rate_limit (needs user_id from auth)
+# 3. idempotency (needs user_id from auth)
 #
-# So we add them as: rate_limit, auth (reverse order)
-app.middleware("http")(rate_limit.rate_limit_middleware)  # Added 1st, executes 2nd
-app.middleware("http")(auth.auth_middleware)  # Added 2nd (LAST), executes FIRST
+# So we add them as: idempotency, rate_limit, auth (reverse order)
+app.middleware("http")(idempotency.idempotency_middleware)
+app.middleware("http")(rate_limit.rate_limit_middleware)
+app.middleware("http")(auth.auth_middleware)
 
 # Register output-standardizing exception handlers
 register_exception_handlers(app)
@@ -115,7 +139,7 @@ def custom_openapi():
     # Apply security globally to all endpoints
     openapi_schema["security"] = [{"BearerAuth": []}]
 
-    logger.info("openapi_schema_generated", paths=len(openapi_schema.get('paths', {})))
+    logger.info("openapi_schema_generated", paths=len(openapi_schema.get("paths", {})))
 
     # Cache the schema
     app.openapi_schema = openapi_schema
@@ -124,7 +148,7 @@ def custom_openapi():
 
 
 # Override the default openapi function
-app.openapi = custom_openapi
+setattr(app, "openapi", custom_openapi)
 
 
 @app.get("/health", tags=["Health"])
@@ -168,9 +192,9 @@ async def monitoring_connections(db=Depends(get_db)):
     }
 
 
-def _get_connection_recommendations(pool_stats: dict, db_connections: dict) -> list:
+def _get_connection_recommendations(pool_stats: dict, db_connections: dict) -> list[dict[str, str]]:
     """Generate recommendations based on connection statistics."""
-    recommendations = []
+    recommendations: list[dict[str, str]] = []
 
     if "error" in db_connections:
         return recommendations
@@ -242,9 +266,11 @@ async def root():
         "api_prefix": settings.API_V1_PREFIX,
     }
 
+
 if __name__ == "__main__":
-    import uvicorn
     import sys
+
+    import uvicorn
 
     # Check if a custom port is required (e.g. from tests)
     port = 8000

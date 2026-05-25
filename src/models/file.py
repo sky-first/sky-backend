@@ -3,7 +3,18 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -35,11 +46,13 @@ class FileUpload(Base):
         index=True,
     )
     parsed_data = Column(JSON, nullable=True)  # Parsed data (CSV, Excel, etc.)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
 
@@ -74,9 +87,11 @@ class SyncLog(Base):
     records_synced = Column(Integer, nullable=True)
     duration = Column(Integer, nullable=True)  # milliseconds
     error = Column(Text, nullable=True)
-    started_at = Column(DateTime(timezone=True), nullable=False, server_default="now()", index=True)
+    started_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
     completed_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relationships
     connection = relationship("DataConnection")

@@ -176,6 +176,23 @@ async def get_current_user(
     if not user:
         raise UnauthorizedError("User not found")
 
+    # Atomic activity tracking — fire-and-forget, does NOT block the request.
+    # The WHERE clause inside update_last_active_atomic() ensures only one
+    # concurrent writer wins (the rest skip silently). No lock storm possible.
+    import asyncio
+
+    from src.config.database import AsyncSessionLocal
+
+    async def _track_activity(uid: UUID) -> None:
+        try:
+            async with AsyncSessionLocal() as tracking_session:
+                repo = UserRepository(tracking_session)
+                await repo.update_last_active_atomic(uid, cooldown_seconds=60)
+        except Exception as exc:
+            logger.debug(f"Activity tracking skipped: {exc}")
+
+    asyncio.ensure_future(_track_activity(UUID(user_id)))
+
     return user
 
 

@@ -18,7 +18,8 @@ load_dotenv()
 async def fix_dashboards_planet_id():
     # Get database URL from environment
     database_url = os.getenv(
-        "DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost:5433/ai_saas_db"
+        "DATABASE_URL",
+        "postgresql+asyncpg://postgres:password@localhost:5433/ai_saas_db",
     )
 
     # Parse the URL to extract connection details
@@ -45,9 +46,9 @@ async def fix_dashboards_planet_id():
 
         # Check if workspace_id column exists
         check_query = """
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'dashboards' 
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'dashboards'
         AND column_name IN ('workspace_id', 'planet_id');
         """
 
@@ -66,7 +67,7 @@ async def fix_dashboards_planet_id():
                 # Rename the column
                 await conn.execute(
                     """
-                    ALTER TABLE dashboards 
+                    ALTER TABLE dashboards
                     RENAME COLUMN workspace_id TO planet_id;
                 """
                 )
@@ -84,8 +85,8 @@ async def fix_dashboards_planet_id():
                 # Create new index
                 await conn.execute(
                     """
-                    CREATE INDEX IF NOT EXISTS idx_dashboards_planet_id 
-                    ON dashboards(planet_id) 
+                    CREATE INDEX IF NOT EXISTS idx_dashboards_planet_id
+                    ON dashboards(planet_id)
                     WHERE deleted_at IS NULL;
                 """
                 )
@@ -94,7 +95,7 @@ async def fix_dashboards_planet_id():
                 try:
                     await conn.execute(
                         """
-                        ALTER TABLE dashboards 
+                        ALTER TABLE dashboards
                         DROP CONSTRAINT IF EXISTS dashboards_workspace_id_fkey;
                     """
                     )
@@ -104,10 +105,10 @@ async def fix_dashboards_planet_id():
                 # Create new foreign key constraint
                 await conn.execute(
                     """
-                    ALTER TABLE dashboards 
-                    ADD CONSTRAINT dashboards_planet_id_fkey 
-                    FOREIGN KEY (planet_id) 
-                    REFERENCES planets(id) 
+                    ALTER TABLE dashboards
+                    ADD CONSTRAINT dashboards_planet_id_fkey
+                    FOREIGN KEY (planet_id)
+                    REFERENCES planets(id)
                     ON DELETE CASCADE;
                 """
                 )
@@ -121,7 +122,7 @@ async def fix_dashboards_planet_id():
             table_check = await conn.fetch(
                 """
                 SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
+                    SELECT FROM information_schema.tables
                     WHERE table_name = 'dashboards'
                 );
             """
@@ -130,8 +131,8 @@ async def fix_dashboards_planet_id():
                 # Get all columns
                 all_columns = await conn.fetch(
                     """
-                    SELECT column_name 
-                    FROM information_schema.columns 
+                    SELECT column_name
+                    FROM information_schema.columns
                     WHERE table_name = 'dashboards';
                 """
                 )

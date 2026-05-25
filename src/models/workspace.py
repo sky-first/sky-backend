@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -26,11 +26,11 @@ class Workspace(Base):
     )
     is_active = Column(Boolean, nullable=False, default=False, server_default="false")
     last_accessed = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default="now()",
+        server_default=func.now(),
         onupdate=datetime.utcnow,
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
@@ -45,7 +45,11 @@ class Workspace(Base):
     __table_args__ = (
         Index("idx_workspaces_owner_id", "owner_id", postgresql_where=deleted_at.is_(None)),
         Index("idx_workspaces_type", "type", postgresql_where=deleted_at.is_(None)),
-        Index("idx_workspaces_is_active", "is_active", postgresql_where=deleted_at.is_(None)),
+        Index(
+            "idx_workspaces_is_active",
+            "is_active",
+            postgresql_where=deleted_at.is_(None),
+        ),
         Index("idx_workspaces_last_accessed", "last_accessed"),
     )
 
@@ -72,8 +76,8 @@ class WorkspaceMember(Base):
         index=True,
     )
     role = Column(String(50), nullable=False)  # owner, admin, member, viewer
-    joined_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    joined_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relationships
     workspace = relationship("Workspace", back_populates="members")

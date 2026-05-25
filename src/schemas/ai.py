@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.schemas.ai_transparency import AIResponseTransparency  # W7
+
 
 class ConfigureData(BaseModel):
     """AI configuration data schema."""
@@ -18,6 +20,10 @@ class ConfigureData(BaseModel):
     length: int = Field(default=50, ge=0, le=100)
     knowledge: List[str] = Field(default_factory=list)  # Connection IDs or table names
     sql_instructions: Optional[str] = None
+    # Knowledge layer markdown — Metrics + Glossary visible to the user,
+    # Org-certified rows first. Populated by ai_service.process_query
+    # via knowledge_context_loader and spliced into the engine prompt.
+    knowledge_context: Optional[str] = None
 
 
 class AIQueryRequest(BaseModel):
@@ -31,6 +37,22 @@ class AIQueryRequest(BaseModel):
     is_personal: Optional[bool] = Field(
         default=False,
         description="Whether the query is in personal mode (access across all crews/spaces).",
+    )
+    page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
+    # Collaborative mode: restrict AI data context to this specific crew
+    crew_id: Optional[str] = Field(
+        None,
+        description=(
+            "Active crew ID. When set, the AI will only use data accessible to this crew "
+            "(collaborative mode). When None + is_personal=False, uses all crews the user "
+            "belongs to in the space."
+        ),
+    )
+    # Knowledge Library: file IDs the user explicitly @mentioned in the prompt.
+    # The AI service boosts their chunks 10× during RAG retrieval.
+    mentioned_file_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Knowledge file IDs @mentioned by the user. Boosted during RAG retrieval.",
     )
 
 
@@ -54,8 +76,12 @@ class AIQueryResponse(BaseModel):
     )
     # NEW: extra meta returned by the AI execution engine (e.g., dynamic widget title)
     meta: Optional[Dict[str, Any]] = None
+    page_id: UUID
     created_at: datetime
     updated_at: datetime
+
+    # W7 — optional transparency bundle (evidence + reasoning + flags).
+    transparency: Optional["AIResponseTransparency"] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -79,6 +105,10 @@ class SuggestWidgetTitleRequest(BaseModel):
         default=False,
         description="Whether the action is in personal mode (access across all crews/spaces).",
     )
+    crew_id: Optional[str] = Field(
+        None,
+        description="Active crew ID for collaborative context.",
+    )
 
 
 class SuggestWidgetTitleResponse(BaseModel):
@@ -92,7 +122,22 @@ class ChatMessageRequest(BaseModel):
 
     message: str = Field(..., min_length=1)
     widget_id: UUID
+    page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
     context: Optional[Dict[str, Any]] = None
+    # Explicit collaborative context fields (preferred over context dict)
+    space_id: Optional[str] = Field(None, description="Space ID for context")
+    crew_id: Optional[str] = Field(None, description="Active crew ID (collaborative mode)")
+    is_personal: Optional[bool] = Field(default=False, description="Personal mode flag")
+    # AI Customization (Settings → AI Customization tab).
+    # When absent, the route handler falls back to current_user.preferences.
+    ai_tone: Optional[str] = Field(
+        None,
+        description="Preferred response tone (casual, professional, technical, friendly).",
+    )
+    ai_style: Optional[str] = Field(
+        None,
+        description="Preferred output structure (concise, detailed, step-by-step).",
+    )
 
 
 class ChatMessageResponse(BaseModel):
@@ -101,7 +146,13 @@ class ChatMessageResponse(BaseModel):
     id: UUID
     type: str  # user, assistant
     content: str
+    page_id: UUID
     timestamp: datetime
+
+    # W7 — optional transparency bundle. Omitted from serialization
+    # when absent (old clients see no new field). Populated for
+    # assistant responses only.
+    transparency: Optional["AIResponseTransparency"] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -117,8 +168,12 @@ class AIHistoryItem(BaseModel):
     tags: List[str] = Field(default_factory=list)
     category: Optional[str] = None
     pinned: bool = False
+    page_id: UUID
     created_at: datetime
     updated_at: datetime
+    # Collaborative context filters
+    space_id: Optional[str] = None
+    crew_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -128,8 +183,16 @@ class CreateHistoryRequest(BaseModel):
 
     query: str = Field(..., min_length=1)
     answer: str = Field(..., min_length=1)
+    page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
     category: Optional[str] = None
     tags: Optional[List[str]] = Field(default_factory=list)
+    # Collaborative context
+    space_id: Optional[str] = None
+    crew_id: Optional[str] = None
+    # Real end-to-end query latency in milliseconds — feeds Settings → Usage.
+    duration_ms: Optional[int] = Field(
+        None, description="Query latency in ms (client-measured or server-measured)"
+    )
 
 
 class FeedbackRequest(BaseModel):
@@ -206,6 +269,7 @@ class PipelineExecuteRequest(BaseModel):
     question: str = Field(..., min_length=1)
     knowledge: List[str] = Field(default_factory=list)
     configure_data: ConfigureData
+    page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
 
 
 class PipelineExecuteResponse(BaseModel):
@@ -301,3 +365,73 @@ class ValidateSQLResponse(BaseModel):
         default=None,
         description="Short AI-generated explanation for the preview results (if requested).",
     )
+
+
+class InfographicDataDriver(BaseModel):
+    """Driver item for infographic."""
+
+    name: str
+    icon: Optional[str] = None
+    impact: Optional[str] = None
+    description: Optional[str] = None
+
+
+class InfographicData(BaseModel):
+    """Structured data for infographic widget."""
+
+    # Header
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    mainValue: Optional[str] = None
+    mainValueLabel: Optional[str] = None
+
+    # Summary
+    summary: Optional[str] = None
+    highlightedValue: Optional[str] = None
+
+    # KPIs
+    marginLabel: Optional[str] = None
+    marginValue: Optional[str] = None
+    cacLabel: Optional[str] = None
+    cacValue: Optional[str] = None
+
+    # Trajectory
+    trajectoryTitle: Optional[str] = None
+    trajectoryData: Optional[List[Dict[str, Any]]] = None
+    recordHighLabel: Optional[str] = None
+
+    # Drivers
+    drivers: Optional[List[InfographicDataDriver]] = None
+
+    # Why
+    whyTitle: Optional[str] = None
+    whyContent: Optional[str] = None
+    whyChartData: Optional[List[Dict[str, Any]]] = None
+
+    # Strategic
+    strategicTitle: Optional[str] = None
+    strategicContent: Optional[str] = None
+
+    # Outlook
+    outlookTitle: Optional[str] = None
+    outlookContent: Optional[str] = None
+    outlookChartData: Optional[List[Dict[str, Any]]] = None
+    outlookChartCenterValue: Optional[str] = None
+    outlookChartCenterLabel: Optional[str] = None
+
+
+class GenerateInfographicRequest(BaseModel):
+    """Request to generate structured infographic data."""
+
+    question: str
+    answer: str
+    data_sample: Optional[List[Dict[str, Any]]] = None
+    language: str = "en"
+    style: str = "mix"  # textual, visual, mix
+
+
+class GenerateInfographicResponse(BaseModel):
+    """Response with structured infographic data."""
+
+    data: InfographicData
+    timestamp: datetime

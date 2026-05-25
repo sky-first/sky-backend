@@ -3,10 +3,11 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.crew import Crew, CrewMember
+from src.models.crew import Crew, CrewConnection, CrewMember
+from src.models.space import SpaceMember
 from src.repositories.base import BaseRepository
 
 
@@ -37,6 +38,62 @@ class CrewRepository(BaseRepository[Crew]):
         )
         return list(result.scalars().all())
 
+    async def get_by_space_with_stats(
+        self, space_id: UUID, skip: int = 0, limit: int = 100
+    ) -> List[dict]:
+        """
+        Get crews by space with statistics.
+        """
+        stmt = (
+            select(
+                Crew,
+                func.count(distinct(CrewMember.id)).label("member_count"),
+                func.count(distinct(CrewConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(CrewMember, Crew.id == CrewMember.crew_id)
+            .outerjoin(CrewConnection, Crew.id == CrewConnection.crew_id)
+            .where(Crew.space_id == space_id, Crew.deleted_at.is_(None))
+            .group_by(Crew.id)
+            .order_by(Crew.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+
+        crews = []
+        for row in result:
+            crew, member_count, connection_count = row
+            crew_data = {c.name: getattr(crew, c.name) for c in crew.__table__.columns}
+            crew_data["member_count"] = member_count
+            crew_data["connection_count"] = connection_count
+            crews.append(crew_data)
+
+        return crews
+
+    async def get_by_id_with_stats(self, id: UUID) -> Optional[dict]:
+        """Get crew by ID with statistics."""
+        stmt = (
+            select(
+                Crew,
+                func.count(distinct(CrewMember.id)).label("member_count"),
+                func.count(distinct(CrewConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(CrewMember, Crew.id == CrewMember.crew_id)
+            .outerjoin(CrewConnection, Crew.id == CrewConnection.crew_id)
+            .where(Crew.id == id, Crew.deleted_at.is_(None))
+            .group_by(Crew.id)
+        )
+        result = await self.db.execute(stmt)
+        row = result.first()
+        if not row:
+            return None
+
+        crew, member_count, connection_count = row
+        crew_data = {c.name: getattr(crew, c.name) for c in crew.__table__.columns}
+        crew_data["member_count"] = member_count
+        crew_data["connection_count"] = connection_count
+        return crew_data
+
     async def get_by_id(self, id: UUID) -> Optional[Crew]:
         """
         Get entity by ID. Overridden to include deleted_at filter.
@@ -65,6 +122,102 @@ class CrewRepository(BaseRepository[Crew]):
         """
         result = await self.db.execute(select(self.model).where(self.model.id == id))
         return result.scalar_one_or_none()
+
+    async def get_all_with_stats(
+        self, skip: int = 0, limit: int = 100
+    ) -> List[dict]:
+        """Get all crews with member and connection counts.
+
+        DEPRECATED for direct API use — does NOT filter by user, so it
+        leaks every crew in the tenant. Kept private (called via
+        get_visible_with_stats) for the admin path; cross-tenant
+        listing should always go through that method.
+        """
+        stmt = (
+            select(
+                Crew,
+                func.count(distinct(CrewMember.id)).label("member_count"),
+                func.count(distinct(CrewConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(CrewMember, Crew.id == CrewMember.crew_id)
+            .outerjoin(CrewConnection, Crew.id == CrewConnection.crew_id)
+            .where(Crew.deleted_at.is_(None))
+            .group_by(Crew.id)
+            .order_by(Crew.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+
+        crews = []
+        for row in result:
+            crew, member_count, connection_count = row
+            crew_data = {c.name: getattr(crew, c.name) for c in crew.__table__.columns}
+            crew_data["member_count"] = member_count
+            crew_data["connection_count"] = connection_count
+            crews.append(crew_data)
+
+        return crews
+
+    async def get_visible_with_stats(
+        self,
+        user_id: UUID,
+        is_org_admin: bool,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[dict]:
+        """Get crews the caller is allowed to see, with stats.
+
+        A crew is visible to a user when ANY of:
+          - the user is an admin/owner at platform level (`is_org_admin`)
+          - the user is a direct member of the crew
+          - the user is a member of the crew's parent Space
+
+        This replaces the unconstrained get_all_with_stats path on the
+        public list endpoint, which was leaking every crew in the
+        tenant (10+ crews from other teams shown to a regular user).
+        """
+        if is_org_admin:
+            return await self.get_all_with_stats(skip=skip, limit=limit)
+
+        # Crews the user is directly a member of
+        direct_crew_ids_q = select(CrewMember.crew_id).where(
+            CrewMember.user_id == user_id
+        )
+        # Spaces the user is a member of → all crews under those spaces
+        user_space_ids_q = select(SpaceMember.space_id).where(
+            SpaceMember.user_id == user_id
+        )
+
+        stmt = (
+            select(
+                Crew,
+                func.count(distinct(CrewMember.id)).label("member_count"),
+                func.count(distinct(CrewConnection.connection_id)).label("connection_count"),
+            )
+            .outerjoin(CrewMember, Crew.id == CrewMember.crew_id)
+            .outerjoin(CrewConnection, Crew.id == CrewConnection.crew_id)
+            .where(Crew.deleted_at.is_(None))
+            .where(
+                Crew.id.in_(direct_crew_ids_q)
+                | Crew.space_id.in_(user_space_ids_q)
+            )
+            .group_by(Crew.id)
+            .order_by(Crew.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+
+        crews = []
+        for row in result:
+            crew, member_count, connection_count = row
+            crew_data = {c.name: getattr(crew, c.name) for c in crew.__table__.columns}
+            crew_data["member_count"] = member_count
+            crew_data["connection_count"] = connection_count
+            crews.append(crew_data)
+
+        return crews
 
     async def get_all(
         self,

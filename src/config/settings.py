@@ -1,7 +1,7 @@
 """Application settings using Pydantic Settings."""
 
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,11 +26,12 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True  # Temporarily enabled for debugging
     ENVIRONMENT: str = "development"
+    ADMIN_ONBOARDING_VERSION: int = 1
 
     # API
     API_V1_PREFIX: str = "/api/v1"
     CORS_ORIGINS: str = Field(
-        default="http://localhost:3000,http://localhost:3001",
+        default="http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001",
         description="CORS allowed origins (comma-separated)",
     )
 
@@ -120,20 +121,146 @@ class Settings(BaseSettings):
 
         return self
 
-    DATABASE_POOL_SIZE: int = (
-        3  # Reduzido para 3 conexões por processo (recomendado para evitar "too many clients")
-    )
-    DATABASE_MAX_OVERFLOW: int = (
-        5  # Máximo de 5 conexões adicionais (total máximo: 8 conexões por processo)
-    )
+    # Per-process Postgres pool. The defaults were 20+10 = 30 per
+    # process — combined with uvicorn --reload child processes +
+    # Celery worker + AI ingest worker, that easily exceeds Postgres'
+    # default max_connections=100 in dev and triggers \"FATAL: sorry,
+    # too many clients already\". Down to 5+5 = 10/process leaves
+    # ample headroom; production overrides via env when running on
+    # a beefier Postgres instance.
+    DATABASE_POOL_SIZE: int = 5
+    DATABASE_MAX_OVERFLOW: int = 5
     DATABASE_POOL_PRE_PING: bool = True
+
+    # ─── Postgres pool hardening ──────────────────────────────────────────
+    # How long a request waits for a free connection before failing fast.
+    # Without it, a leak or saturation hangs the request indefinitely
+    # while clients keep piling on; with a 30 s ceiling we surface the
+    # incident at the request layer (5xx alerts fire) instead of
+    # silently degrading throughput.
+    DATABASE_POOL_TIMEOUT: int = 30
+
+    # LIFO recycling — newest-released connection is the first one we
+    # hand out. Keeps Postgres' query-planner caches warm and lets idle
+    # connections drift to the recycle window naturally.
+    DATABASE_POOL_USE_LIFO: bool = True
+
+    # Per-connection statement timeout (Postgres ``statement_timeout``).
+    # Keeps a single runaway query from holding the pool slot forever.
+    # 30 s default — analytics queries should run via the AI worker, not
+    # the API event loop.
+    DATABASE_STATEMENT_TIMEOUT_MS: int = 30_000
+
+    # Per-connection idle-in-transaction timeout. A leaked transaction
+    # locks rows + occupies the connection; this kills the session
+    # automatically after 60 s.
+    DATABASE_IDLE_IN_TX_TIMEOUT_MS: int = 60_000
+
+    # Lock-wait timeout. Failing fast is better than queuing requests
+    # behind a long-running migration or DDL.
+    DATABASE_LOCK_TIMEOUT_MS: int = 10_000
+
+    # PgBouncer transaction-mode flag. asyncpg keeps a per-connection
+    # prepared-statement cache by default; under PgBouncer transaction
+    # pooling the same physical connection is shared by many clients,
+    # so the cached statements collide. Setting this to ``True`` disables
+    # the cache so PgBouncer can do its job.
+    DATABASE_PGBOUNCER_MODE: bool = False
+
+    # ─── Ticket escalation → Sky on-call ───────────────────────────────────
+    # When a customer-side admin / owner escalates a ticket to "Sky team
+    # review", we POST a JSON payload to this URL so the Sky on-call rotation
+    # gets paged. Empty default = log-only mode (the structured WARN line in
+    # ticket_service still fires for off-platform tooling that tails logs).
+    TICKET_ESCALATION_WEBHOOK_URL: str = Field(
+        default="",
+        description=(
+            "HTTPS URL that receives a JSON POST when a ticket is escalated. "
+            "Empty disables the webhook and falls back to log-only escalation."
+        ),
+    )
+    # Bearer token sent in the Authorization header on the webhook call.
+    # Optional — leave empty if the receiver authenticates by IP allow-list.
+    TICKET_ESCALATION_WEBHOOK_TOKEN: str = Field(default="")
+    # Hard ceiling on the outbound POST so a slow Sky receiver can't stall
+    # the escalate request. The escalate flow swallows the failure and
+    # continues — the DB is the source of truth.
+    TICKET_ESCALATION_WEBHOOK_TIMEOUT: float = 5.0
+
+    # ─── Slack notification on ticket creation ────────────────────────────
+    # Slack Incoming Webhook URL. When set, every newly-created ticket
+    # fires an async best-effort POST to this URL with a Slack block-kit
+    # payload (subject, severity, reporter, link). Empty = log-only.
+    SLACK_TICKETS_WEBHOOK_URL: str = Field(
+        default="",
+        description=(
+            "Slack Incoming Webhook URL that receives a Slack-formatted "
+            "POST when a ticket is created. Empty disables the webhook."
+        ),
+    )
+    SLACK_TICKETS_WEBHOOK_TIMEOUT: float = 5.0
+
+    # Slack feedback channel — separate webhook for tickets with
+    # category in {feature_request, other}. Bug tickets continue to
+    # land in SLACK_TICKETS_WEBHOOK_URL. Lucas's brief: "1 canal para
+    # tickets/bugs/escalations, 1 canal para features+feedbacks, 1
+    # canal para demo signups." Empty = falls back to the tickets
+    # webhook (preserves single-channel behaviour for installs that
+    # haven't split yet).
+    SLACK_FEEDBACK_WEBHOOK_URL: str = Field(
+        default="",
+        description=(
+            "Slack Incoming Webhook URL for feature_request + other "
+            "(non-bug) tickets. Empty falls back to SLACK_TICKETS_WEBHOOK_URL."
+        ),
+    )
+
+    # Public app URL used to render a clickable link back to the ticket
+    # in the Slack message. Falls back to skipping the link if empty.
+    APP_PUBLIC_URL: str = Field(default="")
+
+    # ─── Slack lead-gen webhook on demo signup ───────────────────────────
+    # Separate webhook (different channel) from the tickets one. Empty
+    # = log-only mode. Posts on every demo provisioning event:
+    # cold signup, same-domain join, returning visitor.
+    SLACK_DEMO_SIGNUPS_WEBHOOK_URL: str = Field(
+        default="",
+        description=(
+            "Slack Incoming Webhook URL for demo-signup lead-gen events. "
+            "Separate from SLACK_TICKETS_WEBHOOK_URL so support and "
+            "marketing can use different channels."
+        ),
+    )
+    SLACK_DEMO_SIGNUPS_WEBHOOK_TIMEOUT: float = 5.0
+
+    # ─── Resend transactional email (demo welcome, ticket replies) ───────
+    # Resend is the chosen vendor for launch — see
+    # docs/strategy/EMAIL_PROVIDER_DECISION.md. Empty key = log-only
+    # mode (no outbound HTTP, no real email sent). Same dry-run pattern
+    # we use for TURNSTILE_SECRET_KEY.
+    RESEND_API_KEY: str = Field(
+        default="",
+        description=(
+            "Resend API key. Empty = log-only mode (dev/CI). Set in "
+            "Azure KV as `resend-api-key` and reference via "
+            "ExternalSecret in staging."
+        ),
+    )
+    RESEND_API_URL: str = Field(default="https://api.resend.com/emails")
+    RESEND_TIMEOUT: float = 10.0
+    EMAIL_FROM_ADDRESS: str = Field(default="lucas.ventura@skyfirstlabs.com")
+    EMAIL_FROM_NAME: str = Field(default="Lucas Ventura — SKY")
+    EMAIL_DASHBOARD_URL: str = Field(default="https://demo.skyfirstlabs.com")
 
     # Redis
     REDIS_URL: str = Field(
         default="",
         description="Redis connection URL (empty to skip Redis - OK for local development)",
     )
-    REDIS_HOST: str = "localhost"
+    REDIS_HOST: Optional[str] = Field(
+        default=None,
+        description="Redis host (empty to use REDIS_URL or fallback to localhost in dev)",
+    )
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_PASSWORD: str = ""
@@ -153,6 +280,13 @@ class Settings(BaseSettings):
         if not self.REDIS_URL and redis_host:
             auth = f":{redis_password}@" if redis_password else ""
             self.REDIS_URL = f"redis://{auth}{redis_host}:{redis_port}/{redis_db}"
+        elif not self.REDIS_URL and not redis_host and self.ENVIRONMENT != "development":
+            # Safety check for non-development environments
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "REDIS_URL and REDIS_HOST are both empty in non-development environment"
+            )
 
         return self
 
@@ -168,8 +302,7 @@ class Settings(BaseSettings):
 
     # JWT
     JWT_SECRET_KEY: str = Field(
-        default="your-secret-key-change-in-production",
-        description="JWT secret key",
+        description="JWT secret key — must be set via environment variable",
     )
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
@@ -184,6 +317,18 @@ class Settings(BaseSettings):
         default="your-32-byte-encryption-key-change-in-production",
         description="Encryption key for sensitive data (must be 32 bytes)",
     )
+
+    # Public demo (Cenário B) — visitor lands on demo.skyfirstlabs.com,
+    # fills a short form, gets a per-visitor Space provisioned with a TTL.
+    # All values overridable via env so staging/prod can clamp differently.
+    DEMO_ENABLED: bool = False
+    DEMO_TTL_DAYS: int = 7
+    DEMO_RATE_LIMIT_PER_IP_PER_HOUR: int = 3
+    DEMO_MAX_AGENTS_PER_USER: int = 8  # 0 = unlimited
+    DEMO_DATASET_CONNECTION_ID: str = ""  # legacy single Connection UUID
+    DEMO_DATASET_CONNECTION_IDS: str = ""  # CSV of Connection UUIDs (preferred — multi-schema demo)
+    TURNSTILE_SECRET_KEY: str = ""  # Cloudflare Turnstile (free)
+    TURNSTILE_VERIFY_URL: str = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
     # Sentry
     SENTRY_DSN: str = ""
@@ -213,6 +358,15 @@ class Settings(BaseSettings):
     AI_SERVICE_URL: str = Field(
         default="http://localhost:8001",
         description="URL of the AI service (ia-do-projeto)",
+    )
+    AI_SERVICE_HTTP_TIMEOUT: float = Field(
+        default=90.0,
+        description=(
+            "Seconds the backend will wait on a single AI HTTP call before "
+            "aborting. Must be <= the frontend withTimeout (120s). Previous "
+            "default of 25s caused spurious 'Service highly demanded' banners "
+            "on any medium-complexity question."
+        ),
     )
     AI_METADATA_TTL_SECONDS: int = Field(
         default=21600,
@@ -256,10 +410,31 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4"
     ANTHROPIC_API_KEY: str = ""
 
+    # Knowledge Library — Azure Storage
+    AZURE_STORAGE_ACCOUNT_NAME: str = ""  # empty = use local fallback in dev
+    AZURE_STORAGE_CONTAINER_RAW: str = "uploads-raw"
+    AZURE_STORAGE_CONTAINER_PROCESSED: str = "uploads-processed"
+
+    # Knowledge Library — file/quota limits
+    FILE_MAX_SIZE_MB: int = 15
+    QUOTA_PERSONAL_FILES: int = 15
+    QUOTA_PERSONAL_MB: int = 100
+    QUOTA_CREW_FILES: int = 50
+    QUOTA_CREW_MB: int = 500
+    QUOTA_SPACE_FILES: int = 100
+    QUOTA_SPACE_MB: int = 1024
+
+    # Knowledge Library — processing
+    EMBEDDING_BATCH_SIZE: int = 100
+    FILE_PROCESSING_TIMEOUT_SECONDS: int = 300
+
+    # Used by blob_helper local dev URLs
+    BACKEND_BASE_URL: str = "http://localhost:8000"
+
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True
-    RATE_LIMIT_PER_MINUTE: int = 60
-    RATE_LIMIT_PER_HOUR: int = 1000
+    RATE_LIMIT_PER_MINUTE: int = 300
+    RATE_LIMIT_PER_HOUR: int = 10000
 
     # Tenant/User rate limiting for AI cost control (Subtask 2/3)
     AI_RATE_LIMIT_ENABLED: bool = True
@@ -270,13 +445,18 @@ class Settings(BaseSettings):
     # Hard cap to prevent "switching tenant context" abuse
     AI_RATE_LIMIT_GLOBAL_USER_PER_HOUR: int = 80
 
+    IDEMPOTENCY_TTL_SECONDS: int = Field(
+        default=86400,
+        description="TTL in seconds for idempotency keys stored in Redis.",
+    )
+
     @model_validator(mode="after")
     def apply_environment_defaults(self):
         """
         Apply safer defaults for large-app development without impacting production.
 
-        - In production: default to 60/min and 1000/hour unless explicitly set via env vars.
-        - In development: keep rate limit enabled, but raise limits to avoid dev/HMR/test storms.
+        - In production: default to 300/min and 10000/hour unless explicitly set via env vars.
+        - In development: keep rate limit enabled, but raise limits to avoid dev/HMR/test storms (3000/min).
         """
         import os
 
@@ -284,9 +464,9 @@ class Settings(BaseSettings):
 
         # Only apply defaults when the env var is not explicitly set.
         if os.getenv("RATE_LIMIT_PER_MINUTE") is None:
-            self.RATE_LIMIT_PER_MINUTE = 60 if is_prod else 600
+            self.RATE_LIMIT_PER_MINUTE = 300 if is_prod else 3000
         if os.getenv("RATE_LIMIT_PER_HOUR") is None:
-            self.RATE_LIMIT_PER_HOUR = 1000 if is_prod else 10000
+            self.RATE_LIMIT_PER_HOUR = 10000 if is_prod else 1000000
         if os.getenv("RATE_LIMIT_ENABLED") is None:
             # Keep enabled by default; can be disabled explicitly in env.
             self.RATE_LIMIT_ENABLED = True
@@ -331,7 +511,14 @@ class Settings(BaseSettings):
                 netloc += f":{parsed.port}"
 
             return urlunparse(
-                (scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+                (
+                    scheme,
+                    netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                )
             )
 
         # If no password, just remove +asyncpg

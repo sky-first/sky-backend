@@ -1,7 +1,7 @@
 """Authentication middleware."""
 
 import logging
-from typing import Callable
+from typing import Callable, cast
 
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
@@ -31,7 +31,7 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     # Always allow CORS preflight requests through so CORSMiddleware can respond with 200.
     # Browsers send OPTIONS without Authorization; blocking it causes "preflight not OK" errors.
     if request.method == "OPTIONS":
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     # Skip auth for public endpoints
     public_paths = [
@@ -53,6 +53,11 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/v1/auth/sso/",  # All SSO endpoints (login and callback)
         "/api/v1/auth/invite/validate",  # Invite validation (public)
         "/api/v1/auth/invite/login",  # Invite login (public)
+        "/api/v1/auth/invite/accept",  # Invite accept (public)
+        # Local-dev blob storage — browser PUT/GET goes directly here without a Bearer header.
+        # Both endpoints return 404 in production (_assert_local_mode guard).
+        "/api/v1/knowledge/local-upload",
+        "/api/v1/knowledge/local-download",
         # Legacy API routes (without /v1 prefix)
         "/api/auth/login",
         "/api/auth/logout",
@@ -61,17 +66,21 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/auth/reset-password",
         "/api/auth/verify-email",
         "/api/auth/register",  # Registration endpoint
+        "/api/auth/sso/",  # All SSO endpoints (legacy prefix, mirrors /api/v1/auth/sso/)
         "/api/v1/auth/register",  # Registration endpoint (v1)
+        # Public demo signup — issues its own JWT, no auth required.
+        "/api/v1/demo/",
+        "/api/demo/",
     ]
 
     # Root only (avoid "/" matching every path)
     if request.url.path == "/":
         logger.debug(f"⏭️ Skipping auth for root path: {request.url.path}")
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     if any(request.url.path.startswith(path) for path in public_paths):
         logger.debug(f"⏭️ Skipping auth for public path: {request.url.path}")
-        return await call_next(request)
+        return cast(Response, await call_next(request))
 
     logger.info(f"🔐 Auth middleware executing for path: {request.url.path}")
 
@@ -95,7 +104,10 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         logger.warning(f"⚠️ No authorization header for path: {request.url.path}")
         response = JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"error": "Unauthorized", "message": "Missing authorization header"},
+            content={
+                "error": "Unauthorized",
+                "message": "Missing authorization header",
+            },
         )
         # Ensure CORS headers are present even when we short-circuit before CORSMiddleware runs
         origin = request.headers.get("Origin")
@@ -116,7 +128,10 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     except ValueError:
         response = JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"error": "Unauthorized", "message": "Invalid authorization header format"},
+            content={
+                "error": "Unauthorized",
+                "message": "Invalid authorization header format",
+            },
         )
         origin = request.headers.get("Origin")
         if origin and origin in settings.cors_origins_list:
@@ -144,6 +159,18 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
             if not user_id:
                 logger.warning(f"Token payload missing 'sub': {payload}")
                 raise UnauthorizedError("Invalid token payload")
+
+            # Logout-revocation check (red-team HI 2026-04-23): if the
+            # user's `revoke_before` marker in Redis is newer than this
+            # token's `iat`, reject. Tokens without `iat` (legacy pre-
+            # fix) are grandfathered and will cycle out on their own
+            # 15-min exp.
+            from src.core.token_blocklist import is_token_revoked
+            _iat_claim = payload.get("iat")
+            if _iat_claim is not None and await is_token_revoked(
+                str(user_id), int(_iat_claim)
+            ):
+                raise UnauthorizedError("Token revoked")
 
             # Store user info in request state
             user_id_str = str(user_id)

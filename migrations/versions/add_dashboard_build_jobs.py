@@ -56,33 +56,83 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["planet_id"], ["planets.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["space_id"], ["spaces.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["connection_id"], ["data_connections.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["dashboard_id"], ["dashboards.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["connection_id"], ["data_connections.id"], ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["dashboard_id"], ["dashboards.id"], ondelete="SET NULL"
+        ),
     )
 
-    op.create_index("idx_dashboard_build_jobs_user_id", "dashboard_build_jobs", ["user_id"], unique=False)
-    op.create_index("idx_dashboard_build_jobs_planet_id", "dashboard_build_jobs", ["planet_id"], unique=False)
-    op.create_index("idx_dashboard_build_jobs_space_id", "dashboard_build_jobs", ["space_id"], unique=False)
-    op.create_index("idx_dashboard_build_jobs_connection_id", "dashboard_build_jobs", ["connection_id"], unique=False)
-    op.create_index("idx_dashboard_build_jobs_dashboard_id", "dashboard_build_jobs", ["dashboard_id"], unique=False)
-    op.create_index("idx_dashboard_build_jobs_status", "dashboard_build_jobs", ["status"], unique=False)
+    op.create_index(
+        "idx_dashboard_build_jobs_user_id",
+        "dashboard_build_jobs",
+        ["user_id"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_dashboard_build_jobs_planet_id",
+        "dashboard_build_jobs",
+        ["planet_id"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_dashboard_build_jobs_space_id",
+        "dashboard_build_jobs",
+        ["space_id"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_dashboard_build_jobs_connection_id",
+        "dashboard_build_jobs",
+        ["connection_id"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_dashboard_build_jobs_dashboard_id",
+        "dashboard_build_jobs",
+        ["dashboard_id"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_dashboard_build_jobs_status",
+        "dashboard_build_jobs",
+        ["status"],
+        unique=False,
+    )
     op.create_index(
         "idx_dashboard_build_jobs_user_status",
         "dashboard_build_jobs",
         ["user_id", "status"],
         unique=False,
     )
-    op.create_index("idx_dashboard_build_jobs_created_at", "dashboard_build_jobs", ["created_at"], unique=False)
+    op.create_index(
+        "idx_dashboard_build_jobs_created_at",
+        "dashboard_build_jobs",
+        ["created_at"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
-    op.drop_index("idx_dashboard_build_jobs_created_at", table_name="dashboard_build_jobs")
-    op.drop_index("idx_dashboard_build_jobs_user_status", table_name="dashboard_build_jobs")
+    pass
+    op.drop_index(
+        "idx_dashboard_build_jobs_created_at", table_name="dashboard_build_jobs"
+    )
+    op.drop_index(
+        "idx_dashboard_build_jobs_user_status", table_name="dashboard_build_jobs"
+    )
     op.drop_index("idx_dashboard_build_jobs_status", table_name="dashboard_build_jobs")
-    op.drop_index("idx_dashboard_build_jobs_dashboard_id", table_name="dashboard_build_jobs")
-    op.drop_index("idx_dashboard_build_jobs_connection_id", table_name="dashboard_build_jobs")
-    op.drop_index("idx_dashboard_build_jobs_space_id", table_name="dashboard_build_jobs")
-    op.drop_index("idx_dashboard_build_jobs_planet_id", table_name="dashboard_build_jobs")
+    op.drop_index(
+        "idx_dashboard_build_jobs_dashboard_id", table_name="dashboard_build_jobs"
+    )
+    op.drop_index(
+        "idx_dashboard_build_jobs_connection_id", table_name="dashboard_build_jobs"
+    )
+    op.drop_index(
+        "idx_dashboard_build_jobs_space_id", table_name="dashboard_build_jobs"
+    )
+    op.drop_index(
+        "idx_dashboard_build_jobs_planet_id", table_name="dashboard_build_jobs"
+    )
     op.drop_index("idx_dashboard_build_jobs_user_id", table_name="dashboard_build_jobs")
-    op.drop_table("dashboard_build_jobs")
-

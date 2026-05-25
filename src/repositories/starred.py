@@ -24,8 +24,8 @@ class StarredItemRepository(BaseRepository[StarredItem]):
 
         Args:
             user_id: User ID
-            item_id: Item ID (planet, space, or crew ID)
-            item_type: Item type (planet, space, or crew)
+            item_id: Item ID (page, space, or crew ID)
+            item_type: Item type (page, space, or crew)
 
         Returns:
             Optional[StarredItem]: Starred item or None
@@ -48,7 +48,7 @@ class StarredItemRepository(BaseRepository[StarredItem]):
 
         Args:
             user_id: User ID
-            item_type: Optional filter by item type (planet, space, or crew)
+            item_type: Optional filter by item type (page, space, or crew)
 
         Returns:
             List[StarredItem]: List of starred items
@@ -74,8 +74,8 @@ class StarredItemRepository(BaseRepository[StarredItem]):
 
         Args:
             user_id: User ID
-            item_id: Item ID (planet, space, or crew ID)
-            item_type: Item type (planet, space, or crew)
+            item_id: Item ID (page, space, or crew ID)
+            item_type: Item type (page, space, or crew)
 
         Returns:
             StarredItem: Created starred item

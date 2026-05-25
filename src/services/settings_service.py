@@ -167,7 +167,7 @@ class SettingsService:
         """
         # TODO: Get from database or config
         return CrewsSettingsResponse(
-            default_role="guest",
+            default_role="viewer",
             max_crews_per_user=5,
             allow_public_crews=False,
         )

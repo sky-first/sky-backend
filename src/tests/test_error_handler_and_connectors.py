@@ -153,25 +153,31 @@ async def test_postgresql_connector(monkeypatch):
     conn = SimpleNamespace(
         close=AsyncMock(),
         fetch=AsyncMock(return_value=[{"a": 1}, {"b": 2}]),
+        execute=AsyncMock(),
     )
 
-    async def fake_connect(**_kwargs):
+    # asyncpg.connect() is a coroutine (not a context manager) in staging.
+    # Mock as an async function that returns the fake connection.
+    async def mock_connect(**_kwargs):
         return conn
 
     # success test_connection
-    monkeypatch.setattr(pg_mod.asyncpg, "connect", fake_connect)
+    monkeypatch.setattr(pg_mod.asyncpg, "connect", mock_connect)
     assert await connector.test_connection(cfg) is True
     conn.close.assert_awaited()
 
-    # failure test_connection
-    async def fail_connect(**_kwargs):
-        raise RuntimeError("no")
+    # failure test_connection — staging's test_connection does NOT swallow
+    # exceptions; it surfaces them to ConnectionService. asyncpg.connect
+    # raising propagates directly to the caller.
+    async def mock_connect_fail(**_kw):
+        raise OSError("connection refused")
 
-    monkeypatch.setattr(pg_mod.asyncpg, "connect", fail_connect)
-    assert await connector.test_connection(cfg) is False
+    monkeypatch.setattr(pg_mod.asyncpg, "connect", mock_connect_fail)
+    with pytest.raises(OSError):
+        await connector.test_connection(cfg)
 
     # execute_query closes conn in finally
-    monkeypatch.setattr(pg_mod.asyncpg, "connect", fake_connect)
+    monkeypatch.setattr(pg_mod.asyncpg, "connect", mock_connect)
     rows = await connector.execute_query(cfg, "select 1")
     assert rows == [{"a": 1}, {"b": 2}]
     assert conn.close.await_count >= 2

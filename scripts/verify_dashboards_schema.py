@@ -15,7 +15,8 @@ load_dotenv()
 
 async def verify_schema():
     database_url = os.getenv(
-        "DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost:5433/ai_saas_db"
+        "DATABASE_URL",
+        "postgresql+asyncpg://postgres:password@localhost:5433/ai_saas_db",
     )
     db_url = database_url.replace("+asyncpg", "")
     parsed = urlparse(db_url)
@@ -33,8 +34,8 @@ async def verify_schema():
     cols = await conn.fetch(
         """
         SELECT column_name, data_type, is_nullable
-        FROM information_schema.columns 
-        WHERE table_name = 'dashboards' 
+        FROM information_schema.columns
+        WHERE table_name = 'dashboards'
         ORDER BY ordinal_position;
     """
     )
@@ -44,8 +45,8 @@ async def verify_schema():
     print("\n=== CHECKING FOR workspace_id ===")
     workspace_id_check = await conn.fetch(
         """
-        SELECT column_name 
-        FROM information_schema.columns 
+        SELECT column_name
+        FROM information_schema.columns
         WHERE table_name = 'dashboards' AND column_name = 'workspace_id';
     """
     )
@@ -57,8 +58,8 @@ async def verify_schema():
     print("\n=== CHECKING FOR planet_id ===")
     planet_id_check = await conn.fetch(
         """
-        SELECT column_name 
-        FROM information_schema.columns 
+        SELECT column_name
+        FROM information_schema.columns
         WHERE table_name = 'dashboards' AND column_name = 'planet_id';
     """
     )

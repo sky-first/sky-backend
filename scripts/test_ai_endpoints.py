@@ -4,10 +4,9 @@ Script para testar todos os endpoints da chatbox AI
 Verifica se estão usando Real AI Service e retornando respostas reais
 """
 
-import json
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import requests
 from dotenv import load_dotenv
@@ -125,9 +124,9 @@ def test_chat_bootstrap(token: str) -> Dict[str, Any]:
 
 def test_query_endpoint(token: str, question: str, question_num: int, total: int) -> Dict[str, Any]:
     """Testa POST /api/v1/ai/query"""
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"3️⃣.{question_num} TESTANDO POST /api/v1/ai/query")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     print(f"Pergunta: {question}")
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -185,9 +184,9 @@ def test_query_endpoint(token: str, question: str, question_num: int, total: int
 
 def test_chat_endpoint(token: str, question: str, question_num: int, total: int) -> Dict[str, Any]:
     """Testa POST /api/v1/ai/chat"""
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"4️⃣.{question_num} TESTANDO POST /api/v1/ai/chat")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     print(f"Pergunta: {question}")
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -236,7 +235,7 @@ def main():
     print("=" * 80)
     print("🧪 TESTE COMPLETO DOS ENDPOINTS DA CHATBOX AI")
     print("=" * 80)
-    print(f"\nConfigurações:")
+    print("\nConfigurações:")
     print(f"  Backend URL: {BACKEND_URL}")
     print(f"  AI Service URL: {AI_SERVICE_URL}")
     print(f"  Test Email: {TEST_EMAIL}")
