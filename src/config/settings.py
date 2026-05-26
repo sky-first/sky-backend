@@ -318,6 +318,13 @@ class Settings(BaseSettings):
         description="Encryption key for sensitive data (must be 32 bytes)",
     )
 
+    # Multi-tenant platform (Projeto A — Model B). Default OFF: while
+    # the flag is off, the tenant resolver middleware (PR #2+) falls back
+    # to the platform's single-tenant defaults and the registry table
+    # exists but is not consulted on the request path. Turn this on per
+    # environment only after the full Phase 5 cutover.
+    MULTI_TENANT_ENABLED: bool = False
+
     # Public demo (Cenário B) — visitor lands on demo.skyfirstlabs.com,
     # fills a short form, gets a per-visitor Space provisioned with a TTL.
     # All values overridable via env so staging/prod can clamp differently.
