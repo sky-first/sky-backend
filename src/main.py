@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from src.api.middleware import auth, cors, idempotency, rate_limit
+from src.api.middleware import auth, cors, idempotency, rate_limit, tenant_resolver
 from src.api.v1.router import api_router
 from src.config import settings
 from src.config.database import (
@@ -90,12 +90,15 @@ app.add_middleware(RequestSizeLimitMiddleware)
 # IMPORTANT: In FastAPI, middleware added with app.middleware("http")() executes in REVERSE order
 # Desired execution order:
 # 1. auth (FIRST - sets request.state.user_id)
-# 2. rate_limit (needs user_id from auth)
-# 3. idempotency (needs user_id from auth)
+# 2. tenant_resolver (needs auth so JWT fallback works; runs before rate_limit
+#    so rate_limit can scope per-tenant)
+# 3. rate_limit (needs user_id from auth + tenant from resolver)
+# 4. idempotency (needs user_id from auth)
 #
-# So we add them as: idempotency, rate_limit, auth (reverse order)
+# So we add them as: idempotency, rate_limit, tenant_resolver, auth (reverse order)
 app.middleware("http")(idempotency.idempotency_middleware)
 app.middleware("http")(rate_limit.rate_limit_middleware)
+app.middleware("http")(tenant_resolver.tenant_resolver_middleware)
 app.middleware("http")(auth.auth_middleware)
 
 # Register output-standardizing exception handlers
