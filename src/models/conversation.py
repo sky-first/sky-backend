@@ -21,7 +21,8 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from src.config.database import Base
@@ -152,6 +153,17 @@ class Message(Base):
         UUID(as_uuid=True),
         ForeignKey("messages.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    # Slack-style emoji reactions. Shape: {"👍": ["uuid", …], "❤️": [...]}.
+    # Postgres → JSONB (indexable, efficient updates). SQLite (tests) →
+    # plain JSON. The variant keeps the ORM portable while the prod
+    # column stays JSONB via the migration. Default {} makes reads
+    # None-safe across both dialects.
+    reactions = Column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+        server_default=text("'{}'"),
+        default=dict,
     )
 
     # Relationships — the `foreign_keys` disambiguates against the

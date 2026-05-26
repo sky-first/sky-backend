@@ -405,3 +405,63 @@ class MessageService:
         await self.db.commit()
         await self.db.refresh(child)
         return child
+
+    async def toggle_reaction(
+        self,
+        conversation_id: UUID,
+        message_id: UUID,
+        emoji: str,
+        user: User,
+    ) -> Message:
+        """Toggle the caller's reaction with this emoji on the message.
+
+        Idempotent: if the user is already in the emoji's list, they
+        come out; otherwise they go in. Empty lists are pruned so the
+        JSONB stays compact.
+        """
+        # RBAC: caller must be able to see the parent conversation
+        # — same gate Message.create uses.
+        conv = await self.conv_repo.get_by_id(conversation_id)
+        if conv is None:
+            raise NotFoundError("conversation not found")
+        if not await self.conv_service._can_view(conv, user):
+            raise ForbiddenError("you cannot react in this conversation")
+
+        msg = await self.db.get(Message, message_id)
+        if msg is None or msg.conversation_id != conversation_id:
+            raise NotFoundError("message not found in this conversation")
+
+        # Copy-on-write so SQLAlchemy detects the change.
+        reactions: dict = dict(msg.reactions or {})
+        bucket = list(reactions.get(emoji, []))
+        uid = str(user.id)
+        if uid in bucket:
+            bucket.remove(uid)
+        else:
+            bucket.append(uid)
+        if bucket:
+            reactions[emoji] = bucket
+        else:
+            reactions.pop(emoji, None)
+        msg.reactions = reactions
+
+        await self.db.commit()
+        await self.db.refresh(msg)
+
+        # Best-effort WS broadcast so peers see the reaction update
+        # in real time. The relay signature is (page_id, event_type,
+        # payload) — match the existing "message.created" envelope.
+        try:
+            broadcast_event_nowait(
+                str(conv.page_id),
+                "message.reaction",
+                {
+                    "conversation_id": str(conv.id),
+                    "message_id": str(msg.id),
+                    "reactions": reactions,
+                },
+            )
+        except Exception:  # pragma: no cover — relay is optional
+            pass
+
+        return msg
