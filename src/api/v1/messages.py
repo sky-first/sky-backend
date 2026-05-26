@@ -28,6 +28,7 @@ from src.schemas.message import (
     MessageListResponse,
     MessageResponse,
     PinRequest,
+    ReactionToggleRequest,
 )
 from src.services.message_service import MessageService
 
@@ -253,3 +254,37 @@ async def pin_message(
         "page_id": str(widget.page_id),
         "title": widget.title,
     }
+
+
+@conversation_router.post(
+    "/{conversation_id}/messages/{message_id}/reactions",
+    response_model=MessageResponse,
+    summary="Toggle the caller's emoji reaction on a message (Slack-style)",
+    responses={
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+async def toggle_reaction(
+    conversation_id: UUID,
+    message_id: UUID,
+    payload: ReactionToggleRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> MessageResponse:
+    """Toggle a single emoji reaction on a message for the current user.
+
+    Adds the user to the emoji's reactor list if absent, removes them
+    if present. Returns the full updated Message so the FE can replace
+    its cached row with the new `reactions` dict in one round-trip.
+    """
+    service = MessageService(db)
+    try:
+        msg = await service.toggle_reaction(
+            conversation_id, message_id, payload.emoji, current_user
+        )
+    except NotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+    except ForbiddenError as err:
+        raise HTTPException(status_code=403, detail=str(err))
+    return MessageResponse.model_validate(msg)
