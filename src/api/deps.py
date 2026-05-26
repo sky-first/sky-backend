@@ -196,12 +196,60 @@ async def get_current_user(
     return user
 
 
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Get database session (alias for get_db).
+async def get_db_session(
+    request: Request,
+) -> AsyncGenerator[AsyncSession, None]:
+    """Tenant-aware database session (Projeto A — PR #6).
 
-    Yields:
-        AsyncSession: Database session
+    Routes the session through ``TenantConnectionManager.session_for``
+    so handlers that depend on this function automatically operate on
+    the tenant attached by the resolver middleware. When
+    ``MULTI_TENANT_ENABLED`` is False every request gets the default
+    context, the manager hands back the global ``AsyncSessionLocal``,
+    and the legacy behaviour is preserved exactly.
+
+    FastAPI injects ``request`` automatically. Tests that override
+    this dependency via ``app.dependency_overrides[get_db_session]``
+    keep working unchanged — the override is keyed on the function
+    object, not on the signature. Callers that need a tenant-scoped
+    session outside the request scope should use
+    :func:`get_db_session_for_context` below.
     """
-    async for session in get_db():
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.tenant_context import DEFAULT_TENANT_CONTEXT
+
+    ctx = getattr(request.state, "tenant_context", None) or DEFAULT_TENANT_CONTEXT
+    session = tenant_connection_manager.session_for(ctx)
+    try:
         yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
+
+
+async def get_db_session_for_context(ctx=None) -> AsyncGenerator[AsyncSession, None]:
+    """Tenant-aware session for non-FastAPI callers (Celery, scripts).
+
+    Reads ``current_tenant()`` when no context is provided. The default
+    tenant routes back to the global pool, so this remains a drop-in
+    replacement for ``async with AsyncSessionLocal as session: ...``
+    in code that does not have access to ``request``.
+    """
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.tenant_context import current_tenant
+
+    if ctx is None:
+        ctx = current_tenant()
+
+    session = tenant_connection_manager.session_for(ctx)
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
