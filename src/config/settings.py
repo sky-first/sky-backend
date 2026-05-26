@@ -325,6 +325,16 @@ class Settings(BaseSettings):
     # environment only after the full Phase 5 cutover.
     MULTI_TENANT_ENABLED: bool = False
 
+    # Local-dev URL template used by ``TenantConnectionManager``. When
+    # set, a single docker-compose Postgres can host many tenant DBs:
+    # set this to e.g.
+    #   ``postgresql+asyncpg://postgres:postgres@localhost:5432/{db_name}``
+    # and create one Postgres DB per tenant.
+    # Empty string => the manager falls back to ``ctx.db_credentials_secret_arn``
+    # (production / AWS) and then to the platform's POSTGRES_* env vars
+    # using the registry row's ``db_host`` / ``db_name``.
+    TENANT_DB_URL_TEMPLATE: str = ""
+
     # Public demo (Cenário B) — visitor lands on demo.skyfirstlabs.com,
     # fills a short form, gets a per-visitor Space provisioned with a TTL.
     # All values overridable via env so staging/prod can clamp differently.

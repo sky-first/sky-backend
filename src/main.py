@@ -50,6 +50,11 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("application_shutdown")
+    # Tenant engine pools (Model B) — dispose before the global pool so
+    # ``tenant_connection_manager`` can flush any remaining sessions.
+    from src.config.tenant_connection_manager import tenant_connection_manager
+
+    await tenant_connection_manager.dispose_all()
     await close_db()
     await close_redis()
     logger.info("application_stopped")
