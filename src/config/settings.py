@@ -335,6 +335,13 @@ class Settings(BaseSettings):
     # using the registry row's ``db_host`` / ``db_name``.
     TENANT_DB_URL_TEMPLATE: str = ""
 
+    # Hard-fail when business logic reaches the DB without a real
+    # tenant context (Projeto A PR #14). Off by default — flip to True
+    # only after every customer-facing route has been verified to
+    # populate the tenant context. Until then, ``tenant_guard`` logs
+    # ``tenant_scope_violation`` warnings instead.
+    STRICT_TENANT_REQUIRED: bool = False
+
     # Public demo (Cenário B) — visitor lands on demo.skyfirstlabs.com,
     # fills a short form, gets a per-visitor Space provisioned with a TTL.
     # All values overridable via env so staging/prod can clamp differently.
