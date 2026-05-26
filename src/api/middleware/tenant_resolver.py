@@ -128,35 +128,46 @@ def _slug_from_jwt(auth_header: Optional[str]) -> Optional[str]:
 async def _load_tenant_from_db(slug: str) -> Optional[TenantContext]:
     """Read a single registry row and inflate it into a TenantContext.
 
-    Returns ``None`` if the row does not exist or is suspended — the
-    middleware caller turns either into a 404.
+    Returns ``None`` if the row does not exist, is suspended, OR the
+    registry query fails (table missing in tests, transient DB error
+    in prod, …). The middleware caller turns any of those into a 404,
+    which is the correct behaviour from the client's perspective:
+    "this tenant is not currently available".
     """
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Tenant).where(Tenant.slug == slug)
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Tenant).where(Tenant.slug == slug)
+            )
+            row: Optional[Tenant] = result.scalar_one_or_none()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "tenant_resolver_registry_query_failed",
+            extra={"slug": slug, "error": str(exc)},
         )
-        row: Optional[Tenant] = result.scalar_one_or_none()
-        if row is None:
-            return None
-        if not row.is_active:
-            return None
-        return TenantContext(
-            slug=row.slug,
-            id=row.id,
-            tier=row.tier,
-            display_name=row.display_name,
-            db_host=row.db_host,
-            db_name=row.db_name,
-            db_credentials_secret_arn=row.db_credentials_secret_arn,
-            redis_host=row.redis_host,
-            redis_credentials_secret_arn=row.redis_credentials_secret_arn,
-            bedrock_inference_profile_arn=row.bedrock_inference_profile_arn,
-            rate_limit_rpm=row.rate_limit_rpm,
-            rate_limit_tpm=row.rate_limit_tpm,
-            is_active=row.is_active,
-            feature_flags=dict(row.feature_flags or {}),
-            capacity_limits=dict(row.capacity_limits or {}),
-        )
+        return None
+
+    if row is None:
+        return None
+    if not row.is_active:
+        return None
+    return TenantContext(
+        slug=row.slug,
+        id=row.id,
+        tier=row.tier,
+        display_name=row.display_name,
+        db_host=row.db_host,
+        db_name=row.db_name,
+        db_credentials_secret_arn=row.db_credentials_secret_arn,
+        redis_host=row.redis_host,
+        redis_credentials_secret_arn=row.redis_credentials_secret_arn,
+        bedrock_inference_profile_arn=row.bedrock_inference_profile_arn,
+        rate_limit_rpm=row.rate_limit_rpm,
+        rate_limit_tpm=row.rate_limit_tpm,
+        is_active=row.is_active,
+        feature_flags=dict(row.feature_flags or {}),
+        capacity_limits=dict(row.capacity_limits or {}),
+    )
 
 
 async def _resolve_context(request: Request) -> Tuple[TenantContext, Optional[str]]:

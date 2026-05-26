@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from src.api.v1 import _test as _test_endpoints
 from src.api.v1 import (
     admin_actions,
     agents,
@@ -268,3 +269,10 @@ api_router.include_router(chat_ws.router, prefix="", tags=["Chat WS"])
 # Customer-raised support tickets — distinct from /support which manages
 # Sky-operator JIT sessions.
 api_router.include_router(tickets.router, prefix="/tickets", tags=["Tickets"])
+
+# Multi-tenant smoke endpoints (Projeto A). Public by design — they
+# return only the resolver's view of the current request, never any
+# customer data. Listed in auth.public_paths so they bypass JWT.
+api_router.include_router(
+    _test_endpoints.router, prefix="/_test", tags=["Multi-tenant smoke"]
+)

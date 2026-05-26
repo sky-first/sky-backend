@@ -74,6 +74,10 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         # Public demo signup — issues its own JWT, no auth required.
         "/api/v1/demo/",
         "/api/demo/",
+        # Projeto A multi-tenant smoke endpoints — no customer data,
+        # only the resolver's view of the current request.
+        "/api/v1/_test/",
+        "/api/_test/",
     ]
 
     # Root only (avoid "/" matching every path)
