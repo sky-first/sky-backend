@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.models.internal_console import (
     AuditAction,
@@ -47,6 +47,16 @@ class AuditEntryRead(BaseModel):
     result: AuditResult
     result_details: Optional[Dict[str, Any]]
     timestamp: datetime
+
+    @field_validator("actor_ip", mode="before")
+    @classmethod
+    def _coerce_ip(cls, v: Any) -> Optional[str]:
+        # SQLAlchemy's INET type hands us an ``ipaddress.IPv4Address``
+        # / ``IPv6Address`` rather than a string. Coerce here so the
+        # Pydantic shape stays a plain str on the wire.
+        if v is None:
+            return None
+        return str(v)
 
 
 class AuditListResponse(BaseModel):

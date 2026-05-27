@@ -32,6 +32,7 @@ import functools
 import logging
 import os
 import traceback
+import uuid
 from typing import Any, Awaitable, Callable, Optional, TypeVar
 from uuid import UUID
 
@@ -76,10 +77,41 @@ def is_sky_team_member(user: User) -> bool:
 
 
 async def require_sky_team(
-    user: User = Depends(get_current_user),
+    request: Request,
 ) -> User:
-    """FastAPI dependency. Returns the user when allowed, else raises 403."""
-    if not is_sky_team_member(user):
+    """FastAPI dependency. Returns the user when allowed, else raises 403.
+
+    In local dev (``CONSOLE_DEV_BYPASS=true``, non-production) the
+    Console can be browsed without a JWT — we synthesise a fake Sky-team
+    user just for the purpose of returning ``/me`` and recording the
+    audit log. Production never enters this branch because
+    ``_dev_bypass_enabled`` refuses to take effect there.
+    """
+    user: Optional[User] = None
+    try:
+        # Re-use the regular auth flow when a token is present.
+        user = await get_current_user(request=request)
+    except HTTPException:
+        user = None
+    except Exception:  # noqa: BLE001
+        user = None
+
+    if user is None and _dev_bypass_enabled():
+        # Synthetic dev-bypass user. Email comes from the bypass-only
+        # env var so the audit log is honest about it.
+        email = os.getenv("CONSOLE_DEV_BYPASS_EMAIL") or "dev-bypass@skyfirstlabs.com"
+        user = User(
+            id=uuid.UUID(int=0),
+            email=email,
+            password_hash="",
+            name="Dev Bypass",
+            role="admin",
+            email_verified=True,
+            has_completed_onboarding=True,
+            is_sky_operator=True,
+        )
+
+    if user is None or not is_sky_team_member(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={

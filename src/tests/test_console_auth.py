@@ -9,6 +9,8 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
+_ = SimpleNamespace  # used by test_require_sky_team_*; silence unused-import linter
+
 from src.api.console_auth import (
     _allowed_email_set,
     _dev_bypass_enabled,
@@ -84,22 +86,35 @@ def test_default_user_is_denied(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_require_sky_team_raises_403_for_outsider(monkeypatch):
-    from src.api.console_auth import require_sky_team
+    from src.api import console_auth
 
     monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
     monkeypatch.delenv("CONSOLE_DEV_BYPASS", raising=False)
+
+    outsider = _user(email="outsider@example.com")
+
+    async def _fake_get_current_user(**_kwargs):
+        return outsider
+
+    monkeypatch.setattr(console_auth, "get_current_user", _fake_get_current_user)
+
     with pytest.raises(HTTPException) as info:
-        await require_sky_team(user=_user(email="outsider@example.com"))
+        await console_auth.require_sky_team(request=SimpleNamespace())
     assert info.value.status_code == 403
     assert info.value.detail["error"] == "sky_team_required"
 
 
 @pytest.mark.asyncio
 async def test_require_sky_team_passes_for_sky_operator(monkeypatch):
-    from src.api.console_auth import require_sky_team
+    from src.api import console_auth
 
     user = _user(is_sky_op=True)
-    returned = await require_sky_team(user=user)
+
+    async def _fake_get_current_user(**_kwargs):
+        return user
+
+    monkeypatch.setattr(console_auth, "get_current_user", _fake_get_current_user)
+    returned = await console_auth.require_sky_team(request=SimpleNamespace())
     assert returned is user
 
 

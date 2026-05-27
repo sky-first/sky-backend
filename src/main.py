@@ -114,6 +114,16 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 # Also include at /api for legacy frontend support (without /v1)
 app.include_router(api_router, prefix="/api")
 
+# Internal Console (Projeto B). Mounted at /api/console/v1 — separate
+# prefix from the customer-facing v1 surface so we can scope rate
+# limits, OpenAPI tags, and (eventually) a distinct ingress per
+# console.skyfirstlabs.com.
+from src.api.v1.console import router as console_router  # noqa: E402
+
+app.include_router(
+    console_router, prefix="/api/console/v1", tags=["Internal Console"]
+)
+
 # Observability: Prometheus metrics (Golden Signals)
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
