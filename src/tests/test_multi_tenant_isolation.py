@@ -189,6 +189,10 @@ _ALLOWED_REFS = {
     str((_SRC_ROOT / "workers" / "insight_agent_worker.py").resolve()),
     str((_SRC_ROOT / "workers" / "knowledge_worker.py").resolve()),
     str((_SRC_ROOT / "workers" / "sync_worker.py").resolve()),
+    # Projeto B Console — WebSocket log streamer cannot use the DI
+    # dependency (FastAPI WS handlers don't go through the same DI),
+    # one-shot lookup on the platform pool for tenant existence check.
+    str((_SRC_ROOT / "api" / "v1" / "console.py").resolve()),
 }
 
 _ASYNC_LOCAL_NAME = "AsyncSessionLocal"
@@ -271,7 +275,7 @@ def test_raw_async_session_local_instantiation_baseline():
     # checked-in code. Phase 3-4 PRs reduce this; the test fails
     # loudly if a new direct call lands. Bumping the number UP
     # requires touching this baseline deliberately.
-    BASELINE = 18
+    BASELINE = 19  # bumped 2026-05-27 — console.py WS log streamer needs platform pool
     assert count <= BASELINE, (
         f"Raw AsyncSessionLocal() count grew from {BASELINE} to {count}. "
         f"New callers should use TenantConnectionManager.session_for()."
