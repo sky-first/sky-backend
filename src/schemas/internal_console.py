@@ -201,3 +201,125 @@ class ConsoleMeResponse(BaseModel):
     email: str
     role: str  # admin | operator | read_only
     is_sky_team: bool
+
+
+# ── Rich telemetry payloads (B#7-9) ────────────────────────────────
+
+
+class PlatformHealthResponse(BaseModel):
+    api_uptime_pct: float
+    api_latency_p95_ms: int
+    api_error_rate_pct: float
+    pods_running: int
+    pods_pending: int
+    pods_crashlooping: int
+    db_connections_used: int
+    db_connections_max: int
+    last_incident: Optional[str]
+
+
+class TimeseriesPointModel(BaseModel):
+    t: str
+    value: float
+    label: Optional[str] = None
+
+
+class DashboardActivityResponse(BaseModel):
+    points: List[TimeseriesPointModel]
+    tenants: List[str]
+
+
+class CostBreakdownModel(BaseModel):
+    period_start: str
+    period_end: str
+    compute_usd: float
+    storage_usd: float
+    network_usd: float
+    bedrock_usd: float
+    total_usd: float
+    daily: List[TimeseriesPointModel]
+
+
+class RevenueSummaryResponse(BaseModel):
+    mrr_eur: float
+    this_month_spend_usd: float
+    gross_margin_pct: float
+    projection_eom_usd: float
+
+
+class AlertModel(BaseModel):
+    severity: str
+    title: str
+    detail: str
+    tenant_slug: Optional[str]
+    fired_at: str
+    suggested_action: str
+
+
+class AlertsResponse(BaseModel):
+    items: List[AlertModel]
+
+
+class IncidentModel(BaseModel):
+    id: str
+    severity: str
+    title: str
+    started_at: str
+    resolved_at: Optional[str]
+    affected_tenants: List[str]
+
+
+class IncidentsResponse(BaseModel):
+    items: List[IncidentModel]
+
+
+class PodInfoModel(BaseModel):
+    name: str
+    namespace: str
+    component: str
+    status: str
+    restarts: int
+    cpu_pct: float
+    memory_pct: float
+    age_hours: int
+    image_sha: str
+
+
+class TenantHealthResponse(BaseModel):
+    pods: List[PodInfoModel]
+    last_deploy_at: str
+    last_deploy_sha: str
+    argocd_url: str
+    grafana_url: str
+
+
+class TenantBillingResponse(BaseModel):
+    tier: str
+    subscription_start: str
+    subscription_end: str
+    monthly_amount_eur: float
+    payment_status: str
+    last_invoice_at: str
+    next_invoice_at: str
+    mrr_contribution_eur: float
+
+
+class TenantActivityResponse(BaseModel):
+    points_7d: List[TimeseriesPointModel]
+    total_queries_7d: int
+    total_agents_runs_7d: int
+
+
+class ClusterNodeModel(BaseModel):
+    name: str
+    cluster: str
+    role: str
+    cpu_pct: float
+    memory_pct: float
+    pods_count: int
+    status: str
+
+
+class InfraResponse(BaseModel):
+    nodes: List[ClusterNodeModel]
+    platform_health: PlatformHealthResponse
