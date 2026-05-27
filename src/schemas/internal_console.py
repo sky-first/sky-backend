@@ -323,3 +323,106 @@ class ClusterNodeModel(BaseModel):
 class InfraResponse(BaseModel):
     nodes: List[ClusterNodeModel]
     platform_health: PlatformHealthResponse
+
+
+# ── Tier presets (It3 — B#16) ──────────────────────────────────────
+
+
+class TierPresetResponse(BaseModel):
+    slug: str
+    display_name: str
+    headline_price_eur: Optional[int]
+    setup_fee_eur: Optional[int]
+    pricing_unit: str
+    capacity_limits: Dict[str, int]
+    rate_limit_rpm: int
+    rate_limit_tpm: int
+    universe_intelligence_mode: str
+    ai_processing_profile: str
+    monitored_entities_cap: Optional[int]
+    concurrent_sessions_cap: Optional[int]
+    target_audience: str
+    onboarding_scope: str
+    support_sla: str
+    bedrock_dedicated_profile: bool
+    inclusions: List[str]
+
+
+class ChangeTierRequest(BaseModel):
+    tier: str = Field(..., description="Target tier slug")
+    apply_preset: bool = Field(
+        default=True,
+        description=(
+            "When true, capacity_limits is replaced with the tier preset. "
+            "When false, the tier label changes but capacity_limits "
+            "is preserved verbatim (custom contract case)."
+        ),
+    )
+
+
+class UpdateCapacityLimitsRequest(BaseModel):
+    agents: int = Field(..., ge=0)
+    sources: int = Field(..., ge=0)
+    indexed_gb: int = Field(..., ge=0)
+
+
+# ── CSM notes (It3 — B#17) ─────────────────────────────────────────
+
+
+class CSMTagModel(BaseModel):
+    """Free-form CSM tags. The model is just a string list; this
+    wrapper exists so the OpenAPI doc and the form library can pin
+    common values for autocomplete."""
+
+    pass
+
+
+_KNOWN_CSM_TAGS = (
+    "at_risk",
+    "expansion_candidate",
+    "reference_customer",
+    "renewal_soon",
+    "champion",
+    "support_heavy",
+    "do_not_contact",
+)
+
+
+class CSMNotesRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    tenant_slug: str
+    notes_markdown: Optional[str]
+    tags: List[str]
+    last_contact_at: Optional[datetime]
+    nps_score: Optional[int]
+    health_score: int  # computed, 0-100
+    health_breakdown: Dict[str, int]
+    next_renewal_at: Optional[datetime]
+    updated_at: Optional[datetime]
+    updated_by: Optional[str]
+
+
+class CSMNotesUpdate(BaseModel):
+    notes_markdown: Optional[str] = Field(None, max_length=20_000)
+    tags: Optional[List[str]] = None
+    last_contact_at: Optional[datetime] = None
+    nps_score: Optional[int] = Field(None, ge=-100, le=100)
+
+
+# ── Renewals (It3 — B#18) ──────────────────────────────────────────
+
+
+class RenewalEntry(BaseModel):
+    tenant_slug: str
+    display_name: str
+    tier: str
+    next_renewal_at: datetime
+    days_until: int
+    monthly_amount_eur: float
+    status: str  # upcoming / overdue / renewed
+
+
+class RenewalsResponse(BaseModel):
+    items: List[RenewalEntry]
+    total_pipeline_eur: float

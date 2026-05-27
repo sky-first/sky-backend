@@ -46,6 +46,7 @@ from src.models.tenant import DEFAULT_CAPACITY_SHAPE, Tenant, TenantTier
 from src.models.internal_console import (
     AuditAction,
     AuditResult,
+    ConsoleCSMNotes,
     InternalConsoleAudit,
     ProvisioningJob,
     ProvisioningJobStatus,

@@ -22,12 +22,13 @@ from sqlalchemy import (
     Column,
     DateTime,
     Index,
+    Integer,
     String,
     Text,
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB, UUID
 from sqlalchemy.types import JSON
 
 from src.config.database import Base
@@ -175,4 +176,49 @@ class ProvisioningJob(Base):
         return (
             f"<ProvisioningJob id={self.id} type={self.job_type!r} "
             f"tenant={self.tenant_slug!r} status={self.status!r}>"
+        )
+
+
+_TAGS_COL = ARRAY(String(length=64)).with_variant(JSON(), "sqlite")
+
+
+class ConsoleCSMNotes(Base):
+    """Per-tenant CSM relationship state.
+
+    Lives next to the platform's tenant_registry so the CSM tab can
+    pull / save without crossing into the per-tenant DB. Slug is the
+    PK and the join key; survives tenant soft-destroy so history
+    isn't lost when a customer churns.
+    """
+
+    __tablename__ = "console_tenant_csm_notes"
+
+    tenant_slug = Column(String(50), primary_key=True)
+    notes_markdown = Column(Text(), nullable=True)
+    tags = Column(_TAGS_COL, nullable=False, default=list, server_default=text("'{}'"))
+    last_contact_at = Column(DateTime(timezone=True), nullable=True)
+    nps_score = Column(Integer, nullable=True)
+    next_renewal_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    updated_by = Column(String(255), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "nps_score IS NULL OR (nps_score >= -100 AND nps_score <= 100)",
+            name="console_csm_notes_nps_range",
+        ),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover — debug aid
+        return (
+            f"<ConsoleCSMNotes tenant={self.tenant_slug!r} "
+            f"tags={list(self.tags or [])}>"
         )

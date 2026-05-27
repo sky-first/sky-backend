@@ -45,11 +45,14 @@ from src.models.user import User
 from src.schemas.internal_console import (
     AlertsResponse,
     AuditEntryRead,
+    ChangeTierRequest,
     ConsoleMeResponse,
     ConsoleTenantDetail,
     ConsoleTenantList,
     CostBreakdownModel,
     CreateTenantRequest,
+    CSMNotesRead,
+    CSMNotesUpdate,
     DashboardActivityResponse,
     DashboardSummary,
     DestroyTenantRequest,
@@ -57,14 +60,18 @@ from src.schemas.internal_console import (
     InfraResponse,
     PlatformHealthResponse,
     ProvisioningJobRead,
+    RenewalEntry,
+    RenewalsResponse,
     RevenueSummaryResponse,
     SuspendTenantRequest,
     TenantActivityResponse,
     TenantBillingResponse,
     TenantHealthResponse,
+    TierPresetResponse,
+    UpdateCapacityLimitsRequest,
     UpdateTenantRequest,
 )
-from src.services import console_service
+from src.services import console_service, csm_service, pricing_tiers
 from src.services.console_telemetry import (
     TelemetryUnavailable,
     activity_provider,
@@ -378,6 +385,174 @@ def _redact(payload: dict) -> dict:
         k: ("***REDACTED***" if k.lower() in _REDACT_KEYS else v)
         for k, v in payload.items()
     }
+
+
+# ── Pricing tiers (B#16) ───────────────────────────────────────────
+
+
+@router.get("/tiers", response_model=List[TierPresetResponse])
+async def list_pricing_tiers(
+    user: User = Depends(require_sky_team),
+) -> List[TierPresetResponse]:
+    return [TierPresetResponse(**t.__dict__) for t in pricing_tiers.list_tiers()]
+
+
+@router.post(
+    "/tenants/{slug}/tier",
+    response_model=ConsoleTenantDetail,
+)
+async def change_tenant_tier(
+    slug: str,
+    request: Request,
+    payload: ChangeTierRequest,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConsoleTenantDetail:
+    preset = pricing_tiers.get_tier(payload.tier)
+    if preset is None:
+        raise HTTPException(status_code=400, detail="Unknown tier")
+    row = (
+        await db.execute(select(Tenant).where(Tenant.slug == slug))
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    old_tier = row.tier
+    row.tier = preset.slug
+    row.rate_limit_rpm = preset.rate_limit_rpm
+    row.rate_limit_tpm = preset.rate_limit_tpm
+    if payload.apply_preset:
+        row.capacity_limits = dict(preset.capacity_limits)
+    await db.flush()
+
+    from src.api.middleware.tenant_resolver import clear_tenant_cache
+
+    clear_tenant_cache()
+
+    await audit_action(
+        db,
+        actor=user,
+        action=AuditAction.CHANGE_TIER,
+        tenant_slug=slug,
+        result=AuditResult.SUCCESS,
+        request_payload={
+            "from": old_tier,
+            "to": preset.slug,
+            "apply_preset": payload.apply_preset,
+        },
+        actor_ip=_ip(request),
+    )
+
+    detail = await console_service.get_tenant_detail(db, slug)
+    assert detail is not None
+    return detail
+
+
+@router.patch(
+    "/tenants/{slug}/capacity_limits",
+    response_model=ConsoleTenantDetail,
+)
+async def update_capacity_limits(
+    slug: str,
+    request: Request,
+    payload: UpdateCapacityLimitsRequest,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConsoleTenantDetail:
+    row = (
+        await db.execute(select(Tenant).where(Tenant.slug == slug))
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    row.capacity_limits = {
+        "agents": payload.agents,
+        "sources": payload.sources,
+        "indexed_gb": payload.indexed_gb,
+    }
+    await db.flush()
+
+    from src.api.middleware.tenant_resolver import clear_tenant_cache
+
+    clear_tenant_cache()
+
+    await audit_action(
+        db,
+        actor=user,
+        action=AuditAction.UPDATE_CAPACITY,
+        tenant_slug=slug,
+        result=AuditResult.SUCCESS,
+        request_payload=payload.model_dump(),
+        actor_ip=_ip(request),
+    )
+
+    detail = await console_service.get_tenant_detail(db, slug)
+    assert detail is not None
+    return detail
+
+
+# ── CSM notes (B#17) ───────────────────────────────────────────────
+
+
+@router.get(
+    "/tenants/{slug}/csm",
+    response_model=CSMNotesRead,
+)
+async def get_csm_notes(
+    slug: str,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> CSMNotesRead:
+    res = await csm_service.build_csm_response(db, slug)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return res
+
+
+@router.put(
+    "/tenants/{slug}/csm",
+    response_model=CSMNotesRead,
+)
+async def update_csm_notes(
+    slug: str,
+    request: Request,
+    payload: CSMNotesUpdate,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> CSMNotesRead:
+    exists = (
+        await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
+    ).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    await csm_service.update_notes(db, slug, payload, actor_email=user.email)
+    await audit_action(
+        db,
+        actor=user,
+        action=AuditAction.UPDATE_TENANT,
+        tenant_slug=slug,
+        result=AuditResult.SUCCESS,
+        request_payload={
+            "csm_update": True,
+            "fields": [k for k, v in payload.model_dump().items() if v is not None],
+        },
+        actor_ip=_ip(request),
+    )
+    res = await csm_service.build_csm_response(db, slug)
+    assert res is not None
+    return res
+
+
+# ── Renewals (B#18) ────────────────────────────────────────────────
+
+
+@router.get("/renewals", response_model=RenewalsResponse)
+async def get_upcoming_renewals(
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+    days: int = Query(90, ge=1, le=365),
+) -> RenewalsResponse:
+    items = await csm_service.upcoming_renewals(db, days_ahead=days)
+    pipeline = sum(r.monthly_amount_eur * 12 for r in items)
+    return RenewalsResponse(items=items, total_pipeline_eur=round(pipeline, 2))
 
 
 # ── Telemetry: platform-level ──────────────────────────────────────
