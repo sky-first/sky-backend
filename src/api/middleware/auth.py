@@ -74,6 +74,16 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         # Public demo signup — issues its own JWT, no auth required.
         "/api/v1/demo/",
         "/api/demo/",
+        # Projeto A multi-tenant smoke endpoints — no customer data,
+        # only the resolver's view of the current request.
+        "/api/v1/_test/",
+        "/api/_test/",
+        # Projeto B Internal Console — auth happens at the dependency
+        # layer via ``require_sky_team`` (which itself wraps
+        # ``get_current_user``). Letting the legacy auth middleware
+        # 401 here would short-circuit the Sky-team check and surface
+        # the wrong error code.
+        "/api/console/v1/",
     ]
 
     # Root only (avoid "/" matching every path)

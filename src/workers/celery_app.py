@@ -122,6 +122,11 @@ celery_app = Celery(
     backend=backend_url,
 )
 
+# Projeto A — register the before/prerun/postrun signal handlers that
+# propagate TenantContext from the publishing process into the worker
+# process. Side-effect import; nothing exported is used here.
+from src.workers import tenant_context_propagation  # noqa: E402, F401
+
 _broker_ssl = _redis_ssl_options(broker_url)
 _backend_ssl = _redis_ssl_options(backend_url)
 

@@ -318,6 +318,30 @@ class Settings(BaseSettings):
         description="Encryption key for sensitive data (must be 32 bytes)",
     )
 
+    # Multi-tenant platform (Projeto A — Model B). Default OFF: while
+    # the flag is off, the tenant resolver middleware (PR #2+) falls back
+    # to the platform's single-tenant defaults and the registry table
+    # exists but is not consulted on the request path. Turn this on per
+    # environment only after the full Phase 5 cutover.
+    MULTI_TENANT_ENABLED: bool = False
+
+    # Local-dev URL template used by ``TenantConnectionManager``. When
+    # set, a single docker-compose Postgres can host many tenant DBs:
+    # set this to e.g.
+    #   ``postgresql+asyncpg://postgres:postgres@localhost:5432/{db_name}``
+    # and create one Postgres DB per tenant.
+    # Empty string => the manager falls back to ``ctx.db_credentials_secret_arn``
+    # (production / AWS) and then to the platform's POSTGRES_* env vars
+    # using the registry row's ``db_host`` / ``db_name``.
+    TENANT_DB_URL_TEMPLATE: str = ""
+
+    # Hard-fail when business logic reaches the DB without a real
+    # tenant context (Projeto A PR #14). Off by default — flip to True
+    # only after every customer-facing route has been verified to
+    # populate the tenant context. Until then, ``tenant_guard`` logs
+    # ``tenant_scope_violation`` warnings instead.
+    STRICT_TENANT_REQUIRED: bool = False
+
     # Public demo (Cenário B) — visitor lands on demo.skyfirstlabs.com,
     # fills a short form, gets a per-visitor Space provisioned with a TTL.
     # All values overridable via env so staging/prod can clamp differently.
