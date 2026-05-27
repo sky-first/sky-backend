@@ -187,7 +187,12 @@ async def create_tenant(
         await db.flush()
     except IntegrityError as exc:
         await db.rollback()
-        if "uq_tenant_registry_slug" in str(exc).lower() or "duplicate" in str(exc).lower():
+        msg = str(exc).lower()
+        if (
+            "uq_tenant_registry_slug" in msg
+            or "duplicate" in msg
+            or "unique constraint failed: tenant_registry.slug" in msg
+        ):
             raise ValueError("slug_taken") from exc
         raise
 

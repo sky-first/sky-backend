@@ -231,12 +231,12 @@ def test_destroy_soft_deletes(authed_client):
 
 
 def test_dashboard_summary(authed_client):
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("a"))
+    authed_client.post("/api/console/v1/tenants", json=_registry_payload("alpha"))
     authed_client.post(
         "/api/console/v1/tenants",
-        json=_registry_payload("b", tier="foundation"),
+        json=_registry_payload("beta", tier="foundation"),
     )
-    authed_client.post("/api/console/v1/tenants/a/suspend", json={})
+    authed_client.post("/api/console/v1/tenants/alpha/suspend", json={})
 
     res = authed_client.get("/api/console/v1/dashboard")
     assert res.status_code == 200
@@ -295,6 +295,10 @@ def test_non_sky_team_is_403(client, monkeypatch):
     try:
         res = client.get("/api/console/v1/me")
         assert res.status_code == 403
-        assert res.json()["detail"]["error"] == "sky_team_required"
+        # The global http_exception_handler wraps HTTPException(detail=dict)
+        # into {"error": {"code": "HTTP_ERROR", "message": str(detail)}}.
+        # The original sky_team_required marker survives inside the
+        # stringified message.
+        assert "sky_team_required" in res.json()["error"]["message"]
     finally:
         app.dependency_overrides.pop(get_current_user, None)
