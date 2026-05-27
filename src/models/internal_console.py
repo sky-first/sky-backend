@@ -18,6 +18,7 @@ import uuid
 from enum import Enum
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -36,6 +37,7 @@ from src.config.database import Base
 
 _JSONB_OR_JSON = JSONB().with_variant(JSON(), "sqlite")
 _INET_OR_TEXT = INET().with_variant(String(length=45), "sqlite")
+_TAGS_COL = ARRAY(String(length=64)).with_variant(JSON(), "sqlite")
 
 
 class AuditAction(str, Enum):
@@ -179,9 +181,6 @@ class ProvisioningJob(Base):
         )
 
 
-_TAGS_COL = ARRAY(String(length=64)).with_variant(JSON(), "sqlite")
-
-
 class ConsoleCSMNotes(Base):
     """Per-tenant CSM relationship state.
 
@@ -222,3 +221,149 @@ class ConsoleCSMNotes(Base):
             f"<ConsoleCSMNotes tenant={self.tenant_slug!r} "
             f"tags={list(self.tags or [])}>"
         )
+
+
+class ConsoleRole(str, Enum):
+    """The 9 functional roles from docs/projeto-b-roles-and-use-cases.md.
+
+    ``ceo`` and ``cto`` are the only roles that see everything; the
+    rest are scoped. ``admin`` / ``operator`` / ``read_only`` from the
+    old env-var system are mapped onto these as:
+      old admin    -> ceo
+      old operator -> tech_lead
+      old read_only -> backend_eng (lowest read-only)
+    """
+
+    CEO = "ceo"
+    CTO = "cto"
+    TECH_LEAD = "tech_lead"
+    DEVOPS = "devops"
+    BACKEND_ENG = "backend_eng"
+    AI_ENG = "ai_eng"
+    CSM = "csm"
+    SALES = "sales"
+    FINANCE = "finance"
+    SUPPORT = "support"
+    DPO = "dpo"
+
+
+class ConsoleRoleGrant(Base):
+    """One row per active (email, role). A user can have many roles."""
+
+    __tablename__ = "console_role_grants"
+
+    user_email = Column(String(255), primary_key=True)
+    role = Column(String(32), primary_key=True)
+    granted_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    granted_by = Column(String(255), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_by = Column(String(255), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('ceo', 'cto', 'tech_lead', 'devops', "
+            "'backend_eng', 'ai_eng', 'csm', 'sales', 'finance', "
+            "'support', 'dpo')",
+            name="console_role_grants_role_check",
+        ),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover — debug aid
+        return (
+            f"<ConsoleRoleGrant {self.user_email!r} → {self.role!r}"
+            f"{' revoked' if self.revoked_at else ''}>"
+        )
+
+
+class ConsoleTenantCompliance(Base):
+    """DPA + data residency + compliance flags per tenant (It6 — DPO)."""
+
+    __tablename__ = "console_tenant_compliance"
+
+    tenant_slug = Column(String(50), primary_key=True)
+    dpa_status = Column(
+        String(20), nullable=False, server_default="pending", default="pending"
+    )
+    dpa_signed_at = Column(DateTime(timezone=True), nullable=True)
+    dpa_signed_by = Column(String(255), nullable=True)
+    dpa_expires_at = Column(DateTime(timezone=True), nullable=True)
+    data_residency = Column(
+        String(32), nullable=False, server_default="eu-west-1", default="eu-west-1"
+    )
+    compliance_flags = Column(_JSONB_OR_JSON, nullable=False, default=dict)
+    subprocessors_approved = Column(
+        _TAGS_COL, nullable=False, default=list, server_default=text("'{}'")
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    updated_by = Column(String(255), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "dpa_status IN ('pending', 'signed', 'expired', 'na')",
+            name="console_compliance_dpa_status_check",
+        ),
+    )
+
+
+class ConsoleSupportTicket(Base):
+    """Customer-raised support tickets handled in the Console (It7)."""
+
+    __tablename__ = "console_support_tickets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_slug = Column(String(50), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text(), nullable=True)
+    severity = Column(
+        String(16), nullable=False, default="medium", server_default="medium"
+    )
+    status = Column(String(16), nullable=False, default="open", server_default="open")
+    assigned_to = Column(String(255), nullable=True)
+    reporter_email = Column(String(255), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "severity IN ('low', 'medium', 'high', 'critical')",
+            name="console_support_severity_check",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'in_progress', 'waiting_customer', 'resolved', 'closed')",
+            name="console_support_status_check",
+        ),
+        Index("idx_console_support_tenant_status", "tenant_slug", "status"),
+    )
+
+
+class ConsoleImpersonationSession(Base):
+    """Audited Sky-team-member impersonation of a tenant user (It7)."""
+
+    __tablename__ = "console_impersonation_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    actor_email = Column(String(255), nullable=False)
+    tenant_slug = Column(String(50), nullable=False)
+    target_user_email = Column(String(255), nullable=False)
+    reason = Column(Text(), nullable=False)
+    ticket_id = Column(String(36), nullable=True)
+    started_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    customer_consent = Column(Boolean, nullable=False, default=False, server_default=text("false"))

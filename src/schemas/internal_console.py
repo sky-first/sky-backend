@@ -426,3 +426,196 @@ class RenewalEntry(BaseModel):
 class RenewalsResponse(BaseModel):
     items: List[RenewalEntry]
     total_pipeline_eur: float
+
+
+# ── RBAC (It4) ─────────────────────────────────────────────────────
+
+
+class RoleGrantRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    user_email: str
+    role: str
+    granted_at: datetime
+    granted_by: str
+
+
+class RoleGrantsListResponse(BaseModel):
+    items: List[RoleGrantRead]
+    available_roles: List[str]
+    permission_actions: List[str]
+
+
+class CreateRoleGrantRequest(BaseModel):
+    user_email: str = Field(..., max_length=255)
+    role: str
+
+
+class MyAccessResponse(BaseModel):
+    """``/me/access`` — what the current user can do.
+
+    Frontend uses ``actions`` to hide / show UI primitives. Backend
+    still enforces — this is UX only.
+    """
+
+    email: str
+    roles: List[str]
+    actions: List[str]
+
+
+# ── Compliance / DPO (It6) ─────────────────────────────────────────
+
+
+class ComplianceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    tenant_slug: str
+    dpa_status: str
+    dpa_signed_at: Optional[datetime]
+    dpa_signed_by: Optional[str]
+    dpa_expires_at: Optional[datetime]
+    data_residency: str
+    compliance_flags: Dict[str, Any]
+    subprocessors_approved: List[str]
+    updated_at: Optional[datetime]
+    updated_by: Optional[str]
+
+
+class ComplianceUpdate(BaseModel):
+    dpa_status: Optional[str] = Field(
+        None, description="pending / signed / expired / na"
+    )
+    dpa_signed_at: Optional[datetime] = None
+    dpa_signed_by: Optional[str] = Field(None, max_length=255)
+    dpa_expires_at: Optional[datetime] = None
+    data_residency: Optional[str] = Field(None, max_length=32)
+    compliance_flags: Optional[Dict[str, Any]] = None
+    subprocessors_approved: Optional[List[str]] = None
+
+
+class ComplianceSummary(BaseModel):
+    """``/compliance/summary`` — DPO dashboard counts."""
+
+    total_tenants: int
+    dpa_signed: int
+    dpa_pending: int
+    dpa_expired: int
+    by_residency: Dict[str, int]
+    items: List[ComplianceRead]
+
+
+# ── Support (It7) ──────────────────────────────────────────────────
+
+
+class SupportTicketRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_slug: str
+    title: str
+    description: Optional[str]
+    severity: str
+    status: str
+    assigned_to: Optional[str]
+    reporter_email: Optional[str]
+    created_at: datetime
+    resolved_at: Optional[datetime]
+    updated_at: datetime
+
+
+class SupportTicketCreate(BaseModel):
+    tenant_slug: str = Field(..., max_length=50)
+    title: str = Field(..., max_length=255)
+    description: Optional[str] = Field(None, max_length=10_000)
+    severity: str = Field("medium")
+    reporter_email: Optional[str] = Field(None, max_length=255)
+
+
+class SupportTicketUpdate(BaseModel):
+    title: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = Field(None, max_length=10_000)
+    severity: Optional[str] = None
+    status: Optional[str] = None
+    assigned_to: Optional[str] = Field(None, max_length=255)
+
+
+class SupportTicketsList(BaseModel):
+    items: List[SupportTicketRead]
+    open_count: int
+    in_progress_count: int
+
+
+# ── Impersonation (It7) ────────────────────────────────────────────
+
+
+class ImpersonationStartRequest(BaseModel):
+    target_user_email: str = Field(..., max_length=255)
+    reason: str = Field(..., max_length=1_000)
+    ticket_id: Optional[str] = Field(None, max_length=36)
+    customer_consent: bool = Field(
+        False, description="Required true to actually start"
+    )
+
+
+class ImpersonationSessionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    actor_email: str
+    tenant_slug: str
+    target_user_email: str
+    reason: str
+    ticket_id: Optional[str]
+    started_at: datetime
+    ended_at: Optional[datetime]
+    customer_consent: bool
+
+
+# ── Notifications + Board Pack + Comparison (It8) ──────────────────
+
+
+class Notification(BaseModel):
+    id: str
+    category: str  # alert / ticket / job / renewal
+    severity: str  # info / warning / critical
+    title: str
+    detail: Optional[str]
+    tenant_slug: Optional[str]
+    href: Optional[str]
+    timestamp: datetime
+
+
+class NotificationsResponse(BaseModel):
+    items: List[Notification]
+    unread_count: int
+
+
+class BoardPackResponse(BaseModel):
+    """All-in-one snapshot the CEO can export for a board meeting."""
+
+    generated_at: datetime
+    generated_by: str
+    metrics: Dict[str, float]
+    tenants_by_tier: Dict[str, int]
+    customers_at_risk: List[Dict[str, Any]]
+    renewals_next_90d: List[Dict[str, Any]]
+    cost_breakdown: Dict[str, float]
+    revenue_summary: Dict[str, float]
+    incidents_recent: List[Dict[str, Any]]
+
+
+class TenantCompareEntry(BaseModel):
+    slug: str
+    display_name: str
+    tier: str
+    is_active: bool
+    capacity_used: Dict[str, int]
+    capacity_limits: Dict[str, int]
+    health_score: int
+    health_breakdown: Dict[str, int]
+    queries_7d: int
+    monthly_eur: float
+
+
+class TenantCompareResponse(BaseModel):
+    items: List[TenantCompareEntry]

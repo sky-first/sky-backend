@@ -501,13 +501,23 @@ class _NotYetImplementedCost:
 def infra_provider() -> InfraProvider:
     if _mock_mode_enabled():
         return MockInfraProvider()
-    return _NotYetImplementedInfra()
+    try:
+        from src.services.console_telemetry_real import KubernetesInfraProvider
+
+        return KubernetesInfraProvider()
+    except TelemetryUnavailable:
+        return _NotYetImplementedInfra()
 
 
 def cost_provider() -> CostProvider:
     if _mock_mode_enabled():
         return MockCostProvider()
-    return _NotYetImplementedCost()
+    try:
+        from src.services.console_telemetry_real import AwsCostProvider
+
+        return AwsCostProvider()
+    except TelemetryUnavailable:
+        return _NotYetImplementedCost()
 
 
 def activity_provider() -> ActivityProvider:
