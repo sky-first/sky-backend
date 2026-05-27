@@ -23,10 +23,44 @@ security = HTTPBearer(
 )
 
 
+async def get_db_session(
+    request: Request,
+) -> AsyncGenerator[AsyncSession, None]:
+    """Tenant-aware database session (Projeto A — PR #6).
+
+    Routes the session through ``TenantConnectionManager.session_for``
+    so handlers that depend on this function automatically operate on
+    the tenant attached by the resolver middleware. When
+    ``MULTI_TENANT_ENABLED`` is False every request gets the default
+    context, the manager hands back the global ``AsyncSessionLocal``,
+    and the legacy behaviour is preserved exactly.
+
+    FastAPI injects ``request`` automatically. Tests that override
+    this dependency via ``app.dependency_overrides[get_db_session]``
+    keep working unchanged — the override is keyed on the function
+    object, not on the signature. Callers that need a tenant-scoped
+    session outside the request scope should use
+    :func:`get_db_session_for_context` below.
+    """
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.tenant_context import DEFAULT_TENANT_CONTEXT
+
+    ctx = getattr(request.state, "tenant_context", None) or DEFAULT_TENANT_CONTEXT
+    session = tenant_connection_manager.session_for(ctx)
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
+
+
 async def get_current_user(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ) -> User:
     """
     Get current authenticated user.
@@ -194,40 +228,6 @@ async def get_current_user(
     asyncio.ensure_future(_track_activity(UUID(user_id)))
 
     return user
-
-
-async def get_db_session(
-    request: Request,
-) -> AsyncGenerator[AsyncSession, None]:
-    """Tenant-aware database session (Projeto A — PR #6).
-
-    Routes the session through ``TenantConnectionManager.session_for``
-    so handlers that depend on this function automatically operate on
-    the tenant attached by the resolver middleware. When
-    ``MULTI_TENANT_ENABLED`` is False every request gets the default
-    context, the manager hands back the global ``AsyncSessionLocal``,
-    and the legacy behaviour is preserved exactly.
-
-    FastAPI injects ``request`` automatically. Tests that override
-    this dependency via ``app.dependency_overrides[get_db_session]``
-    keep working unchanged — the override is keyed on the function
-    object, not on the signature. Callers that need a tenant-scoped
-    session outside the request scope should use
-    :func:`get_db_session_for_context` below.
-    """
-    from src.config.tenant_connection_manager import tenant_connection_manager
-    from src.core.tenant_context import DEFAULT_TENANT_CONTEXT
-
-    ctx = getattr(request.state, "tenant_context", None) or DEFAULT_TENANT_CONTEXT
-    session = tenant_connection_manager.session_for(ctx)
-    try:
-        yield session
-        await session.commit()
-    except Exception:
-        await session.rollback()
-        raise
-    finally:
-        await session.close()
 
 
 async def get_db_session_for_context(ctx=None) -> AsyncGenerator[AsyncSession, None]:

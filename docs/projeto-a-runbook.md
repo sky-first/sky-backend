@@ -38,6 +38,33 @@ Para remover os seeds:
 venv/Scripts/python.exe scripts/seed_tenants.py remove
 ```
 
+## 2.5. Bootstrap dos tenant DBs (schema + admin user)
+
+Cada tenant precisa de schema + um admin user antes de poder ser
+usado. Em prod o `new-client.sh` (PR #586 sky-infra) trata disto; em
+local:
+
+```bash
+# Aplicar schema (idealmente alembic; se pgvector não estiver instalado,
+# clonar via pg_dump — ver fallback no docstring do bootstrap_tenant.py)
+docker exec sky_poc_postgres pg_dump -U postgres --schema-only \
+  --no-owner --no-acl -d ai_saas_db | grep -v 'EXTENSION.*vector' \
+  | docker exec -i sky_poc_postgres psql -U postgres -d tenant_alpha
+docker exec sky_poc_postgres psql -U postgres -d tenant_alpha -c \
+  "INSERT INTO alembic_version VALUES ('tenant_registry_20260526');"
+
+# Criar admin user
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/ai_saas_db \
+POSTGRES_PASSWORD=postgres \
+TENANT_DB_URL_TEMPLATE=postgresql+asyncpg://postgres:postgres@localhost:5432/{db_name} \
+  venv/Scripts/python.exe scripts/bootstrap_tenant.py alpha \
+    --admin-email admin@alpha-demo.example.com
+```
+
+Default password: `ChangeMe!2026`. Override com `--admin-password`.
+
+Repetir para `beta` (ou qualquer outro slug seeded).
+
 ## 3. Arrancar o backend com flag ON
 
 ```bash
