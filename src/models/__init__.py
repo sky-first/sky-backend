@@ -43,6 +43,14 @@ from src.models.page import Page, PageMember
 from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable
 from src.models.starred import StarredItem
 from src.models.tenant import DEFAULT_CAPACITY_SHAPE, Tenant, TenantTier
+from src.models.internal_console import (
+    AuditAction,
+    AuditResult,
+    InternalConsoleAudit,
+    ProvisioningJob,
+    ProvisioningJobStatus,
+    ProvisioningJobType,
+)
 # Strategy entities (Pillar/Objective/OKR/Initiative/KeyResult/Assumption/
 # Cycle) were dropped in the Knowledge refactor Phase 1a (2026-04-25).
 # Events/Signals (SignalEvent / IntelligenceSignal) were dropped in
@@ -113,4 +121,10 @@ __all__ = [
     "Tenant",
     "TenantTier",
     "DEFAULT_CAPACITY_SHAPE",
+    "InternalConsoleAudit",
+    "ProvisioningJob",
+    "AuditAction",
+    "AuditResult",
+    "ProvisioningJobType",
+    "ProvisioningJobStatus",
 ]
