@@ -33,16 +33,14 @@ def _tenant(slug: str = "gbt", tier: str = "pilot", **extra) -> TenantContext:
 # ── Default context → global pool ─────────────────────────────────
 
 
-def test_default_context_routes_to_global_pool():
+@pytest.mark.asyncio
+async def test_default_context_routes_to_global_pool():
     mgr = TenantConnectionManager()
     session = mgr.session_for(DEFAULT_TENANT_CONTEXT)
     # ``AsyncSessionLocal()`` returns an ``AsyncSession`` — no engine
     # was created for the default context.
     assert mgr.known_slugs() == []
-    # Clean up the session we just opened.
-    import asyncio
-
-    asyncio.get_event_loop().run_until_complete(session.close())
+    await session.close()
 
 
 # ── Real tenant → engine cached ───────────────────────────────────
