@@ -96,8 +96,11 @@ class RedisCursorRelay:
                 except Exception:
                     break
         finally:
-            await pubsub.unsubscribe(f"cursor:{context_id}")
-            await pubsub.aclose()
+            try:
+                await pubsub.unsubscribe(f"cursor:{context_id}")
+                await pubsub.aclose()
+            except Exception:
+                pass
 
 
 # ─── Module-level singleton — replaced at startup ─────────────────────────────
@@ -156,7 +159,7 @@ async def cursor_ws(
     finally:
         listen_task.cancel()
         try:
-            await asyncio.shield(listen_task)
+            await listen_task
         except (asyncio.CancelledError, Exception):
             pass
         cursor_relay.disconnect(context_id, user_id)

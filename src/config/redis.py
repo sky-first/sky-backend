@@ -161,5 +161,8 @@ async def close_redis() -> None:
     """Close Redis connection."""
     global _redis
     if _redis:
-        await _redis.aclose()
+        try:
+            await _redis.aclose()
+        except Exception:
+            pass
         _redis = None

@@ -173,44 +173,45 @@ celery_app.conf.result_backend = backend_url
 
 # Periodic tasks (Celery Beat)
 try:
+    _base_schedule: dict = {
+        **getattr(celery_app.conf, "beat_schedule", {}),
+        "schedule-agents": {
+            "task": "src.workers.agent_worker.schedule_agents",
+            "schedule": timedelta(minutes=5),
+        },
+        # Insight-mode agents have their own scheduler because they
+        # use the new AgentRunService state machine (iteration 1.6)
+        # and run at finer granularities (down to 1 minute). Legacy
+        # agents stay on the 5-minute beat.
+        "schedule-insight-agents": {
+            "task": "src.workers.insight_agent_worker.schedule_insight_agents",
+            "schedule": timedelta(minutes=1),
+        },
+        # Agent revocation safety net — every 15 minutes, sweep
+        # every ACTIVE agent and pause any whose creator no longer
+        # belongs to the agent's scope (HI-002 / W12). Synchronous
+        # hook in space/crew remove_member is best-effort; this is
+        # the guarantee of eventual consistency.
+        "sweep-orphan-agents": {
+            "task": "src.workers.agent_revocation_worker.sweep_orphan_agents",
+            "schedule": timedelta(minutes=15),
+        },
+        # Public demo (Cenário B) sandbox cleanup. Daily pass deletes
+        # any Space/User past its TTL — keeps the table small and
+        # protects against vandalism living on the public surface
+        # for more than the advertised window.
+        "cleanup-expired-demo-spaces": {
+            "task": "src.workers.demo_cleanup_worker.cleanup_expired_demo_spaces",
+            "schedule": timedelta(hours=24),
+        },
+    }
     interval = int(getattr(settings, "CACHE_WARMING_INTERVAL_SECONDS", 300) or 300)
     if getattr(settings, "CACHE_WARMING_ENABLED", True) and interval > 0:
-        celery_app.conf.beat_schedule = {
-            **getattr(celery_app.conf, "beat_schedule", {}),
-            "warm-ai-response-cache": {
-                "task": "src.workers.cache_warming_worker.warm_ai_response_cache",
-                "schedule": timedelta(seconds=interval),
-            },
-            "schedule-agents": {
-                "task": "src.workers.agent_worker.schedule_agents",
-                "schedule": timedelta(minutes=5),
-            },
-            # Insight-mode agents have their own scheduler because they
-            # use the new AgentRunService state machine (iteration 1.6)
-            # and run at finer granularities (down to 1 minute). Legacy
-            # agents stay on the 5-minute beat.
-            "schedule-insight-agents": {
-                "task": "src.workers.insight_agent_worker.schedule_insight_agents",
-                "schedule": timedelta(minutes=1),
-            },
-            # Agent revocation safety net — every 15 minutes, sweep
-            # every ACTIVE agent and pause any whose creator no longer
-            # belongs to the agent's scope (HI-002 / W12). Synchronous
-            # hook in space/crew remove_member is best-effort; this is
-            # the guarantee of eventual consistency.
-            "sweep-orphan-agents": {
-                "task": "src.workers.agent_revocation_worker.sweep_orphan_agents",
-                "schedule": timedelta(minutes=15),
-            },
-            # Public demo (Cenário B) sandbox cleanup. Daily pass deletes
-            # any Space/User past its TTL — keeps the table small and
-            # protects against vandalism living on the public surface
-            # for more than the advertised window.
-            "cleanup-expired-demo-spaces": {
-                "task": "src.workers.demo_cleanup_worker.cleanup_expired_demo_spaces",
-                "schedule": timedelta(hours=24),
-            },
+        _base_schedule["warm-ai-response-cache"] = {
+            "task": "src.workers.cache_warming_worker.warm_ai_response_cache",
+            "schedule": timedelta(seconds=interval),
         }
+    celery_app.conf.beat_schedule = _base_schedule
 except Exception:
     # Fail-open: do not block worker startup if schedule can't be built.
     pass

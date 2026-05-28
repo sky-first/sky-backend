@@ -117,8 +117,11 @@ class RedisChatRelay:
                     except Exception:
                         break
         finally:
-            await pubsub.unsubscribe(f"chat:{page_id}")
-            await pubsub.aclose()
+            try:
+                await pubsub.unsubscribe(f"chat:{page_id}")
+                await pubsub.aclose()
+            except Exception:
+                pass
 
 
 # ─── Module-level singleton — replaced at startup ─────────────────────────────
@@ -193,7 +196,7 @@ async def chat_ws(
     finally:
         listen_task.cancel()
         try:
-            await asyncio.shield(listen_task)
+            await listen_task
         except (asyncio.CancelledError, Exception):
             pass
         await chat_relay.disconnect(page_id, user_id, websocket)
