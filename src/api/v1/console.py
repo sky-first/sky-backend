@@ -103,6 +103,7 @@ from src.schemas.internal_console import (
 from src.services import console_rbac, console_service, csm_service, pricing_tiers
 from src.services.console_telemetry import (
     TelemetryUnavailable,
+    alerts_provider,
     billing_provider,
     cost_provider,
     infra_provider,
@@ -1123,7 +1124,7 @@ async def get_alerts(
     db: AsyncSession = Depends(get_db_session),
 ) -> AlertsResponse:
     """Return the alerts list filtered to tenants that actually exist."""
-    raw = billing_provider().alerts()
+    raw = alerts_provider().alerts()
     valid_slugs = set(
         (
             await db.execute(select(Tenant.slug))
@@ -1258,14 +1259,14 @@ async def get_infrastructure(
 async def get_incidents(
     user: User = Depends(require_sky_team),
 ) -> IncidentsResponse:
-    items = billing_provider().incidents()
+    items = alerts_provider().incidents()
     return IncidentsResponse(items=[i.__dict__ for i in items])
 
 
 # ── Logs streaming (WebSocket) ─────────────────────────────────────
-# Mock implementation that emits one fake log line per second per pod
-# until the client disconnects. Real wiring uses ``kubectl logs --follow``
-# via the kubernetes-client library.
+# Streams real pod logs via ``kubectl logs --follow`` using the
+# kubernetes-client library. When KUBECONFIG_STAGING/PROD are not set,
+# a single informational message is emitted and the connection is closed.
 
 
 @router.websocket("/tenants/{slug}/logs/stream")
@@ -1274,9 +1275,8 @@ async def stream_tenant_logs(
     slug: str,
     pod: str = "sky-be",
 ) -> None:
-    import asyncio
     import json as _json
-    import random as _rnd
+    import os as _os
 
     await websocket.accept()
     # Lightweight check: refuse if slug isn't an active tenant. We can't
@@ -1293,37 +1293,36 @@ async def stream_tenant_logs(
         await websocket.close()
         return
 
-    levels = ["INFO", "INFO", "INFO", "INFO", "WARN", "ERROR"]
-    components = {
-        "sky-be": "uvicorn",
-        "sky-fe": "next",
-        "sky-ai": "langgraph",
-        "sky-ai-worker": "celery",
-    }
-    comp_label = components.get(pod, pod)
-    try:
-        i = 0
-        while True:
-            i += 1
-            lvl = _rnd.choice(levels)
-            msg = {
-                "INFO": "request handled",
-                "WARN": "slow query detected",
-                "ERROR": "connection reset by peer",
-            }[lvl]
-            await websocket.send_text(
-                _json.dumps(
-                    {
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                        "pod": pod,
-                        "component": comp_label,
-                        "level": lvl,
-                        "message": f"{msg} (seq #{i})",
-                    }
-                )
+    if not _os.getenv("KUBECONFIG_STAGING") or not _os.getenv("KUBECONFIG_PROD"):
+        # Kubeconfig not configured — emit a single informational message
+        await websocket.send_text(
+            _json.dumps(
+                {
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "pod": pod,
+                    "level": "INFO",
+                    "message": (
+                        "Log streaming not configured "
+                        "(KUBECONFIG_STAGING/PROD not set)"
+                    ),
+                }
             )
-            await asyncio.sleep(0.6 + _rnd.random() * 0.6)
-    except Exception:  # noqa: BLE001 — client disconnect is normal
+        )
+        await websocket.close()
+        return
+
+    from src.services.telemetry.kubernetes_provider import KubernetesLogStreamer
+
+    streamer = KubernetesLogStreamer()
+
+    async def send_line(data: dict) -> None:
+        await websocket.send_text(_json.dumps(data))
+
+    try:
+        await streamer.stream(slug=slug, pod=pod, send_line=send_line)
+    except Exception:  # noqa: BLE001 — TelemetryUnavailable or disconnect
+        pass
+    finally:
         try:
             await websocket.close()
         except Exception:  # noqa: BLE001
@@ -1343,7 +1342,7 @@ async def get_notifications(
     items: List[Notification] = []
 
     # 1. Alerts
-    alerts_raw = billing_provider().alerts()
+    alerts_raw = alerts_provider().alerts()
     valid_slugs = set(
         (await db.execute(select(Tenant.slug))).scalars().all()
     )
@@ -1498,7 +1497,7 @@ async def get_board_pack(
 
     renewals = await csm_service.upcoming_renewals(db, days_ahead=90)
 
-    incidents = billing_provider().incidents()
+    incidents = alerts_provider().incidents()
 
     return BoardPackResponse(
         generated_at=datetime.now(timezone.utc),

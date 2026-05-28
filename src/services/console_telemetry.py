@@ -267,14 +267,25 @@ class _RegistryBillingProvider:
 
 
 def infra_provider() -> InfraProvider:
-    """Return KubernetesInfraProvider when kubeconfigs are set, else empty."""
+    """KubernetesInfraProvider + PrometheusHealthProvider when configured, else empty.
+
+    With both KUBECONFIG_* and PROMETHEUS_URL set: returns CompositeInfraProvider
+    that merges pod data (K8s) with SLI data (Prometheus).
+    With only KUBECONFIG_*: KubernetesInfraProvider alone (Prometheus fields = 0).
+    With neither: _EmptyInfraProvider (all zeros).
+    """
     stg = os.getenv("KUBECONFIG_STAGING")
     prd = os.getenv("KUBECONFIG_PROD")
     if not stg or not prd:
         return _EmptyInfraProvider()
     try:
-        from src.services.console_telemetry_real import KubernetesInfraProvider
-        return KubernetesInfraProvider()
+        from src.services.telemetry.kubernetes_provider import KubernetesInfraProvider
+        k8s = KubernetesInfraProvider()
+        if os.getenv("PROMETHEUS_URL"):
+            from src.services.telemetry.prometheus_provider import PrometheusHealthProvider
+            from src.services.telemetry.composite_infra_provider import CompositeInfraProvider
+            return CompositeInfraProvider(k8s=k8s, prometheus=PrometheusHealthProvider())
+        return k8s
     except Exception:  # noqa: BLE001
         return _EmptyInfraProvider()
 
@@ -294,10 +305,16 @@ def cost_provider() -> CostProvider:
 
 def billing_provider() -> BillingProvider:
     """Return MoloniBillingProvider when MOLONI_API_KEY is set, else registry fallback."""
+    if not os.getenv("MOLONI_API_KEY"):
+        return _RegistryBillingProvider()
     try:
-        from src.services.console_telemetry_real import MoloniBillingProvider
-        p = MoloniBillingProvider()
-        p._ensure_token()
-        return p
+        from src.services.telemetry.moloni_billing_provider import MoloniBillingProvider
+        return MoloniBillingProvider()
     except Exception:  # noqa: BLE001
         return _RegistryBillingProvider()
+
+
+def alerts_provider():
+    """Return Sentry, PagerDuty, or empty provider based on available env vars."""
+    from src.services.telemetry.alerts_provider import get_alerts_provider
+    return get_alerts_provider()
