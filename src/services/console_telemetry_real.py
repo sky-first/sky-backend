@@ -330,27 +330,34 @@ class AwsCostProvider:
             for g in period.get("Groups", []):
                 service = (g.get("Keys") or ["unknown"])[0]
                 amt = float(g["Metrics"]["UnblendedCost"]["Amount"])
-                day_total += amt
+                # Only accumulate positive costs — AWS CE includes credits/
+                # adjustments as negative values that would zero out the daily total.
+                day_total += max(0.0, amt)
                 totals_by_service[service] = (
                     totals_by_service.get(service, 0) + amt
                 )
             daily.append(
                 TimeseriesPoint(
                     t=period["TimePeriod"]["Start"] + "T00:00:00+00:00",
-                    value=round(day_total, 2),
+                    value=round(day_total, 4),
                 )
             )
         return daily, totals_by_service
 
     def platform_cost(self) -> CostBreakdown:
         daily, by_service = self._daily_series()
-        compute = sum(
+        # Only count positive amounts — AWS CE includes credits/adjustments
+        # as negative values which can make the total appear as -0.0.
+        compute = max(0.0, sum(
             v for k, v in by_service.items() if "EC2" in k or "EKS" in k or "Fargate" in k
-        )
-        storage = sum(v for k, v in by_service.items() if "EBS" in k or "S3" in k)
-        network = sum(v for k, v in by_service.items() if "Transfer" in k)
-        bedrock = sum(v for k, v in by_service.items() if "Bedrock" in k)
-        total = sum(by_service.values())
+        ))
+        storage = max(0.0, sum(v for k, v in by_service.items() if "EBS" in k or "S3" in k))
+        network = max(0.0, sum(v for k, v in by_service.items() if "Transfer" in k))
+        bedrock = max(0.0, sum(v for k, v in by_service.items() if "Bedrock" in k))
+        # Total = sum of positive service costs (ignore credits/adjustments)
+        total = max(0.0, sum(v for v in by_service.values() if v > 0))
+        # Rebuild daily series using only positive values
+        daily_clean = [TimeseriesPoint(t=p.t, value=max(0.0, p.value)) for p in daily]
         end = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         return CostBreakdown(
             period_start=(end - timedelta(days=30)).isoformat(),
@@ -360,7 +367,7 @@ class AwsCostProvider:
             network_usd=round(network, 2),
             bedrock_usd=round(bedrock, 2),
             total_usd=round(total, 2),
-            daily=daily,
+            daily=daily_clean,
         )
 
     def tenant_cost(self, slug: str) -> CostBreakdown:
@@ -388,10 +395,20 @@ class AwsCostProvider:
         )
 
     def revenue_summary(self) -> Dict[str, float]:
-        # Revenue comes from Moloni. Until Moloni is wired, return zeros
-        # so the route returns 200 instead of 503 and the Console renders.
-        return {"mrr_eur": 0.0, "this_month_spend_usd": 0.0,
-                "gross_margin_pct": 0.0, "projection_eom_usd": 0.0}
+        # Revenue (MRR) comes from Moloni — not derivable from AWS cost data.
+        # Until Moloni is configured, derive this_month_spend_usd from AWS CE
+        # so the Console shows real infrastructure cost even without billing data.
+        try:
+            cost = self.platform_cost()
+            this_month = cost.total_usd
+        except Exception:  # noqa: BLE001
+            this_month = 0.0
+        return {
+            "mrr_eur": 0.0,              # requires Moloni
+            "this_month_spend_usd": round(this_month, 2),
+            "gross_margin_pct": 0.0,     # requires Moloni MRR
+            "projection_eom_usd": round(this_month * 1.05, 2),  # rough EOM projection
+        }
 
 
 # ── Moloni billing ─────────────────────────────────────────────────

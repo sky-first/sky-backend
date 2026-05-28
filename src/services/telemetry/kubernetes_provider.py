@@ -335,30 +335,88 @@ class KubernetesInfraProvider:
             last_incident=None,
         )
 
+    def _argocd_last_deploy(self, custom: Any, slug: str) -> tuple[str, str]:
+        """Return (last_deploy_at_iso, short_sha) from ArgoCD application objects.
+
+        Looks for apps whose name starts with ``sky-*`` or ``{slug}-*``.
+        Falls back to current time + '—' if ArgoCD is unavailable.
+        """
+        try:
+            apps = custom.list_namespaced_custom_object(  # type: ignore[union-attr]
+                group="argoproj.io", version="v1alpha1",
+                namespace="argocd", plural="applications",
+            )
+            latest_ts = ""
+            latest_sha = "—"
+            for app in apps.get("items", []):
+                name = app.get("metadata", {}).get("name", "")
+                # Match platform apps: sky-*-stg-aws or {slug}-*
+                if not (name.startswith("sky-") or name.startswith(f"{slug}-")):
+                    continue
+                op = app.get("status", {}).get("operationState", {})
+                finished = op.get("finishedAt", "")
+                rev = op.get("syncResult", {}).get("revision", "") or \
+                      app.get("status", {}).get("sync", {}).get("revision", "")
+                if finished and finished > latest_ts:
+                    latest_ts = finished
+                    latest_sha = rev[:12] if rev else "—"
+            if latest_ts:
+                return latest_ts, latest_sha
+        except Exception:  # noqa: BLE001
+            pass
+        return datetime.now(timezone.utc).isoformat(), "—"
+
     def tenant_health(self, slug: str) -> TenantHealth:
         """Return pod list for the tenant, enriched with real CPU/memory
         percentages from the metrics-server when available.
 
-        Namespace convention: ``{slug}-stg`` and ``{slug}-prd``.
+        Namespace convention: tries ``{slug}-stg`` first, then falls back to
+        the shared ``staging`` namespace (Sky's single-tenant platform layout
+        where pods are named ``sky-{service}-stg-aws``).
         """
         self._ensure_clients()
         try:
             pods: List[PodInfo] = []
+            last_deploy_at = datetime.now(timezone.utc).isoformat()
+            last_deploy_sha = "—"
             for env_label, core, custom in (
                 ("stg", self._stg_core, self._stg_custom),
                 ("prd", self._prd_core, self._prd_custom),
             ):
+                if core is None:
+                    continue
+
+                # Fetch last deploy from ArgoCD (only once, from stg)
+                if env_label == "stg":
+                    last_deploy_at, last_deploy_sha = self._argocd_last_deploy(custom, slug)
+
+                # Try the conventional namespace first ({slug}-{env}),
+                # then fall back to the shared staging namespace.
+                # In Sky's single-tenant layout all pods live in "staging".
+                candidates = [f"{slug}-{env_label}", "staging" if env_label == "stg" else None]
+                items = []
                 ns = f"{slug}-{env_label}"
-                try:
-                    items = core.list_namespaced_pod(ns).items  # type: ignore[union-attr]
-                except Exception as inner:  # noqa: BLE001
+                for candidate_ns in candidates:
+                    if candidate_ns is None:
+                        continue
+                    try:
+                        fetched = core.list_namespaced_pod(candidate_ns).items  # type: ignore[union-attr]
+                        if candidate_ns != f"{slug}-{env_label}":
+                            # Shared namespace: show all non-system pods
+                            # (sky-*-stg-aws naming convention, not {slug}-*)
+                            fetched = [p for p in fetched if
+                                       p.metadata.labels and
+                                       p.metadata.labels.get("app.kubernetes.io/instance", "").startswith("sky-")]
+                        if fetched:
+                            items = fetched
+                            ns = candidate_ns
+                            break
+                    except Exception:  # noqa: BLE001
+                        continue
+                if not items:
                     logger.warning(
                         "tenant_health_namespace_query_failed",
-                        extra={
-                            "slug": slug,
-                            "env": env_label,
-                            "error": str(inner)[:200],
-                        },
+                        extra={"slug": slug, "env": env_label, "error": "no namespace found"},
                     )
                     continue
 
@@ -372,13 +430,26 @@ class KubernetesInfraProvider:
                 for p in items:
                     pod_name: str = p.metadata.name
 
-                    # Component label
+                    # Component label — prefer K8s label, fall back to
+                    # deriving from the app instance name (sky-be-stg-aws → backend)
                     component: str = "unknown"
                     if p.metadata and p.metadata.labels:
                         component = (
                             p.metadata.labels.get("app.kubernetes.io/component")
                             or p.metadata.labels.get("component")
-                            or "unknown"
+                            or ""
+                        )
+                    if not component or component == "unknown":
+                        instance = (p.metadata.labels or {}).get(
+                            "app.kubernetes.io/instance", pod_name
+                        )
+                        _svc_map = {
+                            "sky-be": "backend", "sky-fe": "frontend",
+                            "sky-ai-worker": "ai-worker", "sky-ai": "ai",
+                        }
+                        component = next(
+                            (v for k, v in _svc_map.items() if instance.startswith(k)),
+                            "unknown",
                         )
 
                     # Restarts
@@ -458,14 +529,14 @@ class KubernetesInfraProvider:
 
         return TenantHealth(
             pods=pods,
-            last_deploy_at=datetime.now(timezone.utc).isoformat(),
-            last_deploy_sha="—",
+            last_deploy_at=last_deploy_at,
+            last_deploy_sha=last_deploy_sha,
             argocd_url=(
-                os.getenv("ARGOCD_BASE_URL", "https://argocd.skyfirstlabs.com")
-                + f"/applications/{slug}-prd"
+                os.getenv("ARGOCD_BASE_URL", "https://argocd-stg.skyfirstlabs.com")
+                + f"/applications/sky-be-stg-aws"
             ),
             grafana_url=(
-                os.getenv("GRAFANA_BASE_URL", "https://grafana.skyfirstlabs.com")
+                os.getenv("GRAFANA_BASE_URL", "https://grafana-stg.skyfirstlabs.com")
                 + f"/d/tenant/{slug}?var-tenant={slug}"
             ),
         )

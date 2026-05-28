@@ -1061,9 +1061,11 @@ async def revoke_role_grant(
 @router.get("/dashboard/health", response_model=PlatformHealthResponse)
 async def get_platform_health(
     user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
 ) -> PlatformHealthResponse:
     try:
         import inspect
+        from sqlalchemy import text as _text
         provider = infra_provider()
         result = provider.platform_health()
         if inspect.isawaitable(result):
@@ -1071,7 +1073,38 @@ async def get_platform_health(
         data = result
     except TelemetryUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
-    return PlatformHealthResponse(**data.__dict__)
+
+    # Enrich with real DB connection counts from pg_stat_activity.
+    # This works without postgres_exporter — we query the platform DB directly.
+    db_used = data.db_connections_used
+    db_max = data.db_connections_max
+    if db_used == 0:
+        try:
+            from sqlalchemy import text as _text
+            db_used_row = (await db.execute(
+                _text("SELECT count(*) FROM pg_stat_activity WHERE state != 'idle'")
+            )).scalar_one_or_none()
+            db_max_row = (await db.execute(
+                _text("SELECT setting::int FROM pg_settings WHERE name='max_connections'")
+            )).scalar_one_or_none()
+            if db_used_row is not None:
+                db_used = int(db_used_row)
+            if db_max_row is not None:
+                db_max = int(db_max_row)
+        except Exception:  # noqa: BLE001
+            pass
+
+    return PlatformHealthResponse(
+        api_uptime_pct=data.api_uptime_pct,
+        api_latency_p95_ms=data.api_latency_p95_ms,
+        api_error_rate_pct=data.api_error_rate_pct,
+        pods_running=data.pods_running,
+        pods_pending=data.pods_pending,
+        pods_crashlooping=data.pods_crashlooping,
+        db_connections_used=db_used,
+        db_connections_max=db_max,
+        last_incident=data.last_incident,
+    )
 
 
 @router.get("/dashboard/activity", response_model=DashboardActivityResponse)

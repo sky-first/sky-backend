@@ -299,8 +299,8 @@ class TenantBillingResponse(BaseModel):
     subscription_end: str
     monthly_amount_eur: float
     payment_status: str
-    last_invoice_at: str
-    next_invoice_at: str
+    last_invoice_at: Optional[str] = None
+    next_invoice_at: Optional[str] = None
     mrr_contribution_eur: float
 
 
