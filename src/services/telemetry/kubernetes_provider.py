@@ -156,22 +156,42 @@ class KubernetesInfraProvider:
                 "for KubernetesInfraProvider"
             )
 
-        try:
-            k8s_config.load_kube_config(config_file=stg_path)
-            cfg = k8s_client.Configuration.get_default_copy()
-            cfg.connection_pool_maxsize = 4
-            cfg.retries = False  # fail fast — no silent retries
-            k8s_client.Configuration.set_default(cfg)
-            self._stg_core = k8s_client.CoreV1Api()
-            self._stg_custom = k8s_client.CustomObjectsApi()
+        # Each cluster gets its own isolated Configuration + ApiClient so that
+        # loading stg and prd kubeconfigs does not interfere via the global
+        # singleton. A failed prd (e.g. expired SSO) is logged and skipped
+        # without preventing stg from working.
+        _any_loaded = False
 
-            k8s_config.load_kube_config(config_file=prd_path)
-            self._prd_core = k8s_client.CoreV1Api()
-            self._prd_custom = k8s_client.CustomObjectsApi()
+        try:
+            stg_cfg = k8s_client.Configuration()
+            k8s_config.load_kube_config(
+                config_file=stg_path, client_configuration=stg_cfg
+            )
+            stg_cfg.connection_pool_maxsize = 4
+            stg_api = k8s_client.ApiClient(configuration=stg_cfg)
+            self._stg_core = k8s_client.CoreV1Api(api_client=stg_api)
+            self._stg_custom = k8s_client.CustomObjectsApi(api_client=stg_api)
+            _any_loaded = True
         except Exception as exc:  # noqa: BLE001
+            logger.warning("k8s_stg_kubeconfig_failed: %s", str(exc)[:200])
+
+        try:
+            prd_cfg = k8s_client.Configuration()
+            k8s_config.load_kube_config(
+                config_file=prd_path, client_configuration=prd_cfg
+            )
+            prd_cfg.connection_pool_maxsize = 4
+            prd_api = k8s_client.ApiClient(configuration=prd_cfg)
+            self._prd_core = k8s_client.CoreV1Api(api_client=prd_api)
+            self._prd_custom = k8s_client.CustomObjectsApi(api_client=prd_api)
+            _any_loaded = True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("k8s_prd_kubeconfig_failed: %s", str(exc)[:200])
+
+        if not _any_loaded:
             raise TelemetryUnavailable(
-                f"Failed to load kubeconfigs: {exc}"
-            ) from exc
+                "Failed to load both KUBECONFIG_STAGING and KUBECONFIG_PROD"
+            )
 
     # ── Metrics-server helpers ─────────────────────────────────────
 

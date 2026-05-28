@@ -28,28 +28,42 @@ logger = logging.getLogger(__name__)
 # PromQL queries
 # ---------------------------------------------------------------------------
 
+# Metric names are from prometheus_fastapi_instrumentator (installed in sky-be).
+# The ServiceMonitor (k8s/service-monitor-backend.yaml) sets job="sky-api" via
+# relabeling so these queries work once Prometheus scrapes the /metrics endpoint.
+#
+# status label format from instrumentator: "2xx", "4xx", "5xx" (not raw codes).
 _QUERIES: dict[str, str] = {
+    # Uptime: fraction of requests that were NOT 5xx over the last 30 days.
+    # Uses the instrumentator's http_requests_total with status="5xx" label.
     "api_uptime_pct": (
-        "avg_over_time(probe_success{job=\"sky-api\"}[30d]) * 100"
-    ),
-    # Fallback query used when the primary uptime query returns nothing:
-    "_api_uptime_pct_fallback": (
         "("
         "1 - ("
-        "rate(http_requests_total{status=~\"5..\"}[30d])"
-        " / rate(http_requests_total[30d])"
+        "  sum(rate(http_requests_total{job=\"sky-api\",status=\"5xx\"}[30d]))"
+        "  / sum(rate(http_requests_total{job=\"sky-api\"}[30d]))"
         ")"
         ") * 100"
     ),
+    # Fallback when the primary returns nothing (e.g. no 5xx traffic):
+    "_api_uptime_pct_fallback": (
+        "clamp_max("
+        "  sum(rate(http_requests_total{job=\"sky-api\",status=\"2xx\"}[30d]))"
+        "  / sum(rate(http_requests_total{job=\"sky-api\"}[30d]))"
+        "  * 100, 100)"
+    ),
+    # P95 latency: uses http_request_duration_highr_seconds (high-resolution
+    # histogram without handler labels — more accurate percentile calculation).
     "api_latency_p95_ms": (
         "histogram_quantile(0.95,"
-        " sum(rate(http_request_duration_seconds_bucket{job=\"sky-api\"}[5m]))"
+        " sum(rate(http_request_duration_highr_seconds_bucket{job=\"sky-api\"}[5m]))"
         " by (le)) * 1000"
     ),
+    # Error rate: 5xx requests as % of all requests in the last 5 minutes.
     "api_error_rate_pct": (
-        "sum(rate(http_requests_total{status=~\"5..\"}[5m]))"
-        " / sum(rate(http_requests_total[5m])) * 100"
+        "sum(rate(http_requests_total{job=\"sky-api\",status=\"5xx\"}[5m]))"
+        " / sum(rate(http_requests_total{job=\"sky-api\"}[5m])) * 100"
     ),
+    # DB connections — requires postgres_exporter. Falls back to 0 gracefully.
     "db_connections_used": (
         "sum(pg_stat_activity_count{datname=~\"sky.*\"})"
     ),
