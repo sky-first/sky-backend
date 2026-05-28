@@ -38,6 +38,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Hard SLO ceiling: the route must respond within this budget regardless
+# of how slow K8s or Prometheus are individually. Each provider already
+# has its own internal timeout (K8s client: urllib3 default ~60s which
+# is too long; Prometheus: 5s). This outer gate caps the *combined* wait.
+_HEALTH_TIMEOUT_SECONDS = 8.0
+
+# Zero-metric fallback returned when a provider times out.
+_EMPTY_PROM_METRICS: dict[str, float] = {
+    "api_uptime_pct": 0.0,
+    "api_latency_p95_ms": 0.0,
+    "api_error_rate_pct": 0.0,
+    "db_connections_used": 0.0,
+    "db_connections_max": 0.0,
+}
+
+
 class CompositeInfraProvider:
     """Combines ``KubernetesInfraProvider`` (pods) with ``PrometheusHealthProvider`` (SLIs).
 
@@ -55,55 +71,92 @@ class CompositeInfraProvider:
         A ``PrometheusHealthProvider`` instance.  Its
         ``get_platform_health_metrics`` method is awaited on every call to
         :meth:`platform_health`.
+    timeout:
+        Hard SLO ceiling in seconds for the combined K8s + Prometheus call.
+        Defaults to ``_HEALTH_TIMEOUT_SECONDS``. When either provider exceeds
+        its individual budget, the timed-out one is replaced with zeros so the
+        other's data still reaches the caller. This prevents a degraded K8s
+        API server from cascading into a Console page timeout.
     """
 
     def __init__(
         self,
         k8s: InfraProvider,
         prometheus: "PrometheusHealthProvider",
+        timeout: float = _HEALTH_TIMEOUT_SECONDS,
     ) -> None:
         self._k8s = k8s
         self._prometheus = prometheus
+        self._timeout = timeout
 
     # ------------------------------------------------------------------
     # Primary async method
     # ------------------------------------------------------------------
 
     async def platform_health(self) -> PlatformHealth:
-        """Return a ``PlatformHealth`` with pod counts from K8s and SLIs from Prometheus.
+        """Return a ``PlatformHealth`` merging K8s pod counts and Prometheus SLIs.
 
-        The K8s call is made in a thread executor (it is synchronous / blocking)
-        while the Prometheus queries run concurrently via asyncio.  Both results
-        are merged into a single ``PlatformHealth`` before returning.
-
-        Failures in either provider are handled defensively:
-        - K8s errors propagate (they are already wrapped in ``TelemetryUnavailable``
-          by ``KubernetesInfraProvider``).
-        - Prometheus errors result in zero-filled SLI fields (already handled
-          inside ``PrometheusHealthProvider``).
+        Both providers run concurrently. Each is individually wrapped in
+        ``asyncio.wait_for`` with half the total budget so a slow provider
+        degrades gracefully (returns zeros) without blocking the other.
+        The total wall-clock time is capped at ``self._timeout`` seconds.
         """
         loop = asyncio.get_event_loop()
+        half = self._timeout / 2
 
-        # Run K8s (sync/blocking) in the default thread pool executor so it
-        # does not block the event loop, and Prometheus (async) concurrently.
-        k8s_task = loop.run_in_executor(None, self._k8s.platform_health)
-        prom_task = asyncio.ensure_future(
-            self._prometheus.get_platform_health_metrics()
-        )
+        # K8s is sync/blocking — offload to thread pool.
+        async def _k8s_safe() -> PlatformHealth | None:
+            try:
+                return await asyncio.wait_for(
+                    loop.run_in_executor(None, self._k8s.platform_health),
+                    timeout=half,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "composite_infra: K8s platform_health timed out after %.1fs — "
+                    "pod counts will be zero",
+                    half,
+                )
+                return None
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("composite_infra: K8s platform_health failed: %s", exc)
+                return None
 
-        k8s_health, prom_metrics = await asyncio.gather(k8s_task, prom_task)
+        async def _prom_safe() -> dict[str, float]:
+            try:
+                return await asyncio.wait_for(
+                    self._prometheus.get_platform_health_metrics(),
+                    timeout=half,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "composite_infra: Prometheus timed out after %.1fs — "
+                    "SLI fields will be zero",
+                    half,
+                )
+                return _EMPTY_PROM_METRICS
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("composite_infra: Prometheus failed: %s", exc)
+                return _EMPTY_PROM_METRICS
 
-        # Merge: pod fields come from K8s; SLI fields from Prometheus.
+        k8s_health, prom_metrics = await asyncio.gather(_k8s_safe(), _prom_safe())
+
+        # Merge: pod fields from K8s (or zeros if K8s timed out), SLIs from Prometheus.
+        pods_running = k8s_health.pods_running if k8s_health else 0
+        pods_pending = k8s_health.pods_pending if k8s_health else 0
+        pods_crashlooping = k8s_health.pods_crashlooping if k8s_health else 0
+        last_incident = k8s_health.last_incident if k8s_health else None
+
         return PlatformHealth(
             api_uptime_pct=prom_metrics.get("api_uptime_pct", 0.0),
             api_latency_p95_ms=int(prom_metrics.get("api_latency_p95_ms", 0.0)),
             api_error_rate_pct=prom_metrics.get("api_error_rate_pct", 0.0),
-            pods_running=k8s_health.pods_running,
-            pods_pending=k8s_health.pods_pending,
-            pods_crashlooping=k8s_health.pods_crashlooping,
+            pods_running=pods_running,
+            pods_pending=pods_pending,
+            pods_crashlooping=pods_crashlooping,
             db_connections_used=int(prom_metrics.get("db_connections_used", 0.0)),
             db_connections_max=int(prom_metrics.get("db_connections_max", 0.0)),
-            last_incident=k8s_health.last_incident,
+            last_incident=last_incident,
         )
 
     # ------------------------------------------------------------------
