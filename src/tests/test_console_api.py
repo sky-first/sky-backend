@@ -274,11 +274,34 @@ def test_audit_filter_by_tenant(authed_client):
     assert slugs == {"f1"}
 
 
-# ── 403 for non-Sky-team ───────────────────────────────────────────
+# ── Auth distinctions: 401 anonymous vs 403 non-Sky-team ───────────
+
+
+def test_anonymous_is_401(client, monkeypatch):
+    """No JWT (no get_current_user override) → 401 unauthenticated.
+
+    Separates the unauthenticated case from the authenticated-but-not-
+    Sky-team case so the FE can route the user to /login (re-auth) vs
+    /page (access denied) appropriately. See useAccess.tsx.
+    """
+    monkeypatch.delenv("CONSOLE_DEV_BYPASS", raising=False)
+    monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
+    # No dependency_overrides — get_current_user runs for real and
+    # fails with no Authorization header, surfacing as None inside
+    # require_sky_team which raises 401.
+    res = client.get("/api/console/v1/me")
+    assert res.status_code == 401
+    assert "unauthenticated" in res.json()["error"]["message"]
 
 
 def test_non_sky_team_is_403(client, monkeypatch):
-    """A user that isn't Sky-team gets 403 — independent of fixtures."""
+    """An authenticated user that isn't on the Sky-team gets 403.
+
+    ``require_sky_team`` calls ``get_current_user(request=request)``
+    directly rather than via ``Depends`` so the FastAPI override hook
+    does not apply — we patch the symbol that ``console_auth`` actually
+    imports instead.
+    """
     monkeypatch.delenv("CONSOLE_DEV_BYPASS", raising=False)
     monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
     outsider = User(
@@ -291,14 +314,12 @@ def test_non_sky_team_is_403(client, monkeypatch):
         has_completed_onboarding=True,
         is_sky_operator=False,
     )
-    app.dependency_overrides[get_current_user] = lambda: outsider
-    try:
-        res = client.get("/api/console/v1/me")
-        assert res.status_code == 403
-        # The global http_exception_handler wraps HTTPException(detail=dict)
-        # into {"error": {"code": "HTTP_ERROR", "message": str(detail)}}.
-        # The original sky_team_required marker survives inside the
-        # stringified message.
-        assert "sky_team_required" in res.json()["error"]["message"]
-    finally:
-        app.dependency_overrides.pop(get_current_user, None)
+
+    async def _fake_get_current_user(request):
+        return outsider
+
+    from src.api import console_auth as _ca
+    monkeypatch.setattr(_ca, "get_current_user", _fake_get_current_user)
+    res = client.get("/api/console/v1/me")
+    assert res.status_code == 403
+    assert "sky_team_required" in res.json()["error"]["message"]
