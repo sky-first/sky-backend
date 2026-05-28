@@ -20,8 +20,6 @@ import logging
 import os
 from typing import List, Optional
 
-import httpx
-
 from src.services.console_telemetry import Alert, IncidentEntry
 
 logger = logging.getLogger(__name__)
@@ -96,7 +94,7 @@ class SentryAlertsProvider:
             "?query=is:unresolved&level=error&limit=20"
         )
         try:
-            resp = httpx.get(url, headers=self._headers(), timeout=_TIMEOUT)
+            resp = _httpx_get(url, headers=self._headers(), timeout=_TIMEOUT)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Sentry alerts request failed: %s", exc)
             return []
@@ -131,7 +129,7 @@ class SentryAlertsProvider:
             "?status=open&limit=10"
         )
         try:
-            resp = httpx.get(url, headers=self._headers(), timeout=_TIMEOUT)
+            resp = _httpx_get(url, headers=self._headers(), timeout=_TIMEOUT)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Sentry incidents request failed: %s", exc)
             return []
@@ -228,12 +226,11 @@ class PagerDutyIncidentsProvider:
             params["service_ids[]"] = self._service_ids
 
         try:
-            resp = httpx.get(
-                f"{self._BASE}/alerts",
-                headers=self._headers(),
-                params=params,
-                timeout=_TIMEOUT,
-            )
+            import httpx as _hx  # noqa: PLC0415
+            resp = _hx.get(f"{self._BASE}/alerts", headers=self._headers(), params=params, timeout=_TIMEOUT)
+        except ImportError:
+            logger.warning("PagerDuty alerts: httpx not installed — pip install httpx")
+            return []
         except Exception as exc:  # noqa: BLE001
             logger.warning("PagerDuty alerts request failed: %s", exc)
             return []
@@ -266,12 +263,11 @@ class PagerDutyIncidentsProvider:
             params["service_ids[]"] = self._service_ids
 
         try:
-            resp = httpx.get(
-                f"{self._BASE}/incidents",
-                headers=self._headers(),
-                params=params,
-                timeout=_TIMEOUT,
-            )
+            import httpx as _hx  # noqa: PLC0415
+            resp = _hx.get(f"{self._BASE}/incidents", headers=self._headers(), params=params, timeout=_TIMEOUT)
+        except ImportError:
+            logger.warning("PagerDuty incidents: httpx not installed — pip install httpx")
+            return []
         except Exception as exc:  # noqa: BLE001
             logger.warning("PagerDuty incidents request failed: %s", exc)
             return []

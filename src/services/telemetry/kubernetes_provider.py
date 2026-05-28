@@ -158,6 +158,10 @@ class KubernetesInfraProvider:
 
         try:
             k8s_config.load_kube_config(config_file=stg_path)
+            cfg = k8s_client.Configuration.get_default_copy()
+            cfg.connection_pool_maxsize = 4
+            cfg.retries = False  # fail fast — no silent retries
+            k8s_client.Configuration.set_default(cfg)
             self._stg_core = k8s_client.CoreV1Api()
             self._stg_custom = k8s_client.CustomObjectsApi()
 
