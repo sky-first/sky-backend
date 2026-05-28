@@ -100,10 +100,14 @@ async def resolve_identity_for_page(
             )
         ).scalar_one_or_none()
         if sp is None:
-            raise NotFoundError(
-                f"Space {page.space_id} has no service principal — "
-                "invariant violation, spaces auto-create one on creation"
+            # Legacy spaces created before the April migration don't have an SP.
+            # Create one on-the-fly to unblock agent creation rather than crash.
+            sp = ServicePrincipal(
+                space_id=page.space_id,
+                name=f"sa-space-{str(page.space_id)[:8]}",
             )
+            db.add(sp)
+            await db.flush()
         return ResolvedIdentity(
             identity_type="service_principal",
             identity_id=sp.id,
