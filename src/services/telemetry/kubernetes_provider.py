@@ -42,11 +42,15 @@ def _parse_cpu_cores(quantity: str) -> float:
     """Convert a Kubernetes CPU quantity string to fractional cores.
 
     Examples:
-        "250m"  → 0.25
-        "2"     → 2.0
-        "1500m" → 1.5
+        "250m"        → 0.25
+        "2"           → 2.0
+        "1500m"       → 1.5
+        "125286296n"  → 0.125  (nanocores — returned by metrics-server)
     """
     quantity = quantity.strip()
+    if quantity.endswith("n"):
+        # Nanocores: metrics-server returns values like "125286296n"
+        return float(quantity[:-1]) / 1_000_000_000.0
     if quantity.endswith("m"):
         return float(quantity[:-1]) / 1000.0
     return float(quantity)

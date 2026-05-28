@@ -53,10 +53,19 @@ _QUERIES: dict[str, str] = {
     ),
     # P95 latency: uses http_request_duration_highr_seconds (high-resolution
     # histogram without handler labels — more accurate percentile calculation).
+    #
+    # clamp_max(…, 30000): the highr histogram has a 60-second upper bucket
+    # boundary.  AI/streaming endpoints (SSE, LLM chat) generate ~8% of
+    # requests with latency genuinely above 60 s, which pushes histogram_quantile
+    # to return the hard 60 000 ms ceiling rather than a meaningful API SLO value.
+    # We cap at 30 000 ms so the Console dashboard displays a useful number while
+    # still surfacing real degradations up to a 30-second SLA threshold.
     "api_latency_p95_ms": (
+        "clamp_max("
         "histogram_quantile(0.95,"
         " sum(rate(http_request_duration_highr_seconds_bucket{job=\"sky-api\"}[5m]))"
-        " by (le)) * 1000"
+        " by (le)) * 1000,"
+        " 30000)"
     ),
     # Error rate: 5xx requests as % of all requests in the last 5 minutes.
     "api_error_rate_pct": (
