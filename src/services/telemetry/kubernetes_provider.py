@@ -20,10 +20,12 @@ can return a clean 503 instead of leaking internal stack traces.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import os
+import time
 from datetime import datetime, timezone
-from typing import Awaitable, Callable, List, Optional
+from typing import Any, Awaitable, Callable, List, Optional
 
 from src.services.console_telemetry import (
     ClusterNode,
@@ -34,6 +36,33 @@ from src.services.console_telemetry import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ── In-memory TTL cache ────────────────────────────────────────────
+
+# key → (stored_at_monotonic, result)
+_cache: dict[str, tuple[float, Any]] = {}
+
+
+def _cache_get(key: str, ttl: float = 30.0) -> Any:
+    """Return the cached value for *key* if it is still within *ttl* seconds.
+
+    Returns ``None`` when the key is absent or has expired.
+    """
+    entry = _cache.get(key)
+    if entry is None:
+        return None
+    stored_at, value = entry
+    if time.monotonic() - stored_at <= ttl:
+        return value
+    # Expired — evict eagerly so memory doesn't grow unboundedly.
+    _cache.pop(key, None)
+    return None
+
+
+def _cache_set(key: str, value: Any) -> None:
+    """Store *value* in the in-memory cache under *key*."""
+    _cache[key] = (time.monotonic(), value)
+
 
 # ── Helpers ────────────────────────────────────────────────────────
 
@@ -374,6 +403,9 @@ class KubernetesInfraProvider:
         the shared ``staging`` namespace (Sky's single-tenant platform layout
         where pods are named ``sky-{service}-stg-aws``).
         """
+        cached = _cache_get(f"tenant_health:{slug}")
+        if cached is not None:
+            return cached
         self._ensure_clients()
         try:
             pods: List[PodInfo] = []
@@ -527,7 +559,7 @@ class KubernetesInfraProvider:
                 f"kubernetes tenant_health failed: {exc}"
             ) from exc
 
-        return TenantHealth(
+        result = TenantHealth(
             pods=pods,
             last_deploy_at=last_deploy_at,
             last_deploy_sha=last_deploy_sha,
@@ -540,6 +572,11 @@ class KubernetesInfraProvider:
                 + f"/d/tenant/{slug}?var-tenant={slug}"
             ),
         )
+        # Only cache successful (non-empty) results — empty pods means the
+        # cluster was unreachable and we don't want to serve stale zeros.
+        if pods:
+            _cache_set(f"tenant_health:{slug}", result)
+        return result
 
     def cluster_nodes(self) -> List[ClusterNode]:
         """Return all cluster nodes with real CPU/memory usage percentages.
@@ -547,6 +584,9 @@ class KubernetesInfraProvider:
         Uses the metrics-server ``/apis/metrics.k8s.io/v1beta1/nodes``
         endpoint when available. Falls back to ``0.0`` silently if not.
         """
+        cached = _cache_get("cluster_nodes")
+        if cached is not None:
+            return cached
         self._ensure_clients()
         out: List[ClusterNode] = []
         for cluster, core, custom in (
@@ -626,6 +666,8 @@ class KubernetesInfraProvider:
           except Exception as exc:  # noqa: BLE001 — one cluster down, continue
               logger.warning("k8s_cluster_nodes_failed cluster=%s: %s", cluster, str(exc)[:200])
 
+        if out:  # only cache non-empty results
+            _cache_set("cluster_nodes", out)
         return out
 
 
