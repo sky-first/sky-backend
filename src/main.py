@@ -35,6 +35,13 @@ async def lifespan(app: FastAPI):
     logger.info("application_startup")
     await init_db()
     await init_redis()
+
+    # Real-time relays — must run after init_redis so they can detect Redis
+    from src.api.v1.chat_ws import init_chat_relay
+    from src.api.v1.cursor import init_cursor_relay
+    await init_chat_relay()
+    await init_cursor_relay()
+
     # Context Layer — register domain-event listeners that publish to the
     # `context:ingest` Redis stream consumed by the AI service ingest
     # worker. Bound to the base `sqlalchemy.orm.Session` class
