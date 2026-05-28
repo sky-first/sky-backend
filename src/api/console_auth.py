@@ -111,7 +111,20 @@ async def require_sky_team(
             is_sky_operator=True,
         )
 
-    if user is None or not is_sky_team_member(user):
+    if user is None:
+        # No JWT (or invalid/expired): treat as unauthenticated so the
+        # frontend can route the user to /login instead of /page. The
+        # Console guard relies on this distinction — see useAccess.tsx.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "unauthenticated",
+                "detail": "Sign in to access the SkyFirst Console.",
+            },
+        )
+    if not is_sky_team_member(user):
+        # Authenticated but not on the Sky-team — show the "access
+        # denied" landing instead of bouncing back through /login.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
