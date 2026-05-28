@@ -163,6 +163,7 @@ celery_app.conf.update(
         "src.workers.agent_revocation_worker",
         "src.workers.demo_cleanup_worker",
         "src.workers.knowledge_worker",
+        "src.workers.provisioning_worker",
     ],
 )
 

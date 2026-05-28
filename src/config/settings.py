@@ -242,7 +242,7 @@ class Settings(BaseSettings):
         default="",
         description=(
             "Resend API key. Empty = log-only mode (dev/CI). Set in "
-            "Azure KV as `resend-api-key` and reference via "
+            "AWS Secrets Manager as `resend-api-key` and reference via "
             "ExternalSecret in staging."
         ),
     )
@@ -434,10 +434,8 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4"
     ANTHROPIC_API_KEY: str = ""
 
-    # Knowledge Library — Azure Storage
-    AZURE_STORAGE_ACCOUNT_NAME: str = ""  # empty = use local fallback in dev
-    AZURE_STORAGE_CONTAINER_RAW: str = "uploads-raw"
-    AZURE_STORAGE_CONTAINER_PROCESSED: str = "uploads-processed"
+    # Knowledge Library — AWS S3
+    # STORAGE_TYPE=s3, AWS_S3_BUCKET, AWS_REGION são as vars relevantes (já definidas acima)
 
     # Knowledge Library — file/quota limits
     FILE_MAX_SIZE_MB: int = 15

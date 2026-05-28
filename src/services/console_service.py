@@ -213,6 +213,22 @@ async def create_tenant(
     db.add(job)
     await db.flush()
 
+    # Dispatch provisioning task — runs bootstrap_tenant.py out-of-band.
+    # Import lazily to avoid circular imports and allow the module to
+    # load even when Celery is not started (tests, local dev without workers).
+    try:
+        from src.workers.provisioning_worker import provision_tenant
+        provision_tenant.delay(str(job.id))
+        logger.info("provision_tenant_dispatched", extra={"job_id": str(job.id), "slug": tenant.slug})
+    except Exception as exc:  # noqa: BLE001
+        # Celery broker unavailable — job stays PENDING, operator can
+        # run bootstrap_tenant.py manually. Non-fatal: the registry row
+        # and job were already created.
+        logger.warning(
+            "provision_tenant_dispatch_failed",
+            extra={"error": str(exc), "slug": tenant.slug},
+        )
+
     detail = await get_tenant_detail(db, tenant.slug)
     assert detail is not None
     return detail, job
