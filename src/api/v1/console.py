@@ -103,7 +103,6 @@ from src.schemas.internal_console import (
 from src.services import console_rbac, console_service, csm_service, pricing_tiers
 from src.services.console_telemetry import (
     TelemetryUnavailable,
-    activity_provider,
     billing_provider,
     cost_provider,
     infra_provider,
@@ -1074,13 +1073,16 @@ async def get_dashboard_activity(
     user: User = Depends(require_sky_team),
     db: AsyncSession = Depends(get_db_session),
 ) -> DashboardActivityResponse:
-    slugs = (
-        await db.execute(select(Tenant.slug).where(Tenant.is_active == True))  # noqa: E712
+    from src.services.console_telemetry_real import query_platform_activity_24h
+
+    tenants = (
+        await db.execute(select(Tenant).where(Tenant.is_active == True))  # noqa: E712
     ).scalars().all()
-    points = activity_provider().platform_activity_24h(slugs)
+    slugs = [t.slug for t in tenants]
+    points = await query_platform_activity_24h(tenants)
     return DashboardActivityResponse(
         points=[p.__dict__ for p in points],
-        tenants=list(slugs),
+        tenants=slugs,
     )
 
 
@@ -1170,12 +1172,14 @@ async def get_tenant_activity(
     user: User = Depends(require_sky_team),
     db: AsyncSession = Depends(get_db_session),
 ) -> TenantActivityResponse:
-    exists = (
-        await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
+    from src.services.console_telemetry_real import query_tenant_activity_7d
+
+    tenant = (
+        await db.execute(select(Tenant).where(Tenant.slug == slug))
     ).scalar_one_or_none()
-    if exists is None:
+    if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
-    points = activity_provider().tenant_activity_7d(slug)
+    points = await query_tenant_activity_7d(tenant)
     total = int(sum(p.value for p in points))
     return TenantActivityResponse(
         points_7d=[p.__dict__ for p in points],
@@ -1425,6 +1429,8 @@ async def compare_tenants(
     db: AsyncSession = Depends(get_db_session),
     slugs: str = Query(..., description="comma-separated slugs"),
 ) -> TenantCompareResponse:
+    from src.services.console_telemetry_real import query_tenant_activity_7d
+
     slug_list = [s.strip() for s in slugs.split(",") if s.strip()]
     if not slug_list:
         raise HTTPException(status_code=400, detail="No slugs supplied")
@@ -1451,7 +1457,7 @@ async def compare_tenants(
                 health_score=csm_resp.health_score if csm_resp else 0,
                 health_breakdown=csm_resp.health_breakdown if csm_resp else {},
                 queries_7d=int(
-                    sum(p.value for p in activity_provider().tenant_activity_7d(slug))
+                    sum(p.value for p in await query_tenant_activity_7d(t))
                 ),
                 monthly_eur=(
                     preset.headline_price_eur / 12.0

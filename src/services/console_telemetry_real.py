@@ -1,24 +1,19 @@
 """Real-data implementations of the Console telemetry providers.
 
-These ship behind ``CONSOLE_MOCK_INFRA=false`` and provide the
-production code path that pulls live data from Kubernetes, AWS Cost
-Explorer, and Moloni. Each provider catches its own infrastructure
-errors and converts them to ``TelemetryUnavailable`` so the routes
-return a clean 503 instead of leaking stack traces.
+Each provider catches its own infrastructure errors and surfaces them as
+``TelemetryUnavailable`` so routes return a clean 503 instead of leaking
+stack traces.
 
-Dependencies (lazy-imported, opt-in):
+Dependencies (lazy-imported so unset integrations incur no import cost):
 
-* ``kubernetes`` for ``KubernetesInfraProvider``
-* ``boto3`` for ``AwsCostProvider``
-* ``requests`` for ``MoloniBillingProvider``
+* ``kubernetes`` — ``KubernetesInfraProvider`` (set ``KUBECONFIG_STAGING``
+  and ``KUBECONFIG_PROD`` to activate)
+* ``boto3`` — ``AwsCostProvider`` (set AWS credentials to activate)
+* ``requests`` — ``MoloniBillingProvider`` (set ``MOLONI_API_KEY`` to activate)
 
-To switch to real providers in production, set the env vars
-documented in each class docstring then deploy.
-
-This module is **not** loaded automatically — the factory in
-``console_telemetry`` only constructs these when the mock flag is
-off, which means ``import boto3`` does not fire during normal local
-dev.
+Activity data (``query_platform_activity_24h``, ``query_tenant_activity_7d``)
+is sourced directly from each tenant's ``ai_queries`` table — no external
+dependency required.
 """
 
 from __future__ import annotations
@@ -474,8 +469,124 @@ class MoloniBillingProvider:
         return []
 
 
+# ── DB-backed activity queries ─────────────────────────────────────
+# Async functions (not Provider instances) that query each tenant's own
+# database. Routes call these directly.
+
+
+async def query_platform_activity_24h(tenants: list) -> list[TimeseriesPoint]:
+    """Count ai_queries per (tenant, hour) across all active tenant DBs.
+
+    Queries each tenant's own database independently. Failures for one
+    tenant are logged and skipped — the other tenants still contribute
+    their data.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import text
+
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.tenant_context import TenantContext
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    out: list[TimeseriesPoint] = []
+
+    for tenant in tenants:
+        ctx = TenantContext(
+            slug=tenant.slug,
+            id=tenant.id,
+            tier=tenant.tier,
+            display_name=tenant.display_name,
+            db_host=tenant.db_host,
+            db_name=tenant.db_name,
+            db_credentials_secret_arn=tenant.db_credentials_secret_arn or "",
+        )
+        try:
+            session = tenant_connection_manager.session_for(ctx)
+            async with session:
+                rows = (
+                    await session.execute(
+                        text(
+                            "SELECT date_trunc('hour', created_at) AS bucket,"
+                            " COUNT(*) AS cnt"
+                            " FROM ai_queries"
+                            " WHERE created_at >= :cutoff"
+                            " GROUP BY 1 ORDER BY 1"
+                        ),
+                        {"cutoff": cutoff},
+                    )
+                ).all()
+            for row in rows:
+                out.append(
+                    TimeseriesPoint(
+                        t=row.bucket.astimezone(timezone.utc).isoformat(),
+                        value=float(row.cnt),
+                        label=tenant.slug,
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "platform_activity_query_failed",
+                extra={"slug": tenant.slug, "error": str(exc)[:200]},
+            )
+
+    return out
+
+
+async def query_tenant_activity_7d(tenant) -> list[TimeseriesPoint]:
+    """Count ai_queries per day for the last 7 days from a specific tenant DB."""
+    from datetime import timedelta
+
+    from sqlalchemy import text
+
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.tenant_context import TenantContext
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    ctx = TenantContext(
+        slug=tenant.slug,
+        id=tenant.id,
+        tier=tenant.tier,
+        display_name=tenant.display_name,
+        db_host=tenant.db_host,
+        db_name=tenant.db_name,
+        db_credentials_secret_arn=tenant.db_credentials_secret_arn or "",
+    )
+
+    try:
+        session = tenant_connection_manager.session_for(ctx)
+        async with session:
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT date_trunc('day', created_at) AS bucket,"
+                        " COUNT(*) AS cnt"
+                        " FROM ai_queries"
+                        " WHERE created_at >= :cutoff"
+                        " GROUP BY 1 ORDER BY 1"
+                    ),
+                    {"cutoff": cutoff},
+                )
+            ).all()
+        return [
+            TimeseriesPoint(
+                t=row.bucket.astimezone(timezone.utc).isoformat(),
+                value=float(row.cnt),
+            )
+            for row in rows
+        ]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "tenant_activity_query_failed",
+            extra={"slug": tenant.slug, "error": str(exc)[:200]},
+        )
+        return []
+
+
 __all__ = [
     "AwsCostProvider",
     "KubernetesInfraProvider",
     "MoloniBillingProvider",
+    "query_platform_activity_24h",
+    "query_tenant_activity_7d",
 ]

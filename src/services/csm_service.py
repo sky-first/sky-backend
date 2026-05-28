@@ -197,12 +197,9 @@ async def build_csm_response(
     if tenant is None:
         return None
     notes = await get_or_create_notes(db, tenant_slug)
-    # Mock inputs for sub-scores not yet sourced from real systems —
-    # the activity provider gives us a daily series we approximate
-    # the weekly total from.
-    from src.services.console_telemetry import activity_provider
+    from src.services.console_telemetry_real import query_tenant_activity_7d
 
-    points = activity_provider().tenant_activity_7d(tenant_slug)
+    points = await query_tenant_activity_7d(tenant)
     queries_7d = int(sum(p.value for p in points))
     score, bd = health_score(
         tenant=tenant,
