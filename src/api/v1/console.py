@@ -1063,7 +1063,12 @@ async def get_platform_health(
     user: User = Depends(require_sky_team),
 ) -> PlatformHealthResponse:
     try:
-        data = infra_provider().platform_health()
+        import inspect
+        provider = infra_provider()
+        result = provider.platform_health()
+        if inspect.isawaitable(result):
+            result = await result
+        data = result
     except TelemetryUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     return PlatformHealthResponse(**data.__dict__)
@@ -1245,13 +1250,17 @@ async def get_infrastructure(
     user: User = Depends(require_sky_team),
 ) -> InfraResponse:
     try:
-        nodes = infra_provider().cluster_nodes()
-        health = infra_provider().platform_health()
+        import inspect
+        provider = infra_provider()
+        nodes = provider.cluster_nodes()
+        health_result = provider.platform_health()
+        if inspect.isawaitable(health_result):
+            health_result = await health_result
     except TelemetryUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     return InfraResponse(
         nodes=[n.__dict__ for n in nodes],
-        platform_health=PlatformHealthResponse(**health.__dict__),
+        platform_health=PlatformHealthResponse(**health_result.__dict__),
     )
 
 

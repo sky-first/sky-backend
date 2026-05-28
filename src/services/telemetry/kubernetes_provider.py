@@ -297,9 +297,11 @@ class KubernetesInfraProvider:
         real DB pool usage from the ``sky-db-pool-config`` ConfigMap.
         """
         self._ensure_clients()
-        try:
-            running = pending = crash = 0
-            for core in (self._stg_core, self._prd_core):
+        running = pending = crash = 0
+        for label, core in (("stg", self._stg_core), ("prd", self._prd_core)):
+            if core is None:
+                continue
+            try:
                 pods = core.list_pod_for_all_namespaces().items  # type: ignore[union-attr]
                 for p in pods:
                     phase = (p.status.phase or "").lower()
@@ -316,10 +318,8 @@ class KubernetesInfraProvider:
                         ):
                             crash += 1
                             break
-        except Exception as exc:  # noqa: BLE001
-            raise TelemetryUnavailable(
-                f"kubernetes platform_health failed: {exc}"
-            ) from exc
+            except Exception as exc:  # noqa: BLE001 — one cluster down, continue
+                logger.warning("k8s_platform_health_failed cluster=%s: %s", label, str(exc)[:200])
 
         db_used, db_max = self._read_db_pool_config()
 
@@ -478,11 +478,13 @@ class KubernetesInfraProvider:
         """
         self._ensure_clients()
         out: List[ClusterNode] = []
-        try:
-            for cluster, core, custom in (
-                ("stg", self._stg_core, self._stg_custom),
-                ("prd", self._prd_core, self._prd_custom),
-            ):
+        for cluster, core, custom in (
+            ("stg", self._stg_core, self._stg_custom),
+            ("prd", self._prd_core, self._prd_custom),
+        ):
+          if core is None:
+              continue
+          try:
                 # Fetch node metrics from metrics-server (best-effort)
                 node_metrics_by_name: dict[str, tuple[float, float]] = {}
                 try:
@@ -550,10 +552,8 @@ class KubernetesInfraProvider:
                             status=node_status,
                         )
                     )
-        except Exception as exc:  # noqa: BLE001
-            raise TelemetryUnavailable(
-                f"kubernetes cluster_nodes failed: {exc}"
-            ) from exc
+          except Exception as exc:  # noqa: BLE001 — one cluster down, continue
+              logger.warning("k8s_cluster_nodes_failed cluster=%s: %s", cluster, str(exc)[:200])
 
         return out
 
