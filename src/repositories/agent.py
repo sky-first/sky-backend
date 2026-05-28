@@ -31,12 +31,13 @@ class AgentRepository(BaseRepository[Agent]):
         skip: int = 0,
         limit: int = 50,
     ) -> List[Agent]:
-        # Eager-load findings so the frontend missions store can populate
-        # the halo / cockpit without a second round-trip per agent.
-        # Without this, agent.findings was a lazy-async relationship that
-        # serialized as empty on AgentListResponse, making the Insight
-        # Cockpit always look empty even when findings existed.
-        query = select(Agent).options(selectinload(Agent.findings))
+        # Findings are NOT eager-loaded here. Loading them on every list
+        # call caused 62 concurrent heavy queries to exhaust the DB
+        # connection pool when the frontend fetched agents for every space.
+        # The frontend missions store uses the findings returned by
+        # GET /{agent_id} (get_with_findings) for the cockpit/halo detail
+        # view. The list endpoint only needs the agent metadata.
+        query = select(Agent)
         if scope:
             query = query.where(Agent.scope == scope)
         if scope_id:
