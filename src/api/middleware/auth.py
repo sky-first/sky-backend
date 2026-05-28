@@ -39,6 +39,8 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/healthz",       # k8s convention — same payload as /health, kept
         "/healthz/ready", # so external probes that follow the k8s naming
         "/healthz/live",  # convention (Docker HEALTHCHECK + cluster probes)
+        "/api/v1/health", # versioned alias — used by k8s probes and uptime checks
+        "/api/health",    # legacy prefix mirror
         "/ready",
         "/live",
         "/metrics",

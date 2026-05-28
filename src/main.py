@@ -171,13 +171,17 @@ setattr(app, "openapi", custom_openapi)
 
 @app.get("/health", tags=["Health"])
 @app.get("/healthz", tags=["Health"], include_in_schema=False)
+@app.get("/api/v1/health", tags=["Health"], include_in_schema=False)
+@app.get("/api/health", tags=["Health"], include_in_schema=False)
 async def health():
     """Health check endpoint.
 
-    Exposed under both /health (legacy) and /healthz (k8s convention).
+    Exposed under /health (legacy), /healthz (k8s convention),
+    /api/v1/health (versioned alias for uptime checks and k8s probes),
+    and /api/health (legacy prefix mirror).
     The Dockerfile HEALTHCHECK uses /healthz; local dev agents
     (k8s extensions, Datadog, etc.) also follow that name. Keeping
-    both stops dev-mode log floods of 404s while we migrate callers.
+    all variants stops dev-mode log floods of 404s while we migrate callers.
     """
     from datetime import datetime, timezone
 
