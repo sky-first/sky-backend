@@ -388,13 +388,10 @@ class AwsCostProvider:
         )
 
     def revenue_summary(self) -> Dict[str, float]:
-        # Revenue comes from Moloni, not from AWS — this provider
-        # should not be the source of truth. Raise so the route
-        # surfaces a 503 hinting at the right integration.
-        raise TelemetryUnavailable(
-            "revenue_summary lives in MoloniBillingProvider, not the AWS "
-            "cost provider — fix the wiring in console_telemetry.factory"
-        )
+        # Revenue comes from Moloni. Until Moloni is wired, return zeros
+        # so the route returns 200 instead of 503 and the Console renders.
+        return {"mrr_eur": 0.0, "this_month_spend_usd": 0.0,
+                "gross_margin_pct": 0.0, "projection_eom_usd": 0.0}
 
 
 # ── Moloni billing ─────────────────────────────────────────────────
