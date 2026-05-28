@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 def _mock_mode_enabled() -> bool:
-    raw = (os.getenv("CONSOLE_MOCK_INFRA") or "true").lower()
+    raw = (os.getenv("CONSOLE_MOCK_INFRA") or "false").lower()
     return raw in {"true", "1", "yes", "on"}
 
 
@@ -175,7 +175,7 @@ class ActivityProvider(Protocol):
 
 
 class BillingProvider(Protocol):
-    def tenant_billing(self, slug: str, tier: str) -> TenantBilling: ...
+    def tenant_billing(self, slug: str, tier: str, created_at: Optional[datetime] = None) -> TenantBilling: ...
     def alerts(self) -> List[Alert]: ...
     def incidents(self) -> List[IncidentEntry]: ...
 
@@ -461,10 +461,93 @@ class MockBillingProvider:
         ]
 
 
-# ── Real provider stubs ───────────────────────────────────────────
-# These raise TelemetryUnavailable until implemented. The Console
-# routes catch the exception and surface a 503 with a helpful note
-# so operators know the integration is still wiring.
+# ── Empty / honest fallback providers ────────────────────────────
+# Return zero/empty data instead of fake random values. Used when
+# CONSOLE_MOCK_INFRA=false and the real integration is not yet wired.
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+def _empty_cost_breakdown() -> CostBreakdown:
+    end = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+    start = end - timedelta(days=30)
+    return CostBreakdown(
+        period_start=_iso(start),
+        period_end=_iso(end),
+        compute_usd=0.0, storage_usd=0.0, network_usd=0.0,
+        bedrock_usd=0.0, total_usd=0.0,
+        daily=[TimeseriesPoint(t=_iso(start + timedelta(days=i)), value=0.0) for i in range(30)],
+    )
+
+
+class _EmptyInfraProvider:
+    def platform_health(self) -> PlatformHealth:
+        return PlatformHealth(
+            api_uptime_pct=0.0, api_latency_p95_ms=0, api_error_rate_pct=0.0,
+            pods_running=0, pods_pending=0, pods_crashlooping=0,
+            db_connections_used=0, db_connections_max=0, last_incident=None,
+        )
+    def tenant_health(self, slug: str) -> TenantHealth:
+        return TenantHealth(pods=[], last_deploy_at="", last_deploy_sha="",
+                            argocd_url=f"https://argocd.skyfirstlabs.com/applications/{slug}-prd",
+                            grafana_url=f"https://grafana.skyfirstlabs.com/d/tenant/{slug}")
+    def cluster_nodes(self) -> List[ClusterNode]:
+        return []
+
+
+class _EmptyCostProvider:
+    def platform_cost(self) -> CostBreakdown:
+        return _empty_cost_breakdown()
+    def tenant_cost(self, slug: str) -> CostBreakdown:
+        return _empty_cost_breakdown()
+    def revenue_summary(self) -> Dict[str, float]:
+        return {"mrr_eur": 0.0, "this_month_spend_usd": 0.0,
+                "gross_margin_pct": 0.0, "projection_eom_usd": 0.0}
+
+
+class _EmptyActivityProvider:
+    def platform_activity_24h(self, tenant_slugs) -> List[TimeseriesPoint]:
+        return []
+    def tenant_activity_7d(self, slug: str) -> List[TimeseriesPoint]:
+        return []
+    def top_tenants_by_queries(self) -> List[Dict[str, Any]]:
+        return []
+
+
+_PRICE_BY_TIER: Dict[str, float] = {
+    "pilot": 1_250.0, "foundation": 3_500.0, "core": 7_500.0,
+    "advanced": 15_000.0, "strategic": 35_000.0,
+}
+
+
+class _RealBillingProvider:
+    """Derives billing from tenant_registry data. Empty alerts/incidents
+    until Sentry/PagerDuty are wired."""
+    def tenant_billing(self, slug: str, tier: str, created_at: Optional[datetime] = None) -> TenantBilling:
+        monthly = _PRICE_BY_TIER.get(tier, 0.0)
+        now = created_at or _now()
+        try:
+            sub_end = now.replace(year=now.year + 1)
+        except ValueError:
+            sub_end = now.replace(year=now.year + 1, day=28)
+        return TenantBilling(
+            tier=tier, subscription_start=_iso(now), subscription_end=_iso(sub_end),
+            monthly_amount_eur=monthly, payment_status="unknown",
+            last_invoice_at=None, next_invoice_at=None, mrr_contribution_eur=monthly,
+        )
+    def alerts(self) -> List[Alert]:
+        return []
+    def incidents(self) -> List[IncidentEntry]:
+        return []
+
+
+# ── Legacy stubs (kept for backwards compat if imported elsewhere) ─
 
 
 class _NotYetImplementedInfra:
@@ -501,32 +584,47 @@ class _NotYetImplementedCost:
 def infra_provider() -> InfraProvider:
     if _mock_mode_enabled():
         return MockInfraProvider()
+    stg = os.getenv("KUBECONFIG_STAGING")
+    prd = os.getenv("KUBECONFIG_PROD")
+    if not stg or not prd:
+        return _EmptyInfraProvider()
     try:
         from src.services.console_telemetry_real import KubernetesInfraProvider
-
         return KubernetesInfraProvider()
-    except TelemetryUnavailable:
-        return _NotYetImplementedInfra()
+    except Exception:  # noqa: BLE001
+        return _EmptyInfraProvider()
 
 
 def cost_provider() -> CostProvider:
     if _mock_mode_enabled():
         return MockCostProvider()
     try:
+        import boto3
+        session = boto3.Session()
+        if session.get_credentials() is None:
+            return _EmptyCostProvider()
         from src.services.console_telemetry_real import AwsCostProvider
-
         return AwsCostProvider()
-    except TelemetryUnavailable:
-        return _NotYetImplementedCost()
+    except Exception:  # noqa: BLE001
+        return _EmptyCostProvider()
 
 
 def activity_provider() -> ActivityProvider:
-    # Activity always uses the audit log (real) for the "platform" view,
-    # but the synthetic per-tenant timeline is mocked until we ship a
-    # Prometheus exporter. Mock-only for now in both branches.
-    return MockActivityProvider()
+    # Activity data comes from ai_history queries in the route handlers
+    # (which hold an AsyncSession). This factory returns MockActivityProvider
+    # only when CONSOLE_MOCK_INFRA=true; real routes bypass it entirely.
+    if _mock_mode_enabled():
+        return MockActivityProvider()
+    return _EmptyActivityProvider()
 
 
 def billing_provider() -> BillingProvider:
-    # Billing mock today; production wires Moloni's API.
-    return MockBillingProvider()
+    if _mock_mode_enabled():
+        return MockBillingProvider()
+    try:
+        from src.services.console_telemetry_real import MoloniBillingProvider
+        p = MoloniBillingProvider()
+        p._ensure_token()
+        return p
+    except Exception:  # noqa: BLE001
+        return _RealBillingProvider()

@@ -152,12 +152,33 @@ def _env_email_set(var: str) -> set[str]:
 
 
 def role_for(user: User) -> str:
+    """Derive a simple role label from env vars (bootstrap).
+
+    For full DB-backed role resolution use console_rbac.load_active_roles()
+    and call role_for_grants(roles) — done by the /me route.
+    """
     email = (user.email or "").lower()
     if email in _env_email_set(_ADMIN_EMAILS_ENV):
         return "admin"
     if email in _env_email_set(_OPERATOR_EMAILS_ENV):
         return "operator"
-    # Default Sky-team member starts at the lowest permission floor.
+    return "read_only"
+
+
+_ADMIN_GRANT_ROLES = {"ceo", "cto", "dpo"}
+_OPERATOR_GRANT_ROLES = {"tech_lead", "devops", "backend_eng", "ai_eng", "finance", "csm", "sales"}
+
+
+def role_for_grants(db_roles: list) -> str:
+    """Derive simple role from DB ConsoleRole grants (used by /me route)."""
+    role_values = {r.value if hasattr(r, "value") else str(r) for r in db_roles}
+    if role_values & _ADMIN_GRANT_ROLES:
+        return "admin"
+    if role_values & _OPERATOR_GRANT_ROLES:
+        return "operator"
+    if role_values:
+        return "read_only"
+    # Fallback: no DB grants, derive from env
     return "read_only"
 
 

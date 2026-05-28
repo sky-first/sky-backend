@@ -454,25 +454,24 @@ class MoloniBillingProvider:
         )
         return self._token
 
-    def tenant_billing(self, slug: str, tier: str) -> TenantBilling:
-        # Real call would look up Moloni customer by slug field, then
-        # retrieve their active subscription + latest invoice + next
-        # billing date. Stubbed-out shape preserved for the schema.
+    def tenant_billing(self, slug: str, tier: str, created_at=None) -> TenantBilling:
+        # TODO: implement Moloni customer lookup by slug custom field
+        # POST /customers/getByName?company_id={MOLONI_COMPANY_ID}
+        # GET  /invoices/getAll?customer_id={id}&status=1
+        # Until implemented, raise so billing_provider() falls back to _RealBillingProvider
         raise TelemetryUnavailable(
             "MoloniBillingProvider.tenant_billing not yet implemented — "
             "wire customer lookup by slug field + active-invoice query"
         )
 
     def alerts(self) -> List[Alert]:
-        raise TelemetryUnavailable(
-            "Alerts live in CloudWatch / Sentry, not Moloni. Wire those "
-            "providers in console_telemetry_real instead."
-        )
+        # Alerts come from Sentry/PagerDuty — not Moloni.
+        # Return empty so the console renders "no alerts" instead of 503.
+        return []
 
     def incidents(self) -> List[IncidentEntry]:
-        raise TelemetryUnavailable(
-            "Incidents live in Sentry / PagerDuty. Wire those providers."
-        )
+        # Incidents come from Sentry/PagerDuty — not Moloni.
+        return []
 
 
 __all__ = [

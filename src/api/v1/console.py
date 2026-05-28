@@ -37,6 +37,7 @@ from src.api.console_auth import (
     audit_action,
     require_sky_team,
     role_for,
+    role_for_grants,
 )
 from src.api.deps import get_db_session
 from src.models.internal_console import AuditAction, AuditResult
@@ -119,12 +120,14 @@ def _ip(request: Request) -> Optional[str]:
 
 
 @router.get("/me", response_model=ConsoleMeResponse, summary="Current Sky-team member")
-async def get_me(user: User = Depends(require_sky_team)) -> ConsoleMeResponse:
-    return ConsoleMeResponse(
-        email=user.email,
-        role=role_for(user),
-        is_sky_team=True,
-    )
+async def get_me(
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConsoleMeResponse:
+    # Derive role from DB grants first; fall back to env-var bootstrap
+    db_roles = await console_rbac.load_active_roles(db, user.email)
+    role = role_for_grants(db_roles) if db_roles else role_for(user)
+    return ConsoleMeResponse(email=user.email, role=role, is_sky_team=True)
 
 
 # ── Dashboard ──────────────────────────────────────────────────────
