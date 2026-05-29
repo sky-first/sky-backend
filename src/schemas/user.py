@@ -120,6 +120,10 @@ class UserResponse(UserBase):
     # guest and falls back to the regular paid-plan experience.
     is_demo: bool = False
     demo_expires_at: Optional[datetime] = None
+    # Sky-team operator flag. Exposed so the platform profile dropdown
+    # can show the "Console" entry only for engineers — keeping the
+    # operator surface invisible to customer users on the same UI.
+    is_sky_operator: bool = False
     created_at: datetime
     updated_at: datetime
 
