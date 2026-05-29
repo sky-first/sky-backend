@@ -348,7 +348,7 @@ class Settings(BaseSettings):
     DEMO_ENABLED: bool = False
     DEMO_TTL_DAYS: int = 7
     DEMO_RATE_LIMIT_PER_IP_PER_HOUR: int = 3
-    DEMO_MAX_AGENTS_PER_USER: int = 10  # matches demo seed (10 agents); delete to create new
+    DEMO_MAX_AGENTS_PER_USER: int = 10  # demo seeds 9 agents → 1 free slot so visitors can create one
     DEMO_DATASET_CONNECTION_ID: str = ""  # legacy single Connection UUID
     DEMO_DATASET_CONNECTION_IDS: str = ""  # CSV of Connection UUIDs (preferred — multi-schema demo)
     TURNSTILE_SECRET_KEY: str = ""  # Cloudflare Turnstile (free)
