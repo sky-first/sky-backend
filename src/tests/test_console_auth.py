@@ -127,10 +127,13 @@ def test_role_admin(monkeypatch):
     assert role_for(_user(email="lucas@skyfirstlabs.com")) == "admin"
 
 
-def test_role_operator(monkeypatch):
+def test_role_operator_resolves_to_support(monkeypatch):
+    # The ladder renamed ``operator`` → ``support`` (more meaningful in
+    # the customer-facing context); the env var name is kept for
+    # back-compat so old deployments do not break.
     monkeypatch.delenv("CONSOLE_ADMIN_EMAILS", raising=False)
     monkeypatch.setenv("CONSOLE_OPERATOR_EMAILS", "paulo@skyfirstlabs.com")
-    assert role_for(_user(email="paulo@skyfirstlabs.com")) == "operator"
+    assert role_for(_user(email="paulo@skyfirstlabs.com")) == "support"
 
 
 def test_role_default_read_only(monkeypatch):

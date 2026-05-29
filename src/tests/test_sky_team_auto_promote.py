@@ -92,10 +92,13 @@ class TestAutoPromoteSkyTeam:
             role="user",
             email_verified=True,
             is_sky_operator=True,
+            # Already has the sky_role seeded — auto-promote has nothing
+            # to do and must not touch the DB.
+            sky_role="admin",
         )
         await svc._auto_promote_sky_team(user)
-        # Still true and no redundant commit.
         assert user.is_sky_operator is True
+        assert user.sky_role == "admin"
         db.commit.assert_not_awaited()
 
 
