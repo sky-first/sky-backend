@@ -124,6 +124,11 @@ class UserResponse(UserBase):
     # can show the "Console" entry only for engineers — keeping the
     # operator surface invisible to customer users on the same UI.
     is_sky_operator: bool = False
+    # Sky-platform internal role (ceo / admin / support / read_only),
+    # null for customer users. Independent from ``role`` above, which
+    # is the tenant-side role. The Console UI displays this; the
+    # platform never reads it.
+    sky_role: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

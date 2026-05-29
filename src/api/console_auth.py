@@ -159,13 +159,30 @@ def _env_email_set(var: str) -> set[str]:
     return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
+SKY_ROLE_LADDER = ("ceo", "admin", "support", "read_only")
+
+
 def role_for(user: User) -> str:
+    """Resolve the operator's Console role.
+
+    Order of precedence:
+
+    1. ``users.sky_role`` if populated — this is the canonical field
+       and the only one the Console UI displays.
+    2. ``CONSOLE_ADMIN_EMAILS`` / ``CONSOLE_OPERATOR_EMAILS`` env CSV —
+       kept as an out-of-band override (deploy-time toggles) and for
+       fresh environments where the column is still empty.
+    3. ``read_only`` — safe floor so a new Sky-team account never
+       lands with elevated privilege.
+    """
+    sky_role = (getattr(user, "sky_role", None) or "").lower()
+    if sky_role in SKY_ROLE_LADDER:
+        return sky_role
     email = (user.email or "").lower()
     if email in _env_email_set(_ADMIN_EMAILS_ENV):
         return "admin"
     if email in _env_email_set(_OPERATOR_EMAILS_ENV):
-        return "operator"
-    # Default Sky-team member starts at the lowest permission floor.
+        return "support"
     return "read_only"
 
 

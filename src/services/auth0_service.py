@@ -180,18 +180,34 @@ class Auth0Service:
     async def _auto_promote_sky_team(self, user: User) -> None:
         """Flip ``is_sky_operator`` to true for an existing Sky-team user
         whose row was created before the column existed (or before they
-        appeared in the seed migration). Idempotent: no-op when already
-        true or when the email doesn't belong to the team."""
-        if getattr(user, "is_sky_operator", False):
+        appeared in the seed migration). Also seeds ``sky_role`` to
+        ``read_only`` so the Console has a non-null role to display —
+        elevation to ``admin`` / ``ceo`` happens through the
+        sky_role_<date> migration or an explicit Console update.
+        Idempotent: no-op when already true or when the email doesn't
+        belong to the team."""
+        promoted = False
+        if not getattr(user, "is_sky_operator", False) and self._is_sky_team_email(user.email):
+            user.is_sky_operator = True
+            promoted = True
+        if (
+            getattr(user, "is_sky_operator", False)
+            and not (getattr(user, "sky_role", None) or "").strip()
+        ):
+            # New Sky-team member starts at the lowest rung — CEO /
+            # Admin grants are applied out-of-band via migration or
+            # explicit UI action.
+            user.sky_role = "read_only"
+            promoted = True
+        if not promoted:
             return
-        if not self._is_sky_team_email(user.email):
-            return
-        user.is_sky_operator = True
         await self.db.commit()
         await self.db.refresh(user)
         logger.info(
-            "auto-promoted %s to is_sky_operator on Sky-team domain login",
+            "auto-promoted %s — is_sky_operator=%s sky_role=%s",
             user.email,
+            getattr(user, "is_sky_operator", False),
+            getattr(user, "sky_role", None),
         )
 
     async def create_user_from_auth0(

@@ -57,6 +57,13 @@ class User(Base):
 
     # Sky Support operator flag
     is_sky_operator = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Internal hierarchy on the Sky platform itself — ``ceo``, ``admin``,
+    # ``support`` or ``read_only``. Independent of ``role`` above, which
+    # is the tenant-side role (owner / admin / member of a customer
+    # workspace). Null for customer users; set only when
+    # ``is_sky_operator`` is True. The Console gates features by this
+    # value via :func:`src.api.console_auth.role_for`.
+    sky_role = Column(String(20), nullable=True)
 
     # Public demo guest (Cenário B). is_demo=true marks users provisioned
     # via /demo/signup; the cleanup cron uses demo_expires_at to decide
