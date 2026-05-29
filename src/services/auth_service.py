@@ -63,6 +63,13 @@ def user_to_response_dict(user: User) -> dict:
         "last_login_at": user.last_login_at,
         "last_active_at": user.last_active_at,
         "status": user.status or "offline",
+        # Sky-platform fields — passed through so SSO callback /
+        # password login responses don't strip the operator flag and
+        # internal role. Without this, the FE user-store hydrates
+        # without ``is_sky_operator`` and the platform profile dropdown
+        # silently hides the Console shortcut for engineers.
+        "is_sky_operator": bool(getattr(user, "is_sky_operator", False)),
+        "sky_role": getattr(user, "sky_role", None),
         "created_at": user.created_at,
         "updated_at": user.updated_at,
     }

@@ -159,7 +159,7 @@ def _env_email_set(var: str) -> set[str]:
     return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
-SKY_ROLE_LADDER = ("ceo", "admin", "support", "read_only")
+SKY_ROLE_LADDER = ("owner", "admin", "support", "read_only")
 
 
 def role_for(user: User) -> str:
