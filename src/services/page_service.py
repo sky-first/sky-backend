@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -137,6 +138,61 @@ class PageService:
             import logging
             logging.getLogger(__name__).warning(f"AI ingest failed for page {page.id}: {exc}")
 
+        return PageResponse.model_validate(page)
+
+    async def ensure_default_crew_page(self, crew_id: UUID, user: User) -> PageResponse:
+        """Return the crew's shared default page, creating it once if absent.
+
+        Every crew member converges on the SAME page id (the canonical,
+        oldest crew page) so the chat and widgets they collaborate on live
+        on one shared room. A Postgres advisory lock serialises concurrent
+        callers: two members entering an empty crew at the same instant
+        can't each create their own page — the per-user idempotency key
+        can't dedupe across different users, so this is the only safe
+        guard against the fork.
+        """
+        from src.repositories.crew import CrewMemberRepository, CrewRepository
+
+        crew = await CrewRepository(self.db).get_by_id(crew_id)
+        if not crew:
+            raise NotFoundError("Crew not found")
+        if user.role != "admin":
+            member = await CrewMemberRepository(self.db).get_by_crew_and_user(
+                crew_id, user.id
+            )
+            if not member:
+                raise ForbiddenError("You must be a member of this crew")
+
+        # Serialise concurrent ensures for this crew. Postgres-only; on the
+        # SQLite test DB advisory locks don't exist and the suite is
+        # single-threaded, so skipping the lock there is safe.
+        try:
+            if self.db.get_bind().dialect.name == "postgresql":
+                await self.db.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+                    {"k": f"crew_default_page:{crew_id}"},
+                )
+        except Exception:
+            pass
+
+        existing = await self.page_repo.get_default_crew_page(crew_id)
+        if existing is not None:
+            return PageResponse.model_validate(existing)
+
+        page = await self.page_repo.create(
+            name="Team Canvas",
+            description=None,
+            type="team",
+            color="#3b82f6",
+            icon=None,
+            owner_id=user.id,
+            crew_id=crew_id,
+            space_id=None,
+            is_active=False,
+        )
+        await self.member_repo.create(page_id=page.id, user_id=user.id, role="owner")
+        await self.db.commit()
+        await self.db.refresh(page)
         return PageResponse.model_validate(page)
 
     async def get_page(self, page_id: UUID, user: User) -> PageResponse:

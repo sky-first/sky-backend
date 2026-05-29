@@ -78,14 +78,30 @@ class ChatRelay:
         for uid, ws in dead:
             await self.disconnect(page_id, uid, ws)
 
-    async def listen(self, page_id: str, user_id: str, ws: WebSocket) -> None:
+    async def listen(
+        self,
+        page_id: str,
+        user_id: str,
+        ws: WebSocket,
+        ready: Optional[asyncio.Event] = None,
+    ) -> None:
         # In-memory relay has no separate listen loop — broadcast handles delivery
         # directly. This stub exists so the endpoint can use the same pattern for
-        # both relay implementations.
+        # both relay implementations. Nothing to subscribe, so signal ready now.
+        if ready is not None:
+            ready.set()
         try:
             await asyncio.Event().wait()  # sleep forever until cancelled
         except asyncio.CancelledError:
             pass
+
+    async def start_listener(
+        self, page_id: str, user_id: str, ws: WebSocket
+    ) -> "asyncio.Task[None]":
+        ready = asyncio.Event()
+        task = asyncio.create_task(self.listen(page_id, user_id, ws, ready))
+        await ready.wait()
+        return task
 
 
 # ─── Redis Pub/Sub relay (multi-process / production) ─────────────────────────
@@ -106,9 +122,20 @@ class RedisChatRelay:
         message = json.dumps({"type": event_type, "payload": payload}, default=str)
         await self._redis.publish(f"chat:{page_id}", message)
 
-    async def listen(self, page_id: str, user_id: str, ws: WebSocket) -> None:
+    async def listen(
+        self,
+        page_id: str,
+        user_id: str,
+        ws: WebSocket,
+        ready: Optional[asyncio.Event] = None,
+    ) -> None:
         pubsub = self._redis.pubsub()
-        await pubsub.subscribe(f"chat:{page_id}")
+        try:
+            await pubsub.subscribe(f"chat:{page_id}")
+        finally:
+            # Signal even on failure so start_listener never hangs.
+            if ready is not None:
+                ready.set()
         try:
             async for msg in pubsub.listen():
                 if msg["type"] == "message":
@@ -122,6 +149,17 @@ class RedisChatRelay:
                 await pubsub.aclose()
             except Exception:
                 pass
+
+    async def start_listener(
+        self, page_id: str, user_id: str, ws: WebSocket
+    ) -> "asyncio.Task[None]":
+        """Return only once the Redis subscription is live, so no event
+        published during the join window is missed (Pub/Sub has no buffer
+        for late subscribers)."""
+        ready = asyncio.Event()
+        task = asyncio.create_task(self.listen(page_id, user_id, ws, ready))
+        await ready.wait()
+        return task
 
 
 # ─── Module-level singleton — replaced at startup ─────────────────────────────
@@ -183,9 +221,9 @@ async def chat_ws(
 
     await chat_relay.connect(page_id, user_id, websocket)
 
-    listen_task = asyncio.create_task(
-        chat_relay.listen(page_id, user_id, websocket)
-    )
+    # Subscribe BEFORE the read loop so no event published during the join
+    # window is dropped (Redis Pub/Sub does not buffer for late subscribers).
+    listen_task = await chat_relay.start_listener(page_id, user_id, websocket)
     try:
         while True:
             await websocket.receive_text()
