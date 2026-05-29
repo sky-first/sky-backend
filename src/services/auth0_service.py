@@ -153,6 +153,7 @@ class Auth0Service:
 
         if user:
             logger.debug(f"✅ Found existing user with auth0_id: {auth0_id}")
+            await self._auto_promote_sky_team(user)
             return user
 
         # Try to find user by auth_provider_id
@@ -160,10 +161,38 @@ class Auth0Service:
             user = await self.user_repo.get_by_auth_provider_id(auth0_id, provider)
             if user:
                 logger.debug(f"✅ Found existing user with provider {provider} and id: {auth0_id}")
+                await self._auto_promote_sky_team(user)
                 return user
 
         logger.debug(f"ℹ️ No user found with auth0_id: {auth0_id}, provider: {provider}")
         return None
+
+    @staticmethod
+    def _is_sky_team_email(email: Optional[str]) -> bool:
+        """Sky engineering accounts live on the ``@skyfirstlabs.com`` Google
+        Workspace. Anyone who signs in with one of those emails is on the
+        team and gets ``is_sky_operator = true`` automatically on first
+        sign-in (or the next sign-in after the column was added)."""
+        if not email:
+            return False
+        return email.strip().lower().endswith("@skyfirstlabs.com")
+
+    async def _auto_promote_sky_team(self, user: User) -> None:
+        """Flip ``is_sky_operator`` to true for an existing Sky-team user
+        whose row was created before the column existed (or before they
+        appeared in the seed migration). Idempotent: no-op when already
+        true or when the email doesn't belong to the team."""
+        if getattr(user, "is_sky_operator", False):
+            return
+        if not self._is_sky_team_email(user.email):
+            return
+        user.is_sky_operator = True
+        await self.db.commit()
+        await self.db.refresh(user)
+        logger.info(
+            "auto-promoted %s to is_sky_operator on Sky-team domain login",
+            user.email,
+        )
 
     async def create_user_from_auth0(
         self,
@@ -207,6 +236,7 @@ class Auth0Service:
                 await self.db.commit()
                 await self.db.refresh(existing_user)
                 logger.info(f"✅ Linked Auth0 account to existing user: {email}")
+                await self._auto_promote_sky_team(existing_user)
                 return existing_user
             else:
                 raise BadRequestError("User with this email already exists")
@@ -255,6 +285,9 @@ class Auth0Service:
             auth_provider_id=provider_id or auth0_id,
             sso_metadata=sso_metadata,
             email_verified=True,  # SSO providers verify emails
+            # Sky-team Google Workspace emails are platform operators
+            # from day one — no out-of-band SQL needed.
+            is_sky_operator=self._is_sky_team_email(email),
         )
 
         await self.db.commit()
