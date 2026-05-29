@@ -91,14 +91,36 @@ class ConversationService:
     async def create(
         self, *, page_id: UUID, user: User, payload: ConversationCreate
     ) -> Conversation:
+        space_id = payload.space_id
+        crew_id = payload.crew_id
+        # Inherit the page's collaborative scope when the caller didn't
+        # pin one. A conversation created on a crew/space page IS the
+        # shared room's chat — it must be visible to every crew/space
+        # member, not a personal thread only its author can see. This
+        # makes scoping correct regardless of what the client sends.
+        if space_id is None and crew_id is None:
+            from src.repositories.page import PageRepository
+
+            page = await PageRepository(self.db).get_by_id(page_id)
+            if page is not None:
+                space_id = page.space_id
+                crew_id = page.crew_id
         conv = await self.repo.create(
             page_id=page_id,
             created_by=user.id,
-            space_id=payload.space_id,
-            crew_id=payload.crew_id,
+            space_id=space_id,
+            crew_id=crew_id,
         )
         await self.db.commit()
         await self.db.refresh(conv)
+        # Tell every peer on the page a new thread exists so it shows up
+        # live in their chat list — without this they'd only learn about
+        # it on the next poll / page navigation.
+        broadcast_event_nowait(
+            str(page_id),
+            "conversation.created",
+            ConversationResponse.model_validate(conv).model_dump(mode="json"),
+        )
         return conv
 
     async def get(self, conversation_id: UUID, user: User) -> Conversation:

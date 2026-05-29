@@ -123,6 +123,59 @@ async def test_create_crew_conversation_stores_crew_id(
     assert data["space_id"] == str(space.id)
 
 
+@pytest.mark.asyncio
+async def test_conversation_on_crew_page_inherits_crew_scope(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """A conversation created on a crew page WITHOUT an explicit scope must
+    inherit the page's crew_id — so it's the shared room's chat, visible to
+    every crew member, not a personal thread only its author can see."""
+    user = test_user_with_tokens["user"]
+    space = await create_space_with_member(db_session, user.id)
+    crew = await create_crew_with_member(db_session, space.id, user.id)
+    page = Page(
+        name="Team Canvas",
+        type="team",
+        color="#3b82f6",
+        owner_id=user.id,
+        crew_id=crew.id,
+    )
+    db_session.add(page)
+    await db_session.commit()
+    await db_session.refresh(page)
+    headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    # No crew_id/space_id in the body — the server inherits it from the page.
+    response = await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["crew_id"] == str(crew.id)
+
+
+@pytest.mark.asyncio
+async def test_ensure_default_crew_page_converges_members(db_session: AsyncSession):
+    """Two different crew members calling ensure_default_crew_page must get
+    the SAME page id (the shared room), not each their own fork."""
+    from src.services.page_service import PageService
+
+    owner = await create_user(db_session, "crew-owner-conv@example.com")
+    member = await create_user(db_session, "crew-member-conv@example.com")
+    space = await create_space_with_member(db_session, owner.id, member_id=member.id)
+    crew = await create_crew_with_member(
+        db_session, space.id, owner.id, member_id=member.id
+    )
+
+    svc = PageService(db_session)
+    first = await svc.ensure_default_crew_page(crew.id, owner)
+    second = await svc.ensure_default_crew_page(crew.id, member)
+
+    assert first.id == second.id
+    assert str(first.crew_id) == str(crew.id)
+
+
 # ─── A9: list + pagination ────────────────────────────────────────────────
 
 

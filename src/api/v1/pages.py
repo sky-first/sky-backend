@@ -137,6 +137,28 @@ async def create_page(
     return await page_service.create_page(current_user, page_data)
 
 
+@router.post(
+    "/crew/{crew_id}/default-page",
+    response_model=PageResponse,
+    status_code=status.HTTP_200_OK,
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    summary="Get or create the crew's shared default page",
+    description=(
+        "Returns the crew's canonical shared page, creating it once if none "
+        "exists. Idempotent across members so everyone converges on the same "
+        "page id (the shared collaborative room)."
+    ),
+)
+async def ensure_crew_default_page(
+    crew_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PageResponse:
+    await RBACService(db).assert_permission(current_user, "pages.view")
+    page_service = PageService(db)
+    return await page_service.ensure_default_crew_page(crew_id, current_user)
+
+
 @router.put(
     "/{page_id}",
     response_model=PageResponse,

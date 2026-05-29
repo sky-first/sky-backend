@@ -147,6 +147,20 @@ class PageRepository(BaseRepository[Page]):
                 seen[page.id] = page
         return list(seen.values())
 
+    async def get_default_crew_page(self, crew_id: UUID) -> Optional[Page]:
+        """Return the crew's canonical (oldest) live page, or None.
+
+        Used to converge every crew member on the SAME shared page id
+        instead of each one creating their own. Oldest-by-created_at is a
+        stable choice across members (unlike updated_at, which churns)."""
+        result = await self.db.execute(
+            select(Page)
+            .where(Page.crew_id == crew_id, Page.deleted_at.is_(None))
+            .order_by(Page.created_at.asc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
 
 class PageMemberRepository(BaseRepository[PageMember]):
     """Page member repository."""
