@@ -33,6 +33,18 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     if request.method == "OPTIONS":
         return cast(Response, await call_next(request))
 
+    # WebSocket endpoints pass the token as a query parameter (?token=...) because
+    # the browser WebSocket API cannot set custom headers. These handlers call
+    # verify_token() internally — let them through so the middleware doesn't try
+    # to return a JSONResponse on a WebSocket upgrade (which crashes with
+    # RuntimeError: No response returned).
+    ws_token_paths = [
+        "/api/v1/cursor/",
+        "/api/v1/ws/chat/",
+    ]
+    if any(request.url.path.startswith(p) for p in ws_token_paths):
+        return cast(Response, await call_next(request))
+
     # Skip auth for public endpoints
     public_paths = [
         "/health",

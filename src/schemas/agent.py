@@ -168,10 +168,19 @@ class AgentResponse(BaseModel):
 
 
 class AgentListResponse(BaseModel):
-    """Lightweight response — includes findings so Insight Cockpit can
-    populate without a per-agent round-trip. Prior to this change the
-    list endpoint returned agents with no findings, making the halo
-    and cockpit appear empty even when findings existed."""
+    """Lightweight response for list/mutation endpoints — agent metadata only.
+
+    Findings are NOT included here. The list endpoint (``GET /api/v1/agents/``)
+    deliberately does not eager-load ``Agent.findings`` to keep DB connection
+    pool usage bounded (see commit 46623cf: 62 concurrent list calls each
+    doing ``selectinload(findings)`` were exhausting the pool). Because the
+    relationship is async-lazy, leaving ``findings`` on this response triggered
+    a Pydantic ``get_attribute_error`` (MissingGreenlet) during serialization
+    of the un-loaded relationship → 500 to the client.
+
+    Callers that need findings should use ``GET /api/v1/agents/{agent_id}``
+    (``AgentResponse``), which goes through ``get_with_findings``.
+    """
     id: UUID
     name: str
     archetype: str
@@ -196,6 +205,5 @@ class AgentListResponse(BaseModel):
     cycles_consumed: int = 0
     auditable_only: bool = False
     created_at: datetime
-    findings: Optional[List[AgentFindingResponse]] = None
 
     model_config = ConfigDict(from_attributes=True)
