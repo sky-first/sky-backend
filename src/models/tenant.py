@@ -55,6 +55,17 @@ class TenantTier(str, Enum):
 # downstream code never has to ``.get("agents", 0)`` defensively.
 DEFAULT_CAPACITY_SHAPE = {"agents": 0, "sources": 0, "indexed_gb": 0}
 
+# Per-tenant authentication methods. Default mirrors the production
+# status quo (Google-only) so existing tenants keep working when the
+# column is added by the migration.
+DEFAULT_AUTH_METHODS = {
+    "password": False,
+    "google": True,
+    "azure": False,
+    "okta": False,
+}
+AUTH_METHOD_KEYS = ("password", "google", "azure", "okta")
+
 
 class Tenant(Base):
     """A customer workspace registered in the platform tenant registry.
@@ -115,6 +126,16 @@ class Tenant(Base):
     sso_provider = Column(String(50), nullable=False)
     sso_config = Column(_JSONB_OR_JSON, nullable=False, default=dict)
     sso_domain_restriction = Column(String(100), nullable=True)
+
+    # ── Auth methods (per-tenant gating) ─────────────────────────
+    # Drives what the /login page renders for this tenant. Shape:
+    # ``{"password": bool, "google": bool, "azure": bool, "okta": bool}``.
+    # At least one must be true — validated at the schema layer.
+    auth_methods = Column(
+        _JSONB_OR_JSON,
+        nullable=False,
+        default=lambda: dict(DEFAULT_AUTH_METHODS),
+    )
 
     # ── Branding ─────────────────────────────────────────────────
     custom_domain = Column(String(255), nullable=True)
