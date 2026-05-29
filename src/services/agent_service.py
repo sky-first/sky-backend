@@ -128,8 +128,11 @@ class AgentService:
         except Exception as exc:
             logger.warning(f"AI ingest failed or timed out for agent {agent.id}: {exc}")
 
-        # Re-fetch with findings so the response serialization (AgentListResponse)
-        # doesn't trigger a lazy-load MissingGreenlet error.
+        # Re-fetch with findings eagerly loaded. AgentListResponse no
+        # longer serializes findings (see schemas/agent.py), but other
+        # callers of the returned Agent (e.g. AI ingest hooks) may walk
+        # the relationship, and keeping it pre-loaded avoids surprise
+        # lazy-loads in the async session.
         return await self.repo.get_with_findings(agent.id)
 
     async def _require_can_mutate(self, agent: Agent, user: User, action: str = "agents.delete") -> None:
@@ -191,13 +194,11 @@ class AgentService:
         )
 
     async def update_agent(self, agent_id: UUID, data: AgentUpdate, user: User) -> Agent:
-        # Load with findings eager-loaded because the endpoint's
-        # response_model (AgentListResponse) now includes findings. Without
-        # eager load, response serialization triggers a lazy-load on the
-        # relationship inside FastAPI's async context, which blows up with
-        # MissingGreenlet after ~5s and surfaces as a generic 500
-        # "unexpected error" to the UI — exactly the bug the user hit on
-        # every Save.
+        # Load with findings eager-loaded. AgentListResponse no longer
+        # serializes findings (see schemas/agent.py), but keeping the
+        # relationship hydrated here is cheap for a single-agent fetch
+        # and shields any downstream code that might walk it inside the
+        # async session.
         agent = await self.repo.get_with_findings(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
