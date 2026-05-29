@@ -39,7 +39,11 @@ class AgentCreate(BaseModel):
     name: str = Field(..., max_length=255)
     archetype: AgentArchetype = AgentArchetype.CUSTOM
     scope: AgentScope = AgentScope.SPACE
-    scope_id: str = Field(..., max_length=255)
+    # Optional because the personal-mode wizard does not always have a
+    # scope_id at submission time. The service layer normalises personal
+    # agents to scope_id == user.id, so accepting None here keeps the
+    # invariant without forcing the FE to fabricate a placeholder.
+    scope_id: Optional[str] = Field(default=None, max_length=255)
     scope_name: Optional[str] = Field(None, max_length=255)
     monitor_type: str = Field("question", max_length=20)
     focus: Optional[str] = None  # The question or instructions

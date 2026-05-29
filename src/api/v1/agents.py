@@ -181,14 +181,31 @@ async def create_agent(
     Space agents. ``_assert_can_act_on_agent_scope`` enforces the
     "owner-or-platform-admin" rule for personal scope and the standard
     Space-RBAC for collaborative scopes.
+
+    For personal scope, the route used to compare the posted scope_id
+    to the caller's id and 403 on mismatch — but the FE wizard in modo
+    PERSONAL frequently posts an empty / placeholder value, which
+    blocked users from ever creating a personal agent. The route now
+    short-circuits the RBAC check for personal scope (it implicitly
+    targets the current user) and the service normalises scope_id
+    back to user.id before the row is written.
     """
-    await _assert_can_act_on_agent_scope(
-        db,
-        current_user,
-        scope=data.scope,
-        scope_id=data.scope_id,
-        permission="agents.create",
-    )
+    scope_str = (
+        data.scope.value if hasattr(data.scope, "value") else str(data.scope or "")
+    ).lower()
+    if scope_str != "personal":
+        if not data.scope_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"scope_id is required when scope={scope_str!r}",
+            )
+        await _assert_can_act_on_agent_scope(
+            db,
+            current_user,
+            scope=data.scope,
+            scope_id=data.scope_id,
+            permission="agents.create",
+        )
 
     # Demo guard: limit how many agents each user can create so token
     # consumption stays bounded. Platform owners/admins are exempt.

@@ -80,11 +80,23 @@ class AgentService:
         )
         now = datetime.now(timezone.utc)  # noqa: F841 — kept for future audit fields
 
+        # Personal mode invariant: a personal agent is owned by its creator.
+        # Lucas's QA found that the FE wizard sometimes posts an empty /
+        # placeholder scope_id when the user hasn't picked a Space (modo
+        # PERSONAL), which then trips both the route-level RBAC check (which
+        # compares scope_id to user.id) AND breaks downstream queries that
+        # use scope_id as the personal owner identity. Normalising here
+        # makes the creation path tolerant: scope=personal ALWAYS sets
+        # scope_id to the creator's id so the resulting row is internally
+        # consistent regardless of what the client posted.
+        scope_lower = (data.scope.value if hasattr(data.scope, "value") else str(data.scope)).lower()
+        resolved_scope_id = str(user_id) if scope_lower == "personal" else data.scope_id
+
         agent = Agent(
             name=data.name,
             archetype=data.archetype,
             scope=data.scope,
-            scope_id=data.scope_id,
+            scope_id=resolved_scope_id,
             scope_name=data.scope_name,
             status="active",
             monitor_type=data.monitor_type or "question",
