@@ -64,12 +64,19 @@ class AuthMethodsResponse(BaseModel):
     on entry so a tenant that allows only password sees an
     email/password form, and one that allows only Google sees the
     ``Continue with Google`` button.
+
+    ``show_demo`` is independent of the four auth methods. It controls
+    whether the public "Try the live demo" link appears below the
+    sign-in box. The Sky landing keeps it on by default so prospects
+    can try the product; a tenant created via the Console starts with
+    it off (the operator opts back in by ticking the checkbox).
     """
 
     password: bool = False
     google: bool = True
     azure: bool = False
     okta: bool = False
+    show_demo: bool = True
     tenant_slug: Optional[str] = None
 
 
@@ -101,32 +108,48 @@ async def _auth_methods_for_request(
        as it did before the column existed.
     """
     methods: Optional[dict] = None
+    feature_flags: Optional[dict] = None
     slug: Optional[str] = None
 
     ctx = getattr(request.state, "tenant", None) if hasattr(request, "state") else None
     if ctx is not None:
         slug = getattr(ctx, "slug", None)
         methods = getattr(ctx, "auth_methods", None)
+        feature_flags = getattr(ctx, "feature_flags", None)
 
     if methods is None:
         slug = slug or _slug_from_request(request)
         if slug:
             row = (
                 await db.execute(
-                    select(Tenant.auth_methods).where(Tenant.slug == slug)
+                    select(Tenant.auth_methods, Tenant.feature_flags).where(
+                        Tenant.slug == slug
+                    )
                 )
-            ).scalar_one_or_none()
+            ).one_or_none()
             if row is not None:
-                methods = dict(row)
+                methods = dict(row[0]) if row[0] else None
+                feature_flags = dict(row[1]) if row[1] else None
 
     if not methods:
         methods = dict(DEFAULT_AUTH_METHODS)
+
+    # Demo link policy:
+    # * No tenant resolved (bare Sky landing) → demo on by default.
+    # * Tenant resolved → off unless ``feature_flags.demo_enabled`` is true.
+    # Tenants opt back in via the "Show demo link" checkbox in the
+    # Console create-tenant form.
+    if slug is None:
+        show_demo = True
+    else:
+        show_demo = bool((feature_flags or {}).get("demo_enabled", False))
 
     return AuthMethodsResponse(
         password=bool(methods.get("password", False)),
         google=bool(methods.get("google", False)),
         azure=bool(methods.get("azure", False)),
         okta=bool(methods.get("okta", False)),
+        show_demo=show_demo,
         tenant_slug=slug,
     )
 

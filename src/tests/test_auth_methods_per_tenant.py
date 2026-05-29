@@ -70,7 +70,8 @@ class TestAuthMethodsEndpoint:
 
     @pytest.mark.asyncio
     async def test_default_when_no_host(self, async_client: AsyncClient) -> None:
-        """Bare hostname with no tenant resolvable: Google-only fallback."""
+        """Bare hostname with no tenant resolvable: Google-only fallback,
+        demo link on (Sky landing pitches prospects)."""
         resp = await async_client.get("/api/v1/auth/methods")
         assert resp.status_code == 200
         body = resp.json()
@@ -78,6 +79,7 @@ class TestAuthMethodsEndpoint:
         assert body["password"] is False
         assert body["azure"] is False
         assert body["okta"] is False
+        assert body["show_demo"] is True
         assert body["tenant_slug"] is None
 
     @pytest.mark.asyncio
@@ -136,6 +138,47 @@ class TestAuthMethodsEndpoint:
         assert body["password"] is True
         assert body["google"] is False
         assert body["tenant_slug"] == slug
+        # A tenant without ``feature_flags.demo_enabled`` set hides the
+        # demo link — the operator must opt back in explicitly.
+        assert body["show_demo"] is False
+
+    @pytest.mark.asyncio
+    async def test_resolved_tenant_with_demo_opt_in(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """Operator-set ``feature_flags.demo_enabled = true`` brings the
+        demo link back on for that tenant."""
+        slug = f"demoback{uuid.uuid4().hex[:6]}"
+        tenant = Tenant(
+            slug=slug,
+            display_name="Demo Enabled",
+            tier="pilot",
+            db_host="db.example.com",
+            db_name="ai_saas_db",
+            db_credentials_secret_arn="local-dev:t",
+            redis_host="redis.example.com",
+            redis_credentials_secret_arn="local-dev:t:redis",
+            sso_provider="google",
+            sso_config={},
+            feature_flags={"demo_enabled": True},
+            auth_methods={
+                "password": False,
+                "google": True,
+                "azure": False,
+                "okta": False,
+            },
+        )
+        db_session.add(tenant)
+        await db_session.commit()
+
+        resp = await async_client.get(
+            "/api/v1/auth/methods",
+            headers={"Host": f"workspace-{slug}.skyfirstlabs.com"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["show_demo"] is True
 
 
 # ── /auth/login gating ────────────────────────────────────────────────
