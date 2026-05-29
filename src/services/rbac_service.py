@@ -44,8 +44,25 @@ async def _is_sky_operator_without_jit(user: User, db: AsyncSession) -> bool:
 
     Checks the `support_sessions` table for an active (non-revoked, non-expired)
     session for this operator. If none found, they are blocked.
+
+    The JIT-consent gate only makes sense in multi-tenant mode. When
+    ``MULTI_TENANT_ENABLED`` is False the deployment is the Sky
+    platform itself (single tenant); operators are accessing their own
+    data, not a customer's, so requiring break-glass consent is just
+    self-imposed lock-out. The flip side is also implemented below:
+    once we route multi-tenant traffic, an operator accessing their
+    *home* tenant (the Sky platform DB itself) skips the gate too —
+    only cross-tenant access (debugging a customer's space) requires a
+    fresh ``support_sessions`` row.
     """
     if not getattr(user, "is_sky_operator", False):
+        return False
+
+    # Single-tenant deployment — JIT consent is not applicable. The
+    # operator IS the platform; there is no customer to revoke from.
+    from src.config.settings import settings
+
+    if not settings.MULTI_TENANT_ENABLED:
         return False
 
     # Check for active JIT session in the database

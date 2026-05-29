@@ -97,3 +97,50 @@ class TestAutoPromoteSkyTeam:
         # Still true and no redundant commit.
         assert user.is_sky_operator is True
         db.commit.assert_not_awaited()
+
+
+# ── JIT gate single-tenant exemption ──────────────────────────────────
+
+
+class TestSkyOperatorJITGateSingleTenant:
+    """In single-tenant deployments (``MULTI_TENANT_ENABLED = False``) the
+    Sky operator IS the platform, so the JIT consent gate must not
+    block them. The check should only fire when multi-tenant is on."""
+
+    @pytest.mark.asyncio
+    async def test_single_tenant_skips_jit(self, monkeypatch) -> None:
+        from src.config.settings import settings
+        from src.services.rbac_service import _is_sky_operator_without_jit
+
+        monkeypatch.setattr(settings, "MULTI_TENANT_ENABLED", False)
+        db = AsyncMock(spec=AsyncSession)
+        user = User(
+            email="lucas.ventura@skyfirstlabs.com",
+            password_hash="x",
+            name="Lucas",
+            role="user",
+            email_verified=True,
+            is_sky_operator=True,
+        )
+        # Operator with no support_sessions row at all is NOT blocked in
+        # single-tenant mode.
+        assert await _is_sky_operator_without_jit(user, db) is False
+        db.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_non_operator_never_blocked(self, monkeypatch) -> None:
+        from src.config.settings import settings
+        from src.services.rbac_service import _is_sky_operator_without_jit
+
+        # Multi-tenant on, but the caller is a regular customer user.
+        monkeypatch.setattr(settings, "MULTI_TENANT_ENABLED", True)
+        db = AsyncMock(spec=AsyncSession)
+        user = User(
+            email="customer@gbtsolutions.pt",
+            password_hash="x",
+            name="Customer",
+            role="user",
+            email_verified=True,
+            is_sky_operator=False,
+        )
+        assert await _is_sky_operator_without_jit(user, db) is False
