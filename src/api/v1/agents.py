@@ -46,6 +46,8 @@ def _extract_tables_from_sql(sql: str) -> List[str]:
 
 
 from src.schemas.agent import (
+    AddFindingToPageRequest,
+    AddFindingToPageResponse,
     AgentCreate,
     AgentFindingResponse,
     AgentListResponse,
@@ -1066,3 +1068,50 @@ async def dismiss_finding(
     """Dismiss a finding."""
     await RBACService(db).assert_permission(current_user, "agents.findings.dismiss")
     return await service.dismiss_finding(finding_id)
+
+
+@router.post(
+    "/{agent_id}/findings/{finding_id}/add-to-page",
+    response_model=AddFindingToPageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_finding_to_page(
+    agent_id: UUID,
+    finding_id: UUID,
+    payload: AddFindingToPageRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    service: AgentService = Depends(get_agent_service),
+):
+    """Materialise an agent finding as a Widget on the target page.
+
+    Before this endpoint existed the FE "Add to page" CTA fell back to
+    the generic POST /widgets endpoint with type='text', so charts and
+    KPIs were lost — only the description ended up on the page. This
+    endpoint reads the finding's viz_kind + rows and builds a typed
+    Widget (chart / kpi / table / insight) so the canvas renders the
+    same visualisation the user saw in the Cockpit. The agent's first
+    connection is propagated so the widget can refresh later.
+    """
+    # Permission: the caller must be allowed to act on the agent (so a
+    # crew/space agent can be added to a page by any member) and must
+    # be the page owner / member. We reuse the existing helpers rather
+    # than open-coding ACL here.
+    agent = await service.get_agent(agent_id)
+    await _assert_can_act_on_agent_scope(
+        db,
+        current_user,
+        scope=getattr(agent, "scope", None),
+        scope_id=getattr(agent, "scope_id", None),
+        permission="agents.findings.view",
+    )
+
+    result = await service.add_finding_to_page(
+        agent_id=agent_id,
+        finding_id=finding_id,
+        page_id=payload.page_id,
+        user=current_user,
+        position=payload.position,
+        size=payload.size,
+    )
+    return AddFindingToPageResponse(**result)

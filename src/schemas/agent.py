@@ -171,6 +171,30 @@ class AgentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AddFindingToPageRequest(BaseModel):
+    """Payload for POST /agents/{agent_id}/findings/{finding_id}/add-to-page.
+
+    The finding is materialised as a Widget on the target page. The
+    server picks the widget ``type`` from ``finding.viz_kind`` (see
+    `_viz_kind_to_widget_type` in agent_service); the caller optionally
+    pins position/size, otherwise defaults are applied.
+    """
+
+    page_id: UUID
+    position: Optional[Dict[str, float]] = None
+    size: Optional[Dict[str, float]] = None
+
+
+class AddFindingToPageResponse(BaseModel):
+    """Response after materialising a finding on a page — returns the
+    new Widget id so the FE can navigate / scroll to it."""
+
+    widget_id: UUID
+    page_id: UUID
+    finding_id: UUID
+    widget_type: str
+
+
 class AgentListResponse(BaseModel):
     """Lightweight response — includes findings so Insight Cockpit can
     populate without a per-agent round-trip. Prior to this change the
