@@ -39,7 +39,7 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user, get_db_session
+from src.api.deps import get_current_user, get_db_session  # noqa: F401
 from src.config.settings import settings
 from src.models.internal_console import (
     AuditAction,
@@ -78,6 +78,7 @@ def is_sky_team_member(user: User) -> bool:
 
 async def require_sky_team(
     request: Request,
+    db: AsyncSession = Depends(get_db_session),
 ) -> User:
     """FastAPI dependency. Returns the user when allowed, else raises 403.
 
@@ -86,11 +87,18 @@ async def require_sky_team(
     user just for the purpose of returning ``/me`` and recording the
     audit log. Production never enters this branch because
     ``_dev_bypass_enabled`` refuses to take effect there.
+
+    Implementation note: ``get_current_user`` is *not* a normal Depends
+    here — calling it directly leaves its own ``Depends(get_db_session)``
+    default unresolved, the user-repo lookup then explodes silently and
+    the catch-all below masked it as "no user found" → 401. We resolve
+    ``db`` ourselves and pass it through. The Console has been silently
+    broken since the dependency was first written; this is the fix.
     """
     user: Optional[User] = None
     try:
         # Re-use the regular auth flow when a token is present.
-        user = await get_current_user(request=request)
+        user = await get_current_user(request=request, credentials=None, db=db)
     except HTTPException:
         user = None
     except Exception:  # noqa: BLE001

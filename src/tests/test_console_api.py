@@ -297,10 +297,11 @@ def test_anonymous_is_401(client, monkeypatch):
 def test_non_sky_team_is_403(client, monkeypatch):
     """An authenticated user that isn't on the Sky-team gets 403.
 
-    ``require_sky_team`` calls ``get_current_user(request=request)``
-    directly rather than via ``Depends`` so the FastAPI override hook
-    does not apply — we patch the symbol that ``console_auth`` actually
-    imports instead.
+    ``require_sky_team`` calls ``get_current_user`` directly rather
+    than via ``Depends`` so the FastAPI override hook does not apply —
+    we patch the symbol that ``console_auth`` actually imports instead.
+    The fake accepts the new kwargs (``credentials`` + ``db``) that the
+    fix-of-2026-05-29 passes through.
     """
     monkeypatch.delenv("CONSOLE_DEV_BYPASS", raising=False)
     monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
@@ -315,7 +316,7 @@ def test_non_sky_team_is_403(client, monkeypatch):
         is_sky_operator=False,
     )
 
-    async def _fake_get_current_user(request):
+    async def _fake_get_current_user(request, credentials=None, db=None):
         return outsider
 
     from src.api import console_auth as _ca
