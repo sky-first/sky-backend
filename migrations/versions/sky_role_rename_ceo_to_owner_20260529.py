@@ -22,7 +22,15 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "sky_role_rename_ceo_to_owner_20260529"
-down_revision = "provisioning_events_20260529"
+# down_revision originally pointed at ``provisioning_events_20260529``,
+# which lives on an unmerged feature branch. Alembic couldn't resolve
+# the chain on staging and silently refused to apply this migration —
+# Lucas surfaced the bug when /me kept returning ``sky_role: "ceo"``
+# after the rename was supposedly shipped. Pointing back at
+# ``sky_role_20260529`` (the actual staging head when this migration
+# landed) makes the chain solvable and lets alembic finally apply
+# the UPDATE on the next pod start.
+down_revision = "sky_role_20260529"
 branch_labels = None
 depends_on = None
 
