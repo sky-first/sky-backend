@@ -17,9 +17,14 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.models.tenant import DEFAULT_CAPACITY_SHAPE, TenantTier
+from src.models.tenant import (
+    AUTH_METHOD_KEYS,
+    DEFAULT_AUTH_METHODS,
+    DEFAULT_CAPACITY_SHAPE,
+    TenantTier,
+)
 
 
 # ``^[a-z0-9-]{2,50}$`` — same shape enforced by the Postgres CHECK
@@ -38,6 +43,28 @@ class CapacityDimensions(BaseModel):
     agents: int = Field(0, ge=0)
     sources: int = Field(0, ge=0)
     indexed_gb: int = Field(0, ge=0)
+
+
+class AuthMethods(BaseModel):
+    """Per-tenant authentication methods.
+
+    Drives what the ``/login`` page renders and which auth endpoints the
+    backend accepts for this tenant. At least one method must be enabled
+    — a tenant with all four false would have no way to sign in.
+    """
+
+    password: bool = False
+    google: bool = False
+    azure: bool = False
+    okta: bool = False
+
+    @model_validator(mode="after")
+    def _at_least_one_enabled(self) -> "AuthMethods":
+        if not any(getattr(self, k) for k in AUTH_METHOD_KEYS):
+            raise ValueError(
+                "At least one authentication method must be enabled"
+            )
+        return self
 
 
 class TenantBase(BaseModel):
@@ -62,6 +89,9 @@ class TenantBase(BaseModel):
     feature_flags: Dict[str, Any] = Field(default_factory=dict)
     capacity_limits: CapacityDimensions = Field(
         default_factory=lambda: CapacityDimensions(**DEFAULT_CAPACITY_SHAPE)
+    )
+    auth_methods: AuthMethods = Field(
+        default_factory=lambda: AuthMethods(**DEFAULT_AUTH_METHODS)
     )
 
 
@@ -97,6 +127,7 @@ class TenantUpdate(BaseModel):
     custom_domain: Optional[str] = Field(None, max_length=255)
     feature_flags: Optional[Dict[str, Any]] = None
     capacity_limits: Optional[CapacityDimensions] = None
+    auth_methods: Optional[AuthMethods] = None
 
     @field_validator("suspended_at")
     @classmethod

@@ -1,11 +1,14 @@
 """Authentication endpoints."""
 
+import re
 from typing import List, Optional
 from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import (  # get_current_user usado em outros endpoints
@@ -14,6 +17,7 @@ from src.api.deps import (  # get_current_user usado em outros endpoints
 )
 from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError, ForbiddenError
+from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.permission import EffectivePermissionsResponse
@@ -41,6 +45,90 @@ from src.services.invite_service import InviteService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
+
+
+# ── Per-tenant auth methods helpers ───────────────────────────────────
+# Subdomain shape: ``workspace-<slug>[-stg].<domain>``. The slug is the
+# only thing we trust from the host header, and the regex below has to
+# match the one in ``src/api/middleware/tenant_resolver.py`` so the two
+# paths agree on which slug to look up.
+_AUTH_SUBDOMAIN_RE = re.compile(
+    r"^(?:workspace|api)-([a-z0-9-]{2,50}?)(?:-stg)?\."
+)
+
+
+class AuthMethodsResponse(BaseModel):
+    """Public shape returned by ``GET /auth/methods``.
+
+    Drives what the ``/login`` page renders. The frontend mounts this
+    on entry so a tenant that allows only password sees an
+    email/password form, and one that allows only Google sees the
+    ``Continue with Google`` button.
+    """
+
+    password: bool = False
+    google: bool = True
+    azure: bool = False
+    okta: bool = False
+    tenant_slug: Optional[str] = None
+
+
+def _slug_from_request(request: Request) -> Optional[str]:
+    host_header = request.headers.get("host")
+    if not host_header:
+        return None
+    host = host_header.split(":", 1)[0].lower()
+    m = _AUTH_SUBDOMAIN_RE.match(host)
+    if not m:
+        return None
+    return m.group(1)
+
+
+async def _auth_methods_for_request(
+    request: Request, db: AsyncSession
+) -> AuthMethodsResponse:
+    """Resolve the tenant for the request and return its auth methods.
+
+    Resolution order:
+
+    1. ``request.state.tenant`` if the tenant resolver middleware
+       populated it. Cheapest path — no DB round-trip.
+    2. Slug parsed from the ``Host`` header. We then look up
+       ``tenant_registry`` directly so this works even when the
+       middleware feature flag is off.
+    3. Nothing resolvable → fall back to ``DEFAULT_AUTH_METHODS``
+       (Google-only) so the platform's bare hostname keeps working
+       as it did before the column existed.
+    """
+    methods: Optional[dict] = None
+    slug: Optional[str] = None
+
+    ctx = getattr(request.state, "tenant", None) if hasattr(request, "state") else None
+    if ctx is not None:
+        slug = getattr(ctx, "slug", None)
+        methods = getattr(ctx, "auth_methods", None)
+
+    if methods is None:
+        slug = slug or _slug_from_request(request)
+        if slug:
+            row = (
+                await db.execute(
+                    select(Tenant.auth_methods).where(Tenant.slug == slug)
+                )
+            ).scalar_one_or_none()
+            if row is not None:
+                methods = dict(row)
+
+    if not methods:
+        methods = dict(DEFAULT_AUTH_METHODS)
+
+    return AuthMethodsResponse(
+        password=bool(methods.get("password", False)),
+        google=bool(methods.get("google", False)),
+        azure=bool(methods.get("azure", False)),
+        okta=bool(methods.get("okta", False)),
+        tenant_slug=slug,
+    )
 
 
 @router.post(
@@ -75,17 +163,48 @@ async def login(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
-    """
-    Login endpoint.
+    """Email + password login, gated per tenant.
 
-    Args:
-        login_data: Login credentials
-        db: Database session
-
-    Returns:
-        LoginResponse: Access token, refresh token, and user data
+    A tenant with ``auth_methods.password == false`` (the production
+    default) rejects with 403 just like before. Pilot/starter tenants
+    that need a quick way to onboard users without setting up SSO can
+    flip the flag in the Internal Console; the handler then runs the
+    standard credential check.
     """
-    raise ForbiddenError("Password login is disabled. Please sign in with your company account via SSO.")
+    methods = await _auth_methods_for_request(request, db)
+    if not methods.password:
+        raise ForbiddenError(
+            "Password login is disabled for this workspace. "
+            "Please sign in with your company SSO."
+        )
+
+    auth_service = AuthenticationService(db)
+    user_agent = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+    return await auth_service.login(
+        email=login_data.email,
+        password=login_data.password,
+        user_agent=user_agent,
+        ip_address=ip_address,
+        background_tasks=background_tasks,
+    )
+
+
+@router.get(
+    "/methods",
+    response_model=AuthMethodsResponse,
+    summary="Authentication methods enabled for this workspace",
+    description=(
+        "Returns the auth methods enabled for the tenant resolved from "
+        "the Host header. The login page mounts this and renders only "
+        "the methods set to true."
+    ),
+)
+async def get_auth_methods(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+) -> AuthMethodsResponse:
+    return await _auth_methods_for_request(request, db)
 
 
 @router.post(

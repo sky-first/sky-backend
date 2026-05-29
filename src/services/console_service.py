@@ -181,6 +181,8 @@ async def create_tenant(
         feature_flags=body["feature_flags"],
         capacity_limits=body["capacity_limits"] if isinstance(body["capacity_limits"], dict)
         else body["capacity_limits"].model_dump(),
+        auth_methods=body["auth_methods"] if isinstance(body["auth_methods"], dict)
+        else body["auth_methods"].model_dump(),
     )
     db.add(tenant)
     try:
@@ -233,6 +235,8 @@ async def update_tenant(
         if key == "tier" and hasattr(value, "value"):
             value = value.value
         if key == "capacity_limits" and not isinstance(value, dict) and value is not None:
+            value = value.model_dump()
+        if key == "auth_methods" and not isinstance(value, dict) and value is not None:
             value = value.model_dump()
         setattr(row, key, value)
     await db.flush()
