@@ -56,8 +56,8 @@ class TestRoleFor:
     def test_db_sky_role_wins_over_env(self, monkeypatch) -> None:
         # Env says admin; DB column wins with ceo.
         monkeypatch.setenv("CONSOLE_ADMIN_EMAILS", "lucas.ventura@skyfirstlabs.com")
-        u = _user(email="lucas.ventura@skyfirstlabs.com", sky_role="ceo")
-        assert role_for(u) == "ceo"
+        u = _user(email="lucas.ventura@skyfirstlabs.com", sky_role="owner")
+        assert role_for(u) == "owner"
 
     def test_env_admin_fallback_when_column_empty(self, monkeypatch) -> None:
         monkeypatch.setenv("CONSOLE_ADMIN_EMAILS", "gustavo@skyfirstlabs.com")
@@ -107,9 +107,9 @@ class TestAutoPromoteSetsSkyRole:
     async def test_existing_ceo_is_not_demoted(self) -> None:
         db = AsyncMock(spec=AsyncSession)
         svc = self._svc(db)
-        u = _user(email="lucas.ventura@skyfirstlabs.com", is_sky_operator=True, sky_role="ceo")
+        u = _user(email="lucas.ventura@skyfirstlabs.com", is_sky_operator=True, sky_role="owner")
         await svc._auto_promote_sky_team(u)
-        assert u.sky_role == "ceo"
+        assert u.sky_role == "owner"
         db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -130,7 +130,7 @@ class TestUserResponseSurfacesSkyRole:
         assert body["sky_role"] is None
 
     def test_propagates_ceo(self) -> None:
-        u = _user(email="lucas.ventura@skyfirstlabs.com", is_sky_operator=True, sky_role="ceo")
+        u = _user(email="lucas.ventura@skyfirstlabs.com", is_sky_operator=True, sky_role="owner")
         body = UserResponse.model_validate(u).model_dump()
-        assert body["sky_role"] == "ceo"
+        assert body["sky_role"] == "owner"
         assert body["is_sky_operator"] is True

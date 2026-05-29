@@ -42,6 +42,11 @@ def upgrade() -> None:
         )
         cols = cols | {"sky_role"}
 
+    # NOTE 2026-05-29: ``ceo`` was the original seed label here; the
+    # follow-up rename migration ``sky_role_rename_ceo_to_owner_…``
+    # turns any lingering ``ceo`` rows into ``owner``. Updating this
+    # script in-place would risk a re-run on an already-upgraded DB,
+    # so we leave the historical seed alone and rely on the rename.
     op.execute(
         sa.text(
             "UPDATE users "
