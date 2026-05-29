@@ -11,9 +11,16 @@ The rename also avoids the surprise of seeing a job title rendered as
 a security level in the sidebar — a single individual can have any
 title; the platform should not pretend otherwise.
 
-Revision ID: sky_role_rename_ceo_to_owner_20260529
-Revises: provisioning_events_20260529
+Revision ID: sky_role_owner_20260529
+Revises: sky_role_20260529
 Create Date: 2026-05-29
+
+The revision identifier was deliberately shortened to ``sky_role_owner_20260529``
+(23 chars) — the cluster's ``alembic_version_be.version_num`` column is
+``character varying(32)``, and the original
+``sky_role_rename_ceo_to_owner_20260529`` (38 chars) blew up the migrate Job
+with ``StringDataRightTruncation`` mid-upgrade. Lucas surfaced this when the
+post-#459 deploy still couldn't promote the alembic head past the rename.
 """
 
 from __future__ import annotations
@@ -21,7 +28,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "sky_role_rename_ceo_to_owner_20260529"
+revision = "sky_role_owner_20260529"
 # down_revision originally pointed at ``provisioning_events_20260529``,
 # which lives on an unmerged feature branch. Alembic couldn't resolve
 # the chain on staging and silently refused to apply this migration —
