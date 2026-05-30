@@ -37,7 +37,7 @@ def _service_with_tenant(auth_methods: dict | None) -> UserService:
 async def test_password_allowed_passes_silently(monkeypatch):
     svc = _service_with_tenant({"password": True, "google": True})
     monkeypatch.setattr(
-        "src.core.tenant_context.get_current_tenant_context",
+        "src.core.tenant_context.current_tenant",
         lambda: MagicMock(slug="alpha"),
     )
     # Should NOT raise.
@@ -48,7 +48,7 @@ async def test_password_allowed_passes_silently(monkeypatch):
 async def test_password_disabled_raises_sso_only_message(monkeypatch):
     svc = _service_with_tenant({"password": False, "google": True})
     monkeypatch.setattr(
-        "src.core.tenant_context.get_current_tenant_context",
+        "src.core.tenant_context.current_tenant",
         lambda: MagicMock(slug="alpha"),
     )
     with pytest.raises(BadRequestError) as info:
@@ -64,7 +64,7 @@ async def test_default_methods_floor_blocks_when_no_tenant(monkeypatch):
     svc = UserService.__new__(UserService)
     svc.db = MagicMock()
     monkeypatch.setattr(
-        "src.core.tenant_context.get_current_tenant_context",
+        "src.core.tenant_context.current_tenant",
         lambda: None,
     )
     with pytest.raises(BadRequestError):
@@ -81,7 +81,7 @@ async def test_get_current_tenant_context_raising_does_not_crash(monkeypatch):
     def _raise() -> None:
         raise RuntimeError("no context set")
     monkeypatch.setattr(
-        "src.core.tenant_context.get_current_tenant_context", _raise
+        "src.core.tenant_context.current_tenant", _raise
     )
     with pytest.raises(BadRequestError):
         await svc._assert_password_invite_allowed()

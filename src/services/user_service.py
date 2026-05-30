@@ -95,12 +95,12 @@ class UserService:
         """
         from sqlalchemy import select
 
-        from src.core.tenant_context import get_current_tenant_context
+        from src.core.tenant_context import current_tenant
         from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
 
         password_enabled = bool(DEFAULT_AUTH_METHODS.get("password", False))
         try:
-            ctx = get_current_tenant_context()
+            ctx = current_tenant()
         except Exception:
             ctx = None
         tenant_slug = getattr(ctx, "slug", None) if ctx else None
