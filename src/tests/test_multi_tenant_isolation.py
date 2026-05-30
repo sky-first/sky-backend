@@ -200,6 +200,12 @@ _ALLOWED_REFS = {
     # swaps this for per-tenant accounting when source tables grow
     # ``tenant_id`` columns.
     str((_SRC_ROOT / "workers" / "pricing_worker.py").resolve()),
+    # Provisioning Workflow (PR #476) — Celery task dispatches GitHub
+    # Actions runs against the platform-level ``provisioning_jobs`` row,
+    # which lives in the Console DB. The worker also persists per-event
+    # bookkeeping (``external_run_id`` / ``external_run_url``) outside
+    # any tenant context, so it stays on the platform pool.
+    str((_SRC_ROOT / "workers" / "provisioning_worker.py").resolve()),
 }
 
 _ASYNC_LOCAL_NAME = "AsyncSessionLocal"
@@ -282,7 +288,7 @@ def test_raw_async_session_local_instantiation_baseline():
     # checked-in code. Phase 3-4 PRs reduce this; the test fails
     # loudly if a new direct call lands. Bumping the number UP
     # requires touching this baseline deliberately.
-    BASELINE = 21  # bumped 2026-05-30 — pricing_worker.py needs platform-wide pool
+    BASELINE = 22  # bumped 2026-05-30 — provisioning_worker.py joins the allowlist
     assert count <= BASELINE, (
         f"Raw AsyncSessionLocal() count grew from {BASELINE} to {count}. "
         f"New callers should use TenantConnectionManager.session_for()."
