@@ -60,6 +60,8 @@ class AuditAction(str, Enum):
     DESTROY_TENANT = "destroy_tenant"
     CHANGE_TIER = "change_tier"
     UPDATE_CAPACITY = "update_capacity"
+    UPDATE_DB_CONFIG = "update_db_config"
+    TEST_DB_CONFIG = "test_db_config"
     # writes — auth / RBAC
     GRANT_ROLE = "grant_role"
     REVOKE_ROLE = "revoke_role"
@@ -145,7 +147,8 @@ class InternalConsoleAudit(Base):
             "action IN ('view_tenant', 'view_audit', 'view_dashboard', "
             "'create_tenant', 'update_tenant', 'suspend_tenant', "
             "'resume_tenant', 'destroy_tenant', 'change_tier', "
-            "'update_capacity', 'grant_role', 'revoke_role')",
+            "'update_capacity', 'update_db_config', 'test_db_config', "
+            "'grant_role', 'revoke_role')",
             name="internal_console_audit_action_check",
         ),
         CheckConstraint(

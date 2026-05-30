@@ -454,6 +454,93 @@ class UpdateCapacityLimitsRequest(BaseModel):
     indexed_gb: int = Field(..., ge=0)
 
 
+# ── Tenant DB / Redis connection config (Console, GBT deploy) ──────
+#
+# Operators on the Sky team use these schemas to point a tenant at the
+# right per-tenant Postgres / Redis pair. Until this lives in the
+# Console, the only way to fix a tenant's connection details is a
+# direct SQL UPDATE against ``tenant_registry`` — risky and unaudited.
+
+_DB_HOST_REGEX = (
+    r"^("
+    r"(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}"
+    r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
+    r"|"
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)"
+    r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*"
+    r")$"
+)
+
+_SECRET_ARN_REGEX = r"^arn:aws:secretsmanager:[a-z0-9-]+:\d{12}:secret:.+$"
+
+
+class TenantDbConfigUpdate(BaseModel):
+    """Partial update for a tenant's data-plane connection details.
+
+    Every field is optional — the operator may patch one column at a
+    time. The handler refuses an empty payload to avoid a no-op
+    audit entry.
+    """
+
+    db_host: Optional[str] = Field(
+        None, max_length=255, pattern=_DB_HOST_REGEX,
+        description="DNS hostname or IPv4 address of the tenant's Postgres.",
+    )
+    db_port: Optional[int] = Field(
+        None, ge=1, le=65535,
+        description="TCP port — defaults to 5432 when unset.",
+    )
+    db_name: Optional[str] = Field(
+        None, max_length=63,
+        description="Postgres database name.",
+    )
+    db_credentials_secret_arn: Optional[str] = Field(
+        None, max_length=512, pattern=_SECRET_ARN_REGEX,
+        description="AWS Secrets Manager ARN with {username, password}.",
+    )
+    redis_host: Optional[str] = Field(
+        None, max_length=255, pattern=_DB_HOST_REGEX,
+        description="DNS hostname or IPv4 address of the tenant's Redis.",
+    )
+    redis_credentials_secret_arn: Optional[str] = Field(
+        None, max_length=512, pattern=_SECRET_ARN_REGEX,
+        description="AWS Secrets Manager ARN with the Redis AUTH token.",
+    )
+
+
+class TenantDbConfigRead(BaseModel):
+    """The 6 connection fields as currently stored on the registry row.
+
+    Secret ARNs are not masked here — the operator who authenticated
+    as a sky-team member is allowed to see them. The audit log
+    persists only a 30-char prefix.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    db_host: str
+    db_port: int
+    db_name: str
+    db_credentials_secret_arn: str
+    redis_host: str
+    redis_credentials_secret_arn: str
+
+
+class TenantDbConfigTestResult(BaseModel):
+    """Outcome of ``POST /tenants/{slug}/db-config/test``.
+
+    ``ok=true`` → the resolver could open a session and run
+    ``SELECT 1``. ``ok=false`` → connection refused / auth failure;
+    ``error`` carries the human-readable reason. Nothing is persisted.
+    """
+
+    ok: bool
+    latency_ms: Optional[int] = None
+    error: Optional[str] = None
+    target_host: Optional[str] = None
+    target_db: Optional[str] = None
+
+
 # ── CSM notes (It3 — B#17) ─────────────────────────────────────────
 
 
