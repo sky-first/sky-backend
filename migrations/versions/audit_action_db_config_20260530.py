@@ -24,7 +24,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "audit_action_db_config_20260530"
-down_revision = "provisioning_events_20260530"
+down_revision = "tenant_llm_daily_snapshots_20260530"
 branch_labels = None
 depends_on = None
 
