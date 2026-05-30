@@ -14,7 +14,7 @@ from src.config.tenant_connection_manager import (
 from src.core.tenant_context import DEFAULT_TENANT_CONTEXT, TenantContext
 
 
-def _tenant(slug: str = "gbt", tier: str = "pilot", **extra) -> TenantContext:
+def _tenant(slug: str = "gbt", tier: str = "starter", **extra) -> TenantContext:
     defaults = dict(
         slug=slug,
         id=uuid.uuid4(),
@@ -107,7 +107,7 @@ def test_pool_sizing_per_tier(tier, expected):
 
 
 @pytest.mark.parametrize(
-    "tier", ["pilot", "foundation", "core", "advanced", "strategic"]
+    "tier", ["starter", "foundation", "core", "advanced", "strategic"]
 )
 @pytest.mark.asyncio
 async def test_each_tier_builds_a_pool(monkeypatch, tier):

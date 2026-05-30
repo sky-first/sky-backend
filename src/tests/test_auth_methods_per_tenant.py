@@ -110,7 +110,7 @@ class TestAuthMethodsEndpoint:
         tenant = Tenant(
             slug=slug,
             display_name="Password Pilot",
-            tier="pilot",
+            tier="starter",
             db_host="db.example.com",
             db_name="ai_saas_db",
             db_credentials_secret_arn="local-dev:t",
@@ -154,7 +154,7 @@ class TestAuthMethodsEndpoint:
         tenant = Tenant(
             slug=slug,
             display_name="Demo Enabled",
-            tier="pilot",
+            tier="starter",
             db_host="db.example.com",
             db_name="ai_saas_db",
             db_credentials_secret_arn="local-dev:t",
@@ -200,7 +200,7 @@ class TestLoginPerTenantAuthMethods:
         tenant = Tenant(
             slug=slug,
             display_name="SSO Only",
-            tier="pilot",
+            tier="starter",
             db_host="db.example.com",
             db_name="ai_saas_db",
             db_credentials_secret_arn="local-dev:t",
@@ -240,7 +240,7 @@ class TestLoginPerTenantAuthMethods:
         tenant = Tenant(
             slug=slug,
             display_name="Password Pilot",
-            tier="pilot",
+            tier="starter",
             db_host="db.example.com",
             db_name="ai_saas_db",
             db_credentials_secret_arn="local-dev:t",
@@ -284,7 +284,7 @@ class TestLoginPerTenantAuthMethods:
         tenant = Tenant(
             slug=slug,
             display_name="Password Pilot",
-            tier="pilot",
+            tier="starter",
             db_host="db.example.com",
             db_name="ai_saas_db",
             db_credentials_secret_arn="local-dev:t",

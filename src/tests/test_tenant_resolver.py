@@ -53,7 +53,7 @@ def _persist_tenant(session, **overrides):
     base = dict(
         slug="gbt",
         display_name="GBT S.A.",
-        tier="pilot",
+        tier="starter",
         db_host="postgres-gbt.tenant-data-gbt.svc.cluster.local",
         db_port=5432,
         db_name="gbt",
@@ -189,7 +189,7 @@ async def test_resolver_loads_from_registry(monkeypatch, db_session):
     assert bad is None
     assert ctx.slug == "gbt"
     assert ctx.is_default is False
-    assert ctx.tier == "pilot"
+    assert ctx.tier == "starter"
 
 
 @pytest.mark.asyncio
@@ -297,7 +297,7 @@ def test_set_and_reset_current_tenant():
     ctx = TenantContext(
         slug="x",
         id=uuid.uuid4(),
-        tier="pilot",
+        tier="starter",
         display_name="X",
     )
     token = set_current_tenant(ctx)

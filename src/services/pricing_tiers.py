@@ -63,9 +63,9 @@ class TierPreset:
 
 # Order matters — UIs iterate in this sequence (cheapest first).
 TIER_REGISTRY: Dict[str, TierPreset] = {
-    "pilot": TierPreset(
-        slug="pilot",
-        display_name="Pilot",
+    "starter": TierPreset(
+        slug="starter",
+        display_name="Starter",
         headline_price_eur=15_000,
         setup_fee_eur=0,
         pricing_unit="12 months",

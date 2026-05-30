@@ -74,10 +74,10 @@ async def two_tenants() -> Iterator[Tuple[TenantContext, AsyncSession, TenantCon
             await conn.run_sync(Base.metadata.create_all)
 
     ctx_a = TenantContext(
-        slug="alpha", id=uuid.uuid4(), tier="pilot", display_name="Alpha"
+        slug="alpha", id=uuid.uuid4(), tier="starter", display_name="Alpha"
     )
     ctx_b = TenantContext(
-        slug="beta", id=uuid.uuid4(), tier="pilot", display_name="Beta"
+        slug="beta", id=uuid.uuid4(), tier="starter", display_name="Beta"
     )
 
     session_a = maker_a()
@@ -98,7 +98,7 @@ def _persist_canary_tenant(session, slug: str):
         id=uuid.uuid4(),
         slug=slug,
         display_name=f"Canary {slug}",
-        tier="pilot",
+        tier="starter",
         db_host="x",
         db_port=5432,
         db_name=slug,

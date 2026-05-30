@@ -393,7 +393,7 @@ class MockActivityProvider:
 
 class MockBillingProvider:
     _PRICE_BY_TIER = {
-        "pilot": 1250.0,
+        "starter": 1250.0,
         "foundation": 3500.0,
         "core": 7500.0,
         "advanced": 15000.0,

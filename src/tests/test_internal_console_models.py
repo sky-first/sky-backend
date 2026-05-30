@@ -96,7 +96,7 @@ async def test_provisioning_job_roundtrips(db_session):
         actor_email="lucas@skyfirstlabs.com",
         job_type=ProvisioningJobType.CREATE.value,
         status=ProvisioningJobStatus.PENDING.value,
-        request_payload={"tier": "pilot"},
+        request_payload={"tier": "starter"},
     )
     db_session.add(job)
     await db_session.commit()
@@ -134,7 +134,7 @@ class TestCreateTenantRequest:
         return dict(
             slug="gbt",
             display_name="GBT S.A.",
-            tier="pilot",
+            tier="starter",
             db_host="postgres-gbt.local",
             db_name="tenant_gbt",
             db_credentials_secret_arn="arn:x",
@@ -183,7 +183,7 @@ class TestConsoleTenantSummary:
         s = ConsoleTenantSummary(
             slug="gbt",
             display_name="GBT",
-            tier="pilot",
+            tier="starter",
             is_active=True,
             suspended_at=None,
             custom_domain=None,

@@ -42,7 +42,7 @@ def _valid_tenant_payload(**overrides):
     base = dict(
         slug="gbt",
         display_name="GBT S.A.",
-        tier=TenantTier.PILOT,
+        tier=TenantTier.STARTER,
         db_host="postgres-gbt.tenant-data-gbt.svc.cluster.local",
         db_port=5432,
         db_name="gbt",
@@ -60,7 +60,7 @@ def _persist_tenant(session, **overrides) -> Tenant:
     # The model expects strings for tier; the schema would coerce the
     # enum but we go straight to the ORM here.
     payload["tier"] = (
-        overrides.get("tier", TenantTier.PILOT).value
+        overrides.get("tier", TenantTier.STARTER).value
         if isinstance(payload["tier"], TenantTier)
         else payload["tier"]
     )
@@ -85,7 +85,7 @@ class TestTenantCreate:
     def test_accepts_minimal_valid_payload(self):
         model = TenantCreate(**_valid_tenant_payload())
         assert model.slug == "gbt"
-        assert model.tier == TenantTier.PILOT
+        assert model.tier == TenantTier.STARTER
         # Default capacity shape is always populated.
         assert model.capacity_limits.model_dump() == DEFAULT_CAPACITY_SHAPE
 
@@ -168,7 +168,7 @@ async def test_insert_and_read_back(db_session):
     fetched = result.scalar_one()
 
     assert fetched.display_name == "GBT S.A."
-    assert fetched.tier == "pilot"
+    assert fetched.tier == "starter"
     assert fetched.is_active is True
     assert fetched.suspended_at is None
     # Read schema accepts the ORM row directly via from_attributes.

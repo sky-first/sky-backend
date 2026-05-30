@@ -189,7 +189,7 @@ async def login(
     """Email + password login, gated per tenant.
 
     A tenant with ``auth_methods.password == false`` (the production
-    default) rejects with 403 just like before. Pilot/starter tenants
+    default) rejects with 403 just like before. Starter tenants
     that need a quick way to onboard users without setting up SSO can
     flip the flag in the Internal Console; the handler then runs the
     standard credential check.
