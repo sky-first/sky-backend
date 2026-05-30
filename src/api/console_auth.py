@@ -60,7 +60,12 @@ def _allowed_email_set() -> set[str]:
 
 
 def _dev_bypass_enabled() -> bool:
-    if (settings.ENVIRONMENT or "").lower() == "production":
+    # The bypass is *only* for a developer running the stack on their
+    # laptop. Production and staging must never accept it — staging is
+    # a public host with real tenant data, even when the data is fake.
+    # Gap #5 from the 2026-05-30 security posture audit.
+    env = (settings.ENVIRONMENT or "").lower()
+    if env in {"production", "staging"}:
         return False
     return (os.getenv("CONSOLE_DEV_BYPASS") or "").lower() in {"true", "1", "yes", "on"}
 

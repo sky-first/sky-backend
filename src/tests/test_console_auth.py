@@ -75,6 +75,18 @@ def test_dev_bypass_does_NOT_grant_in_production(monkeypatch):
     assert is_sky_team_member(_user(email="outsider@example.com")) is False
 
 
+def test_dev_bypass_does_NOT_grant_in_staging(monkeypatch):
+    """Gap #5 from the 2026-05-30 security posture audit. Staging is a
+    public host with real tenant data — the dev bypass must be local
+    only."""
+    from src.config.settings import settings
+
+    monkeypatch.setenv("CONSOLE_DEV_BYPASS", "true")
+    monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
+    monkeypatch.setattr(settings, "ENVIRONMENT", "staging")
+    assert is_sky_team_member(_user(email="outsider@example.com")) is False
+
+
 def test_default_user_is_denied(monkeypatch):
     monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
     monkeypatch.delenv("CONSOLE_DEV_BYPASS", raising=False)
