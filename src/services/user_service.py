@@ -81,6 +81,45 @@ class UserService:
 
         return UserResponse.model_validate(user_to_response_dict(user))
 
+    async def _assert_password_invite_allowed(self) -> None:
+        """Refuse the email+password invite flow when the tenant's
+        ``auth_methods`` config has ``password`` disabled.
+
+        Lucas surfaced the gap (2026-05-30): the invite endpoint sent the
+        accept-invite email regardless of tenant SSO config, so an
+        invitee on a Google-only workspace would set a password they
+        could never use to log in. We re-check the same shape the
+        ``/api/v1/auth/methods`` endpoint exposes — tenant row when
+        the resolver populated one, otherwise the ``DEFAULT_AUTH_METHODS``
+        floor (Google-only).
+        """
+        from sqlalchemy import select
+
+        from src.core.tenant_context import get_current_tenant_context
+        from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
+
+        password_enabled = bool(DEFAULT_AUTH_METHODS.get("password", False))
+        try:
+            ctx = get_current_tenant_context()
+        except Exception:
+            ctx = None
+        tenant_slug = getattr(ctx, "slug", None) if ctx else None
+        if tenant_slug:
+            row = (
+                await self.db.execute(
+                    select(Tenant.auth_methods).where(Tenant.slug == tenant_slug)
+                )
+            ).first()
+            if row and isinstance(row[0], dict):
+                password_enabled = bool(row[0].get("password", password_enabled))
+        if not password_enabled:
+            raise BadRequestError(
+                "This workspace is configured for SSO sign-in only. Email-and-password "
+                "invites are disabled — ask the new member to sign in with the same "
+                "identity provider the rest of the team uses, or change the workspace's "
+                "auth methods first."
+            )
+
     async def create_user(self, user_data: UserCreate, current_user: User) -> UserResponse:
         """
         Create a new user.
@@ -103,6 +142,16 @@ class UserService:
         existing_user = await self.user_repo.get_by_email(user_data.email)
         if existing_user:
             raise BadRequestError("User with this email already exists")
+
+        # Tenants that don't have ``password`` in their ``auth_methods``
+        # config cannot use the email+password invite flow: the invitee
+        # would set a password they could never actually log in with
+        # (login then rejects with ``method_disabled``). Refuse the invite
+        # up front so the admin sees the real reason. Single-tenant
+        # deployments without a tenant resolver default to the
+        # ``DEFAULT_AUTH_METHODS`` shape (Google-only); the explicit check
+        # keeps the silent breakage from surfacing post-merge.
+        await self._assert_password_invite_allowed()
 
         # Generate secure invite token
         import secrets
@@ -461,6 +510,12 @@ class UserService:
         """
         if not check_permission(current_user, "user", "update"):
             raise ForbiddenError("You don't have permission to invite users")
+
+        # Mirror create_user: refuse if this tenant's auth_methods has
+        # password disabled (SSO-only). Re-inviting an existing user via
+        # password while the tenant is SSO-only would silently break the
+        # invitee's login.
+        await self._assert_password_invite_allowed()
 
         user = await self.user_repo.get_by_id(user_id)
         if not user:
