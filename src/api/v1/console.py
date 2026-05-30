@@ -1345,24 +1345,62 @@ async def stream_tenant_logs(
     websocket: WebSocket,
     slug: str,
     pod: str = "sky-be",
+    token: str = Query(..., description="JWT access token"),
 ) -> None:
+    """Stream pseudo-logs for the chosen tenant pod.
+
+    Sky-team only — when the real ``kubectl logs --follow`` plumbing
+    lands behind this, any unauthenticated socket would be a tenant-data
+    exfiltration vector. The browser WebSocket API cannot set custom
+    headers, so the JWT comes in as ``?token=``; we run the same
+    ``verify_token`` + ``is_sky_team_member`` check the HTTP endpoints
+    use, then close with 4001/4003 on mismatch (close codes the FE
+    can route on).
+    """
     import asyncio
     import json as _json
     import random as _rnd
 
-    await websocket.accept()
-    # Lightweight check: refuse if slug isn't an active tenant. We can't
-    # use the dep here (WS doesn't go through the same DI), so do a
-    # one-shot lookup using AsyncSessionLocal.
+    from src.api.console_auth import is_sky_team_member
     from src.config.database import AsyncSessionLocal
+    from src.core.security import verify_token
+    from src.repositories.user import UserRepository
 
+    await websocket.accept()
+
+    # 1. Authenticate the socket. Anything off-spec collapses into a
+    # short error frame + 4001 close so the FE can reopen with a fresh
+    # token without an exception bubbling.
+    try:
+        payload = verify_token(token, token_type="access")
+        user_id = payload.get("sub")
+        if not user_id:
+            await websocket.send_text(_json.dumps({"error": "unauthenticated"}))
+            await websocket.close(code=4001)
+            return
+    except Exception:
+        await websocket.send_text(_json.dumps({"error": "unauthenticated"}))
+        await websocket.close(code=4001)
+        return
+
+    # 2. Load the user + assert they're on the Sky engineering team. The
+    # check mirrors ``require_sky_team`` exactly so the WS surface can
+    # never grant more than the HTTP one. Non-Sky users get 4003.
     async with AsyncSessionLocal() as db:
+        user = await UserRepository(db).get_by_id(user_id)
+        if user is None or not is_sky_team_member(user):
+            await websocket.send_text(_json.dumps({"error": "sky_team_required"}))
+            await websocket.close(code=4003)
+            return
+
+        # 3. Tenant-existence check on the same session so we don't
+        # acquire a second connection from the pool unnecessarily.
         exists = (
             await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
         ).scalar_one_or_none()
     if exists is None:
         await websocket.send_text(_json.dumps({"error": "tenant_not_found"}))
-        await websocket.close()
+        await websocket.close(code=4004)
         return
 
     levels = ["INFO", "INFO", "INFO", "INFO", "WARN", "ERROR"]
