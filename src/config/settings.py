@@ -493,6 +493,25 @@ class Settings(BaseSettings):
     # convention ``<slug>-stg-aws`` / ``<slug>-prd-aws``.
     K8S_TELEMETRY_NAMESPACE_TEMPLATE: str = "{slug}-{env}-aws"
 
+    # ─── Console AWS Cost Explorer telemetry (issue #40) ──────────────────────
+    # When True, the CostProvider factory returns the live AWS Cost Explorer
+    # provider (``AwsCostProvider``) instead of the mock. Off by default so
+    # PRs that touch the Console do not require real AWS credentials in CI
+    # (Cost Explorer API is paid: $0.01 per request).
+    #
+    # NOTE: the AWS provider also requires CONSOLE_MOCK_INFRA=false to take
+    # effect — when the mock flag is on it always wins, so dev/CI is safe.
+    AWS_COSTS_TELEMETRY_ENABLED: bool = False
+    # Optional linked-account filter for cost queries. When empty, the
+    # provider queries the master / payer account (sum across all linked
+    # sub-accounts). Set to a 12-digit account id to scope queries to one
+    # linked account (typical for tenant-isolated AWS sub-accounts).
+    AWS_COSTS_LINKED_ACCOUNT_ID: Optional[str] = None
+    # AWS region for the Cost Explorer endpoint. Cost Explorer is a global
+    # service but boto3 still requires a region — eu-west-1 matches the
+    # rest of SkyFirst's infra footprint.
+    AWS_COSTS_REGION: str = "eu-west-1"
+
     # Tenant/User rate limiting for AI cost control (Subtask 2/3)
     AI_RATE_LIMIT_ENABLED: bool = True
     AI_RATE_LIMIT_USER_PER_MINUTE: int = 10
