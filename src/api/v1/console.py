@@ -41,6 +41,7 @@ from src.api.console_auth import (
 from src.api.deps import get_db_session
 from src.models.internal_console import AuditAction, AuditResult
 from src.models.tenant import Tenant
+from src.models.tenant_plan_limits import TIER_LIMITS, TenantPlanLimits
 from src.models.user import User
 from src.models.internal_console import ConsoleRole
 from src.schemas.internal_console import (
@@ -168,6 +169,55 @@ async def get_dashboard(
         actor_ip=_ip(request),
     )
     return summary
+
+
+@router.get(
+    "/ceo",
+    summary="CEO Master Dashboard",
+    description=(
+        "Aggregated business view: contracted ARR / MRR, last-month "
+        "infra cost (annualised → margin), per-tier distribution, "
+        "churn / over-cap signals and provisioning pipeline health. "
+        "Single read endpoint — every sub-aggregate runs against the "
+        "same session so the snapshot is internally consistent."
+    ),
+)
+async def get_ceo_dashboard(
+    request: Request,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+):
+    from src.schemas.internal_console import (
+        CeoChurnSignal as CeoChurnSignalSchema,
+        CeoMasterSummaryResponse,
+        CeoProvisioningHealth as CeoProvisioningHealthSchema,
+        CeoTierRow as CeoTierRowSchema,
+    )
+    from src.services.ceo_dashboard import compute_ceo_summary
+
+    summary = await compute_ceo_summary(db)
+    await audit_action(
+        db,
+        actor=user,
+        action=AuditAction.VIEW_DASHBOARD,
+        tenant_slug=None,
+        result=AuditResult.SUCCESS,
+        result_details={"view": "ceo"},
+        actor_ip=_ip(request),
+    )
+    return CeoMasterSummaryResponse(
+        computed_at=summary.computed_at,
+        total_tenants=summary.total_tenants,
+        active_tenants=summary.active_tenants,
+        suspended_tenants=summary.suspended_tenants,
+        contracted_arr_eur=summary.contracted_arr_eur,
+        contracted_mrr_eur=summary.contracted_mrr_eur,
+        last_month_cost_eur=summary.last_month_cost_eur,
+        gross_margin_pct=summary.gross_margin_pct,
+        tiers=[CeoTierRowSchema(**vars(t)) for t in summary.tiers],
+        churn_signals=[CeoChurnSignalSchema(**vars(s)) for s in summary.churn_signals],
+        provisioning=CeoProvisioningHealthSchema(**vars(summary.provisioning)),
+    )
 
 
 # ── Tenants ────────────────────────────────────────────────────────
@@ -447,6 +497,89 @@ async def list_pricing_tiers(
     return [TierPresetResponse(**t.__dict__) for t in pricing_tiers.list_tiers()]
 
 
+# Map of Console product-tier slug → commercial tier slug used by
+# ``tenant_plan_limits``. Until Fase 3 reconciles the two naming
+# systems, the Console drives the product-tier label (registry) and
+# also moves the plan-limits row onto the closest commercial tier so
+# the runtime enforcement hooks (agents/users/storage/queries) line up
+# with what the customer is paying for. ``core`` and ``advanced`` both
+# map to ``scale`` because the enforced commercial ceilings are the
+# same band; ``strategic`` maps to ``enterprise`` (unlimited).
+_REGISTRY_TO_COMMERCIAL_TIER: dict[str, str] = {
+    "starter": "starter",
+    "foundation": "foundation",
+    "core": "scale",
+    "advanced": "scale",
+    "strategic": "enterprise",
+}
+
+
+# Conversion factor used for the storage breach comparison. The plan-
+# limits row stores ``current_storage_bytes`` (atomic increments) and
+# ``max_storage_gb`` (human-readable ceiling); the breach payload
+# reports the used value in GB so the operator UI matches the cap unit.
+_BYTES_PER_GB = 1024 * 1024 * 1024
+
+
+async def _plan_limits_breaches(
+    db: AsyncSession,
+    tenant_id,
+    new_commercial_tier: str,
+) -> list[dict]:
+    """Return per-dimension breaches against ``tenant_plan_limits``.
+
+    Gap #4 (2026-05-30): the legacy ``capacity_used`` check on
+    ``Tenant.capacity_used`` can be stale (it's bookkept by a daily
+    job), so the canonical Fase-1 enforcement counters live on
+    ``tenant_plan_limits.current_*``. We consult both sources on a
+    downgrade and merge the breaches — a customer over the cap on
+    EITHER source is refused.
+
+    Returns an empty list when the target tier is Enterprise (all
+    ceilings NULL = unlimited) or when the tenant has no plan-limits
+    row yet (treated as zero usage — fresh tenant).
+    """
+    new_caps = TIER_LIMITS.get(new_commercial_tier)
+    if new_caps is None:
+        return []  # unknown commercial tier — caller already 400'd
+
+    row = await db.get(TenantPlanLimits, tenant_id)
+    if row is None:
+        # Fresh tenant — no enforcement counters yet. Falling through
+        # to the legacy capacity_used check is enough.
+        return []
+
+    breaches: list[dict] = []
+
+    def _push(dimension: str, used: int, new_cap: int | None) -> None:
+        if new_cap is None:
+            return  # unlimited target tier — never a breach
+        if used > new_cap:
+            breaches.append(
+                {
+                    "dimension": dimension,
+                    "used": int(used),
+                    "new_cap": int(new_cap),
+                    "excess": int(used - new_cap),
+                    "source": "tenant_plan_limits",
+                }
+            )
+
+    _push("agents", int(row.current_agents or 0), new_caps["max_agents"])
+    _push("users", int(row.current_users or 0), new_caps["max_users"])
+    # Storage: compare GB-to-GB (round up so 1 byte over a GB still
+    # counts — the customer is at GB+1 of consumption, not GB).
+    current_gb = (int(row.current_storage_bytes or 0) + _BYTES_PER_GB - 1) // _BYTES_PER_GB
+    _push("storage_gb", current_gb, new_caps["max_storage_gb"])
+    _push(
+        "queries_this_month",
+        int(row.current_queries_this_month or 0),
+        new_caps["max_queries_per_month"],
+    )
+
+    return breaches
+
+
 @router.post(
     "/tenants/{slug}/tier",
     response_model=ConsoleTenantDetail,
@@ -486,10 +619,27 @@ async def change_tenant_tier(
     if row is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    # ── Downgrade safety check ─────────────────────────────────────
+    # ── Downgrade safety check (Gap #4, 2026-05-30) ────────────────
     # Only enforce when the operator asked us to apply the preset;
     # ``apply_preset=false`` is the explicit "keep contractual
     # override" path and bypasses the check on purpose.
+    #
+    # We now consult TWO sources and merge their breaches:
+    #
+    #   1. ``Tenant.capacity_used`` — legacy JSONB updated by a daily
+    #      bookkeeping job. Keyed by ``agents``/``sources``/``indexed_gb``
+    #      and compared against ``preset.capacity_limits`` (registry
+    #      side, product tier).
+    #
+    #   2. ``tenant_plan_limits.current_*`` — Fase 1 canonical counters
+    #      bumped atomically from the hot paths (every agent/user
+    #      create, every AI query). Compared against ``TIER_LIMITS``
+    #      for the mapped commercial tier.
+    #
+    # Either source over the new cap → 422. Each breach carries a
+    # ``source`` field so the operator can tell which counter tripped
+    # and (if needed) reconcile a desync between the two.
+    new_commercial_tier = _REGISTRY_TO_COMMERCIAL_TIER.get(preset.slug)
     if payload.apply_preset:
         used = row.capacity_used or {}
         breaches: list[dict] = []
@@ -502,8 +652,21 @@ async def change_tenant_tier(
                         "used": current_used,
                         "new_cap": int(new_cap),
                         "excess": current_used - int(new_cap),
+                        "source": "capacity_used",
                     }
                 )
+
+        # Plan-limits source. Skipped when the registry tier doesn't
+        # have a commercial mapping (defensive — every tier in
+        # TIER_REGISTRY is mapped above, but keep the guard so a future
+        # tier add doesn't accidentally bypass enforcement).
+        if new_commercial_tier is not None:
+            breaches.extend(
+                await _plan_limits_breaches(
+                    db, row.id, new_commercial_tier
+                )
+            )
+
         if breaches:
             await audit_action(
                 db,
@@ -517,13 +680,14 @@ async def change_tenant_tier(
                     "apply_preset": True,
                     "reason": "downgrade_exceeds_new_caps",
                     "breaches": breaches,
+                    "intent": "tier_change_with_plan_limits",
                 },
                 actor_ip=_ip(request),
             )
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "error": "downgrade_exceeds_new_caps",
+                    "error": "tier_change_breach",
                     "message": (
                         f"Tenant {slug!r} currently consumes more than the "
                         f"{preset.slug!r} tier allows. Free capacity or pass "
@@ -544,6 +708,23 @@ async def change_tenant_tier(
         row.capacity_limits = dict(preset.capacity_limits)
     await db.flush()
 
+    # ── Sync tenant_plan_limits (Gap #4, 2026-05-30) ───────────────
+    # After a successful tier change with ``apply_preset=true``, update
+    # the Fase-1 plan-limits row so the hot-path enforcement hooks
+    # (agents/users/storage/queries) see the new ceilings. We call
+    # ``pricing_service.set_tier`` rather than UPDATE'ing the row by
+    # hand — it owns the threshold-alert reset semantics. Counters
+    # carry over by design (the customer's existing consumption isn't
+    # zeroed when they switch tier).
+    #
+    # ``apply_preset=false`` keeps the existing plan-limits row
+    # untouched: that path is the "contractual override" — the operator
+    # is flipping the label only.
+    if payload.apply_preset and new_commercial_tier is not None:
+        await pricing_service.set_tier(
+            db, new_commercial_tier, tenant_id=row.id
+        )
+
     from src.api.middleware.tenant_resolver import clear_tenant_cache
 
     clear_tenant_cache()
@@ -561,6 +742,8 @@ async def change_tenant_tier(
                 "from": old_tier,
                 "to": preset.slug,
                 "apply_preset": payload.apply_preset,
+                "intent": "tier_change_with_plan_limits",
+                "commercial_tier": new_commercial_tier,
             },
             actor_ip=_ip(request),
         )
