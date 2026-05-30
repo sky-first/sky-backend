@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
@@ -9,6 +9,27 @@ from src.models.user import User
 from src.schemas.user import UserCreate
 from src.services.invite_service import InviteService
 from src.services.user_service import UserService
+
+
+@pytest.fixture(autouse=True)
+def _allow_password_invite(monkeypatch):
+    """Bypass the auth_methods gate (PR #474) for these end-to-end tests.
+
+    The integration suite exercises the full create/invite flow against an
+    in-memory SQLite DB without spinning up a tenant resolver. The new
+    ``_assert_password_invite_allowed`` guard otherwise falls back to
+    ``DEFAULT_AUTH_METHODS`` (Google-only) and refuses the invite, which is
+    the *correct* behaviour in production but unrelated to what these tests
+    are pinning. Replace the guard with a no-op so each case can focus on
+    the flow it actually covers; the gate itself is tested separately in
+    ``test_invite_respects_auth_methods.py``.
+    """
+    monkeypatch.setattr(
+        UserService,
+        "_assert_password_invite_allowed",
+        AsyncMock(return_value=None),
+    )
+    yield
 
 
 @pytest.mark.asyncio
