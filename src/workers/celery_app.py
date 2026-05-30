@@ -164,6 +164,7 @@ celery_app.conf.update(
         "src.workers.demo_cleanup_worker",
         "src.workers.knowledge_worker",
         "src.workers.pricing_worker",
+        "src.workers.provisioning_worker",
     ],
 )
 
