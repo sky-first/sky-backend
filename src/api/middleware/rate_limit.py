@@ -84,7 +84,8 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         # script gone wild can't drain the customer-facing quota.
         # Prefix splits the Redis keyspace; the limits read from
         # CONSOLE_RATE_LIMIT_* settings.
-        is_console = path.startswith("/api/console/v1") or path.startswith("/api/console")
+        path_str = path if isinstance(path, str) else ""
+        is_console = path_str.startswith("/api/console/v1") or path_str.startswith("/api/console")
         bucket_prefix = "rate_limit:console" if is_console else "rate_limit"
         minute_limit = (
             settings.CONSOLE_RATE_LIMIT_PER_MINUTE if is_console else settings.RATE_LIMIT_PER_MINUTE
