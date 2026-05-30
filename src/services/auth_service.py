@@ -283,9 +283,54 @@ class AuthenticationService:
         if not user.password_hash or not verify_password(password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")
 
+        # Phase 3 — MFA gate. When the user has TOTP enabled we stop
+        # short of issuing real tokens and hand back a short-lived
+        # challenge token instead. The caller redeems it at
+        # /auth/login/mfa with the 6-digit code (or a recovery code)
+        # and only then receives access + refresh. last_login_at is
+        # bumped only after the second factor succeeds — otherwise an
+        # attacker with the password could ping it indefinitely and
+        # mask the fact that they don't have the device.
+        if getattr(user, "mfa_enabled", False):
+            from src.services.mfa_service import (
+                MFA_CHALLENGE_TTL_MINUTES,
+                issue_mfa_challenge_token,
+            )
+
+            # Commit nothing — no DB state changes for an MFA-required
+            # account at this stage. (Refresh tokens are only created
+            # after the second factor in ``complete_mfa_login``.)
+            challenge_token = issue_mfa_challenge_token(user)
+            return LoginResponse(
+                require_mfa=True,
+                mfa_challenge_token=challenge_token,
+                mfa_expires_in=MFA_CHALLENGE_TTL_MINUTES * 60,
+            )
+
+        return await self._issue_session(
+            user,
+            user_agent=user_agent,
+            ip_address=ip_address,
+            background_tasks=background_tasks,
+        )
+
+    async def _issue_session(
+        self,
+        user: User,
+        *,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
+    ) -> LoginResponse:
+        """Mint access+refresh tokens for an authenticated user.
+
+        Shared between the no-MFA login path and ``complete_mfa_login``
+        so the post-auth side-effects (last_login_at, onboarding
+        bootstrap, refresh-token row) are guaranteed to be identical
+        regardless of whether a second factor was involved.
+        """
         # Update last login
         user.last_login_at = datetime.now(timezone.utc)
-        # Note: redundant refresh removed due to expire_on_commit=False
 
         # Ensure default page/space exists (fallback for legacy users)
         if user.id:
@@ -321,6 +366,61 @@ class AuthenticationService:
             refresh_token=refresh_token,
             expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
             user=UserResponse.model_validate(user_to_response_dict(user)),
+        )
+
+    async def complete_mfa_login(
+        self,
+        *,
+        challenge_token: str,
+        code: str,
+        is_recovery_code: bool = False,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
+    ) -> LoginResponse:
+        """Redeem an MFA challenge token + second factor for real tokens.
+
+        Phase 3 of the auth roadmap. The challenge token was issued
+        by ``login`` after a successful password check; it embeds the
+        ``sub`` (user id) and expires after 5 minutes. We re-load the
+        user here so a concurrent ``disable_mfa`` (e.g. via admin
+        impersonation) takes effect immediately — if the user no
+        longer has MFA enabled by the time the second-factor lands,
+        we still issue tokens (no second factor is required).
+        """
+        from src.services.mfa_service import MFAService, verify_mfa_challenge_token
+
+        try:
+            user_id_str = verify_mfa_challenge_token(challenge_token)
+        except ValueError:
+            raise UnauthorizedError("Invalid or expired MFA challenge")
+
+        try:
+            user_id = UUID(user_id_str)
+        except (TypeError, ValueError):
+            raise UnauthorizedError("Invalid MFA challenge payload")
+
+        user = await self.user_repo.get_by_id(user_id)
+        if not user:
+            raise UnauthorizedError("User not found")
+
+        # If MFA has been disabled in the meantime, accept the
+        # challenge as proof of password and skip the second factor.
+        if getattr(user, "mfa_enabled", False):
+            mfa = MFAService(self.db)
+            ok = False
+            if is_recovery_code:
+                ok = await mfa.consume_recovery_code(user, code)
+            else:
+                ok = await mfa.verify_login_code(user, code)
+            if not ok:
+                raise UnauthorizedError("Invalid MFA code")
+
+        return await self._issue_session(
+            user,
+            user_agent=user_agent,
+            ip_address=ip_address,
+            background_tasks=background_tasks,
         )
 
     def _detect_auth_type(self, user: User) -> str:

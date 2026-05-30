@@ -143,13 +143,96 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    """Login response schema."""
+    """Login response schema.
 
-    access_token: str
-    refresh_token: str
+    When MFA is enabled on the account, the first POST /auth/login
+    returns ``require_mfa=true`` + a short-lived ``mfa_challenge_token``
+    and leaves ``access_token`` / ``refresh_token`` / ``user`` empty.
+    The caller then POSTs the challenge token + the 6-digit code to
+    /auth/login/mfa to obtain the real tokens. This keeps the
+    ``LoginResponse`` shape stable for FE callers that never enable
+    MFA — they continue to see ``require_mfa`` absent or false and the
+    populated token+user fields, identical to the pre-Phase-3 shape.
+    """
+
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
-    expires_in: int
-    user: UserResponse
+    expires_in: int = 0
+    user: Optional[UserResponse] = None
+
+    require_mfa: bool = False
+    mfa_challenge_token: Optional[str] = None
+    mfa_expires_in: Optional[int] = None
+
+
+class MFALoginRequest(BaseModel):
+    """Body for POST /auth/login/mfa — Phase 3.
+
+    The challenge token authorises the attempt (it embeds the user id
+    and is short-lived). ``code`` is either a 6-digit TOTP or a
+    recovery code; the boolean tells the service which path to take.
+    """
+
+    challenge_token: str = Field(..., description="Short-lived MFA challenge token from /auth/login")
+    code: str = Field(..., min_length=1, max_length=64)
+    is_recovery_code: bool = Field(
+        default=False,
+        description="True when ``code`` is a recovery code; otherwise a 6-digit TOTP",
+    )
+
+
+# ── MFA enrolment / management ────────────────────────────────────────
+
+
+class MFAEnrollStartResponse(BaseModel):
+    """Response to POST /auth/mfa/enroll/start (Phase 3).
+
+    The ``secret`` field is the plaintext base32 TOTP seed — the
+    enrolling user needs it to either scan the QR or type it into
+    their authenticator manually. The BE does NOT persist anything
+    until /auth/mfa/enroll/verify succeeds; until then the FE owns
+    the secret in component state.
+    """
+
+    secret: str
+    otpauth_url: str
+    qrcode_png_b64: str
+    issuer: str
+
+
+class MFAEnrollVerifyRequest(BaseModel):
+    """Body for POST /auth/mfa/enroll/verify."""
+
+    secret: str = Field(..., description="Echo back of the secret from /enroll/start")
+    code: str = Field(..., min_length=6, max_length=6, description="6-digit TOTP code")
+
+
+class MFAEnrollVerifyResponse(BaseModel):
+    """Response to /auth/mfa/enroll/verify.
+
+    ``recovery_codes`` are returned plaintext exactly once. The FE
+    must surface them clearly (copy + download .txt) — they are the
+    only way back into the account if the user loses their device.
+    """
+
+    enabled: bool
+    recovery_codes: list[str]
+    enrolled_at: datetime
+
+
+class MFARotateRecoveryCodesResponse(BaseModel):
+    """Response to POST /auth/mfa/recovery-codes/rotate."""
+
+    recovery_codes: list[str]
+
+
+class MFAStatusResponse(BaseModel):
+    """Response to GET /auth/mfa/status (settings → Security)."""
+
+    enabled: bool
+    enrolled_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
 
 
 class RefreshTokenRequest(BaseModel):

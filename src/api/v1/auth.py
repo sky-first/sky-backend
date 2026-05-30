@@ -31,6 +31,7 @@ from src.schemas.user import (
     InviteValidateResponse,
     LoginRequest,
     LoginResponse,
+    MFALoginRequest,
     RefreshTokenRequest,
     RefreshTokenResponse,
     RegisterRequest,
@@ -207,6 +208,38 @@ async def login(
     return await auth_service.login(
         email=login_data.email,
         password=login_data.password,
+        user_agent=user_agent,
+        ip_address=ip_address,
+        background_tasks=background_tasks,
+    )
+
+
+@router.post(
+    "/login/mfa",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="Complete MFA login",
+    description=(
+        "Redeems a short-lived MFA challenge token (issued by "
+        "/auth/login when ``require_mfa`` is true) plus a 6-digit "
+        "TOTP code (or a single-use recovery code) for the real "
+        "access + refresh pair."
+    ),
+)
+async def login_mfa(
+    body: MFALoginRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session),
+) -> LoginResponse:
+    auth_service = AuthenticationService(db)
+    user_agent = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+    return await auth_service.complete_mfa_login(
+        challenge_token=body.challenge_token,
+        code=body.code,
+        is_recovery_code=body.is_recovery_code,
         user_agent=user_agent,
         ip_address=ip_address,
         background_tasks=background_tasks,

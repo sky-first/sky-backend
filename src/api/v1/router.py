@@ -36,6 +36,7 @@ from src.api.v1 import (
     knowledge,
     messages,
     metrics,
+    mfa,
     notifications,
     pages,
     permission_grants,
@@ -60,6 +61,12 @@ api_router = APIRouter()
 
 # Authentication endpoints
 api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+
+# Multi-Factor Authentication (Phase 3) — TOTP enrolment + management.
+# The login-time MFA redemption (POST /auth/login/mfa) lives on the
+# auth router so it can be called without a valid access token; this
+# router covers the authenticated enrolment + status + disable flows.
+api_router.include_router(mfa.router, prefix="/mfa", tags=["MFA"])
 
 # Public demo signup — gated by DEMO_ENABLED. Mounted as a sibling to
 # /auth so it lives outside any middleware that assumes the user is
