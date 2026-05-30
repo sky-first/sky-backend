@@ -609,6 +609,13 @@ async def change_tenant_tier(
     no-op for the audit log but still re-applies the preset caps when
     ``apply_preset`` is true, so the operator can use this endpoint as
     "reset capacity limits to preset" too.
+
+    Gap #4 (2026-05-30): the downgrade check now consults BOTH
+    ``Tenant.capacity_used`` (legacy bookkeeping JSONB) and
+    ``tenant_plan_limits.current_*`` (canonical Fase-1 enforcement
+    counters). Either source over the new cap → 422. On success we
+    also push the new tier into ``tenant_plan_limits`` so the hot-path
+    hooks pick up the new ceilings.
     """
     preset = pricing_tiers.get_tier(payload.tier)
     if preset is None:
