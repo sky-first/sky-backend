@@ -1795,8 +1795,10 @@ class TestUsersEndpoints:
             "role": "user",
         }
         response = await async_client.post("/api/v1/users", json=user_data, headers=headers)
-        # Regular users may get 403
-        assert response.status_code in [201, 403]
+        # Regular users may get 403; password-disabled tenants get 400
+        # (PR #474 — invite refuses when tenant.auth_methods.password
+        # is false, the default for fresh test contexts).
+        assert response.status_code in [201, 400, 403]
 
     @pytest.mark.asyncio
     async def test_update_user_success(
