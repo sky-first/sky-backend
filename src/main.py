@@ -126,9 +126,20 @@ app.include_router(api_router, prefix="/api")
 # limits, OpenAPI tags, and (eventually) a distinct ingress per
 # console.skyfirstlabs.com.
 from src.api.v1.console import router as console_router  # noqa: E402
+from src.api.v1.console_provisioning import (  # noqa: E402
+    router as console_provisioning_router,
+)
 
 app.include_router(
     console_router, prefix="/api/console/v1", tags=["Internal Console"]
+)
+# Provisioning workflow engine — webhook + SSE under the same prefix.
+# Kept as a sibling router so the workflow code stays out of
+# console.py and has its own audit footprint.
+app.include_router(
+    console_provisioning_router,
+    prefix="/api/console/v1",
+    tags=["Internal Console / Provisioning"],
 )
 
 # Observability: Prometheus metrics (Golden Signals)

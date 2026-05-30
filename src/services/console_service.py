@@ -215,6 +215,26 @@ async def create_tenant(
     db.add(job)
     await db.flush()
 
+    # Fire-and-forget the GitHub Actions dispatch. Lazy-imported so this
+    # service module stays importable when Celery isn't configured
+    # (tests, local Sky-team scripts). Failures here must NOT bubble:
+    # the job row already exists, the UI can retry, and Celery will
+    # surface its own error path via the job ``status`` column.
+    try:
+        from src.workers.celery_app import celery_app
+
+        celery_app.send_task(
+            "src.workers.provisioning_worker.provision_tenant_via_gh_actions",
+            args=[str(job.id)],
+        )
+    except Exception as exc:  # pragma: no cover — broker outage is non-fatal
+        logger.warning(
+            "create_tenant: failed to enqueue provision_tenant_via_gh_actions "
+            "for job %s: %s",
+            job.id,
+            exc,
+        )
+
     detail = await get_tenant_detail(db, tenant.slug)
     assert detail is not None
     return detail, job

@@ -87,6 +87,36 @@ class ProvisioningJobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+# Canonical phase sequence for the GitHub Actions provisioning workflow.
+# Kept in sync with the CHECK constraint on ``provisioning_job_events``
+# (see migrations/versions/provisioning_events_20260530.py). The order
+# of this tuple matters — ``provisioning_workflow.ingest_event`` uses it
+# to decide whether a ``succeeded`` event should advance
+# ``ProvisioningJob.current_phase`` to the next phase.
+PROVISIONING_PHASES: tuple[str, ...] = (
+    "preflight",
+    "plan",
+    "gitops",
+    "namespaces",
+    "secrets",
+    "bootstrap",
+    "smoke",
+    "report",
+)
+
+
+class ProvisioningJobEventStatus(str, Enum):
+    STARTED = "started"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class ProvisioningJobEventLevel(str, Enum):
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
 class InternalConsoleAudit(Base):
     """Append-only audit log for every Console action.
 
@@ -161,6 +191,14 @@ class ProvisioningJob(Base):
     error_message = Column(Text(), nullable=True)
     request_payload = Column(_JSONB_OR_JSON, nullable=True)
 
+    # Workflow engine (provisioning_events_20260530). ``current_phase``
+    # is the last phase the workflow reported as ``succeeded`` and the
+    # UI uses it to highlight the active step. The two ``external_*``
+    # fields point back at the GitHub Actions run that owns this job.
+    current_phase = Column(String(32), nullable=True)
+    external_run_id = Column(String(64), nullable=True)
+    external_run_url = Column(Text(), nullable=True)
+
     __table_args__ = (
         CheckConstraint(
             "job_type IN ('create', 'suspend', 'resume', 'destroy', 'tier_change')",
@@ -178,6 +216,69 @@ class ProvisioningJob(Base):
         return (
             f"<ProvisioningJob id={self.id} type={self.job_type!r} "
             f"tenant={self.tenant_slug!r} status={self.status!r}>"
+        )
+
+
+class ProvisioningJobEvent(Base):
+    """One row per phase transition reported by the GitHub Actions workflow.
+
+    The workflow POSTs a signed webhook to ``/api/console/v1/jobs/webhook``
+    at the start, success, and failure of every phase
+    (``preflight`` → … → ``report``). Each call appends one row here. The
+    Console UI subscribes to ``/api/console/v1/jobs/{id}/events`` (SSE)
+    which replays this table then tails the Redis pub/sub channel
+    ``provisioning_job_events:<job_id>``.
+
+    The column ``event_metadata`` deliberately avoids the name
+    ``metadata`` because SQLAlchemy reserves that on ``DeclarativeBase``.
+    """
+
+    __tablename__ = "provisioning_job_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(
+        UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+    )
+    phase = Column(String(32), nullable=False)
+    status = Column(String(20), nullable=False)
+    level = Column(
+        String(20), nullable=False, server_default="info", default="info"
+    )
+    message = Column(Text(), nullable=True)
+    event_metadata = Column(
+        _JSONB_OR_JSON, nullable=False, server_default=text("'{}'"), default=dict
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "phase IN ('preflight', 'plan', 'gitops', 'namespaces', "
+            "'secrets', 'bootstrap', 'smoke', 'report')",
+            name="provisioning_job_events_phase_check",
+        ),
+        CheckConstraint(
+            "status IN ('started', 'succeeded', 'failed')",
+            name="provisioning_job_events_status_check",
+        ),
+        CheckConstraint(
+            "level IN ('info', 'warning', 'error')",
+            name="provisioning_job_events_level_check",
+        ),
+        Index(
+            "idx_provisioning_job_events_job_created",
+            "job_id",
+            "created_at",
+        ),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover — debug aid
+        return (
+            f"<ProvisioningJobEvent job={self.job_id} phase={self.phase!r} "
+            f"status={self.status!r} level={self.level!r}>"
         )
 
 
