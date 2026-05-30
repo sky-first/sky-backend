@@ -171,6 +171,23 @@ def test_throwaway_emails_blocked_by_schema():
     assert "work email" in str(exc.value).lower()
 
 
+def test_skyfirstlabs_domain_blocked_from_demo_signup():
+    """Engineering Workspace domain cannot create a *local* demo user —
+    that would let a stranger seed a fake ``lucas@skyfirstlabs.com`` in
+    our DB without ever passing Google verification, contaminating the
+    audit trail even though the real Console guard still requires
+    ``is_sky_operator=true``. Sky team members sign in via SSO."""
+    for variant in ("attacker@skyfirstlabs.com", "ATTACKER@SkyFirstLabs.COM"):
+        with pytest.raises(ValueError) as exc:
+            DemoSignupRequest(
+                name="Attacker",
+                email=variant,
+                company="Skyfirst",
+                turnstile_token="x",
+            )
+        assert "engineering" in str(exc.value).lower() or "reserved" in str(exc.value).lower()
+
+
 def test_schema_rejects_garbage_name_and_company():
     with pytest.raises(ValueError):
         DemoSignupRequest(
