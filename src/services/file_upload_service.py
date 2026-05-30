@@ -28,8 +28,12 @@ class FileUploadService:
 
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
     # Inline (base64 data-URI) storage is meant for small assets like avatars.
-    # Keep it strict to avoid bloating DB rows / API responses.
-    MAX_INLINE_SIZE = 500 * 1024  # 500KB
+    # 500KB was too tight — a normal phone-camera shot lands around 2-4MB,
+    # and Lucas's first real-world upload on staging fell straight through
+    # this guard. Lift to 4MB so reasonable avatars work without forcing
+    # everyone through an FE downsampler we haven't built yet; the data
+    # URI is still bounded enough not to wreck /me responses.
+    MAX_INLINE_SIZE = 4 * 1024 * 1024  # 4MB
     ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
     ALLOWED_CSV_TYPES = ["text/csv", "application/csv", "text/plain"]
     ALLOWED_EXCEL_TYPES = [
@@ -106,9 +110,10 @@ class FileUploadService:
         await file.seek(0)
         content = await file.read()
         if len(content) > self.MAX_INLINE_SIZE:
+            mb = self.MAX_INLINE_SIZE / (1024 * 1024)
             raise BadRequestError(
-                f"File size exceeds maximum inline-storage size of "
-                f"{self.MAX_INLINE_SIZE // 1024}KB"
+                f"Image is too large for inline upload "
+                f"(limit {mb:.1f}MB). Try a smaller picture or crop it first."
             )
 
         effective_mime = mime_type or file.content_type or "application/octet-stream"
