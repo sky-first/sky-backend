@@ -312,6 +312,16 @@ class Settings(BaseSettings):
     PASSWORD_HASH_ALGORITHM: str = "bcrypt"
     BCRYPT_ROUNDS: int = 12
 
+    # Multi-Factor Authentication (Phase 3 — TOTP).
+    # ``CONSOLE_REQUIRE_MFA`` gates Console access on the Sky-team
+    # operator having MFA enabled. False by default so the rollout
+    # can happen gradually — once every operator has enrolled, flip
+    # this to true per-environment. When true and the operator has
+    # mfa_enabled=false, ``require_sky_team`` returns 403 with the
+    # body ``{"error": "mfa_required", "enroll_url": "/api/v1/mfa/enroll/start"}``
+    # so the FE can route them to the enrolment modal.
+    CONSOLE_REQUIRE_MFA: bool = False
+
     # Encryption (for connection credentials)
     ENCRYPTION_KEY: str = Field(
         default="your-32-byte-encryption-key-change-in-production",

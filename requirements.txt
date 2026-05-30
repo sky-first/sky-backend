@@ -38,6 +38,14 @@ pyjwt[crypto]==2.9.0
 # converges (~36+ min). Pinning authlib + pyjwt directly skips the
 # bisection and brings the resolve back to seconds.
 
+# MFA / TOTP (Phase 3) — RFC 6238 time-based one-time passwords with
+# QR-code provisioning for Google Authenticator / Authy / 1Password.
+# pyotp is pure-Python and has no native deps; qrcode + Pillow render
+# the otpauth:// URL as a PNG returned as base64 to the FE.
+pyotp==2.9.0
+qrcode==7.4.2
+Pillow>=10.2.0
+
 # Validation
 pydantic>=2.7.0
 pydantic-settings==2.1.0

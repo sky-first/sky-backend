@@ -148,6 +148,24 @@ async def require_sky_team(
                 ),
             },
         )
+    # Phase 3 MFA enforcement gate. Off by default (CONSOLE_REQUIRE_MFA
+    # = False) so the rollout can be staggered: operators are nudged
+    # to enrol first, then the flag flips and the Console refuses to
+    # serve any operator who hasn't. The dev-bypass User synthesised
+    # above has no mfa_enabled attribute → bypass is still allowed
+    # locally even when the flag is on.
+    if settings.CONSOLE_REQUIRE_MFA and not getattr(user, "mfa_enabled", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "mfa_required",
+                "detail": (
+                    "Two-factor authentication is required to access the "
+                    "SkyFirst Console. Set it up in your account settings."
+                ),
+                "enroll_url": "/api/v1/mfa/enroll/start",
+            },
+        )
     return user
 
 

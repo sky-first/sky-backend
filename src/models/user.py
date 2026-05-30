@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     func,
@@ -89,6 +90,19 @@ class User(Base):
 
     # SSO Metadata
     sso_metadata = Column(JSON, nullable=True)  # Store provider-specific data
+
+    # Multi-Factor Authentication (TOTP — Phase 3).
+    # ``mfa_enabled`` gates the second-factor branch in the login
+    # service. The secret + recovery codes are Fernet-encrypted with
+    # ENCRYPTION_KEY at the service layer (see src/services/mfa_service.py)
+    # so a DB-only leak does not expose working TOTP seeds. Recovery
+    # codes are stored as bcrypt hashes inside the encrypted JSON
+    # payload — single-use, single-show.
+    mfa_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    mfa_secret_encrypted = Column(LargeBinary, nullable=True)
+    mfa_recovery_codes_encrypted = Column(LargeBinary, nullable=True)
+    mfa_enrolled_at = Column(DateTime(timezone=True), nullable=True)
+    mfa_last_used_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(
         DateTime(timezone=True),
