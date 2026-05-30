@@ -193,6 +193,13 @@ _ALLOWED_REFS = {
     # dependency (FastAPI WS handlers don't go through the same DI),
     # one-shot lookup on the platform pool for tenant existence check.
     str((_SRC_ROOT / "api" / "v1" / "console.py").resolve()),
+    # Pricing Fase 1 — platform-wide aggregator: rolls query counters
+    # for every tenant and recomputes storage totals once per day. Has
+    # to iterate across tenants, so it operates on the platform pool
+    # rather than entering a per-tenant context for each row. Fase 3
+    # swaps this for per-tenant accounting when source tables grow
+    # ``tenant_id`` columns.
+    str((_SRC_ROOT / "workers" / "pricing_worker.py").resolve()),
 }
 
 _ASYNC_LOCAL_NAME = "AsyncSessionLocal"
@@ -275,7 +282,7 @@ def test_raw_async_session_local_instantiation_baseline():
     # checked-in code. Phase 3-4 PRs reduce this; the test fails
     # loudly if a new direct call lands. Bumping the number UP
     # requires touching this baseline deliberately.
-    BASELINE = 19  # bumped 2026-05-27 — console.py WS log streamer needs platform pool
+    BASELINE = 21  # bumped 2026-05-30 — pricing_worker.py needs platform-wide pool
     assert count <= BASELINE, (
         f"Raw AsyncSessionLocal() count grew from {BASELINE} to {count}. "
         f"New callers should use TenantConnectionManager.session_for()."
