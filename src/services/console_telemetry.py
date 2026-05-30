@@ -539,15 +539,59 @@ def infra_provider() -> InfraProvider:
         return _NotYetImplementedInfra()
 
 
+def _aws_costs_telemetry_enabled() -> bool:
+    """Gate the real AWS Cost Explorer provider behind both the existing
+    mock flag *and* the new ``AWS_COSTS_TELEMETRY_ENABLED`` setting
+    (issue #40).
+
+    Read lazily from settings *and* from env so tests using
+    ``monkeypatch.setenv`` flip behaviour without rebuilding the
+    Pydantic Settings instance — mirrors ``_k8s_telemetry_enabled``.
+    """
+    env_raw = os.getenv("AWS_COSTS_TELEMETRY_ENABLED")
+    if env_raw is not None:
+        return env_raw.lower() in {"true", "1", "yes", "on"}
+    try:
+        from src.config.settings import settings as _settings
+
+        return bool(getattr(_settings, "AWS_COSTS_TELEMETRY_ENABLED", False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def cost_provider() -> CostProvider:
     if _mock_mode_enabled():
         return MockCostProvider()
+    # New path: live AWS Cost Explorer behind AWS_COSTS_TELEMETRY_ENABLED.
+    # Returns a provider whose ``platform_cost`` / ``tenant_cost`` /
+    # ``platform_cost_breakdown`` / ``tenant_cost_breakdown`` satisfy
+    # both the legacy CostProvider Protocol and the new days-aware shape
+    # consumed by the CEO Master Dashboard (PR #477).
+    if _aws_costs_telemetry_enabled():
+        try:
+            from src.services.aws_cost_provider import get_provider as _get_aws_cost
+
+            return _get_aws_cost()
+        except TelemetryUnavailable:
+            return _NotYetImplementedCost()
     try:
         from src.services.console_telemetry_real import AwsCostProvider
 
         return AwsCostProvider()
     except TelemetryUnavailable:
         return _NotYetImplementedCost()
+
+
+def tenant_cost_provider() -> CostProvider:
+    """Provider used for per-tenant cost queries.
+
+    Today this resolves to the same provider as ``cost_provider`` — the
+    AWS path uses cost-allocation tags so a single provider can answer
+    both platform-wide and per-tenant queries. The function exists as a
+    seam so a future split (e.g. EKS Karpenter cost model per tenant)
+    does not require reaching into ``cost_provider`` callers.
+    """
+    return cost_provider()
 
 
 def activity_provider() -> ActivityProvider:
