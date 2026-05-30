@@ -522,6 +522,73 @@ class Settings(BaseSettings):
     # rest of SkyFirst's infra footprint.
     AWS_COSTS_REGION: str = "eu-west-1"
 
+    # ─── Langfuse — LLM observability + cost tracking ─────────────────────
+    # Langfuse is already wired in sky-poc-ai (see
+    # ``core/agents/full_context_agent.py``) — every LLM call emits a
+    # trace tagged with ``user_id`` / ``space_id`` / ``agent_id``. The
+    # Console-side cost metrics endpoints in this repo read those
+    # traces back via the Langfuse API so we get real cost per tenant /
+    # per agent / per question without instrumenting every code path
+    # ourselves.
+    #
+    # When ``LLM_METRICS_ENABLED=false`` the metrics service returns
+    # empty payloads and the Console UI degrades to a "metrics off"
+    # state — this is the safe default so a missing key or self-hosted
+    # Langfuse outage doesn't break /api/console/v1/* endpoints.
+    LANGFUSE_HOST: str = Field(
+        default="https://cloud.langfuse.com",
+        description=(
+            "Langfuse base URL. Self-hosted deployments override to "
+            "their internal endpoint (e.g. https://langfuse.skyfirstlabs.com). "
+            "Empty disables both the SDK callback (in sky-poc-ai) and "
+            "the metrics provider (this repo)."
+        ),
+    )
+    LANGFUSE_PUBLIC_KEY: str = Field(
+        default="",
+        description=(
+            "Langfuse project public key (pk-lf-…). Required by the "
+            "API and the SDK callback. Empty = metrics disabled."
+        ),
+    )
+    LANGFUSE_SECRET_KEY: str = Field(
+        default="",
+        description=(
+            "Langfuse project secret key (sk-lf-…). Required by the "
+            "API. Empty = metrics disabled. Stored in AWS Secrets "
+            "Manager / Azure KV under `langfuse-secret-key`."
+        ),
+    )
+    LLM_METRICS_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Gate for the LLM cost metrics provider + Console "
+            "endpoints. Off by default — flip to True only after "
+            "LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY are wired in "
+            "the environment. When False, the provider short-circuits "
+            "to empty payloads (no outbound HTTP)."
+        ),
+    )
+    LLM_METRICS_CACHE_TTL_SECONDS: int = Field(
+        default=300,
+        description=(
+            "In-memory TTL for tenant / platform metric responses. "
+            "Langfuse Cloud rate-limits the API at ~100 req/min per "
+            "project; the Console UI polls every ~30s so a 5 minute "
+            "TTL keeps us well below ceiling even with several "
+            "concurrent operators."
+        ),
+    )
+    LLM_METRICS_EUR_PER_USD: float = Field(
+        default=0.92,
+        description=(
+            "Static FX rate used to convert the Langfuse USD figures "
+            "into the EUR shown on the CEO dashboard. Matches the "
+            "0.92 rate already hard-coded in services/ceo_dashboard.py "
+            "until we wire a live FX feed."
+        ),
+    )
+
     # Tenant/User rate limiting for AI cost control (Subtask 2/3)
     AI_RATE_LIMIT_ENABLED: bool = True
     AI_RATE_LIMIT_USER_PER_MINUTE: int = 10

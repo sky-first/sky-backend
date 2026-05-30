@@ -64,6 +64,8 @@ from src.schemas.internal_console import (
     DestroyTenantRequest,
     IncidentsResponse,
     InfraResponse,
+    LlmByModelRow,
+    LlmMetricsResponse,
     MyAccessResponse,
     PlatformHealthResponse,
     ProvisioningJobRead,
@@ -217,6 +219,7 @@ async def get_ceo_dashboard(
         tiers=[CeoTierRowSchema(**vars(t)) for t in summary.tiers],
         churn_signals=[CeoChurnSignalSchema(**vars(s)) for s in summary.churn_signals],
         provisioning=CeoProvisioningHealthSchema(**vars(summary.provisioning)),
+        llm_cost_30d_eur=getattr(summary, "llm_cost_30d_eur", None),
     )
 
 
@@ -1519,6 +1522,96 @@ async def get_tenant_billing(
         raise HTTPException(status_code=404, detail="Tenant not found")
     data = billing_provider().tenant_billing(slug, row.tier)
     return TenantBillingResponse(**data.__dict__)
+
+
+# ── LLM cost metrics (Langfuse-backed) ─────────────────────────────
+
+
+def _llm_metrics_to_response(metrics) -> "LlmMetricsResponse":
+    """Adapt the service's dataclass to the wire schema.
+
+    Flatten ``by_model`` from a dict-of-dicts into the ``LlmByModelRow``
+    list expected by the Console UI so the wire format is stable
+    regardless of how the provider chooses to key the breakdown
+    internally.
+    """
+    return LlmMetricsResponse(
+        tenant_id=metrics.tenant_id,
+        window_days=metrics.window_days,
+        from_ts=metrics.from_ts,
+        to_ts=metrics.to_ts,
+        total_requests=metrics.total_requests,
+        total_input_tokens=metrics.total_input_tokens,
+        total_output_tokens=metrics.total_output_tokens,
+        total_cost_usd=metrics.total_cost_usd,
+        total_cost_eur=metrics.total_cost_eur,
+        by_model=[
+            LlmByModelRow(
+                model=model,
+                input_tokens=int(payload.get("input_tokens") or 0),
+                output_tokens=int(payload.get("output_tokens") or 0),
+                requests=int(payload.get("requests") or 0),
+                cost_usd=float(payload.get("cost_usd") or 0.0),
+            )
+            for model, payload in (metrics.by_model or {}).items()
+        ],
+        cache_hit_rate_pct=metrics.cache_hit_rate_pct,
+        avg_latency_ms=metrics.avg_latency_ms,
+        available=metrics.available,
+        unavailable_reason=metrics.unavailable_reason,
+    )
+
+
+@router.get(
+    "/tenants/{slug}/llm-metrics",
+    response_model=LlmMetricsResponse,
+    summary="Per-tenant LLM cost / usage (Langfuse)",
+    description=(
+        "30-day default window. Reads trace aggregates from Langfuse "
+        "and rolls them up by model. Best-effort: returns "
+        "``available=false`` when Langfuse is offline / disabled, "
+        "never 503s — the Console renders a 'metrics off' pill."
+    ),
+)
+async def get_tenant_llm_metrics(
+    slug: str,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+    days: int = Query(30, ge=1, le=365),
+) -> LlmMetricsResponse:
+    exists = (
+        await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
+    ).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    from src.services.llm_cost_metrics import llm_cost_metrics_provider
+
+    # Langfuse trace tags use the tenant slug (matches the
+    # ``tenant:<slug>`` convention emitted by the sky-poc-ai callback).
+    metrics = llm_cost_metrics_provider().get_tenant_llm_metrics(
+        tenant_id=slug, days=days
+    )
+    return _llm_metrics_to_response(metrics)
+
+
+@router.get(
+    "/platform/llm-metrics",
+    response_model=LlmMetricsResponse,
+    summary="Platform-wide LLM cost / usage (Langfuse)",
+    description=(
+        "Sum across every tenant in the Langfuse project. Same "
+        "best-effort contract as ``/tenants/{slug}/llm-metrics``."
+    ),
+)
+async def get_platform_llm_metrics(
+    user: User = Depends(require_sky_team),
+    days: int = Query(30, ge=1, le=365),
+) -> LlmMetricsResponse:
+    from src.services.llm_cost_metrics import llm_cost_metrics_provider
+
+    metrics = llm_cost_metrics_provider().get_platform_llm_metrics(days=days)
+    return _llm_metrics_to_response(metrics)
 
 
 # ── Global infra + incidents ───────────────────────────────────────
