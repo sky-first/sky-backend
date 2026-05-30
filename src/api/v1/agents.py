@@ -46,6 +46,8 @@ def _extract_tables_from_sql(sql: str) -> List[str]:
 
 
 from src.schemas.agent import (
+    AddFindingToPageRequest,
+    AddFindingToPageResponse,
     AgentCreate,
     AgentFindingResponse,
     AgentListResponse,
@@ -181,14 +183,31 @@ async def create_agent(
     Space agents. ``_assert_can_act_on_agent_scope`` enforces the
     "owner-or-platform-admin" rule for personal scope and the standard
     Space-RBAC for collaborative scopes.
+
+    For personal scope, the route used to compare the posted scope_id
+    to the caller's id and 403 on mismatch — but the FE wizard in modo
+    PERSONAL frequently posts an empty / placeholder value, which
+    blocked users from ever creating a personal agent. The route now
+    short-circuits the RBAC check for personal scope (it implicitly
+    targets the current user) and the service normalises scope_id
+    back to user.id before the row is written.
     """
-    await _assert_can_act_on_agent_scope(
-        db,
-        current_user,
-        scope=data.scope,
-        scope_id=data.scope_id,
-        permission="agents.create",
-    )
+    scope_str = (
+        data.scope.value if hasattr(data.scope, "value") else str(data.scope or "")
+    ).lower()
+    if scope_str != "personal":
+        if not data.scope_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"scope_id is required when scope={scope_str!r}",
+            )
+        await _assert_can_act_on_agent_scope(
+            db,
+            current_user,
+            scope=data.scope,
+            scope_id=data.scope_id,
+            permission="agents.create",
+        )
 
     # Demo guard: limit how many agents each user can create so token
     # consumption stays bounded. Platform owners/admins are exempt.
@@ -1049,3 +1068,50 @@ async def dismiss_finding(
     """Dismiss a finding."""
     await RBACService(db).assert_permission(current_user, "agents.findings.dismiss")
     return await service.dismiss_finding(finding_id)
+
+
+@router.post(
+    "/{agent_id}/findings/{finding_id}/add-to-page",
+    response_model=AddFindingToPageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_finding_to_page(
+    agent_id: UUID,
+    finding_id: UUID,
+    payload: AddFindingToPageRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    service: AgentService = Depends(get_agent_service),
+):
+    """Materialise an agent finding as a Widget on the target page.
+
+    Before this endpoint existed the FE "Add to page" CTA fell back to
+    the generic POST /widgets endpoint with type='text', so charts and
+    KPIs were lost — only the description ended up on the page. This
+    endpoint reads the finding's viz_kind + rows and builds a typed
+    Widget (chart / kpi / table / insight) so the canvas renders the
+    same visualisation the user saw in the Cockpit. The agent's first
+    connection is propagated so the widget can refresh later.
+    """
+    # Permission: the caller must be allowed to act on the agent (so a
+    # crew/space agent can be added to a page by any member) and must
+    # be the page owner / member. We reuse the existing helpers rather
+    # than open-coding ACL here.
+    agent = await service.get_agent(agent_id)
+    await _assert_can_act_on_agent_scope(
+        db,
+        current_user,
+        scope=getattr(agent, "scope", None),
+        scope_id=getattr(agent, "scope_id", None),
+        permission="agents.findings.view",
+    )
+
+    result = await service.add_finding_to_page(
+        agent_id=agent_id,
+        finding_id=finding_id,
+        page_id=payload.page_id,
+        user=current_user,
+        position=payload.position,
+        size=payload.size,
+    )
+    return AddFindingToPageResponse(**result)

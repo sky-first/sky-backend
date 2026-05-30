@@ -80,11 +80,23 @@ class AgentService:
         )
         now = datetime.now(timezone.utc)  # noqa: F841 — kept for future audit fields
 
+        # Personal mode invariant: a personal agent is owned by its creator.
+        # Lucas's QA found that the FE wizard sometimes posts an empty /
+        # placeholder scope_id when the user hasn't picked a Space (modo
+        # PERSONAL), which then trips both the route-level RBAC check (which
+        # compares scope_id to user.id) AND breaks downstream queries that
+        # use scope_id as the personal owner identity. Normalising here
+        # makes the creation path tolerant: scope=personal ALWAYS sets
+        # scope_id to the creator's id so the resulting row is internally
+        # consistent regardless of what the client posted.
+        scope_lower = (data.scope.value if hasattr(data.scope, "value") else str(data.scope)).lower()
+        resolved_scope_id = str(user_id) if scope_lower == "personal" else data.scope_id
+
         agent = Agent(
             name=data.name,
             archetype=data.archetype,
             scope=data.scope,
-            scope_id=data.scope_id,
+            scope_id=resolved_scope_id,
             scope_name=data.scope_name,
             status="active",
             monitor_type=data.monitor_type or "question",
@@ -257,3 +269,152 @@ class AgentService:
         if not finding:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
         return finding
+
+    # ─── Add finding to page ───
+
+    @staticmethod
+    def _viz_kind_to_widget_type(viz_kind: Optional[str]) -> str:
+        """Map a finding's viz_kind to the Widget.type the FE renders.
+
+        Widget.type allow-list (see schemas/widget.py): chart | kpi |
+        table | ai-box | text | insight | infographic | shape. The
+        Pulse FE chart picker emits a richer set of viz_kind tokens
+        (bar, line, donut, pie, kpi, big_number, delta, range,
+        heatmap, sparkline, text, list) — we collapse them into the
+        Widget allow-list here so the row passes the WidgetCreate
+        validator and the renderer picks the right component from
+        widget.data.viz_kind.
+        """
+        if not viz_kind:
+            return "insight"
+        kind = viz_kind.strip().lower()
+        chart_kinds = {
+            "bar", "line", "donut", "pie", "heatmap", "sparkline", "range", "area"
+        }
+        if kind in chart_kinds:
+            return "chart"
+        if kind in ("kpi", "big_number", "delta"):
+            return "kpi"
+        if kind in ("table", "list"):
+            return "table"
+        # Default: a rich card with title/description/rows — the FE
+        # already renders this for findings with tabular evidence.
+        return "insight"
+
+    async def add_finding_to_page(
+        self,
+        *,
+        agent_id: UUID,
+        finding_id: UUID,
+        page_id: UUID,
+        user: User,
+        position: Optional[dict] = None,
+        size: Optional[dict] = None,
+    ) -> dict:
+        """Materialise an AgentFinding as a Widget on the target page.
+
+        Previously the "Add to page" CTA in the FE finding card only sent
+        the description text to the page (it called the generic POST
+        /widgets endpoint with type='text'). Charts and KPIs were lost
+        because the AgentFinding's rows + viz_kind were never read on
+        this path.
+
+        The new flow reads ``finding.viz_kind`` and ``finding.rows`` and
+        constructs a fully-formed Widget so the page renders the same
+        visualisation the user saw in the Cockpit card. The agent's
+        connection_id is propagated so the widget can refresh data later.
+
+        Returns a dict that maps cleanly onto AddFindingToPageResponse.
+        """
+        from src.models.page import Page
+        from src.models.widget import Widget
+        from sqlalchemy import select as _select
+
+        # Load the finding and confirm it belongs to the agent named in
+        # the URL — otherwise a malicious caller could attach somebody
+        # else's finding to their own page.
+        finding_q = await self.db.execute(
+            _select(AgentFinding).where(AgentFinding.id == finding_id)
+        )
+        finding = finding_q.scalar_one_or_none()
+        if finding is None or finding.agent_id != agent_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found"
+            )
+
+        agent_q = await self.db.execute(
+            _select(Agent).where(Agent.id == agent_id)
+        )
+        agent = agent_q.scalar_one_or_none()
+        if agent is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found"
+            )
+
+        page_q = await self.db.execute(
+            _select(Page).where(Page.id == page_id)
+        )
+        page = page_q.scalar_one_or_none()
+        if page is None or page.deleted_at:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Page not found"
+            )
+
+        widget_type = self._viz_kind_to_widget_type(finding.viz_kind)
+
+        # Pull a refresh-capable connection — the agent's first
+        # connection_id when present, otherwise the finding's own
+        # connection_id (set by the SSE stream when it picked one).
+        refresh_connection_id: Optional[UUID] = None
+        if agent.connection_ids:
+            try:
+                refresh_connection_id = UUID(str(agent.connection_ids[0]))
+            except (ValueError, TypeError):
+                refresh_connection_id = None
+        if refresh_connection_id is None and finding.connection_id:
+            refresh_connection_id = finding.connection_id
+
+        # Build the widget payload. Frontend Cockpit picks columns/rows
+        # from data.rows and the chart kind from data.viz_kind. The
+        # description / reasoning surface as the card body.
+        widget_data = {
+            "title": finding.title,
+            "description": finding.description,
+            "viz_kind": finding.viz_kind,
+            "rows": finding.rows or None,
+            "source": "agent_finding",
+            "finding_id": str(finding.id),
+            "agent_id": str(agent.id),
+            "confidence": finding.confidence,
+            "reasoning": finding.reasoning,
+            "recommendation": finding.recommendation,
+        }
+
+        widget = Widget(
+            page_id=page_id,
+            type=widget_type,
+            title=(finding.title or "Agent finding")[:255],
+            position=position or {"x": 0, "y": 0},
+            size=size or {"width": 480, "height": 320},
+            data=widget_data,
+            config=None,
+            connection_id=refresh_connection_id,
+            created_by=user.id,
+            created_by_agent_id=agent.id,
+            source="agent",
+        )
+        self.db.add(widget)
+
+        # Stamp the finding so the UI can show "Added to page X" and
+        # the user does not re-add it accidentally.
+        finding.added_to_page_id = page_id
+
+        await self.db.commit()
+        await self.db.refresh(widget)
+
+        return {
+            "widget_id": widget.id,
+            "page_id": page_id,
+            "finding_id": finding_id,
+            "widget_type": widget_type,
+        }

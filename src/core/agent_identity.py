@@ -78,10 +78,21 @@ async def resolve_identity_for_page(
             )
         ).scalar_one_or_none()
         if sp is None:
-            raise NotFoundError(
-                f"Crew {page.crew_id} has no service principal — "
-                "invariant violation, crews auto-create one on creation"
+            # Mirror the lazy-create defensive path already used for
+            # Space below. Legacy crews created before the April 2026
+            # migration have no SP — raising NotFoundError ("invariant
+            # violation") here surfaced as a 500 on every collaborative
+            # agent-widget creation Lucas tested. Creating the SP on
+            # demand is safe: the SP table is keyed by crew_id, the
+            # write is idempotent under the unique constraint, and the
+            # CrewService.create_crew path still emits one up front for
+            # every NEW crew, so this branch only fires for legacy data.
+            sp = ServicePrincipal(
+                crew_id=page.crew_id,
+                name=f"sa-crew-{str(page.crew_id)[:8]}",
             )
+            db.add(sp)
+            await db.flush()
         return ResolvedIdentity(
             identity_type="service_principal",
             identity_id=sp.id,
