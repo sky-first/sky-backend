@@ -121,6 +121,22 @@ def _ip(request: Request) -> Optional[str]:
     return request.client.host if request.client else None
 
 
+def _impersonation_read(row: "ConsoleImpersonationSession") -> "ImpersonationSessionRead":
+    """Build the read schema with the computed TTL fields populated.
+
+    Gap #6 fix: the row itself doesn't (yet) carry ``expires_at`` —
+    compute it from ``started_at + IMPERSONATION_TTL`` and roll status
+    into one of ``active`` / ``expired`` / ``ended`` so the UI doesn't
+    repeat the date math.
+    """
+    from src.core.impersonation_ttl import compute_expires_at, status_for
+
+    obj = ImpersonationSessionRead.model_validate(row)
+    obj.expires_at = compute_expires_at(row.started_at)
+    obj.status = status_for(row)
+    return obj
+
+
 # ── Me ─────────────────────────────────────────────────────────────
 
 
@@ -886,7 +902,7 @@ async def start_impersonation(
         },
         actor_ip=_ip(request),
     )
-    return ImpersonationSessionRead.model_validate(session_row)
+    return _impersonation_read(session_row)
 
 
 @router.post(
@@ -909,9 +925,16 @@ async def end_impersonation(
     if row is None:
         raise HTTPException(status_code=404, detail="Session not found")
     if row.ended_at is None:
-        row.ended_at = datetime.now(timezone.utc)
+        # Cap the explicit close at expires_at so a session that was
+        # already past its TTL doesn't get "extended" by a late close
+        # — the row's lifetime should not depend on operator promptness.
+        from src.core.impersonation_ttl import compute_expires_at
+
+        now = datetime.now(timezone.utc)
+        exp = compute_expires_at(row.started_at)
+        row.ended_at = min(now, exp) if exp is not None else now
         await db.flush()
-    return ImpersonationSessionRead.model_validate(row)
+    return _impersonation_read(row)
 
 
 @router.get(
@@ -933,7 +956,7 @@ async def list_impersonation_sessions(
             .limit(limit)
         )
     ).scalars().all()
-    return [ImpersonationSessionRead.model_validate(r) for r in rows]
+    return [_impersonation_read(r) for r in rows]
 
 
 # ── Compliance / DPO (It6) ─────────────────────────────────────────
