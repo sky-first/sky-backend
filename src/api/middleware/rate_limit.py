@@ -77,18 +77,39 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
         # Use user_id if available, otherwise use IP
         identifier = f"user:{user_id}" if user_id else f"ip:{client_ip}"
 
+        # Console gets its own bucket (Gap #2 from the 2026-05-30
+        # security posture audit). /api/console/v1/* is a low-volume
+        # operator surface; budget separately so a runaway tenant
+        # request burst can't burn the Console quota, and a Console
+        # script gone wild can't drain the customer-facing quota.
+        # Prefix splits the Redis keyspace; the limits read from
+        # CONSOLE_RATE_LIMIT_* settings.
+        path_str = path if isinstance(path, str) else ""
+        is_console = path_str.startswith("/api/console/v1") or path_str.startswith("/api/console")
+        bucket_prefix = "rate_limit:console" if is_console else "rate_limit"
+        minute_limit = (
+            settings.CONSOLE_RATE_LIMIT_PER_MINUTE if is_console else settings.RATE_LIMIT_PER_MINUTE
+        )
+        hour_limit = (
+            settings.CONSOLE_RATE_LIMIT_PER_HOUR if is_console else settings.RATE_LIMIT_PER_HOUR
+        )
+
         # Per-minute limit
-        minute_key = f"rate_limit:minute:{identifier}"
+        minute_key = f"{bucket_prefix}:minute:{identifier}"
         minute_count = await redis.incr(minute_key)
         if minute_count == 1:
             await redis.expire(minute_key, 60)
-        if minute_count > settings.RATE_LIMIT_PER_MINUTE:
-            logger.warning(f"Rate limit exceeded (minute): {identifier}")
+        if minute_count > minute_limit:
+            logger.warning(f"Rate limit exceeded (minute) bucket={bucket_prefix}: {identifier}")
             response = JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
                     "error": "Too Many Requests",
-                    "message": "Rate limit exceeded. Please try again later.",
+                    "message": (
+                        f"Console rate limit exceeded ({minute_limit}/min). Please slow down."
+                        if is_console
+                        else "Rate limit exceeded. Please try again later."
+                    ),
                 },
                 headers={"Retry-After": "60"},
             )
@@ -100,12 +121,12 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
             return response
 
         # Per-hour limit
-        hour_key = f"rate_limit:hour:{identifier}"
+        hour_key = f"{bucket_prefix}:hour:{identifier}"
         hour_count = await redis.incr(hour_key)
         if hour_count == 1:
             await redis.expire(hour_key, 3600)
-        if hour_count > settings.RATE_LIMIT_PER_HOUR:
-            logger.warning(f"Rate limit exceeded (hour): {identifier}")
+        if hour_count > hour_limit:
+            logger.warning(f"Rate limit exceeded (hour) bucket={bucket_prefix}: {identifier}")
             response = JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
@@ -125,14 +146,16 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
 
         # Add rate limit headers — skip if response is already finalized
         # (StreamingResponse may lock headers after starting the body).
-        response.headers["X-RateLimit-Limit-Minute"] = str(settings.RATE_LIMIT_PER_MINUTE)
+        response.headers["X-RateLimit-Limit-Minute"] = str(minute_limit)
         response.headers["X-RateLimit-Remaining-Minute"] = str(
-            max(0, settings.RATE_LIMIT_PER_MINUTE - minute_count)
+            max(0, minute_limit - minute_count)
         )
-        response.headers["X-RateLimit-Limit-Hour"] = str(settings.RATE_LIMIT_PER_HOUR)
+        response.headers["X-RateLimit-Limit-Hour"] = str(hour_limit)
         response.headers["X-RateLimit-Remaining-Hour"] = str(
-            max(0, settings.RATE_LIMIT_PER_HOUR - hour_count)
+            max(0, hour_limit - hour_count)
         )
+        if is_console:
+            response.headers["X-RateLimit-Bucket"] = "console"
 
         return response
     except Exception as e:

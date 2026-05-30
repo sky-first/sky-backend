@@ -460,6 +460,14 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 300
     RATE_LIMIT_PER_HOUR: int = 10000
 
+    # Console rate-limit bucket (Gap #2 from the 2026-05-30 security
+    # posture audit). The Console is a low-volume operator surface with
+    # destructive actions; budgeting it separately keeps a runaway
+    # tenant burst from burning Console quota and a Console script gone
+    # wild from draining the customer-facing budget.
+    CONSOLE_RATE_LIMIT_PER_MINUTE: int = 60
+    CONSOLE_RATE_LIMIT_PER_HOUR: int = 1000
+
     # Tenant/User rate limiting for AI cost control (Subtask 2/3)
     AI_RATE_LIMIT_ENABLED: bool = True
     AI_RATE_LIMIT_USER_PER_MINUTE: int = 10
