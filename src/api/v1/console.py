@@ -99,7 +99,13 @@ from src.schemas.internal_console import (
     TenantCompareEntry,
     TenantCompareResponse,
 )
-from src.services import console_rbac, console_service, csm_service, pricing_tiers
+from src.services import (
+    console_rbac,
+    console_service,
+    csm_service,
+    pricing_service,
+    pricing_tiers,
+)
 from src.services.console_telemetry import (
     TelemetryUnavailable,
     activity_provider,
@@ -436,6 +442,25 @@ async def change_tenant_tier(
     user: User = Depends(require_sky_team),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConsoleTenantDetail:
+    """Move a tenant to a different pricing tier.
+
+    Downgrade safety: when ``apply_preset`` is true and the new tier's
+    preset caps would be lower than what the tenant currently
+    consumes, we refuse with 422 and return a per-dimension breakdown
+    of which resources exceed the target. The operator can either:
+
+      * free capacity on the tenant side (delete agents/sources) and
+        retry, or
+      * pass ``apply_preset=false`` to flip the label only, leaving the
+        existing ``capacity_limits`` intact (the contractual-override
+        path — used when a customer pays Starter but has a carved-out
+        higher cap negotiated in the contract).
+
+    Idempotency: setting the tier to the value it already has is a
+    no-op for the audit log but still re-applies the preset caps when
+    ``apply_preset`` is true, so the operator can use this endpoint as
+    "reset capacity limits to preset" too.
+    """
     preset = pricing_tiers.get_tier(payload.tier)
     if preset is None:
         raise HTTPException(status_code=400, detail="Unknown tier")
@@ -444,7 +469,58 @@ async def change_tenant_tier(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # ── Downgrade safety check ─────────────────────────────────────
+    # Only enforce when the operator asked us to apply the preset;
+    # ``apply_preset=false`` is the explicit "keep contractual
+    # override" path and bypasses the check on purpose.
+    if payload.apply_preset:
+        used = row.capacity_used or {}
+        breaches: list[dict] = []
+        for dim, new_cap in preset.capacity_limits.items():
+            current_used = int(used.get(dim, 0) or 0)
+            if current_used > int(new_cap):
+                breaches.append(
+                    {
+                        "dimension": dim,
+                        "used": current_used,
+                        "new_cap": int(new_cap),
+                        "excess": current_used - int(new_cap),
+                    }
+                )
+        if breaches:
+            await audit_action(
+                db,
+                actor=user,
+                action=AuditAction.CHANGE_TIER,
+                tenant_slug=slug,
+                result=AuditResult.FAILURE,
+                request_payload={
+                    "from": row.tier,
+                    "to": preset.slug,
+                    "apply_preset": True,
+                    "reason": "downgrade_exceeds_new_caps",
+                    "breaches": breaches,
+                },
+                actor_ip=_ip(request),
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "downgrade_exceeds_new_caps",
+                    "message": (
+                        f"Tenant {slug!r} currently consumes more than the "
+                        f"{preset.slug!r} tier allows. Free capacity or pass "
+                        f"apply_preset=false to keep the override."
+                    ),
+                    "from_tier": row.tier,
+                    "to_tier": preset.slug,
+                    "breaches": breaches,
+                },
+            )
+
     old_tier = row.tier
+    tier_actually_changed = old_tier != preset.slug
     row.tier = preset.slug
     row.rate_limit_rpm = preset.rate_limit_rpm
     row.rate_limit_tpm = preset.rate_limit_tpm
@@ -456,19 +532,22 @@ async def change_tenant_tier(
 
     clear_tenant_cache()
 
-    await audit_action(
-        db,
-        actor=user,
-        action=AuditAction.CHANGE_TIER,
-        tenant_slug=slug,
-        result=AuditResult.SUCCESS,
-        request_payload={
-            "from": old_tier,
-            "to": preset.slug,
-            "apply_preset": payload.apply_preset,
-        },
-        actor_ip=_ip(request),
-    )
+    # Only audit a real tier change. Re-applying the preset onto the
+    # same tier doesn't add value to the CHANGE_TIER feed.
+    if tier_actually_changed:
+        await audit_action(
+            db,
+            actor=user,
+            action=AuditAction.CHANGE_TIER,
+            tenant_slug=slug,
+            result=AuditResult.SUCCESS,
+            request_payload={
+                "from": old_tier,
+                "to": preset.slug,
+                "apply_preset": payload.apply_preset,
+            },
+            actor_ip=_ip(request),
+        )
 
     detail = await console_service.get_tenant_detail(db, slug)
     assert detail is not None
@@ -1536,3 +1615,53 @@ async def get_board_pack(
             for i in incidents
         ],
     )
+
+
+# ── Pricing — per-tenant usage (Fase 1) ────────────────────────────
+
+
+@router.get(
+    "/tenants/{slug}/usage",
+    summary="Per-tenant pricing limits + live usage breakdown",
+)
+async def get_tenant_usage(
+    slug: str,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Console view: ceilings, current counters, and percent per resource.
+
+    Used by the Pricing tab in the Console to render the "agents
+    8/10" style indicators and the 80/95/100 progress bars. The
+    response is intentionally flat JSON (not a Pydantic model) so the
+    Fase 2 FE iteration can ship without a schema round-trip — the
+    shape is documented inline below.
+    """
+    tenant_q = await db.execute(select(Tenant).where(Tenant.slug == slug))
+    tenant = tenant_q.scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    row = await pricing_service.get_limits(db, tenant.id)
+    percent = await pricing_service.usage_percent(db, tenant.id)
+    return {
+        "tenant_slug": slug,
+        "tenant_id": str(tenant.id),
+        "tier": row.tier,
+        "limits": {
+            "max_agents": row.max_agents,
+            "max_users": row.max_users,
+            "max_storage_gb": row.max_storage_gb,
+            "max_queries_per_month": row.max_queries_per_month,
+        },
+        "current": {
+            "agents": row.current_agents,
+            "users": row.current_users,
+            "storage_bytes": row.current_storage_bytes,
+            "queries_this_month": row.current_queries_this_month,
+        },
+        "percent": percent,
+        "queries_period_start": row.queries_period_start,
+        "last_threshold_alerted": row.last_threshold_alerted or {},
+        "updated_at": row.updated_at,
+    }
