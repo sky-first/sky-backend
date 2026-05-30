@@ -15,8 +15,16 @@ The downgrade reverses each step. Existing tenants with non-pilot
 tiers (foundation/core/advanced/strategic) are untouched.
 
 Revision ID: rename_pilot_to_starter_20260530
-Revises: sky_role_owner_20260529
+Revises: tenant_plan_limits_20260530
 Create Date: 2026-05-30
+
+Originally pointed at ``sky_role_owner_20260529`` because it was
+authored in parallel with the pricing-Fase-1 migration (PR #466).
+Both landed with the same parent, producing two alembic heads and
+freezing the migrate Job on staging with
+``Multiple head revisions are present for given argument 'head'``.
+Chain to ``tenant_plan_limits_20260530`` so there's a single head.
+The UPDATE this migration runs is unaffected by the order.
 """
 
 from __future__ import annotations
@@ -24,7 +32,7 @@ from __future__ import annotations
 from alembic import op
 
 revision = "rename_pilot_to_starter_20260530"
-down_revision = "sky_role_owner_20260529"
+down_revision = "tenant_plan_limits_20260530"
 branch_labels = None
 depends_on = None
 
