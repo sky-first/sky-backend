@@ -13,7 +13,7 @@ context, ``get_session`` returns the global pool, and nothing observes
 that the manager exists.
 
 Pool sizing follows the tier ladder from
-``04-pricing-model.md`` — pilot tenants get small pools, strategic
+``04-pricing-model.md`` — starter tenants get small pools, strategic
 tenants get generous ones. The numbers are deliberately conservative;
 PR #14 (Phase 5) raises them after we have real telemetry.
 """
@@ -43,10 +43,10 @@ logger = logging.getLogger(__name__)
 
 # ─── Pool sizing per tier ──────────────────────────────────────────
 # (pool_size, max_overflow). The total ceiling per tenant is the sum.
-# A pilot tenant tops out at 15 simultaneous connections — comfortably
+# A starter tenant tops out at 15 simultaneous connections — comfortably
 # below Postgres's default 100 even with 5 tenants on a shared pod.
 TIER_POOL_SIZES = {
-    "pilot": (5, 10),
+    "starter": (5, 10),
     "foundation": (10, 20),
     "core": (20, 40),
     "advanced": (40, 80),

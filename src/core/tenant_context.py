@@ -98,7 +98,7 @@ class TenantContext:
 DEFAULT_TENANT_CONTEXT = TenantContext(
     slug="default",
     id=_NIL_UUID,
-    tier="pilot",  # arbitrary but valid per the tier CHECK constraint
+    tier="starter",  # arbitrary but valid per the tier CHECK constraint
     display_name="Default (single-tenant mode)",
 )
 

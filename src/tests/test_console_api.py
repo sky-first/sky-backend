@@ -60,7 +60,7 @@ def _registry_payload(slug: str = "gbt", **overrides) -> Dict:
     base = dict(
         slug=slug,
         display_name=f"{slug.upper()} Co.",
-        tier="pilot",
+        tier="starter",
         db_host=f"postgres-{slug}.local",
         db_port=5432,
         db_name=f"tenant_{slug}",
@@ -101,7 +101,7 @@ def test_create_tenant_201_and_appears_in_list(authed_client):
     assert res.status_code == 201, res.text
     body = res.json()
     assert body["slug"] == "acme"
-    assert body["tier"] == "pilot"
+    assert body["tier"] == "starter"
 
     listed = authed_client.get("/api/console/v1/tenants").json()
     assert listed["total"] == 1
@@ -244,7 +244,7 @@ def test_dashboard_summary(authed_client):
     assert body["total_tenants"] == 2
     assert body["active_tenants"] == 1
     assert body["suspended_tenants"] == 1
-    assert body["tenants_by_tier"]["pilot"] == 1
+    assert body["tenants_by_tier"]["starter"] == 1
     assert body["tenants_by_tier"]["foundation"] == 1
 
 

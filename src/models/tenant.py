@@ -44,7 +44,7 @@ _JSONB_OR_JSON = JSONB().with_variant(JSON(), "sqlite")
 class TenantTier(str, Enum):
     """Pricing tiers — see ``01-customer-facing/04-pricing-model.md``."""
 
-    PILOT = "pilot"
+    STARTER = "starter"
     FOUNDATION = "foundation"
     CORE = "core"
     ADVANCED = "advanced"
@@ -165,7 +165,7 @@ class Tenant(Base):
         UniqueConstraint("slug", name="uq_tenant_registry_slug"),
         UniqueConstraint("custom_domain", name="uq_tenant_registry_custom_domain"),
         CheckConstraint(
-            "tier IN ('pilot', 'foundation', 'core', 'advanced', 'strategic')",
+            "tier IN ('starter', 'foundation', 'core', 'advanced', 'strategic')",
             name="tenant_registry_tier_check",
         ),
         # Stated as "if active, must not be suspended" — equivalent to

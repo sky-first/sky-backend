@@ -19,7 +19,7 @@ from src.core.tenant_guard import assert_tenant_scoped
 
 def _real_tenant() -> TenantContext:
     return TenantContext(
-        slug="alpha", id=uuid.uuid4(), tier="pilot", display_name="Alpha"
+        slug="alpha", id=uuid.uuid4(), tier="starter", display_name="Alpha"
     )
 
 

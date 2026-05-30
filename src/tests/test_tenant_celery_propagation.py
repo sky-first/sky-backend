@@ -50,7 +50,7 @@ def test_publish_writes_default_slug_when_no_tenant_set():
 def test_publish_writes_current_tenant_slug():
     _fresh_default()
     ctx = TenantContext(
-        slug="alpha", id=uuid.uuid4(), tier="pilot", display_name="A"
+        slug="alpha", id=uuid.uuid4(), tier="starter", display_name="A"
     )
     token = set_current_tenant(ctx)
     try:
