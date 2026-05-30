@@ -21,6 +21,7 @@ from src.schemas.space import (
     SpaceTableCreate,
     SpaceUpdate,
 )
+from src.services import pricing_service
 from src.services.crew_service import CrewService
 from src.services.rbac_service import RBACService
 from src.services.space_service import SpaceService
@@ -413,8 +414,14 @@ async def add_space_member(
         SpaceMemberResponse: Created member
     """
     await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    # Pricing Fase 1 — block at 402 before the membership row is
+    # written. The user counter is per-tenant (not per-space), so the
+    # bump happens once the row commits.
+    await pricing_service.check_can_create_user(db)
     space_service = SpaceService(db)
-    return await space_service.add_space_member(space_id, current_user, member_data)
+    result = await space_service.add_space_member(space_id, current_user, member_data)
+    await pricing_service.record_user_created(db)
+    return result
 
 
 @router.patch(

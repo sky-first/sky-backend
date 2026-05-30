@@ -163,6 +163,7 @@ celery_app.conf.update(
         "src.workers.agent_revocation_worker",
         "src.workers.demo_cleanup_worker",
         "src.workers.knowledge_worker",
+        "src.workers.pricing_worker",
     ],
 )
 
@@ -202,6 +203,22 @@ try:
         # for more than the advertised window.
         "cleanup-expired-demo-spaces": {
             "task": "src.workers.demo_cleanup_worker.cleanup_expired_demo_spaces",
+            "schedule": timedelta(hours=24),
+        },
+        # Pricing Fase 1 — monthly query counter rollover. Daily sweep
+        # so a quiet tenant whose first query of the new month hasn't
+        # landed yet doesn't show last month's number forever. Cheap:
+        # one SELECT + N UPDATEs gated on "not same month".
+        "pricing-roll-over-query-counters": {
+            "task": "src.workers.pricing_worker.roll_over_query_counters",
+            "schedule": timedelta(hours=24),
+        },
+        # Pricing Fase 1 — recompute current_storage_bytes from the
+        # filesystem of record. Coarse for now (whole-DB sum onto the
+        # default tenant); Fase 3 will scope per-tenant once tenant_id
+        # columns land on the source tables.
+        "pricing-compute-storage-usage": {
+            "task": "src.workers.pricing_worker.compute_storage_usage",
             "schedule": timedelta(hours=24),
         },
     }

@@ -47,6 +47,7 @@ from src.schemas.ai import (
     ValidateSQLResponse,
 )
 from src.schemas.common import ErrorResponse, SuccessResponse
+from src.services import pricing_service
 from src.services.ai_service import AIService
 from src.services.beats_service import BeatsService
 from src.services.rbac_service import RBACService
@@ -176,7 +177,15 @@ async def process_query(
         current_user, kind="chat", source_id=None,
     )
 
-    return await ai_service.process_query(current_user.id, query_data)
+    response = await ai_service.process_query(current_user.id, query_data)
+    # Pricing Fase 1 — bump the monthly query counter at the end of
+    # the request so failed queries (LLM error, etc.) don't get
+    # charged against the tenant's quota.
+    try:
+        await pricing_service.record_query_usage(db)
+    except Exception:  # pragma: no cover — accounting failure is non-fatal
+        logger.exception("pricing_record_query_usage_failed")
+    return response
 
 
 @router.get(
@@ -469,7 +478,13 @@ async def send_chat_message(
         message_data.ai_style = prefs.get("ai_style")
 
     ai_service = AIService(db)
-    return await ai_service.send_chat_message(current_user.id, message_data)
+    response = await ai_service.send_chat_message(current_user.id, message_data)
+    # Pricing Fase 1 — counter bump on success only.
+    try:
+        await pricing_service.record_query_usage(db)
+    except Exception:  # pragma: no cover — accounting failure is non-fatal
+        logger.exception("pricing_record_query_usage_failed")
+    return response
 
 
 @router.post(

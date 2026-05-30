@@ -54,6 +54,7 @@ from src.schemas.agent import (
     AgentResponse,
     AgentUpdate,
 )
+from src.services import pricing_service
 from src.services.agent_service import AgentService
 from src.services.rbac_service import RBACService
 
@@ -231,7 +232,16 @@ async def create_agent(
                 ),
             )
 
-    return await service.create_agent(data, user_id=current_user.id)
+    # Pricing Fase 1 — tier enforcement. Raises TierLimitExceededError
+    # (HTTP 402) BEFORE the agent row is created so we don't have to
+    # clean up on the way out. The counter bump happens after the
+    # service confirms the insert; if anything between here and the
+    # bump fails, the row is gone (transaction rollback) and the
+    # counter stays consistent.
+    await pricing_service.check_can_create_agent(db)
+    agent = await service.create_agent(data, user_id=current_user.id)
+    await pricing_service.record_agent_created(db)
+    return agent
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)

@@ -43,6 +43,12 @@ from src.models.page import Page, PageMember
 from src.models.space import Space, SpaceConnection, SpaceMember, SpaceTable
 from src.models.starred import StarredItem
 from src.models.tenant import DEFAULT_CAPACITY_SHAPE, Tenant, TenantTier
+from src.models.tenant_plan_limits import (
+    TIER_LIMITS,
+    UPGRADE_HINT,
+    PricingTier,
+    TenantPlanLimits,
+)
 from src.models.internal_console import (
     AuditAction,
     AuditResult,
@@ -124,6 +130,10 @@ __all__ = [
     "UserPermissionGrant",
     "Tenant",
     "TenantTier",
+    "TenantPlanLimits",
+    "PricingTier",
+    "TIER_LIMITS",
+    "UPGRADE_HINT",
     "DEFAULT_CAPACITY_SHAPE",
     "InternalConsoleAudit",
     "ProvisioningJob",
