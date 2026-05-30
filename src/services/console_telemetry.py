@@ -498,9 +498,39 @@ class _NotYetImplementedCost:
 # ── Factories ──────────────────────────────────────────────────────
 
 
+def _k8s_telemetry_enabled() -> bool:
+    """Gate the real K8s provider behind both the existing mock flag
+    *and* the new ``K8S_TELEMETRY_ENABLED`` setting (issue #39).
+
+    Read lazily from settings *and* from env so tests using
+    ``monkeypatch.setenv`` flip behaviour without rebuilding the
+    Pydantic Settings instance.
+    """
+    env_raw = os.getenv("K8S_TELEMETRY_ENABLED")
+    if env_raw is not None:
+        return env_raw.lower() in {"true", "1", "yes", "on"}
+    try:
+        from src.config.settings import settings as _settings
+
+        return bool(getattr(_settings, "K8S_TELEMETRY_ENABLED", False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def infra_provider() -> InfraProvider:
     if _mock_mode_enabled():
         return MockInfraProvider()
+    # New path: live Kubernetes telemetry behind K8S_TELEMETRY_ENABLED.
+    # Returns a provider whose ``platform_health`` / ``tenant_health``
+    # satisfy the InfraProvider Protocol (see KubernetesTelemetryProvider
+    # in ``src/services/k8s_telemetry.py``).
+    if _k8s_telemetry_enabled():
+        try:
+            from src.services.k8s_telemetry import get_provider
+
+            return get_provider()
+        except TelemetryUnavailable:
+            return _NotYetImplementedInfra()
     try:
         from src.services.console_telemetry_real import KubernetesInfraProvider
 

@@ -468,6 +468,31 @@ class Settings(BaseSettings):
     CONSOLE_RATE_LIMIT_PER_MINUTE: int = 60
     CONSOLE_RATE_LIMIT_PER_HOUR: int = 1000
 
+    # ─── Console K8s telemetry (issue #39 / feat/console-telemetry-k8s-real) ──
+    # When True, the InfraProvider factory returns the live Kubernetes-backed
+    # provider (``KubernetesTelemetryProvider``) instead of the legacy mock or
+    # the kubeconfig-based ``KubernetesInfraProvider``. The new provider uses
+    # ``load_incluster_config()`` first (IRSA on EKS) and falls back to
+    # ``load_kube_config()`` for local development. Off by default so PRs that
+    # touch the Console do not require a live cluster in CI.
+    #
+    # NOTE: the K8s provider also requires CONSOLE_MOCK_INFRA=false to take
+    # effect — when the mock flag is on it always wins, so dev/CI is safe.
+    K8S_TELEMETRY_ENABLED: bool = False
+    # Optional namespace allow-list for ``platform_health``. Empty = scan
+    # all namespaces (requires cluster-wide list-pods RBAC). Comma-separated
+    # values, e.g. ``"staging,production"``.
+    K8S_TELEMETRY_NAMESPACES: str = ""
+    # In-memory cache TTL for K8s API responses, in seconds. Prevents the
+    # Console UI poll loop from rebooting the kube-apiserver. 30s matches the
+    # frontend's auto-refresh cadence.
+    K8S_TELEMETRY_CACHE_TTL_SECONDS: int = 30
+    # Namespace name template. The provider derives a tenant's namespace
+    # from its slug + the environment label. Two placeholders are supported:
+    # ``{slug}`` and ``{env}`` (env ∈ {stg, prd}). Default mirrors the infra
+    # convention ``<slug>-stg-aws`` / ``<slug>-prd-aws``.
+    K8S_TELEMETRY_NAMESPACE_TEMPLATE: str = "{slug}-{env}-aws"
+
     # Tenant/User rate limiting for AI cost control (Subtask 2/3)
     AI_RATE_LIMIT_ENABLED: bool = True
     AI_RATE_LIMIT_USER_PER_MINUTE: int = 10
