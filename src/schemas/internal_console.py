@@ -569,6 +569,13 @@ class ImpersonationSessionRead(BaseModel):
     started_at: datetime
     ended_at: Optional[datetime]
     customer_consent: bool
+    # Gap #6 from the 2026-05-30 security posture audit. The Console
+    # never had a hard TTL on impersonation sessions; they could appear
+    # "active" indefinitely. ``expires_at`` is computed as
+    # ``started_at + IMPERSONATION_TTL`` (1h by default) and ``status``
+    # rolls it up so the UI doesn't have to do the date math itself.
+    expires_at: Optional[datetime] = None
+    status: str = "active"  # "active" | "expired" | "ended"
 
 
 # ── Notifications + Board Pack + Comparison (It8) ──────────────────
