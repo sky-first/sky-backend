@@ -191,6 +191,51 @@ class DashboardSummary(BaseModel):
     recent_audit: List[AuditEntryRead] = Field(default_factory=list)
 
 
+# ── CEO Master Dashboard ───────────────────────────────────────────
+
+
+class CeoTierRow(BaseModel):
+    tier: str
+    active_tenants: int
+    annual_price_eur: Optional[int]
+    contracted_mrr_eur: float
+
+
+class CeoChurnSignal(BaseModel):
+    tenant_slug: str
+    display_name: str
+    reason: str  # "suspended" / "downgrade_blocked" / "no_recent_activity"
+    detail: str
+
+
+class CeoProvisioningHealth(BaseModel):
+    pending: int
+    running: int
+    succeeded_last_24h: int
+    failed_last_24h: int
+
+
+class CeoMasterSummaryResponse(BaseModel):
+    """``GET /api/console/v1/ceo`` payload.
+
+    Single read Lucas (and any future CEO/CFO) opens to see where the
+    business stands: ARR / MRR / margin / churn signals / provisioning
+    pipeline health, in one place. All EUR per year unless noted.
+    """
+
+    computed_at: datetime
+    total_tenants: int
+    active_tenants: int
+    suspended_tenants: int
+    contracted_arr_eur: float
+    contracted_mrr_eur: float
+    last_month_cost_eur: float
+    gross_margin_pct: Optional[float]
+    tiers: List[CeoTierRow] = Field(default_factory=list)
+    churn_signals: List[CeoChurnSignal] = Field(default_factory=list)
+    provisioning: CeoProvisioningHealth
+
+
 # ── Me ─────────────────────────────────────────────────────────────
 
 
