@@ -40,6 +40,21 @@ def _user(email: str = "x@skyfirstlabs.com", is_sky_op: bool = False) -> User:
     )
 
 
+def _request_with_host(host: str = "console-stg.skyfirstlabs.com"):
+    """Fabricate a minimal Request stand-in carrying a Host header so
+    ``_assert_console_host`` (the first guard inside
+    ``require_sky_team``) lets the call through.
+
+    Tests that exercise the auth/role logic should pass an allowed
+    host here; tests that want to assert the host-gate itself can pass
+    a forbidden one.
+    """
+    return SimpleNamespace(
+        headers={"host": host},
+        url=SimpleNamespace(hostname=host, path="/api/console/v1/me"),
+    )
+
+
 # ── is_sky_team_member ─────────────────────────────────────────────
 
 
@@ -111,7 +126,9 @@ async def test_require_sky_team_raises_403_for_outsider(monkeypatch):
     monkeypatch.setattr(console_auth, "get_current_user", _fake_get_current_user)
 
     with pytest.raises(HTTPException) as info:
-        await console_auth.require_sky_team(request=SimpleNamespace())
+        await console_auth.require_sky_team(
+            request=_request_with_host("console-stg.skyfirstlabs.com")
+        )
     assert info.value.status_code == 403
     assert info.value.detail["error"] == "sky_team_required"
 
@@ -126,8 +143,34 @@ async def test_require_sky_team_passes_for_sky_operator(monkeypatch):
         return user
 
     monkeypatch.setattr(console_auth, "get_current_user", _fake_get_current_user)
-    returned = await console_auth.require_sky_team(request=SimpleNamespace())
+    returned = await console_auth.require_sky_team(
+        request=_request_with_host("console-stg.skyfirstlabs.com")
+    )
     assert returned is user
+
+
+@pytest.mark.asyncio
+async def test_require_sky_team_rejects_404_on_main_app_host(monkeypatch):
+    """Even a real Sky-team operator hitting /api/console/v1/* from the
+    main customer host gets 404 — the host gate runs first so the
+    operator surface is invisible outside its dedicated subdomain."""
+    from src.api import console_auth
+
+    user = _user(is_sky_op=True)
+
+    async def _fake_get_current_user(**_kwargs):
+        return user
+
+    monkeypatch.setattr(console_auth, "get_current_user", _fake_get_current_user)
+    monkeypatch.delenv("CONSOLE_ALLOWED_HOSTS", raising=False)
+    with pytest.raises(HTTPException) as info:
+        await console_auth.require_sky_team(
+            request=_request_with_host("sky-stg.skyfirstlabs.com")
+        )
+    assert info.value.status_code == 404
+
+
+# Move helper before the original tests so they can use it.
 
 
 # ── role_for ───────────────────────────────────────────────────────
@@ -267,3 +310,65 @@ async def test_audited_records_failure_on_http_exception(db_session):
     assert row.action == "suspend_tenant"
     assert row.result == "failure"
     assert row.result_details["status_code"] == 404
+
+
+# ── Console host isolation ─────────────────────────────────────────
+
+
+def test_assert_console_host_accepts_default_console_subdomains(monkeypatch):
+    from src.api.console_auth import _assert_console_host
+
+    monkeypatch.delenv("CONSOLE_ALLOWED_HOSTS", raising=False)
+    for host in (
+        "console.skyfirstlabs.com",
+        "console-stg.skyfirstlabs.com",
+        "localhost",
+        "127.0.0.1",
+    ):
+        _assert_console_host(_request_with_host(host))  # no raise
+
+
+def test_assert_console_host_strips_port(monkeypatch):
+    from src.api.console_auth import _assert_console_host
+
+    monkeypatch.delenv("CONSOLE_ALLOWED_HOSTS", raising=False)
+    _assert_console_host(_request_with_host("console-stg.skyfirstlabs.com:443"))
+
+
+def test_assert_console_host_rejects_main_app_host_with_404(monkeypatch):
+    """A customer landing on sky-stg.skyfirstlabs.com must not even
+    learn the Console exists. 404 (not 403) is intentional."""
+    from src.api.console_auth import _assert_console_host
+
+    monkeypatch.delenv("CONSOLE_ALLOWED_HOSTS", raising=False)
+    with pytest.raises(HTTPException) as exc:
+        _assert_console_host(_request_with_host("sky-stg.skyfirstlabs.com"))
+    assert exc.value.status_code == 404
+
+
+def test_assert_console_host_rejects_arbitrary_attacker_host(monkeypatch):
+    from src.api.console_auth import _assert_console_host
+
+    monkeypatch.delenv("CONSOLE_ALLOWED_HOSTS", raising=False)
+    for host in (
+        "attacker.example.com",
+        "skyfirstlabs.com.attacker.com",  # subdomain spoof
+        "sky-prd.skyfirstlabs.com",
+        "demo.skyfirstlabs.com",
+    ):
+        with pytest.raises(HTTPException) as exc:
+            _assert_console_host(_request_with_host(host))
+        assert exc.value.status_code == 404, host
+
+
+def test_assert_console_host_honours_env_override(monkeypatch):
+    """``CONSOLE_ALLOWED_HOSTS=`` env replaces the default set entirely
+    so an operator can lock the Console down to a single host in prod."""
+    from src.api.console_auth import _assert_console_host
+
+    monkeypatch.setenv("CONSOLE_ALLOWED_HOSTS", "ops.example.com")
+    _assert_console_host(_request_with_host("ops.example.com"))  # allowed
+    # Defaults are dropped when env is non-empty — even console.* gets 404.
+    with pytest.raises(HTTPException) as exc:
+        _assert_console_host(_request_with_host("console-stg.skyfirstlabs.com"))
+    assert exc.value.status_code == 404
