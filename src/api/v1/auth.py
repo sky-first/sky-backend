@@ -31,6 +31,8 @@ from src.schemas.user import (
     InviteValidateResponse,
     LoginRequest,
     LoginResponse,
+    MFAFinalizeEnrollmentRequest,
+    MFAFinalizeEnrollmentResponse,
     MFALoginRequest,
     RefreshTokenRequest,
     RefreshTokenResponse,
@@ -240,6 +242,40 @@ async def login_mfa(
         challenge_token=body.challenge_token,
         code=body.code,
         is_recovery_code=body.is_recovery_code,
+        user_agent=user_agent,
+        ip_address=ip_address,
+        background_tasks=background_tasks,
+    )
+
+
+@router.post(
+    "/login/mfa-finalize",
+    response_model=MFAFinalizeEnrollmentResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    summary="Finalise first-time MFA enrolment + complete login",
+    description=(
+        "Closes the forced-enrolment loop: takes the enrolment token "
+        "issued by /auth/login (when ``force_enrollment`` was true) "
+        "plus the user's first 6-digit TOTP code, persists the secret "
+        "and the bcrypt-hashed recovery codes, and mints the session "
+        "tokens in the same response. The recovery codes are returned "
+        "EXACTLY ONCE — the FE must surface them to the user and warn "
+        "they cannot be retrieved again."
+    ),
+)
+async def login_mfa_finalize(
+    body: MFAFinalizeEnrollmentRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session),
+) -> MFAFinalizeEnrollmentResponse:
+    auth_service = AuthenticationService(db)
+    user_agent = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+    return await auth_service.finalize_mfa_enrollment(
+        enrollment_token=body.enrollment_token,
+        code=body.code,
         user_agent=user_agent,
         ip_address=ip_address,
         background_tasks=background_tasks,

@@ -307,11 +307,31 @@ class AuthenticationService:
                 mfa_expires_in=MFA_CHALLENGE_TTL_MINUTES * 60,
             )
 
-        return await self._issue_session(
-            user,
-            user_agent=user_agent,
-            ip_address=ip_address,
-            background_tasks=background_tasks,
+        # Force MFA enrolment on first password login (Lucas decision
+        # 2026-05-31). A password-authenticated account without MFA is
+        # the threat we want to close: phished credentials would walk
+        # straight in. SSO-only users skip this because the IdP already
+        # enforces 2FA. We bake the candidate secret into the enrolment
+        # token so a half-done enrolment doesn't leave a DB row behind
+        # — only the finalize-step writes anything.
+        from src.services.mfa_service import (
+            MFA_ENROLLMENT_TTL_MINUTES,
+            MFAService,
+            issue_mfa_enrollment_token,
+        )
+
+        mfa = MFAService(self.db)
+        # Issuer is the bare brand for now; per-tenant labelling can
+        # be wired once the resolver lands in this code path.
+        challenge = await mfa.generate_enrollment(user)
+        enrollment_token = issue_mfa_enrollment_token(user, challenge.secret)
+        return LoginResponse(
+            force_enrollment=True,
+            mfa_enrollment_token=enrollment_token,
+            mfa_enrollment_secret=challenge.secret,
+            mfa_enrollment_qrcode_b64=challenge.qrcode_png_b64,
+            mfa_enrollment_issuer="SkyFirst",
+            mfa_expires_in=MFA_ENROLLMENT_TTL_MINUTES * 60,
         )
 
     async def _issue_session(
@@ -421,6 +441,83 @@ class AuthenticationService:
             user_agent=user_agent,
             ip_address=ip_address,
             background_tasks=background_tasks,
+        )
+
+    async def finalize_mfa_enrollment(
+        self,
+        *,
+        enrollment_token: str,
+        code: str,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
+    ):
+        """Close the forced first-login MFA enrolment + mint tokens.
+
+        Path:
+          1. Verify the enrolment token, recover (user_id, secret).
+          2. Verify the user's 6-digit code matches the secret.
+          3. Persist the secret + bcrypt-hashed recovery codes.
+          4. Mint the access + refresh pair (same shape as a normal
+             login) and return the recovery codes ONCE in the body.
+
+        Refuses with a 409 if MFA is already enabled on the account —
+        protects against an attacker replaying a stale enrolment token
+        after the legitimate owner has finished onboarding.
+        """
+        from fastapi import HTTPException, status as http_status
+
+        from src.schemas.user import (
+            MFAFinalizeEnrollmentResponse,
+            UserResponse,
+        )
+        from src.services.mfa_service import (
+            MFAService,
+            verify_mfa_enrollment_token,
+        )
+
+        try:
+            user_id_str, secret = verify_mfa_enrollment_token(enrollment_token)
+        except ValueError:
+            raise UnauthorizedError("Invalid or expired enrolment token")
+
+        try:
+            user_id = UUID(user_id_str)
+        except (TypeError, ValueError):
+            raise UnauthorizedError("Invalid enrolment token payload")
+
+        user = await self.user_repo.get_by_id(user_id)
+        if not user:
+            raise UnauthorizedError("User not found")
+
+        mfa = MFAService(self.db)
+        try:
+            result = await mfa.persist_enrollment(user, secret=secret, code=code)
+        except ValueError as exc:
+            if str(exc) == "mfa_already_enabled":
+                raise HTTPException(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    detail="MFA is already enabled on this account",
+                )
+            raise UnauthorizedError("Invalid code")
+
+        # Mint the session tokens via the same pipeline that the
+        # password-without-MFA path used pre-Phase 3. Returns
+        # LoginResponse; we unpack into the enrolment-specific shape
+        # that also surfaces the freshly minted recovery codes.
+        session = await self._issue_session(
+            user,
+            user_agent=user_agent,
+            ip_address=ip_address,
+            background_tasks=background_tasks,
+        )
+        return MFAFinalizeEnrollmentResponse(
+            access_token=session.access_token,
+            refresh_token=session.refresh_token,
+            token_type=session.token_type,
+            expires_in=session.expires_in,
+            user=session.user,
+            recovery_codes=result.recovery_codes,
         )
 
     def _detect_auth_type(self, user: User) -> str:
