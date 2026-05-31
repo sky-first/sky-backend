@@ -302,6 +302,40 @@ class MFAService:
         await self.db.flush()
         return plaintext_codes
 
+    # ── Forced first-login enrolment ────────────────────────────────
+
+    async def persist_enrollment(
+        self, user: User, *, secret: str, code: str
+    ) -> EnrollmentResult:
+        """Persist an enrolment recovered from a JWT-bound secret.
+
+        Used by the /auth/login/mfa-finalize flow: the BE issued an
+        enrolment token at /auth/login (when it found mfa_enabled=false
+        on a password-authenticated account), the FE collected the
+        user's first 6-digit TOTP code, and now we verify + persist.
+
+        Refuses if the user already has MFA enabled — protects against
+        an attacker replaying an enrolment token after the legitimate
+        owner has already finished onboarding.
+        """
+        if getattr(user, "mfa_enabled", False):
+            raise ValueError("mfa_already_enabled")
+        if not _verify_totp(secret, code):
+            raise ValueError("invalid_code")
+
+        plaintext_codes = _mint_recovery_codes(RECOVERY_CODE_COUNT)
+        encrypted_codes = _encrypt(_encode_recovery_codes(plaintext_codes))
+        encrypted_secret = _encrypt(secret.encode("utf-8"))
+        now = datetime.now(timezone.utc)
+
+        user.mfa_secret_encrypted = encrypted_secret
+        user.mfa_recovery_codes_encrypted = encrypted_codes
+        user.mfa_enabled = True
+        user.mfa_enrolled_at = now
+        await self.db.flush()
+
+        return EnrollmentResult(recovery_codes=plaintext_codes, enrolled_at=now)
+
     # ── Disable ──────────────────────────────────────────────────────
 
     async def disable_mfa(self, user: User) -> None:
@@ -311,6 +345,11 @@ class MFAService:
         admin-impersonation can call it for a locked-out customer).
         Leaves ``mfa_enrolled_at`` / ``mfa_last_used_at`` intact for
         audit — they're metadata, not credentials.
+
+        Note (2026-05-31): the public /mfa DELETE endpoint was removed;
+        regular users cannot turn MFA off themselves once enrolled. This
+        method survives for admin-impersonation use cases (locked-out
+        customer support flows).
         """
         user.mfa_enabled = False
         user.mfa_secret_encrypted = None
@@ -442,12 +481,85 @@ def verify_mfa_challenge_token(token: str) -> str:
     return str(sub)
 
 
+# ── MFA enrollment token helpers ───────────────────────────────────────
+# Different beast from the login-challenge token: this one is issued
+# when a password-authenticated user logs in for the FIRST time on an
+# account that hasn't enrolled MFA yet. The payload carries the freshly
+# minted TOTP secret so the user can scan the QR + come back with the
+# 6-digit code; on /auth/login/mfa-finalize the BE recovers the secret
+# from this token (NOT from the DB — it isn't persisted yet) and only
+# then writes it to the user row.
+#
+# Why bake the secret into the token instead of persisting it server-
+# side and looking it up by id? Two reasons:
+#   1. No extra DB write on an enrolment the user might abandon.
+#   2. JWT signature guarantees the secret the BE persists at
+#      finalize-time is the same one the user actually scanned —
+#      no race / replay window between two parallel enrolment attempts.
+# The TTL is long enough for an unhurried user (10min) but short
+# enough that a stolen token quickly expires.
+
+MFA_ENROLLMENT_TYPE = "mfa_enrollment"
+MFA_ENROLLMENT_TTL_MINUTES = 10
+
+
+def issue_mfa_enrollment_token(user: User, secret: str) -> str:
+    """Issue a short-lived JWT that authorises /login/mfa-finalize.
+
+    Embeds the candidate TOTP secret so the BE doesn't have to persist
+    enrolment state for an attempt the user might abandon. The token
+    is single-use in practice: once the secret is persisted on the
+    user row, replay can't enrol the user twice (the service refuses
+    when ``mfa_enabled`` is already true).
+    """
+    from datetime import timedelta
+
+    from jose import jwt
+
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user.id),
+        "email": user.email,
+        "secret": secret,
+        "type": MFA_ENROLLMENT_TYPE,
+        "iat": now,
+        "exp": now + timedelta(minutes=MFA_ENROLLMENT_TTL_MINUTES),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def verify_mfa_enrollment_token(token: str) -> tuple[str, str]:
+    """Verify an enrolment token. Returns ``(user_id, secret)``.
+
+    Raises ``ValueError`` with a stable code on any failure — the
+    caller maps it to a 401.
+    """
+    from jose import JWTError, jwt
+
+    try:
+        payload = jwt.decode(
+            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+        )
+    except JWTError as exc:
+        raise ValueError("invalid_enrollment_token") from exc
+    if payload.get("type") != MFA_ENROLLMENT_TYPE:
+        raise ValueError("invalid_enrollment_token_type")
+    sub = payload.get("sub")
+    secret = payload.get("secret")
+    if not sub or not secret:
+        raise ValueError("invalid_enrollment_token_payload")
+    return str(sub), str(secret)
+
+
 __all__ = [
     "EnrollmentChallenge",
     "EnrollmentResult",
     "MFAService",
     "MFA_CHALLENGE_TTL_MINUTES",
+    "MFA_ENROLLMENT_TTL_MINUTES",
     "RECOVERY_CODE_COUNT",
     "issue_mfa_challenge_token",
     "verify_mfa_challenge_token",
+    "issue_mfa_enrollment_token",
+    "verify_mfa_enrollment_token",
 ]

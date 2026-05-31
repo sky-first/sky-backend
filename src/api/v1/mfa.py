@@ -53,70 +53,17 @@ async def get_mfa_status(
     )
 
 
-@router.post(
-    "/enroll/start",
-    response_model=MFAEnrollStartResponse,
-    status_code=status.HTTP_200_OK,
-    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
-    summary="Start MFA enrolment",
-    description=(
-        "Generates a TOTP secret + otpauth URL + base64 PNG QR code. "
-        "The secret is NOT persisted yet — the caller must echo it back "
-        "to ``/enroll/verify`` with a valid 6-digit code to finalise."
-    ),
-)
-async def start_enrollment(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
-) -> MFAEnrollStartResponse:
-    if getattr(current_user, "mfa_enabled", False):
-        raise BadRequestError(
-            "MFA is already enabled. Disable it first to re-enrol."
-        )
-    mfa = MFAService(db)
-    challenge = await mfa.generate_enrollment(current_user)
-    return MFAEnrollStartResponse(
-        secret=challenge.secret,
-        otpauth_url=challenge.otpauth_url,
-        qrcode_png_b64=challenge.qrcode_png_b64,
-        issuer=DEFAULT_ISSUER,
-    )
-
-
-@router.post(
-    "/enroll/verify",
-    response_model=MFAEnrollVerifyResponse,
-    status_code=status.HTTP_200_OK,
-    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
-    summary="Verify MFA enrolment",
-    description=(
-        "Confirms a TOTP code against the enrolment secret and persists "
-        "the encrypted secret + a single-show batch of recovery codes."
-    ),
-)
-async def verify_enrollment(
-    body: MFAEnrollVerifyRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
-) -> MFAEnrollVerifyResponse:
-    if getattr(current_user, "mfa_enabled", False):
-        raise BadRequestError("MFA is already enabled.")
-    mfa = MFAService(db)
-    try:
-        result = await mfa.verify_enrollment(
-            current_user, secret=body.secret, code=body.code
-        )
-    except ValueError:
-        raise BadRequestError(
-            "The 6-digit code did not match. Check your authenticator "
-            "app's clock and try again."
-        )
-    await db.commit()
-    return MFAEnrollVerifyResponse(
-        enabled=True,
-        recovery_codes=result.recovery_codes,
-        enrolled_at=result.enrolled_at,
-    )
+# Note (2026-05-31, Lucas decision):
+# The self-service opt-in enrolment endpoints (POST /enroll/start,
+# POST /enroll/verify) and the self-service DELETE /mfa endpoint
+# were removed. MFA is no longer an opt-in toggle. It is enforced
+# on every password login at /auth/login: the BE returns
+# ``force_enrollment=true`` on the first password login and the FE
+# walks the user through a mandatory QR-scan + 6-digit code step
+# closed by /auth/login/mfa-finalize. Regular users cannot disable
+# MFA once enrolled. Admin-impersonation support flows still call
+# ``MFAService.disable_mfa`` directly via an Internal Console
+# endpoint (see services/mfa_service.py docstring).
 
 
 @router.post(
@@ -146,24 +93,4 @@ async def rotate_recovery_codes(
     return MFARotateRecoveryCodesResponse(recovery_codes=codes)
 
 
-@router.delete(
-    "",
-    response_model=SuccessResponse,
-    status_code=status.HTTP_200_OK,
-    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
-    summary="Disable MFA",
-    description="Disables MFA for the caller. The TOTP secret and "
-    "recovery codes are deleted.",
-)
-async def disable_mfa(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
-) -> SuccessResponse:
-    if not getattr(current_user, "mfa_enabled", False):
-        # Idempotent — disabling already-disabled MFA is a no-op so
-        # the FE can simplify state machines.
-        return SuccessResponse(message="MFA is already disabled.")
-    mfa = MFAService(db)
-    await mfa.disable_mfa(current_user)
-    await db.commit()
-    return SuccessResponse(message="MFA disabled.")
+# DELETE /mfa intentionally removed. See note at top of file.

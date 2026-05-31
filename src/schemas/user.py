@@ -1,7 +1,7 @@
 """User schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -145,14 +145,25 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     """Login response schema.
 
-    When MFA is enabled on the account, the first POST /auth/login
-    returns ``require_mfa=true`` + a short-lived ``mfa_challenge_token``
-    and leaves ``access_token`` / ``refresh_token`` / ``user`` empty.
-    The caller then POSTs the challenge token + the 6-digit code to
-    /auth/login/mfa to obtain the real tokens. This keeps the
-    ``LoginResponse`` shape stable for FE callers that never enable
-    MFA — they continue to see ``require_mfa`` absent or false and the
-    populated token+user fields, identical to the pre-Phase-3 shape.
+    Three terminal states a password login can reach:
+
+    1. **Normal session** — ``access_token`` + ``refresh_token`` + ``user``
+       populated. User logged in successfully.
+    2. **MFA challenge** — ``require_mfa=true`` + ``mfa_challenge_token``.
+       Account already has TOTP enrolled; FE prompts for the 6-digit
+       code and POSTs to /auth/login/mfa.
+    3. **Force enrolment** — ``force_enrollment=true`` +
+       ``mfa_enrollment_token`` + ``mfa_enrollment_secret`` +
+       ``mfa_enrollment_qrcode_b64``. The account is configured with
+       password auth but has never enrolled MFA. We require enrolment
+       on this first successful password verification so the cliente
+       cannot dismiss it and keep logging in without a second factor.
+       FE shows the QR + secret, asks for the first 6-digit code, then
+       POSTs to /auth/login/mfa-finalize to persist the secret AND
+       receive the session tokens in the same response.
+
+    SSO callbacks never set the MFA fields — IdP-side 2FA already
+    covers that path and forcing on top would be user-hostile.
     """
 
     access_token: Optional[str] = None
@@ -161,9 +172,19 @@ class LoginResponse(BaseModel):
     expires_in: int = 0
     user: Optional[UserResponse] = None
 
+    # MFA second-step challenge (account already has TOTP enrolled).
     require_mfa: bool = False
     mfa_challenge_token: Optional[str] = None
     mfa_expires_in: Optional[int] = None
+
+    # Force MFA enrolment (account has password auth but never enrolled).
+    # Mandatory for the cliente without SSO — design decision Lucas
+    # 2026-05-31: every password-authenticated user must have MFA.
+    force_enrollment: bool = False
+    mfa_enrollment_token: Optional[str] = None
+    mfa_enrollment_secret: Optional[str] = None
+    mfa_enrollment_qrcode_b64: Optional[str] = None
+    mfa_enrollment_issuer: Optional[str] = None
 
 
 class MFALoginRequest(BaseModel):
@@ -179,6 +200,43 @@ class MFALoginRequest(BaseModel):
     is_recovery_code: bool = Field(
         default=False,
         description="True when ``code`` is a recovery code; otherwise a 6-digit TOTP",
+    )
+
+
+class MFAFinalizeEnrollmentRequest(BaseModel):
+    """Body for POST /auth/login/mfa-finalize — first login of a
+    password-authenticated account.
+
+    The FE collected the enrolment token + 6-digit code from the user
+    after they scanned the QR code returned by /auth/login. The BE
+    verifies the code, persists the secret + recovery codes, and only
+    then mints the session tokens. The response is a full
+    LoginResponse so the FE can drop the user straight into the
+    dashboard once they confirm they've stored the recovery codes.
+    """
+
+    enrollment_token: str = Field(
+        ..., description="Short-lived enrolment token from /auth/login"
+    )
+    code: str = Field(..., min_length=6, max_length=6, description="6-digit TOTP code")
+
+
+class MFAFinalizeEnrollmentResponse(BaseModel):
+    """Response of /auth/login/mfa-finalize.
+
+    Same shape as a normal LoginResponse PLUS the freshly-minted
+    recovery codes. The codes appear here EXACTLY ONCE; the FE must
+    surface them to the user (copy + download .txt) and warn that
+    they cannot be retrieved again.
+    """
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserResponse
+    recovery_codes: List[str] = Field(
+        ..., description="Plaintext recovery codes — shown exactly once"
     )
 
 

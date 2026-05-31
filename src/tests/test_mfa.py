@@ -272,7 +272,14 @@ class TestSkyTeamMFAEnforcement:
 
         from starlette.requests import Request
 
-        scope = {"type": "http", "headers": [], "method": "GET", "path": "/"}
+        # Host header satisfies the Console host-isolation gate (PR #487);
+        # without it the dependency rejects 404 before touching MFA.
+        scope = {
+            "type": "http",
+            "headers": [(b"host", b"console-stg.skyfirstlabs.com")],
+            "method": "GET",
+            "path": "/",
+        }
         request = Request(scope=scope)
 
         with pytest.raises(HTTPException) as exc:
@@ -308,7 +315,14 @@ class TestSkyTeamMFAEnforcement:
 
         from starlette.requests import Request
 
-        scope = {"type": "http", "headers": [], "method": "GET", "path": "/"}
+        # Host header satisfies the Console host-isolation gate (PR #487);
+        # without it the dependency rejects 404 before touching MFA.
+        scope = {
+            "type": "http",
+            "headers": [(b"host", b"console-stg.skyfirstlabs.com")],
+            "method": "GET",
+            "path": "/",
+        }
         request = Request(scope=scope)
 
         user = await require_sky_team(request=request, db=db_session)
@@ -343,7 +357,14 @@ class TestSkyTeamMFAEnforcement:
 
         from starlette.requests import Request
 
-        scope = {"type": "http", "headers": [], "method": "GET", "path": "/"}
+        # Host header satisfies the Console host-isolation gate (PR #487);
+        # without it the dependency rejects 404 before touching MFA.
+        scope = {
+            "type": "http",
+            "headers": [(b"host", b"console-stg.skyfirstlabs.com")],
+            "method": "GET",
+            "path": "/",
+        }
         request = Request(scope=scope)
 
         user = await require_sky_team(request=request, db=db_session)
@@ -371,3 +392,138 @@ def test_challenge_token_roundtrip():
 def test_challenge_token_rejects_garbage():
     with pytest.raises(ValueError):
         verify_mfa_challenge_token("definitely.not.a.jwt")
+
+
+# ── Forced first-login enrolment (Lucas decision 2026-05-31) ────────
+
+
+def test_enrollment_token_carries_secret():
+    """The enrolment token must round-trip both the user id and the
+    candidate TOTP secret so the BE can persist it at /mfa-finalize
+    without ever storing it server-side beforehand."""
+    from src.services.mfa_service import (
+        issue_mfa_enrollment_token,
+        verify_mfa_enrollment_token,
+    )
+
+    user = User(
+        id=uuid.uuid4(),
+        email="x@example.com",
+        password_hash="hashed",
+        name="x",
+        role="user",
+        email_verified=True,
+        has_completed_onboarding=True,
+    )
+    secret = pyotp.random_base32()
+    token = issue_mfa_enrollment_token(user, secret)
+    sub, recovered = verify_mfa_enrollment_token(token)
+    assert sub == str(user.id)
+    assert recovered == secret
+
+
+def test_enrollment_token_rejects_challenge_token_type():
+    """Cross-type replay defence: a login-challenge token must NOT
+    pass verify_enrollment_token (different ``type`` claim)."""
+    from src.services.mfa_service import (
+        issue_mfa_challenge_token,
+        verify_mfa_enrollment_token,
+    )
+
+    user = User(
+        id=uuid.uuid4(),
+        email="x@example.com",
+        password_hash="hashed",
+        name="x",
+        role="user",
+        email_verified=True,
+        has_completed_onboarding=True,
+    )
+    challenge = issue_mfa_challenge_token(user)
+    with pytest.raises(ValueError):
+        verify_mfa_enrollment_token(challenge)
+
+
+@pytest.mark.asyncio
+async def test_persist_enrollment_writes_secret_and_codes(db_session: AsyncSession):
+    """persist_enrollment finalises a forced first-login flow:
+    the secret arrives as a function argument (recovered from the
+    JWT-bound token, not from the DB) and is what gets persisted."""
+    from src.services.mfa_service import MFAService
+
+    user = User(
+        id=uuid.uuid4(),
+        email="newuser@gbt.pt",
+        password_hash="hashed",
+        name="New",
+        role="user",
+        email_verified=True,
+        has_completed_onboarding=True,
+        mfa_enabled=False,
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    mfa = MFAService(db_session)
+    secret = pyotp.random_base32()
+    valid_code = pyotp.TOTP(secret).now()
+    result = await mfa.persist_enrollment(user, secret=secret, code=valid_code)
+
+    assert user.mfa_enabled is True
+    assert user.mfa_secret_encrypted is not None
+    assert user.mfa_recovery_codes_encrypted is not None
+    assert user.mfa_enrolled_at is not None
+    assert len(result.recovery_codes) == 10
+
+
+@pytest.mark.asyncio
+async def test_persist_enrollment_refuses_when_already_enabled(db_session: AsyncSession):
+    """Refuses 'mfa_already_enabled' when the user is already enrolled
+    — protects against an attacker replaying a stale enrolment token."""
+    from src.services.mfa_service import MFAService
+
+    user = User(
+        id=uuid.uuid4(),
+        email="legit@gbt.pt",
+        password_hash="hashed",
+        name="Legit",
+        role="user",
+        email_verified=True,
+        has_completed_onboarding=True,
+        mfa_enabled=True,
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    mfa = MFAService(db_session)
+    secret = pyotp.random_base32()
+    valid_code = pyotp.TOTP(secret).now()
+    with pytest.raises(ValueError) as exc:
+        await mfa.persist_enrollment(user, secret=secret, code=valid_code)
+    assert str(exc.value) == "mfa_already_enabled"
+
+
+@pytest.mark.asyncio
+async def test_persist_enrollment_rejects_bad_code(db_session: AsyncSession):
+    from src.services.mfa_service import MFAService
+
+    user = User(
+        id=uuid.uuid4(),
+        email="bad-code@gbt.pt",
+        password_hash="hashed",
+        name="x",
+        role="user",
+        email_verified=True,
+        has_completed_onboarding=True,
+        mfa_enabled=False,
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    mfa = MFAService(db_session)
+    secret = pyotp.random_base32()
+    with pytest.raises(ValueError):
+        await mfa.persist_enrollment(user, secret=secret, code="000000")
+    # MFA stayed off + nothing persisted.
+    assert user.mfa_enabled is False
+    assert user.mfa_secret_encrypted is None
