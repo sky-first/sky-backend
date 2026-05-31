@@ -206,6 +206,11 @@ _ALLOWED_REFS = {
     # bookkeeping (``external_run_id`` / ``external_run_url``) outside
     # any tenant context, so it stays on the platform pool.
     str((_SRC_ROOT / "workers" / "provisioning_worker.py").resolve()),
+    # LLM metrics worker (PR #483) — daily beat task that upserts
+    # ``tenant_llm_daily_snapshots`` rows. Iterates across all tenants
+    # to materialise the cost archive, so it operates on the platform
+    # pool rather than entering a per-tenant context for each row.
+    str((_SRC_ROOT / "workers" / "llm_metrics_worker.py").resolve()),
 }
 
 _ASYNC_LOCAL_NAME = "AsyncSessionLocal"
@@ -288,7 +293,7 @@ def test_raw_async_session_local_instantiation_baseline():
     # checked-in code. Phase 3-4 PRs reduce this; the test fails
     # loudly if a new direct call lands. Bumping the number UP
     # requires touching this baseline deliberately.
-    BASELINE = 22  # bumped 2026-05-30 — provisioning_worker.py joins the allowlist
+    BASELINE = 23  # bumped 2026-05-31 — llm_metrics_worker.py joins the allowlist
     assert count <= BASELINE, (
         f"Raw AsyncSessionLocal() count grew from {BASELINE} to {count}. "
         f"New callers should use TenantConnectionManager.session_for()."
