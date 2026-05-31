@@ -59,6 +59,72 @@ def _allowed_email_set() -> set[str]:
     return {email.strip().lower() for email in raw.split(",") if email.strip()}
 
 
+def _allowed_console_hosts() -> set[str]:
+    """Hosts on which Console endpoints are permitted to serve.
+
+    Console must live on its own subdomain so customer accounts on the
+    main app host (``sky-stg.skyfirstlabs.com``) can never reach the
+    operator surface even with a forged JWT. The check runs *before*
+    the user lookup so a misrouted request gets a 404 — we don't even
+    confirm the route exists outside the Console host. Defence in
+    depth on top of ``require_sky_team`` and the role gates.
+
+    Override via ``CONSOLE_ALLOWED_HOSTS`` env (CSV). The default set
+    covers staging + prod + local dev so a fresh stack boots without
+    config.
+    """
+    raw = (
+        os.getenv("CONSOLE_ALLOWED_HOSTS")
+        or getattr(settings, "CONSOLE_ALLOWED_HOSTS", "")
+        or ""
+    )
+    explicit = {h.strip().lower() for h in raw.split(",") if h.strip()}
+    if explicit:
+        return explicit
+    return {
+        "console.skyfirstlabs.com",
+        "console-stg.skyfirstlabs.com",
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+    }
+
+
+def _request_host(request: Request) -> str:
+    """Return the lowercased hostname for the request (no port)."""
+    host = (request.headers.get("host") or "").lower()
+    if not host:
+        host = (request.url.hostname or "").lower()
+    # Strip port if present (``console-stg.skyfirstlabs.com:443``).
+    return host.split(":", 1)[0]
+
+
+def _assert_console_host(request: Request) -> None:
+    """Reject 404 when a Console endpoint is hit on the wrong host.
+
+    Returning 404 (not 403) so customer apps on the main host don't
+    even learn that the Console exists. This is the first guard in
+    ``require_sky_team`` — every other check runs only inside the
+    allowed-host envelope.
+    """
+    host = _request_host(request)
+    allowed = _allowed_console_hosts()
+    if host in allowed:
+        return
+    # Wildcard ``*.skyfirstlabs.com`` is NOT honoured by design —
+    # the operator surface must be opted into explicitly per host.
+    logger.warning(
+        "console.host_blocked host=%s path=%s allowed=%s",
+        host,
+        request.url.path,
+        sorted(allowed),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={"error": "not_found", "detail": "Not found."},
+    )
+
+
 def _dev_bypass_enabled() -> bool:
     # The bypass is *only* for a developer running the stack on their
     # laptop. Production and staging must never accept it — staging is
@@ -100,6 +166,11 @@ async def require_sky_team(
     ``db`` ourselves and pass it through. The Console has been silently
     broken since the dependency was first written; this is the fix.
     """
+    # Host gate — Console is isolated to its own subdomain. Reject 404
+    # on every other host so customer-facing app routes don't expose
+    # operator surface even when a forged JWT is presented.
+    _assert_console_host(request)
+
     user: Optional[User] = None
     try:
         # Re-use the regular auth flow when a token is present.

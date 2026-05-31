@@ -322,6 +322,15 @@ class Settings(BaseSettings):
     # so the FE can route them to the enrolment modal.
     CONSOLE_REQUIRE_MFA: bool = False
 
+    # Console host isolation. The Internal Console must only serve on
+    # its own subdomain so a customer landing on the main app host
+    # cannot reach the operator surface even with a forged JWT. The
+    # ``require_sky_team`` dependency rejects 404 (not 403, to hide the
+    # surface entirely) when the request host is outside this set.
+    # Empty falls back to the safe defaults baked into
+    # ``_allowed_console_hosts()``.
+    CONSOLE_ALLOWED_HOSTS: str = ""
+
     # Encryption (for connection credentials)
     ENCRYPTION_KEY: str = Field(
         default="your-32-byte-encryption-key-change-in-production",
