@@ -49,6 +49,7 @@ from src.models.tenant_plan_limits import (
     PricingTier,
     TenantPlanLimits,
 )
+from src.models.tenant_llm_daily_snapshot import TenantLlmDailySnapshot
 from src.models.internal_console import (
     AuditAction,
     AuditResult,
@@ -131,6 +132,7 @@ __all__ = [
     "Tenant",
     "TenantTier",
     "TenantPlanLimits",
+    "TenantLlmDailySnapshot",
     "PricingTier",
     "TIER_LIMITS",
     "UPGRADE_HINT",

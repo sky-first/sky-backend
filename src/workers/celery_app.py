@@ -165,6 +165,7 @@ celery_app.conf.update(
         "src.workers.knowledge_worker",
         "src.workers.pricing_worker",
         "src.workers.provisioning_worker",
+        "src.workers.llm_metrics_worker",
     ],
 )
 
@@ -220,6 +221,15 @@ try:
         # columns land on the source tables.
         "pricing-compute-storage-usage": {
             "task": "src.workers.pricing_worker.compute_storage_usage",
+            "schedule": timedelta(hours=24),
+        },
+        # Daily LLM cost snapshot — pulls yesterday's per-tenant
+        # usage + cost from Langfuse and writes one row per tenant
+        # into ``tenant_llm_daily_snapshots``. The Console then reads
+        # from that table for the 30-day trend chart instead of
+        # hammering Langfuse on every page load.
+        "snapshot-llm-metrics": {
+            "task": "src.workers.llm_metrics_worker.snapshot_llm_metrics",
             "schedule": timedelta(hours=24),
         },
     }

@@ -81,6 +81,10 @@ class CeoMasterSummary:
     tiers: List[CeoTierRow]
     churn_signals: List[CeoChurnSignal]
     provisioning: CeoProvisioningHealth
+    # Best-effort 30-day LLM spend via Langfuse. ``None`` when
+    # Langfuse is offline / disabled — the rest of the summary still
+    # renders. EUR-denominated to match every other monetary field.
+    llm_cost_30d_eur: Optional[float] = None
 
 
 async def compute_ceo_summary(db: AsyncSession) -> CeoMasterSummary:
@@ -251,6 +255,20 @@ async def compute_ceo_summary(db: AsyncSession) -> CeoMasterSummary:
     except Exception:
         pass
 
+    # Best-effort LLM cost via Langfuse. Same fail-soft contract as the
+    # cost provider line above — Langfuse outage / missing keys must
+    # not 500 the CEO dashboard. ``None`` propagates to the schema and
+    # the UI renders the cell as "—".
+    llm_cost_30d_eur: Optional[float] = None
+    try:
+        from src.services.llm_cost_metrics import llm_cost_metrics_provider
+
+        metrics = llm_cost_metrics_provider().get_platform_llm_metrics(days=30)
+        if metrics.available:
+            llm_cost_30d_eur = round(float(metrics.total_cost_eur), 2)
+    except Exception:
+        llm_cost_30d_eur = None
+
     return CeoMasterSummary(
         computed_at=now,
         total_tenants=int(total),
@@ -263,6 +281,7 @@ async def compute_ceo_summary(db: AsyncSession) -> CeoMasterSummary:
         tiers=tier_rows,
         churn_signals=churn_signals,
         provisioning=provisioning,
+        llm_cost_30d_eur=llm_cost_30d_eur,
     )
 
 

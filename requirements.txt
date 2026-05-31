@@ -129,3 +129,10 @@ python-docx>=1.1.0       # Word document parsing
 # the IRSA + in-cluster config path because the load_incluster_config
 # default token-mount changed.
 kubernetes==31.0.0
+
+# Internal Console — Langfuse LLM cost metrics (feat/console-llm-metrics-langfuse, PR #42)
+# We hit the Langfuse REST API directly via httpx (already a transitive
+# dep of fastapi), so no SDK pin is needed in this repo. The langfuse
+# Python SDK is pinned separately in sky-poc-ai where the LangChain
+# callback handler runs. Recording the dependency boundary here so a
+# future audit knows the Console reads metrics without the SDK.

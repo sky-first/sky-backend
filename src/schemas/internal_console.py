@@ -234,6 +234,49 @@ class CeoMasterSummaryResponse(BaseModel):
     tiers: List[CeoTierRow] = Field(default_factory=list)
     churn_signals: List[CeoChurnSignal] = Field(default_factory=list)
     provisioning: CeoProvisioningHealth
+    # ─── LLM cost (Langfuse) ─────────────────────────────────────
+    # Best-effort 30-day total. ``None`` means Langfuse is offline
+    # / disabled — the UI renders a "metrics off" state and the rest
+    # of the dashboard still loads. Exposed as EUR to match the
+    # other monetary fields on this payload.
+    llm_cost_30d_eur: Optional[float] = None
+
+
+# ── LLM cost metrics (Langfuse-backed) ─────────────────────────────
+
+
+class LlmByModelRow(BaseModel):
+    """One row of the per-model breakdown."""
+
+    model: str
+    input_tokens: int
+    output_tokens: int
+    requests: int
+    cost_usd: float
+
+
+class LlmMetricsResponse(BaseModel):
+    """``GET /api/console/v1/(tenants/{slug}|platform)/llm-metrics`` payload.
+
+    ``available=False`` means the upstream Langfuse call failed (network /
+    auth / disabled). The UI must render a "metrics offline" pill and
+    skip the numbers — they're zero by contract, not by truth.
+    """
+
+    tenant_id: Optional[str] = None
+    window_days: int
+    from_ts: datetime
+    to_ts: datetime
+    total_requests: int
+    total_input_tokens: int
+    total_output_tokens: int
+    total_cost_usd: float
+    total_cost_eur: float
+    by_model: List[LlmByModelRow] = Field(default_factory=list)
+    cache_hit_rate_pct: float
+    avg_latency_ms: float
+    available: bool
+    unavailable_reason: Optional[str] = None
 
 
 # ── Me ─────────────────────────────────────────────────────────────
