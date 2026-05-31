@@ -331,6 +331,26 @@ class Settings(BaseSettings):
     # ``_allowed_console_hosts()``.
     CONSOLE_ALLOWED_HOSTS: str = ""
 
+    # ─── Tenant create defaults (Lucas decision 2026-05-31) ──────────────
+    # The Create Tenant form used to require the operator to type the
+    # shared-RDS / shared-Redis hosts and the would-be Secrets Manager
+    # ARNs by hand. The ``onboard-client.yml`` workflow already knows
+    # how to derive those from the slug — so when the form leaves them
+    # empty, the create handler fills them in from these defaults.
+    # Operators can still override per-tenant via the Advanced section
+    # if they ever need a dedicated DB instance for a customer.
+    #
+    # The ARN patterns include ``{slug}`` as a literal placeholder; the
+    # handler does the substitution. Empty (the safe default) preserves
+    # the legacy behaviour — required fields stay required.
+    DEFAULT_TENANT_DB_HOST: str = ""
+    DEFAULT_TENANT_DB_PORT: int = 5432
+    DEFAULT_TENANT_DB_NAME_PATTERN: str = "tenant_{slug_safe}"
+    DEFAULT_TENANT_DB_SECRET_ARN_PATTERN: str = ""
+    DEFAULT_TENANT_REDIS_HOST: str = ""
+    DEFAULT_TENANT_REDIS_SECRET_ARN: str = ""
+    DEFAULT_TENANT_SSO_PROVIDER: str = "google"
+
     # Encryption (for connection credentials)
     ENCRYPTION_KEY: str = Field(
         default="your-32-byte-encryption-key-change-in-production",

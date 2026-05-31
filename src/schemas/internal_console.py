@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.models.internal_console import (
     AuditAction,
@@ -140,6 +140,14 @@ class CreateTenantRequest(TenantCreate):
     admin user in the freshly-provisioned tenant DB. Optional — if
     omitted the tenant is created with no admin and someone has to
     bootstrap one manually later.
+
+    Data-plane fields (db_host, db_name, db_credentials_secret_arn,
+    redis_host, redis_credentials_secret_arn, sso_provider) inherited
+    from TenantCreate are overridden as Optional here. The Console
+    handler derives them from settings + slug when the operator leaves
+    them empty — see ``apply_data_plane_defaults`` for the rules.
+    Operators can still type the values explicitly if they need a
+    dedicated DB instance for a customer.
     """
 
     admin_email: Optional[str] = Field(
@@ -150,6 +158,91 @@ class CreateTenantRequest(TenantCreate):
         ),
         max_length=255,
     )
+
+    # ── Data-plane fields, now optional ──────────────────────────────
+    # Pydantic v2: re-declaring an inherited field switches its
+    # required-ness. Defaults are None so the validator below can tell
+    # ``omitted`` apart from ``deliberately empty``.
+    db_host: Optional[str] = Field(None, max_length=255)
+    db_name: Optional[str] = Field(None, max_length=63)
+    db_credentials_secret_arn: Optional[str] = Field(None, max_length=512)
+    redis_host: Optional[str] = Field(None, max_length=255)
+    redis_credentials_secret_arn: Optional[str] = Field(None, max_length=512)
+    sso_provider: Optional[str] = Field(None, max_length=50)
+
+    @model_validator(mode="after")
+    def _apply_data_plane_defaults(self) -> "CreateTenantRequest":
+        """Fill any data-plane field the operator left empty.
+
+        Rules (driven by settings.DEFAULT_TENANT_*):
+
+        - ``db_host``                  → settings.DEFAULT_TENANT_DB_HOST
+        - ``db_name``                  → DEFAULT_TENANT_DB_NAME_PATTERN.format(slug_safe=…)
+        - ``db_credentials_secret_arn``→ DEFAULT_TENANT_DB_SECRET_ARN_PATTERN.format(slug=…)
+        - ``redis_host``               → settings.DEFAULT_TENANT_REDIS_HOST
+        - ``redis_credentials_secret_arn`` → settings.DEFAULT_TENANT_REDIS_SECRET_ARN
+        - ``sso_provider``             → settings.DEFAULT_TENANT_SSO_PROVIDER (or "google")
+
+        ``slug_safe`` replaces dashes with underscores so the resulting
+        DB name is a valid Postgres identifier. If a default is empty
+        AND the operator did not provide a value, we raise the same
+        error the legacy required-field would have — so a half-configured
+        environment still fails loud at the API boundary instead of
+        silently writing nulls to the tenant_registry row.
+        """
+        # Local import — settings has side-effects (singleton) that we
+        # don't want loaded at module import time on the test path.
+        from src.config.settings import settings
+
+        slug = self.slug
+        slug_safe = slug.replace("-", "_")
+
+        def _coalesce(
+            current: Optional[str], default: str, field_name: str
+        ) -> str:
+            if current and current.strip():
+                return current
+            if default and default.strip():
+                return default
+            raise ValueError(
+                f"{field_name} is required (no default configured in settings)"
+            )
+
+        self.db_host = _coalesce(
+            self.db_host,
+            settings.DEFAULT_TENANT_DB_HOST,
+            "db_host",
+        )
+        if not self.db_name or not self.db_name.strip():
+            pattern = (
+                settings.DEFAULT_TENANT_DB_NAME_PATTERN or "tenant_{slug_safe}"
+            )
+            self.db_name = pattern.format(slug=slug, slug_safe=slug_safe)
+        if not self.db_credentials_secret_arn or not self.db_credentials_secret_arn.strip():
+            pattern = settings.DEFAULT_TENANT_DB_SECRET_ARN_PATTERN
+            if not pattern or not pattern.strip():
+                raise ValueError(
+                    "db_credentials_secret_arn is required "
+                    "(no DEFAULT_TENANT_DB_SECRET_ARN_PATTERN configured)"
+                )
+            self.db_credentials_secret_arn = pattern.format(
+                slug=slug, slug_safe=slug_safe
+            )
+        self.redis_host = _coalesce(
+            self.redis_host,
+            settings.DEFAULT_TENANT_REDIS_HOST,
+            "redis_host",
+        )
+        self.redis_credentials_secret_arn = _coalesce(
+            self.redis_credentials_secret_arn,
+            settings.DEFAULT_TENANT_REDIS_SECRET_ARN,
+            "redis_credentials_secret_arn",
+        )
+        if not self.sso_provider or not self.sso_provider.strip():
+            self.sso_provider = (
+                settings.DEFAULT_TENANT_SSO_PROVIDER or "google"
+            )
+        return self
 
 
 class UpdateTenantRequest(TenantUpdate):
