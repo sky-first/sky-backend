@@ -16,7 +16,7 @@ upsert safely if it has to re-run for the same day. JSONB on the
 queried with Postgres's JSONB operators (``->``, ``->>``) when an
 operator needs to drill into one model's cost over time.
 
-Revision ID: tenant_llm_daily_snapshots_20260530
+Revision ID: llm_snapshots_20260530
 Revises: provisioning_events_20260530
 Create Date: 2026-05-30
 """
@@ -26,7 +26,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-revision = "tenant_llm_daily_snapshots_20260530"
+revision = "llm_snapshots_20260530"
 down_revision = "users_mfa_20260530"
 branch_labels = None
 depends_on = None
