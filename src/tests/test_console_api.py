@@ -286,10 +286,16 @@ def test_anonymous_is_401(client, monkeypatch):
     """
     monkeypatch.delenv("CONSOLE_DEV_BYPASS", raising=False)
     monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
+    monkeypatch.delenv("CONSOLE_ALLOWED_HOSTS", raising=False)
     # No dependency_overrides — get_current_user runs for real and
     # fails with no Authorization header, surfacing as None inside
-    # require_sky_team which raises 401.
-    res = client.get("/api/console/v1/me")
+    # require_sky_team which raises 401. Host header satisfies the
+    # Console host gate (PR #487); without it the dependency rejects
+    # 404 before touching auth.
+    res = client.get(
+        "/api/console/v1/me",
+        headers={"host": "console-stg.skyfirstlabs.com"},
+    )
     assert res.status_code == 401
     assert "unauthenticated" in res.json()["error"]["message"]
 
@@ -319,8 +325,12 @@ def test_non_sky_team_is_403(client, monkeypatch):
     async def _fake_get_current_user(request, credentials=None, db=None):
         return outsider
 
+    monkeypatch.delenv("CONSOLE_ALLOWED_HOSTS", raising=False)
     from src.api import console_auth as _ca
     monkeypatch.setattr(_ca, "get_current_user", _fake_get_current_user)
-    res = client.get("/api/console/v1/me")
+    res = client.get(
+        "/api/console/v1/me",
+        headers={"host": "console-stg.skyfirstlabs.com"},
+    )
     assert res.status_code == 403
     assert "sky_team_required" in res.json()["error"]["message"]

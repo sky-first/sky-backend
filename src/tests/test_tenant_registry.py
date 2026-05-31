@@ -122,6 +122,95 @@ class TestTenantCreate:
             TenantCreate(**_valid_tenant_payload(db_port=70_000))
 
 
+# ── Auto-derived data-plane defaults (Lucas decision 2026-05-31) ────
+
+
+class TestCreateTenantRequestAutoDerive:
+    def test_auto_derives_when_fields_omitted(self, monkeypatch):
+        """CreateTenantRequest with only slug/display_name/tier fills the
+        data-plane fields from settings.DEFAULT_TENANT_* + slug."""
+        from src.config.settings import settings
+        from src.schemas.internal_console import CreateTenantRequest
+
+        monkeypatch.setattr(settings, "DEFAULT_TENANT_DB_HOST", "shared.rds")
+        monkeypatch.setattr(
+            settings,
+            "DEFAULT_TENANT_DB_SECRET_ARN_PATTERN",
+            "arn:aws:secretsmanager:eu-west-1:741375879811:secret:sky/staging/tenant-{slug}/db",
+        )
+        monkeypatch.setattr(settings, "DEFAULT_TENANT_REDIS_HOST", "shared.redis")
+        monkeypatch.setattr(
+            settings,
+            "DEFAULT_TENANT_REDIS_SECRET_ARN",
+            "arn:aws:secretsmanager:eu-west-1:741375879811:secret:sky/staging/redis-shared",
+        )
+        monkeypatch.setattr(settings, "DEFAULT_TENANT_SSO_PROVIDER", "google")
+
+        req = CreateTenantRequest(
+            slug="test-1",
+            display_name="Test 1",
+            tier=TenantTier.FOUNDATION,
+            auth_methods={"password": True},
+        )
+        assert req.db_host == "shared.rds"
+        # slug_safe replaces dashes with underscores so the result is a
+        # valid Postgres identifier.
+        assert req.db_name == "tenant_test_1"
+        assert "tenant-test-1/db" in req.db_credentials_secret_arn
+        assert req.redis_host == "shared.redis"
+        assert req.redis_credentials_secret_arn.endswith("redis-shared")
+        assert req.sso_provider == "google"
+
+    def test_keeps_explicit_overrides(self, monkeypatch):
+        """Operator-typed values WIN over the auto-derive defaults so a
+        customer with a dedicated DB instance still works."""
+        from src.config.settings import settings
+        from src.schemas.internal_console import CreateTenantRequest
+
+        monkeypatch.setattr(settings, "DEFAULT_TENANT_DB_HOST", "shared.rds")
+        monkeypatch.setattr(
+            settings,
+            "DEFAULT_TENANT_DB_SECRET_ARN_PATTERN",
+            "arn:aws:secretsmanager:eu-west-1:741375879811:secret:sky/staging/tenant-{slug}/db",
+        )
+        monkeypatch.setattr(settings, "DEFAULT_TENANT_REDIS_HOST", "shared.redis")
+        monkeypatch.setattr(
+            settings,
+            "DEFAULT_TENANT_REDIS_SECRET_ARN",
+            "arn:aws:secretsmanager:eu-west-1:741375879811:secret:sky/staging/redis-shared",
+        )
+
+        req = CreateTenantRequest(
+            slug="big-customer",
+            display_name="Big",
+            tier=TenantTier.STRATEGIC,
+            db_host="dedicated.rds.example.com",
+            db_credentials_secret_arn="arn:aws:secretsmanager:eu-west-1:741375879811:secret:sky/prd/bigco/db",
+            auth_methods={"password": True},
+        )
+        assert req.db_host == "dedicated.rds.example.com"
+        assert "bigco" in req.db_credentials_secret_arn
+
+    def test_fails_loud_without_defaults(self, monkeypatch):
+        """If a default is unset AND the operator didn't type one, the
+        validator raises — better than silently writing NULL to the
+        registry row."""
+        from src.config.settings import settings
+        from src.schemas.internal_console import CreateTenantRequest
+
+        monkeypatch.setattr(settings, "DEFAULT_TENANT_DB_HOST", "")
+        monkeypatch.setattr(settings, "DEFAULT_TENANT_DB_SECRET_ARN_PATTERN", "")
+        monkeypatch.setattr(settings, "DEFAULT_TENANT_REDIS_HOST", "")
+        monkeypatch.setattr(settings, "DEFAULT_TENANT_REDIS_SECRET_ARN", "")
+        with pytest.raises(ValueError):
+            CreateTenantRequest(
+                slug="x1",
+                display_name="X",
+                tier=TenantTier.FOUNDATION,
+                auth_methods={"password": True},
+            )
+
+
 class TestTenantUpdate:
     def test_partial_update_allowed(self):
         TenantUpdate(display_name="GBT International S.A.")  # nothing else
