@@ -55,6 +55,7 @@ from src.models.internal_console import (
     ProvisioningJobEventStatus,
     ProvisioningJobStatus,
 )
+from src.models.tenant import Tenant
 
 
 logger = logging.getLogger(__name__)
@@ -254,6 +255,24 @@ async def ingest_event(
         advance = _next_phase(job.current_phase, payload.phase)
         if advance is not None:
             job.current_phase = advance
+        # ``ingress`` writes the freshly minted custom_domain back to
+        # the Tenant row so the Console can deep-link to the tenant's
+        # URL the moment the phase succeeds. We trust the workflow's
+        # signed payload — the BE never accepts custom_domain from an
+        # operator's PATCH because cross-tenant collisions would break
+        # routing.
+        if payload.phase == "ingress" and isinstance(
+            payload.metadata, dict
+        ):
+            new_domain = payload.metadata.get("custom_domain")
+            if new_domain and isinstance(new_domain, str):
+                tenant_row = (
+                    await db.execute(
+                        select(Tenant).where(Tenant.slug == job.tenant_slug)
+                    )
+                ).scalar_one_or_none()
+                if tenant_row is not None:
+                    tenant_row.custom_domain = new_domain
         # Terminal phase succeeds → job complete.
         if payload.phase == PROVISIONING_PHASES[-1]:
             job.status = ProvisioningJobStatus.SUCCESS.value
