@@ -49,6 +49,8 @@ export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 export CELERY_BROKER_URL="${CELERY_BROKER_URL:-redis://localhost:6379/1}"
 export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/2}"
 export AI_SERVICE_URL="${AI_SERVICE_URL:-http://localhost:8001}"
+# Dev-only fallback — override via .env.local in production
+export JWT_SECRET_KEY="${JWT_SECRET_KEY:-dev-only-jwt-secret-change-in-production}"
 
 # Cache Warming settings
 export CACHE_WARMING_ENABLED="${CACHE_WARMING_ENABLED:-false}"
@@ -118,9 +120,14 @@ async def main():
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
     eng = create_async_engine(url)
     async with eng.begin() as c:
-        await c.execute(text("DELETE FROM alembic_version"))
+        # alembic env.py uses version_table="alembic_version_be"
+        for tbl in ("alembic_version_be", "alembic_version"):
+            try:
+                await c.execute(text(f"DELETE FROM {tbl}"))
+                print(f"   {tbl} cleared")
+            except Exception:
+                pass
     await eng.dispose()
-    print("   alembic_version cleared")
 
 asyncio.run(main())
 PYEOF
