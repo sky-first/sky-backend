@@ -55,9 +55,14 @@ WEBHOOK_URL_ENV = "PROVISIONING_WEBHOOK_URL"
 WEBHOOK_SECRET_ENV = "PROVISIONING_WEBHOOK_SECRET"
 
 DEFAULT_OWNER = "sky-first"
-DEFAULT_REPO = "sky-poc-infra"
+# Repo name in the GitHub org is ``sky-infra`` (no ``sky-poc-`` prefix);
+# the local working-directory layout uses ``sky-poc-infra`` but the
+# remote target for workflow_dispatch is the canonical org name.
+DEFAULT_REPO = "sky-infra"
 DEFAULT_WORKFLOW = "onboard-client.yml"
-DEFAULT_REF = "main"
+# Dispatch from the ``staging`` branch by default — the trust policy on
+# the gh-actions-onboard-client IAM role is also scoped to this ref.
+DEFAULT_REF = "staging"
 
 GH_API_BASE = "https://api.github.com"
 RUN_LOOKUP_MAX_ATTEMPTS = 8
