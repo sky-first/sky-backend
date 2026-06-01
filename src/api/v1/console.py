@@ -990,13 +990,13 @@ async def test_tenant_db_config(
             connect_args={"timeout": 5},
         )
         try:
-            # asyncio.timeout() was added in Python 3.11; use wait_for for 3.10 compat.
+            # asyncio.timeout() requires Python ≥ 3.11; use wait_for for 3.10 compat.
             async def _probe() -> None:
                 async with engine.connect() as conn:
                     result = await conn.execute(_text("SELECT 1"))
                     _ = result.scalar()
 
-            await asyncio.wait_for(_probe(), timeout=8.0)
+            await asyncio.wait_for(_probe(), timeout=8)
             ok = True
         finally:
             await engine.dispose()
