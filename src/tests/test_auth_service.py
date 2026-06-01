@@ -17,23 +17,30 @@ class TestAuthenticationServiceLogin:
     """Tests for login functionality."""
 
     async def test_login_success(self, db_session: AsyncSession, test_user: dict):
-        """Test successful login for a password-auth user without MFA.
+        """Test successful login.
 
-        Since PR #531 (feat: force MFA enrolment on first password login),
-        a user without MFA configured no longer receives an access_token
-        directly — the service returns force_enrollment=True so the client
-        redirects to the MFA setup flow. This test verifies that the login
-        call does not raise and returns the expected enrollment response.
+        Since 2026-05-31 every password-authenticated account without MFA
+        enrolled is redirected to the enrolment flow on first login (Lucas
+        decision — phished credentials would otherwise walk straight in).
+        The service returns force_enrollment=True with an enrolment token
+        instead of issuing access/refresh tokens.  This test verifies that
+        contract so a regression of either shape fails loudly.
         """
         auth_service = AuthenticationService(db_session)
 
         response = await auth_service.login(test_user["email"], test_user["password"])
 
-        # Password-auth users without MFA must be redirected to enrollment.
+        # New contract: first password login without MFA → force enrolment.
         assert response.force_enrollment is True
         assert response.mfa_enrollment_token is not None
-        # Access is intentionally withheld until MFA is configured.
+        assert response.mfa_enrollment_secret is not None
+        # No tokens yet — they are issued only after the user completes enrolment.
         assert response.access_token is None
+        assert response.refresh_token is None
+
+        # last_login_at is intentionally NOT updated here: bumping it before
+        # the second factor would let an attacker with only the password mask
+        # repeated probes.  It is set in complete_mfa_login after TOTP succeeds.
 
     async def test_login_invalid_email(self, db_session: AsyncSession, faker):
         """Test login with non-existent email."""

@@ -21,13 +21,35 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.security import create_access_token
+from src.main import app
 from src.models.user import User
 from src.repositories.user import UserRepository
+
+# The Console host guard rejects any request whose Host header is not in the
+# allowed-hosts list (_allowed_console_hosts).  The shared ``async_client``
+# fixture uses base_url="http://test" which doesn't match, so every console
+# route returns 404.  We create a module-local fixture that uses
+# base_url="http://localhost" — "localhost" IS in the default allowed set.
+@pytest.fixture
+async def console_client(db_session):
+    from src.api.deps import get_db_session
+    from src.config.database import get_db
+
+    async def _override_session():
+        yield db_session
+
+    app.dependency_overrides[get_db] = _override_session
+    app.dependency_overrides[get_db_session] = _override_session
+
+    async with AsyncClient(app=app, base_url="http://localhost") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
 async def test_console_me_with_sky_operator_jwt_returns_200(
-    console_async_client: AsyncClient,
+    console_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
     """A user whose row has ``is_sky_operator = True`` and a valid JWT
@@ -47,7 +69,7 @@ async def test_console_me_with_sky_operator_jwt_returns_200(
 
     token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
 
-    resp = await console_async_client.get(
+    resp = await console_client.get(
         "/api/console/v1/me",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -59,12 +81,12 @@ async def test_console_me_with_sky_operator_jwt_returns_200(
 
 @pytest.mark.asyncio
 async def test_console_me_without_token_returns_401_unauthenticated(
-    console_async_client: AsyncClient,
+    console_client: AsyncClient,
 ) -> None:
     """No JWT → 401 with the ``unauthenticated`` shape that the FE
     useAccess hook expects, so it can route to ``/login`` rather than
     silently looping."""
-    resp = await console_async_client.get("/api/console/v1/me")
+    resp = await console_client.get("/api/console/v1/me")
     assert resp.status_code == 401
     # The custom error wrapper inlines the original detail dict as a
     # string inside ``error.message``; ``unauthenticated`` must appear
@@ -74,7 +96,7 @@ async def test_console_me_without_token_returns_401_unauthenticated(
 
 @pytest.mark.asyncio
 async def test_console_me_with_non_operator_jwt_returns_403_sky_team_required(
-    console_async_client: AsyncClient,
+    console_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
     """A perfectly valid JWT for a non-operator user must surface as 403
@@ -94,7 +116,7 @@ async def test_console_me_with_non_operator_jwt_returns_403_sky_team_required(
 
     token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
 
-    resp = await console_async_client.get(
+    resp = await console_client.get(
         "/api/console/v1/me",
         headers={"Authorization": f"Bearer {token}"},
     )
