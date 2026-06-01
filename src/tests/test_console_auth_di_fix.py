@@ -27,7 +27,7 @@ from src.repositories.user import UserRepository
 
 @pytest.mark.asyncio
 async def test_console_me_with_sky_operator_jwt_returns_200(
-    async_client: AsyncClient,
+    console_async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
     """A user whose row has ``is_sky_operator = True`` and a valid JWT
@@ -47,7 +47,7 @@ async def test_console_me_with_sky_operator_jwt_returns_200(
 
     token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
 
-    resp = await async_client.get(
+    resp = await console_async_client.get(
         "/api/console/v1/me",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -59,12 +59,12 @@ async def test_console_me_with_sky_operator_jwt_returns_200(
 
 @pytest.mark.asyncio
 async def test_console_me_without_token_returns_401_unauthenticated(
-    async_client: AsyncClient,
+    console_async_client: AsyncClient,
 ) -> None:
     """No JWT → 401 with the ``unauthenticated`` shape that the FE
     useAccess hook expects, so it can route to ``/login`` rather than
     silently looping."""
-    resp = await async_client.get("/api/console/v1/me")
+    resp = await console_async_client.get("/api/console/v1/me")
     assert resp.status_code == 401
     # The custom error wrapper inlines the original detail dict as a
     # string inside ``error.message``; ``unauthenticated`` must appear
@@ -74,7 +74,7 @@ async def test_console_me_without_token_returns_401_unauthenticated(
 
 @pytest.mark.asyncio
 async def test_console_me_with_non_operator_jwt_returns_403_sky_team_required(
-    async_client: AsyncClient,
+    console_async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
     """A perfectly valid JWT for a non-operator user must surface as 403
@@ -94,7 +94,7 @@ async def test_console_me_with_non_operator_jwt_returns_403_sky_team_required(
 
     token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
 
-    resp = await async_client.get(
+    resp = await console_async_client.get(
         "/api/console/v1/me",
         headers={"Authorization": f"Bearer {token}"},
     )
