@@ -102,6 +102,14 @@ PROVISIONING_PHASES: tuple[str, ...] = (
     "namespaces",
     "secrets",
     "bootstrap",
+    # ``ingress`` wires the per-tenant custom domain — Route53 record
+    # + nginx Ingress + ExternalName service so the FE ingress can
+    # proxy /api to the tenant's own BE pod cross-namespace. The
+    # webhook payload for this phase carries
+    # ``metadata.custom_domain``; the BE writes it back to
+    # ``Tenant.custom_domain`` so the Console UI can deep-link to the
+    # tenant's URL.
+    "ingress",
     "smoke",
     "report",
 )
