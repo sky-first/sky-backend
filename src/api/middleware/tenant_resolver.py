@@ -90,11 +90,18 @@ def clear_tenant_cache() -> None:
 
 
 # ─── Subdomain parsing ─────────────────────────────────────────────
-# Accepts ``workspace-<slug>``, ``api-<slug>``, ``workspace-<slug>-stg``,
-# ``api-<slug>-stg``. The slug regex matches the migration's CHECK so
-# anything that gets through here is also a valid registry key.
+# Accepts three patterns (kept in sync with auth.py's
+# ``_AUTH_SUBDOMAIN_RE``):
+#
+#   workspace-<slug>-stg.<base>   (legacy explicit prefix)
+#   api-<slug>-stg.<base>         (legacy API subdomain)
+#   <slug>-stg.<base>             (current — Lucas 2026-06-01)
+#
+# ``sky-stg.<base>`` is the platform default and is explicitly NOT
+# matched: the onboard-client workflow's reserved-name list refuses
+# ``sky`` as a tenant slug, so no tenant can ever own that host.
 _SUBDOMAIN_RE = re.compile(
-    r"^(?:workspace|api)-([a-z0-9-]{2,50}?)(?:-stg)?\."
+    r"^(?:(?:workspace|api)-)?([a-z0-9-]{2,50}?)-stg\."
 )
 
 

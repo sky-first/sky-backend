@@ -55,8 +55,18 @@ router = APIRouter()
 # only thing we trust from the host header, and the regex below has to
 # match the one in ``src/api/middleware/tenant_resolver.py`` so the two
 # paths agree on which slug to look up.
+# Accept three subdomain patterns so the same regex covers every host
+# the onboard-client workflow can mint:
+#
+#   workspace-<slug>-stg.skyfirstlabs.com   (legacy explicit prefix)
+#   api-<slug>-stg.skyfirstlabs.com         (legacy API subdomain)
+#   <slug>-stg.skyfirstlabs.com             (current — Lucas 2026-06-01)
+#
+# ``sky-stg.skyfirstlabs.com`` (the platform default) does NOT match
+# because the slug capture is bounded — there is no ``sky-`` tenant
+# and the workflow's reserved-name list rejects ``sky`` anyway.
 _AUTH_SUBDOMAIN_RE = re.compile(
-    r"^(?:workspace|api)-([a-z0-9-]{2,50}?)(?:-stg)?\."
+    r"^(?:(?:workspace|api)-)?([a-z0-9-]{2,50}?)-stg\."
 )
 
 
