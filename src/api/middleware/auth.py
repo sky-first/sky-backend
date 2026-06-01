@@ -45,7 +45,13 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
         "/api/cursor/",
         "/api/ws/chat/",
     ]
-    if any(request.url.path.startswith(p) for p in ws_token_paths):
+    # Finding 5 fix: scope the bypass to genuine WebSocket upgrade requests only.
+    # Previously any HTTP GET/POST to those prefixes also skipped auth. The
+    # endpoints are @router.websocket only (so plain HTTP returns 404 today),
+    # but a future REST route under the same prefix would have been silently
+    # unauthenticated without this guard.
+    is_ws_upgrade = request.headers.get("upgrade", "").lower() == "websocket"
+    if is_ws_upgrade and any(request.url.path.startswith(p) for p in ws_token_paths):
         return cast(Response, await call_next(request))
 
     # Skip auth for public endpoints
