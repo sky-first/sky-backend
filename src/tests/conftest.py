@@ -241,7 +241,7 @@ async def async_client(db_session, valid_token_payload):
 
 
 @pytest_asyncio.fixture
-async def console_async_client(db_session, valid_token_payload):
+async def console_async_client(db_session):
     """AsyncClient that sends Host: localhost so the Console host-guard
     lets requests through. The main async_client uses host=test which
     is not in _allowed_console_hosts(), causing all /api/console/v1/*
