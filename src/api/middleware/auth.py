@@ -41,6 +41,9 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     ws_token_paths = [
         "/api/v1/cursor/",
         "/api/v1/ws/chat/",
+        # Legacy /api prefix — api_router is mounted at both /api/v1 and /api
+        "/api/cursor/",
+        "/api/ws/chat/",
     ]
     if any(request.url.path.startswith(p) for p in ws_token_paths):
         return cast(Response, await call_next(request))
