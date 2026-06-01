@@ -57,6 +57,10 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("application_shutdown")
+    # Cancel any orphaned cursor listen tasks before the event loop stops.
+    from src.api.v1.cursor import cursor_relay
+    if hasattr(cursor_relay, "shutdown"):
+        await cursor_relay.shutdown()
     # Tenant engine pools (Model B) — dispose before the global pool so
     # ``tenant_connection_manager`` can flush any remaining sessions.
     from src.config.tenant_connection_manager import tenant_connection_manager
