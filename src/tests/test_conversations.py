@@ -197,6 +197,45 @@ async def test_ensure_default_space_page_converges_members(db_session: AsyncSess
     assert first.crew_id is None
 
 
+@pytest.mark.asyncio
+async def test_get_page_allows_space_member_non_owner(db_session: AsyncSession):
+    """A space member who is neither the owner nor an explicit page_member
+    must still be able to GET a page bound to that space. Without this the
+    shared "Space Canvas" (owned by whoever created it first) 404s for every
+    other member, breaking convergence."""
+    from src.services.page_service import PageService
+
+    owner = await create_user(db_session, "space-page-owner@example.com")
+    member = await create_user(db_session, "space-page-member@example.com")
+    space = await create_space_with_member(db_session, owner.id, member_id=member.id)
+
+    svc = PageService(db_session)
+    # Owner creates the space's canonical shared page.
+    page = await svc.ensure_default_space_page(space.id, owner)
+
+    # The other space member (not owner, not page_member) can open it.
+    fetched = await svc.get_page(page.id, member)
+    assert fetched.id == page.id
+
+
+@pytest.mark.asyncio
+async def test_get_page_denies_non_space_member(db_session: AsyncSession):
+    """A user who is NOT a member of the space must still get 404 for its
+    pages — the new space-membership branch must not over-grant access."""
+    from src.core.exceptions import NotFoundError
+    from src.services.page_service import PageService
+
+    owner = await create_user(db_session, "space-page-owner2@example.com")
+    outsider = await create_user(db_session, "space-page-outsider@example.com")
+    space = await create_space_with_member(db_session, owner.id)
+
+    svc = PageService(db_session)
+    page = await svc.ensure_default_space_page(space.id, owner)
+
+    with pytest.raises(NotFoundError):
+        await svc.get_page(page.id, outsider)
+
+
 # ─── A9: list + pagination ────────────────────────────────────────────────
 
 
