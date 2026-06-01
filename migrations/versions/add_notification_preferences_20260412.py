@@ -18,8 +18,36 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Widen alembic_version.version_num so this revision ID (38 chars) fits VARCHAR(32)
-    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)")
+    # Widen the active alembic version table's version_num so this
+    # revision ID (38 chars) fits — the legacy schema was VARCHAR(32).
+    #
+    # Before sky-be split off its own version table (env.py:
+    # version_table="alembic_version_be"), this migration only knew
+    # about the shared ``alembic_version``. On a freshly provisioned
+    # tenant DB only ``alembic_version_be`` exists, and the
+    # unconditional ALTER on the legacy table raised
+    # ``UndefinedTable`` and failed the migrate Job. Cover both
+    # cases idempotently via information_schema.
+    op.execute(
+        """
+        DO $$ BEGIN
+          IF EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_name = 'alembic_version'
+          ) THEN
+            ALTER TABLE alembic_version
+              ALTER COLUMN version_num TYPE VARCHAR(64);
+          END IF;
+          IF EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_name = 'alembic_version_be'
+          ) THEN
+            ALTER TABLE alembic_version_be
+              ALTER COLUMN version_num TYPE VARCHAR(64);
+          END IF;
+        END $$;
+        """
+    )
 
     op.create_table(
         "notification_preferences",
@@ -39,4 +67,23 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("idx_notif_pref_user_id", table_name="notification_preferences")
     op.drop_table("notification_preferences")
-    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(32)")
+    op.execute(
+        """
+        DO $$ BEGIN
+          IF EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_name = 'alembic_version'
+          ) THEN
+            ALTER TABLE alembic_version
+              ALTER COLUMN version_num TYPE VARCHAR(32);
+          END IF;
+          IF EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_name = 'alembic_version_be'
+          ) THEN
+            ALTER TABLE alembic_version_be
+              ALTER COLUMN version_num TYPE VARCHAR(32);
+          END IF;
+        END $$;
+        """
+    )
