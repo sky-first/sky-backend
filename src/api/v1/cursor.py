@@ -57,6 +57,7 @@ class CursorRelay:
     def __init__(self) -> None:
         self._conns: Dict[str, Dict[str, WebSocket]] = {}
         self._positions: Dict[str, Dict[str, str]] = {}  # ctx -> uid -> raw cursor frame
+        self._listen_tasks: Dict[tuple, "asyncio.Task[None]"] = {}
 
     async def connect(self, context_id: str, user_id: str, ws: WebSocket) -> None:
         await ws.accept()
@@ -90,6 +91,7 @@ class CursorRelay:
     ) -> "asyncio.Task[None]":
         ready = asyncio.Event()
         task = asyncio.create_task(self.listen(context_id, user_id, ws, ready))
+        self._listen_tasks[(context_id, user_id)] = task
         await ready.wait()
         return task
 
@@ -131,9 +133,21 @@ class CursorRelay:
             self.disconnect(context_id, uid)
             self._positions.get(context_id, {}).pop(uid, None)
 
+    async def shutdown(self) -> None:
+        """Cancel all pending listen tasks — called during app shutdown so the
+        event loop can exit cleanly instead of hanging on orphaned tasks."""
+        tasks = list(self._listen_tasks.values())
+        self._listen_tasks.clear()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def remove(self, context_id: str, user_id: str) -> None:
         """Drop a user on disconnect: clear stored state, tell peers they
         left, and remove the connection."""
+        self._listen_tasks.pop((context_id, user_id), None)
         self._positions.get(context_id, {}).pop(user_id, None)
         if not self._positions.get(context_id):
             self._positions.pop(context_id, None)

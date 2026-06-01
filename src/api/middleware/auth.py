@@ -38,9 +38,19 @@ async def auth_middleware(request: Request, call_next: Callable) -> Response:
     # verify_token() internally — let them through so the middleware doesn't try
     # to return a JSONResponse on a WebSocket upgrade (which crashes with
     # RuntimeError: No response returned).
+    # Note: genuine WebSocket connections (scope["type"] == "websocket") bypass
+    # BaseHTTPMiddleware entirely — Starlette short-circuits before this function
+    # runs for those scopes. This block therefore only fires for plain HTTP
+    # requests whose path collides with a WS prefix (e.g. a mis-routed client).
+    # Today those paths have no HTTP routes (@router.websocket only → 404), but
+    # keeping the check defends against a future REST route being added under
+    # the same prefix and silently inheriting the auth bypass.
     ws_token_paths = [
         "/api/v1/cursor/",
         "/api/v1/ws/chat/",
+        # Legacy /api prefix — api_router is mounted at both /api/v1 and /api
+        "/api/cursor/",
+        "/api/ws/chat/",
     ]
     if any(request.url.path.startswith(p) for p in ws_token_paths):
         return cast(Response, await call_next(request))
