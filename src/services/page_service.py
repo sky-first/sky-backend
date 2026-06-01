@@ -23,8 +23,8 @@ def _deep_copy_json(value: Any) -> Any:
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.page import Page
 from src.models.user import User
-from src.repositories.widget import WidgetRepository
 from src.repositories.page import PageMemberRepository, PageRepository
+from src.repositories.widget import WidgetRepository
 from src.schemas.page import (
     PageCreate,
     PageMemberCreate,
@@ -115,27 +115,32 @@ class PageService:
         # are logged + swallowed — creation must never be blocked.
         try:
             import logging
+
             from src.ai.http_client import AIServiceHTTPClient
+
             _logger = logging.getLogger(__name__)
             ai_client = AIServiceHTTPClient()
             is_personal = page.type == "personal"
-            await ai_client.ingest_knowledge_graph({
-                "id": str(page.id),
-                "entity_type": "page",
-                "name": page.name,
-                "description": page.description,
-                "space_id": str(page.space_id) if page.space_id else None,
-                "crew_id": str(page.crew_id) if page.crew_id else None,
-                "owner_user_id": str(user.id) if is_personal else None,
-                "entity_details": {
-                    "type": page.type,
-                    "color": page.color,
-                    "icon": page.icon,
-                    "owner_id": str(page.owner_id),
-                },
-            })
+            await ai_client.ingest_knowledge_graph(
+                {
+                    "id": str(page.id),
+                    "entity_type": "page",
+                    "name": page.name,
+                    "description": page.description,
+                    "space_id": str(page.space_id) if page.space_id else None,
+                    "crew_id": str(page.crew_id) if page.crew_id else None,
+                    "owner_user_id": str(user.id) if is_personal else None,
+                    "entity_details": {
+                        "type": page.type,
+                        "color": page.color,
+                        "icon": page.icon,
+                        "owner_id": str(page.owner_id),
+                    },
+                }
+            )
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).warning(f"AI ingest failed for page {page.id}: {exc}")
 
         return PageResponse.model_validate(page)
@@ -157,9 +162,7 @@ class PageService:
         if not crew:
             raise NotFoundError("Crew not found")
         if user.role != "admin":
-            member = await CrewMemberRepository(self.db).get_by_crew_and_user(
-                crew_id, user.id
-            )
+            member = await CrewMemberRepository(self.db).get_by_crew_and_user(crew_id, user.id)
             if not member:
                 raise ForbiddenError("You must be a member of this crew")
 
@@ -188,6 +191,59 @@ class PageService:
             owner_id=user.id,
             crew_id=crew_id,
             space_id=None,
+            is_active=False,
+        )
+        await self.member_repo.create(page_id=page.id, user_id=user.id, role="owner")
+        await self.db.commit()
+        await self.db.refresh(page)
+        return PageResponse.model_validate(page)
+
+    async def ensure_default_space_page(self, space_id: UUID, user: User) -> PageResponse:
+        """Return the space's shared default page, creating it once if absent.
+
+        Mirror of ensure_default_crew_page for Spaces: every space member
+        converges on the SAME page id (the canonical, oldest space page) so
+        the chat and widgets they collaborate on live in one shared room.
+        A Postgres advisory lock serialises concurrent callers so two
+        members entering an empty space at the same instant can't each fork
+        their own page — the per-user idempotency key can't dedupe across
+        different users, so this is the only safe guard against the fork.
+        """
+        from src.repositories.space import SpaceMemberRepository, SpaceRepository
+
+        space = await SpaceRepository(self.db).get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+        if user.role != "admin":
+            member = await SpaceMemberRepository(self.db).get_by_space_and_user(space_id, user.id)
+            if not member:
+                raise ForbiddenError("You must be a member of this space")
+
+        # Serialise concurrent ensures for this space. Postgres-only; on the
+        # SQLite test DB advisory locks don't exist and the suite is
+        # single-threaded, so skipping the lock there is safe.
+        try:
+            if self.db.get_bind().dialect.name == "postgresql":
+                await self.db.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+                    {"k": f"space_default_page:{space_id}"},
+                )
+        except Exception:
+            pass
+
+        existing = await self.page_repo.get_default_space_page(space_id)
+        if existing is not None:
+            return PageResponse.model_validate(existing)
+
+        page = await self.page_repo.create(
+            name="Space Canvas",
+            description=None,
+            type="team",
+            color="#3b82f6",
+            icon=None,
+            owner_id=user.id,
+            crew_id=None,
+            space_id=space_id,
             is_active=False,
         )
         await self.member_repo.create(page_id=page.id, user_id=user.id, role="owner")
@@ -325,9 +381,7 @@ class PageService:
             crew_id=original.crew_id,
             space_id=original.space_id,
             is_active=False,
-            canvas_settings=(
-                original.canvas_settings.copy() if original.canvas_settings else None
-            ),
+            canvas_settings=(original.canvas_settings.copy() if original.canvas_settings else None),
             is_locked=False,  # copies always start unlocked
             template_id=original.template_id,
         )
@@ -412,6 +466,7 @@ class PageService:
             # page's space.
             if page.owner_id != user.id:
                 from src.services.rbac_service import RBACService
+
                 await RBACService(self.db).assert_permission(
                     user, "pages.delete", space_id=page.space_id
                 )
