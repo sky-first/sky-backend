@@ -17,31 +17,23 @@ class TestAuthenticationServiceLogin:
     """Tests for login functionality."""
 
     async def test_login_success(self, db_session: AsyncSession, test_user: dict):
-        """Test successful login."""
+        """Test successful login for a password-auth user without MFA.
+
+        Since PR #531 (feat: force MFA enrolment on first password login),
+        a user without MFA configured no longer receives an access_token
+        directly — the service returns force_enrollment=True so the client
+        redirects to the MFA setup flow. This test verifies that the login
+        call does not raise and returns the expected enrollment response.
+        """
         auth_service = AuthenticationService(db_session)
 
         response = await auth_service.login(test_user["email"], test_user["password"])
 
-        # Verify response structure
-        assert response.access_token is not None
-        assert response.refresh_token is not None
-        assert response.token_type == "bearer"
-        assert response.expires_in > 0
-        assert response.user.email == test_user["email"]
-        assert response.user.id == test_user["user"].id
-
-        # Verify last_login_at was updated
-        await db_session.refresh(test_user["user"])
-        assert test_user["user"].last_login_at is not None
-
-        # Verify refresh token was saved
-        result = await db_session.execute(
-            select(RefreshToken).where(RefreshToken.token == response.refresh_token)
-        )
-        refresh_token_model = result.scalar_one_or_none()
-        assert refresh_token_model is not None
-        assert refresh_token_model.user_id == test_user["user"].id
-        assert refresh_token_model.revoked_at is None
+        # Password-auth users without MFA must be redirected to enrollment.
+        assert response.force_enrollment is True
+        assert response.mfa_enrollment_token is not None
+        # Access is intentionally withheld until MFA is configured.
+        assert response.access_token is None
 
     async def test_login_invalid_email(self, db_session: AsyncSession, faker):
         """Test login with non-existent email."""
