@@ -594,13 +594,53 @@ def tenant_cost_provider() -> CostProvider:
     return cost_provider()
 
 
+def _prometheus_activity_enabled() -> bool:
+    env_raw = os.getenv("PROMETHEUS_ACTIVITY_ENABLED")
+    if env_raw is not None:
+        return env_raw.lower() in {"true", "1", "yes", "on"}
+    try:
+        from src.config.settings import settings as _settings
+
+        return bool(getattr(_settings, "PROMETHEUS_ACTIVITY_ENABLED", False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def activity_provider() -> ActivityProvider:
-    # Activity always uses the audit log (real) for the "platform" view,
-    # but the synthetic per-tenant timeline is mocked until we ship a
-    # Prometheus exporter. Mock-only for now in both branches.
+    if _mock_mode_enabled():
+        return MockActivityProvider()
+    if _prometheus_activity_enabled():
+        try:
+            from src.services.console_telemetry_real import (
+                PrometheusActivityProvider,
+            )
+
+            return PrometheusActivityProvider()
+        except TelemetryUnavailable:
+            return MockActivityProvider()
     return MockActivityProvider()
 
 
+def _moloni_billing_enabled() -> bool:
+    env_raw = os.getenv("MOLONI_BILLING_ENABLED")
+    if env_raw is not None:
+        return env_raw.lower() in {"true", "1", "yes", "on"}
+    try:
+        from src.config.settings import settings as _settings
+
+        return bool(getattr(_settings, "MOLONI_BILLING_ENABLED", False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def billing_provider() -> BillingProvider:
-    # Billing mock today; production wires Moloni's API.
+    if _mock_mode_enabled():
+        return MockBillingProvider()
+    if _moloni_billing_enabled():
+        try:
+            from src.services.console_telemetry_real import MoloniBillingProvider
+
+            return MoloniBillingProvider()
+        except TelemetryUnavailable:
+            return MockBillingProvider()
     return MockBillingProvider()

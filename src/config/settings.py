@@ -663,6 +663,14 @@ class Settings(BaseSettings):
     PROMETHEUS_ENABLED: bool = True
     PROMETHEUS_PORT: int = 9090
 
+    # Console telemetry: real-provider feature flags
+    PROMETHEUS_ACTIVITY_ENABLED: bool = False
+    PROMETHEUS_URL: str | None = None
+    MOLONI_BILLING_ENABLED: bool = False
+    MOLONI_API_KEY: str | None = None
+    MOLONI_COMPANY_ID: str | None = None
+    MOLONI_BASE_URL: str = "https://api.moloni.pt/v1"
+
     @property
     def is_production(self) -> bool:
         """Check if running in production."""
