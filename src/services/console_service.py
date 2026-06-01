@@ -329,8 +329,12 @@ async def destroy_tenant(
     *,
     actor_email: str,
 ) -> Optional[ProvisioningJob]:
-    """Soft-destroy: set is_active=false, write DESTROY job. Real
-    teardown (drop pods, delete secrets) happens out-of-band in v1.1.
+    """Mark tenant inactive + spawn a DESTROY ProvisioningJob that the
+    Celery worker dispatches to ``offboard-client.yml`` (mirror of the
+    create flow). The actual teardown — drop namespace, delete AWS
+    secrets, drop tenant DB/role, remove GitOps files — runs inside the
+    workflow's 5 phases and reports progress back via the same signed
+    webhook the Console UI already consumes for onboards.
 
     Raises ``ValueError("confirmation_failed")`` if the caller did not
     provide the right confirmation phrase or slug.
@@ -345,23 +349,41 @@ async def destroy_tenant(
     ).scalar_one_or_none()
     if row is None:
         return None
-    # Soft delete; the row stays in the registry so audit history
-    # remains linkable. ``suspended_at`` doubles as "destroyed at".
+    # Soft delete; the registry row stays so audit history remains
+    # linkable. ``suspended_at`` doubles as "destroyed at". The hard
+    # teardown — namespace, secrets, DB — happens in the workflow.
     row.is_active = False
     row.suspended_at = datetime.now(timezone.utc)
     await db.flush()
     clear_tenant_cache()
 
+    # Pending job: the Celery worker will dispatch the workflow on the
+    # next tick and flip it to RUNNING once GH ack's the dispatch.
     job = ProvisioningJob(
         tenant_slug=slug,
         actor_email=actor_email,
         job_type=ProvisioningJobType.DESTROY.value,
-        status=ProvisioningJobStatus.SUCCESS.value,
-        completed_at=datetime.now(timezone.utc),
+        status=ProvisioningJobStatus.PENDING.value,
         request_payload={"confirmation_slug": payload.confirmation_slug},
     )
     db.add(job)
     await db.flush()
+
+    # Dispatch the offboard workflow out-of-band. Import inline to
+    # avoid a circular import between services/ and workers/.
+    try:
+        from src.workers.provisioning_worker import (
+            destroy_tenant_via_gh_actions,
+        )
+        destroy_tenant_via_gh_actions.delay(str(job.id))
+    except Exception:  # pragma: no cover — Celery broker / import
+        # Don't block the API response on broker hiccups; the job row
+        # is already PENDING and an operator can re-dispatch from the
+        # Console (or a Celery beat reaper will pick it up).
+        logger.exception(
+            "destroy_tenant: failed to enqueue offboard task for %s", slug
+        )
+
     return job
 
 

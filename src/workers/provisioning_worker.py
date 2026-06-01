@@ -60,6 +60,7 @@ DEFAULT_OWNER = "sky-first"
 # remote target for workflow_dispatch is the canonical org name.
 DEFAULT_REPO = "sky-infra"
 DEFAULT_WORKFLOW = "onboard-client.yml"
+DEFAULT_DESTROY_WORKFLOW = "offboard-client.yml"
 # Dispatch from the ``staging`` branch by default — the trust policy on
 # the gh-actions-onboard-client IAM role is also scoped to this ref.
 DEFAULT_REF = "staging"
@@ -257,4 +258,114 @@ def provision_tenant_via_gh_actions(self, job_id: str) -> dict[str, Any]:  # typ
         raise self.retry(exc=exc)
 
 
-__all__ = ["provision_tenant_via_gh_actions"]
+async def _destroy_async(job_id: str) -> dict[str, Any]:
+    """Async core of the destroy Celery task. Mirror of _provision_async.
+
+    Dispatches the ``offboard-client.yml`` workflow with the same input
+    contract (job_id, tenant_slug, webhook_url, webhook_secret,
+    dispatch_token), then polls for the run_id so the Console UI can
+    deep-link to the workflow run.
+    """
+    token = os.getenv(GH_TOKEN_ENV) or ""
+    owner = os.getenv(GH_OWNER_ENV) or DEFAULT_OWNER
+    repo = os.getenv(GH_REPO_ENV) or DEFAULT_REPO
+    workflow = DEFAULT_DESTROY_WORKFLOW
+    ref = os.getenv(GH_REF_ENV) or DEFAULT_REF
+    webhook_url = os.getenv(WEBHOOK_URL_ENV) or ""
+    webhook_secret = os.getenv(WEBHOOK_SECRET_ENV) or ""
+
+    async with AsyncSessionLocal() as session:  # type: AsyncSession
+        try:
+            job_uuid = uuid.UUID(job_id)
+        except (ValueError, AttributeError):
+            return {"ok": False, "reason": "invalid_job_id", "job_id": job_id}
+
+        job = (
+            await session.execute(
+                select(ProvisioningJob).where(ProvisioningJob.id == job_uuid)
+            )
+        ).scalar_one_or_none()
+        if job is None:
+            return {"ok": False, "reason": "job_not_found", "job_id": job_id}
+
+        if not token:
+            job.status = ProvisioningJobStatus.FAILED.value
+            job.error_message = f"{GH_TOKEN_ENV} is not configured"
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+            return {"ok": False, "reason": "missing_token", "job_id": job_id}
+
+        dispatch_token = uuid.uuid4().hex
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                payload = _build_dispatch_payload(
+                    job,
+                    ref=ref,
+                    webhook_url=webhook_url,
+                    webhook_secret=webhook_secret,
+                    dispatch_token=dispatch_token,
+                )
+                await _dispatch_workflow(
+                    client, token, owner, repo, workflow, payload
+                )
+
+                run: Optional[dict[str, Any]] = None
+                for attempt in range(RUN_LOOKUP_MAX_ATTEMPTS):
+                    await asyncio.sleep(RUN_LOOKUP_SLEEP_SECONDS)
+                    run = await _lookup_run(
+                        client, token, owner, repo, workflow, dispatch_token
+                    )
+                    if run:
+                        break
+
+        except Exception as exc:
+            job.status = ProvisioningJobStatus.FAILED.value
+            job.error_message = f"dispatch failed: {exc}"
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+            logger.exception("destroy dispatch failed for job %s", job_id)
+            return {"ok": False, "reason": "dispatch_error", "error": str(exc)}
+
+        if run is not None:
+            job.external_run_id = str(run.get("id") or "")
+            job.external_run_url = run.get("html_url") or None
+
+        if job.status == ProvisioningJobStatus.PENDING.value:
+            job.status = ProvisioningJobStatus.RUNNING.value
+
+        await session.commit()
+
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "external_run_id": job.external_run_id,
+            "external_run_url": job.external_run_url,
+            "dispatch_token": dispatch_token,
+        }
+
+
+@celery_app.task(
+    name="src.workers.provisioning_worker.destroy_tenant_via_gh_actions",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=10,
+)
+def destroy_tenant_via_gh_actions(self, job_id: str) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+    """Celery entry point for tenant destroy. Mirror of the create path.
+
+    Dispatches ``offboard-client.yml`` for the tenant slug attached to
+    the ProvisioningJob row. The destroy workflow is idempotent: phases
+    skip cleanly if a resource is already gone, so retries are safe.
+    """
+    try:
+        return asyncio.run(_destroy_async(job_id))
+    except Exception as exc:  # pragma: no cover — Celery retries handle this
+        logger.exception("destroy_tenant_via_gh_actions failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+__all__ = [
+    "provision_tenant_via_gh_actions",
+    "destroy_tenant_via_gh_actions",
+]
