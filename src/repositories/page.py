@@ -52,8 +52,7 @@ class PageRepository(BaseRepository[Page]):
         """
         # First try to find page where user is owner and is_active = True
         result = await self.db.execute(
-            select(Page)
-            .where(
+            select(Page).where(
                 Page.owner_id == user_id,
                 Page.is_active == True,  # noqa: E712
                 Page.deleted_at.is_(None),
@@ -112,8 +111,10 @@ class PageRepository(BaseRepository[Page]):
             select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
         ).scalar_subquery()
 
-        base = select(Page).outerjoin(PageMember, PageMember.page_id == Page.id).where(
-            Page.deleted_at.is_(None)
+        base = (
+            select(Page)
+            .outerjoin(PageMember, PageMember.page_id == Page.id)
+            .where(Page.deleted_at.is_(None))
         )
 
         if context == "personal":
@@ -161,6 +162,26 @@ class PageRepository(BaseRepository[Page]):
         )
         return result.scalars().first()
 
+    async def get_default_space_page(self, space_id: UUID) -> Optional[Page]:
+        """Return the space's canonical (oldest) live shared page, or None.
+
+        Mirrors get_default_crew_page: converges every space member on the
+        SAME shared page id. Only pages bound to the space and NOT to a crew
+        count — a crew page lives in its own collaborative room, not the
+        space's default. Oldest-by-created_at is a stable choice across
+        members (unlike updated_at, which churns)."""
+        result = await self.db.execute(
+            select(Page)
+            .where(
+                Page.space_id == space_id,
+                Page.crew_id.is_(None),
+                Page.deleted_at.is_(None),
+            )
+            .order_by(Page.created_at.asc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
 
 class PageMemberRepository(BaseRepository[PageMember]):
     """Page member repository."""
@@ -168,9 +189,7 @@ class PageMemberRepository(BaseRepository[PageMember]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, PageMember)
 
-    async def get_by_page_and_user(
-        self, page_id: UUID, user_id: UUID
-    ) -> Optional[PageMember]:
+    async def get_by_page_and_user(self, page_id: UUID, user_id: UUID) -> Optional[PageMember]:
         """
         Get page member by page and user.
 

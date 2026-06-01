@@ -17,15 +17,11 @@ from src.schemas.page import (
     PageResponse,
     PageUpdate,
 )
-from src.schemas.widget import (
-    PageExportResponse,
-    WidgetCreate,
-    WidgetResponse,
-)
-from src.services.widget_service import WidgetService
+from src.schemas.widget import PageExportResponse, WidgetCreate, WidgetResponse
 from src.services.page_service import PageService
 from src.services.rbac_service import RBACService
 from src.services.starred_service import StarredItemService
+from src.services.widget_service import WidgetService
 
 router = APIRouter()
 
@@ -157,6 +153,28 @@ async def ensure_crew_default_page(
     await RBACService(db).assert_permission(current_user, "pages.view")
     page_service = PageService(db)
     return await page_service.ensure_default_crew_page(crew_id, current_user)
+
+
+@router.post(
+    "/space/{space_id}/default-page",
+    response_model=PageResponse,
+    status_code=status.HTTP_200_OK,
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    summary="Get or create the space's shared default page",
+    description=(
+        "Returns the space's canonical shared page, creating it once if none "
+        "exists. Idempotent across members so everyone converges on the same "
+        "page id (the shared collaborative room)."
+    ),
+)
+async def ensure_space_default_page(
+    space_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PageResponse:
+    await RBACService(db).assert_permission(current_user, "pages.view")
+    page_service = PageService(db)
+    return await page_service.ensure_default_space_page(space_id, current_user)
 
 
 @router.put(
@@ -426,9 +444,7 @@ async def lock_page(
     """Lock the page (replaces /dashboards/{id}/lock)."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
     page_service = PageService(db)
-    return await page_service.update_page(
-        page_id, current_user, PageUpdate(is_locked=True)
-    )
+    return await page_service.update_page(page_id, current_user, PageUpdate(is_locked=True))
 
 
 @router.post(
@@ -447,9 +463,7 @@ async def unlock_page(
     """Unlock the page (replaces /dashboards/{id}/unlock)."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
     page_service = PageService(db)
-    return await page_service.update_page(
-        page_id, current_user, PageUpdate(is_locked=False)
-    )
+    return await page_service.update_page(page_id, current_user, PageUpdate(is_locked=False))
 
 
 @router.post(
