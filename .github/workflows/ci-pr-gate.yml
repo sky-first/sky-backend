@@ -135,7 +135,9 @@ jobs:
         # also works for asyncio coroutines (signal method fails inside
         # non-main threads). Job-level timeout is a second safety net in
         # case the test runner itself deadlocks before pytest-timeout fires.
-        timeout-minutes: 15
+        # Set to 25 min: 2232-test suite averages ~20-21 min across all
+        # Python versions in the matrix; 15 min was consistently too tight.
+        timeout-minutes: 25
         run: |
           pytest --cov=src --cov-report=xml --timeout=120 --timeout-method=thread -v
 
