@@ -33,11 +33,15 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.database import AsyncSessionLocal
-from src.models.internal_console import ProvisioningJob, ProvisioningJobStatus
+from src.models.internal_console import (
+    ProvisioningJob,
+    ProvisioningJobStatus,
+    ProvisioningJobType,
+)
 from src.workers.celery_app import celery_app
 
 
@@ -228,13 +232,22 @@ async def _provision_async(job_id: str) -> dict[str, Any]:
 
         await session.commit()
 
-        return {
-            "ok": True,
-            "job_id": job_id,
-            "external_run_id": job.external_run_id,
-            "external_run_url": job.external_run_url,
-            "dispatch_token": dispatch_token,
-        }
+    # Schedule a reconciler that polls the GH Actions API until the
+    # workflow run is terminal. This is the fallback for when the
+    # workflow's phase webhooks get lost in transit — without it,
+    # ``ProvisioningJob.status`` would stay ``RUNNING`` forever.
+    reconcile_provisioning_job.apply_async(
+        args=[job_id],
+        countdown=RECONCILE_POLL_INTERVAL_SECONDS,
+    )
+
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "external_run_id": job.external_run_id,
+        "external_run_url": job.external_run_url,
+        "dispatch_token": dispatch_token,
+    }
 
 
 @celery_app.task(
@@ -336,13 +349,23 @@ async def _destroy_async(job_id: str) -> dict[str, Any]:
 
         await session.commit()
 
-        return {
-            "ok": True,
-            "job_id": job_id,
-            "external_run_id": job.external_run_id,
-            "external_run_url": job.external_run_url,
-            "dispatch_token": dispatch_token,
-        }
+    # Schedule a reconciler that polls the GH Actions API until the
+    # destroy workflow is terminal — same fallback as the provision
+    # path. This is what unblocks the slug for reuse when the offboard
+    # webhook is dropped (the reconciler sees ``conclusion=success``
+    # and deletes the tenant_registry row).
+    reconcile_provisioning_job.apply_async(
+        args=[job_id],
+        countdown=RECONCILE_POLL_INTERVAL_SECONDS,
+    )
+
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "external_run_id": job.external_run_id,
+        "external_run_url": job.external_run_url,
+        "dispatch_token": dispatch_token,
+    }
 
 
 @celery_app.task(
@@ -365,7 +388,198 @@ def destroy_tenant_via_gh_actions(self, job_id: str) -> dict[str, Any]:  # type:
         raise self.retry(exc=exc)
 
 
+# ── Run-status reconciler ──────────────────────────────────────────
+#
+# The webhook the workflow phones home with is unreliable on staging:
+# the runners live in the ``arc-system`` namespace and POST to the
+# in-cluster Service hostname, but the cross-ns NetworkPolicy / DNS
+# path drops packets unpredictably (http_status=000 in the workflow
+# logs). When the webhook is lost, the BE never advances the job past
+# ``RUNNING`` and the Console UI shows the destroy as forever
+# in-flight even though the workflow has succeeded on GitHub.
+#
+# This reconciler is the belt-and-braces fix: after dispatch we
+# schedule a Celery task that polls the GitHub Actions API every 20s
+# until the workflow run reaches a terminal state. Whatever conclusion
+# the API reports becomes the authoritative ``ProvisioningJob.status``.
+# Idempotent — the task short-circuits if the job is already terminal,
+# and re-running it is safe.
+
+RECONCILE_POLL_INTERVAL_SECONDS = 20
+RECONCILE_MAX_ATTEMPTS = 180  # ~60 min cap
+
+_TERMINAL_FAILURE_CONCLUSIONS = (
+    "failure",
+    "cancelled",
+    "timed_out",
+    "action_required",
+    "stale",
+    "startup_failure",
+    "neutral",
+)
+
+
+async def _reconcile_async(job_id: str) -> dict[str, Any]:
+    """Single reconciliation cycle for one provisioning job.
+
+    Returns a dict with one of:
+      * ``terminal=True``   — job was updated to SUCCESS / FAILED.
+      * ``still_running=True`` — caller should retry later.
+      * ``done=True``       — already terminal; nothing to do.
+    """
+    token = os.getenv(GH_TOKEN_ENV) or ""
+    owner = os.getenv(GH_OWNER_ENV) or DEFAULT_OWNER
+    repo = os.getenv(GH_REPO_ENV) or DEFAULT_REPO
+
+    async with AsyncSessionLocal() as session:  # type: AsyncSession
+        try:
+            job_uuid = uuid.UUID(job_id)
+        except (ValueError, AttributeError):
+            return {"ok": False, "reason": "invalid_job_id"}
+
+        job = (
+            await session.execute(
+                select(ProvisioningJob).where(ProvisioningJob.id == job_uuid)
+            )
+        ).scalar_one_or_none()
+        if job is None:
+            return {"ok": False, "reason": "job_not_found"}
+
+        # Webhook (or a previous reconcile pass) already finished it.
+        if job.status in (
+            ProvisioningJobStatus.SUCCESS.value,
+            ProvisioningJobStatus.FAILED.value,
+        ):
+            return {"ok": True, "done": True}
+
+        # Dispatch hasn't recorded the GH run id yet — keep waiting.
+        if not job.external_run_id:
+            return {"ok": True, "still_running": True, "reason": "no_external_run_id"}
+
+        if not token:
+            # Can't poll without the token; leave the job alone so a
+            # subsequent reconcile (after the secret rolls out) can
+            # finish it. We don't flip to FAILED here because the
+            # workflow itself may still be running fine.
+            return {"ok": False, "reason": "missing_token", "still_running": True}
+
+        run_url = (
+            f"{GH_API_BASE}/repos/{owner}/{repo}/actions/runs/{job.external_run_id}"
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(run_url, headers=_gh_headers(token))
+        except Exception as exc:  # network blip — retry next time
+            logger.debug("reconcile: GH API error for job %s: %s", job_id, exc)
+            return {"ok": True, "still_running": True, "reason": "gh_api_error"}
+
+        if response.status_code >= 300:
+            logger.debug(
+                "reconcile: GH API %s for job %s: %s",
+                response.status_code,
+                job_id,
+                response.text[:200],
+            )
+            return {"ok": True, "still_running": True, "reason": "gh_api_non_2xx"}
+
+        data = response.json() or {}
+        gh_status = data.get("status")  # "queued" | "in_progress" | "completed"
+        if gh_status != "completed":
+            return {"ok": True, "still_running": True, "gh_status": gh_status}
+
+        conclusion = (data.get("conclusion") or "").lower()
+        now = datetime.now(timezone.utc)
+        if conclusion == "success":
+            job.status = ProvisioningJobStatus.SUCCESS.value
+        elif conclusion in _TERMINAL_FAILURE_CONCLUSIONS:
+            job.status = ProvisioningJobStatus.FAILED.value
+            job.error_message = (
+                job.error_message or f"workflow concluded: {conclusion}"
+            )
+        else:
+            # Unknown conclusion (e.g. ``skipped`` on a re-run) — be
+            # conservative and retry later in case GH updates it.
+            logger.warning(
+                "reconcile: unknown conclusion %r for job %s; retrying",
+                conclusion,
+                job_id,
+            )
+            return {
+                "ok": True,
+                "still_running": True,
+                "gh_status": gh_status,
+                "conclusion": conclusion,
+            }
+        job.completed_at = now
+
+        # Successful DESTROY → remove the tenant_registry row so the
+        # slug is freed up for reuse. The offboard workflow already
+        # dropped the RDS DB, the AWS secret, and the K8s namespace;
+        # the platform row is the last thing tying the slug to the
+        # tenant. Wrapped in a try/except so a reconciler failure here
+        # doesn't strand the job in RUNNING — the DELETE is recoverable
+        # by a follow-up reconcile cycle.
+        if (
+            job.status == ProvisioningJobStatus.SUCCESS.value
+            and job.job_type == ProvisioningJobType.DESTROY.value
+        ):
+            try:
+                await session.execute(
+                    text("DELETE FROM tenant_registry WHERE slug = :slug"),
+                    {"slug": job.tenant_slug},
+                )
+                logger.info(
+                    "reconcile: deleted tenant_registry row for %s",
+                    job.tenant_slug,
+                )
+            except Exception:
+                logger.exception(
+                    "reconcile: failed to delete tenant_registry row for %s",
+                    job.tenant_slug,
+                )
+
+        await session.commit()
+        return {
+            "ok": True,
+            "terminal": True,
+            "conclusion": conclusion,
+            "job_id": job_id,
+        }
+
+
+@celery_app.task(
+    name="src.workers.provisioning_worker.reconcile_provisioning_job",
+    bind=True,
+    max_retries=RECONCILE_MAX_ATTEMPTS,
+    default_retry_delay=RECONCILE_POLL_INTERVAL_SECONDS,
+)
+def reconcile_provisioning_job(self, job_id: str) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+    """Poll the GitHub Actions API until the linked workflow run is
+    terminal, then mirror its conclusion onto the ProvisioningJob row.
+
+    The task self-retries on ``still_running`` so the polling interval
+    stays bounded — Celery's exponential-backoff is intentionally
+    disabled (we pass a fixed countdown) so the operator sees the
+    Console state catch up within ~20s of the workflow finishing.
+    """
+    try:
+        result = asyncio.run(_reconcile_async(job_id))
+    except Exception as exc:  # pragma: no cover — Celery handles this
+        logger.exception("reconcile_provisioning_job crashed: %s", exc)
+        raise self.retry(exc=exc, countdown=RECONCILE_POLL_INTERVAL_SECONDS)
+
+    if result.get("still_running"):
+        # Fixed-interval poll. The ``max_retries`` cap acts as a hard
+        # ceiling — past that we stop polling so a stuck workflow
+        # doesn't burn Celery slots forever.
+        raise self.retry(countdown=RECONCILE_POLL_INTERVAL_SECONDS)
+
+    return result
+
+
 __all__ = [
     "provision_tenant_via_gh_actions",
     "destroy_tenant_via_gh_actions",
+    "reconcile_provisioning_job",
 ]
