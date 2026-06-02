@@ -114,24 +114,39 @@ async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthM
 
     Resolution order:
 
-    1. ``request.state.tenant`` if the tenant resolver middleware
-       populated it. Cheapest path — no DB round-trip.
-    2. Slug parsed from the ``Host`` header. We then look up
-       ``tenant_registry`` directly so this works even when the
-       middleware feature flag is off.
-    3. Nothing resolvable → fall back to ``DEFAULT_AUTH_METHODS``
-       (Google-only) so the platform's bare hostname keeps working
-       as it did before the column existed.
+    1. ``request.state.tenant_context`` populated by the tenant
+       resolver middleware (Model B path — the resolver already
+       looked up ``tenant_registry`` against the platform DB and
+       attached ``auth_methods`` + ``feature_flags`` to the context).
+       Cheapest path, no extra DB round-trip.
+    2. Legacy alias ``request.state.tenant`` — kept for safety so
+       callers that pre-date the middleware rename don't crash.
+    3. Slug parsed from the ``Host`` header → DB lookup. Used by
+       requests that escape the middleware (some health probes /
+       internal paths skip it on purpose).
+    4. Nothing resolvable → fall back to ``DEFAULT_AUTH_METHODS``
+       (Google-only) so the platform's bare hostname keeps working.
     """
     methods: Optional[dict] = None
     feature_flags: Optional[dict] = None
     slug: Optional[str] = None
 
-    ctx = getattr(request.state, "tenant", None) if hasattr(request, "state") else None
-    if ctx is not None:
-        slug = getattr(ctx, "slug", None)
-        methods = getattr(ctx, "auth_methods", None)
-        feature_flags = getattr(ctx, "feature_flags", None)
+    ctx = (
+        getattr(request.state, "tenant_context", None)
+        or getattr(request.state, "tenant", None)
+        if hasattr(request, "state")
+        else None
+    )
+    if ctx is not None and not getattr(ctx, "is_default", False):
+        ctx_slug = getattr(ctx, "slug", None)
+        ctx_methods = getattr(ctx, "auth_methods", None)
+        if ctx_slug:
+            slug = ctx_slug
+        if ctx_methods:
+            methods = dict(ctx_methods)
+        ctx_ff = getattr(ctx, "feature_flags", None)
+        if ctx_ff:
+            feature_flags = dict(ctx_ff)
 
     if methods is None:
         slug = slug or _slug_from_request(request)
