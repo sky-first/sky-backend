@@ -134,7 +134,7 @@ jobs:
         # --timeout=120 / thread — prevents a single hanging async test from pinning the job.
         timeout-minutes: 20
         run: |
-          pytest -p no:cov -n 2 -q --timeout=120 --timeout-method=thread
+          pytest --override-ini="addopts=" -n 2 -q --timeout=120 --timeout-method=thread
 
   docker-build-verify:
     name: Docker Build Verification
