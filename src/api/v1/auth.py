@@ -1,5 +1,7 @@
 """Authentication endpoints."""
 
+import json
+import os
 import re
 from typing import List, Optional
 from urllib.parse import urlencode
@@ -109,29 +111,80 @@ def _slug_from_request(request: Request) -> Optional[str]:
     return m.group(1) or m.group(2)
 
 
+def _auth_methods_from_env() -> Optional[tuple[str, dict, dict]]:
+    """Return ``(slug, auth_methods, feature_flags)`` from env, or None.
+
+    Dedicated tenant BE pods (Model B) run with ``SKY_TENANT_MODE=true``
+    and carry their identity inline as env vars — populated by the
+    workflow that minted the tenant. Reading from env is the SINGLE
+    SOURCE OF TRUTH for these pods: the tenant DB does not hold a
+    ``tenant_registry`` row, only product data (spaces, crews,
+    vectors, threads, etc.).
+
+    The platform pod (``SKY_TENANT_MODE`` unset / ``false``) falls
+    through to the DB lookup path so it can still answer for every
+    tenant resolved from the Host header.
+
+    Returns None when env mode is off OR when the required vars are
+    missing — in either case the caller should fall back to the DB.
+    """
+    if (os.getenv("SKY_TENANT_MODE") or "").lower() != "true":
+        return None
+    slug = os.getenv("SKY_TENANT_SLUG")
+    methods_raw = os.getenv("SKY_TENANT_AUTH_METHODS")
+    if not slug or not methods_raw:
+        return None
+    try:
+        methods = json.loads(methods_raw)
+        if not isinstance(methods, dict):
+            return None
+    except json.JSONDecodeError:
+        return None
+    feature_flags: dict = {}
+    ff_raw = os.getenv("SKY_TENANT_FEATURE_FLAGS")
+    if ff_raw:
+        try:
+            ff = json.loads(ff_raw)
+            if isinstance(ff, dict):
+                feature_flags = ff
+        except json.JSONDecodeError:
+            pass
+    return slug, methods, feature_flags
+
+
 async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthMethodsResponse:
     """Resolve the tenant for the request and return its auth methods.
 
     Resolution order:
 
-    1. ``request.state.tenant`` if the tenant resolver middleware
-       populated it. Cheapest path — no DB round-trip.
-    2. Slug parsed from the ``Host`` header. We then look up
-       ``tenant_registry`` directly so this works even when the
-       middleware feature flag is off.
-    3. Nothing resolvable → fall back to ``DEFAULT_AUTH_METHODS``
-       (Google-only) so the platform's bare hostname keeps working
-       as it did before the column existed.
+    1. ``SKY_TENANT_MODE=true`` env vars — for dedicated tenant pods
+       (Model B), the tenant's identity lives in pod env, NOT in any
+       DB table. No DB round-trip; single source of truth = env.
+    2. ``request.state.tenant`` (legacy middleware-populated context).
+    3. Slug parsed from the ``Host`` header → DB lookup against the
+       platform's ``tenant_registry``. Used by the platform BE pod
+       (which serves every tenant by host).
+    4. Nothing resolvable → fall back to ``DEFAULT_AUTH_METHODS``
+       (Google-only) so the platform's bare hostname keeps working.
     """
     methods: Optional[dict] = None
     feature_flags: Optional[dict] = None
     slug: Optional[str] = None
 
-    ctx = getattr(request.state, "tenant", None) if hasattr(request, "state") else None
-    if ctx is not None:
-        slug = getattr(ctx, "slug", None)
-        methods = getattr(ctx, "auth_methods", None)
-        feature_flags = getattr(ctx, "feature_flags", None)
+    env_resolved = _auth_methods_from_env()
+    if env_resolved is not None:
+        slug, methods, feature_flags = env_resolved
+
+    if methods is None:
+        ctx = (
+            getattr(request.state, "tenant", None)
+            if hasattr(request, "state")
+            else None
+        )
+        if ctx is not None:
+            slug = getattr(ctx, "slug", None)
+            methods = getattr(ctx, "auth_methods", None)
+            feature_flags = getattr(ctx, "feature_flags", None)
 
     if methods is None:
         slug = slug or _slug_from_request(request)
