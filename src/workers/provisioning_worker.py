@@ -236,10 +236,17 @@ async def _provision_async(job_id: str) -> dict[str, Any]:
     # workflow run is terminal. This is the fallback for when the
     # workflow's phase webhooks get lost in transit — without it,
     # ``ProvisioningJob.status`` would stay ``RUNNING`` forever.
-    reconcile_provisioning_job.apply_async(
-        args=[job_id],
-        countdown=RECONCILE_POLL_INTERVAL_SECONDS,
-    )
+    # Wrapped in try/except so dispatch still succeeds when the Celery
+    # broker is unreachable (e.g. unit tests with no Redis).
+    try:
+        reconcile_provisioning_job.apply_async(
+            args=[job_id],
+            countdown=RECONCILE_POLL_INTERVAL_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning(
+            "could not schedule reconciler for job %s: %s", job_id, exc
+        )
 
     return {
         "ok": True,
@@ -353,11 +360,18 @@ async def _destroy_async(job_id: str) -> dict[str, Any]:
     # destroy workflow is terminal — same fallback as the provision
     # path. This is what unblocks the slug for reuse when the offboard
     # webhook is dropped (the reconciler sees ``conclusion=success``
-    # and deletes the tenant_registry row).
-    reconcile_provisioning_job.apply_async(
-        args=[job_id],
-        countdown=RECONCILE_POLL_INTERVAL_SECONDS,
-    )
+    # and deletes the tenant_registry row). Wrapped in try/except so
+    # dispatch still succeeds when the Celery broker is unreachable
+    # (e.g. unit tests with no Redis).
+    try:
+        reconcile_provisioning_job.apply_async(
+            args=[job_id],
+            countdown=RECONCILE_POLL_INTERVAL_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning(
+            "could not schedule reconciler for job %s: %s", job_id, exc
+        )
 
     return {
         "ok": True,
