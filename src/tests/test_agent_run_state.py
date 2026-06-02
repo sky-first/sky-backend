@@ -52,7 +52,7 @@ class TestTransitions:
         with pytest.raises(IllegalTransition):
             transition(RUNNING, CLAIM)
 
-    @pytest.mark.parametrize("terminal", list(TERMINAL_STATES))
+    @pytest.mark.parametrize("terminal", sorted(TERMINAL_STATES))
     def test_terminal_states_accept_no_events(self, terminal):
         for event in (CLAIM, REPORT_SUCCESS, REPORT_FAILURE, REPORT_SKIP):
             with pytest.raises(IllegalTransition):
