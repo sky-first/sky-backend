@@ -80,6 +80,11 @@ class ProvisioningJobRead(BaseModel):
     output: Optional[str]
     error_message: Optional[str]
     request_payload: Optional[Dict[str, Any]]
+    # Latest workflow phase the job is sitting on (preflight, gitops,
+    # bootstrap, smoke, ...). Populated by the provisioning workflow
+    # webhook on every phase transition; None until the first phase
+    # event lands.
+    current_phase: Optional[str] = None
 
 
 class ProvisioningJobListResponse(BaseModel):
@@ -112,6 +117,11 @@ class ConsoleTenantSummary(BaseModel):
     capacity_pct_agents: float = 0.0
     capacity_pct_sources: float = 0.0
     capacity_pct_indexed_gb: float = 0.0
+    # Latest pending/running provisioning job for this tenant, if any.
+    # The Console renders a "Destroying" / "Provisioning" pill with the
+    # current phase so operators see ops in flight without drilling into
+    # the detail page. None when no job is currently in flight.
+    active_job: Optional[ProvisioningJobRead] = None
 
 
 class ConsoleTenantList(BaseModel):
