@@ -566,6 +566,65 @@ class MoloniBillingProvider:
             mrr_contribution_eur=monthly,
         )
 
+    def revenue_summary(self) -> Dict[str, float]:
+        """Real platform MRR derived from active tenants × tier price.
+
+        Mocked previously as a hardcoded EUR 2500 + EUR 280 spend +
+        78.6% gross margin. Now computes the actual answer:
+
+        - **MRR (EUR):** sum of ``_moloni_tier_price_eur(tier)`` for
+          every active tenant in the platform registry. The tier→price
+          mapping is the same one this provider uses to bill each
+          tenant individually, so the dashboard total reconciles
+          exactly with the per-tenant Billing tab amounts.
+        - **this_month_spend_usd / projection_eom_usd:** left at 0.0
+          here. The Console route composes the revenue card by
+          combining this provider's MRR with whatever the
+          ``CostProvider`` (AWS Cost Explorer) reports for spend —
+          two sources, one card. Returning 0.0 keeps the schema
+          stable while making the cost portion the cost provider's
+          job, not ours.
+        - **gross_margin_pct:** 0.0 here; the route computes it from
+          the combined MRR + spend it just assembled.
+
+        Read the registry through the synchronous SQLAlchemy session
+        (this is a sync provider, called from a sync route). We
+        deliberately don't use ``AsyncSessionLocal`` here so the call
+        site doesn't have to be async.
+        """
+        try:
+            from src.config.database import engine as async_engine
+            from src.models.tenant import Tenant
+            from sqlalchemy import create_engine, select, func
+        except Exception as exc:  # pragma: no cover — import guard
+            raise TelemetryUnavailable(
+                f"revenue_summary import failed: {exc}"
+            ) from exc
+
+        # Build a one-shot sync engine off the same DB URL. The
+        # async engine's URL has ``postgresql+asyncpg``; strip the
+        # ``+asyncpg`` so psycopg2 picks it up. Reuse of the existing
+        # async pool isn't possible across sync/async boundaries.
+        sync_url = str(async_engine.url).replace("+asyncpg", "")
+        sync_engine = create_engine(sync_url, pool_pre_ping=True, future=True)
+        try:
+            with sync_engine.connect() as conn:
+                rows = conn.execute(
+                    select(Tenant.tier).where(Tenant.is_active.is_(True))
+                ).all()
+        finally:
+            sync_engine.dispose()
+
+        mrr_eur = sum(
+            self._moloni_tier_price_eur((tier or "starter")) for (tier,) in rows
+        )
+        return {
+            "mrr_eur": round(mrr_eur, 2),
+            "this_month_spend_usd": 0.0,
+            "gross_margin_pct": 0.0,
+            "projection_eom_usd": 0.0,
+        }
+
     def alerts(self) -> List[Alert]:
         # Billing-domain alerts only. Infra/perf alerts come from
         # CloudWatch (separate provider, not wired yet). Returning [] is
