@@ -39,7 +39,6 @@ from src.config.database import Base
 from src.core.tenant_context import TenantContext
 from src.models.tenant import Tenant
 
-
 # ─── Fixture: two isolated tenants ──────────────────────────────────
 
 
@@ -59,7 +58,9 @@ def _make_tenant_session_factory(slug: str):
 
 
 @pytest_asyncio.fixture
-async def two_tenants() -> Iterator[Tuple[TenantContext, AsyncSession, TenantContext, AsyncSession]]:
+async def two_tenants() -> (
+    Iterator[Tuple[TenantContext, AsyncSession, TenantContext, AsyncSession]]
+):
     """Yield (ctx_a, session_a, ctx_b, session_b).
 
     Both sessions point at independent in-memory SQLite databases.
@@ -73,12 +74,8 @@ async def two_tenants() -> Iterator[Tuple[TenantContext, AsyncSession, TenantCon
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-    ctx_a = TenantContext(
-        slug="alpha", id=uuid.uuid4(), tier="starter", display_name="Alpha"
-    )
-    ctx_b = TenantContext(
-        slug="beta", id=uuid.uuid4(), tier="starter", display_name="Beta"
-    )
+    ctx_a = TenantContext(slug="alpha", id=uuid.uuid4(), tier="starter", display_name="Alpha")
+    ctx_b = TenantContext(slug="beta", id=uuid.uuid4(), tier="starter", display_name="Beta")
 
     session_a = maker_a()
     session_b = maker_b()
@@ -293,7 +290,9 @@ def test_raw_async_session_local_instantiation_baseline():
     # checked-in code. Phase 3-4 PRs reduce this; the test fails
     # loudly if a new direct call lands. Bumping the number UP
     # requires touching this baseline deliberately.
-    BASELINE = 23  # bumped 2026-05-31 — llm_metrics_worker.py joins the allowlist
+    BASELINE = 24  # bumped 2026-06-02 — tenant_resolver._load_tenant_from_db
+    #               reads the registry before any tenant is known, so it
+    #               legitimately opens a raw AsyncSessionLocal() session.
     assert count <= BASELINE, (
         f"Raw AsyncSessionLocal() count grew from {BASELINE} to {count}. "
         f"New callers should use TenantConnectionManager.session_for()."

@@ -55,18 +55,22 @@ router = APIRouter()
 # only thing we trust from the host header, and the regex below has to
 # match the one in ``src/api/middleware/tenant_resolver.py`` so the two
 # paths agree on which slug to look up.
-# Accept three subdomain patterns so the same regex covers every host
-# the onboard-client workflow can mint:
+# Accept these subdomain patterns so the same regex covers every host
+# the onboard-client workflow can mint (kept in sync with
+# tenant_resolver.py's ``_SUBDOMAIN_RE``):
 #
-#   workspace-<slug>-stg.skyfirstlabs.com   (legacy explicit prefix)
-#   api-<slug>-stg.skyfirstlabs.com         (legacy API subdomain)
-#   <slug>-stg.skyfirstlabs.com             (current — Lucas 2026-06-01)
+#   workspace-<slug>.skyfirstlabs.com       (production explicit prefix)
+#   workspace-<slug>-stg.skyfirstlabs.com   (staging explicit prefix)
+#   api-<slug>.skyfirstlabs.com             (production API subdomain)
+#   api-<slug>-stg.skyfirstlabs.com         (staging API subdomain)
+#   <slug>-stg.skyfirstlabs.com             (legacy bare slug, staging)
 #
-# ``sky-stg.skyfirstlabs.com`` (the platform default) does NOT match
-# because the slug capture is bounded — there is no ``sky-`` tenant
-# and the workflow's reserved-name list rejects ``sky`` anyway.
+# A bare host with neither a ``workspace-``/``api-`` prefix nor a
+# ``-stg`` suffix (``demo.``, ``api.``, the base) is NOT a tenant.
+# ``sky-stg.skyfirstlabs.com`` (the platform default) never matches in
+# practice — the workflow's reserved-name list rejects ``sky``.
 _AUTH_SUBDOMAIN_RE = re.compile(
-    r"^(?:(?:workspace|api)-)?([a-z0-9-]{2,50}?)-stg\."
+    r"^(?:(?:workspace|api)-([a-z0-9-]{2,50}?)(?:-stg)?|([a-z0-9-]{2,50}?)-stg)\."
 )
 
 
@@ -101,12 +105,11 @@ def _slug_from_request(request: Request) -> Optional[str]:
     m = _AUTH_SUBDOMAIN_RE.match(host)
     if not m:
         return None
-    return m.group(1)
+    # Group 1 = prefixed form (workspace-/api-), group 2 = bare -stg form.
+    return m.group(1) or m.group(2)
 
 
-async def _auth_methods_for_request(
-    request: Request, db: AsyncSession
-) -> AuthMethodsResponse:
+async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthMethodsResponse:
     """Resolve the tenant for the request and return its auth methods.
 
     Resolution order:
@@ -135,9 +138,7 @@ async def _auth_methods_for_request(
         if slug:
             row = (
                 await db.execute(
-                    select(Tenant.auth_methods, Tenant.feature_flags).where(
-                        Tenant.slug == slug
-                    )
+                    select(Tenant.auth_methods, Tenant.feature_flags).where(Tenant.slug == slug)
                 )
             ).one_or_none()
             if row is not None:
@@ -182,7 +183,9 @@ async def register(
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
     """Self-registration is disabled. Access is granted via SSO or admin invite."""
-    raise ForbiddenError("Self-registration is disabled. Please sign in with your company account via SSO.")
+    raise ForbiddenError(
+        "Self-registration is disabled. Please sign in with your company account via SSO."
+    )
 
 
 @router.post(
@@ -334,6 +337,7 @@ async def logout(
     logout.
     """
     import time
+
     from jose import jwt as _jwt
 
     auth_service = AuthenticationService(db)
@@ -350,6 +354,7 @@ async def logout(
 
     if user_id:
         from src.core.token_blocklist import revoke_user_tokens
+
         await revoke_user_tokens(user_id, issued_before_epoch=int(time.time()))
 
     return SuccessResponse(message="Logged out successfully")
@@ -462,7 +467,9 @@ async def forgot_password(
     Returns:
         SuccessResponse: Success message (always returns success for security)
     """
-    raise ForbiddenError("Password reset is disabled. Please sign in with your company account via SSO.")
+    raise ForbiddenError(
+        "Password reset is disabled. Please sign in with your company account via SSO."
+    )
 
 
 @router.post(
@@ -490,7 +497,9 @@ async def reset_password(
     Raises:
         BadRequestError: If token is invalid
     """
-    raise ForbiddenError("Password reset is disabled. Please sign in with your company account via SSO.")
+    raise ForbiddenError(
+        "Password reset is disabled. Please sign in with your company account via SSO."
+    )
 
 
 @router.post(
@@ -634,6 +643,7 @@ async def revoke_session(
 
     if result.rowcount == 0:  # type: ignore[attr-defined]
         from src.core.exceptions import NotFoundError
+
         raise NotFoundError("Session not found or already revoked")
 
     return SuccessResponse(message="Session revoked successfully")
@@ -877,11 +887,7 @@ async def sso_login(
         # login flow on staging again.
         forwarded_proto = request.headers.get("x-forwarded-proto")
         forwarded_host = request.headers.get("x-forwarded-host")
-        scheme = (
-            forwarded_proto.split(",", 1)[0].strip()
-            if forwarded_proto
-            else request.url.scheme
-        )
+        scheme = forwarded_proto.split(",", 1)[0].strip() if forwarded_proto else request.url.scheme
         host = (
             forwarded_host.split(",", 1)[0].strip()
             if forwarded_host
@@ -896,9 +902,7 @@ async def sso_login(
             redirect_uri = f"{scheme}://{host}/api/v1/auth/sso/{provider}/callback"
         else:
             base_url = str(request.base_url)
-            redirect_uri = (
-                f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
-            )
+            redirect_uri = f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
 
     # Get OAuth URL based on provider
     if provider == "google":
@@ -992,11 +996,7 @@ async def sso_callback(
     if not redirect_uri:
         forwarded_proto = request.headers.get("x-forwarded-proto")
         forwarded_host = request.headers.get("x-forwarded-host")
-        scheme = (
-            forwarded_proto.split(",", 1)[0].strip()
-            if forwarded_proto
-            else request.url.scheme
-        )
+        scheme = forwarded_proto.split(",", 1)[0].strip() if forwarded_proto else request.url.scheme
         host = (
             forwarded_host.split(",", 1)[0].strip()
             if forwarded_host
@@ -1008,9 +1008,7 @@ async def sso_callback(
             redirect_uri = f"{scheme}://{host}/api/v1/auth/sso/{provider}/callback"
         else:
             base_url = str(request.base_url)
-            redirect_uri = (
-                f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
-            )
+            redirect_uri = f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
 
     # Handle callback based on provider
     if provider == "google":
