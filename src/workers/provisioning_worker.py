@@ -32,6 +32,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import re
+
 import httpx
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +41,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config.database import AsyncSessionLocal
 from src.models.internal_console import (
     ProvisioningJob,
+    ProvisioningJobEvent,
+    ProvisioningJobEventLevel,
+    ProvisioningJobEventStatus,
     ProvisioningJobStatus,
     ProvisioningJobType,
 )
@@ -432,6 +437,168 @@ _TERMINAL_FAILURE_CONCLUSIONS = (
     "neutral",
 )
 
+# GitHub Actions encodes the phase name into the job display name as
+# ``<N>/<TOTAL> <phase>`` (e.g. ``1/9 preflight``, ``5/5 report``).
+# This regex extracts the trailing phase token so we can map it onto
+# our ``ProvisioningJobEvent.phase`` column without keeping a separate
+# mapping table.
+_PHASE_FROM_JOB_NAME = re.compile(r"^\s*\d+\s*/\s*\d+\s+(?P<phase>\S+)")
+
+
+def _phase_from_job_name(name: str) -> Optional[str]:
+    m = _PHASE_FROM_JOB_NAME.match(name or "")
+    return m.group("phase") if m else None
+
+
+# Which conclusions correspond to which ``ProvisioningJobEventStatus``
+# when we synthesise an event row from a GH job. ``in_progress`` →
+# ``started``, ``completed`` + conclusion is folded down to either
+# ``succeeded`` or ``failed`` (skipped / cancelled / etc. count as
+# failure for UI purposes — operator needs to see something red).
+def _gh_job_state_to_event(status: str, conclusion: str) -> Optional[tuple[str, str]]:
+    """Return ``(event_status, level)`` or None when the GH job is in
+    a state we don't render (queued, waiting). Caller skips ``None``.
+    """
+    if status == "in_progress":
+        return (ProvisioningJobEventStatus.STARTED.value,
+                ProvisioningJobEventLevel.INFO.value)
+    if status == "completed":
+        if conclusion == "success":
+            return (ProvisioningJobEventStatus.SUCCEEDED.value,
+                    ProvisioningJobEventLevel.INFO.value)
+        if conclusion in _TERMINAL_FAILURE_CONCLUSIONS:
+            return (ProvisioningJobEventStatus.FAILED.value,
+                    ProvisioningJobEventLevel.ERROR.value)
+        # ``skipped`` / ``neutral`` / unknown — render as a soft
+        # success so the phase doesn't sit grey forever.
+        return (ProvisioningJobEventStatus.SUCCEEDED.value,
+                ProvisioningJobEventLevel.WARNING.value)
+    # queued / waiting / requested — nothing visible yet.
+    return None
+
+
+async def _synthesize_phase_events_from_gh(
+    session: AsyncSession,
+    client: httpx.AsyncClient,
+    token: str,
+    owner: str,
+    repo: str,
+    job: ProvisioningJob,
+) -> int:
+    """Backfill ``provisioning_job_events`` from the GitHub Jobs API.
+
+    The webhook flow is lossy on staging (runners in ``arc-system``
+    don't always reach the BE webhook URL). Without a backstop, phases
+    that ran on those runners stay grey in the Console UI even though
+    the workflow advanced past them on GitHub.
+
+    This pulls the run's per-phase jobs from
+    ``/actions/runs/{id}/jobs`` and INSERTs an event row for every
+    (phase, status) transition we don't already have. The same row
+    shape the webhook handler writes — same CHECK constraint, same
+    pub/sub publish — so live SSE subscribers see the late-arriving
+    events identically to webhook-delivered ones.
+
+    Returns the count of events synthesised this pass (0 when fully
+    caught up).
+    """
+    jobs_url = (
+        f"{GH_API_BASE}/repos/{owner}/{repo}/actions/runs/"
+        f"{job.external_run_id}/jobs?per_page=30"
+    )
+    try:
+        response = await client.get(jobs_url, headers=_gh_headers(token))
+    except Exception as exc:
+        logger.debug("synthesize: GH jobs API error for %s: %s", job.id, exc)
+        return 0
+    if response.status_code >= 300:
+        logger.debug(
+            "synthesize: GH jobs API %s for %s: %s",
+            response.status_code, job.id, response.text[:200],
+        )
+        return 0
+    payload = response.json() or {}
+    gh_jobs = payload.get("jobs") or []
+    if not gh_jobs:
+        return 0
+
+    # Load existing (phase, status) tuples so we don't re-INSERT a row
+    # the webhook already wrote. Cheap — at most a few dozen rows.
+    existing = (
+        await session.execute(
+            select(ProvisioningJobEvent.phase, ProvisioningJobEvent.status)
+            .where(ProvisioningJobEvent.job_id == job.id)
+        )
+    ).all()
+    seen = {(row[0], row[1]) for row in existing}
+
+    inserted = 0
+    for gh_job in gh_jobs:
+        phase = _phase_from_job_name(gh_job.get("name", "") or "")
+        if not phase:
+            continue
+        derived = _gh_job_state_to_event(
+            gh_job.get("status", "") or "",
+            (gh_job.get("conclusion") or "").lower(),
+        )
+        if derived is None:
+            continue
+        ev_status, ev_level = derived
+
+        # A workflow job that's still in_progress will also flip to
+        # "completed" later — emit both events but never duplicate.
+        # Also: a started event is replaced by succeeded once the job
+        # finishes, but the started row is preserved so the timeline
+        # shows the elapsed time correctly.
+        if (phase, ev_status) in seen:
+            continue
+
+        new_event = ProvisioningJobEvent(
+            job_id=job.id,
+            phase=phase,
+            status=ev_status,
+            level=ev_level,
+            message=(
+                f"Phase {phase} {ev_status} (synthesized from GH Actions)."
+            ),
+            event_metadata={
+                "source": "reconciler",
+                "gh_job_id": gh_job.get("id"),
+                "gh_conclusion": gh_job.get("conclusion"),
+            },
+        )
+        session.add(new_event)
+        await session.flush()  # so the event has an id + created_at
+        seen.add((phase, ev_status))
+        inserted += 1
+
+        # Push out on the per-job Redis channel for any live SSE
+        # subscriber. The handler in src.services.provisioning_workflow
+        # is the canonical publisher; we lazy-import it so this module
+        # stays test-friendly.
+        try:
+            from src.services.provisioning_workflow import _publish
+
+            await _publish(
+                job.id,
+                {
+                    "id": str(new_event.id),
+                    "job_id": str(new_event.job_id),
+                    "phase": new_event.phase,
+                    "status": new_event.status,
+                    "level": new_event.level,
+                    "message": new_event.message,
+                    "metadata": new_event.event_metadata,
+                    "created_at": (
+                        new_event.created_at or datetime.now(timezone.utc)
+                    ).isoformat(),
+                },
+            )
+        except Exception as exc:  # pragma: no cover — Redis outage is non-fatal
+            logger.debug("synthesize: publish failed: %s", exc)
+
+    return inserted
+
 
 async def _reconcile_async(job_id: str) -> dict[str, Any]:
     """Single reconciliation cycle for one provisioning job.
@@ -481,9 +648,28 @@ async def _reconcile_async(job_id: str) -> dict[str, Any]:
             f"{GH_API_BASE}/repos/{owner}/{repo}/actions/runs/{job.external_run_id}"
         )
 
+        # Hold the client open across the run-status check AND the
+        # synthesizer so we don't pay the TLS handshake twice. Single
+        # except wraps both — network blips are retry-on-next-pass.
+        synthesized = 0
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(run_url, headers=_gh_headers(token))
+                # Synthesize phase events from the GH jobs API on every
+                # pass (not just terminal). This is what makes the
+                # Console timeline light up live even when webhooks get
+                # dropped — the GH Jobs API is the authoritative source
+                # for per-phase state and we mirror it into our events
+                # table. Cheap: one API call + a count(*) on indexed
+                # column + a handful of INSERTs.
+                try:
+                    synthesized = await _synthesize_phase_events_from_gh(
+                        session, client, token, owner, repo, job
+                    )
+                except Exception:
+                    logger.exception(
+                        "reconcile: synthesizer crashed for job %s", job_id
+                    )
         except Exception as exc:  # network blip — retry next time
             logger.debug("reconcile: GH API error for job %s: %s", job_id, exc)
             return {"ok": True, "still_running": True, "reason": "gh_api_error"}
@@ -500,7 +686,16 @@ async def _reconcile_async(job_id: str) -> dict[str, Any]:
         data = response.json() or {}
         gh_status = data.get("status")  # "queued" | "in_progress" | "completed"
         if gh_status != "completed":
-            return {"ok": True, "still_running": True, "gh_status": gh_status}
+            # Commit any synthesized events so live SSE subscribers
+            # see them even though the overall run isn't done yet.
+            if synthesized:
+                await session.commit()
+            return {
+                "ok": True,
+                "still_running": True,
+                "gh_status": gh_status,
+                "synthesized_events": synthesized,
+            }
 
         conclusion = (data.get("conclusion") or "").lower()
         now = datetime.now(timezone.utc)
