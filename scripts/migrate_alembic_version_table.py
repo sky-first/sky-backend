@@ -45,6 +45,7 @@ from alembic.config import Config  # noqa: E402
 from alembic.script import ScriptDirectory  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
+from src.config.database import prepare_async_db_url  # noqa: E402
 
 
 def _local_sky_be_revisions() -> Set[str]:
@@ -60,7 +61,12 @@ async def main(expected_head: Optional[str]) -> int:
         print("DATABASE_URL env var required", file=sys.stderr)
         return 2
 
-    engine = create_async_engine(db_url, echo=False)
+    # asyncpg rejects ``sslmode`` as a kwarg; strip it to ``ssl`` in
+    # connect_args. See ``src.config.database.prepare_async_db_url``.
+    cleaned_url, ssl_kwargs = prepare_async_db_url(db_url)
+    engine = create_async_engine(
+        cleaned_url, echo=False, connect_args=ssl_kwargs
+    )
     sky_be_revs = _local_sky_be_revisions()
     print(f"  loaded {len(sky_be_revs)} sky-be revisions from script tree")
 
