@@ -158,6 +158,90 @@ def _run_alembic_upgrade(tenant_db_url: str) -> None:
     print("    [OK] migrations applied")
 
 
+async def _seed_tenant_registry_row(
+    tenant: Tenant,
+    tenant_db_url: str,
+) -> None:
+    """Copy the platform's ``tenant_registry`` row into the tenant's own DB.
+
+    Why: ``/api/v1/auth/methods`` (and other code paths that read tenant
+    metadata via ``select(Tenant).where(Tenant.slug == …)``) hit whichever
+    DB the BE pod is connected to. The platform BE pod hits the platform
+    DB; the dedicated tenant BE pod (Model B) hits the tenant's own DB.
+    Without this seed step the tenant DB's ``tenant_registry`` is empty,
+    so the BE falls back to ``DEFAULT_AUTH_METHODS`` (Google-only) and
+    the Owner's create-tenant choices (password / Azure / Okta) silently
+    vanish from /login.
+
+    Idempotent: ON CONFLICT (slug) DO UPDATE on the columns the Owner is
+    allowed to change post-create (auth_methods, feature_flags, tier,
+    rate limits, display_name). Connection strings + secrets ARNs are
+    re-asserted in case the platform row got renamed; the registry is
+    the single source of truth for routing data.
+    """
+    engine = create_async_engine(tenant_db_url, echo=False)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_maker() as session:
+            existing = (
+                await session.execute(
+                    select(Tenant).where(Tenant.slug == tenant.slug)
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                copy = Tenant(
+                    id=tenant.id,
+                    slug=tenant.slug,
+                    display_name=tenant.display_name,
+                    tier=tenant.tier,
+                    db_host=tenant.db_host,
+                    db_port=tenant.db_port,
+                    db_name=tenant.db_name,
+                    db_credentials_secret_arn=tenant.db_credentials_secret_arn,
+                    redis_host=tenant.redis_host,
+                    redis_credentials_secret_arn=tenant.redis_credentials_secret_arn,
+                    bedrock_inference_profile_arn=tenant.bedrock_inference_profile_arn,
+                    rate_limit_rpm=tenant.rate_limit_rpm,
+                    rate_limit_tpm=tenant.rate_limit_tpm,
+                    is_active=tenant.is_active,
+                    sso_provider=tenant.sso_provider,
+                    sso_config=tenant.sso_config or {},
+                    sso_domain_restriction=tenant.sso_domain_restriction,
+                    custom_domain=tenant.custom_domain,
+                    feature_flags=tenant.feature_flags or {},
+                    capacity_limits=tenant.capacity_limits or {},
+                    auth_methods=tenant.auth_methods or {},
+                )
+                session.add(copy)
+                await session.commit()
+                print(
+                    f"    [OK] tenant_registry row for {tenant.slug!r} "
+                    f"seeded into tenant DB"
+                )
+            else:
+                # Refresh the mutable Owner-visible columns; leave the
+                # ID alone so any FKs pointing at it stay valid.
+                existing.display_name = tenant.display_name
+                existing.tier = tenant.tier
+                existing.rate_limit_rpm = tenant.rate_limit_rpm
+                existing.rate_limit_tpm = tenant.rate_limit_tpm
+                existing.is_active = tenant.is_active
+                existing.sso_provider = tenant.sso_provider
+                existing.sso_config = tenant.sso_config or {}
+                existing.sso_domain_restriction = tenant.sso_domain_restriction
+                existing.custom_domain = tenant.custom_domain
+                existing.feature_flags = tenant.feature_flags or {}
+                existing.capacity_limits = tenant.capacity_limits or {}
+                existing.auth_methods = tenant.auth_methods or {}
+                await session.commit()
+                print(
+                    f"    [OK] tenant_registry row for {tenant.slug!r} "
+                    f"refreshed in tenant DB"
+                )
+    finally:
+        await engine.dispose()
+
+
 async def _create_admin_user(
     tenant: Tenant,
     tenant_db_url: str,
@@ -210,6 +294,7 @@ async def bootstrap(
     print(f"  registry row found: tier={tenant.tier} db_name={tenant.db_name}")
 
     _run_alembic_upgrade(tenant_db_url)
+    await _seed_tenant_registry_row(tenant, tenant_db_url)
     await _create_admin_user(tenant, tenant_db_url, admin_email, admin_password)
     print(f"  [DONE] tenant {slug!r} ready for login")
 
