@@ -109,6 +109,16 @@ _SUBDOMAIN_RE = re.compile(
     r"^(?:(?:workspace|api)-([a-z0-9-]{2,50}?)(?:-stg)?|([a-z0-9-]{2,50}?)-stg)\."
 )
 
+# Slugs that look like a tenant name but actually belong to platform-owned
+# hosts. The onboard-client workflow refuses these as tenant slugs at
+# create-time; the resolver mirrors the same rule so the platform host
+# (``sky-stg.<base>``) does not get parsed as ``slug=sky`` and 404 every
+# unauthenticated request. Kept short and explicit — the platform's own
+# hostnames are the only false-positives we have today.
+_RESERVED_SLUGS: frozenset[str] = frozenset(
+    {"sky", "platform", "console", "demo", "api", "www", "admin"}
+)
+
 
 def _slug_from_host(host_header: Optional[str]) -> Optional[str]:
     if not host_header:
@@ -119,7 +129,10 @@ def _slug_from_host(host_header: Optional[str]) -> Optional[str]:
     if not m:
         return None
     # Group 1 = prefixed form (workspace-/api-), group 2 = bare -stg form.
-    return m.group(1) or m.group(2)
+    slug = m.group(1) or m.group(2)
+    if slug in _RESERVED_SLUGS:
+        return None
+    return slug
 
 
 def _slug_from_jwt(auth_header: Optional[str]) -> Optional[str]:
