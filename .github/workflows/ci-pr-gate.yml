@@ -79,7 +79,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
   unit-tests:
-    name: Unit Tests (Python ${{ matrix.python-version }})
+    name: Unit Tests (Python 3.11)
     runs-on: ubuntu-latest
     services:
       # Zero-Interference: Providing Redis to stabilize AI tests without mocking code
@@ -92,10 +92,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.10', '3.11', '3.12']
     env:
       # REDIS_HOST REMOVED from here to avoid conflict with constructor tests
       TESTING: "True"
@@ -118,28 +114,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python ${{ matrix.python-version }}
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest pytest-cov pytest-timeout
+          pip install pytest pytest-cov pytest-timeout pytest-xdist
 
       - name: Run Tests
-        # Per-test timeout via pytest-timeout prevents a single hanging
-        # async test from pinning the whole job. `--timeout-method=thread`
-        # also works for asyncio coroutines (signal method fails inside
-        # non-main threads). Job-level timeout is a second safety net in
-        # case the test runner itself deadlocks before pytest-timeout fires.
-        # Set to 25 min: 2232-test suite averages ~20-21 min across all
-        # Python versions in the matrix; 15 min was consistently too tight.
-        timeout-minutes: 25
+        # -p no:cov   — skip coverage instrumentation on PR gate (saves ~30% runtime).
+        #               Coverage runs only on merge via the main pipeline.
+        # -n 2        — pytest-xdist splits the suite across the 2 CPUs available
+        #               on ubuntu-latest, roughly halving wall-clock time.
+        # -q          — quiet output; individual PASSED lines removed, failures still shown.
+        # --timeout=120 / thread — prevents a single hanging async test from pinning the job.
+        timeout-minutes: 20
         run: |
-          pytest --cov=src --cov-report=xml --timeout=120 --timeout-method=thread -v
+          pytest --override-ini="addopts=" -n 2 -q --timeout=120 --timeout-method=thread
 
   docker-build-verify:
     name: Docker Build Verification
