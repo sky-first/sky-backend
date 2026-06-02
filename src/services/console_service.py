@@ -489,6 +489,107 @@ async def list_jobs(
     return [ProvisioningJobRead.model_validate(r) for r in rows]
 
 
+async def rerun_job(
+    db: AsyncSession,
+    job_id: str,
+    *,
+    actor_email: str,
+) -> ProvisioningJob:
+    """Re-run the failed jobs of a provisioning workflow on GitHub.
+
+    Mirrors the GitHub UI ``Re-run failed jobs`` button:
+
+    1. Validates the job exists, is in ``FAILED`` state, and has an
+       ``external_run_id`` (i.e. the dispatch reached GH originally).
+    2. Calls ``POST /actions/runs/{id}/rerun-failed-jobs`` on the
+       GitHub API. Only the failed steps re-execute; the green phases
+       from the original run carry over.
+    3. Resets the ``ProvisioningJob`` row back to ``PENDING`` so the
+       Console UI shows it as live again. The reconciler in the worker
+       will pick it up and re-converge ``status`` from the GH API once
+       the re-run finishes.
+
+    Raises ``ValueError`` for the route to translate to HTTP errors:
+    - ``not_found``           — no such job_id
+    - ``not_failed``          — only failed jobs can be re-run
+    - ``no_external_run``     — dispatch never landed; nothing to re-run
+    - ``rerun_disabled``      — GH_PROVISIONING_TOKEN is unset
+    - ``gh_api: <status>``    — GitHub API returned non-2xx
+    """
+    import os
+    import uuid as _uuid
+    import httpx
+
+    try:
+        job_uuid = _uuid.UUID(job_id)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError("not_found") from exc
+
+    row = (
+        await db.execute(select(ProvisioningJob).where(ProvisioningJob.id == job_uuid))
+    ).scalar_one_or_none()
+    if row is None:
+        raise ValueError("not_found")
+
+    if row.status != ProvisioningJobStatus.FAILED.value:
+        raise ValueError("not_failed")
+    if not row.external_run_id:
+        raise ValueError("no_external_run")
+
+    # Lazy-import the GH constants from the worker to keep one source
+    # of truth for owner / repo / token env var names.
+    from src.workers.provisioning_worker import (
+        DEFAULT_OWNER,
+        DEFAULT_REPO,
+        GH_API_BASE,
+        GH_OWNER_ENV,
+        GH_REPO_ENV,
+        GH_TOKEN_ENV,
+        _gh_headers,
+        reconcile_provisioning_job,
+    )
+
+    token = os.getenv(GH_TOKEN_ENV) or ""
+    if not token:
+        raise ValueError("rerun_disabled")
+    owner = os.getenv(GH_OWNER_ENV) or DEFAULT_OWNER
+    repo = os.getenv(GH_REPO_ENV) or DEFAULT_REPO
+
+    url = (
+        f"{GH_API_BASE}/repos/{owner}/{repo}/actions/runs/"
+        f"{row.external_run_id}/rerun-failed-jobs"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(url, headers=_gh_headers(token))
+    except Exception as exc:
+        raise ValueError(f"gh_api: {exc}") from exc
+    if response.status_code >= 300:
+        raise ValueError(f"gh_api: {response.status_code} {response.text[:200]}")
+
+    # Reset BE state so the Console shows the job as live again. The
+    # reconciler will then poll the GH API and converge the final
+    # status as the rerun completes. ``actor_email`` is recorded on
+    # the new error_message so the audit trail captures who triggered
+    # the rerun even before we wire it into the AuditAction enum.
+    row.status = ProvisioningJobStatus.PENDING.value
+    row.completed_at = None
+    prior_error = row.error_message or ""
+    row.error_message = f"(rerun by {actor_email}; previous: {prior_error[:200]})"
+    await db.flush()
+
+    try:
+        reconcile_provisioning_job.apply_async(
+            args=[str(row.id)],
+            countdown=20,
+        )
+    except Exception as exc:
+        logger.warning("rerun_job: could not schedule reconciler: %s", exc)
+
+    return row
+
+
 # ── Helpers ────────────────────────────────────────────────────────
 
 

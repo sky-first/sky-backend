@@ -543,13 +543,26 @@ async def _reconcile_async(job_id: str) -> dict[str, Any]:
                     text("DELETE FROM tenant_registry WHERE slug = :slug"),
                     {"slug": job.tenant_slug},
                 )
+                # Also wipe historical provisioning_jobs for this slug
+                # so re-creating with the same name shows a clean Jobs
+                # tab. We exclude the current destroy job from the wipe
+                # so the response still references a valid row. ON
+                # DELETE CASCADE on provisioning_job_events.job_id
+                # cleans the event rows in the same transaction.
+                await session.execute(
+                    text(
+                        "DELETE FROM provisioning_jobs "
+                        "WHERE tenant_slug = :slug AND id != :destroy_id"
+                    ),
+                    {"slug": job.tenant_slug, "destroy_id": job.id},
+                )
                 logger.info(
-                    "reconcile: deleted tenant_registry row for %s",
+                    "reconcile: cleaned tenant_registry + old jobs for %s",
                     job.tenant_slug,
                 )
             except Exception:
                 logger.exception(
-                    "reconcile: failed to delete tenant_registry row for %s",
+                    "reconcile: failed to clean state for %s",
                     job.tenant_slug,
                 )
 

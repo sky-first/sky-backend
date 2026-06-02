@@ -294,13 +294,33 @@ async def ingest_event(
                         ),
                         {"slug": job.tenant_slug},
                     )
+                    # Also wipe historical provisioning_jobs for this
+                    # slug so that re-creating with the same name shows
+                    # a clean Jobs tab (operator confusion otherwise:
+                    # the previous tenant lifecycle's failed-create
+                    # row stays visible alongside the new create).
+                    # We exclude the current destroy job from the
+                    # wipe so the destroy success is preserved in the
+                    # response we're about to return. The CASCADE on
+                    # provisioning_job_events.job_id cleans the event
+                    # rows in the same transaction.
+                    await db.execute(
+                        sql_text(
+                            "DELETE FROM provisioning_jobs "
+                            "WHERE tenant_slug = :slug AND id != :destroy_id"
+                        ),
+                        {
+                            "slug": job.tenant_slug,
+                            "destroy_id": job.id,
+                        },
+                    )
                     logger.info(
-                        "ingest_event: deleted tenant_registry row for %s",
+                        "ingest_event: cleaned tenant_registry + old jobs for %s",
                         job.tenant_slug,
                     )
                 except Exception:
                     logger.exception(
-                        "ingest_event: failed to delete tenant_registry row for %s",
+                        "ingest_event: failed to clean state for %s",
                         job.tenant_slug,
                     )
 
