@@ -191,6 +191,8 @@ async def _load_tenant_from_db(slug: str) -> Optional[TenantContext]:
         is_active=row.is_active,
         feature_flags=dict(row.feature_flags or {}),
         capacity_limits=dict(row.capacity_limits or {}),
+        auth_methods=dict(row.auth_methods or {}),
+        sso_provider=row.sso_provider or "",
     )
 
 

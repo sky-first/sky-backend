@@ -68,6 +68,12 @@ class TenantContext:
         default_factory=lambda: {"agents": 0, "sources": 0, "indexed_gb": 0}
     )
 
+    # Per-tenant /login surface (Model B). The resolver middleware
+    # copies this from the registry row so /api/v1/auth/methods does
+    # not have to re-query the platform DB on every login page hit.
+    auth_methods: Dict[str, bool] = field(default_factory=dict)
+    sso_provider: str = ""
+
     @property
     def is_default(self) -> bool:
         """True iff this is the platform-wide default context.
