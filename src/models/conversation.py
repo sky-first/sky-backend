@@ -10,6 +10,7 @@ produced an insight with full history.
 import uuid
 
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     Column,
     DateTime,
@@ -21,7 +22,6 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -109,6 +109,19 @@ class Message(Base):
         index=True,
     )
     role = Column(String(20), nullable=False)  # 'user' | 'assistant' | 'system'
+    # Author of the message — the user who actually wrote it. NULL for
+    # assistant ('ai_response') and system messages, and for legacy rows
+    # created before collaborative attribution landed (chat
+    # author-attribution, 2026-06-02). Shared (space/crew) chats render
+    # the real author to every collaborator from this instead of falling
+    # back to the local viewer's name. ON DELETE SET NULL keeps the
+    # message if the author's account is removed.
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     # ``kind`` further partitions the user/assistant axis along the
     # collaborative-thread semantics (chat-threads-master-plan PR1,
     # 2026-05-20):
@@ -165,6 +178,13 @@ class Message(Base):
         server_default=text("'{}'"),
         default=dict,
     )
+
+    # Transient (NON-mapped) author display name. Populated by the
+    # message service from ``user_id`` so MessageResponse can serialise
+    # the real author's name to collaborators. Defaults to None at the
+    # class level so ``MessageResponse.model_validate(msg)`` never hits a
+    # missing attribute for AI/system rows or paths that don't resolve it.
+    author_name = None
 
     # Relationships — the `foreign_keys` disambiguates against the
     # parent_message_id / incorporated_in_message_id self-FKs added in
