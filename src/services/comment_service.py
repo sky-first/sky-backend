@@ -9,9 +9,15 @@ from sqlalchemy.future import select
 
 from src.models.comment import Comment
 from src.models.notification import NotificationType
-from src.schemas.comment import CommentCreate
+from src.schemas.comment import CommentCreate, CommentResponse
 from src.schemas.notification import NotificationCreate
 from src.services.notification_service import NotificationService
+
+try:
+    from src.api.v1.chat_ws import broadcast_event_nowait
+except Exception:  # pragma: no cover
+    def broadcast_event_nowait(*args, **kwargs):
+        return None
 
 
 class CommentService:
@@ -33,6 +39,12 @@ class CommentService:
         self.db.add(db_comment)
         await self.db.commit()
         await self.db.refresh(db_comment)
+
+        broadcast_event_nowait(
+            str(db_comment.page_id),
+            "comment.created",
+            CommentResponse.model_validate(db_comment).model_dump(mode="json"),
+        )
 
         # Trigger Notifications
         # 1. Notify mentioned users
