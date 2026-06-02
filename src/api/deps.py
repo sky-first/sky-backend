@@ -155,6 +155,31 @@ async def get_current_user(
                 logger.debug(f"🔍 Token validation failed: {str(e)}")
                 # Fall through to error below
 
+    # If no Authorization header succeeded, try the ``?access_token=…``
+    # query parameter. Streaming endpoints (SSE / WebSocket) cannot send
+    # custom headers from the browser, so the FE appends the JWT to the
+    # URL — mirrored convention used by ``tenantLogsWsUrl`` and
+    # ``jobEventsSseUrl`` on the FE. Only ``access_token`` is honoured to
+    # avoid colliding with the legacy ``?token=`` used by chat/cursor WS
+    # handlers (which validate the token themselves, bypassing this dep).
+    if not user_id:
+        qs_token = request.query_params.get("access_token")
+        if qs_token:
+            try:
+                from src.core.security import verify_token
+
+                payload = verify_token(qs_token, token_type="access")
+                user_id = payload.get("sub")
+                if user_id:
+                    request.state.user_id = str(user_id)
+                    request.state.user_role = payload.get("role", "user")
+                    request.state.auth_type = "custom_query"
+                    logger.debug(
+                        f"🔍 Token verified from query param: {user_id}"
+                    )
+            except Exception as e:
+                logger.debug(f"🔍 Query-param token validation failed: {str(e)}")
+
     # Also check credentials from Swagger UI (HTTPBearer)
     if not user_id and credentials:
         try:
