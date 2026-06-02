@@ -90,18 +90,23 @@ def clear_tenant_cache() -> None:
 
 
 # ─── Subdomain parsing ─────────────────────────────────────────────
-# Accepts three patterns (kept in sync with auth.py's
+# Accepts these patterns (kept in sync with auth.py's
 # ``_AUTH_SUBDOMAIN_RE``):
 #
-#   workspace-<slug>-stg.<base>   (legacy explicit prefix)
-#   api-<slug>-stg.<base>         (legacy API subdomain)
-#   <slug>-stg.<base>             (current — Lucas 2026-06-01)
+#   workspace-<slug>.<base>       (production explicit prefix)
+#   workspace-<slug>-stg.<base>   (staging explicit prefix)
+#   api-<slug>.<base>             (production API subdomain)
+#   api-<slug>-stg.<base>         (staging API subdomain)
+#   <slug>-stg.<base>             (legacy bare slug, staging only)
 #
-# ``sky-stg.<base>`` is the platform default and is explicitly NOT
-# matched: the onboard-client workflow's reserved-name list refuses
-# ``sky`` as a tenant slug, so no tenant can ever own that host.
+# Rule: a host resolves to a tenant when it has a ``workspace-``/``api-``
+# prefix (with or without the ``-stg`` staging suffix) OR a bare
+# ``<slug>-stg`` form. A bare host with neither (``demo.<base>``,
+# ``api.<base>``, ``<base>``) is NOT a tenant. ``sky-stg.<base>`` is the
+# platform default and never matches in practice: the onboard-client
+# workflow's reserved-name list refuses ``sky`` as a tenant slug.
 _SUBDOMAIN_RE = re.compile(
-    r"^(?:(?:workspace|api)-)?([a-z0-9-]{2,50}?)-stg\."
+    r"^(?:(?:workspace|api)-([a-z0-9-]{2,50}?)(?:-stg)?|([a-z0-9-]{2,50}?)-stg)\."
 )
 
 
@@ -113,14 +118,15 @@ def _slug_from_host(host_header: Optional[str]) -> Optional[str]:
     m = _SUBDOMAIN_RE.match(host)
     if not m:
         return None
-    return m.group(1)
+    # Group 1 = prefixed form (workspace-/api-), group 2 = bare -stg form.
+    return m.group(1) or m.group(2)
 
 
 def _slug_from_jwt(auth_header: Optional[str]) -> Optional[str]:
     if not auth_header or not auth_header.startswith("Bearer "):
         return None
     try:
-        payload = verify_token(auth_header[len("Bearer "):])
+        payload = verify_token(auth_header[len("Bearer ") :])
     except JWTError:
         return None
     except Exception:  # noqa: BLE001 — verify_token wraps several errors
@@ -143,9 +149,7 @@ async def _load_tenant_from_db(slug: str) -> Optional[TenantContext]:
     """
     try:
         async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(Tenant).where(Tenant.slug == slug)
-            )
+            result = await session.execute(select(Tenant).where(Tenant.slug == slug))
             row: Optional[Tenant] = result.scalar_one_or_none()
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -251,9 +255,7 @@ async def tenant_resolver_middleware(request: Request, call_next: Callable) -> R
         return cast(Response, await call_next(request))
 
     # Health probes and docs paths never resolve a tenant.
-    if request.url.path in _PUBLIC_PATHS or request.url.path.startswith(
-        "/static/"
-    ):
+    if request.url.path in _PUBLIC_PATHS or request.url.path.startswith("/static/"):
         request.state.tenant_context = DEFAULT_TENANT_CONTEXT
         return cast(Response, await call_next(request))
 
@@ -271,9 +273,7 @@ async def tenant_resolver_middleware(request: Request, call_next: Callable) -> R
             status_code=status.HTTP_404_NOT_FOUND,
             content={
                 "error": "tenant_not_found",
-                "detail": (
-                    "The requested tenant does not exist or is suspended."
-                ),
+                "detail": ("The requested tenant does not exist or is suspended."),
             },
         )
 
