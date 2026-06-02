@@ -125,16 +125,44 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-cov pytest-timeout pytest-xdist
 
+      # Persist pytest's per-run cache so consecutive runs of the same
+      # PR (e.g. after an Update branch / rebase) reorder failed tests
+      # first via ``--ff`` and skip the discovery overhead of fresh
+      # collection. Trade-off: cache key bumps on every commit, so the
+      # restore-keys fall through to the last cache for THIS PR, then
+      # the global pytest-cache key. Cache is tiny (KBs) so eviction is
+      # not a concern.
+      - name: Cache pytest data
+        uses: actions/cache@v4
+        with:
+          path: .pytest_cache
+          key: pytest-cache-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-${{ github.event.pull_request.number }}-${{ github.sha }}
+          restore-keys: |
+            pytest-cache-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-${{ github.event.pull_request.number }}-
+            pytest-cache-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-
+            pytest-cache-${{ runner.os }}-
+
       - name: Run Tests
-        # -p no:cov   — skip coverage instrumentation on PR gate (saves ~30% runtime).
-        #               Coverage runs only on merge via the main pipeline.
-        # -n 2        — pytest-xdist splits the suite across the 2 CPUs available
-        #               on ubuntu-latest, roughly halving wall-clock time.
-        # -q          — quiet output; individual PASSED lines removed, failures still shown.
-        # --timeout=120 / thread — prevents a single hanging async test from pinning the job.
+        # --override-ini="addopts="
+        #               Drops the project-level addopts (coverage, fail-under) on
+        #               the PR gate. Coverage is reported on merge via a separate
+        #               pipeline; instrumenting every PR run added ~30% runtime
+        #               for no signal.
+        # -n auto      Pytest-xdist auto-detects CPU count. ubuntu-latest gives
+        #               us 4 vCPUs; the previous ``-n 2`` was leaving half the
+        #               box idle. Each worker is forked and runs an independent
+        #               slice of the suite, so ~4x speed-up over the serial run.
+        # --ff         Run previously failed tests first. With the persisted
+        #               pytest cache this surfaces regressions in seconds on
+        #               re-runs of a flaky PR.
+        # -q           Quiet output — failures are still printed in full.
+        # --timeout=120 --timeout-method=thread
+        #               Prevent a single hanging async test from pinning the
+        #               whole job. Thread method is the right choice with xdist
+        #               (signal method fails in xdist worker subprocesses).
         timeout-minutes: 20
         run: |
-          pytest --override-ini="addopts=" -n 2 -q --timeout=120 --timeout-method=thread
+          pytest --override-ini="addopts=" -n auto --ff -q --timeout=120 --timeout-method=thread
 
   docker-build-verify:
     name: Docker Build Verification
