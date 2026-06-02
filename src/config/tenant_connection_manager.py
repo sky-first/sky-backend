@@ -224,15 +224,31 @@ def _fetch_secret(arn: str) -> tuple[str, str]:
     Imported lazily so unit tests that never use a real ARN don't pay
     the boto3 import cost. Production path only — local dev sets
     ``TENANT_DB_URL_TEMPLATE`` and never reaches here.
+
+    The secret payload can be either:
+      * ``{"username": "...", "password": "..."}`` — historical Terraform shape
+      * ``{"url": "postgresql://user:pw@host:port/db?..."}`` — what
+        ``onboard-client.yml`` writes after PR #519 / Model B onboard
     """
     import json
+    from urllib.parse import urlparse, unquote
 
     import boto3  # type: ignore[import-untyped]
 
     client = boto3.client("secretsmanager")
     response = client.get_secret_value(SecretId=arn)
     blob = json.loads(response["SecretString"])
-    return blob["username"], blob["password"]
+    if "username" in blob and "password" in blob:
+        return blob["username"], blob["password"]
+    url = blob.get("url")
+    if url:
+        parsed = urlparse(url)
+        if parsed.username and parsed.password is not None:
+            return unquote(parsed.username), unquote(parsed.password)
+    raise KeyError(
+        f"tenant DB secret {arn!r} has neither "
+        f"username/password nor a parseable url field"
+    )
 
 
 # Module-level singleton — same lifetime as the FastAPI app.
