@@ -87,6 +87,33 @@ async def list_tenants(
         await db.execute(stmt.order_by(Tenant.created_at.desc()).limit(limit).offset(offset))
     ).scalars().all()
 
+    # Latest pending/running provisioning job per tenant_slug, in one
+    # query. PostgreSQL ``DISTINCT ON`` returns the first row per group
+    # given the ORDER BY, so we get the freshest job per tenant without
+    # a per-row N+1 fan-out. Idle tenants simply have no entry in the map.
+    slugs = [row.slug for row in rows]
+    active_jobs_by_slug: Dict[str, ProvisioningJob] = {}
+    if slugs:
+        active_stmt = (
+            select(ProvisioningJob)
+            .where(
+                ProvisioningJob.tenant_slug.in_(slugs),
+                ProvisioningJob.status.in_(
+                    [
+                        ProvisioningJobStatus.PENDING.value,
+                        ProvisioningJobStatus.RUNNING.value,
+                    ]
+                ),
+            )
+            .order_by(
+                ProvisioningJob.tenant_slug,
+                ProvisioningJob.started_at.desc(),
+            )
+            .distinct(ProvisioningJob.tenant_slug)
+        )
+        for job in (await db.execute(active_stmt)).scalars().all():
+            active_jobs_by_slug[job.tenant_slug] = job
+
     items = [
         ConsoleTenantSummary(
             slug=row.slug,
@@ -100,6 +127,11 @@ async def list_tenants(
             capacity_pct_sources=_safe_pct(row.capacity_used, row.capacity_limits, "sources"),
             capacity_pct_indexed_gb=_safe_pct(
                 row.capacity_used, row.capacity_limits, "indexed_gb"
+            ),
+            active_job=(
+                ProvisioningJobRead.model_validate(active_jobs_by_slug[row.slug])
+                if row.slug in active_jobs_by_slug
+                else None
             ),
         )
         for row in rows
