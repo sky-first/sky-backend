@@ -290,9 +290,12 @@ def test_raw_async_session_local_instantiation_baseline():
     # checked-in code. Phase 3-4 PRs reduce this; the test fails
     # loudly if a new direct call lands. Bumping the number UP
     # requires touching this baseline deliberately.
-    BASELINE = 24  # bumped 2026-06-02 — tenant_resolver._load_tenant_from_db
-    #               reads the registry before any tenant is known, so it
-    #               legitimately opens a raw AsyncSessionLocal() session.
+    BASELINE = 25  # bumped 2026-06-02 — provisioning_worker._reconcile_async
+    #               polls the GH Actions API as a fallback for lossy
+    #               offboard webhooks (see PR #506). It's a top-level
+    #               Celery task on the platform DB, no tenant context
+    #               available, so a raw AsyncSessionLocal() is the only
+    #               correct path here.
     assert count <= BASELINE, (
         f"Raw AsyncSessionLocal() count grew from {BASELINE} to {count}. "
         f"New callers should use TenantConnectionManager.session_for()."

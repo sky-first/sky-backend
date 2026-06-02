@@ -44,7 +44,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.internal_console import (
@@ -54,6 +54,7 @@ from src.models.internal_console import (
     ProvisioningJobEventLevel,
     ProvisioningJobEventStatus,
     ProvisioningJobStatus,
+    ProvisioningJobType,
 )
 from src.models.tenant import Tenant
 
@@ -277,6 +278,31 @@ async def ingest_event(
         if payload.phase == PROVISIONING_PHASES[-1]:
             job.status = ProvisioningJobStatus.SUCCESS.value
             job.completed_at = datetime.now(timezone.utc)
+            # Successful DESTROY → remove the tenant_registry row so the
+            # slug is freed up for reuse. The offboard workflow already
+            # dropped the RDS DB, the AWS secret, and the K8s namespace
+            # by this point; the platform row is the last thing tying
+            # the slug to the tenant. Wrapped in try/except so a delete
+            # failure here doesn't abort the webhook ack — the Celery
+            # reconciler in ``provisioning_worker`` will pick up the
+            # leftover on its next pass.
+            if job.job_type == ProvisioningJobType.DESTROY.value:
+                try:
+                    await db.execute(
+                        sql_text(
+                            "DELETE FROM tenant_registry WHERE slug = :slug"
+                        ),
+                        {"slug": job.tenant_slug},
+                    )
+                    logger.info(
+                        "ingest_event: deleted tenant_registry row for %s",
+                        job.tenant_slug,
+                    )
+                except Exception:
+                    logger.exception(
+                        "ingest_event: failed to delete tenant_registry row for %s",
+                        job.tenant_slug,
+                    )
 
     elif payload.status == ProvisioningJobEventStatus.FAILED.value:
         job.status = ProvisioningJobStatus.FAILED.value

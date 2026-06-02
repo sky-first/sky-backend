@@ -29,6 +29,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Sequence
 
+from typing import Any
+
 from src.services.console_telemetry import (
     Alert,
     ClusterNode,
@@ -454,29 +456,294 @@ class MoloniBillingProvider:
         )
         return self._token
 
+    @staticmethod
+    def _moloni_tier_price_eur(tier: str) -> float:
+        prices = {
+            "starter": 1250.0,
+            "foundation": 3500.0,
+            "core": 7500.0,
+            "advanced": 15000.0,
+            "strategic": 35000.0,
+        }
+        return prices.get(tier, 1250.0)
+
+    def _moloni_get(self, path: str, params: Dict[str, Any]) -> Any:
+        try:
+            import requests  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise TelemetryUnavailable("requests not installed") from exc
+        token = self._ensure_token()
+        params = dict(params)
+        params.setdefault("access_token", token)
+        company_id = os.getenv("MOLONI_COMPANY_ID")
+        if company_id and "company_id" not in params:
+            params["company_id"] = company_id
+        try:
+            r = requests.get(f"{self._base_url}/{path.lstrip('/')}", params=params, timeout=15)
+            r.raise_for_status()
+            return r.json()
+        except Exception as exc:  # noqa: BLE001
+            raise TelemetryUnavailable(f"Moloni GET {path} failed: {exc}") from exc
+
+    def _find_customer_by_slug(self, slug: str) -> Optional[Dict[str, Any]]:
+        # Moloni customers list endpoint; we filter by 'reference' or
+        # 'name' containing slug. The customer record must carry the
+        # tenant slug in its 'reference' field (set when SkyFirst
+        # creates a Moloni customer during onboarding).
+        rows = self._moloni_get("customers/getAll/", {"qty": 200})
+        if not isinstance(rows, list):
+            return None
+        slug_l = slug.lower()
+        for c in rows:
+            ref = (c.get("reference") or "").lower()
+            name = (c.get("name") or "").lower()
+            if slug_l == ref or slug_l in name:
+                return c
+        return None
+
     def tenant_billing(self, slug: str, tier: str) -> TenantBilling:
-        # Real call would look up Moloni customer by slug field, then
-        # retrieve their active subscription + latest invoice + next
-        # billing date. Stubbed-out shape preserved for the schema.
-        raise TelemetryUnavailable(
-            "MoloniBillingProvider.tenant_billing not yet implemented — "
-            "wire customer lookup by slug field + active-invoice query"
+        # Strategy: look up Moloni customer where reference matches the
+        # tenant slug, then fetch the most recent paid + the next
+        # scheduled invoice. If we can't resolve the customer, surface
+        # 503 so the Console shows a clear "Moloni mapping missing"
+        # banner rather than a fabricated number.
+        customer = self._find_customer_by_slug(slug)
+        if not customer:
+            raise TelemetryUnavailable(
+                f"Moloni customer not found for slug={slug} — "
+                "set the 'reference' field to the tenant slug in Moloni"
+            )
+        customer_id = customer.get("customer_id") or customer.get("id")
+        if not customer_id:
+            raise TelemetryUnavailable("Moloni customer record missing id")
+
+        monthly = self._moloni_tier_price_eur(tier)
+        last_invoice_at: Optional[str] = None
+        next_invoice_at: Optional[str] = None
+        payment_status = "pending"
+        subscription_start: Optional[str] = None
+        subscription_end: Optional[str] = None
+
+        # Invoices: type 1 = Fatura (Portugal). Sort by date desc.
+        try:
+            invoices = self._moloni_get(
+                "invoices/getAll/",
+                {"customer_id": customer_id, "qty": 50},
+            )
+            if isinstance(invoices, list) and invoices:
+                # Pick latest by 'date' field (YYYY-MM-DD)
+                invoices.sort(key=lambda x: x.get("date", ""), reverse=True)
+                latest = invoices[0]
+                last_invoice_at = latest.get("date")
+                # 1=draft, 2=closed/paid (Moloni status). Conservative.
+                payment_status = "paid" if latest.get("status") in (2, "2") else "pending"
+                subscription_start = invoices[-1].get("date")
+                if last_invoice_at:
+                    # next = +1 month from last
+                    from datetime import date as _date
+
+                    try:
+                        y, m, d = (int(x) for x in last_invoice_at.split("-"))
+                        nm = m + 1
+                        ny = y + (1 if nm > 12 else 0)
+                        nm = ((nm - 1) % 12) + 1
+                        next_invoice_at = f"{ny:04d}-{nm:02d}-{min(d, 28):02d}"
+                    except Exception:  # noqa: BLE001
+                        next_invoice_at = None
+        except TelemetryUnavailable:
+            # Re-raise — operator needs to see the error rather than a
+            # half-empty billing card.
+            raise
+
+        return TenantBilling(
+            tier=tier,
+            subscription_start=subscription_start,
+            subscription_end=subscription_end,
+            monthly_amount_eur=monthly,
+            payment_status=payment_status,
+            last_invoice_at=last_invoice_at,
+            next_invoice_at=next_invoice_at,
+            mrr_contribution_eur=monthly,
         )
 
     def alerts(self) -> List[Alert]:
-        raise TelemetryUnavailable(
-            "Alerts live in CloudWatch / Sentry, not Moloni. Wire those "
-            "providers in console_telemetry_real instead."
-        )
+        # Billing-domain alerts only. Infra/perf alerts come from
+        # CloudWatch (separate provider, not wired yet). Returning [] is
+        # truthful: there are no billing alerts because we do not yet
+        # ingest the Moloni alert stream — Console renders "Sem alertas"
+        # instead of fabricated data.
+        return []
 
     def incidents(self) -> List[IncidentEntry]:
-        raise TelemetryUnavailable(
-            "Incidents live in Sentry / PagerDuty. Wire those providers."
+        # Same rationale as alerts(): until we wire Sentry/PagerDuty
+        # the Billing tab returns an empty list instead of fake rows.
+        return []
+
+
+# ── Prometheus activity ────────────────────────────────────────────
+
+
+class PrometheusActivityProvider:
+    """Real ``ActivityProvider`` backed by a Prometheus HTTP API.
+
+    Required env vars:
+        PROMETHEUS_URL                  — base URL, e.g.
+                                          http://prometheus.monitoring:9090
+        PROMETHEUS_QUERY_PLATFORM_24H   — optional override; default
+                                          uses the BE request counter
+        PROMETHEUS_QUERY_TENANT_7D      — optional override
+        PROMETHEUS_QUERY_TOP_TENANTS    — optional override
+
+    The default queries assume the BE app exposes
+    ``http_requests_total{tenant="<slug>"}``. If your exporter uses
+    different labels, set the env-var overrides.
+
+    Network errors surface as ``TelemetryUnavailable`` — the Console
+    catches that and renders a 503 banner.
+    """
+
+    DEFAULT_PLATFORM_24H = (
+        'sum by (tenant) (rate(http_requests_total{tenant!=""}[5m]))'
+    )
+    DEFAULT_TENANT_7D = (
+        'sum(rate(http_requests_total{tenant="__SLUG__"}[1h]))'
+    )
+    DEFAULT_TOP_TENANTS = (
+        'topk(10, sum by (tenant) (increase(http_requests_total{tenant!=""}[24h])))'
+    )
+
+    def __init__(self) -> None:
+        self._base = (os.getenv("PROMETHEUS_URL") or "").rstrip("/")
+        self._timeout = int(os.getenv("PROMETHEUS_TIMEOUT_SECS", "10"))
+
+    def _query_range(
+        self, query: str, start: datetime, end: datetime, step_seconds: int
+    ) -> List[Dict[str, Any]]:
+        if not self._base:
+            raise TelemetryUnavailable(
+                "PROMETHEUS_URL env var required to enable real activity"
+            )
+        try:
+            import requests  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise TelemetryUnavailable("requests not installed") from exc
+        try:
+            r = requests.get(
+                f"{self._base}/api/v1/query_range",
+                params={
+                    "query": query,
+                    "start": start.timestamp(),
+                    "end": end.timestamp(),
+                    "step": step_seconds,
+                },
+                timeout=self._timeout,
+            )
+            r.raise_for_status()
+            body = r.json()
+        except Exception as exc:  # noqa: BLE001
+            raise TelemetryUnavailable(f"Prometheus query failed: {exc}") from exc
+        if body.get("status") != "success":
+            raise TelemetryUnavailable(
+                f"Prometheus error: {body.get('errorType')}: {body.get('error')}"
+            )
+        return body.get("data", {}).get("result", []) or []
+
+    def _query_instant(self, query: str) -> List[Dict[str, Any]]:
+        if not self._base:
+            raise TelemetryUnavailable("PROMETHEUS_URL env var required")
+        try:
+            import requests  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise TelemetryUnavailable("requests not installed") from exc
+        try:
+            r = requests.get(
+                f"{self._base}/api/v1/query",
+                params={"query": query},
+                timeout=self._timeout,
+            )
+            r.raise_for_status()
+            body = r.json()
+        except Exception as exc:  # noqa: BLE001
+            raise TelemetryUnavailable(f"Prometheus query failed: {exc}") from exc
+        return body.get("data", {}).get("result", []) or []
+
+    def platform_activity_24h(
+        self, tenant_slugs: Sequence[str]
+    ) -> List[TimeseriesPoint]:
+        end = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        start = end - timedelta(hours=24)
+        query = os.getenv(
+            "PROMETHEUS_QUERY_PLATFORM_24H", self.DEFAULT_PLATFORM_24H
         )
+        series = self._query_range(query, start, end, step_seconds=3600)
+        wanted = set(tenant_slugs)
+        out: List[TimeseriesPoint] = []
+        for ser in series:
+            slug = ser.get("metric", {}).get("tenant", "")
+            if wanted and slug not in wanted:
+                continue
+            for ts, val in ser.get("values", []):
+                try:
+                    bucket = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+                    out.append(
+                        TimeseriesPoint(
+                            t=bucket.isoformat().replace("+00:00", "Z"),
+                            value=round(float(val), 2),
+                            label=slug,
+                        )
+                    )
+                except (ValueError, TypeError):
+                    continue
+        return out
+
+    def tenant_activity_7d(self, slug: str) -> List[TimeseriesPoint]:
+        end = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        start = end - timedelta(days=7)
+        query_template = os.getenv(
+            "PROMETHEUS_QUERY_TENANT_7D", self.DEFAULT_TENANT_7D
+        )
+        query = query_template.replace("__SLUG__", slug)
+        series = self._query_range(query, start, end, step_seconds=86400)
+        out: List[TimeseriesPoint] = []
+        for ser in series:
+            for ts, val in ser.get("values", []):
+                try:
+                    bucket = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+                    out.append(
+                        TimeseriesPoint(
+                            t=bucket.isoformat().replace("+00:00", "Z"),
+                            value=round(float(val), 0),
+                        )
+                    )
+                except (ValueError, TypeError):
+                    continue
+        return out
+
+    def top_tenants_by_queries(self) -> List[Dict[str, Any]]:
+        query = os.getenv(
+            "PROMETHEUS_QUERY_TOP_TENANTS", self.DEFAULT_TOP_TENANTS
+        )
+        series = self._query_instant(query)
+        rows: List[Dict[str, Any]] = []
+        for ser in series:
+            slug = ser.get("metric", {}).get("tenant", "")
+            val_pair = ser.get("value")
+            if not slug or not val_pair:
+                continue
+            try:
+                value = float(val_pair[1])
+            except (ValueError, TypeError, IndexError):
+                continue
+            rows.append({"slug": slug, "queries_24h": round(value, 0)})
+        rows.sort(key=lambda r: r.get("queries_24h", 0), reverse=True)
+        return rows
 
 
 __all__ = [
     "AwsCostProvider",
     "KubernetesInfraProvider",
     "MoloniBillingProvider",
+    "PrometheusActivityProvider",
 ]
