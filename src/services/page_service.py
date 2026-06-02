@@ -270,17 +270,32 @@ class PageService:
         if not page or page.deleted_at:
             raise NotFoundError("Page not found")
 
-        # Check access
+        # Check access. Collaborative pages are reachable by the whole
+        # scope, not just explicit page_members — this MUST mirror the
+        # listing endpoint (get_user_pages), which returns every crew/space
+        # page the user can reach. Without the space branch a space member
+        # who isn't the page owner gets a 404 on a page the listing just
+        # handed them — which is exactly what broke shared-page convergence
+        # (the canonical "Space Canvas" is owned by whoever created it
+        # first; every other member is neither owner nor page_member).
         if page.owner_id != user.id:
             member = await self.member_repo.get_by_page_and_user(page_id, user.id)
             if not member:
-                # Check crew membership for collaborative pages
                 if page.crew_id:
                     from src.repositories.crew import CrewMemberRepository
 
                     crew_member_repo = CrewMemberRepository(self.db)
                     crew_member = await crew_member_repo.get_by_crew_and_user(page.crew_id, user.id)
                     if not crew_member:
+                        raise NotFoundError("Page not found")
+                elif page.space_id:
+                    from src.repositories.space import SpaceMemberRepository
+
+                    space_member_repo = SpaceMemberRepository(self.db)
+                    space_member = await space_member_repo.get_by_space_and_user(
+                        page.space_id, user.id
+                    )
+                    if not space_member:
                         raise NotFoundError("Page not found")
                 else:
                     raise NotFoundError("Page not found")
