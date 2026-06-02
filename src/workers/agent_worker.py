@@ -540,6 +540,9 @@ async def _execute_agent_async(agent_id: str):
                             response=response if isinstance(response, dict) else None,
                             answer=answer,
                         )
+                        raw_data = response.get("data") if isinstance(response, dict) else None
+                        cols, data = _normalize_rows(raw_data)
+                        rows_payload = {"columns": cols, "data": data} if cols and data else None
                         finding = AgentFinding(
                             agent_id=agent.id,
                             execution_id=execution.id,
@@ -552,6 +555,7 @@ async def _execute_agent_async(agent_id: str):
                             connection_id=conn_id,
                             data_sources=table_ids or [str(conn_id)],
                             viz_kind=viz_kind,
+                            rows=rows_payload,
                         )
                         db.add(finding)
                         findings_created += 1
