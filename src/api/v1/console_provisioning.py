@@ -131,9 +131,19 @@ async def provisioning_webhook(
 # ── SSE stream ─────────────────────────────────────────────────────
 
 
-def _sse_format(data: dict, event: str = "message") -> str:
-    """Encode a payload as one SSE frame."""
-    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+def _sse_format(data: dict, event: Optional[str] = None) -> str:
+    """Encode a payload as one SSE frame.
+
+    When ``event`` is None we emit just the ``data:`` line, which the
+    browser ``EventSource`` API delivers to ``onmessage``. A named
+    event (e.g. ``"error"``) requires the consumer to register an
+    explicit listener — keep it as an opt-in so the default flow
+    works without extra wiring on the FE.
+    """
+    payload = json.dumps(data, default=str)
+    if event is None:
+        return f"data: {payload}\n\n"
+    return f"event: {event}\ndata: {payload}\n\n"
 
 
 def _heartbeat() -> str:
@@ -178,7 +188,7 @@ async def provisioning_events_stream(
             return
 
         for ev in history:
-            yield _sse_format(event_to_sse_dict(ev), event="event")
+            yield _sse_format(event_to_sse_dict(ev))
             if await request.is_disconnected():
                 return
 
@@ -214,7 +224,7 @@ async def provisioning_events_stream(
                     except Exception as exc:  # pragma: no cover
                         logger.warning("SSE subscriber error: %s", exc)
                         break
-                    yield _sse_format(msg, event="event")
+                    yield _sse_format(msg)
                 else:
                     next_task.cancel()
                     yield _heartbeat()
