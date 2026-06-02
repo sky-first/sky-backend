@@ -38,6 +38,13 @@ class MessageResponse(BaseModel):
     role: str
     kind: Optional[str] = None
     content: str
+    # Author of the message. ``user_id`` is the writer's user id (NULL for
+    # assistant/system messages); ``author_name`` is their display name,
+    # resolved server-side so collaborators always see the REAL author
+    # instead of their own name in a shared (space/crew) chat. Both are
+    # None for AI/system messages and for legacy rows with no author.
+    user_id: Optional[UUID] = None
+    author_name: Optional[str] = None
     query_id: Optional[UUID]
     cost_tokens: Optional[int]
     cost_usd: Optional[Decimal]
@@ -78,7 +85,7 @@ class PinRequest(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
     widget_type: str = Field(default="insight", max_length=50)
     position: Optional[dict] = None  # {x, y}
-    size: Optional[dict] = None      # {width, height}
+    size: Optional[dict] = None  # {width, height}
 
 
 class ForkRequest(BaseModel):

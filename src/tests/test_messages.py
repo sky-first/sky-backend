@@ -409,6 +409,64 @@ async def test_comment_from_non_owner_is_accepted(
 
 
 @pytest.mark.asyncio
+async def test_messages_carry_real_author_for_every_viewer(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """Each message must be attributed to its REAL author, regardless of
+    who reads the thread. Regression for the collaborative-chat bug where
+    every viewer saw their own name on every message."""
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    space = Space(name="S", created_by=owner.id)
+    db_session.add(space)
+    await db_session.commit()
+    await db_session.refresh(space)
+    db_session.add(SpaceMember(space_id=space.id, user_id=owner.id, role="owner"))
+    other = await create_user(db_session, "teammate@example.com")
+    db_session.add(SpaceMember(space_id=space.id, user_id=other.id, role="editor"))
+    await db_session.commit()
+
+    conv = await make_conversation(
+        async_client, page.id, owner_headers, body={"space_id": str(space.id)}
+    )
+    other_headers = get_auth_headers(create_access_token({"sub": str(other.id)}))
+
+    # Owner asks a question.
+    q = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/messages",
+        json={"role": "user", "kind": "question", "content": "Q?"},
+        headers=owner_headers,
+    )
+    assert q.status_code == 201, q.text
+    assert q.json()["user_id"] == str(owner.id)
+    assert q.json()["author_name"] == owner.name
+
+    # Teammate leaves a comment.
+    c = await async_client.post(
+        f"/api/v1/conversations/{conv['id']}/messages",
+        json={"role": "user", "kind": "comment", "content": "thoughts"},
+        headers=other_headers,
+    )
+    assert c.status_code == 201, c.text
+    assert c.json()["user_id"] == str(other.id)
+    assert c.json()["author_name"] == other.name
+
+    # The OWNER lists the thread — the teammate's comment must still show
+    # the TEAMMATE's name, not the owner's (the bug showed the viewer).
+    listing = await async_client.get(
+        f"/api/v1/conversations/{conv['id']}/messages", headers=owner_headers
+    )
+    assert listing.status_code == 200, listing.text
+    items = listing.json()["items"]
+    by_kind = {m["kind"]: m for m in items}
+    assert by_kind["question"]["author_name"] == owner.name
+    assert by_kind["comment"]["author_name"] == other.name
+    assert by_kind["comment"]["user_id"] == str(other.id)
+
+
+@pytest.mark.asyncio
 async def test_question_from_non_owner_is_forbidden(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
