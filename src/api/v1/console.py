@@ -480,6 +480,46 @@ async def list_jobs(
     return await console_service.list_jobs(db, tenant_slug=tenant_slug, limit=limit)
 
 
+@router.post(
+    "/jobs/{job_id}/rerun",
+    response_model=ProvisioningJobRead,
+    summary="Re-run failed jobs of a provisioning workflow run (GitHub-Actions style)",
+)
+async def rerun_job(
+    job_id: str,
+    request: Request,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> ProvisioningJobRead:
+    """Retry a failed provisioning job by re-running only the failed
+    GitHub Actions jobs on its workflow run.
+
+    Mirrors the GitHub UI's ``Re-run failed jobs`` button — cheaper than
+    spawning a brand-new workflow because successful phases (preflight,
+    plan, ...) don't repeat, only the broken one does.
+    """
+    try:
+        job = await console_service.rerun_job(db, job_id, actor_email=user.email)
+    except ValueError as exc:
+        msg = str(exc)
+        if msg in ("not_found",):
+            raise HTTPException(status_code=404, detail="job not found")
+        if msg in ("not_failed", "no_external_run", "rerun_disabled"):
+            raise HTTPException(status_code=409, detail=msg)
+        if msg.startswith("gh_api:"):
+            raise HTTPException(
+                status_code=502,
+                detail={"error": "github_api", "detail": msg},
+            )
+        raise HTTPException(status_code=400, detail=msg)
+
+    # NOTE: audit logging for rerun deferred until a follow-up migration
+    # adds ``RERUN_JOB`` to the AuditAction enum + CHECK constraint.
+    # The job state mutation itself is observable via the new
+    # provisioning_job_events row that lands on the next phase event.
+    return ProvisioningJobRead.model_validate(job)
+
+
 # ── Local helpers ──────────────────────────────────────────────────
 
 

@@ -85,6 +85,11 @@ class ProvisioningJobRead(BaseModel):
     # webhook on every phase transition; None until the first phase
     # event lands.
     current_phase: Optional[str] = None
+    # GitHub Actions run id the dispatch wrote back. Drives the
+    # Console's "Re-run failed" button — it's only meaningful if the
+    # dispatch reached GH at all (None means the rerun endpoint should
+    # 409).
+    external_run_id: Optional[str] = None
 
 
 class ProvisioningJobListResponse(BaseModel):
