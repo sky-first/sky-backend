@@ -16,9 +16,17 @@ bootstrap/smoke/report). Two new things need to fit:
 This is a constraint replacement only, no row writes. Drop + recreate
 is the standard pattern for ALTER CHECK in PostgreSQL.
 
-Revision ID: provisioning_phases_extend_20260602
+Revision ID: phases_v2_20260602
 Revises: messages_user_id_20260602
 Create Date: 2026-06-02
+
+Note: original revision id was ``provisioning_phases_extend_20260602``
+(35 chars) — overflowed the shared ``alembic_version_be.version_num
+VARCHAR(32)`` column and broke ``alembic upgrade head`` for every
+migrate Job. Renamed to ``phases_v2_20260602`` (18 chars). Safe to
+rename because no alembic_version table ever stored the old value —
+every migrate attempt rolled back the transaction when the UPDATE
+failed at the very end of the upgrade.
 """
 
 from __future__ import annotations
@@ -26,7 +34,7 @@ from __future__ import annotations
 from alembic import op
 
 
-revision = "provisioning_phases_extend_20260602"
+revision = "phases_v2_20260602"
 down_revision = "messages_user_id_20260602"
 branch_labels = None
 depends_on = None
