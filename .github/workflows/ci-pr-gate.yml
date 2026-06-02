@@ -123,18 +123,18 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest pytest-cov pytest-timeout
+          pip install pytest pytest-cov pytest-timeout pytest-xdist
 
       - name: Run Tests
-        # Per-test timeout via pytest-timeout prevents a single hanging
-        # async test from pinning the whole job. `--timeout-method=thread`
-        # also works for asyncio coroutines (signal method fails inside
-        # non-main threads). Job-level timeout is a second safety net in
-        # case the test runner itself deadlocks before pytest-timeout fires.
-        # Set to 25 min: 2232-test suite averages ~20-21 min; 15 min was consistently too tight.
-        timeout-minutes: 25
+        # -p no:cov   — skip coverage instrumentation on PR gate (saves ~30% runtime).
+        #               Coverage runs only on merge via the main pipeline.
+        # -n 2        — pytest-xdist splits the suite across the 2 CPUs available
+        #               on ubuntu-latest, roughly halving wall-clock time.
+        # -q          — quiet output; individual PASSED lines removed, failures still shown.
+        # --timeout=120 / thread — prevents a single hanging async test from pinning the job.
+        timeout-minutes: 20
         run: |
-          pytest --cov=src --cov-report=xml --timeout=120 --timeout-method=thread -v
+          pytest -p no:cov -n 2 -q --timeout=120 --timeout-method=thread
 
   docker-build-verify:
     name: Docker Build Verification
