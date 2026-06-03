@@ -15,7 +15,7 @@ Scope:
 * Also unifies the legacy ``"user"`` alias into ``"member"`` so the
   taxonomy on this table reads ``super_admin / admin / member`` only.
 
-Revision ID: rename_user_role_super_admin_20260603
+Revision ID: rename_role_20260603
 Revises: manually_completed_20260603
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from __future__ import annotations
 from alembic import op
 
 
-revision = "rename_user_role_super_admin_20260603"
+revision = "rename_role_20260603"
 down_revision = "manually_completed_20260603"
 branch_labels = None
 depends_on = None
