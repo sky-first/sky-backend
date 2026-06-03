@@ -57,7 +57,7 @@ _VALID_STATUSES = {s.value for s in TicketStatus}
 
 def _is_admin_like(user: User) -> bool:
     role = (user.role or "").lower()
-    return role in {"admin", "owner"}
+    return role in {"super_admin", "admin", "owner"}
 
 
 class TicketService:

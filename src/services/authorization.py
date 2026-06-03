@@ -7,14 +7,14 @@ matrix UI is gone in favour of explicit per-resource sharing
 (see resource_acl table introduced in Phase 2).
 
 Model:
-  • Platform roles:  owner | admin | member
+  • Platform roles:  super_admin | admin | member  (legacy alias: owner → super_admin)
   • Space roles:     owner | editor | viewer  (per Space membership)
   • Resource ACL:    explicit overrides on individual connections /
                       dashboards / agents / knowledge files (Phase 2)
 
 Resolution order in `can(...)`:
   1. Sky support without active JIT          → deny
-  2. Platform owner                          → allow (except never)
+  2. Platform super_admin                    → allow (except never)
   3. Platform admin                          → allow except owner-only
   4. Action category:
        - tenant       → check user.role only (member denied for admin actions)
@@ -41,7 +41,8 @@ from src.models.user import User
 
 
 class PlatformRole(str, Enum):
-    OWNER = "owner"
+    SUPER_ADMIN = "super_admin"
+    OWNER = "owner"  # legacy alias — DB rows may still carry this value
     ADMIN = "admin"
     MEMBER = "member"
 
@@ -323,11 +324,12 @@ class Authorization:
         scope, required = rule
         platform = user.role
 
-        # Platform Owner bypasses everything.
-        if platform == PlatformRole.OWNER.value:
+        # Platform SuperAdmin/Owner bypasses everything.
+        # Accept both ``super_admin`` (new) and ``owner`` (legacy alias).
+        if platform in (PlatformRole.SUPER_ADMIN.value, PlatformRole.OWNER.value):
             return True
 
-        # Platform Admin: bypasses everything except owner-only.
+        # Platform Admin: bypasses everything except super_admin-exclusive perms.
         if platform == PlatformRole.ADMIN.value:
             return required != "owner_only"
 

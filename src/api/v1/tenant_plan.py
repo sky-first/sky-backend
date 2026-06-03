@@ -99,10 +99,10 @@ async def update_tenant_plan(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> TenantPlanResponse:
-    if current_user.role != "owner":
+    if current_user.role not in ("super_admin", "owner"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the tenant owner can change the plan tier.",
+            detail="Only the tenant SuperAdmin can change the plan tier.",
         )
     row = await TenantPlanService(db).set_tier(
         plan_tier=patch.plan_tier,

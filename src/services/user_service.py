@@ -350,7 +350,7 @@ class UserService:
         # at this same chokepoint closes the same hole for the actual
         # tenant founders without needing to abuse the is_sky_operator
         # flag (which is for SKY internal staff, not for customers).
-        if user and getattr(user, "role", None) == "owner":
+        if user and getattr(user, "role", None) in ("super_admin", "owner"):
             raise ForbiddenError(
                 "Cannot deactivate the tenant owner. Transfer ownership "
                 "first via the tenant settings."
