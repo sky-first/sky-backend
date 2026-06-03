@@ -382,6 +382,14 @@ class InviteGenerateRequest(BaseModel):
     name: Optional[str] = Field(
         None, min_length=1, max_length=255, description="Optional name for invited user"
     )
+    # Tenant role the invitee gets after accepting. ``super_admin`` is
+    # intentionally absent — that role is reserved for the tenant
+    # founder and is granted on tenant creation, not via invite.
+    role: str = Field(
+        default="member",
+        pattern=r"^(admin|member|user)$",
+        description="Tenant role for the invited user (admin, member). 'user' is a legacy alias for member.",
+    )
 
 
 class InviteGenerateResponse(BaseModel):
