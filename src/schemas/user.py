@@ -13,7 +13,7 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: str = Field(default="member", pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
+    role: str = Field(default="member", pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
 
 
 class UserCreate(UserBase):
@@ -36,7 +36,7 @@ class UserUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
+    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
     email_verified: Optional[bool] = None
     onboarding_step: Optional[int] = None
     onboarding_version: Optional[int] = None
@@ -102,19 +102,18 @@ class DemoDataRemovedResponse(BaseModel):
 class UserResponse(UserBase):
     """User response schema.
 
-    Read-side override: ``role`` accepts the legacy ``user`` / ``owner``
-    strings in addition to the canonical taxonomy. The DB migration
-    ``rename_role_20260603`` normalised production data, but test
-    fixtures and any not-yet-migrated SaaS deployment may still carry
-    legacy values — we don't want to 500 on serialise. Writes
-    (``UserCreate``, ``UserUpdate``) keep the tight ``UserBase``
-    pattern, so new rows still land with the clean taxonomy.
+    ``role`` inherits the loose pattern on ``UserBase`` which accepts
+    the legacy ``user`` / ``owner`` strings in addition to the
+    canonical ``super_admin | admin | member`` taxonomy. The DB
+    migration ``rename_role_20260603`` normalised production rows,
+    but test fixtures and historical session tokens still ship the
+    legacy values — and a stricter regex here would 500 every
+    serialise. Clean taxonomy is enforced at the inbound
+    ``InviteGenerateRequest`` boundary (``^(admin|member)$``) and by
+    ``is_tenant_admin()`` which returns False for ``user`` / ``owner``,
+    so the loose pattern here cannot grant tenant-level privileges.
     """
 
-    role: str = Field(
-        default="member",
-        pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$",
-    )
     id: UUID
     email_verified: bool
     email_verified_at: Optional[datetime] = None
@@ -350,14 +349,14 @@ class UserPermissionsResponse(BaseModel):
 class UserPermissionsUpdate(BaseModel):
     """User permissions update schema."""
 
-    role: str = Field(..., pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
+    role: str = Field(..., pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
 
 
 class UserInviteRequest(BaseModel):
     """User invite request schema."""
 
     workspace_id: Optional[UUID] = None
-    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
+    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
 
 
 # Invite System Schemas

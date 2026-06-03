@@ -28,7 +28,12 @@ from src.models.user import User
 # so this bypass list does NOT need to include ``owner`` for production
 # data; it would only mask bugs elsewhere if it did.
 TENANT_ADMIN_ROLES = ("super_admin", "admin")
-_BYPASS_ROLES = TENANT_ADMIN_ROLES
+# Legacy bypass list — used by the deprecated ``check_permission()``
+# helper below. Accepts the legacy ``owner`` string as a defensive
+# alias for ``super_admin`` so a stale session token / legacy DB row
+# is never 403'd. New code should call :func:`is_tenant_admin` (strict,
+# no ``owner``) instead of reading this tuple directly.
+_BYPASS_ROLES = TENANT_ADMIN_ROLES + ("owner",)
 
 
 def is_tenant_admin(user: "User") -> bool:
