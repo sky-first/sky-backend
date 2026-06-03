@@ -575,7 +575,7 @@ class PermissionService:
         # Owner is the platform's super-admin (Wave 1 of platform-roles)
         # and bypasses every check on the FE; the BE was checking only
         # 'admin' which locked owners out. Both must pass.
-        if user.role not in ("admin", "owner"):
+        if user.role not in ("admin", "owner", "super_admin"):
             raise ForbiddenError("Only admins or the workspace owner can view role permissions")
 
         role_permissions = await self.role_permission_repo.get_all()
@@ -601,7 +601,7 @@ class PermissionService:
         """
         # Only admins or owner can update role permissions (owner is
         # the platform super-admin per Wave 1 of platform-roles).
-        if user.role not in ("admin", "owner"):
+        if user.role not in ("admin", "owner", "super_admin"):
             raise ForbiddenError("Only admins or the workspace owner can update role permissions")
 
         # Lucas's 2026-04-30 review: Member is the platform-level role
@@ -612,7 +612,7 @@ class PermissionService:
         # but the toggle has to land somewhere to persist; we accept
         # them here so the FE matrix renders the same row count it
         # already shows.
-        valid_roles = ["owner", "admin", "member", "editor", "viewer"]
+        valid_roles = ["super_admin", "owner", "admin", "member", "editor", "viewer"]
         if role not in valid_roles:
             raise BadRequestError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
 

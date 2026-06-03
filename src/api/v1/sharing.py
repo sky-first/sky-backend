@@ -47,7 +47,7 @@ async def _assert_can_manage_share(
 ) -> None:
     """Allow Owner/Admin always; Members must hold owner-level on the
     resource (via space membership or explicit ACL row)."""
-    if user.role in ("owner", "admin"):
+    if user.role in ("owner", "admin", "super_admin"):
         return
     # Member: check explicit owner-level grant on this resource.
     grant = (
@@ -142,7 +142,7 @@ async def list_grants(
 ) -> GrantList:
     """List every explicit grant on a resource. Auth: Owner/Admin or any
     user that holds at least viewer-level access on the resource."""
-    if current_user.role not in ("owner", "admin"):
+    if current_user.role not in ("owner", "admin", "super_admin"):
         # Member must have at least one grant of any level to see the ACL.
         own_grant = (
             await db.execute(

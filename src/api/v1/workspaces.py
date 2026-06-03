@@ -117,7 +117,7 @@ async def create_workspace(
     """
     # TEMP (task #115) — admin/owner gate until the multi-vs-single
     # workspace per tenant model is decided. Safer to err closed.
-    if current_user.role not in ("admin", "owner"):
+    if current_user.role not in ("admin", "owner", "super_admin"):
         from src.core.exceptions import ForbiddenError
         raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
@@ -152,7 +152,7 @@ async def update_workspace(
     """
     # TEMP (task #115) — admin/owner gate until the multi-vs-single
     # workspace per tenant model is decided. Safer to err closed.
-    if current_user.role not in ("admin", "owner"):
+    if current_user.role not in ("admin", "owner", "super_admin"):
         from src.core.exceptions import ForbiddenError
         raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
@@ -185,7 +185,7 @@ async def delete_workspace(
     """
     # TEMP (task #115) — admin/owner gate until the multi-vs-single
     # workspace per tenant model is decided. Safer to err closed.
-    if current_user.role not in ("admin", "owner"):
+    if current_user.role not in ("admin", "owner", "super_admin"):
         from src.core.exceptions import ForbiddenError
         raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
@@ -249,7 +249,7 @@ async def add_workspace_member(
     """
     # TEMP (task #115) — admin/owner gate until the multi-vs-single
     # workspace per tenant model is decided. Safer to err closed.
-    if current_user.role not in ("admin", "owner"):
+    if current_user.role not in ("admin", "owner", "super_admin"):
         from src.core.exceptions import ForbiddenError
         raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
@@ -284,7 +284,7 @@ async def remove_workspace_member(
     """
     # TEMP (task #115) — admin/owner gate until the multi-vs-single
     # workspace per tenant model is decided. Safer to err closed.
-    if current_user.role not in ("admin", "owner"):
+    if current_user.role not in ("admin", "owner", "super_admin"):
         from src.core.exceptions import ForbiddenError
         raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
@@ -322,7 +322,7 @@ async def update_workspace_member_role(
     """
     # TEMP (task #115) — admin/owner gate until the multi-vs-single
     # workspace per tenant model is decided. Safer to err closed.
-    if current_user.role not in ("admin", "owner"):
+    if current_user.role not in ("admin", "owner", "super_admin"):
         from src.core.exceptions import ForbiddenError
         raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)
@@ -383,7 +383,7 @@ async def switch_workspace(
     """
     # TEMP (task #115) — admin/owner gate until the multi-vs-single
     # workspace per tenant model is decided. Safer to err closed.
-    if current_user.role not in ("admin", "owner"):
+    if current_user.role not in ("admin", "owner", "super_admin"):
         from src.core.exceptions import ForbiddenError
         raise ForbiddenError("Workspace management is admin-only for now.")
     workspace_service = WorkspaceService(db)

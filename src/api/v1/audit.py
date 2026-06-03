@@ -31,7 +31,7 @@ async def list_audit_events(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """List audit events with optional filters."""
-    if current_user.role not in ("admin", "owner"):
+    if current_user.role not in ("admin", "owner", "super_admin"):
         from src.core.exceptions import ForbiddenError
 
         raise ForbiddenError("Audit log access requires admin role")
@@ -69,7 +69,7 @@ async def verify_audit_chain(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Verify audit log hash chain integrity."""
-    if current_user.role not in ("admin", "owner"):
+    if current_user.role not in ("admin", "owner", "super_admin"):
         from src.core.exceptions import ForbiddenError
 
         raise ForbiddenError("Audit chain verification requires admin role")

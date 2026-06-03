@@ -54,7 +54,7 @@ async def list_glossary(
     # back to a tenant-safe default scope ("only terms in spaces I am a
     # member of, plus my own") when the FE doesn't pin space_id/crew_id.
     # Platform Owner / Admin bypass the filter (legacy global view).
-    is_platform_admin = (current_user.role or "").lower() in ("owner", "admin")
+    is_platform_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
     return await service.list_terms(
         space_id=space_id,
         crew_id=crew_id,

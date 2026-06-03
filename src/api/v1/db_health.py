@@ -57,7 +57,7 @@ async def db_health(
     db: AsyncSession = Depends(get_db_session),
 ) -> DbHealthResponse:
     """Admin-only — return pool counters + a SELECT 1 ping."""
-    if current_user.role not in ("owner", "admin"):
+    if current_user.role not in ("owner", "admin", "super_admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="db health is admin-only",

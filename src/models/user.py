@@ -35,9 +35,9 @@ class User(Base):
     role = Column(
         String(50),
         nullable=False,
-        default="user",
-        server_default="user",
-    )  # admin, user, viewer
+        default="member",
+        server_default="member",
+    )  # super_admin, admin, member (legacy aliases: owner, user)
     email_verified = Column(Boolean, nullable=False, default=False, server_default="false")
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
     onboarding_step = Column(Integer, nullable=True, default=0, server_default="0")
