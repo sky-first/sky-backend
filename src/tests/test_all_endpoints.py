@@ -1853,7 +1853,9 @@ class TestUsersEndpoints:
         """Test POST /api/v1/users/{id}/invite."""
         user = test_user_with_tokens["user"]
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        invite_data = {"role": "user"}
+        # Canonical post-rename role; ``user`` is the legacy alias
+        # rejected on writes by the tight UserInviteRequest pattern.
+        invite_data = {"role": "member"}
         # Endpoint is POST /users/{user_id}/invite, not /users/invite
         response = await async_client.post(
             f"/api/v1/users/{user.id}/invite", json=invite_data, headers=headers

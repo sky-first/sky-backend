@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, UnauthorizedError
+from src.core.permissions import is_tenant_admin
 from src.core.security import (
     create_access_token,
     create_refresh_token,
@@ -54,7 +55,7 @@ def user_to_response_dict(user: User) -> dict:
         "onboarding_step": user.onboarding_step or 0,
         "onboarding_version": user.onboarding_version or 0,
         "needs_onboarding": (
-            user.role == "admin"
+            is_tenant_admin(user)
             and (user.onboarding_version or 0) < settings.ADMIN_ONBOARDING_VERSION
         ),
         "has_completed_onboarding": user.has_completed_onboarding,

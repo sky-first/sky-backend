@@ -8,10 +8,12 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.settings import settings
 from src.core.exceptions import BadRequestError, UnauthorizedError
 from src.core.security import create_access_token, create_refresh_token, get_password_hash
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
+from src.services.email_service import EmailService
 from src.services.onboarding_service import ensure_default_page_and_space
 
 logger = logging.getLogger(__name__)
@@ -107,6 +109,26 @@ class InviteService:
         await self.db.refresh(user)
 
         logger.info(f"✅ Created invite for {email}, token expires at {expires_at}")
+
+        # Send invitation email — best-effort. Failure here must not 500
+        # the create_invite call: the token is already minted and the row
+        # already persisted; the admin can re-send via
+        # ``POST /users/{id}/invite`` if delivery fails. EmailService
+        # silently falls back to ``[MOCK EMAIL]`` logging when SMTP_HOST
+        # is unset (e.g. local dev) so this is also safe outside prod.
+        try:
+            frontend_url = "http://localhost:3000"
+            if getattr(settings, "CORS_ORIGINS", None):
+                # CORS_ORIGINS is a comma-separated list — first entry
+                # is the canonical front-end origin per the staging /
+                # production values files (sky-stg / sky-prd).
+                frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
+            invite_link = f"{frontend_url}/auth/accept-invite?token={token}"
+            email_service = EmailService()
+            email_service.send_invite_email(email, invite_link, invited_by.name)
+        except Exception:  # pragma: no cover — guard against SMTP outage
+            logger.exception("Failed to send invite email to %s", email)
+
         return token
 
     async def validate_invite_token(self, token: str) -> dict:

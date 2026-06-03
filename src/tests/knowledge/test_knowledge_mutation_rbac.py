@@ -218,7 +218,7 @@ async def test_mut_08_space_navigator_denied(db_session, test_user):
 @pytest.mark.asyncio
 async def test_mut_09_owner_writes_to_org(db_session, test_user):
     user = test_user["user"]
-    user.role = "owner"
+    user.role = "super_admin"
     db_session.add(user)
     await db_session.flush()
 

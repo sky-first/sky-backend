@@ -21,6 +21,7 @@ def _deep_copy_json(value: Any) -> Any:
 
 
 from src.core.exceptions import ForbiddenError, NotFoundError
+from src.core.permissions import is_tenant_admin
 from src.models.page import Page
 from src.models.user import User
 from src.repositories.page import PageMemberRepository, PageRepository
@@ -79,8 +80,8 @@ class PageService:
                 raise NotFoundError("Crew not found")
             crew_member_repo = CrewMemberRepository(self.db)
             member = await crew_member_repo.get_by_crew_and_user(crew_id, user.id)
-            # Allow if user is admin (admin bypass) or crew member
-            if not member and user.role != "admin":
+            # Allow if user is tenant-level admin (bypass) or crew member
+            if not member and not is_tenant_admin(user):
                 raise ForbiddenError(
                     "You must be a member of this crew to create collaborative pages"
                 )
@@ -161,7 +162,7 @@ class PageService:
         crew = await CrewRepository(self.db).get_by_id(crew_id)
         if not crew:
             raise NotFoundError("Crew not found")
-        if user.role != "admin":
+        if not is_tenant_admin(user):
             member = await CrewMemberRepository(self.db).get_by_crew_and_user(crew_id, user.id)
             if not member:
                 raise ForbiddenError("You must be a member of this crew")
@@ -214,7 +215,7 @@ class PageService:
         space = await SpaceRepository(self.db).get_by_id(space_id)
         if not space:
             raise NotFoundError("Space not found")
-        if user.role != "admin":
+        if not is_tenant_admin(user):
             member = await SpaceMemberRepository(self.db).get_by_space_and_user(space_id, user.id)
             if not member:
                 raise ForbiddenError("You must be a member of this space")

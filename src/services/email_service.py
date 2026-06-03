@@ -87,48 +87,169 @@ class EmailService:
 
         Args:
             to_email: Recipient email
-            invite_link: Activation link
-            inviter_name: Name of the person inviting
+            invite_link: Activation link to ``/auth/accept-invite?token=…``
+            inviter_name: Name of the person inviting (rendered into the
+                preheader + body so the invitee recognises the sender)
 
         Returns:
             bool: Success status
+
+        Template notes
+        --------------
+        The HTML body is hand-tuned for the major email clients (Gmail,
+        Outlook, Apple Mail, mobile webviews). Three constraints drove
+        the design:
+
+        * Inline styles only — ``<style>`` blocks are dropped by Gmail
+          in some flows, and Outlook (desktop) ignores most CSS that
+          isn't on the element.
+        * Tables for layout — flexbox/grid render unreliably in
+          Outlook. Two nested centred tables (600px) cover the wide
+          majority of clients.
+        * Single CTA button — rendered as a styled ``<a>`` so it shows
+          even when "display images" is off.
+
+        Brand: black ``#1b1b1b`` header band with gold ``#fbbf24``
+        (amber-400, the canonical brand primary used across the
+        product) logotype + gold CTA on black text. The logotype is
+        rendered as text rather than an ``<img>`` so the email stays
+        self-contained — no remote asset fetch, no broken-image
+        fallback when corporate firewalls block the image.
+
+        ``inviter_name`` is whatever the caller passes — the same
+        template ships to every tenant, so the only thing
+        customer-specific in the body is the person doing the
+        inviting and the workspace name.
         """
-        subject = f"You have been invited to join {settings.APP_NAME}"
+        # ``APP_NAME`` defaults to "Sky" in src/config/settings.py; the
+        # template embeds it everywhere the word would otherwise be
+        # hard-coded so the same email body works for a future rebrand.
+        app_name = getattr(settings, "APP_NAME", "Sky")
+        # Pre-header text: the snippet most clients show next to the
+        # subject in the inbox list. Worth ~50 chars of plain copy.
+        preheader = (
+            f"{inviter_name} invited you to join {app_name}. "
+            "Accept your invitation and set your password to get started."
+        )
+        subject = f"{inviter_name} invited you to join {app_name}"
 
-        html_content = f"""
-        <html>
-          <body style="font-family: Arial, sans-serif; color: #333;">
-            <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
-              <h2 style="color: #1e3a5f;">Welcome to {settings.APP_NAME}</h2>
-              <p>Hello,</p>
-              <p>You have been invited by <strong>{inviter_name}</strong> to join the workspace.</p>
-              <p>Please click the button below to accept the invitation and set your password:</p>
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="{invite_link}" style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Accept Invitation</a>
-              </div>
-              <p style="font-size: 12px; color: #777;">
-                Or copy and paste this link into your browser:<br>
-                <a href="{invite_link}">{invite_link}</a>
-              </p>
-              <p style="font-size: 12px; color: #999; margin-top: 30px;">
-                This link will expire in 7 days.
-              </p>
-            </div>
-          </body>
-        </html>
-        """
+        html_content = f"""\
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="x-apple-disable-message-reformatting">
+    <meta name="color-scheme" content="light only">
+    <meta name="supported-color-schemes" content="light only">
+    <title>{subject}</title>
+  </head>
+  <body style="margin:0; padding:0; background-color:#F1F5F9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; color:#1b1b1b;">
+    <!-- Pre-header (hidden, but read by inbox preview) -->
+    <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#F1F5F9;">
+      {preheader}
+    </div>
 
-        text_content = f"""
-        Welcome to {settings.APP_NAME}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F1F5F9;">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px; width:100%; background-color:#FFFFFF; border-radius:16px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,0.06);">
 
-        Hello,
+            <!-- Brand band -->
+            <tr>
+              <td align="center" bgcolor="#1b1b1b" style="background-color:#1b1b1b; padding:36px 24px;">
+                <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; font-size:28px; font-weight:800; letter-spacing:8px; color:#FBBF24;">
+                  {app_name.upper()}
+                </div>
+                <div style="margin-top:8px; font-size:10px; font-weight:600; letter-spacing:3px; color:#FBBF24; opacity:0.7; text-transform:uppercase;">
+                  Enterprise Collective Intelligence
+                </div>
+              </td>
+            </tr>
 
-        You have been invited by {inviter_name} to join the workspace.
+            <!-- Body -->
+            <tr>
+              <td style="padding:40px 40px 8px 40px;">
+                <h1 style="margin:0 0 16px 0; font-size:22px; line-height:30px; font-weight:700; color:#1b1b1b;">
+                  You&rsquo;re invited to {app_name}
+                </h1>
+                <p style="margin:0 0 16px 0; font-size:15px; line-height:24px; color:#334155;">
+                  <strong>{inviter_name}</strong> has invited you to join the workspace on {app_name} &mdash; the
+                  context graph and signals platform their team uses to coordinate decisions.
+                </p>
+                <p style="margin:0 0 32px 0; font-size:15px; line-height:24px; color:#334155;">
+                  Click the button below to accept the invitation and set your password.
+                </p>
+              </td>
+            </tr>
 
-        Please accept the invitation and set your password by visiting this link:
-        {invite_link}
+            <!-- CTA: brand gold on black text -->
+            <tr>
+              <td align="center" style="padding:0 40px 32px 40px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="center" bgcolor="#FBBF24" style="border-radius:10px;">
+                      <a href="{invite_link}" target="_blank"
+                         style="display:inline-block; padding:14px 28px; font-size:14px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:#1b1b1b; text-decoration:none; border-radius:10px;">
+                        Accept invitation
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
 
-        This link will expire in 7 days.
-        """
+            <!-- Fallback link + expiry -->
+            <tr>
+              <td style="padding:0 40px 32px 40px;">
+                <p style="margin:0 0 12px 0; font-size:12px; line-height:18px; color:#64748B;">
+                  Button not working? Copy and paste this link into your browser:
+                </p>
+                <p style="margin:0 0 24px 0; font-size:12px; line-height:18px; color:#D97706; word-break:break-all;">
+                  <a href="{invite_link}" style="color:#D97706; text-decoration:underline;">{invite_link}</a>
+                </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #E2E8F0;">
+                  <tr>
+                    <td style="padding-top:20px;">
+                      <p style="margin:0; font-size:12px; line-height:18px; color:#64748B;">
+                        <span style="display:inline-block; padding:2px 8px; background-color:#F1F5F9; color:#475569; border-radius:6px; font-weight:600; font-size:10px; letter-spacing:1px; text-transform:uppercase;">Security</span>
+                        &nbsp; This invitation link expires in <strong>7 days</strong>. If you didn&rsquo;t expect this email, you can safely ignore it.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
 
+            <!-- Footer -->
+            <tr>
+              <td align="center" style="background-color:#F8FAFC; padding:24px 40px;">
+                <p style="margin:0; font-size:11px; line-height:16px; color:#94A3B8;">
+                  Sent by {app_name} on behalf of {inviter_name}.<br>
+                  &copy; Sky First Labs
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
+
+        text_content = (
+            f"You're invited to {app_name}\n"
+            f"\n"
+            f"{inviter_name} has invited you to join the workspace on {app_name}.\n"
+            f"\n"
+            f"Accept the invitation and set your password by opening this link:\n"
+            f"{invite_link}\n"
+            f"\n"
+            f"This link expires in 7 days. If you didn't expect this email, you\n"
+            f"can safely ignore it.\n"
+            f"\n"
+            f"— Sky First Labs\n"
+        )
         return self.send_email(to_email, subject, html_content, text_content)

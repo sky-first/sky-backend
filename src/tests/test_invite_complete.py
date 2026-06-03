@@ -49,11 +49,12 @@ async def test_invite_user_flow(db_session, faker):
     await db_session.commit()
     await db_session.refresh(admin)
 
-    # Create a user to be invited
+    # Create a user to be invited (canonical taxonomy post-rename:
+    # super_admin | admin | member; ``user`` is the legacy alias).
     new_user_data = UserCreate(
         email="invitee@example.com",
         name="Invitee",
-        role="user",
+        role="member",
         avatar=None,
         password="TempPassword123!",
     )
