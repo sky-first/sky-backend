@@ -590,6 +590,65 @@ async def rerun_job(
     return row
 
 
+async def mark_job_operational(
+    db: AsyncSession,
+    job_id: str,
+    *,
+    actor_email: str,
+) -> ProvisioningJob:
+    """Mark a failed provisioning job as operationally healthy.
+
+    Use when the underlying GH Actions run ended in failure but an
+    operator verified that the tenant is actually live and reachable —
+    for example the migrate Job ran longer than the workflow's wait
+    timeout (so the workflow marked it failed) but alembic actually
+    finished successfully and the remaining steps were applied by
+    hand. The job's history stays intact; we just flip ``status`` to
+    ``manually_completed`` so the Console renders the tenant as live
+    and append a synthetic event with the actor for the audit trail.
+
+    Raises ``ValueError``:
+    - ``not_found``           — no such job_id
+    - ``not_failed``          — only failed jobs can be marked
+    - ``already_completed``   — job is already marked manually_completed
+    """
+    import uuid as _uuid
+
+    try:
+        job_uuid = _uuid.UUID(job_id)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError("not_found") from exc
+
+    row = (
+        await db.execute(select(ProvisioningJob).where(ProvisioningJob.id == job_uuid))
+    ).scalar_one_or_none()
+    if row is None:
+        raise ValueError("not_found")
+    if row.status == ProvisioningJobStatus.MANUALLY_COMPLETED.value:
+        raise ValueError("already_completed")
+    if row.status != ProvisioningJobStatus.FAILED.value:
+        raise ValueError("not_failed")
+
+    row.status = ProvisioningJobStatus.MANUALLY_COMPLETED.value
+    if row.completed_at is None:
+        row.completed_at = func.now()
+
+    # Append an audit event so the timeline shows the manual sign-off.
+    from src.models.internal_console import ProvisioningJobEvent
+
+    event = ProvisioningJobEvent(
+        job_id=row.id,
+        phase="report",
+        status="succeeded",
+        level="info",
+        message=f"Marked operational by {actor_email}",
+        event_metadata={"actor_email": actor_email, "via": "mark_operational"},
+    )
+    db.add(event)
+    await db.flush()
+    return row
+
+
 # ── Helpers ────────────────────────────────────────────────────────
 
 

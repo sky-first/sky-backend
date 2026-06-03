@@ -87,6 +87,12 @@ class ProvisioningJobStatus(str, Enum):
     SUCCESS = "success"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    # The workflow ended in failure but an operator verified the tenant
+    # is operationally healthy (e.g. the failed phase was a cosmetic
+    # webhook timeout, or the missing steps were applied manually).
+    # Console shows the tenant as live but keeps the underlying failed
+    # history for audit.
+    MANUALLY_COMPLETED = "manually_completed"
 
 
 # Canonical phase sequence for the GitHub Actions provisioning workflow.
@@ -216,7 +222,8 @@ class ProvisioningJob(Base):
             name="provisioning_jobs_type_check",
         ),
         CheckConstraint(
-            "status IN ('pending', 'running', 'success', 'failed', 'cancelled')",
+            "status IN ('pending', 'running', 'success', 'failed', "
+            "'cancelled', 'manually_completed')",
             name="provisioning_jobs_status_check",
         ),
         Index("idx_provisioning_tenant", "tenant_slug", "started_at"),
