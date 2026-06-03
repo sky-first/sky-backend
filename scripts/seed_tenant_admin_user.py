@@ -76,13 +76,21 @@ async def main() -> int:
             existing = (
                 await session.execute(select(User).where(User.email == email))
             ).scalar_one_or_none()
+            # First-user-of-a-tenant lands as ``admin`` — the tenant-level
+            # role that can invite other users, edit tenant settings, and
+            # manage everything that's not a Sky-engineering action.
+            # ``owner`` looks like the top role at first glance but in
+            # this codebase it's a CREW role (pages/widgets/comments) and
+            # explicitly cannot manage users (rbac_service.py, ADR-002).
+            # If we ever rename roles, fix this script in lockstep.
             if existing is not None:
                 existing.password_hash = get_password_hash(password)
-                existing.role = "admin"
+                if not existing.role:
+                    existing.role = "admin"
                 existing.email_verified = True
                 existing.has_completed_onboarding = True
                 await session.commit()
-                print(f"  [OK] admin user {email!r} refreshed")
+                print(f"  [OK] tenant admin {email!r} refreshed (role={existing.role})")
             else:
                 user = User(
                     email=email,
@@ -94,7 +102,7 @@ async def main() -> int:
                 )
                 session.add(user)
                 await session.commit()
-                print(f"  [OK] admin user {email!r} created")
+                print(f"  [OK] tenant admin {email!r} created (role=admin)")
     finally:
         await engine.dispose()
     return 0
