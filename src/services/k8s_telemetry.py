@@ -406,10 +406,141 @@ class KubernetesTelemetryProvider:
                     unhealthy_pod_keys.add((ns, name))
         return len(unhealthy_pod_keys)
 
+    # ── metrics-server helpers ───────────────────────────────────
+
+    @staticmethod
+    def _parse_cpu_millicores(raw: Any) -> float:
+        """Parse a Kubernetes ``cpu`` quantity into millicores (mCPU).
+
+        metrics-server reports values like ``"123m"`` (millicore),
+        ``"1"`` (one whole core) or ``"500u"`` (micro). We project
+        everything to mCPU so the percentage maths is consistent.
+        Returns 0.0 on parse error rather than raising — telemetry
+        must never block a request.
+        """
+        if raw is None:
+            return 0.0
+        s = str(raw).strip()
+        if not s:
+            return 0.0
+        try:
+            if s.endswith("m"):
+                return float(s[:-1])
+            if s.endswith("u"):
+                return float(s[:-1]) / 1000.0
+            if s.endswith("n"):
+                return float(s[:-1]) / 1_000_000.0
+            # Bare number = whole cores.
+            return float(s) * 1000.0
+        except ValueError:
+            return 0.0
+
+    @staticmethod
+    def _parse_memory_bytes(raw: Any) -> float:
+        """Parse a Kubernetes ``memory`` quantity into bytes.
+
+        Accepts the binary suffixes (``Ki/Mi/Gi/Ti``) plus the
+        decimal ones (``K/M/G/T``). Anything else returns 0.
+        """
+        if raw is None:
+            return 0.0
+        s = str(raw).strip()
+        if not s:
+            return 0.0
+        units = {
+            "Ki": 1024,
+            "Mi": 1024 ** 2,
+            "Gi": 1024 ** 3,
+            "Ti": 1024 ** 4,
+            "K": 1000,
+            "M": 1000 ** 2,
+            "G": 1000 ** 3,
+            "T": 1000 ** 4,
+        }
+        for suffix, mult in units.items():
+            if s.endswith(suffix):
+                try:
+                    return float(s[: -len(suffix)]) * mult
+                except ValueError:
+                    return 0.0
+        try:
+            return float(s)
+        except ValueError:
+            return 0.0
+
+    def _fetch_pod_metrics(self, namespace: str) -> Dict[str, tuple[float, float]]:
+        """Return ``{pod_name: (cpu_millicore, memory_bytes)}`` for the
+        namespace by hitting ``metrics.k8s.io/v1beta1/namespaces/{ns}/pods``.
+
+        Empty dict on any failure (metrics-server not installed, RBAC
+        missing, etc.) so telemetry degrades gracefully — Console just
+        shows 0% rather than 503-ing.
+        """
+        try:
+            from kubernetes import client  # type: ignore[import-not-found]
+        except ImportError:
+            return {}
+        try:
+            api = client.CustomObjectsApi()
+            resp = api.list_namespaced_custom_object(
+                group="metrics.k8s.io",
+                version="v1beta1",
+                namespace=namespace,
+                plural="pods",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "k8s_telemetry_metrics_query_failed",
+                extra={"namespace": namespace, "error": str(exc)[:200]},
+            )
+            return {}
+        out: Dict[str, tuple[float, float]] = {}
+        for entry in (resp or {}).get("items", []) or []:
+            name = (entry.get("metadata") or {}).get("name")
+            if not name:
+                continue
+            cpu_m = 0.0
+            mem_b = 0.0
+            for container in entry.get("containers", []) or []:
+                usage = container.get("usage") or {}
+                cpu_m += self._parse_cpu_millicores(usage.get("cpu"))
+                mem_b += self._parse_memory_bytes(usage.get("memory"))
+            out[name] = (cpu_m, mem_b)
+        return out
+
+    @staticmethod
+    def _pod_limits(pod: Any) -> tuple[float, float]:
+        """Return ``(cpu_limit_mCPU, memory_limit_bytes)`` for the pod
+        (summed across containers). Falls back to ``requests`` when
+        ``limits`` are not set on a container — same intent as the
+        Kyverno ``check-resource-limits`` policy on staging."""
+        spec = getattr(pod, "spec", None)
+        if spec is None:
+            return 0.0, 0.0
+        cpu_m = 0.0
+        mem_b = 0.0
+        for c in getattr(spec, "containers", None) or []:
+            resources = getattr(c, "resources", None)
+            limits = (
+                getattr(resources, "limits", None) if resources else None
+            ) or {}
+            requests = (
+                getattr(resources, "requests", None) if resources else None
+            ) or {}
+            cpu_raw = limits.get("cpu") or requests.get("cpu")
+            mem_raw = limits.get("memory") or requests.get("memory")
+            cpu_m += KubernetesTelemetryProvider._parse_cpu_millicores(cpu_raw)
+            mem_b += KubernetesTelemetryProvider._parse_memory_bytes(mem_raw)
+        return cpu_m, mem_b
+
     # ── pod → PodInfo adapter ────────────────────────────────────
 
     @classmethod
-    def _pod_to_info(cls, pod: Any) -> PodInfo:
+    def _pod_to_info(
+        cls,
+        pod: Any,
+        pod_metrics: Optional[Dict[str, tuple[float, float]]] = None,
+    ) -> PodInfo:
         metadata = getattr(pod, "metadata", None)
         spec = getattr(pod, "spec", None)
         status = getattr(pod, "status", None)
@@ -451,14 +582,24 @@ class KubernetesTelemetryProvider:
                 (datetime.now(timezone.utc) - creation_ts).total_seconds() / 3600
             )
 
+        cpu_pct = 0.0
+        memory_pct = 0.0
+        if pod_metrics is not None and name in pod_metrics:
+            used_cpu_m, used_mem_b = pod_metrics[name]
+            cpu_limit_m, mem_limit_b = cls._pod_limits(pod)
+            if cpu_limit_m > 0:
+                cpu_pct = round(100.0 * used_cpu_m / cpu_limit_m, 1)
+            if mem_limit_b > 0:
+                memory_pct = round(100.0 * used_mem_b / mem_limit_b, 1)
+
         return PodInfo(
             name=name,
             namespace=namespace,
             component=component,
             status=cls._classify_pod(pod),
             restarts=restarts,
-            cpu_pct=0.0,  # metrics-server / Prometheus integration TODO
-            memory_pct=0.0,
+            cpu_pct=cpu_pct,
+            memory_pct=memory_pct,
             age_hours=age_hours,
             image_sha=image_sha,
         )
@@ -527,10 +668,19 @@ class KubernetesTelemetryProvider:
                     extra={"slug": slug_clean, "namespace": ns, "error": str(exc)[:200]},
                 )
 
+        # Pull metrics-server stats per namespace in one shot so the
+        # per-pod adapter can fill cpu_pct / memory_pct without extra
+        # round-trips. Missing metrics (e.g. server still warming up
+        # for a brand-new pod) degrade gracefully to 0%.
+        metrics_by_ns: Dict[str, Dict[str, tuple[float, float]]] = {
+            ns: self._fetch_pod_metrics(ns) for ns in namespaces
+        }
+
         running = pending = crash = 0
         infos: List[PodInfo] = []
         for p in pods:
-            info = self._pod_to_info(p)
+            ns = getattr(getattr(p, "metadata", None), "namespace", "") or ""
+            info = self._pod_to_info(p, pod_metrics=metrics_by_ns.get(ns))
             infos.append(info)
             if info.status == self.STATUS_RUNNING:
                 running += 1
