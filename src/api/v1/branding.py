@@ -1,10 +1,11 @@
 """Tenant-wide branding endpoints.
 
-GET is open to every authenticated user — they need the config on app
-boot to render with the right primary color / logo / font.
+GET is OPEN (no auth) so the unauthenticated /login page can show
+the customer's logo + company name before the user signs in.
 PUT is owner-only.
 """
 
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,42 @@ from src.schemas.common import ErrorResponse
 from src.services.branding_service import BrandingService
 
 router = APIRouter()
+
+
+class PublicBrandingConfig(BaseModel):
+    """Subset of ``BrandingConfig`` safe to expose without auth.
+
+    Only the bits the /login page needs to render the company's
+    identity: ``logo_url`` + ``company_name``. We deliberately do NOT
+    surface the operator-controlled visuals (primary_color, radius,
+    font_family) — those should not leak before authentication so an
+    attacker can't fingerprint a tenant's plan via the visual config.
+    """
+
+    logo_url: str | None = None
+    company_name: str = "SkyFirstLabs"
+
+
+@router.get(
+    "/public",
+    response_model=PublicBrandingConfig,
+    status_code=status.HTTP_200_OK,
+    summary="Get tenant public branding (no auth)",
+    description=(
+        "Returns just the logo URL + company name for the currently-"
+        "resolved tenant. Used by /login (pre-auth) to render the "
+        "customer's identity before they sign in. Falls back to the "
+        "SkyFirst default when no tenant is resolved."
+    ),
+)
+async def get_public_branding(
+    db: AsyncSession = Depends(get_db_session),
+) -> PublicBrandingConfig:
+    full = await BrandingService(db).get()
+    return PublicBrandingConfig(
+        logo_url=full.logo_url,
+        company_name=full.company_name,
+    )
 
 
 @router.get(
