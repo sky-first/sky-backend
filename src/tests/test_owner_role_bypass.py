@@ -83,7 +83,7 @@ async def test_admin_cannot_delete_tenant(mock_db):
 
     with pytest.raises(ForbiddenError) as exc:
         await svc.assert_permission(admin, "tenant.delete")
-    assert "Owner" in str(exc.value)
+    assert "SuperAdmin" in str(exc.value)
 
 
 @pytest.mark.asyncio
