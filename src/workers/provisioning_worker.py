@@ -97,6 +97,13 @@ def _build_dispatch_payload(
     dispatch_token: str,
 ) -> dict[str, Any]:
     """Build the body for ``POST workflows/{wf}/dispatches``."""
+    # Pull admin_email out of the original request payload — the
+    # workflow's migrate Job uses it to seed the first human who can
+    # log in. Missing is fine (workflow defaults to admin@<slug>.local).
+    payload = job.request_payload or {}
+    admin_email = ""
+    if isinstance(payload, dict):
+        admin_email = str(payload.get("admin_email") or "").strip()
     return {
         "ref": ref,
         "inputs": {
@@ -105,6 +112,7 @@ def _build_dispatch_payload(
             "webhook_url": webhook_url,
             "webhook_secret": webhook_secret,
             "dispatch_token": dispatch_token,
+            "admin_email": admin_email,
         },
     }
 
