@@ -73,6 +73,10 @@ class TenantContext:
     # not have to re-query the platform DB on every login page hit.
     auth_methods: Dict[str, bool] = field(default_factory=dict)
     sso_provider: str = ""
+    # Operator-managed customer logo (data URL). Served unauthenticated
+    # via ``GET /api/v1/branding/public`` so the /login page renders
+    # the customer's identity before sign-in.
+    logo_url: str = ""
 
     @property
     def is_default(self) -> bool:

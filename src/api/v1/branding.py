@@ -6,7 +6,7 @@ PUT is owner-only.
 """
 
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
@@ -41,13 +41,30 @@ class PublicBrandingConfig(BaseModel):
     description=(
         "Returns just the logo URL + company name for the currently-"
         "resolved tenant. Used by /login (pre-auth) to render the "
-        "customer's identity before they sign in. Falls back to the "
+        "customer's identity before they sign in. Source of truth is "
+        "``tenant_registry`` on the platform DB — operators upload the "
+        "logo on the Console create / edit tenant form, the resolver "
+        "middleware copies it onto every request, and this endpoint "
+        "reads it back without a second round-trip. Falls back to the "
         "SkyFirst default when no tenant is resolved."
     ),
 )
 async def get_public_branding(
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> PublicBrandingConfig:
+    # 1. Operator-managed value on the platform tenant_registry (Model
+    #    B canonical path). When the resolver wired ``logo_url`` /
+    #    ``display_name`` onto the context, return them.
+    ctx = getattr(request.state, "tenant_context", None)
+    if ctx is not None and not getattr(ctx, "is_default", False):
+        logo = getattr(ctx, "logo_url", None) or None
+        company = getattr(ctx, "display_name", None) or "SkyFirstLabs"
+        return PublicBrandingConfig(logo_url=logo, company_name=company)
+
+    # 2. Legacy fallback: ``platform_branding`` table inside the
+    #    tenant DB. Used by tenants that pre-date the Console-managed
+    #    logo flow (no Tenant.logo_url set yet).
     full = await BrandingService(db).get()
     return PublicBrandingConfig(
         logo_url=full.logo_url,
