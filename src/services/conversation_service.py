@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from src.core.exceptions import ForbiddenError, NotFoundError
+from src.core.permissions import is_tenant_admin
 from src.models.conversation import Conversation
 from src.models.crew import CrewMember
 from src.models.space import SpaceMember
@@ -65,10 +66,10 @@ class ConversationService:
         return [row[0] for row in result.all()]
 
     async def _can_view(self, conv: Conversation, user: User) -> bool:
-        # Admins see everything (matches the existing admin bypass used by
-        # spaces / crews). This is intentional: Phase 1 does not introduce a
-        # separate "conversation admin" role.
-        if user.role == "admin":
+        # Tenant-level admins see everything (matches the existing admin
+        # bypass used by spaces / crews). This is intentional: Phase 1
+        # does not introduce a separate "conversation admin" role.
+        if is_tenant_admin(user):
             return True
         # Creator always sees their own conversations.
         if conv.created_by == user.id:
@@ -82,9 +83,9 @@ class ConversationService:
         return False
 
     def _can_mutate(self, conv: Conversation, user: User) -> bool:
-        # Only the creator (or admin) can rename / archive / delete. Member
-        # visibility does NOT grant mutation rights.
-        return user.role == "admin" or conv.created_by == user.id
+        # Only the creator (or tenant-level admin) can rename / archive /
+        # delete. Member visibility does NOT grant mutation rights.
+        return is_tenant_admin(user) or conv.created_by == user.id
 
     # ─── CRUD ────────────────────────────────────────────────────────────
 
@@ -343,7 +344,7 @@ class ConversationService:
         if not await self._can_view(conv, user):
             raise NotFoundError("Conversation not found")
         is_owner = conv.created_by == user.id
-        is_admin = user.role == "admin"
+        is_admin = is_tenant_admin(user)
         if not (is_owner or is_admin):
             raise ForbiddenError(
                 "Only the conversation owner or a platform admin can "

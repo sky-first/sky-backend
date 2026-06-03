@@ -39,7 +39,7 @@ async def test_loader_separates_preferred_org_certified_metrics(
     db_session: AsyncSession, test_user
 ):
     user = test_user["user"]
-    user.role = "owner"
+    user.role = "super_admin"
     db_session.add(user)
     await db_session.flush()
 
@@ -133,7 +133,7 @@ async def test_loader_includes_relationships(db_session: AsyncSession, test_user
 @pytest.mark.asyncio
 async def test_render_for_prompt_emits_certified_tag(db_session: AsyncSession, test_user):
     user = test_user["user"]
-    user.role = "owner"
+    user.role = "super_admin"
     db_session.add(user)
     await db_session.flush()
 

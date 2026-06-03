@@ -827,11 +827,10 @@ async def generate_invite(
         BadRequestError: If email already exists
     """
     from src.core.exceptions import ForbiddenError
+    from src.core.permissions import is_tenant_admin
 
-    # Tenant founder (super_admin) and admins can mint invites. ``owner``
-    # is kept as a legacy alias for super_admin during the 2026-06-03
-    # rename transition — see ``src/core/permissions.py``.
-    if current_user.role not in ("super_admin", "owner", "admin"):
+    # Tenant founder (super_admin) and admins can mint invites.
+    if not is_tenant_admin(current_user):
         raise ForbiddenError("Only admins can generate invite tokens")
 
     invite_service = InviteService(db)

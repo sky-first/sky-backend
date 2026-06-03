@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.agent_identity import resolve_identity_for_page
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
+from src.core.permissions import is_tenant_admin
 from src.models.agent import Agent
 from src.models.widget import Widget
 from src.models.user import User
@@ -66,7 +67,7 @@ class InsightAgentService:
         return agent
 
     def _can_mutate(self, agent: Agent, user: User) -> bool:
-        return user.role == "admin" or agent.created_by == user.id
+        return is_tenant_admin(user) or agent.created_by == user.id
 
     async def _load_widget_with_page(self, widget_id: UUID) -> tuple[Widget, "Page"]:
         from src.models.page import Page
@@ -141,9 +142,10 @@ class InsightAgentService:
 
     async def get(self, agent_id: UUID, user: User) -> Agent:
         agent = await self._get_or_404(agent_id)
-        # Viewable if: admin, or creator, or scope member. Membership check
-        # reuses the existing scope_id semantics (crew/space id string).
-        if user.role == "admin" or agent.created_by == user.id:
+        # Viewable if: tenant-level admin, or creator, or scope member.
+        # Membership check reuses the existing scope_id semantics
+        # (crew/space id string).
+        if is_tenant_admin(user) or agent.created_by == user.id:
             return agent
         # TODO when notification producer lands: allow crew/space members
         # to GET the agent details for transparency. For now, restrict

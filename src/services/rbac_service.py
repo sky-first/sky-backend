@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError
+from src.core.permissions import TENANT_ADMIN_ROLES, is_tenant_admin
 from src.models.space import SpaceMember
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
@@ -801,13 +802,14 @@ class RBACService:
         # everything EXCEPT those three — see assert_permission for the
         # enforcement-time split.
         #
-        # Compatibility: the historical name was ``owner`` for the same
-        # tenant-level role. The 2026-06-03 rename swapped it for
-        # ``super_admin`` to remove the ambiguity with the Space/Crew/Page
-        # ``owner`` membership role; we accept both strings here during the
-        # transition so an upgrade ordering issue doesn't 403 a customer.
-        TENANT_TOP_ROLES = ("super_admin", "owner")
-        if user.role in TENANT_TOP_ROLES or user.role == "admin":
+        # Tenant-level admins (super_admin + admin) bypass the granular
+        # crew/space matrix. The DB migration ``rename_role_20260603``
+        # already swapped any legacy ``owner`` tenant rows to
+        # ``super_admin``; this code path no longer needs to recognise
+        # ``owner`` at the tenant level (owner is now a Space/Crew/Page
+        # membership role only).
+        SUPER_ADMIN_ROLES = ("super_admin",)
+        if is_tenant_admin(user):
             logger.info(
                 "rbac.admin_bypass.effective_permissions user_id=%s role=%s crew_id=%s space_id=%s connection_id=%s",
                 getattr(user, "id", None),
@@ -820,10 +822,10 @@ class RBACService:
             merged = {}
             for role_map in DEFAULT_ROLE_PERMISSIONS.values():
                 merged.update({k: True for k in role_map.keys()})
-            # SuperAdmin-exclusive perms must be included for the top role;
-            # admin gets them as False so the assert_permission check can
-            # draw the line.
-            if user.role in TENANT_TOP_ROLES:
+            # Founder-exclusive perms only apply to ``super_admin``;
+            # ``admin`` gets them as False so the assert_permission check
+            # can draw the line.
+            if user.role in SUPER_ADMIN_ROLES:
                 merged["tenant.delete"] = True
                 merged["tenant.transfer_ownership"] = True
                 merged["billing.manage"] = True
@@ -946,9 +948,11 @@ class RBACService:
         OWNER_EXCLUSIVE_PERMS = SUPER_ADMIN_EXCLUSIVE_PERMS  # back-compat alias
 
         # SuperAdmin bypass: passes every permission, including the three
-        # exclusive ones above. Accept both ``super_admin`` (new) and
-        # ``owner`` (legacy) during the rename transition.
-        if user.role in ("super_admin", "owner"):
+        # exclusive ones above. After the 2026-06-03 DB migration the
+        # tenant founder role is canonically ``super_admin``; legacy
+        # ``owner`` rows were already converted in
+        # ``rename_role_20260603`` so we no longer need an alias here.
+        if user.role == "super_admin":
             await self._audit_decision(
                 user,
                 permission_key,

@@ -25,8 +25,8 @@ from fastapi.testclient import TestClient
 
 # Phase 7 vocabulary. The Space-axis roles are viewer/editor/owner; the
 # last two entries are platform-axis sentinels — `platform_admin`
-# (user.role == "admin") and `tenant_owner` (user.role == "owner") have
-# universal access regardless of their Space membership.
+# (user.role == "admin") and `tenant_owner` (user.role == "super_admin")
+# have universal access regardless of their Space membership.
 ROLES = ["viewer", "editor", "owner", "platform_admin", "tenant_owner"]
 ROLE_IDX = {r: i for i, r in enumerate(ROLES)}
 
@@ -80,12 +80,13 @@ async def seeded(db_session) -> dict:
     tokens: dict[str, str] = {}
 
     for role in ROLES:
-        # Map the test-fixture label to the user.role column. `tenant_owner`
-        # gets user.role="owner" (the platform-axis tenant founder); the
-        # Space-axis "owner" entry stays a member at the platform level
-        # and gains its privileges through the SpaceMember row.
+        # Map the test-fixture label to the user.role column.
+        # ``tenant_owner`` gets user.role="super_admin" (the platform-axis
+        # tenant founder); the Space-axis "owner" entry stays a member at
+        # the platform level and gains its privileges through the
+        # SpaceMember row.
         platform_role = (
-            "owner" if role == "tenant_owner"
+            "super_admin" if role == "tenant_owner"
             else "admin" if role == "platform_admin"
             else "member"
         )

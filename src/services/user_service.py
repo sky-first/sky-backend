@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
-from src.core.permissions import check_permission, get_user_permissions
+from src.core.permissions import check_permission, get_user_permissions, is_tenant_admin
 from src.core.security import get_password_hash
 from src.models.user import User
 from src.repositories.user import UserRepository
@@ -230,14 +230,14 @@ class UserService:
             raise NotFoundError("User not found")
 
         # Non-admin users can only update limited fields
-        if current_user.role != "admin" and user_id != current_user.id:
+        if not is_tenant_admin(current_user) and user_id != current_user.id:
             raise ForbiddenError("You can only update your own profile")
 
         # Update fields
         update_data = user_data.model_dump(exclude_unset=True)
 
         # Non-admin users cannot change role
-        if current_user.role != "admin" and "role" in update_data:
+        if not is_tenant_admin(current_user) and "role" in update_data:
             del update_data["role"]
 
         # Handle preferences specifically to merge instead of replace

@@ -13,7 +13,7 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: str = Field(default="user", pattern="^(super_admin|owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
+    role: str = Field(default="member", pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
 
 
 class UserCreate(UserBase):
@@ -36,7 +36,7 @@ class UserUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: Optional[str] = Field(None, pattern="^(super_admin|owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
+    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
     email_verified: Optional[bool] = None
     onboarding_step: Optional[int] = None
     onboarding_version: Optional[int] = None
@@ -337,14 +337,14 @@ class UserPermissionsResponse(BaseModel):
 class UserPermissionsUpdate(BaseModel):
     """User permissions update schema."""
 
-    role: str = Field(..., pattern="^(super_admin|owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
+    role: str = Field(..., pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
 
 
 class UserInviteRequest(BaseModel):
     """User invite request schema."""
 
     workspace_id: Optional[UUID] = None
-    role: Optional[str] = Field(None, pattern="^(super_admin|owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
+    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
 
 
 # Invite System Schemas
@@ -384,11 +384,14 @@ class InviteGenerateRequest(BaseModel):
     )
     # Tenant role the invitee gets after accepting. ``super_admin`` is
     # intentionally absent — that role is reserved for the tenant
-    # founder and is granted on tenant creation, not via invite.
+    # founder and is granted on tenant creation, not via invite. The
+    # legacy ``user`` alias was normalised to ``member`` by the
+    # ``rename_role_20260603`` migration, so the canonical taxonomy is
+    # now ``admin | member`` for invites.
     role: str = Field(
         default="member",
-        pattern=r"^(admin|member|user)$",
-        description="Tenant role for the invited user (admin, member). 'user' is a legacy alias for member.",
+        pattern=r"^(admin|member)$",
+        description="Tenant role for the invited user (admin or member).",
     )
 
 

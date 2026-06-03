@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
+from src.core.permissions import is_tenant_admin
 from src.models.conversation import Conversation, Message
 from src.models.user import User
 from src.models.widget import Widget
@@ -114,7 +115,7 @@ class MessageService:
         #   - kind='comment' → any viewer may post; never fires AI.
         kind = payload.kind or "question"
         if kind == "question":
-            if conv.created_by != user.id and user.role != "admin":
+            if conv.created_by != user.id and not is_tenant_admin(user):
                 # Mirror "owner gates AI re-runs in that thread" from
                 # the chat-threads-master-plan. Non-owners must post
                 # comments instead, which the FE renders as the "Leave
@@ -225,7 +226,7 @@ class MessageService:
         broadcast.
         """
         conv = await self._load_viewable_conversation(conversation_id, user)
-        if conv.created_by != user.id and user.role != "admin":
+        if conv.created_by != user.id and not is_tenant_admin(user):
             raise ForbiddenError("Only the conversation owner can fire an Ask-AI bundle")
 
         pending = await self.repo.list_pending_comments(conversation_id=conversation_id)
