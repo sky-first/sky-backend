@@ -22,7 +22,10 @@ from src.models.user import User
 # defined as "founder seat above admin" in ADR-002 and must see/do
 # anything admin can plus the OWNER_EXCLUSIVE_PERMISSIONS in the
 # frontend catalogue.
-_BYPASS_ROLES = ("owner", "admin")
+# ``owner`` is kept as a legacy alias for ``super_admin`` during the
+# 2026-06-03 rename transition. Both names refer to the tenant founder
+# role; ``check_permission`` lets either bypass every granular gate.
+_BYPASS_ROLES = ("super_admin", "owner", "admin")
 
 # Permission definitions. Each allowed-role list MUST include `owner`
 # wherever it includes `admin`; otherwise the Owner user is denied by
