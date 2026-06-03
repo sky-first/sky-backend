@@ -828,8 +828,10 @@ async def generate_invite(
     """
     from src.core.exceptions import ForbiddenError
 
-    # Check if user is admin
-    if current_user.role != "admin":
+    # Tenant founder (super_admin) and admins can mint invites. ``owner``
+    # is kept as a legacy alias for super_admin during the 2026-06-03
+    # rename transition — see ``src/core/permissions.py``.
+    if current_user.role not in ("super_admin", "owner", "admin"):
         raise ForbiddenError("Only admins can generate invite tokens")
 
     invite_service = InviteService(db)
@@ -838,6 +840,7 @@ async def generate_invite(
         email=invite_data.email,
         expires_days=invite_data.expires_days,
         name=invite_data.name,
+        role=invite_data.role,
     )
 
     # Get expiration date
