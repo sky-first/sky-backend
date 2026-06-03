@@ -59,6 +59,7 @@ class InviteService:
         email: str,
         expires_days: int = 7,
         name: Optional[str] = None,
+        role: str = "member",
     ) -> str:
         """
         Create an invite for a new user.
@@ -68,6 +69,7 @@ class InviteService:
             email: Email of the user to invite
             expires_days: Number of days until invite expires (default: 7)
             name: Optional name for the invited user
+            role: Tenant role for the invited user (default: "member")
 
         Returns:
             str: Generated invite token
@@ -94,7 +96,7 @@ class InviteService:
             email=email,
             password_hash=password_hash,
             name=name or email.split("@")[0],
-            role="user",
+            role=role,
             invite_token=token,
             invite_expires_at=expires_at,
             invited_by=invited_by.id,
