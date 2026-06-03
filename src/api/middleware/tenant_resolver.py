@@ -193,6 +193,7 @@ async def _load_tenant_from_db(slug: str) -> Optional[TenantContext]:
         capacity_limits=dict(row.capacity_limits or {}),
         auth_methods=dict(row.auth_methods or {}),
         sso_provider=row.sso_provider or "",
+        logo_url=row.logo_url or "",
     )
 
 

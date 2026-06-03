@@ -27,6 +27,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -139,6 +140,11 @@ class Tenant(Base):
 
     # ── Branding ─────────────────────────────────────────────────
     custom_domain = Column(String(255), nullable=True)
+    # Operator-managed customer logo. Stored as a data URL (base64
+    # PNG/SVG inline) so the read path is a single registry lookup.
+    # ``/api/v1/branding/public`` returns this for the resolved
+    # tenant so the customer's /login page shows their own brand.
+    logo_url = Column(Text, nullable=True)
 
     # ── Capability flags + capacity bookkeeping ──────────────────
     feature_flags = Column(_JSONB_OR_JSON, nullable=False, default=dict)

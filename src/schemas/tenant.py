@@ -86,6 +86,10 @@ class TenantBase(BaseModel):
     sso_config: Dict[str, Any] = Field(default_factory=dict)
     sso_domain_restriction: Optional[str] = Field(None, max_length=100)
     custom_domain: Optional[str] = Field(None, max_length=255)
+    # Operator-managed customer logo (data URL). Surfaced unauthenticated
+    # by ``GET /api/v1/branding/public`` so the /login page renders the
+    # customer's identity before sign-in.
+    logo_url: Optional[str] = Field(None)
     feature_flags: Dict[str, Any] = Field(default_factory=dict)
     capacity_limits: CapacityDimensions = Field(
         default_factory=lambda: CapacityDimensions(**DEFAULT_CAPACITY_SHAPE)
@@ -125,6 +129,7 @@ class TenantUpdate(BaseModel):
     sso_config: Optional[Dict[str, Any]] = None
     sso_domain_restriction: Optional[str] = Field(None, max_length=100)
     custom_domain: Optional[str] = Field(None, max_length=255)
+    logo_url: Optional[str] = Field(None)
     feature_flags: Optional[Dict[str, Any]] = None
     capacity_limits: Optional[CapacityDimensions] = None
     auth_methods: Optional[AuthMethods] = None

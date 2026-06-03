@@ -210,6 +210,7 @@ async def create_tenant(
         sso_config=body["sso_config"],
         sso_domain_restriction=body.get("sso_domain_restriction"),
         custom_domain=body.get("custom_domain"),
+        logo_url=body.get("logo_url"),
         feature_flags=body["feature_flags"],
         capacity_limits=body["capacity_limits"] if isinstance(body["capacity_limits"], dict)
         else body["capacity_limits"].model_dump(),
