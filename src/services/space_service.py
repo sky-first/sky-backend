@@ -60,7 +60,7 @@ class SpaceService:
         Anything outside that triple is treated as below-floor and
         denied — callers must speak Phase 7 vocabulary.
         """
-        if user.role in ("admin", "owner"):
+        if user.role in ("admin", "owner", "super_admin"):
             return
         member = await self.member_repo.get_by_space_and_user(space_id, user.id)
         if not member:
@@ -94,7 +94,7 @@ class SpaceService:
         """
         try:
             is_admin_like = (
-                getattr(user, "role", None) in ("admin", "owner")
+                getattr(user, "role", None) in ("admin", "owner", "super_admin")
                 or getattr(user, "is_sky_operator", False)
             )
             if is_admin_like:
@@ -147,7 +147,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id and user.role not in ("admin", "owner"):
+        if space.created_by != user.id and user.role not in ("admin", "owner", "super_admin"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
                 # Phase 2.5 — Crew membership inside the Space also
@@ -307,7 +307,7 @@ class SpaceService:
             )
         else:
             # Production mode: only admin or owner can delete
-            if user.role not in ("admin", "owner") and space.created_by != user.id:
+            if user.role not in ("admin", "owner", "super_admin") and space.created_by != user.id:
                 raise ForbiddenError("Access denied to this space")
 
         # C6: end every agent scoped to this space before cascade-deleting.
@@ -377,7 +377,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id and user.role not in ("admin", "owner"):
+        if space.created_by != user.id and user.role not in ("admin", "owner", "super_admin"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
                 # Phase 2.5 — Crew membership inside the Space also
@@ -504,7 +504,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id and user.role not in ("admin", "owner"):
+        if space.created_by != user.id and user.role not in ("admin", "owner", "super_admin"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
                 # Phase 2.5 — Crew membership inside the Space also
@@ -677,7 +677,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != current_user.id and current_user.role not in ("admin", "owner"):
+        if space.created_by != current_user.id and current_user.role not in ("admin", "owner", "super_admin"):
             raise ForbiddenError("Access denied to this space")
 
         # Check if member exists
@@ -732,7 +732,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id and user.role not in ("admin", "owner"):
+        if space.created_by != user.id and user.role not in ("admin", "owner", "super_admin"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
                 # Phase 2.5 — Crew membership inside the Space also
@@ -974,7 +974,7 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id and user.role not in ("admin", "owner"):
+        if space.created_by != user.id and user.role not in ("admin", "owner", "super_admin"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
                 # Phase 2.5 — Crew membership inside the Space also

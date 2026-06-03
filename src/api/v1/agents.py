@@ -103,7 +103,7 @@ async def _assert_can_act_on_agent_scope(
 
     if scope_lower == "personal":
         platform = (user.role or "").lower()
-        if platform in ("owner", "admin"):
+        if platform in ("owner", "admin", "super_admin"):
             return
         try:
             owner_id = UUID(str(scope_id))
@@ -164,7 +164,7 @@ async def list_agents(
     # unfiltered path for them. Scoped requests (space / crew) keep
     # the existing access-checked behaviour because the scope filter
     # itself constrains the visibility set.
-    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
     if not scope and not is_org_admin:
         return await service.list_agents(scope=None, scope_id=None, created_by=current_user.id)
     return await service.list_agents(scope=scope, scope_id=scope_id, created_by=None)
@@ -216,7 +216,7 @@ async def create_agent(
 
     _max = _settings.DEMO_MAX_AGENTS_PER_USER if _settings.DEMO_ENABLED else 0
     _role = (current_user.role or "").lower()
-    if _max > 0 and _role not in ("owner", "admin"):
+    if _max > 0 and _role not in ("owner", "admin", "super_admin"):
         _count_result = await db.execute(
             select(func.count()).select_from(Agent).where(
                 Agent.created_by == current_user.id,
@@ -782,7 +782,7 @@ async def list_all_insights(
     await RBACService(db).assert_permission(current_user, "agents.findings.view")
     from sqlalchemy.orm import selectinload
 
-    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
 
     query = select(Agent)
     if scope:
@@ -878,7 +878,7 @@ async def get_agent_metrics(
     # for personal agents (matching ``scope_id`` against the caller),
     # but the legacy ``created_by`` IDOR guard stays as a second layer
     # in case a personal agent ever lands with a stale ``scope_id``.
-    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
     if (
         agent_pre.scope == "personal"
         and not is_org_admin
@@ -999,7 +999,7 @@ async def get_tenant_agent_metrics(
     from datetime import datetime, timezone
     from src.models.agent import AgentExecution
 
-    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
     agent_query = select(Agent)
     if not is_org_admin:
         from src.models.space import SpaceMember

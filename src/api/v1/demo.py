@@ -95,7 +95,7 @@ async def extend_demo_user(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    if current_user.role not in ("owner", "admin"):
+    if current_user.role not in ("owner", "admin", "super_admin"):
         raise ForbiddenError(
             "Only the tenant Owner or an Admin can extend a demo TTL."
         )
@@ -181,7 +181,7 @@ async def reseed_space(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    if current_user.role not in ("owner", "admin"):
+    if current_user.role not in ("owner", "admin", "super_admin"):
         raise ForbiddenError(
             "Only the tenant Owner or an Admin can reseed a demo Space."
         )

@@ -45,7 +45,7 @@ class CrewService:
 
     async def _assert_crew_read_access(self, space_id: UUID, crew_id: UUID, user: User) -> None:
         """Allow admin/owner, space creator, space member, or crew member to read crew data."""
-        if user.role in ("admin", "owner"):
+        if user.role in ("admin", "owner", "super_admin"):
             return
         space = await self.space_repo.get_by_id(space_id)
         if space and space.created_by == user.id:
@@ -58,7 +58,7 @@ class CrewService:
 
     async def _assert_crew_write_access(self, space_id: UUID, user: User) -> None:
         """Allow only admin/owner or space creator to mutate crew data."""
-        if user.role in ("admin", "owner"):
+        if user.role in ("admin", "owner", "super_admin"):
             return
         space = await self.space_repo.get_by_id(space_id)
         if not space or space.created_by != user.id:
@@ -95,7 +95,7 @@ class CrewService:
             # the user-scoped variant: org admins/owners still get the
             # full list; everyone else sees only crews they belong to
             # (directly) or whose parent Space they belong to.
-            is_org_admin = (user.role or "").lower() in ("owner", "admin")
+            is_org_admin = (user.role or "").lower() in ("owner", "admin", "super_admin")
             crews_data = await self.crew_repo.get_visible_with_stats(
                 user_id=user.id,
                 is_org_admin=is_org_admin,
@@ -147,7 +147,7 @@ class CrewService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if user.role not in ("admin", "owner") and space.created_by != user.id:
+        if user.role not in ("admin", "owner", "super_admin") and space.created_by != user.id:
             # Check space membership for non-admin, non-creator users
             from sqlalchemy import select
 

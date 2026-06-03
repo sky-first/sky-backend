@@ -790,16 +790,24 @@ class RBACService:
                 permissions={},
             )
 
-        # Customer Owners and Admins bypass crew-level checks. This is the
-        # temporary behavior — the Sky Support JIT migration replaces this
-        # with the consent flow. Until then, log the bypass so operators can
-        # audit post-hoc via application logs.
+        # Customer SuperAdmins and Admins bypass crew-level checks. This is
+        # the temporary behavior — the Sky Support JIT migration replaces
+        # this with the consent flow. Until then, log the bypass so operators
+        # can audit post-hoc via application logs.
         #
-        # Owner vs Admin: Owner is the tenant founder (single seat). Owner
-        # passes EVERY permission, including tenant.delete / billing.manage /
-        # tenant.transfer_ownership. Admin passes everything EXCEPT those
-        # three — see assert_permission for the enforcement-time split.
-        if user.role in ("admin", "owner"):
+        # SuperAdmin vs Admin: SuperAdmin is the tenant founder (single seat).
+        # SuperAdmin passes EVERY permission, including tenant.delete,
+        # billing.manage and tenant.transfer_ownership. Admin passes
+        # everything EXCEPT those three — see assert_permission for the
+        # enforcement-time split.
+        #
+        # Compatibility: the historical name was ``owner`` for the same
+        # tenant-level role. The 2026-06-03 rename swapped it for
+        # ``super_admin`` to remove the ambiguity with the Space/Crew/Page
+        # ``owner`` membership role; we accept both strings here during the
+        # transition so an upgrade ordering issue doesn't 403 a customer.
+        TENANT_TOP_ROLES = ("super_admin", "owner")
+        if user.role in TENANT_TOP_ROLES or user.role == "admin":
             logger.info(
                 "rbac.admin_bypass.effective_permissions user_id=%s role=%s crew_id=%s space_id=%s connection_id=%s",
                 getattr(user, "id", None),
@@ -812,10 +820,10 @@ class RBACService:
             merged = {}
             for role_map in DEFAULT_ROLE_PERMISSIONS.values():
                 merged.update({k: True for k in role_map.keys()})
-            # Owner-exclusive perms must be included when the role is owner;
+            # SuperAdmin-exclusive perms must be included for the top role;
             # admin gets them as False so the assert_permission check can
             # draw the line.
-            if user.role == "owner":
+            if user.role in TENANT_TOP_ROLES:
                 merged["tenant.delete"] = True
                 merged["tenant.transfer_ownership"] = True
                 merged["billing.manage"] = True
@@ -926,40 +934,44 @@ class RBACService:
             )
             raise ForbiddenError("Sky support access requires an active JIT consent session")
 
-        # Owner-exclusive permissions — only the tenant Owner can run these,
-        # regardless of their crew role or the admin bypass.
-        OWNER_EXCLUSIVE_PERMS = {
+        # SuperAdmin-exclusive permissions — only the tenant SuperAdmin can
+        # run these, regardless of their crew role or the admin bypass.
+        # Historical name: ``OWNER_EXCLUSIVE_PERMS``. Kept the alias so any
+        # external import still resolves.
+        SUPER_ADMIN_EXCLUSIVE_PERMS = {
             "tenant.delete",
             "tenant.transfer_ownership",
             "billing.manage",
         }
+        OWNER_EXCLUSIVE_PERMS = SUPER_ADMIN_EXCLUSIVE_PERMS  # back-compat alias
 
-        # Owner bypass: owner passes every permission, including the three
-        # owner-exclusive ones above.
-        if user.role == "owner":
+        # SuperAdmin bypass: passes every permission, including the three
+        # exclusive ones above. Accept both ``super_admin`` (new) and
+        # ``owner`` (legacy) during the rename transition.
+        if user.role in ("super_admin", "owner"):
             await self._audit_decision(
                 user,
                 permission_key,
                 "allow",
-                "owner_bypass",
+                "super_admin_bypass",
                 resource_kind=resource_kind,
                 resource_id=resource_id,
             )
             return
 
-        # Admin bypass: passes everything EXCEPT owner-exclusive perms.
+        # Admin bypass: passes everything EXCEPT super_admin-exclusive perms.
         if user.role == "admin":
-            if permission_key in OWNER_EXCLUSIVE_PERMS:
+            if permission_key in SUPER_ADMIN_EXCLUSIVE_PERMS:
                 await self._audit_decision(
                     user,
                     permission_key,
                     "deny",
-                    "admin_cannot_grant_owner_exclusive",
+                    "admin_cannot_grant_super_admin_exclusive",
                     resource_kind=resource_kind,
                     resource_id=resource_id,
                 )
                 raise ForbiddenError(
-                    f"Permission '{permission_key}' is reserved for the tenant Owner"
+                    f"Permission '{permission_key}' is reserved for the tenant SuperAdmin"
                 )
             await self._audit_decision(
                 user,

@@ -24,7 +24,9 @@ from src.models.user_permission_grant import (
 
 
 def _is_owner(user: User) -> bool:
-    return (user.role or "").lower() == "owner"
+    # Accept both the historical ``owner`` and the new ``super_admin``
+    # name during the 2026-06-03 rename transition.
+    return (user.role or "").lower() in ("owner", "super_admin")
 
 
 class PermissionGrantService:

@@ -95,10 +95,11 @@ async def update_branding(
 ) -> BrandingConfig:
     # Branding is a tenant-wide visual choice — admins might be a Sky
     # Labs operator (impersonating, auditing) so we deliberately keep
-    # this Owner-exclusive rather than admin-or-owner.
-    if current_user.role != "owner":
+    # this SuperAdmin-exclusive rather than admin-or-above. ``owner`` is
+    # accepted for back-compat during the 2026-06-03 role rename.
+    if current_user.role not in ("super_admin", "owner"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the tenant owner can change branding.",
+            detail="Only the tenant SuperAdmin can change branding.",
         )
     return await BrandingService(db).update(current_user, patch)

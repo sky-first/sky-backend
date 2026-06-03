@@ -251,7 +251,7 @@ class KnowledgeService:
         # owner's "personal" knowledge ends up reviewed before any AI
         # ever cites it. The audit trail in audit_events plus the
         # KnowledgeSourceFlag popover then carry the proveniência forward.
-        is_platform_approver = (getattr(user, "role", None) in ("owner", "admin"))
+        is_platform_approver = (getattr(user, "role", None) in ("owner", "admin", "super_admin"))
         new_status = "processing" if is_platform_approver else "pending_approval"
 
         await self.file_repo.update(file_id, status=new_status, sha256_hash=sha256_hash)
@@ -287,9 +287,9 @@ class KnowledgeService:
         if not file or file.deleted_at:
             raise NotFoundError("File not found.")
 
-        if getattr(user, "role", None) not in ("owner", "admin"):
+        if getattr(user, "role", None) not in ("owner", "admin", "super_admin"):
             raise ForbiddenError(
-                "Only platform Owner or Admin can approve Knowledge Library uploads."
+                "Only platform SuperAdmin or Admin can approve Knowledge Library uploads."
             )
 
         if file.status != "pending_approval":
