@@ -109,10 +109,17 @@ class EmailService:
         * Single CTA button — rendered as a styled ``<a>`` so it shows
           even when "display images" is off.
 
-        Brand: deep navy ``#0F172A`` background band + Sky cyan
-        ``#38BDF8`` CTA. The logotype is rendered as text rather than
-        an ``<img>`` so the email stays self-contained (no remote asset
-        fetch, no broken-image fallback).
+        Brand: black ``#1b1b1b`` header band with gold ``#fbbf24``
+        (amber-400, the canonical brand primary used across the
+        product) logotype + gold CTA on black text. The logotype is
+        rendered as text rather than an ``<img>`` so the email stays
+        self-contained — no remote asset fetch, no broken-image
+        fallback when corporate firewalls block the image.
+
+        ``inviter_name`` is whatever the caller passes — the same
+        template ships to every tenant, so the only thing
+        customer-specific in the body is the person doing the
+        inviting and the workspace name.
         """
         # ``APP_NAME`` defaults to "Sky" in src/config/settings.py; the
         # template embeds it everywhere the word would otherwise be
@@ -137,7 +144,7 @@ class EmailService:
     <meta name="supported-color-schemes" content="light only">
     <title>{subject}</title>
   </head>
-  <body style="margin:0; padding:0; background-color:#F1F5F9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; color:#0F172A;">
+  <body style="margin:0; padding:0; background-color:#F1F5F9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; color:#1b1b1b;">
     <!-- Pre-header (hidden, but read by inbox preview) -->
     <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#F1F5F9;">
       {preheader}
@@ -150,11 +157,11 @@ class EmailService:
 
             <!-- Brand band -->
             <tr>
-              <td align="center" style="background:linear-gradient(135deg,#0F172A 0%,#1E3A5F 60%,#1E40AF 100%); padding:32px 24px;">
-                <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; font-size:24px; font-weight:700; letter-spacing:6px; color:#F8FAFC;">
+              <td align="center" bgcolor="#1b1b1b" style="background-color:#1b1b1b; padding:36px 24px;">
+                <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; font-size:28px; font-weight:800; letter-spacing:8px; color:#FBBF24;">
                   {app_name.upper()}
                 </div>
-                <div style="margin-top:6px; font-size:10px; font-weight:600; letter-spacing:3px; color:#7DD3FC; text-transform:uppercase;">
+                <div style="margin-top:8px; font-size:10px; font-weight:600; letter-spacing:3px; color:#FBBF24; opacity:0.7; text-transform:uppercase;">
                   Enterprise Collective Intelligence
                 </div>
               </td>
@@ -163,7 +170,7 @@ class EmailService:
             <!-- Body -->
             <tr>
               <td style="padding:40px 40px 8px 40px;">
-                <h1 style="margin:0 0 16px 0; font-size:22px; line-height:30px; font-weight:700; color:#0F172A;">
+                <h1 style="margin:0 0 16px 0; font-size:22px; line-height:30px; font-weight:700; color:#1b1b1b;">
                   You&rsquo;re invited to {app_name}
                 </h1>
                 <p style="margin:0 0 16px 0; font-size:15px; line-height:24px; color:#334155;">
@@ -176,14 +183,14 @@ class EmailService:
               </td>
             </tr>
 
-            <!-- CTA -->
+            <!-- CTA: brand gold on black text -->
             <tr>
               <td align="center" style="padding:0 40px 32px 40px;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                   <tr>
-                    <td align="center" bgcolor="#0F172A" style="border-radius:10px;">
+                    <td align="center" bgcolor="#FBBF24" style="border-radius:10px;">
                       <a href="{invite_link}" target="_blank"
-                         style="display:inline-block; padding:14px 28px; font-size:14px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#F8FAFC; text-decoration:none; border-radius:10px;">
+                         style="display:inline-block; padding:14px 28px; font-size:14px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:#1b1b1b; text-decoration:none; border-radius:10px;">
                         Accept invitation
                       </a>
                     </td>
@@ -198,8 +205,8 @@ class EmailService:
                 <p style="margin:0 0 12px 0; font-size:12px; line-height:18px; color:#64748B;">
                   Button not working? Copy and paste this link into your browser:
                 </p>
-                <p style="margin:0 0 24px 0; font-size:12px; line-height:18px; color:#1E40AF; word-break:break-all;">
-                  <a href="{invite_link}" style="color:#1E40AF; text-decoration:underline;">{invite_link}</a>
+                <p style="margin:0 0 24px 0; font-size:12px; line-height:18px; color:#D97706; word-break:break-all;">
+                  <a href="{invite_link}" style="color:#D97706; text-decoration:underline;">{invite_link}</a>
                 </p>
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #E2E8F0;">
                   <tr>
@@ -219,7 +226,7 @@ class EmailService:
               <td align="center" style="background-color:#F8FAFC; padding:24px 40px;">
                 <p style="margin:0; font-size:11px; line-height:16px; color:#94A3B8;">
                   Sent by {app_name} on behalf of {inviter_name}.<br>
-                  &copy; Sky First Labs &mdash; Special Option LDA
+                  &copy; Sky First Labs
                 </p>
               </td>
             </tr>
@@ -245,5 +252,4 @@ class EmailService:
             f"\n"
             f"— Sky First Labs\n"
         )
-
         return self.send_email(to_email, subject, html_content, text_content)
