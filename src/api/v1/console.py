@@ -520,6 +520,39 @@ async def rerun_job(
     return ProvisioningJobRead.model_validate(job)
 
 
+@router.post(
+    "/jobs/{job_id}/mark-operational",
+    response_model=ProvisioningJobRead,
+    summary="Mark a provisioning job as manually completed",
+    description=(
+        "Use when the workflow itself ended in failure but the tenant is "
+        "actually live and reachable — e.g. the migrate Job took longer "
+        "than the workflow's wait but the alembic upgrade succeeded, and "
+        "an operator finished the remaining steps by hand. Sets the job "
+        "status to ``manually_completed`` and appends a synthetic event "
+        "with the actor's name so the audit trail tells the truth."
+    ),
+)
+async def mark_job_operational(
+    job_id: str,
+    request: Request,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> ProvisioningJobRead:
+    try:
+        job = await console_service.mark_job_operational(
+            db, job_id, actor_email=user.email
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if msg == "not_found":
+            raise HTTPException(status_code=404, detail="job not found")
+        if msg in ("already_completed", "not_failed"):
+            raise HTTPException(status_code=409, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+    return ProvisioningJobRead.model_validate(job)
+
+
 # ── Local helpers ──────────────────────────────────────────────────
 
 
