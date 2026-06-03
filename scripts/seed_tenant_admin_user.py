@@ -76,33 +76,33 @@ async def main() -> int:
             existing = (
                 await session.execute(select(User).where(User.email == email))
             ).scalar_one_or_none()
-            # First-user-of-a-tenant lands as ``admin`` — the tenant-level
-            # role that can invite other users, edit tenant settings, and
-            # manage everything that's not a Sky-engineering action.
-            # ``owner`` looks like the top role at first glance but in
-            # this codebase it's a CREW role (pages/widgets/comments) and
-            # explicitly cannot manage users (rbac_service.py, ADR-002).
-            # If we ever rename roles, fix this script in lockstep.
+            # First-user-of-a-tenant lands as ``super_admin`` — the tenant
+            # founder. They get the full bypass (billing.manage,
+            # tenant.delete, tenant.transfer_ownership) on top of the
+            # admin powers. The 2026-06-03 rename moved this role from
+            # ``owner`` (which collided with the Space/Crew/Page member
+            # ``owner``) to ``super_admin``. See
+            # ``skyfirst-role-taxonomy`` memory for the full table.
             if existing is not None:
                 existing.password_hash = get_password_hash(password)
                 if not existing.role:
-                    existing.role = "admin"
+                    existing.role = "super_admin"
                 existing.email_verified = True
                 existing.has_completed_onboarding = True
                 await session.commit()
-                print(f"  [OK] tenant admin {email!r} refreshed (role={existing.role})")
+                print(f"  [OK] tenant super_admin {email!r} refreshed (role={existing.role})")
             else:
                 user = User(
                     email=email,
                     password_hash=get_password_hash(password),
                     name=name,
-                    role="admin",
+                    role="super_admin",
                     email_verified=True,
                     has_completed_onboarding=True,
                 )
                 session.add(user)
                 await session.commit()
-                print(f"  [OK] tenant admin {email!r} created (role=admin)")
+                print(f"  [OK] tenant super_admin {email!r} created (role=super_admin)")
     finally:
         await engine.dispose()
     return 0
