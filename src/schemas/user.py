@@ -100,8 +100,21 @@ class DemoDataRemovedResponse(BaseModel):
 
 
 class UserResponse(UserBase):
-    """User response schema."""
+    """User response schema.
 
+    Read-side override: ``role`` accepts the legacy ``user`` / ``owner``
+    strings in addition to the canonical taxonomy. The DB migration
+    ``rename_role_20260603`` normalised production data, but test
+    fixtures and any not-yet-migrated SaaS deployment may still carry
+    legacy values — we don't want to 500 on serialise. Writes
+    (``UserCreate``, ``UserUpdate``) keep the tight ``UserBase``
+    pattern, so new rows still land with the clean taxonomy.
+    """
+
+    role: str = Field(
+        default="member",
+        pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$",
+    )
     id: UUID
     email_verified: bool
     email_verified_at: Optional[datetime] = None
