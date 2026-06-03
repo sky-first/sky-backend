@@ -64,11 +64,11 @@ async def get_insights_analytics(
     # Same gate used by branding.py and tenant_plan.py: this surface
     # carries the upgrade-conversation framing, which is the org's
     # tomador-de-decisão's territory, not the day-to-day operator's.
-    if current_user.role != "owner":
+    if current_user.role not in ("super_admin", "owner"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "Insights Analytics is reserved for the platform Owner. "
+                "Insights Analytics is reserved for the platform SuperAdmin. "
                 "Use /me/beats for personal usage."
             ),
         )
