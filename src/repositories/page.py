@@ -50,13 +50,19 @@ class PageRepository(BaseRepository[Page]):
         Returns:
             Optional[Page]: Active page or None
         """
-        # First try to find page where user is owner and is_active = True
+        # First try to find page where user is owner and is_active = True.
+        # ORDER BY + LIMIT 1 makes the result deterministic in the rare case
+        # where multiple rows have is_active=True (e.g. after a failed
+        # deactivation during a mode switch), always preferring the most
+        # recently accessed one.
         result = await self.db.execute(
             select(Page).where(
                 Page.owner_id == user_id,
                 Page.is_active == True,  # noqa: E712
                 Page.deleted_at.is_(None),
             )
+            .order_by(Page.last_accessed.desc().nulls_last())
+            .limit(1)
             # Page-consolidation (2026-05-20): Page IS the canvas now,
             # so Page.dashboards collection is gone. Only Page.members
             # remains as a relationship to eager-load.
