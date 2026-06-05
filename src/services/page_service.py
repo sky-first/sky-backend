@@ -22,7 +22,7 @@ def _deep_copy_json(value: Any) -> Any:
 
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.core.permissions import is_tenant_admin
-from src.models.page import Page
+from src.models.page import Page, PageMember
 from src.models.user import User
 from src.repositories.page import PageMemberRepository, PageRepository
 from src.repositories.widget import WidgetRepository
@@ -524,11 +524,23 @@ class PageService:
                 else:
                     raise NotFoundError("Page not found")
 
-        # Deactivate all other pages for this user
-        from sqlalchemy import update
+        # Deactivate all other pages for this user.
+        # Two passes are needed: owned pages (owner_id filter) and shared pages
+        # the user can access via PageMember. Without the second pass, a shared
+        # page where owner_id != user.id remains is_active=True after switching
+        # to a personal page, which causes get_active_page() to return the wrong
+        # mode on the next AI request.
+        from sqlalchemy import update, select as sa_select
 
         await self.db.execute(
             update(Page).where(Page.owner_id == user.id, Page.id != page_id).values(is_active=False)
+        )
+        shared_page_ids = sa_select(PageMember.page_id).where(PageMember.user_id == user.id)
+        await self.db.execute(
+            update(Page).where(
+                Page.id.in_(shared_page_ids),
+                Page.id != page_id,
+            ).values(is_active=False)
         )
 
         # Activate this page
