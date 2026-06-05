@@ -195,7 +195,15 @@ def _normalize_rows(rows):
 
 
 def _infer_viz_kind(response, answer: str) -> str:
-    rows = (response or {}).get("data") if isinstance(response, dict) else None
+    # The AI service returns the SQL result rows under `data_sample`
+    # (a list of row dicts, capped at 15). Earlier code read `data`, a
+    # key the AI QueryResponse never sets — so `rows` was always None and
+    # every finding fell through to a text viz_kind ("callout"/"kpi")
+    # regardless of the underlying data. Prefer `data_sample`; keep `data`
+    # as a fallback for any caller that still uses the old shape.
+    rows = None
+    if isinstance(response, dict):
+        rows = response.get("data_sample") or response.get("data")
     cols, data = _normalize_rows(rows)
 
     title = ""
@@ -540,7 +548,15 @@ async def _execute_agent_async(agent_id: str):
                             response=response if isinstance(response, dict) else None,
                             answer=answer,
                         )
-                        raw_data = response.get("data") if isinstance(response, dict) else None
+                        # Result rows live under `data_sample` on the AI
+                        # QueryResponse (not `data`) — see _infer_viz_kind.
+                        # Without this the finding shipped with rows=None and
+                        # the Pulse card rendered as text instead of a chart.
+                        raw_data = (
+                            (response.get("data_sample") or response.get("data"))
+                            if isinstance(response, dict)
+                            else None
+                        )
                         cols, data = _normalize_rows(raw_data)
                         rows_payload = {"columns": cols, "data": data} if cols and data else None
                         finding = AgentFinding(
