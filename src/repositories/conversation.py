@@ -24,6 +24,7 @@ class ConversationRepository(BaseRepository[Conversation]):
         created_by: UUID,
         space_id: Optional[UUID] = None,
         crew_id: Optional[UUID] = None,
+        session_id: Optional[UUID] = None,
         title: Optional[str] = None,
     ) -> Conversation:
         # Explicit microsecond timestamps. The server_default
@@ -37,6 +38,7 @@ class ConversationRepository(BaseRepository[Conversation]):
             page_id=page_id,
             space_id=space_id,
             crew_id=crew_id,
+            session_id=session_id,
             created_by=created_by,
             title=title,
             created_at=now,
@@ -54,6 +56,7 @@ class ConversationRepository(BaseRepository[Conversation]):
         user_id: UUID,
         user_space_ids: List[UUID],
         user_crew_ids: List[UUID],
+        session_id: Optional[UUID] = None,
         include_archived: bool = False,
         limit: int = 20,
         cursor: Optional[datetime] = None,
@@ -65,8 +68,13 @@ class ConversationRepository(BaseRepository[Conversation]):
           - personal (no space_id, no crew_id) → only if created_by == user
           - space-scoped → if space_id in user_space_ids
           - crew-scoped → if crew_id in user_crew_ids
+
+        When ``session_id`` is given, the list is further narrowed to that
+        chat session so the timeline shows only the active chat.
         """
         conditions = [Conversation.page_id == page_id]
+        if session_id is not None:
+            conditions.append(Conversation.session_id == session_id)
         if not include_archived:
             conditions.append(Conversation.archived_at.is_(None))
 

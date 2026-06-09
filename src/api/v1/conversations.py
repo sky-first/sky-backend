@@ -62,6 +62,9 @@ async def create_conversation(
 )
 async def list_conversations(
     page_id: UUID,
+    session_id: Optional[UUID] = Query(
+        None, description="Narrow to a single chat session (the active chat)."
+    ),
     include_archived: bool = Query(False),
     limit: int = Query(20, ge=1, le=100),
     cursor: Optional[datetime] = Query(
@@ -75,6 +78,7 @@ async def list_conversations(
     items = await service.list_for_page(
         page_id=page_id,
         user=current_user,
+        session_id=session_id,
         include_archived=include_archived,
         limit=limit,
         cursor=cursor,
