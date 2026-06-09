@@ -15,6 +15,7 @@ from src.api.v1 import (
     chat_ws,
     comments,
     connections,
+    chat_sessions,
     connectors,
     context_health,
     context_rows,
@@ -87,6 +88,11 @@ api_router.include_router(pages.router, prefix="/pages", tags=["Pages"])
 # Conversation endpoints — collection under /pages, operations under /conversations
 api_router.include_router(conversations.page_router, prefix="/pages", tags=["Conversations"])
 api_router.include_router(conversations.router, prefix="/conversations", tags=["Conversations"])
+
+# Chat sessions — "Chat 1 / 2 / 3" containers per page. Collection under
+# /pages, single-session ops under /chat-sessions.
+api_router.include_router(chat_sessions.page_router, prefix="/pages", tags=["Chat Sessions"])
+api_router.include_router(chat_sessions.router, prefix="/chat-sessions", tags=["Chat Sessions"])
 
 # Message endpoints — nested under conversations for list/create/fork,
 # top-level /messages for pin.

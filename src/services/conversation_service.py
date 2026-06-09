@@ -106,11 +106,20 @@ class ConversationService:
             if page is not None:
                 space_id = page.space_id
                 crew_id = page.crew_id
+        # Resolve the chat session this thread belongs to. Honour a pinned
+        # (valid, viewable) session; otherwise drop it in the page's default
+        # "Chat 1" so the switcher always has somewhere to show it.
+        from src.services.chat_session_service import ChatSessionService
+
+        session_id = await ChatSessionService(self.db)._ensure_session_id(
+            page_id=page_id, user=user, session_id=payload.session_id
+        )
         conv = await self.repo.create(
             page_id=page_id,
             created_by=user.id,
             space_id=space_id,
             crew_id=crew_id,
+            session_id=session_id,
         )
         await self.db.commit()
         await self.db.refresh(conv)
@@ -139,6 +148,7 @@ class ConversationService:
         *,
         page_id: UUID,
         user: User,
+        session_id: Optional[UUID] = None,
         include_archived: bool = False,
         limit: int = 20,
         cursor: Optional[datetime] = None,
@@ -150,6 +160,7 @@ class ConversationService:
             user_id=user.id,
             user_space_ids=space_ids,
             user_crew_ids=crew_ids,
+            session_id=session_id,
             include_archived=include_archived,
             limit=limit,
             cursor=cursor,
