@@ -52,6 +52,17 @@ class Conversation(Base):
         nullable=True,
         index=True,
     )
+    # Chat session this thread belongs to ("Chat 1", "Chat 2", …). Nullable
+    # so legacy threads (and the SET NULL on a hard-deleted session) keep
+    # working; the backfill migration assigns every existing thread to a
+    # default "Chat 1" per page, and the create endpoint tags new threads
+    # with the active session.
+    session_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     title = Column(String(500), nullable=True)
     created_by = Column(
         UUID(as_uuid=True),

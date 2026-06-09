@@ -24,6 +24,7 @@ from src.models.ai import (
     PipelineStep,
 )
 from src.models.change_request import ChangeRequest
+from src.models.chat_session import ChatSession
 from src.models.comment import Comment
 from src.models.conversation import Conversation, Message
 from src.models.connection import ColumnMetadata, ConnectionMetadata, DataConnection, TableMetadata
@@ -124,6 +125,7 @@ __all__ = [
     "NotificationPreference",
     "ChangeRequest",
     "Comment",
+    "ChatSession",
     "Conversation",
     "Message",
     "EnterpriseRelationship",
