@@ -635,6 +635,7 @@ async def send_chat_message_stream(
                 is_personal=scope_is_personal,
                 crew_ids=resolved_crew_ids or None,
                 connection_ids=resolved_all_connection_ids if len(resolved_all_connection_ids) > 1 else None,
+                locale=message_data.locale,
             ):
                 if line.startswith("data: "):
                     try:

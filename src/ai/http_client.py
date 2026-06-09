@@ -138,6 +138,7 @@ class AIServiceHTTPClient:
         connection_ids: Optional[List[str]] = None,
         selected_datasets: Optional[List[str]] = None,
         sql_instructions: Optional[str] = None,
+        locale: Optional[str] = None,
     ) -> AsyncIterator[str]:
         """
         Stream a query to the AI service via SSE.
@@ -178,6 +179,8 @@ class AIServiceHTTPClient:
             payload["selected_datasets"] = selected_datasets
         if sql_instructions:
             payload["sql_instructions"] = sql_instructions
+        if locale:
+            payload["locale"] = locale
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             logger.info(f"Streaming AI service: {url} for connection {connection_id}")
