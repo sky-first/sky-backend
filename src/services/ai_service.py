@@ -1078,6 +1078,7 @@ class AIService:
                             security_config=sec_config,
                             mentioned_file_ids=getattr(query_data, "mentioned_file_ids", None),
                             connection_ids=extra_connection_ids or None,
+                            locale=getattr(query_data, "locale", None),
                         )
 
                         # Update query with real AI results
@@ -1695,6 +1696,7 @@ class AIService:
                             authorized_tables=list(authorized_tables),
                             ai_tone=message_data.ai_tone,
                             ai_style=message_data.ai_style,
+                            locale=message_data.locale,
                             instructions=merged_instructions or None,
                             connection_ids=extra_connection_ids or None,
                         )
