@@ -80,8 +80,8 @@ def upgrade() -> None:
     op.execute(
         """
         INSERT INTO chat_sessions
-            (id, page_id, space_id, crew_id, title, position, created_at, updated_at)
-        SELECT gen_random_uuid(), p.id, p.space_id, p.crew_id, 'Chat 1', 0, now(), now()
+            (id, page_id, space_id, crew_id, title, position, created_by, created_at, updated_at)
+        SELECT gen_random_uuid(), p.id, p.space_id, p.crew_id, 'Chat 1', 0, p.owner_id, now(), now()
         FROM pages p
         WHERE EXISTS (SELECT 1 FROM conversations c WHERE c.page_id = p.id)
         """
