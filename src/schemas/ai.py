@@ -54,6 +54,12 @@ class AIQueryRequest(BaseModel):
         default=None,
         description="Knowledge file IDs @mentioned by the user. Boosted during RAG retrieval.",
     )
+    # User's preferred locale — injected into the LLM system prompt so the AI
+    # responds in the selected language. Defaults to "pt" when absent.
+    locale: Optional[str] = Field(
+        default=None,
+        description="User's preferred locale ('pt' | 'en'). Injected into LLM system prompt.",
+    )
 
 
 class AIQueryResponse(BaseModel):
@@ -137,6 +143,12 @@ class ChatMessageRequest(BaseModel):
     ai_style: Optional[str] = Field(
         None,
         description="Preferred output structure (concise, detailed, step-by-step).",
+    )
+    # User's preferred locale — injected into the LLM system prompt so the AI
+    # responds only in the selected language. Auto-injected by the frontend.
+    locale: Optional[str] = Field(
+        default=None,
+        description="User's preferred locale ('pt' | 'en'). Injected into LLM system prompt.",
     )
 
 

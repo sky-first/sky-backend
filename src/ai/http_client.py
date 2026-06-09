@@ -45,6 +45,7 @@ class AIServiceHTTPClient:
         security_config: Optional[Dict[str, Any]] = None,
         ai_tone: Optional[str] = None,
         ai_style: Optional[str] = None,
+        locale: Optional[str] = None,
         mentioned_file_ids: Optional[List[str]] = None,
         agent_mode: Optional[str] = None,
         sql_instructions: Optional[str] = None,
@@ -101,6 +102,8 @@ class AIServiceHTTPClient:
             payload["ai_tone"] = ai_tone
         if ai_style:
             payload["ai_style"] = ai_style
+        if locale:
+            payload["locale"] = locale
         if mentioned_file_ids:
             payload["mentioned_file_ids"] = mentioned_file_ids
         if agent_mode:
