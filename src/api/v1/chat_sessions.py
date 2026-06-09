@@ -123,3 +123,23 @@ async def archive_chat_session(
     except ForbiddenError as err:
         raise HTTPException(status_code=403, detail=str(err))
     return ChatSessionResponse.model_validate(session)
+
+
+@router.delete(
+    "/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a chat session and its threads (creator only; can't delete the last chat)",
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def delete_chat_session(
+    session_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    service = ChatSessionService(db)
+    try:
+        await service.delete(session_id, current_user)
+    except NotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+    except ForbiddenError as err:
+        raise HTTPException(status_code=403, detail=str(err))

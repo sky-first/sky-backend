@@ -51,8 +51,21 @@ class ChatSessionRepository(BaseRepository[ChatSession]):
         return list(result.scalars().all())
 
     async def count_for_page(self, page_id: UUID) -> int:
-        """Total sessions on a page (incl. archived) — drives "Chat N" naming."""
+        """Total sessions on a page (incl. archived)."""
         stmt = select(func.count()).select_from(ChatSession).where(
             ChatSession.page_id == page_id
         )
         return int((await self.db.execute(stmt)).scalar() or 0)
+
+    async def max_position_for_page(self, page_id: UUID) -> int:
+        """Highest ``position`` on a page, or -1 when the page has none.
+
+        Drives MONOTONIC "Chat N" naming + ordering: a new chat is always
+        ``max + 1`` so numbers are never reused after a delete (which would
+        otherwise produce two "Chat 3" on the same page).
+        """
+        stmt = select(func.max(ChatSession.position)).where(
+            ChatSession.page_id == page_id
+        )
+        result = (await self.db.execute(stmt)).scalar()
+        return int(result) if result is not None else -1

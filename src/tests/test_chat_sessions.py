@@ -160,6 +160,55 @@ async def test_rename_session(
 
 
 @pytest.mark.asyncio
+async def test_delete_session_removes_it_and_its_threads(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    user = test_user_with_tokens["user"]
+    page = await _create_page(db_session, user.id)
+    headers = _headers(test_user_with_tokens["access_token"])
+
+    # Default "Chat 1" + a second chat with a thread in it.
+    await async_client.get(f"/api/v1/pages/{page.id}/chat-sessions", headers=headers)
+    s2 = (await async_client.post(
+        f"/api/v1/pages/{page.id}/chat-sessions", json={}, headers=headers
+    )).json()
+    conv = (await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations",
+        json={"session_id": s2["id"]},
+        headers=headers,
+    )).json()
+
+    # Delete the second chat.
+    resp = await async_client.delete(f"/api/v1/chat-sessions/{s2['id']}", headers=headers)
+    assert resp.status_code == status.HTTP_204_NO_CONTENT
+
+    # Session gone from the switcher; its thread is gone too.
+    sessions = (await async_client.get(
+        f"/api/v1/pages/{page.id}/chat-sessions", headers=headers
+    )).json()["items"]
+    assert s2["id"] not in {s["id"] for s in sessions}
+    gone = await async_client.get(f"/api/v1/conversations/{conv['id']}", headers=headers)
+    assert gone.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_cannot_delete_the_last_chat(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    user = test_user_with_tokens["user"]
+    page = await _create_page(db_session, user.id)
+    headers = _headers(test_user_with_tokens["access_token"])
+
+    # Only the default "Chat 1" exists.
+    only = (await async_client.get(
+        f"/api/v1/pages/{page.id}/chat-sessions", headers=headers
+    )).json()["items"][0]
+
+    resp = await async_client.delete(f"/api/v1/chat-sessions/{only['id']}", headers=headers)
+    assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
 async def test_space_session_visible_to_member(
     async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
 ):
