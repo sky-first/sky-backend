@@ -19,6 +19,26 @@ from src.services.onboarding_service import ensure_default_page_and_space
 logger = logging.getLogger(__name__)
 
 
+def request_base_url(request) -> Optional[str]:
+    """Return ``scheme://host`` for the incoming request.
+
+    Honours the ingress-forwarded scheme: the nginx ingress terminates
+    TLS, so ``request.url.scheme`` is plain ``http`` inside the cluster
+    while the public URL is ``https``. ``X-Forwarded-Proto`` carries the
+    real scheme. The ``Host`` header is the tenant's own domain
+    (``<slug>-stg.skyfirstlabs.com``), preserved end-to-end through the
+    ExternalName service. Returns ``None`` when no Host header is present
+    (callers then fall back to the platform origin).
+    """
+    try:
+        forwarded = request.headers.get("x-forwarded-proto")
+        scheme = forwarded.split(",")[0].strip() if forwarded else request.url.scheme
+        host = request.headers.get("host")
+        return f"{scheme}://{host}" if host else None
+    except Exception:  # pragma: no cover — never block invite on URL parsing
+        return None
+
+
 class InviteService:
     """Service for managing user invites."""
 
@@ -62,6 +82,7 @@ class InviteService:
         expires_days: int = 7,
         name: Optional[str] = None,
         role: str = "member",
+        base_url: Optional[str] = None,
     ) -> str:
         """
         Create an invite for a new user.
@@ -117,14 +138,25 @@ class InviteService:
         # silently falls back to ``[MOCK EMAIL]`` logging when SMTP_HOST
         # is unset (e.g. local dev) so this is also safe outside prod.
         try:
-            frontend_url = "http://localhost:3000"
-            if getattr(settings, "CORS_ORIGINS", None):
-                # CORS_ORIGINS is a comma-separated list — first entry
-                # is the canonical front-end origin per the staging /
-                # production values files (sky-stg / sky-prd).
+            # Build the accept-invite link on the SAME host the request
+            # arrived on (``base_url`` — the tenant's own domain, e.g.
+            # https://gbtsolutions-stg.skyfirstlabs.com). This is what
+            # makes the invitee land on the tenant front-end AND lets the
+            # token validate against the tenant DB. Falling back to the
+            # platform CORS origin (sky-stg) would send the invitee to the
+            # wrong host and 404 the token ("Invalid invite token").
+            # The CORS fallback is kept only for non-request callers
+            # (scripts/tests) where ``base_url`` is unset.
+            frontend_url = base_url
+            if not frontend_url and getattr(settings, "CORS_ORIGINS", None):
                 frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
-            invite_link = f"{frontend_url}/auth/accept-invite?token={token}"
+            if not frontend_url:
+                frontend_url = "http://localhost:3000"
+            invite_link = f"{frontend_url.rstrip('/')}/auth/accept-invite?token={token}"
             email_service = EmailService()
+            # workspace_name is derived from the tenant context inside
+            # send_invite_email, so the email is branded with the tenant's
+            # display_name rather than the platform APP_NAME.
             email_service.send_invite_email(email, invite_link, invited_by.name)
         except Exception:  # pragma: no cover — guard against SMTP outage
             logger.exception("Failed to send invite email to %s", email)

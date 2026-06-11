@@ -44,7 +44,7 @@ from src.schemas.user import (
 )
 from src.services.auth0_service import Auth0Service
 from src.services.auth_service import AuthenticationService, user_to_response_dict
-from src.services.invite_service import InviteService
+from src.services.invite_service import InviteService, request_base_url
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
@@ -808,6 +808,7 @@ async def accept_invite_endpoint(
 )
 async def generate_invite(
     invite_data: InviteGenerateRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> InviteGenerateResponse:
@@ -833,6 +834,12 @@ async def generate_invite(
     if not is_tenant_admin(current_user):
         raise ForbiddenError("Only admins can generate invite tokens")
 
+    # Build the invite link on the host the admin is actually using — the
+    # tenant's own domain (e.g. gbtsolutions-stg.skyfirstlabs.com), honouring
+    # the ingress-forwarded scheme. Sending the invitee to this host (rather
+    # than the platform host) is what lets the token resolve to the tenant DB.
+    base_url = request_base_url(request)
+
     invite_service = InviteService(db)
     token = await invite_service.create_invite(
         invited_by=current_user,
@@ -840,6 +847,7 @@ async def generate_invite(
         expires_days=invite_data.expires_days,
         name=invite_data.name,
         role=invite_data.role,
+        base_url=base_url,
     )
 
     # Get expiration date

@@ -3,7 +3,7 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
@@ -428,6 +428,7 @@ async def update_user_permissions(
 async def invite_user(
     user_id: UUID,
     invite_data: UserInviteRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
@@ -443,6 +444,13 @@ async def invite_user(
     Returns:
         SuccessResponse: Success message
     """
+    from src.services.invite_service import request_base_url
+
     user_service = UserService(db)
-    await user_service.invite_user(user_id, invite_data.model_dump(), current_user)
+    await user_service.invite_user(
+        user_id,
+        invite_data.model_dump(),
+        current_user,
+        base_url=request_base_url(request),
+    )
     return SuccessResponse(message="Invitation sent successfully")
