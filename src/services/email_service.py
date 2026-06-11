@@ -80,7 +80,11 @@ class EmailService:
             return False
 
     def send_invite_email(
-        self, to_email: str, invite_link: str, inviter_name: str = "Administrator"
+        self,
+        to_email: str,
+        invite_link: str,
+        inviter_name: str = "Administrator",
+        workspace_name: Optional[str] = None,
     ) -> bool:
         """
         Send invitation email.
@@ -121,10 +125,22 @@ class EmailService:
         customer-specific in the body is the person doing the
         inviting and the workspace name.
         """
-        # ``APP_NAME`` defaults to "Sky" in src/config/settings.py; the
-        # template embeds it everywhere the word would otherwise be
-        # hard-coded so the same email body works for a future rebrand.
-        app_name = getattr(settings, "APP_NAME", "Sky")
+        # Brand the email with the tenant's OWN workspace name, not the
+        # platform-wide ``APP_NAME`` (which is the generic backend project
+        # name, e.g. "AI SaaS Dashboard Backend"). Resolution order:
+        # explicit override → current tenant's display_name → APP_NAME →
+        # "Sky". Reading the tenant from the contextvar means every invite
+        # path (generate + resend) gets correct branding with no threading.
+        if not workspace_name:
+            try:
+                from src.core.tenant_context import current_tenant
+
+                ctx = current_tenant()
+                if ctx is not None and not ctx.is_default:
+                    workspace_name = ctx.display_name or None
+            except Exception:  # pragma: no cover — defensive, never block send
+                workspace_name = None
+        app_name = workspace_name or getattr(settings, "APP_NAME", "Sky")
         # Pre-header text: the snippet most clients show next to the
         # subject in the inbox list. Worth ~50 chars of plain copy.
         preheader = (

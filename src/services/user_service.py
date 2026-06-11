@@ -491,7 +491,11 @@ class UserService:
         return get_user_permissions(user)
 
     async def invite_user(
-        self, user_id: UUID, invite_data: dict, current_user: User
+        self,
+        user_id: UUID,
+        invite_data: dict,
+        current_user: User,
+        base_url: Optional[str] = None,
     ) -> UserResponse:
         """
         Invite user (resend invitation or send welcome email).
@@ -547,13 +551,17 @@ class UserService:
         # Send invite email
         try:
             email_service = EmailService()
-            # Define frontend URL (should be in settings, fallback to localhost)
-            frontend_url = "http://localhost:3000"
-            if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
-                # Take first origin as frontend URL
+            # Prefer the tenant host the admin is actually on (``base_url``)
+            # so the invitee lands on the tenant front-end and the token
+            # validates against the tenant DB. Fall back to the platform
+            # CORS origin only for non-request callers.
+            frontend_url = base_url
+            if not frontend_url and hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
                 frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
+            if not frontend_url:
+                frontend_url = "http://localhost:3000"
 
-            invite_link = f"{frontend_url}/auth/accept-invite?token={user.invite_token}"
+            invite_link = f"{frontend_url.rstrip('/')}/auth/accept-invite?token={user.invite_token}"
 
             email_success = email_service.send_invite_email(
                 user.email, invite_link, current_user.name
