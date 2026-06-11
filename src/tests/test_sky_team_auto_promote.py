@@ -147,3 +147,86 @@ class TestSkyOperatorJITGateSingleTenant:
             is_sky_operator=False,
         )
         assert await _is_sky_operator_without_jit(user, db) is False
+
+
+# ── JIT gate home-tenant exemption (multi-tenant mode) ─────────────────
+
+
+class TestSkyOperatorJITGateHomeTenant:
+    """Even with ``MULTI_TENANT_ENABLED = True``, a Sky operator working
+    on the platform's own *default* context (the platform host, which the
+    resolver maps to ``is_default``) is on home turf and must not be
+    gated. Only cross-tenant access (a real customer tenant) requires an
+    active ``support_sessions`` row. Regression guard for the staging
+    incident where operators were 403'd on sky-stg after multi-tenant was
+    re-enabled."""
+
+    @pytest.mark.asyncio
+    async def test_home_tenant_skips_jit(self, monkeypatch) -> None:
+        from src.config.settings import settings
+        from src.core.tenant_context import (
+            DEFAULT_TENANT_CONTEXT,
+            reset_current_tenant,
+            set_current_tenant,
+        )
+        from src.services.rbac_service import _is_sky_operator_without_jit
+
+        monkeypatch.setattr(settings, "MULTI_TENANT_ENABLED", True)
+        db = AsyncMock(spec=AsyncSession)
+        user = User(
+            email="gustavo.mendonca@skyfirstlabs.com",
+            password_hash="x",
+            name="Gustavo",
+            role="user",
+            email_verified=True,
+            is_sky_operator=True,
+        )
+        token = set_current_tenant(DEFAULT_TENANT_CONTEXT)
+        try:
+            # Home/default context → no JIT required, no DB lookup.
+            assert await _is_sky_operator_without_jit(user, db) is False
+            db.execute.assert_not_awaited()
+        finally:
+            reset_current_tenant(token)
+
+    @pytest.mark.asyncio
+    async def test_cross_tenant_without_session_blocked(self, monkeypatch) -> None:
+        from uuid import uuid4
+
+        from src.config.settings import settings
+        from src.core.tenant_context import (
+            TenantContext,
+            reset_current_tenant,
+            set_current_tenant,
+        )
+        from src.services.rbac_service import _is_sky_operator_without_jit
+
+        monkeypatch.setattr(settings, "MULTI_TENANT_ENABLED", True)
+
+        # No active support_sessions row for this operator.
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        db = AsyncMock(spec=AsyncSession)
+        db.execute.return_value = result
+
+        user = User(
+            email="gustavo.mendonca@skyfirstlabs.com",
+            password_hash="x",
+            name="Gustavo",
+            role="user",
+            email_verified=True,
+            is_sky_operator=True,
+        )
+        customer_ctx = TenantContext(
+            slug="gbtsolutions",
+            id=uuid4(),
+            tier="starter",
+            display_name="GBT Solutions",
+        )
+        token = set_current_tenant(customer_ctx)
+        try:
+            # Cross-tenant + no JIT session → blocked.
+            assert await _is_sky_operator_without_jit(user, db) is True
+            db.execute.assert_awaited_once()
+        finally:
+            reset_current_tenant(token)

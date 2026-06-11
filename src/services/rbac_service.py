@@ -66,6 +66,20 @@ async def _is_sky_operator_without_jit(user: User, db: AsyncSession) -> bool:
     if not settings.MULTI_TENANT_ENABLED:
         return False
 
+    # Home-tenant access skips the gate too. A Sky operator working on
+    # the platform's own default context (e.g. the platform host
+    # sky-stg.skyfirstlabs.com, which tenant_resolver maps to the
+    # default context via its reserved-slug bypass) is on home turf —
+    # there is no customer to break-glass into. Only *cross-tenant*
+    # access (debugging a real customer's tenant DB) requires a fresh
+    # support_sessions row. This realises the intent documented in this
+    # function's docstring, which the multi-tenant path had not yet
+    # implemented — operators were being denied even on the platform.
+    from src.core.tenant_context import current_tenant
+
+    if current_tenant().is_default:
+        return False
+
     # Check for active JIT session in the database
     try:
         from datetime import datetime, timezone
