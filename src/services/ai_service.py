@@ -17,6 +17,7 @@ from src.schemas.ai_transparency import EvidenceChunkOut, ReasoningStepOut
 from src.config.redis import get_redis
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
+from src.core.locale import get_message
 from src.models.ai import AIFeedback, AIHistory, AIQuery, ChatMessage, Pipeline
 from src.models.user import User
 from src.repositories.base import BaseRepository
@@ -646,7 +647,7 @@ class AIService:
         # sanitised text feeds the rest of the flow; transparency
         # bundle (trace_id + flags) is attached to the response.
         pipeline = ChatPipeline(user_id=user_id, endpoint="/ai/query")
-        guarded_input = pipeline.preflight(query_data.question)
+        guarded_input = pipeline.preflight(query_data.question, locale=getattr(query_data, "locale", None))
         sanitised_question = guarded_input.text
         # Evidence chunks extracted from the AI engine response (when
         # present). Flows through to the W7 transparency bundle.
@@ -1297,7 +1298,7 @@ class AIService:
                     )
                 elif code == 400:
                     error_key = "chat.server"
-                    friendly = "I couldn't understand that question. Try rephrasing it."
+                    friendly = get_message("couldnt_understand", getattr(query_data, "locale", None))
                 else:
                     error_key = "chat.server"
                     friendly = "The AI service rejected the request. Please retry or open a ticket."
@@ -1431,7 +1432,7 @@ class AIService:
         # handler turns into the right CHAT_* envelope. The trace_id
         # travels with every downstream log line.
         pipeline = ChatPipeline(user_id=user_id, endpoint="/ai/chat")
-        guarded_input = pipeline.preflight(message_data.message)
+        guarded_input = pipeline.preflight(message_data.message, locale=message_data.locale)
         # Use the sanitised text downstream — strips control chars,
         # invisibles, NFC normalisation. Length limits already enforced.
         sanitised_message = guarded_input.text
