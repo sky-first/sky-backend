@@ -1971,6 +1971,7 @@ class AIService:
             selected_datasets=selected,
             authorized_tables=authorized_tables,
             connection_ids=extra_ids or None,
+            locale=request.locale,
         )
 
         sql = (result.get("sql") or "").strip()

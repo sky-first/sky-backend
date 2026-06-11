@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.schemas.ai_transparency import AIResponseTransparency  # W7
 
@@ -60,6 +60,14 @@ class AIQueryRequest(BaseModel):
         default=None,
         description="User's preferred locale ('pt' | 'en'). Injected into LLM system prompt.",
     )
+
+    @field_validator("locale", mode="before")
+    @classmethod
+    def _normalize_locale(cls, v: object) -> object:
+        if v is None:
+            return None
+        from src.core.locale import normalize_locale
+        return normalize_locale(str(v))
 
 
 class AIQueryResponse(BaseModel):
@@ -151,6 +159,14 @@ class ChatMessageRequest(BaseModel):
         description="User's preferred locale ('pt' | 'en'). Injected into LLM system prompt.",
     )
 
+    @field_validator("locale", mode="before")
+    @classmethod
+    def _normalize_locale(cls, v: object) -> object:
+        if v is None:
+            return None
+        from src.core.locale import normalize_locale
+        return normalize_locale(str(v))
+
 
 class ChatMessageResponse(BaseModel):
     """Chat message response schema."""
@@ -236,6 +252,18 @@ class GenerateSQLRequest(BaseModel):
     knowledge: List[str] = Field(..., min_length=1)  # Table names or connection IDs
     sql_instructions: Optional[str] = None
     creativity: int = Field(default=50, ge=0, le=100)
+    locale: Optional[str] = Field(
+        default=None,
+        description="User's preferred locale ('pt' | 'en'). Injected into LLM system prompt.",
+    )
+
+    @field_validator("locale", mode="before")
+    @classmethod
+    def _normalize_locale(cls, v: object) -> object:
+        if v is None:
+            return None
+        from src.core.locale import normalize_locale
+        return normalize_locale(str(v))
 
 
 class GenerateSQLResponse(BaseModel):

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
+from src.core.locale import DEFAULT_LOCALE
 from src.middleware.request_limits import depth_guard_dependency
 from src.config.settings import settings
 from src.models.user import User
@@ -166,6 +167,11 @@ async def process_query(
 
         page_service = PageService(db)
         await page_service.get_user_page_or_404(query_data.page_id, current_user.id)
+
+    # Locale fallback — same pattern as /chat and /chat/stream.
+    prefs = current_user.preferences or {}
+    if query_data.locale is None:
+        query_data.locale = prefs.get("language", DEFAULT_LOCALE)
 
     # Beats quota gate — fires AFTER rate limit (cheap Redis check)
     # and AFTER page validation, so users near their cap aren't
@@ -1203,6 +1209,10 @@ async def generate_sql(
     Returns:
         GenerateSQLResponse: Generated SQL
     """
+    if request.locale is None:
+        prefs = current_user.preferences or {}
+        request.locale = prefs.get("language", DEFAULT_LOCALE)
+
     ai_service = AIService(db)
     return await ai_service.generate_sql(current_user.id, request)
 

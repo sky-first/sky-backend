@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db
+from src.core.locale import DEFAULT_LOCALE, normalize_locale
 from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.user import User
 
@@ -590,6 +591,9 @@ async def run_agent_stream(
                 if table_ids else None
             ) or None
             effective_datasets = sql_table_hints or table_names
+            _agent_locale = normalize_locale(
+                (current_user.preferences or {}).get("language", DEFAULT_LOCALE)
+            )
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
                 question=question,
@@ -603,6 +607,7 @@ async def run_agent_stream(
                 connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
                 selected_datasets=effective_datasets,
                 sql_instructions=sql_instructions,
+                locale=_agent_locale,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):

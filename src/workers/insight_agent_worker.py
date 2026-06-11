@@ -179,11 +179,20 @@ async def _call_ai_run_agent(
     ai_client = AIServiceHTTPClient()
     started = datetime.now(timezone.utc)
 
+    from src.core.locale import resolve_locale
+    from src.models.user import User as _User
+    _owner = None
+    if agent.created_by:
+        _owner = (
+            await db.execute(_select(_User).where(_User.id == agent.created_by))
+        ).scalar_one_or_none()
+
     response = await ai_client.query_connection(
         connection_id=str(widget.connection_id),
         question=question,
         user_id=str(agent.created_by) if agent.created_by else "system",
         space_id=agent.scope_id or "default",
+        locale=resolve_locale(None, _owner),
     )
 
     elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)

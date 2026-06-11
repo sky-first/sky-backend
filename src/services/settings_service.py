@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError, NotFoundError
+from src.core.locale import DEFAULT_LOCALE
 from src.core.permissions import check_permission
 from src.core.security import get_password_hash
 from src.models.user import User
@@ -63,7 +64,7 @@ class SettingsService:
 
         return SettingsResponse(
             theme=preferences.get("theme", "light"),
-            language=preferences.get("language", "en"),
+            language=preferences.get("language", DEFAULT_LOCALE),
             notifications=preferences.get("notifications", {"email": True, "push": False}),
             preferences=preferences,
         )
@@ -116,7 +117,7 @@ class SettingsService:
 
         return SettingsResponse(
             theme=current_preferences.get("theme", "light"),
-            language=current_preferences.get("language", "en"),
+            language=current_preferences.get("language", DEFAULT_LOCALE),
             notifications=current_preferences.get("notifications", {"email": True, "push": False}),
             preferences=current_preferences,
         )

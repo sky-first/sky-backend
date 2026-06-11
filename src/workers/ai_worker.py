@@ -111,7 +111,8 @@ async def _build_dashboard_job_async(job_id: str) -> None:
             space_id = str(job.space_id)
             connection_id = str(job.connection_id)
             goal = job.goal
-            language = job.language or "en"
+            from src.core.locale import DEFAULT_LOCALE, normalize_locale
+            language = normalize_locale(job.language) if job.language else DEFAULT_LOCALE
 
             # Force textual/infographic mode for AI-built dashboards as requested by USER
             is_textual = True
@@ -554,6 +555,7 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                         knowledge=knowledge,
                         space_id=space_id,
                         is_personal=True,
+                        locale=language,
                         configure_data=ConfigureData(
                             question=w.get("question") or "",
                             knowledge=knowledge,
