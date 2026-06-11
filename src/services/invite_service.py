@@ -111,20 +111,47 @@ class InviteService:
         # Calculate expiration date
         expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
 
-        # Create user record with invite token (user will complete registration later)
-        # We create a "pending" user with invite_token set
-        password_hash = get_password_hash(secrets.token_urlsafe(32))  # Temporary password
-
-        user = await self.user_repo.create(
-            email=email,
-            password_hash=password_hash,
-            name=name or email.split("@")[0],
-            role=role,
-            invite_token=token,
-            invite_expires_at=expires_at,
-            invited_by=invited_by.id,
-            email_verified=False,  # Will be verified when they complete registration
-        )
+        # A soft-deleted row with this email blocks a plain INSERT: the
+        # ``users.email`` unique constraint ignores ``deleted_at``, so
+        # re-inviting a previously-removed address used to 500 on a
+        # UniqueViolation (the active-user check above filters
+        # ``deleted_at IS NULL`` and never sees it). Revive the existing
+        # row in place instead of inserting a duplicate.
+        #
+        # This is intentionally different from the SSO callback
+        # (``auth0_service``), which refuses to auto-restore a
+        # soft-deleted user. There the *user themselves* is signing in,
+        # so silent restore would let a deactivated account bypass admin
+        # intent. Here an *admin* is explicitly re-inviting the address —
+        # that action IS the intent to re-grant access.
+        soft_deleted = await self.user_repo.get_by_email_including_deleted(email)
+        if soft_deleted is not None and soft_deleted.deleted_at is not None:
+            soft_deleted.deleted_at = None
+            soft_deleted.password_hash = get_password_hash(secrets.token_urlsafe(32))
+            soft_deleted.name = name or soft_deleted.name or email.split("@")[0]
+            soft_deleted.role = role
+            soft_deleted.invite_token = token
+            soft_deleted.invite_expires_at = expires_at
+            soft_deleted.invited_by = invited_by.id
+            soft_deleted.email_verified = False
+            soft_deleted.email_verified_at = None
+            soft_deleted.status = "offline"
+            user = soft_deleted
+            logger.info(f"♻️ Revived soft-deleted invite for {email}")
+        else:
+            # Create a fresh "pending" user with the invite token set;
+            # they complete registration (set password) via the link.
+            password_hash = get_password_hash(secrets.token_urlsafe(32))  # Temporary password
+            user = await self.user_repo.create(
+                email=email,
+                password_hash=password_hash,
+                name=name or email.split("@")[0],
+                role=role,
+                invite_token=token,
+                invite_expires_at=expires_at,
+                invited_by=invited_by.id,
+                email_verified=False,  # Will be verified when they complete registration
+            )
 
         await self.db.commit()
         await self.db.refresh(user)
