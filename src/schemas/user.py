@@ -413,6 +413,12 @@ class InviteGenerateResponse(BaseModel):
     token: str
     email: str
     expires_at: str
+    # False when the invitation email could not be delivered (e.g. the AWS
+    # SES sandbox rejects recipients that are not verified identities). The
+    # invite row + token are still created; the client surfaces a warning so
+    # the operator knows the email did not go out. Defaults True for mock
+    # mode and any caller that doesn't set it.
+    email_sent: bool = True
     message: str
 
 
