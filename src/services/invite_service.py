@@ -83,7 +83,7 @@ class InviteService:
         name: Optional[str] = None,
         role: str = "member",
         base_url: Optional[str] = None,
-    ) -> str:
+    ) -> tuple[str, bool]:
         """
         Create an invite for a new user.
 
@@ -95,7 +95,9 @@ class InviteService:
             role: Tenant role for the invited user (default: "member")
 
         Returns:
-            str: Generated invite token
+            tuple[str, bool]: (invite token, email_sent). ``email_sent`` is
+            False when delivery failed (e.g. SES sandbox rejected an
+            unverified recipient) so the caller can warn the operator.
 
         Raises:
             BadRequestError: If email already exists or is invalid
@@ -164,6 +166,7 @@ class InviteService:
         # ``POST /users/{id}/invite`` if delivery fails. EmailService
         # silently falls back to ``[MOCK EMAIL]`` logging when SMTP_HOST
         # is unset (e.g. local dev) so this is also safe outside prod.
+        email_sent = False
         try:
             # Build the accept-invite link on the SAME host the request
             # arrived on (``base_url`` — the tenant's own domain, e.g.
@@ -184,11 +187,21 @@ class InviteService:
             # workspace_name is derived from the tenant context inside
             # send_invite_email, so the email is branded with the tenant's
             # display_name rather than the platform APP_NAME.
-            email_service.send_invite_email(email, invite_link, invited_by.name)
+            #
+            # send_invite_email returns False when delivery fails — most
+            # notably under the AWS SES sandbox, which rejects any recipient
+            # that is not a verified identity. We surface that up so the
+            # caller can warn the operator ("invite created, email not
+            # delivered") instead of silently implying success. In mock mode
+            # (SMTP_HOST unset) it returns True, so local dev is unaffected.
+            email_sent = bool(
+                email_service.send_invite_email(email, invite_link, invited_by.name)
+            )
         except Exception:  # pragma: no cover — guard against SMTP outage
             logger.exception("Failed to send invite email to %s", email)
+            email_sent = False
 
-        return token
+        return token, email_sent
 
     async def validate_invite_token(self, token: str) -> dict:
         """

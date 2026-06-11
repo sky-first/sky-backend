@@ -841,7 +841,7 @@ async def generate_invite(
     base_url = request_base_url(request)
 
     invite_service = InviteService(db)
-    token = await invite_service.create_invite(
+    token, email_sent = await invite_service.create_invite(
         invited_by=current_user,
         email=invite_data.email,
         expires_days=invite_data.expires_days,
@@ -859,6 +859,7 @@ async def generate_invite(
         token=token,
         email=invite_data.email,
         expires_at=expires_at.isoformat(),
+        email_sent=email_sent,
         message=f"Invite token generated successfully. Expires in {invite_data.expires_days} days.",
     )
 

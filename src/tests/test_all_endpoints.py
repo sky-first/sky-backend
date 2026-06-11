@@ -2683,8 +2683,8 @@ class TestInviteEndpoints:
         user.role = "admin"
         await db_session.commit()
 
-        # Create a valid invite
-        token = await invite_service.create_invite(
+        # Create a valid invite (create_invite returns (token, email_sent))
+        token, _ = await invite_service.create_invite(
             invited_by=user,
             email="validinvite@example.com",
             expires_days=7,
