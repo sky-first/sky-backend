@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db
+from src.core.locale import DEFAULT_LOCALE, normalize_locale, get_message
 from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.user import User
 
@@ -454,7 +455,8 @@ async def run_agent_stream(
                 conn_id = await _ai_svc._get_first_active_connection(current_user.id)
 
         if not conn_id and monitor_type != "context":
-            yield f"data: {json.dumps({'type': 'error', 'message': 'No data source available. Add a connection in the Edit tab, or switch to Full context mode.'})}\n\n"
+            _err_locale = normalize_locale((current_user.preferences or {}).get("language", DEFAULT_LOCALE))
+            yield f"data: {json.dumps({'type': 'error', 'message': get_message('no_data_source_agent', _err_locale)})}\n\n"
             return
 
         # `focus` is the agent's objective/instructions, not a SQL question.
@@ -590,6 +592,9 @@ async def run_agent_stream(
                 if table_ids else None
             ) or None
             effective_datasets = sql_table_hints or table_names
+            _agent_locale = normalize_locale(
+                (current_user.preferences or {}).get("language", DEFAULT_LOCALE)
+            )
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
                 question=question,
@@ -603,6 +608,7 @@ async def run_agent_stream(
                 connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
                 selected_datasets=effective_datasets,
                 sql_instructions=sql_instructions,
+                locale=_agent_locale,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):

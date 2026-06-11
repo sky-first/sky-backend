@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
+from src.core.locale import DEFAULT_LOCALE, get_message
 from src.middleware.request_limits import depth_guard_dependency
 from src.config.settings import settings
 from src.models.user import User
@@ -166,6 +167,11 @@ async def process_query(
 
         page_service = PageService(db)
         await page_service.get_user_page_or_404(query_data.page_id, current_user.id)
+
+    # Locale fallback — same pattern as /chat and /chat/stream.
+    prefs = current_user.preferences or {}
+    if query_data.locale is None:
+        query_data.locale = prefs.get("language", DEFAULT_LOCALE)
 
     # Beats quota gate — fires AFTER rate limit (cheap Redis check)
     # and AFTER page validation, so users near their cap aren't
@@ -356,7 +362,7 @@ async def chat_bootstrap(
         if not payload or not isinstance(payload, dict):
             logger.warning(f"[chat_bootstrap] AI service returned invalid payload: {payload}")
             return ChatBootstrapResponse(
-                greeting="How can I help you today?",
+                greeting=get_message("how_can_i_help", language),
                 suggestions=[
                     {
                         "title": "Available data",
@@ -374,7 +380,7 @@ async def chat_bootstrap(
 
         # Ensure required fields are present even if payload is a dict
         if "greeting" not in payload:
-            payload["greeting"] = "How can I help you today?"
+            payload["greeting"] = get_message("how_can_i_help", language)
         if "suggestions" not in payload or not payload["suggestions"]:
             payload["suggestions"] = [
                 {
@@ -397,7 +403,7 @@ async def chat_bootstrap(
         return out
     except Exception as e:
         return ChatBootstrapResponse(
-            greeting="How can I help you with your data?",
+            greeting=get_message("how_can_i_help_data", language),
             suggestions=[
                 {
                     "title": "Create dashboard",
@@ -620,10 +626,10 @@ async def send_chat_message_stream(
         started = False
         try:
             if not resolved_connection_id:
-                yield f"data: {_json.dumps({'type': 'error', 'message': 'No data source available for this chat.'})}\n\n"
+                yield f"data: {_json.dumps({'type': 'error', 'message': get_message('no_data_source', message_data.locale)})}\n\n"
                 return
 
-            yield f"data: {_json.dumps({'type': 'progress', 'stage': 'starting', 'message': 'Thinking...'})}\n\n"
+            yield f"data: {_json.dumps({'type': 'progress', 'stage': 'starting', 'message': get_message('thinking', message_data.locale)})}\n\n"
             started = True
 
             async for line in ai_client.stream_query_connection(
@@ -654,7 +660,7 @@ async def send_chat_message_stream(
             if started:
                 yield f"data: {_json.dumps({'type': 'error', 'message': str(exc)[:200]})}\n\n"
             else:
-                yield f"data: {_json.dumps({'type': 'error', 'message': 'Unable to start chat stream.'})}\n\n"
+                yield f"data: {_json.dumps({'type': 'error', 'message': get_message('unable_to_start_stream', message_data.locale)})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -1203,6 +1209,10 @@ async def generate_sql(
     Returns:
         GenerateSQLResponse: Generated SQL
     """
+    if request.locale is None:
+        prefs = current_user.preferences or {}
+        request.locale = prefs.get("language", DEFAULT_LOCALE)
+
     ai_service = AIService(db)
     return await ai_service.generate_sql(current_user.id, request)
 

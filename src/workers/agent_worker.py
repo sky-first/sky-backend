@@ -523,6 +523,7 @@ async def _execute_agent_async(agent_id: str):
                             db, agent_user, kind="agent_l3", source_id=conn_id
                         )
 
+                    from src.core.locale import resolve_locale
                     response = await ai_client.query_connection(
                         connection_id=str(conn_id),
                         question=question,
@@ -532,6 +533,7 @@ async def _execute_agent_async(agent_id: str):
                         instructions=agent_instructions,
                         agent_mode=monitor_type,
                         sql_instructions=sql_instructions,
+                        locale=resolve_locale(None, agent_user),
                     )
 
                     answer = response.get("answer", "") if isinstance(response, dict) else str(response)
