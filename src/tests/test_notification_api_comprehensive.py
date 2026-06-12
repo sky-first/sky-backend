@@ -144,11 +144,14 @@ class TestCommentAPI:
         # Create another user to mention
         from src.models.user import User
 
+        # Recipient prefers English — notifications are localized in the
+        # *recipient's* language, so the title must come back in English.
         other_user = User(
             id=uuid4(),
             email="other@example.com",
             name="Other User",
             password_hash="hash",
+            preferences={"language": "en"},
         )
         db_session.add(other_user)
         await db_session.commit()

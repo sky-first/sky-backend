@@ -640,16 +640,25 @@ class SpaceService:
 
         # Notify the new member they've been added to the space
         try:
+            from src.core.locale import get_message, resolve_locale
             from src.schemas.notification import NotificationCreate
             from src.services.notification_service import NotificationService
+
+            # Localize in the new member's own language, not the actor's.
+            recipient_locale = resolve_locale(None, getattr(member, "user", None))
+            actor_name = user.name or user.email
 
             notif_svc = NotificationService(self.db)
             await notif_svc.create(
                 NotificationCreate(
                     user_id=member_data.user_id,
                     type="space_member_added",
-                    title=f"You were added to space '{space.name}'",
-                    description=f"{user.name or user.email} added you to this space",
+                    title=get_message(
+                        "notif_space_added_title", recipient_locale
+                    ).format(space=space.name),
+                    description=get_message(
+                        "notif_space_added_desc", recipient_locale
+                    ).format(actor=actor_name),
                     entity_type="space",
                     entity_id=str(space_id),
                     deep_link=f"/dashboard?space={space_id}",

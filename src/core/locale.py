@@ -88,6 +88,25 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "pt": "Mensagem vazia.",
         "en": "Empty message.",
     },
+    # ── Notifications — localized at creation time by the recipient's
+    # locale. Strings carry {placeholders} resolved via str.format() at
+    # the callsite (get_message itself does not interpolate).
+    "notif_comment_mention_title": {
+        "pt": "Você foi mencionado em um comentário",
+        "en": "You were mentioned in a comment",
+    },
+    "notif_comment_mention_desc": {
+        "pt": "Mencionaram você: {snippet}...",
+        "en": "Someone mentioned you: {snippet}...",
+    },
+    "notif_space_added_title": {
+        "pt": "Você foi adicionado ao espaço '{space}'",
+        "en": "You were added to space '{space}'",
+    },
+    "notif_space_added_desc": {
+        "pt": "{actor} adicionou você a este espaço",
+        "en": "{actor} added you to this space",
+    },
 }
 
 
