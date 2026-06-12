@@ -1206,7 +1206,12 @@ class AIService:
                             space_id=space_id,
                             crew_ids=crew_ids if crew_ids else None,
                             space_ids=caller_space_ids,
-                            thread_id=str(query.id),
+                            # Multi-turn memory (Frente 1): prefer the stable
+                            # conversation/session id the frontend sends so the
+                            # AI loads chat_history across turns. Fall back to the
+                            # per-query id only when the client sends nothing
+                            # (one-shot calls) — that path has no cross-turn memory.
+                            thread_id=getattr(query_data, "thread_id", None) or str(query.id),
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
                             authorized_tables=list(authorized_tables),
