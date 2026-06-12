@@ -110,6 +110,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
 }
 
 
+NOTIFICATION_KEYS: frozenset[str] = frozenset({
+    "notif_comment_mention_title",
+    "notif_comment_mention_desc",
+    "notif_space_added_title",
+    "notif_space_added_desc",
+})
+
+
 def get_message(key: str, locale: str | None = None) -> str:
     """Return a user-facing string for the given locale.
 

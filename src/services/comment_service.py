@@ -87,6 +87,9 @@ class CommentService:
                         entity_type="comment",
                         entity_id=str(db_comment.id),
                         deep_link=deep_link,
+                        title_key="notif_comment_mention_title",
+                        description_key="notif_comment_mention_desc",
+                        description_params={"snippet": snippet},
                     )
                 )
 

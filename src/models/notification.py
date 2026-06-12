@@ -14,7 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import relationship
 
 from src.config.database import Base
@@ -155,6 +155,14 @@ class Notification(Base):
     type = Column(String(50), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+
+    # i18n keys — frontend uses these to render text in the user's current
+    # locale instead of the pre-rendered strings above. Null for legacy rows
+    # that were created before this feature was added.
+    title_key = Column(String(100), nullable=True)
+    title_params = Column(JSON, nullable=True)
+    description_key = Column(String(100), nullable=True)
+    description_params = Column(JSON, nullable=True)
 
     # Linked entity (for deep-linking and context)
     entity_type = Column(String(50), nullable=False)
