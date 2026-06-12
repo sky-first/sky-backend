@@ -662,6 +662,10 @@ class SpaceService:
                     entity_type="space",
                     entity_id=str(space_id),
                     deep_link=f"/dashboard?space={space_id}",
+                    title_key="notif_space_added_title",
+                    title_params={"space": space.name},
+                    description_key="notif_space_added_desc",
+                    description_params={"actor": actor_name},
                 )
             )
         except Exception:
