@@ -117,6 +117,8 @@ NOTIFICATION_KEYS: frozenset[str] = frozenset({
     "notif_space_added_desc",
 })
 
+# DB migration that adds the columns consumed by these keys: notif_i18n_keys_20260612
+
 
 def get_message(key: str, locale: str | None = None) -> str:
     """Return a user-facing string for the given locale.
