@@ -7,8 +7,10 @@ from sqlalchemy import desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from src.core.locale import get_message, normalize_locale
 from src.models.comment import Comment
 from src.models.notification import NotificationType
+from src.models.user import User
 from src.schemas.comment import CommentCreate, CommentResponse
 from src.schemas.notification import NotificationCreate
 from src.services.notification_service import NotificationService
@@ -60,14 +62,28 @@ class CommentService:
         deep_link = f"/dashboard?id={page_id}"
         if widget_id:
             deep_link += f"&insight={widget_id}"
-        for mentioned_user_id in comment_data.mentions:
-            if mentioned_user_id != user_id:  # Don't notify self
+        recipient_ids = [m for m in comment_data.mentions if m != user_id]
+        if recipient_ids:
+            # Localize each notification in the recipient's own language —
+            # resolve from their stored preferences, not the author's.
+            rows = await self.db.execute(
+                select(User.id, User.preferences).where(User.id.in_(recipient_ids))
+            )
+            prefs_by_id = {rid: prefs for rid, prefs in rows.all()}
+            snippet = comment_data.content[:50]
+            for mentioned_user_id in recipient_ids:
+                prefs = prefs_by_id.get(mentioned_user_id) or {}
+                locale = normalize_locale(
+                    prefs.get("language") if isinstance(prefs, dict) else None
+                )
                 await self.notification_service.create(
                     NotificationCreate(
                         user_id=mentioned_user_id,
                         type=NotificationType.COMMENT_MENTION,
-                        title="You were mentioned in a comment",
-                        description=f"User mentioned you: {comment_data.content[:50]}...",
+                        title=get_message("notif_comment_mention_title", locale),
+                        description=get_message(
+                            "notif_comment_mention_desc", locale
+                        ).format(snippet=snippet),
                         entity_type="comment",
                         entity_id=str(db_comment.id),
                         deep_link=deep_link,
