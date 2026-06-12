@@ -643,8 +643,13 @@ class AIService:
 
         In Personal mode, the frontend may not send a space_id. However, the AI engine
         expects a space_id to scope metadata/permissions. This tries to find a space where:
-        - the user is a member, and
+        - the user reaches the space (owner, SpaceMember, OR CrewMember), and
         - the connection is linked to that space (space_connections).
+
+        The CrewMember path matters: a user added only to a crew is not a SpaceMember
+        (add_crew_member writes only CrewMember). Without it this returned None for a
+        crew-only user, so get_authorized_tables ran with no space/crew context and
+        fail-closed to ZERO tables — the user couldn't even see their crew's grant.
         """
         try:
             from uuid import UUID as UUIDType
@@ -652,15 +657,28 @@ class AIService:
             from sqlalchemy import or_, select
 
             from src.models.space import Space, SpaceConnection, SpaceMember
+            from src.models.crew import Crew, CrewMember
 
             conn_uuid = UUIDType(connection_id)
+
+            crew_space_ids = (
+                select(Crew.space_id)
+                .join(CrewMember, CrewMember.crew_id == Crew.id)
+                .where(CrewMember.user_id == user_id)
+            ).scalar_subquery()
 
             stmt = (
                 select(SpaceConnection.space_id)
                 .join(Space, Space.id == SpaceConnection.space_id)
                 .outerjoin(SpaceMember, SpaceMember.space_id == SpaceConnection.space_id)
                 .where(SpaceConnection.connection_id == conn_uuid)
-                .where(or_(Space.created_by == user_id, SpaceMember.user_id == user_id))
+                .where(
+                    or_(
+                        Space.created_by == user_id,
+                        SpaceMember.user_id == user_id,
+                        Space.id.in_(crew_space_ids),
+                    )
+                )
                 .limit(1)
             )
             space_uuid = await self.db.scalar(stmt)
@@ -671,6 +689,37 @@ class AIService:
                 exc_info=True,
             )
             return None
+
+    async def _is_space_member(self, user_id: UUID, space_id: Optional[str]) -> bool:
+        """True only if the user really belongs to the space (owner or SpaceMember).
+
+        Gate for whether the SPACE-level permission applies. A space's "full" grant
+        must NOT be handed to someone who reaches the space only via a restricted
+        crew — passing the space_id to get_authorized_tables would otherwise grant
+        them everything (the space perm wins before the crew perm is checked). For
+        non-members we pass space_id=None so the gate falls to their crew grant.
+        """
+        if not space_id:
+            return False
+        try:
+            from uuid import UUID as UUIDType
+            from sqlalchemy import or_, select
+            from src.models.space import Space, SpaceMember
+
+            sid = UUIDType(space_id) if isinstance(space_id, str) else space_id
+            stmt = (
+                select(Space.id)
+                .outerjoin(SpaceMember, SpaceMember.space_id == Space.id)
+                .where(Space.id == sid)
+                .where(or_(Space.created_by == user_id, SpaceMember.user_id == user_id))
+                .limit(1)
+            )
+            return (await self.db.scalar(stmt)) is not None
+        except Exception as e:
+            logger.error(
+                "Error checking space membership (user=%s space=%s): %s", user_id, space_id, e
+            )
+            return False
 
     async def process_query(self, user_id: UUID, query_data: AIQueryRequest) -> AIQueryResponse:
         """
@@ -960,15 +1009,19 @@ class AIService:
                         # and returns every table the user owns on the
                         # connection. Passing a non-Space UUID would match
                         # zero SpaceTable links and produce an empty list.
-                        perm_space_id = (
-                            None
-                            if space_id_is_personal_fallback
-                            else (UUID(space_id) if space_id else None)
+                        # Pass space_id to the permission gate ONLY for real members of
+                        # the space. Otherwise a space-level "full" grant would be handed
+                        # to a user who reaches the space only via a restricted crew —
+                        # the space perm wins before the crew perm is checked. Non-members
+                        # get space_id=None so the gate falls to their crew grant.
+                        _primary_is_member = (
+                            bool(space_id)
+                            and not space_id_is_personal_fallback
+                            and await self._is_space_member(user_id, space_id)
                         )
+                        perm_space_id = UUID(space_id) if _primary_is_member else None
                         perm_crew_ids = (
-                            None
-                            if space_id_is_personal_fallback
-                            else ([UUID(cid) for cid in crew_ids] if crew_ids else None)
+                            [UUID(cid) for cid in crew_ids] if crew_ids else None
                         )
                         try:
                             authorized_tables = await self.permission_service.get_authorized_tables(
@@ -1034,10 +1087,20 @@ class AIService:
                                         if extra_space
                                         else None
                                     )
+                                    # space_id to the gate only for real members (same
+                                    # rule as the primary) — a crew-only user must not
+                                    # inherit the space's "full" grant on an extra.
+                                    extra_is_member = await self._is_space_member(
+                                        user_id, extra_space
+                                    )
                                     extra_authorized = await self.permission_service.get_authorized_tables(
                                         user_id=user_id,
                                         connection_id=UUID(extra_cid),
-                                        space_id=UUID(extra_space) if extra_space else None,
+                                        space_id=(
+                                            UUID(extra_space)
+                                            if (extra_space and extra_is_member)
+                                            else None
+                                        ),
                                         crew_ids=(
                                             [UUID(c) for c in extra_crew_ids]
                                             if extra_crew_ids
