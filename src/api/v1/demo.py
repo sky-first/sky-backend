@@ -63,6 +63,19 @@ async def signup(
     request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> DemoSignupResponse:
+    # Demo is platform-only. Real customer tenants (e.g. gbtsolutions) have
+    # ``feature_flags.demo_enabled = false``; the front-end hides the demo
+    # link (auth.py show_demo), but this endpoint MUST enforce it too —
+    # otherwise anyone can POST /demo/signup and provision a demo Space
+    # inside a real tenant (a "Demo Sky" space appeared in gbtsolutions
+    # exactly this way: the global settings.DEMO_ENABLED was the only gate).
+    # The default/platform context keeps the public demo open.
+    ctx = getattr(request.state, "tenant_context", None)
+    if ctx is not None and not getattr(ctx, "is_default", False):
+        flags = getattr(ctx, "feature_flags", None) or {}
+        if not flags.get("demo_enabled", False):
+            raise ForbiddenError("Demo is not available on this workspace.")
+
     service = DemoService(db)
     return await service.signup(
         payload=payload,
