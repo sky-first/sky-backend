@@ -25,7 +25,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "add_notification_i18n_keys_20260612"
+revision = "notif_i18n_keys_20260612"
 down_revision = "chat_sessions_20260609"
 branch_labels = None
 depends_on = None
