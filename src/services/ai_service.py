@@ -740,13 +740,20 @@ class AIService:
                 _personal_ud_ids: List[str] = []
                 _is_personal_mode = bool(getattr(query_data, "is_personal", False))
                 if _is_personal_mode and not getattr(query_data, "space_id", None):
-                    # Eagerly fetch user_datasets IDs regardless of how connection_id
-                    # was resolved (from knowledge UUID or fallback). This ensures
-                    # extra_connection_ids is populated even when a specific connection
-                    # was passed directly in the request.
-                    _personal_ud_ids = await self._get_user_dataset_connection_ids(user_id)
+                    # Frente 1 — personal mode = the user's FULL accessible scope:
+                    # own connections + every space they belong to (via
+                    # space_connections), i.e. the same aggregate the Sources panel
+                    # shows. Previously this read user_datasets, which for non-demo
+                    # users held STALE demo links and NONE of the real connections —
+                    # so personal queries answered from demo data. (Demo users still
+                    # get their demo connections, which are space-linked.)
+                    # NOTE: ``get_by_user`` covers own + spaces; crew-only access that
+                    # is not space-linked is a follow-up to verify (senior review).
+                    # Feeds both the router below and extra_connection_ids passed to
+                    # the AI, so the AI receives the whole real scope.
+                    _personal_ud_ids = await self._get_all_connections_for_user(user_id)
                     logger.info(
-                        "personal_mode_multi_source: user=%s ud_ids=%s",
+                        "personal_mode_multi_source: user=%s accessible_ids=%s",
                         user_id, _personal_ud_ids,
                     )
 
@@ -758,19 +765,19 @@ class AIService:
                             user_id, space_id, question=configure_data.question
                         )
                     else:
-                        # Personal mode: score user_datasets connections (demo/shared)
-                        # exclusively so that owned background connections don't dilute
-                        # the keyword score with their larger table/column surface area.
-                        # _personal_ud_ids was already fetched eagerly above.
+                        # Personal mode (Frente 2): NO keyword pre-routing. The whole
+                        # accessible scope is forwarded to the AI via
+                        # extra_connection_ids below, and the orchestrator's semantic
+                        # RAG picks the right table across ALL of them. The old keyword
+                        # router mis-picked cross-language (PT "faturamento" vs EN
+                        # "billing"/"revenue") and forwarded only ONE connection — so the
+                        # AI never saw the right schema. The primary connection_id here is
+                        # just the URL target; the table choice is the AI's, not ours.
                         if _personal_ud_ids:
-                            connection_id = await self._get_best_connection_for_question(
-                                user_id=user_id,
-                                space_id=str(user_id),
-                                question=configure_data.question,
-                                allowed_ids=set(_personal_ud_ids),
-                            )
+                            connection_id = _personal_ud_ids[0]
                             logger.info(
-                                "personal_mode_ud_routing: user=%s ud_ids=%s best=%s",
+                                "personal_mode_scope: user=%s scope=%s primary=%s "
+                                "(semantic routing delegated to AI orchestrator)",
                                 user_id, _personal_ud_ids, connection_id,
                             )
                         if not connection_id:
@@ -942,7 +949,15 @@ class AIService:
                         # permission check needed. The AI service loads their table metadata
                         # itself via load_agent_config(connection_ids=...).
                         extra_connection_ids: List[str] = []
-                        if _personal_ud_ids and space_id_is_personal_fallback:
+                        # Frente 2: forward the WHOLE personal scope so the AI's
+                        # orchestrator can semantically route across all connections.
+                        # Do NOT gate on space_id_is_personal_fallback — that flag flips
+                        # to False as soon as the primary connection resolves to a real
+                        # space (via _resolve_space_id_for_connection above), which used
+                        # to silently drop the extras and leave the AI with one DB.
+                        # _personal_ud_ids is only populated in personal mode, so this
+                        # condition is already personal-mode-only.
+                        if _personal_ud_ids:
                             extra_connection_ids = [
                                 cid for cid in _personal_ud_ids if cid != connection_id
                             ]
