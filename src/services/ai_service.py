@@ -443,16 +443,58 @@ class AIService:
             return [first] if first else []
 
     async def _get_all_connections_for_user(self, user_id: UUID) -> List[str]:
-        """Return IDs of all active connections the user has access to (personal mode)."""
+        """Return IDs of all active connections the user has access to (personal mode).
+
+        Union of two access paths:
+          1. SpaceMember path — own connections + connections of spaces the user is
+             a direct member of (``connection_repo.get_by_user``).
+          2. Crew path — a user added to a crew is NOT made a SpaceMember
+             (``crew_service.add_crew_member`` only writes CrewMember), so
+             get_by_user MISSES the connections of spaces the user reaches only via
+             a crew, leaving such users with an empty scope. We add the connections
+             of those crew spaces here. The per-table crew filter (applied to the
+             primary and, since the security fix, to the extras) then narrows each
+             connection down to the tables the crew actually permits — so a
+             crew-only user sees the connections but only their crew's tables.
+        """
+        ids: set[str] = set()
         try:
             active = await self.connection_repo.get_by_user(
                 user_id, filters={"status": "active"}, limit=200
             )
-            return [str(c.id) for c in active]
+            ids.update(str(c.id) for c in active)
         except Exception as e:
-            logger.error(f"Error getting all connections for user {user_id}: {e}", exc_info=True)
-            first = await self._get_first_active_connection(user_id)
-            return [first] if first else []
+            logger.error(f"Error getting space-member connections for user {user_id}: {e}", exc_info=True)
+
+        try:
+            from sqlalchemy import select as sa_select
+            from src.models.crew import Crew, CrewMember
+            from src.models.connection import DataConnection
+            from src.models.space import SpaceConnection
+
+            crew_space_ids = (
+                sa_select(Crew.space_id)
+                .join(CrewMember, CrewMember.crew_id == Crew.id)
+                .where(CrewMember.user_id == user_id)
+            ).scalar_subquery()
+            crew_conn_q = (
+                sa_select(DataConnection.id)
+                .join(SpaceConnection, SpaceConnection.connection_id == DataConnection.id)
+                .where(
+                    SpaceConnection.space_id.in_(crew_space_ids),
+                    DataConnection.deleted_at.is_(None),
+                    DataConnection.status == "active",
+                )
+            )
+            crew_res = await self.db.execute(crew_conn_q)
+            ids.update(str(row[0]) for row in crew_res)
+        except Exception as e:
+            logger.error(f"Error getting crew-path connections for user {user_id}: {e}", exc_info=True)
+
+        if ids:
+            return list(ids)
+        first = await self._get_first_active_connection(user_id)
+        return [first] if first else []
 
     async def _resolve_connection_id_from_tables(
         self, table_names: List[str], user_id: UUID
@@ -973,30 +1015,46 @@ class AIService:
                         # primary-connection tables as candidates and doesn't pick tables
                         # from the secondary connections.
                         if extra_connection_ids:
-                            meta_repo = ConnectionMetadataRepository(self.db)
                             for extra_cid in extra_connection_ids:
                                 try:
-                                    extra_meta = await meta_repo.get_by_connection_id(
-                                        UUID(extra_cid)
+                                    # SECURITY (crew permission): run each extra through the
+                                    # SAME fail-closed, crew-scoped gate the primary uses —
+                                    # do NOT add raw metadata. The old code forwarded EVERY
+                                    # table of every extra, so a user who reaches a space only
+                                    # via a restricted crew saw tables the crew forbids. We
+                                    # resolve each extra's OWN space/crew context (it may live
+                                    # in a different space than the primary) and forward only
+                                    # the tables get_authorized_tables permits. Fail-closed: if
+                                    # it returns nothing, the extra contributes nothing.
+                                    extra_space = await self._resolve_space_id_for_connection(
+                                        user_id, extra_cid
                                     )
-                                    if extra_meta and isinstance(extra_meta.tables, list):
-                                        for t in extra_meta.tables:
-                                            if not isinstance(t, dict):
-                                                continue
-                                            tname = (
-                                                t.get("logical_name")
-                                                or t.get("name")
-                                                or ""
-                                            ).strip()
-                                            if tname and tname not in authorized_tables:
-                                                authorized_tables.append(tname)
-                                except Exception as extra_meta_err:
+                                    extra_crew_ids = (
+                                        await self._get_user_crew_ids(user_id, extra_space)
+                                        if extra_space
+                                        else None
+                                    )
+                                    extra_authorized = await self.permission_service.get_authorized_tables(
+                                        user_id=user_id,
+                                        connection_id=UUID(extra_cid),
+                                        space_id=UUID(extra_space) if extra_space else None,
+                                        crew_ids=(
+                                            [UUID(c) for c in extra_crew_ids]
+                                            if extra_crew_ids
+                                            else None
+                                        ),
+                                    )
+                                    for tname in extra_authorized:
+                                        tname = (tname or "").strip()
+                                        if tname and tname not in authorized_tables:
+                                            authorized_tables.append(tname)
+                                except Exception as extra_perm_err:
                                     logger.warning(
-                                        "multi_source_hint: failed to load tables for extra connection %s: %s",
-                                        extra_cid, extra_meta_err,
+                                        "multi_source_perm: failed to authorize tables for extra connection %s: %s",
+                                        extra_cid, extra_perm_err,
                                     )
                             logger.info(
-                                "multi_source_hint: authorized_tables extended to %s",
+                                "multi_source_perm: authorized_tables (crew-filtered) extended to %s",
                                 authorized_tables,
                             )
 
