@@ -28,6 +28,27 @@ class AIServiceHTTPClient:
         # AI_SERVICE_HTTP_TIMEOUT so ops can dial it without a deploy.
         self.timeout = float(getattr(settings, "AI_SERVICE_HTTP_TIMEOUT", None) or 90.0)
 
+    def _tenant_headers(self) -> Dict[str, str]:
+        """Per-request headers forwarded to the AI service.
+
+        Carries the resolved tenant slug (``X-Tenant-Slug``) so the AI
+        service can route its DB sessions to the tenant's own database
+        (Model B / Phase 5). Returns an empty dict for the default /
+        single-tenant context, so non-tenant traffic is byte-for-byte
+        unchanged and nothing breaks while the AI side is still rolling
+        out the routing. Never raises — an AI call must not fail because
+        the tenant contextvar was unset on some background path.
+        """
+        try:
+            from src.core.tenant_context import current_tenant
+
+            ctx = current_tenant()
+            if ctx is not None and not ctx.is_default and ctx.slug:
+                return {"X-Tenant-Slug": ctx.slug}
+        except Exception:  # pragma: no cover — defensive
+            pass
+        return {}
+
     async def query_connection(
         self,
         connection_id: str,
@@ -115,7 +136,7 @@ class AIServiceHTTPClient:
             # orchestrator can build cross-schema queries (multi-source path).
             payload["connection_ids"] = connection_ids
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
             logger.info(
                 f"Calling AI service: {url} with connection_id={connection_id}, "
                 f"space_id={space_id}, extra_connection_ids={connection_ids}"
@@ -182,7 +203,7 @@ class AIServiceHTTPClient:
         if locale:
             payload["locale"] = locale
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, headers=self._tenant_headers()) as client:
             logger.info(f"Streaming AI service: {url} for connection {connection_id}")
             async with client.stream("POST", url, json=payload) as response:
                 response.raise_for_status()
@@ -246,7 +267,7 @@ class AIServiceHTTPClient:
         if table_names:
             params["table_names"] = table_names
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
             logger.info(
                 f"Discovering connection: {url} with connection_id={connection_id}, "
                 f"space_id={space_id if space_id != self.SHARED_INDEX else '(shared/global)'}"
@@ -278,7 +299,7 @@ class AIServiceHTTPClient:
         if is_personal is not None:
             params["is_personal"] = bool(is_personal)
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
             logger.info(
                 "Calling AI list tables: %s connection_id=%s space_id=%s",
                 url,
@@ -306,7 +327,7 @@ class AIServiceHTTPClient:
         if ttl_seconds is not None:
             params["ttl_seconds"] = ttl_seconds
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
             logger.info(
                 "Calling AI metadata status: %s connection_id=%s space_id=%s",
                 url,
@@ -352,7 +373,7 @@ class AIServiceHTTPClient:
         if is_personal is not None:
             payload["is_personal"] = bool(is_personal)
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
             logger.info(
                 "Calling AI chat bootstrap: %s connection_id=%s space_id=%s",
                 url,
@@ -418,7 +439,7 @@ class AIServiceHTTPClient:
         if context_tables:
             payload["context_tables"] = context_tables
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
             logger.info(
                 "Calling AI dashboard plan: %s connection_id=%s space_id=%s",
                 url,
@@ -476,7 +497,7 @@ class AIServiceHTTPClient:
             payload["question"] = question
 
         async with httpx.AsyncClient(
-            timeout=60.0
+            timeout=60.0, headers=self._tenant_headers()
         ) as client:  # Timeout aumentado para 60s (warehouses podem demorar)
             logger.info(
                 "Calling AI validate SQL: %s connection_id=%s space_id=%s",
@@ -526,7 +547,7 @@ class AIServiceHTTPClient:
             payload["current_title"] = current_title
 
         async with httpx.AsyncClient(
-            timeout=25.0
+            timeout=25.0, headers=self._tenant_headers()
         ) as client:  # Timeout failsafe para sugestão de título
             logger.info(
                 "Calling AI suggest widget title: %s question=%s",
@@ -576,7 +597,7 @@ class AIServiceHTTPClient:
         if data_sample:
             payload["data_sample"] = data_sample
 
-        async with httpx.AsyncClient(timeout=25.0) as client:
+        async with httpx.AsyncClient(timeout=25.0, headers=self._tenant_headers()) as client:
             logger.info(f"Calling AI generate infographic: {url}")
             response = await client.post(url, json=payload)
             response.raise_for_status()
@@ -590,7 +611,7 @@ class AIServiceHTTPClient:
         """
         url = f"{self.base_url}/knowledge-graph/ingest"
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
             logger.info(f"Ingesting into Knowledge Graph: {url} payload_id={payload.get('id')}")
             response = await client.post(url, json=payload)
             response.raise_for_status()
