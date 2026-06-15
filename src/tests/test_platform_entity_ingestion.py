@@ -50,9 +50,15 @@ async def test_create_space_ingests_space_into_knowledge_graph(
         )
     assert res.status_code in (200, 201)
     body = res.json()
-    mock_ingest.assert_awaited_once()
-    payload = _get_ingest_payloads(mock_ingest)[0]
-    assert payload["entity_type"] == "space"
+    # create_space now also auto-creates the default "General" crew, which
+    # ingests its own crew entity through the same client — so the mock is
+    # awaited more than once. Assert exactly one SPACE entity was ingested
+    # with the right fields (the crew ingest is covered by its own test).
+    space_payloads = [
+        p for p in _get_ingest_payloads(mock_ingest) if p and p.get("entity_type") == "space"
+    ]
+    assert len(space_payloads) == 1, space_payloads
+    payload = space_payloads[0]
     assert payload["id"] == body["id"]
     assert payload["name"] == "Engineering"
     # Space is collaborative — its embedding must NOT be stamped with

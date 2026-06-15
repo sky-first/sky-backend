@@ -45,6 +45,7 @@ from src.schemas.user import (
 from src.services.auth0_service import Auth0Service
 from src.services.auth_service import AuthenticationService, user_to_response_dict
 from src.services.invite_service import InviteService, request_base_url
+from src.services.password_reset_service import PasswordResetService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
@@ -132,8 +133,7 @@ async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthM
     slug: Optional[str] = None
 
     ctx = (
-        getattr(request.state, "tenant_context", None)
-        or getattr(request.state, "tenant", None)
+        getattr(request.state, "tenant_context", None) or getattr(request.state, "tenant", None)
         if hasattr(request, "state")
         else None
     )
@@ -465,25 +465,55 @@ async def get_effective_permissions(
     "/forgot-password",
     response_model=SuccessResponse,
     status_code=status.HTTP_200_OK,
+    responses={403: {"model": ErrorResponse}},
     summary="Forgot password",
     description="Request password reset email",
 )
 async def forgot_password(
     request_data: ForgotPasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
     Forgot password endpoint.
 
+    Gated by the same per-tenant ``methods.password`` flag as /login:
+    an SSO-only workspace has no password to reset, so the request is
+    refused with 403 (mirrors the login handler) before any token is
+    minted.
+
+    For tenants that allow password auth the response is ALWAYS the same
+    generic success message, whether or not the email matches an account
+    — this is deliberate so the endpoint cannot be used to enumerate
+    which addresses have accounts. When the account does exist a reset
+    token is minted, stored (1h expiry), and a reset email is sent
+    best-effort (a delivery failure never changes the response).
+
     Args:
         request_data: Email address
+        request: FastAPI request (tenant resolution + host for the link)
         db: Database session
 
     Returns:
-        SuccessResponse: Success message (always returns success for security)
+        SuccessResponse: Generic success message (no account-existence leak)
     """
-    raise ForbiddenError(
-        "Password reset is disabled. Please sign in with your company account via SSO."
+    methods = await _auth_methods_for_request(request, db)
+    if not methods.password:
+        raise ForbiddenError(
+            "Password reset is disabled for this workspace. "
+            "Please sign in with your company SSO."
+        )
+
+    # Build the reset link on the host the request actually arrived on —
+    # the tenant's own domain — so the token resolves against the tenant
+    # DB, exactly like the invite flow.
+    base_url = request_base_url(request)
+
+    reset_service = PasswordResetService(db)
+    await reset_service.request_reset(email=request_data.email, base_url=base_url)
+
+    return SuccessResponse(
+        message="If an account exists for that email, we've sent password reset instructions."
     )
 
 
@@ -491,30 +521,49 @@ async def forgot_password(
     "/reset-password",
     response_model=SuccessResponse,
     status_code=status.HTTP_200_OK,
-    responses={400: {"model": ErrorResponse}},
+    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
     summary="Reset password",
     description="Reset password using reset token",
 )
 async def reset_password(
     request_data: ResetPasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
     Reset password endpoint.
 
+    Gated by the same per-tenant ``methods.password`` flag as /login.
+    Validates the reset token (must exist and not be expired), sets the
+    new password, and clears the token so it cannot be replayed. An
+    invalid or expired token is rejected with a clean 400.
+
     Args:
         request_data: Reset token and new password
+        request: FastAPI request (tenant resolution)
         db: Database session
 
     Returns:
         SuccessResponse: Success message
 
     Raises:
-        BadRequestError: If token is invalid
+        BadRequestError: If the token is invalid or expired
+        ForbiddenError: If the workspace disables password auth
     """
-    raise ForbiddenError(
-        "Password reset is disabled. Please sign in with your company account via SSO."
+    methods = await _auth_methods_for_request(request, db)
+    if not methods.password:
+        raise ForbiddenError(
+            "Password reset is disabled for this workspace. "
+            "Please sign in with your company SSO."
+        )
+
+    reset_service = PasswordResetService(db)
+    await reset_service.reset_password(
+        token=request_data.token,
+        new_password=request_data.new_password,
     )
+
+    return SuccessResponse(message="Password has been reset successfully.")
 
 
 @router.post(

@@ -4,8 +4,8 @@ import asyncio
 import json
 import logging
 import re
+from datetime import date, datetime, timezone
 from decimal import Decimal
-from datetime import datetime, date, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db
-from src.core.locale import DEFAULT_LOCALE, normalize_locale, get_message
+from src.core.locale import DEFAULT_LOCALE, get_message, normalize_locale
 from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.user import User
 
@@ -32,7 +32,7 @@ def _extract_tables_from_sql(sql: str) -> List[str]:
     if not sql:
         return []
     matches = re.findall(
-        r'\b(?:FROM|JOIN)\s+((?:\w+\.)?\w+)',
+        r"\b(?:FROM|JOIN)\s+((?:\w+\.)?\w+)",
         sql,
         re.IGNORECASE,
     )
@@ -197,6 +197,24 @@ async def create_agent(
     scope_str = (
         data.scope.value if hasattr(data.scope, "value") else str(data.scope or "")
     ).lower()
+
+    # Space→Crew security boundary (2026-06): agents are ALWAYS created at
+    # the crew level, never on a bare space. A space-scoped agent would run
+    # over the union of the space's crews' tables; the new model requires an
+    # explicit crew so its data surface is the one the operator granted.
+    # Personal / crew / organization scopes are still allowed. Gated by the
+    # same flag as the query guard so FE + BE roll out together.
+    from src.config.settings import settings as _crew_settings
+
+    if _crew_settings.CREW_REQUIRED_FOR_QUERY and scope_str == "space":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Agents must be created at the crew level, not the space level. "
+                "Select a crew — every space has a default 'General' crew."
+            ),
+        )
+
     if scope_str != "personal":
         if not data.scope_id:
             raise HTTPException(
@@ -219,7 +237,9 @@ async def create_agent(
     _role = (current_user.role or "").lower()
     if _max > 0 and _role not in ("owner", "admin", "super_admin"):
         _count_result = await db.execute(
-            select(func.count()).select_from(Agent).where(
+            select(func.count())
+            .select_from(Agent)
+            .where(
                 Agent.created_by == current_user.id,
             )
         )
@@ -350,7 +370,9 @@ async def run_agent_now(
 ):
     """Trigger an immediate execution of the agent."""
     import logging
+
     from sqlalchemy import select
+
     from src.models.agent import Agent
 
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
@@ -455,7 +477,9 @@ async def run_agent_stream(
                 conn_id = await _ai_svc._get_first_active_connection(current_user.id)
 
         if not conn_id and monitor_type != "context":
-            _err_locale = normalize_locale((current_user.preferences or {}).get("language", DEFAULT_LOCALE))
+            _err_locale = normalize_locale(
+                (current_user.preferences or {}).get("language", DEFAULT_LOCALE)
+            )
             yield f"data: {json.dumps({'type': 'error', 'message': get_message('no_data_source_agent', _err_locale)})}\n\n"
             return
 
@@ -580,6 +604,7 @@ async def run_agent_stream(
         # ── Normal single-query path ───────────────────────────────────────────
         try:
             table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
+
             # table_ids are stored as "connectionId::schema.tableName" from the frontend.
             # The orchestrator matches by logical/physical name only (e.g. "accounts"),
             # so strip the "connId::" prefix and the "schema." prefix.
@@ -588,8 +613,7 @@ async def run_agent_stream(
                 return name.rsplit(".", 1)[-1] if "." in name else name
 
             table_names: Optional[List[str]] = (
-                [_extract_table_name(tid) for tid in table_ids]
-                if table_ids else None
+                [_extract_table_name(tid) for tid in table_ids] if table_ids else None
             ) or None
             effective_datasets = sql_table_hints or table_names
             _agent_locale = normalize_locale(
@@ -800,8 +824,9 @@ async def list_all_insights(
         # No explicit scope and not an org admin — restrict to:
         #   (a) personal agents created by this user, OR
         #   (b) Space agents in Spaces the user is a member of.
+        from sqlalchemy import and_, or_
+
         from src.models.space import SpaceMember
-        from sqlalchemy import or_, and_
 
         member_q = await db.execute(
             select(SpaceMember.space_id).where(SpaceMember.user_id == current_user.id)
@@ -893,6 +918,7 @@ async def get_agent_metrics(
         raise HTTPException(status_code=403, detail="Not allowed for this agent")
     import json
     from datetime import datetime, timezone
+
     from src.models.agent import AgentExecution
 
     exec_q = await db.execute(select(AgentExecution).where(AgentExecution.agent_id == agent_id))
@@ -1003,13 +1029,15 @@ async def get_tenant_agent_metrics(
     """
     await RBACService(db).assert_permission(current_user, "metrics.view")
     from datetime import datetime, timezone
+
     from src.models.agent import AgentExecution
 
     is_org_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
     agent_query = select(Agent)
     if not is_org_admin:
+        from sqlalchemy import and_, or_
+
         from src.models.space import SpaceMember
-        from sqlalchemy import or_, and_
 
         member_q = await db.execute(
             select(SpaceMember.space_id).where(SpaceMember.user_id == current_user.id)
