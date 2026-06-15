@@ -42,6 +42,7 @@ class Crew(Base):
     crew_connections = relationship(
         "CrewConnection", back_populates="crew", cascade="all, delete-orphan"
     )
+    crew_tables = relationship("CrewTable", back_populates="crew", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_crews_space_id", "space_id", postgresql_where=deleted_at.is_(None)),
@@ -117,3 +118,51 @@ class CrewConnection(Base):
 
     def __repr__(self) -> str:
         return f"<CrewConnection(crew_id={self.crew_id}, connection_id={self.connection_id})>"
+
+
+class CrewTable(Base):
+    """Crew specific table association.
+
+    Mirrors ``SpaceTable`` one level down: a crew may be restricted to specific
+    tables of a connection it has access to. A crew that has a ``CrewConnection``
+    but no ``CrewTable`` rows for that connection inherits ALL tables the parent
+    space exposes for it; once any ``CrewTable`` row exists for a connection, the
+    crew is narrowed to exactly those tables.
+    """
+
+    __tablename__ = "crew_tables"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    crew_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("crews.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    connection_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("data_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    table_name = Column(String(255), nullable=False)
+    schema_name = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    # Relationships
+    crew = relationship("Crew", back_populates="crew_tables")
+    connection = relationship("DataConnection")
+
+    __table_args__ = (
+        Index(
+            "idx_crew_tables_crew_conn_table",
+            "crew_id",
+            "connection_id",
+            "table_name",
+            "schema_name",
+            unique=True,
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<CrewTable(crew_id={self.crew_id}, table={self.table_name})>"
