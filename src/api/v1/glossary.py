@@ -15,6 +15,9 @@ from src.api.deps import get_current_user, get_db
 from src.core.exceptions import ForbiddenError
 from src.models.user import User
 from src.schemas.glossary import GlossaryTermCreate, GlossaryTermResponse, GlossaryTermUpdate
+from src.schemas.knowledge_suggest import GlossarySuggestionRead, GlossarySuggestionsResponse
+from src.services.connection_knowledge_suggest_service import derive_suggestions
+from src.services.connection_service import ConnectionService
 from src.services.glossary_service import GlossaryService
 from src.services.rbac_service import RBACService
 
@@ -80,6 +83,40 @@ async def create_glossary(
         space_id=space_id,
         crew_id=crew_id,
         owner_user_id=current_user.id,
+    )
+
+
+@router.post(
+    "/suggest-from-connection/{connection_id}",
+    response_model=GlossarySuggestionsResponse,
+)
+async def suggest_glossary_from_connection(
+    connection_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """First-setup glossary derived faithfully from real schema.
+
+    Reads the connection's already-discovered metadata (tables, columns,
+    descriptions) and proposes one term per real table plus one per
+    *documented* column. Definitions reuse the source's real description
+    when present, otherwise a minimal neutral sentence built from the
+    table name — never an invented business meaning. Each suggestion
+    carries provenance and is flagged ``source="auto"`` / unreviewed.
+
+    Read-only: nothing is persisted. The FE curates and POSTs the kept
+    terms through the normal create path. Empty / undiscovered connection
+    → empty list (no fabrication).
+    """
+    await RBACService(db).assert_permission(current_user, "connections.view")
+
+    # get_metadata performs the connection access check and returns the
+    # same validated TableMetadataSchema objects the rest of the app uses.
+    metadata = await ConnectionService(db).get_metadata(connection_id, current_user)
+    derived = derive_suggestions(metadata.tables or [])
+    return GlossarySuggestionsResponse(
+        connection_id=str(connection_id),
+        suggestions=[GlossarySuggestionRead.model_validate(s) for s in derived.glossary],
     )
 
 
