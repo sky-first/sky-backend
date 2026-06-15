@@ -39,6 +39,19 @@ class AIQueryRequest(BaseModel):
         description="Whether the query is in personal mode (access across all crews/spaces).",
     )
     page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
+    # Conversation identity for multi-turn memory (Frente 1). The frontend sends a
+    # STABLE id per chat surface — the active chat-session id for the main chatbox
+    # (page-scoped, so a shared page's default "Chat 1" is the same id for every
+    # member → shared memory), or the conversation id for a reply/thread. The AI
+    # keys chat_history on this; a stable value across turns is what loads memory.
+    # Absent → process_query falls back to the per-query AIQuery id (no memory).
+    thread_id: Optional[str] = Field(
+        None,
+        description=(
+            "Stable conversation/session id for multi-turn memory. Same across "
+            "turns of the same chat tab/thread. Omit for one-shot queries."
+        ),
+    )
     # Collaborative mode: restrict AI data context to this specific crew
     crew_id: Optional[str] = Field(
         None,
