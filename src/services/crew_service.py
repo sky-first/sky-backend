@@ -486,7 +486,7 @@ class CrewService:
                     description=f"{user.name or user.email} added you as {member_data.role}",
                     entity_type="crew",
                     entity_id=str(crew_id),
-                    deep_link=f"/dashboard?crew={crew_id}",
+                    deep_link=f"/page?crew={crew_id}",
                 )
             )
         except Exception:

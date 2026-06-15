@@ -606,7 +606,7 @@ class PageService:
                     description=f"{user.name or user.email} added you as {member_data.role}",
                     entity_type="page",
                     entity_id=str(page_id),
-                    deep_link=f"/dashboard?page={page_id}",
+                    deep_link=f"/page?page={page_id}",
                 )
             )
         except Exception:

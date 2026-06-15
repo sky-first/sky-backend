@@ -51,15 +51,9 @@ class CommentService:
         # Trigger Notifications
         # 1. Notify mentioned users
         #
-        # Deep-link shape: the frontend route is `/dashboard?id=<id>`
-        # (singular — there is no `/dashboards/<id>` route, clicking
-        # the old pluralised path was a silent dead-end). We also
-        # carry `insight=<widget_id>` when the comment is anchored to
-        # a widget so the dashboard page's Phase-3.4 scroll-to-widget
-        # handler highlights the right one on arrival.
         page_id = comment_data.page_id
         widget_id = comment_data.widget_id
-        deep_link = f"/dashboard?id={page_id}"
+        deep_link = f"/page?id={page_id}"
         if widget_id:
             deep_link += f"&insight={widget_id}"
         recipient_ids = [m for m in comment_data.mentions if m != user_id]
