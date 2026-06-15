@@ -124,6 +124,25 @@ async def process_query(
                 "Pick a crew — every space has a default 'General' crew."
             )
 
+    # Content-plane membership gate (Option B, 2026-06): querying a Space/Crew's
+    # data requires REAL membership of that specific crew (or space) — platform
+    # admins do NOT bypass content. This is stricter than the ai.query RBAC key
+    # (which only requires "some membership in the space"): here we gate the
+    # EXACT crew whose data is requested, so an admin who belongs to crew A
+    # cannot read crew B's data. Personal mode is exempt.
+    if space_uuid is not None and not bool(getattr(query_data, "is_personal", False)):
+        from src.services.authorization import Authorization
+
+        crew_uuid: Optional[UUID] = None
+        if query_data.crew_id:
+            try:
+                crew_uuid = UUID(query_data.crew_id)
+            except Exception:
+                crew_uuid = None
+        await Authorization(db).assert_content_access(
+            current_user, space_id=space_uuid, crew_id=crew_uuid
+        )
+
     ai_service = AIService(db)
 
     # Tenant/user rate limiting (cost control). Enforced only for the costly path.

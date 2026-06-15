@@ -282,6 +282,47 @@ class Authorization:
             return False
         return SPACE_ROLE_LEVEL[actual] >= SPACE_ROLE_LEVEL[required]
 
+    async def assert_content_access(
+        self,
+        user: User,
+        *,
+        space_id: Optional[UUID] = None,
+        crew_id: Optional[UUID] = None,
+    ) -> None:
+        """Require REAL membership for CONTENT access (Option B, 2026-06).
+
+        Unlike :meth:`can`, this NEVER applies a platform-role bypass — a
+        super_admin/admin who is not a member is denied. Used by content
+        endpoints (AI query against a resolved crew, agent insights, …) to
+        gate the SPECIFIC crew, not just "any crew in the space".
+
+        - ``crew_id`` given → the user must be a member of THAT crew
+          (owner/editor/viewer all grant access).
+        - else ``space_id`` given → the user must be a member of the space
+          itself OR of at least one crew inside it.
+        - neither → personal context, allowed.
+
+        Raises :class:`ForbiddenError` when the user is not a member.
+        """
+        if crew_id is not None:
+            role = await self.get_crew_role(user.id, crew_id)
+            if role is None:
+                raise ForbiddenError(
+                    "You must be a member of this crew to see its content. "
+                    "Ask a crew owner to add you."
+                )
+            return
+        if space_id is not None:
+            if await self.get_space_role(user.id, space_id) is not None:
+                return
+            if await self.get_best_crew_role_in_space(user.id, space_id) is not None:
+                return
+            raise ForbiddenError(
+                "You must be a member of this space to see its content."
+            )
+        # Personal context (no space/crew) — nothing to gate.
+        return
+
     async def get_resource_acl_level(
         self,
         user_id: UUID,
