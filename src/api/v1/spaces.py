@@ -248,6 +248,20 @@ async def get_space_crews(
     space_service = SpaceService(db)
     await space_service.get_space_crews(space_id, current_user)
 
+    # Space→Crew model (2026-06): every space must own at least the default
+    # "General" crew so questions/agents always have a crew to target.
+    # Spaces created before this model (or whose default-crew creation
+    # failed) are self-healed here, the moment the FE lists their crews.
+    # Best-effort: a failure must never block the listing.
+    try:
+        await space_service.ensure_default_crew(space_id, current_user)
+    except Exception:  # pragma: no cover - defensive; backfill is advisory
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "ensure_default_crew backfill failed for space %s", space_id, exc_info=True
+        )
+
     crew_service = CrewService(db)
     return await crew_service.list_crews(current_user, space_id=space_id)
 

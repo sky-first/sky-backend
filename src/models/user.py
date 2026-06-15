@@ -88,6 +88,15 @@ class User(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    # Password reset (forgot-password / reset-password flow).
+    # A urlsafe token minted by ``POST /auth/forgot-password`` and cleared
+    # the moment ``POST /auth/reset-password`` consumes it (or it expires).
+    # Mirrors the invite-token columns above: nullable, short-lived, and
+    # only set for tenants that allow password auth. SSO-only tenants
+    # never populate these — the endpoints 403 before minting.
+    password_reset_token = Column(String(255), nullable=True, index=True)
+    password_reset_expires_at = Column(DateTime(timezone=True), nullable=True)
+
     # SSO Metadata
     sso_metadata = Column(JSON, nullable=True)  # Store provider-specific data
 
@@ -143,6 +152,11 @@ class User(Base):
             "idx_users_invite_token",
             "invite_token",
             postgresql_where=invite_token.isnot(None),
+        ),
+        Index(
+            "idx_users_password_reset_token",
+            "password_reset_token",
+            postgresql_where=password_reset_token.isnot(None),
         ),
     )
 

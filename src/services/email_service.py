@@ -269,3 +269,159 @@ class EmailService:
             f"— Sky First Labs\n"
         )
         return self.send_email(to_email, subject, html_content, text_content)
+
+    def send_password_reset_email(
+        self,
+        to_email: str,
+        reset_link: str,
+        workspace_name: Optional[str] = None,
+    ) -> bool:
+        """Send a password-reset email.
+
+        Same brand + table-layout constraints as ``send_invite_email``
+        (inline styles, tables for layout, single CTA). The link points at
+        ``{frontend}/login/reset-password?token=…`` on the tenant's own
+        host so the token validates against the right tenant DB. Returns
+        ``send_email``'s success bool; callers treat delivery as
+        best-effort and never block on it.
+        """
+        # Brand with the tenant's own workspace name when resolvable —
+        # identical resolution order to send_invite_email.
+        if not workspace_name:
+            try:
+                from src.core.tenant_context import current_tenant
+
+                ctx = current_tenant()
+                if ctx is not None and not ctx.is_default:
+                    workspace_name = ctx.display_name or None
+            except Exception:  # pragma: no cover — defensive, never block send
+                workspace_name = None
+        app_name = workspace_name or getattr(settings, "APP_NAME", "Sky")
+
+        preheader = (
+            f"Reset your {app_name} password. This link expires in 1 hour. "
+            "If you didn't request this, you can safely ignore it."
+        )
+        subject = f"Reset your {app_name} password"
+
+        html_content = f"""\
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="x-apple-disable-message-reformatting">
+    <meta name="color-scheme" content="light only">
+    <meta name="supported-color-schemes" content="light only">
+    <title>{subject}</title>
+  </head>
+  <body style="margin:0; padding:0; background-color:#F1F5F9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; color:#1b1b1b;">
+    <!-- Pre-header (hidden, but read by inbox preview) -->
+    <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#F1F5F9;">
+      {preheader}
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F1F5F9;">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px; width:100%; background-color:#FFFFFF; border-radius:16px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,0.06);">
+
+            <!-- Brand band -->
+            <tr>
+              <td align="center" bgcolor="#1b1b1b" style="background-color:#1b1b1b; padding:36px 24px;">
+                <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; font-size:28px; font-weight:800; letter-spacing:8px; color:#FBBF24;">
+                  {app_name.upper()}
+                </div>
+                <div style="margin-top:8px; font-size:10px; font-weight:600; letter-spacing:3px; color:#FBBF24; opacity:0.7; text-transform:uppercase;">
+                  Enterprise Collective Intelligence
+                </div>
+              </td>
+            </tr>
+
+            <!-- Body -->
+            <tr>
+              <td style="padding:40px 40px 8px 40px;">
+                <h1 style="margin:0 0 16px 0; font-size:22px; line-height:30px; font-weight:700; color:#1b1b1b;">
+                  Reset your password
+                </h1>
+                <p style="margin:0 0 16px 0; font-size:15px; line-height:24px; color:#334155;">
+                  We received a request to reset the password for your {app_name} account.
+                  Click the button below to choose a new password.
+                </p>
+                <p style="margin:0 0 32px 0; font-size:15px; line-height:24px; color:#334155;">
+                  If you didn&rsquo;t request this, you can safely ignore this email &mdash; your
+                  password will not change.
+                </p>
+              </td>
+            </tr>
+
+            <!-- CTA: brand gold on black text -->
+            <tr>
+              <td align="center" style="padding:0 40px 32px 40px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="center" bgcolor="#FBBF24" style="border-radius:10px;">
+                      <a href="{reset_link}" target="_blank"
+                         style="display:inline-block; padding:14px 28px; font-size:14px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:#1b1b1b; text-decoration:none; border-radius:10px;">
+                        Reset password
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Fallback link + expiry -->
+            <tr>
+              <td style="padding:0 40px 32px 40px;">
+                <p style="margin:0 0 12px 0; font-size:12px; line-height:18px; color:#64748B;">
+                  Button not working? Copy and paste this link into your browser:
+                </p>
+                <p style="margin:0 0 24px 0; font-size:12px; line-height:18px; color:#D97706; word-break:break-all;">
+                  <a href="{reset_link}" style="color:#D97706; text-decoration:underline;">{reset_link}</a>
+                </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #E2E8F0;">
+                  <tr>
+                    <td style="padding-top:20px;">
+                      <p style="margin:0; font-size:12px; line-height:18px; color:#64748B;">
+                        <span style="display:inline-block; padding:2px 8px; background-color:#F1F5F9; color:#475569; border-radius:6px; font-weight:600; font-size:10px; letter-spacing:1px; text-transform:uppercase;">Security</span>
+                        &nbsp; This reset link expires in <strong>1 hour</strong>. If you didn&rsquo;t request a reset, you can safely ignore this email.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td align="center" style="background-color:#F8FAFC; padding:24px 40px;">
+                <p style="margin:0; font-size:11px; line-height:16px; color:#94A3B8;">
+                  Sent by {app_name}.<br>
+                  &copy; Sky First Labs
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
+
+        text_content = (
+            f"Reset your {app_name} password\n"
+            f"\n"
+            f"We received a request to reset the password for your {app_name} account.\n"
+            f"\n"
+            f"Choose a new password by opening this link:\n"
+            f"{reset_link}\n"
+            f"\n"
+            f"This link expires in 1 hour. If you didn't request this, you can\n"
+            f"safely ignore this email — your password will not change.\n"
+            f"\n"
+            f"— Sky First Labs\n"
+        )
+        return self.send_email(to_email, subject, html_content, text_content)

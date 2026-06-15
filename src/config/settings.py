@@ -364,6 +364,23 @@ class Settings(BaseSettings):
     # environment only after the full Phase 5 cutover.
     MULTI_TENANT_ENABLED: bool = False
 
+    # Space→Crew model (2026-06): when ON, questions and agents may only be
+    # asked/created against a CREW, never a bare Space. A collaborative
+    # query (space_id present, is_personal=False) without a crew_id is
+    # rejected at the API. This is a SECURITY boundary, not just a FE
+    # nicety.
+    #
+    # OFF by default — this hard server-side enforcement must be rolled out
+    # in lock-step with the crew-forcing frontend, so it is enabled
+    # deliberately per environment (env var) only AFTER the FE that always
+    # sends a crew_id is deployed. With it off, the FE still resolves the
+    # space's default "General" crew at send time, so collaborative queries
+    # remain crew-scoped in practice; flipping this on just adds the
+    # belt-and-braces server-side rejection. Keeping the default off also
+    # preserves backward-compatible behaviour for existing space-scoped
+    # agents/queries (and the test suite).
+    CREW_REQUIRED_FOR_QUERY: bool = False
+
     # Local-dev URL template used by ``TenantConnectionManager``. When
     # set, a single docker-compose Postgres can host many tenant DBs:
     # set this to e.g.
@@ -387,7 +404,9 @@ class Settings(BaseSettings):
     DEMO_ENABLED: bool = False
     DEMO_TTL_DAYS: int = 7
     DEMO_RATE_LIMIT_PER_IP_PER_HOUR: int = 3
-    DEMO_MAX_AGENTS_PER_USER: int = 10  # demo seeds 9 agents → 1 free slot so visitors can create one
+    DEMO_MAX_AGENTS_PER_USER: int = (
+        10  # demo seeds 9 agents → 1 free slot so visitors can create one
+    )
     DEMO_DATASET_CONNECTION_ID: str = ""  # legacy single Connection UUID
     DEMO_DATASET_CONNECTION_IDS: str = ""  # CSV of Connection UUIDs (preferred — multi-schema demo)
     TURNSTILE_SECRET_KEY: str = ""  # Cloudflare Turnstile (free)

@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
+from src.config.settings import settings
 from src.core.locale import DEFAULT_LOCALE, get_message
 from src.middleware.request_limits import depth_guard_dependency
-from src.config.settings import settings
 from src.models.user import User
 from src.rate_limit.core import (
     RateLimitExceeded,
@@ -106,6 +106,24 @@ async def process_query(
     permission_key = "ai.query" if space_uuid is not None else "ai.query.personal"
     await rbac.assert_permission(current_user, permission_key, space_id=space_uuid)
 
+    # Space→Crew security boundary (2026-06): in collaborative mode a
+    # question MUST target a crew, never a bare space. A query with a
+    # space_id but no crew_id (and not Personal mode) would otherwise fall
+    # back to "all crews the user belongs to in this space" — which leaks
+    # the union of every crew's tables instead of the explicitly selected
+    # crew's surface. Reject it here, server-side. Personal mode
+    # (is_personal=True, no space) is exempt. Every space has a default
+    # "General" crew, so a valid crew is always selectable in the FE.
+    if settings.CREW_REQUIRED_FOR_QUERY and space_uuid is not None:
+        is_personal_q = bool(getattr(query_data, "is_personal", False))
+        if not is_personal_q and not query_data.crew_id:
+            from src.core.exceptions import BadRequestError
+
+            raise BadRequestError(
+                "A crew must be selected to ask questions in a space. "
+                "Pick a crew — every space has a default 'General' crew."
+            )
+
     ai_service = AIService(db)
 
     # Tenant/user rate limiting (cost control). Enforced only for the costly path.
@@ -180,7 +198,9 @@ async def process_query(
     # records 20 beats on success. Demo: 500 beats / 7d. Starter:
     # 5K / 30d. See src/config/plan_quotas.py.
     await BeatsService(db).check_and_record(
-        current_user, kind="chat", source_id=None,
+        current_user,
+        kind="chat",
+        source_id=None,
     )
 
     response = await ai_service.process_query(current_user.id, query_data)
@@ -529,10 +549,12 @@ async def send_chat_message_stream(
         active_page = await page_repo.get_active_page(current_user.id)
         if not active_page:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active page found for user")
         message_data.page_id = active_page.id
     else:
         from src.services.page_service import PageService
+
         page_service = PageService(db)
         await page_service.get_user_page_or_404(message_data.page_id, current_user.id)
 
@@ -588,9 +610,7 @@ async def send_chat_message_stream(
             # Trust the page-level crew signal but intersect with the
             # user's actual membership so a compromised client can't
             # read a Crew they don't belong to.
-            user_crews = await ai_service._get_user_crew_ids(
-                current_user.id, str(scope_space_id)
-            )
+            user_crews = await ai_service._get_user_crew_ids(current_user.id, str(scope_space_id))
             if str(explicit_crew_id) in user_crews:
                 resolved_crew_ids = [str(explicit_crew_id)]
             # else: the client asked for a Crew the user doesn't belong
@@ -601,6 +621,7 @@ async def send_chat_message_stream(
             )
 
     import json as _json
+
     ai_client = AIServiceHTTPClient()
 
     # Load knowledge context (OKRs, strategies, table relationships) and merge
@@ -611,6 +632,7 @@ async def send_chat_message_stream(
             load_knowledge_context_for_user,
             render_knowledge_for_prompt,
         )
+
         _kc = await load_knowledge_context_for_user(db, current_user)
         _rendered = render_knowledge_for_prompt(_kc)
         if _rendered:
@@ -640,7 +662,9 @@ async def send_chat_message_stream(
                 instructions=stream_instructions or None,
                 is_personal=scope_is_personal,
                 crew_ids=resolved_crew_ids or None,
-                connection_ids=resolved_all_connection_ids if len(resolved_all_connection_ids) > 1 else None,
+                connection_ids=(
+                    resolved_all_connection_ids if len(resolved_all_connection_ids) > 1 else None
+                ),
                 locale=message_data.locale,
             ):
                 if line.startswith("data: "):
@@ -686,7 +710,9 @@ async def get_popular_questions(
 ) -> List[dict]:
     """List popular questions, anonymised. Each row: {question, count}."""
     from datetime import datetime, timedelta, timezone
+
     from sqlalchemy import func, select
+
     from src.models.ai import AIQuery
 
     # Last 30 days, completed only — incomplete/error queries shouldn't drive
@@ -1499,7 +1525,9 @@ async def suggest_widget_title(
     # suggest_title is 5 beats (single gpt-4o-mini call, much cheaper
     # than the L3 chat path).
     await BeatsService(db).check_and_record(
-        current_user, kind="suggest_title", source_id=None,
+        current_user,
+        kind="suggest_title",
+        source_id=None,
     )
 
     client = AIServiceHTTPClient()
