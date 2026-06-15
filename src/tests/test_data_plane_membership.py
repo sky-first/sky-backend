@@ -106,20 +106,6 @@ async def test_space_member_allowed_content_query(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_admin_findings_denied_when_non_member(db_session: AsyncSession):
-    """Agent insights/findings are content too — admin non-member denied."""
-    rbac = RBACService(db_session)
-    owner = await _user(db_session, "member", "owner")
-    space = await _space(db_session, owner)
-    await _add_member(db_session, space, owner, "owner")
-    admin = await _user(db_session, "admin", "admin")
-    await db_session.commit()
-
-    with pytest.raises(ForbiddenError):
-        await rbac.assert_permission(admin, "agents.findings.view", space_id=space.id)
-
-
-@pytest.mark.asyncio
 async def test_admin_management_key_still_bypasses(db_session: AsyncSession):
     """MANAGEMENT keys keep the admin bypass — admin can still create spaces
     without being a member of anything."""

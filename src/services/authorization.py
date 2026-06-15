@@ -111,17 +111,20 @@ SPACE_ADMIN_KEYS: frozenset[str] = frozenset({
 # bypass. Personal-mode keys (e.g. ``ai.query.personal``) are NOT here —
 # they have no space/crew to gate on. Grow this set per-phase as each
 # content endpoint is wired to pass the right space_id/crew_id.
-# IMPORTANT: every key here MUST also have a membership rule in
-# PERMISSION_RULES below — otherwise skipping the bypass would make can()
-# fall through to "rule is None → return False" and deny EVERYONE
-# (members included). Keys without a rule are added only once their rule
-# exists. Verified in PERMISSION_RULES: ai.query, agents.findings.view,
-# agents.findings.dismiss, agents.run.
+# IMPORTANT — two rules for membership of this set:
+#  1. The key MUST have a ("space", level) rule in PERMISSION_RULES, else
+#     skipping the bypass makes can() fall through to "rule is None →
+#     return False" and deny EVERYONE.
+#  2. The key MUST always be asserted WITH a space_id/crew_id at every call
+#     site. Keys used by "list across my accessible scopes" endpoints
+#     (e.g. agents.findings.view in list_all_insights, which asserts with NO
+#     context and does its own membership filtering) would wrongly hard-deny
+#     here — those are gated per-endpoint via ``assert_content_access`` on
+#     the resource's scope instead, NOT through this central set.
+# ``ai.query`` qualifies: it is only used when a space_id is present
+# (personal queries use the separate ``ai.query.personal`` key).
 DATA_PLANE_PERMS: frozenset[str] = frozenset({
     "ai.query",
-    "agents.findings.view",
-    "agents.findings.dismiss",
-    "agents.run",
 })
 
 
