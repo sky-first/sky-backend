@@ -14,10 +14,45 @@ class CrewBase(BaseModel):
     description: Optional[str] = None
 
 
+class CrewTableSelection(BaseModel):
+    """A specific table a crew is granted access to within a connection."""
+
+    connection_id: UUID
+    table_name: str
+    schema_name: Optional[str] = None
+
+
+class CrewConnectionTable(BaseModel):
+    """A table granted to a crew within a connection (response shape)."""
+
+    table_name: str
+    schema_name: Optional[str] = None
+
+
+class CrewConnectionResponse(BaseModel):
+    """A connection a crew has access to, with its (optional) table narrowing."""
+
+    connection_id: UUID
+    name: Optional[str] = None
+    connector_id: Optional[str] = None
+    # True when the crew has no specific-table rows for this connection (i.e.
+    # it inherits every table the space exposes).
+    all_tables: bool = True
+    tables: List[CrewConnectionTable] = []
+
+
 class CrewCreate(CrewBase):
     """Crew creation schema."""
 
     space_id: UUID
+    # Connections (a subset of the parent space's connections) this crew may
+    # use. Empty/omitted means the crew is created without any explicit
+    # connection grant.
+    connection_ids: Optional[List[UUID]] = None
+    # Optional per-connection table narrowing. A connection present in
+    # ``connection_ids`` but absent here keeps access to ALL of the space's
+    # tables for it; listing tables narrows the crew to exactly those.
+    tables: Optional[List[CrewTableSelection]] = None
 
 
 class CrewUpdate(BaseModel):

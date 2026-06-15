@@ -10,6 +10,7 @@ from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.crew import (
+    CrewConnectionResponse,
     CrewCreate,
     CrewMemberCreate,
     CrewMemberResponse,
@@ -384,3 +385,32 @@ async def get_crew_stats(
     """
     crew_service = CrewService(db)
     return await crew_service.get_crew_stats(crew_id, current_user)
+
+
+@router.get(
+    "/{crew_id}/connections",
+    response_model=List[CrewConnectionResponse],
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get crew connections",
+    description="Get the connections (and any specific tables) granted to a crew",
+)
+async def get_crew_connections(
+    crew_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[CrewConnectionResponse]:
+    """
+    Get the data access granted to a crew — its own connections/tables, not the
+    parent space's.
+
+    Args:
+        crew_id: Crew ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        List[CrewConnectionResponse]: Crew connections with optional table narrowing
+    """
+    crew_service = CrewService(db)
+    return await crew_service.get_crew_connections(crew_id, current_user)

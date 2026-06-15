@@ -14,8 +14,8 @@ from src.schemas.crew import CrewResponse
 from src.schemas.space import (
     SpaceCreate,
     SpaceMemberCreate,
-    SpaceMemberUpdate,
     SpaceMemberResponse,
+    SpaceMemberUpdate,
     SpaceResponse,
     SpaceStatsResponse,
     SpaceTableCreate,
@@ -204,7 +204,9 @@ async def delete_space(
     Returns:
         SuccessResponse: Success message
     """
-    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    await RBACService(db).assert_permission(
+        current_user, "spaces.members.manage", space_id=space_id
+    )
     space_service = SpaceService(db)
     logger.info(
         "[spaces:delete] request user_id=%s space_id=%s",
@@ -292,8 +294,36 @@ async def get_space_connections(
     """
     space_service = SpaceService(db)
     connections = await space_service.get_space_connections(space_id, current_user)
+
+    # Enrich with the connection's human name + connector so the UI never has
+    # to show a raw UUID. The `GET /connections` catalogue is scoped to the
+    # caller's OWN connections, so the frontend can't always resolve names for
+    # connections another member created — resolve them here instead.
+    from sqlalchemy import select as _select
+
+    from src.models.connection import DataConnection
+
+    conn_ids = [c.connection_id for c in connections]
+    name_by_id: dict = {}
+    connector_by_id: dict = {}
+    if conn_ids:
+        rows = await db.execute(
+            _select(DataConnection.id, DataConnection.name, DataConnection.connector_id).where(
+                DataConnection.id.in_(conn_ids)
+            )
+        )
+        for cid, cname, connector in rows.all():
+            name_by_id[cid] = cname
+            connector_by_id[cid] = connector
+
     return [
-        {"space_id": str(c.space_id), "connection_id": str(c.connection_id)} for c in connections
+        {
+            "space_id": str(c.space_id),
+            "connection_id": str(c.connection_id),
+            "name": name_by_id.get(c.connection_id),
+            "connector_id": connector_by_id.get(c.connection_id),
+        }
+        for c in connections
     ]
 
 
@@ -325,7 +355,9 @@ async def add_space_connection(
     Returns:
         dict: Success message and linked IDs
     """
-    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    await RBACService(db).assert_permission(
+        current_user, "spaces.members.manage", space_id=space_id
+    )
     space_service = SpaceService(db)
     await space_service.add_space_connection(
         space_id, connection_id, current_user, background_tasks
@@ -363,7 +395,9 @@ async def remove_space_connection(
     Returns:
         SuccessResponse: Success message
     """
-    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    await RBACService(db).assert_permission(
+        current_user, "spaces.members.manage", space_id=space_id
+    )
     space_service = SpaceService(db)
     await space_service.remove_space_connection(space_id, connection_id, current_user)
     return SuccessResponse(message="Connection unlinked successfully")
@@ -427,7 +461,9 @@ async def add_space_member(
     Returns:
         SpaceMemberResponse: Created member
     """
-    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    await RBACService(db).assert_permission(
+        current_user, "spaces.members.manage", space_id=space_id
+    )
     # Pricing Fase 1 — block at 402 before the membership row is
     # written. The user counter is per-tenant (not per-space), so the
     # bump happens once the row commits.
@@ -460,7 +496,9 @@ async def update_space_member_role(
     """Change a member's per-space role. Platform owner/admin bypass in
     RBACService; space admins can reshuffle their own space. Viewers
     and non-owners cannot call this."""
-    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    await RBACService(db).assert_permission(
+        current_user, "spaces.members.manage", space_id=space_id
+    )
     space_service = SpaceService(db)
     return await space_service.update_space_member_role(space_id, user_id, payload.role)
 
@@ -491,7 +529,9 @@ async def remove_space_member(
     Returns:
         SuccessResponse: Success message
     """
-    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    await RBACService(db).assert_permission(
+        current_user, "spaces.members.manage", space_id=space_id
+    )
     space_service = SpaceService(db)
     await space_service.remove_space_member(space_id, user_id, current_user)
     return SuccessResponse(message="Member removed successfully")
@@ -546,7 +586,9 @@ async def add_space_table(
     """
     Link a specific table to a space.
     """
-    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    await RBACService(db).assert_permission(
+        current_user, "spaces.members.manage", space_id=space_id
+    )
     space_service = SpaceService(db)
     return await space_service.add_space_table(space_id, table_data, current_user)
 
@@ -570,7 +612,9 @@ async def remove_space_table(
     """
     Unlink a specific table from a space.
     """
-    await RBACService(db).assert_permission(current_user, "spaces.members.manage", space_id=space_id)
+    await RBACService(db).assert_permission(
+        current_user, "spaces.members.manage", space_id=space_id
+    )
     space_service = SpaceService(db)
     await space_service.remove_space_table(
         space_id, connection_id, table_name, schema_name, current_user
@@ -608,6 +652,7 @@ async def set_space_table_hidden_columns(
     hidden = payload.get("hidden_columns")
     if not isinstance(hidden, list) or not all(isinstance(c, str) for c in hidden):
         from fastapi import HTTPException
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="hidden_columns must be a list of strings",
