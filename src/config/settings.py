@@ -368,10 +368,18 @@ class Settings(BaseSettings):
     # asked/created against a CREW, never a bare Space. A collaborative
     # query (space_id present, is_personal=False) without a crew_id is
     # rejected at the API. This is a SECURITY boundary, not just a FE
-    # nicety. Must be rolled out in lock-step with the crew-forcing
-    # frontend (the context selector that requires a crew). Every space
-    # auto-creates a default "General" crew so a crew is always available.
-    CREW_REQUIRED_FOR_QUERY: bool = True
+    # nicety.
+    #
+    # OFF by default — this hard server-side enforcement must be rolled out
+    # in lock-step with the crew-forcing frontend, so it is enabled
+    # deliberately per environment (env var) only AFTER the FE that always
+    # sends a crew_id is deployed. With it off, the FE still resolves the
+    # space's default "General" crew at send time, so collaborative queries
+    # remain crew-scoped in practice; flipping this on just adds the
+    # belt-and-braces server-side rejection. Keeping the default off also
+    # preserves backward-compatible behaviour for existing space-scoped
+    # agents/queries (and the test suite).
+    CREW_REQUIRED_FOR_QUERY: bool = False
 
     # Local-dev URL template used by ``TenantConnectionManager``. When
     # set, a single docker-compose Postgres can host many tenant DBs:

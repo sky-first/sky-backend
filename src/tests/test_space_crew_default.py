@@ -85,8 +85,12 @@ async def test_ensure_default_crew_is_idempotent(
 
 @pytest.mark.asyncio
 async def test_query_in_space_without_crew_is_rejected(
-    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession, monkeypatch
 ):
+    # The guard is OFF by default (lock-step rollout) — enable it for this test.
+    from src.config.settings import settings
+
+    monkeypatch.setattr(settings, "CREW_REQUIRED_FOR_QUERY", True)
     user = test_user_with_tokens["user"]
     headers = get_auth_headers(test_user_with_tokens["access_token"])
     svc = SpaceService(db_session)
@@ -162,8 +166,12 @@ async def test_get_space_crews_backfills_general_when_missing(
 
 @pytest.mark.asyncio
 async def test_create_agent_with_space_scope_is_rejected(
-    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession, monkeypatch
 ):
+    # The guard is OFF by default (lock-step rollout) — enable it for this test.
+    from src.config.settings import settings
+
+    monkeypatch.setattr(settings, "CREW_REQUIRED_FOR_QUERY", True)
     user = test_user_with_tokens["user"]
     headers = get_auth_headers(test_user_with_tokens["access_token"])
     svc = SpaceService(db_session)
