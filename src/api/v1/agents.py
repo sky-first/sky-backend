@@ -812,35 +812,44 @@ async def list_all_insights(
     await RBACService(db).assert_permission(current_user, "agents.findings.view")
     from sqlalchemy.orm import selectinload
 
-    is_org_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
-
     query = select(Agent)
     if scope:
         query = query.where(Agent.scope == scope)
     if scope_id:
         query = query.where(Agent.scope_id == scope_id)
 
-    if not is_org_admin and not (scope and scope_id):
-        # No explicit scope and not an org admin — restrict to:
-        #   (a) personal agents created by this user, OR
-        #   (b) Space agents in Spaces the user is a member of.
-        from sqlalchemy import and_, or_
+    # Option B (2026-06): agent findings are CONTENT — even org admins only
+    # see findings from agents they own or whose Space/Crew they belong to
+    # (no platform-role bypass). A crew member sees their crew-agents'
+    # findings; a non-member admin sees a count via the agents list but NOT
+    # the insights here.
+    from sqlalchemy import and_, or_
 
-        from src.models.space import SpaceMember
+    from src.models.crew import CrewMember
+    from src.models.space import SpaceMember
 
-        member_q = await db.execute(
-            select(SpaceMember.space_id).where(SpaceMember.user_id == current_user.id)
-        )
-        member_space_ids = [str(sid) for sid in member_q.scalars().all()]
-        clauses = [Agent.created_by == current_user.id]
-        if member_space_ids:
-            clauses.append(
-                and_(
-                    Agent.scope == "space",
-                    Agent.scope_id.in_(member_space_ids),
-                )
+    member_space_ids = [
+        str(sid)
+        for sid in (
+            await db.execute(
+                select(SpaceMember.space_id).where(SpaceMember.user_id == current_user.id)
             )
-        query = query.where(or_(*clauses))
+        ).scalars().all()
+    ]
+    member_crew_ids = [
+        str(cid)
+        for cid in (
+            await db.execute(
+                select(CrewMember.crew_id).where(CrewMember.user_id == current_user.id)
+            )
+        ).scalars().all()
+    ]
+    clauses = [Agent.created_by == current_user.id]
+    if member_space_ids:
+        clauses.append(and_(Agent.scope == "space", Agent.scope_id.in_(member_space_ids)))
+    if member_crew_ids:
+        clauses.append(and_(Agent.scope == "crew", Agent.scope_id.in_(member_crew_ids)))
+    query = query.where(or_(*clauses))
 
     result = await db.execute(query.options(selectinload(Agent.findings)))
     agents = result.scalars().all()
@@ -866,6 +875,31 @@ async def list_findings(
 ):
     """List findings for an agent."""
     await RBACService(db).assert_permission(current_user, "agents.findings.view")
+    # Content gate (Option B): a crew/space-scoped agent's findings require
+    # membership of that crew/space — no platform-role bypass. Personal
+    # agents: only the creator.
+    agent_row = (
+        await db.execute(select(Agent).where(Agent.id == agent_id))
+    ).scalar_one_or_none()
+    if agent_row is not None:
+        scope_str = (agent_row.scope or "").lower()
+        scope_id_val = agent_row.scope_id
+        if scope_str == "crew" and scope_id_val:
+            from src.services.authorization import Authorization
+
+            await Authorization(db).assert_content_access(
+                current_user, crew_id=UUID(str(scope_id_val))
+            )
+        elif scope_str == "space" and scope_id_val:
+            from src.services.authorization import Authorization
+
+            await Authorization(db).assert_content_access(
+                current_user, space_id=UUID(str(scope_id_val))
+            )
+        elif scope_str == "personal" and agent_row.created_by != current_user.id:
+            from src.core.exceptions import ForbiddenError
+
+            raise ForbiddenError("You cannot view this agent's findings.")
     return await service.list_findings(agent_id, include_dismissed=include_dismissed)
 
 

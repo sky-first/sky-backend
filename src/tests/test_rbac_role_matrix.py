@@ -44,6 +44,16 @@ def _expect_for_role(allowed_from: str, role: str) -> Expect:
     return "allow" if ROLE_IDX[role] >= ROLE_IDX[allowed_from] else "deny"
 
 
+def _expect_content(role: str) -> Expect:
+    """Option B (2026-06): CONTENT (agent findings/insights, chat, query
+    results) requires real Space/Crew MEMBERSHIP — the platform role does
+    NOT bypass. In ``seeded`` only viewer/editor/owner are members of the
+    space; platform_admin / tenant_owner are non-members, so they are
+    denied content (they would still see the agent COUNT via the list, just
+    not its findings)."""
+    return "allow" if role in ("viewer", "editor", "owner") else "deny"
+
+
 def _auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
@@ -182,7 +192,9 @@ async def test_section_i_09_get_agent(seeded, async_client, role):
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_i_10_list_findings(seeded, async_client, role):
     r = await async_client.get(f"/api/v1/agents/{seeded['agent_id']}/findings", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("viewer", role), "I-10")
+    # Option B: findings are content → platform admins who are not members
+    # are denied (they were allowed under the old admin bypass).
+    _assert_outcome(r, _expect_content(role), "I-10")
 
 
 @pytest.mark.asyncio

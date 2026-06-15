@@ -66,26 +66,24 @@ class ConversationService:
         return [row[0] for row in result.all()]
 
     async def _can_view(self, conv: Conversation, user: User) -> bool:
-        # Tenant-level admins see everything (matches the existing admin
-        # bypass used by spaces / crews). This is intentional: Phase 1
-        # does not introduce a separate "conversation admin" role.
-        if is_tenant_admin(user):
-            return True
-        # Creator always sees their own conversations.
+        # Option B (2026-06): conversation CONTENT requires real membership —
+        # platform admins do NOT bypass. A non-member admin manages structure
+        # but cannot read a crew's chat. Creator always sees their own.
         if conv.created_by == user.id:
             return True
-        # Scope-based visibility
-        if conv.space_id is not None:
-            return conv.space_id in await self._user_space_ids(user.id)
+        # Scope-based visibility (membership of the conversation's space/crew).
         if conv.crew_id is not None:
             return conv.crew_id in await self._user_crew_ids(user.id)
-        # Personal conversation from another user
+        if conv.space_id is not None:
+            return conv.space_id in await self._user_space_ids(user.id)
+        # Personal conversation from another user.
         return False
 
     def _can_mutate(self, conv: Conversation, user: User) -> bool:
-        # Only the creator (or tenant-level admin) can rename / archive /
-        # delete. Member visibility does NOT grant mutation rights.
-        return is_tenant_admin(user) or conv.created_by == user.id
+        # Only the creator can rename / archive / delete. Option B: a
+        # non-member admin does not get content-mutation rights either;
+        # member visibility alone also does NOT grant mutation.
+        return conv.created_by == user.id
 
     # ─── CRUD ────────────────────────────────────────────────────────────
 
