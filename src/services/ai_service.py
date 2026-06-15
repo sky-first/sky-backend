@@ -420,9 +420,23 @@ class AIService:
     async def _get_all_connections_for_space(
         self, user_id: UUID, space_id: str
     ) -> List[str]:
-        """Return IDs of all active connections linked to the given space."""
+        """Return IDs of all active connections of the space the user can reach.
+
+        Access is granted via EITHER a direct SpaceMember/owner relationship OR
+        CrewMember of a crew inside the space. The previous implementation
+        intersected the space's connections with ``connection_repo.get_by_user``
+        (own + SpaceMember only), so a crew-only user — who is NOT a SpaceMember
+        (``add_crew_member`` writes only CrewMember) — got an EMPTY result and the
+        Space path fell back to their own/None connection, never reaching the
+        space's data. We now gate by space-OR-crew access and return the space's
+        active connections directly. Per-table crew permission is still enforced
+        downstream (``get_authorized_tables`` on the primary + the generic extras
+        loop), so a crew-only user sees the connections but only their crew's tables.
+        """
         try:
             from uuid import UUID as UUIDType
+            from sqlalchemy import select as sa_select
+            from src.models.connection import DataConnection
             from src.repositories.space import SpaceRepository
 
             space_uuid = UUIDType(space_id)
@@ -430,17 +444,34 @@ class AIService:
             space_links = await space_repo.get_space_connections(space_uuid)
             allowed_ids = {str(link.connection_id) for link in space_links}
             if not allowed_ids:
-                first = await self._get_first_active_connection(user_id)
-                return [first] if first else []
-            active = await self.connection_repo.get_by_user(
-                user_id, filters={"status": "active"}, limit=100
+                return []
+
+            # Access gate: SpaceMember/owner OR crew-in-space. Fail-closed — a
+            # user with neither path gets an empty scope (the caller then falls
+            # back / fast-fails) instead of leaking another scope's connection.
+            is_member = await self._is_space_member(user_id, space_id)
+            crew_ids = await self._get_user_crew_ids(user_id, space_id)
+            if not is_member and not crew_ids:
+                logger.warning(
+                    "space_scope: user=%s has no space/crew access to space=%s — empty scope",
+                    user_id, space_id,
+                )
+                return []
+
+            # Active, non-deleted connections among the space's links. Queried
+            # directly (NOT via get_by_user, which is SpaceMember-scoped and would
+            # drop crew-only users).
+            res = await self.db.execute(
+                sa_select(DataConnection.id).where(
+                    DataConnection.id.in_([UUIDType(x) for x in allowed_ids]),
+                    DataConnection.deleted_at.is_(None),
+                    DataConnection.status == "active",
+                )
             )
-            result = [str(c.id) for c in active if str(c.id) in allowed_ids]
-            return result if result else [await self._get_first_active_connection(user_id) or ""]
+            return [str(row[0]) for row in res]
         except Exception as e:
             logger.error(f"Error getting all connections for space {space_id}: {e}", exc_info=True)
-            first = await self._get_first_active_connection(user_id)
-            return [first] if first else []
+            return []
 
     async def _get_all_connections_for_user(self, user_id: UUID) -> List[str]:
         """Return IDs of all active connections the user has access to (personal mode).
@@ -848,13 +879,47 @@ class AIService:
                         user_id, _personal_ud_ids,
                     )
 
+                # Collaborative (Space) mode — apply the SAME treatment proved in
+                # personal mode to the Space branch: enumerate the whole accessible
+                # scope of the active space (crew-aware via _get_all_connections_for_space,
+                # so a crew-only user who is NOT a SpaceMember still sees the space's
+                # connections) and forward it to the AI's semantic RAG. No keyword
+                # pre-routing; per-table crew permission is enforced by the generic
+                # extras loop + primary gate below.
+                _space_scope_ids: List[str] = []
+                _space_id_req = getattr(query_data, "space_id", None)
+                if _space_id_req:
+                    _space_scope_ids = await self._get_all_connections_for_space(
+                        user_id, _space_id_req
+                    )
+                    logger.info(
+                        "space_mode_scope: user=%s space=%s scope=%s",
+                        user_id, _space_id_req, _space_scope_ids,
+                    )
+
                 # If still no connection_id, try to get first active connection
                 if not connection_id:
                     space_id = getattr(query_data, "space_id", None)
                     if space_id:
-                        connection_id = await self._get_first_active_connection_for_space(
-                            user_id, space_id, question=configure_data.question
-                        )
+                        # Frente Space: NO keyword pre-routing (same rationale as
+                        # personal — the old router scored PT questions against EN
+                        # schemas at ~0 and forwarded ONE connection, so the AI never
+                        # saw the right schema). Primary is just the URL target; the
+                        # table choice is the AI's semantic RAG across the whole space
+                        # scope, forwarded as extra_connection_ids below.
+                        if _space_scope_ids:
+                            connection_id = _space_scope_ids[0]
+                            logger.info(
+                                "space_mode_primary: user=%s space=%s primary=%s "
+                                "(semantic routing delegated to AI orchestrator)",
+                                user_id, space_id, connection_id,
+                            )
+                        else:
+                            # No crew/space scope resolved — safety net (no question,
+                            # so no keyword routing): first active connection in space.
+                            connection_id = await self._get_first_active_connection_for_space(
+                                user_id, space_id
+                            )
                     else:
                         # Personal mode (Frente 2): NO keyword pre-routing. The whole
                         # accessible scope is forwarded to the AI via
@@ -1050,11 +1115,16 @@ class AIService:
                         # to False as soon as the primary connection resolves to a real
                         # space (via _resolve_space_id_for_connection above), which used
                         # to silently drop the extras and leave the AI with one DB.
-                        # _personal_ud_ids is only populated in personal mode, so this
-                        # condition is already personal-mode-only.
-                        if _personal_ud_ids:
+                        # _personal_ud_ids is only populated in personal mode and
+                        # _space_scope_ids only in Space mode (mutually exclusive:
+                        # personal has no space_id, Space has one). Either way the
+                        # whole accessible scope is forwarded so the AI's orchestrator
+                        # can semantically route across all connections. The extras
+                        # then go through the SAME generic crew-permission loop below.
+                        _scope_for_extras = _personal_ud_ids or _space_scope_ids
+                        if _scope_for_extras:
                             extra_connection_ids = [
-                                cid for cid in _personal_ud_ids if cid != connection_id
+                                cid for cid in _scope_for_extras if cid != connection_id
                             ]
                             logger.info(
                                 "multi_source: primary=%s extras=%s",
