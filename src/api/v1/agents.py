@@ -129,6 +129,31 @@ async def _assert_can_act_on_agent_scope(
     await RBACService(db).assert_permission(user, permission, space_id=s_id)
 
 
+async def _is_content_member(db: AsyncSession, user: User, scope, scope_id) -> bool:
+    """Option B: is ``user`` a real member entitled to an agent's CONTENT
+    (findings/insights)? No platform-role bypass. crew → crew membership;
+    space → space or any-crew-in-space membership; personal → the creator.
+    """
+    sc = (scope or "").lower()
+    if not scope_id:
+        return sc == "personal"  # malformed scoped agent — treat as private
+    from src.services.authorization import Authorization
+
+    authz = Authorization(db)
+    try:
+        sid = UUID(str(scope_id))
+    except (ValueError, TypeError):
+        return False
+    if sc == "crew":
+        return await authz.get_crew_role(user.id, sid) is not None
+    if sc == "space":
+        if await authz.get_space_role(user.id, sid) is not None:
+            return True
+        return await authz.get_best_crew_role_in_space(user.id, sid) is not None
+    # personal / organization — handled by the caller (creator check).
+    return False
+
+
 @router.get("/", response_model=List[AgentListResponse])
 async def list_agents(
     scope: Optional[str] = Query(
@@ -272,7 +297,7 @@ async def get_agent(
     db: AsyncSession = Depends(get_db),
     service: AgentService = Depends(get_agent_service),
 ):
-    """Get agent detail with findings."""
+    """Get agent detail. Findings (content) are included only for members."""
     agent = await service.get_agent(agent_id)
     await _assert_can_act_on_agent_scope(
         db,
@@ -281,6 +306,17 @@ async def get_agent(
         scope_id=agent.scope_id,
         permission="agents.view",
     )
+    # Option B (2026-06): findings are CONTENT. The scope check above lets a
+    # platform admin SEE the agent (management plane), but its insights
+    # require real membership — strip findings for non-members so an admin
+    # who was not added to the crew sees the agent exists, not its insights.
+    sc = (agent.scope or "").lower()
+    if sc in ("personal", "organization"):
+        is_member = agent.created_by == current_user.id
+    else:
+        is_member = await _is_content_member(db, current_user, agent.scope, agent.scope_id)
+    if not is_member:
+        agent.findings = []
     return agent
 
 
