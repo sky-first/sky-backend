@@ -961,12 +961,20 @@ class RBACService:
         }
         OWNER_EXCLUSIVE_PERMS = SUPER_ADMIN_EXCLUSIVE_PERMS  # back-compat alias
 
+        # DATA/CONTENT plane (Option B, 2026-06): platform role does NOT
+        # grant content access. For these keys we skip the super_admin/admin
+        # bypass and delegate to the membership-aware Authorization resolver,
+        # so an admin who is not a Space/Crew member is denied content.
+        from src.services.authorization import DATA_PLANE_PERMS
+
+        is_data_plane = permission_key in DATA_PLANE_PERMS
+
         # SuperAdmin bypass: passes every permission, including the three
         # exclusive ones above. After the 2026-06-03 DB migration the
         # tenant founder role is canonically ``super_admin``; legacy
         # ``owner`` rows were already converted in
         # ``rename_role_20260603`` so we no longer need an alias here.
-        if user.role == "super_admin":
+        if user.role == "super_admin" and not is_data_plane:
             await self._audit_decision(
                 user,
                 permission_key,
@@ -978,7 +986,7 @@ class RBACService:
             return
 
         # Admin bypass: passes everything EXCEPT super_admin-exclusive perms.
-        if user.role == "admin":
+        if user.role == "admin" and not is_data_plane:
             if permission_key in SUPER_ADMIN_EXCLUSIVE_PERMS:
                 await self._audit_decision(
                     user,

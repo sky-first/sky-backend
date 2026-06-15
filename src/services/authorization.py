@@ -100,6 +100,31 @@ SPACE_ADMIN_KEYS: frozenset[str] = frozenset({
 })
 
 
+# ── DATA / CONTENT plane (2026-06, "management vs data plane", Option B) ──
+# Permission keys that read/act on a Space/Crew's CONTENT (querying data,
+# running agents, seeing agent insights/findings, chat). For these keys the
+# platform-role bypass (super_admin/admin/owner) does NOT apply — access
+# requires real Space/Crew MEMBERSHIP. A platform admin manages the
+# structure but cannot see content of a crew they were not added to.
+# Management keys (listing/creating/configuring spaces/crews/members,
+# connection config, settings, audit) are NOT here and keep the admin
+# bypass. Personal-mode keys (e.g. ``ai.query.personal``) are NOT here —
+# they have no space/crew to gate on. Grow this set per-phase as each
+# content endpoint is wired to pass the right space_id/crew_id.
+# IMPORTANT: every key here MUST also have a membership rule in
+# PERMISSION_RULES below — otherwise skipping the bypass would make can()
+# fall through to "rule is None → return False" and deny EVERYONE
+# (members included). Keys without a rule are added only once their rule
+# exists. Verified in PERMISSION_RULES: ai.query, agents.findings.view,
+# agents.findings.dismiss, agents.run.
+DATA_PLANE_PERMS: frozenset[str] = frozenset({
+    "ai.query",
+    "agents.findings.view",
+    "agents.findings.dismiss",
+    "agents.run",
+})
+
+
 PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
     # Owner-exclusive (tenant level)
     "billing.manage":            ("tenant", "owner_only"),
@@ -324,13 +349,22 @@ class Authorization:
         scope, required = rule
         platform = user.role
 
-        # Platform SuperAdmin/Owner bypasses everything.
+        # DATA/CONTENT plane (Option B): platform role does NOT grant content
+        # access — fall through to real Space/Crew membership evaluation. An
+        # admin who is not a member of the crew is denied here. Management
+        # keys are unaffected (they keep the bypasses below).
+        is_data_plane = permission_key in DATA_PLANE_PERMS
+
+        # Platform SuperAdmin/Owner bypasses everything (management plane).
         # Accept both ``super_admin`` (new) and ``owner`` (legacy alias).
-        if platform in (PlatformRole.SUPER_ADMIN.value, PlatformRole.OWNER.value):
+        if not is_data_plane and platform in (
+            PlatformRole.SUPER_ADMIN.value,
+            PlatformRole.OWNER.value,
+        ):
             return True
 
         # Platform Admin: bypasses everything except super_admin-exclusive perms.
-        if platform == PlatformRole.ADMIN.value:
+        if not is_data_plane and platform == PlatformRole.ADMIN.value:
             return required != "owner_only"
 
         # From here, user is a Member.
