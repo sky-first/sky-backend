@@ -180,3 +180,64 @@ async def test_content_access_personal_allowed(db_session: AsyncSession):
     admin = await _user(db_session, "admin", "admin")
     await db_session.commit()
     await authz.assert_content_access(admin)  # no raise
+
+
+# ─── GET /agents/{id} strips findings (content) for non-members ───────────────
+
+
+@pytest.mark.asyncio
+async def test_get_agent_strips_findings_for_non_member_admin(
+    async_client, db_session: AsyncSession
+):
+    """An admin who is NOT a crew member can SEE a crew agent (management)
+    but its findings/insights are stripped (Option B 'see count, not insights').
+    A crew member sees the findings."""
+    from src.core.security import create_access_token
+    from src.models.agent import Agent, AgentFinding
+
+    owner = await _user(db_session, "member", "owner")
+    space = await _space(db_session, owner)
+    crew = await _crew(db_session, space, owner)
+    member = await _user(db_session, "member", "member")
+    await _add_crew_member(db_session, crew, member, "viewer")
+    admin = await _user(db_session, "admin", "admin")  # NOT a crew member
+
+    agent = Agent(
+        name="Crew Agent",
+        archetype="custom",
+        scope="crew",
+        scope_id=str(crew.id),
+        status="active",
+        monitor_type="question",
+        focus="What is happening?",
+        frequency="daily",
+        connection_ids=[],
+        created_by=owner.id,
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    db_session.add(
+        AgentFinding(
+            agent_id=agent.id,
+            type="insight",
+            title="Secret insight",
+            description="Members only.",
+        )
+    )
+    await db_session.commit()
+
+    def _hdr(u):
+        return {
+            "Authorization": "Bearer "
+            + create_access_token({"sub": str(u.id), "email": u.email, "role": u.role})
+        }
+
+    # Crew member: sees the agent WITH its finding.
+    r_member = await async_client.get(f"/api/v1/agents/{agent.id}", headers=_hdr(member))
+    assert r_member.status_code == 200, r_member.text
+    assert len(r_member.json().get("findings") or []) == 1
+
+    # Admin non-member: sees the agent (200) but findings are stripped.
+    r_admin = await async_client.get(f"/api/v1/agents/{agent.id}", headers=_hdr(admin))
+    assert r_admin.status_code == 200, r_admin.text
+    assert (r_admin.json().get("findings") or []) == []
