@@ -29,6 +29,7 @@ from src.schemas.conversation import (
     TransferOwnershipRequest,
 )
 from src.services.conversation_service import ConversationService
+from src.services.page_service import PageService
 
 
 # ─── Page-scoped collection (/pages/{page_id}/conversations) ──────────────
@@ -49,6 +50,10 @@ async def create_conversation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConversationResponse:
+    # Option B — a conversation is page content. Validate page access (owner /
+    # page member / crew member / space member) before creating it; without
+    # this a non-member could open a conversation on a crew page.
+    await PageService(db).get_page(page_id, current_user)
     service = ConversationService(db)
     conv = await service.create(page_id=page_id, user=current_user, payload=payload)
     return ConversationResponse.model_validate(conv)
@@ -74,6 +79,8 @@ async def list_conversations(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConversationListResponse:
+    # Option B — gate on real page access before listing its conversations.
+    await PageService(db).get_page(page_id, current_user)
     service = ConversationService(db)
     items = await service.list_for_page(
         page_id=page_id,

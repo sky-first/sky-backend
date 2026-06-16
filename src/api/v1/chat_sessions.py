@@ -27,6 +27,7 @@ from src.schemas.chat_session import (
 )
 from src.schemas.common import ErrorResponse
 from src.services.chat_session_service import ChatSessionService
+from src.services.page_service import PageService
 
 
 # ─── Page-scoped collection (/pages/{page_id}/chat-sessions) ──────────────
@@ -46,6 +47,9 @@ async def list_chat_sessions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ChatSessionListResponse:
+    # Option B — a chat session is page content. Gate on real page access
+    # (owner / page member / crew member / space member) before listing.
+    await PageService(db).get_page(page_id, current_user)
     service = ChatSessionService(db)
     items = await service.list_for_page(
         page_id=page_id, user=current_user, include_archived=include_archived
@@ -72,6 +76,8 @@ async def create_chat_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ChatSessionResponse:
+    # Option B — gate on real page access before opening a session on it.
+    await PageService(db).get_page(page_id, current_user)
     service = ChatSessionService(db)
     session = await service.create(page_id=page_id, user=current_user, payload=payload)
     return ChatSessionResponse.model_validate(session)

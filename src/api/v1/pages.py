@@ -481,6 +481,10 @@ async def export_page(
 ):
     """Export page (replaces /dashboards/{id}/export)."""
     await RBACService(db).assert_permission(current_user, "pages.view")
+    # Option B — export dumps every widget + connection on the page, so gate
+    # on real page access (owner / page member / crew member / space member),
+    # not just the RBAC verb, before handing it over.
+    await PageService(db).get_page(page_id, current_user)
     widget_service = WidgetService(db)
     return await widget_service.export_page(page_id, current_user)
 
