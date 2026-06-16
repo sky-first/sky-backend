@@ -167,6 +167,10 @@ class AgentResponse(BaseModel):
 
     # Nested — only included when fetching single agent
     findings: Optional[List[AgentFindingResponse]] = None
+    # Option B: True when the caller may SEE the agent (management) but its
+    # findings/insights were withheld because they are not a crew/space member.
+    # Lets the UI render an "ask to be added" mask instead of "no insights".
+    findings_restricted: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
