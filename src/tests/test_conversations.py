@@ -419,9 +419,12 @@ async def test_personal_conversation_invisible_to_others(
     r2 = await async_client.get(f"/api/v1/conversations/{conv_id}", headers=other_headers)
     assert r2.status_code == 404
 
-    # List on the same page → empty
+    # List on the same page → 404. Option B (page child-resource gate): a
+    # non-member can't even see the page, so its conversation collection is
+    # hidden entirely, not returned as an empty list. Matches the single-GET
+    # above and the other page child routes (comments / chat-sessions).
     r3 = await async_client.get(f"/api/v1/pages/{page.id}/conversations", headers=other_headers)
-    assert r3.json()["items"] == []
+    assert r3.status_code == status.HTTP_404_NOT_FOUND
 
 
 # ─── A13 & A14: shared RBAC ───────────────────────────────────────────────
