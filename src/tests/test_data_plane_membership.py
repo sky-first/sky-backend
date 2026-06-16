@@ -232,12 +232,50 @@ async def test_get_agent_strips_findings_for_non_member_admin(
             + create_access_token({"sub": str(u.id), "email": u.email, "role": u.role})
         }
 
-    # Crew member: sees the agent WITH its finding.
+    # Crew member: sees the agent WITH its finding, not restricted.
     r_member = await async_client.get(f"/api/v1/agents/{agent.id}", headers=_hdr(member))
     assert r_member.status_code == 200, r_member.text
     assert len(r_member.json().get("findings") or []) == 1
+    assert r_member.json().get("findings_restricted") is False
 
-    # Admin non-member: sees the agent (200) but findings are stripped.
+    # Admin non-member: sees the agent (200) but findings stripped + flagged.
     r_admin = await async_client.get(f"/api/v1/agents/{agent.id}", headers=_hdr(admin))
     assert r_admin.status_code == 200, r_admin.text
     assert (r_admin.json().get("findings") or []) == []
+    assert r_admin.json().get("findings_restricted") is True
+
+
+@pytest.mark.asyncio
+async def test_list_crews_member_only_filters_to_member_crews(
+    async_client, db_session: AsyncSession
+):
+    """GET /crews?space_id=X&member_only=true returns only the caller's
+    member crews even for an admin (Option B analysis selector)."""
+    from src.core.security import create_access_token
+
+    owner = await _user(db_session, "member", "owner")
+    space = await _space(db_session, owner)
+    crew_a = await _crew(db_session, space, owner, "A")
+    crew_b = await _crew(db_session, space, owner, "B")
+    admin = await _user(db_session, "admin", "admin")
+    await _add_crew_member(db_session, crew_a, admin, "viewer")  # admin in A only
+    await db_session.commit()
+
+    hdr = {
+        "Authorization": "Bearer "
+        + create_access_token({"sub": str(admin.id), "email": admin.email, "role": admin.role})
+    }
+    # Without member_only: admin sees ALL crews in the space (A + B + General).
+    r_all = await async_client.get(f"/api/v1/crews?space_id={space.id}", headers=hdr)
+    assert r_all.status_code == 200, r_all.text
+    all_ids = {c["id"] for c in r_all.json()}
+    assert str(crew_a.id) in all_ids and str(crew_b.id) in all_ids
+
+    # With member_only: admin sees ONLY crew A (the one they belong to).
+    r_mine = await async_client.get(
+        f"/api/v1/crews?space_id={space.id}&member_only=true", headers=hdr
+    )
+    assert r_mine.status_code == 200, r_mine.text
+    mine_ids = {c["id"] for c in r_mine.json()}
+    assert str(crew_a.id) in mine_ids
+    assert str(crew_b.id) not in mine_ids

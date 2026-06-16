@@ -36,6 +36,10 @@ router = APIRouter()
 )
 async def list_crews(
     space_id: Optional[UUID] = Query(None, description="Filter by space ID"),
+    member_only: bool = Query(
+        False,
+        description="When true (with space_id), return only crews the caller is a member of",
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -46,6 +50,8 @@ async def list_crews(
 
     Args:
         space_id: Optional space ID to filter
+        member_only: When true (with space_id), return only the caller's
+            member crews — for the analysis context selector (Option B).
         skip: Number of records to skip
         limit: Maximum number of records to return
         current_user: Current authenticated user
@@ -56,7 +62,9 @@ async def list_crews(
     """
     await RBACService(db).assert_permission(current_user, "crews.view")
     crew_service = CrewService(db)
-    return await crew_service.list_crews(current_user, space_id=space_id, skip=skip, limit=limit)
+    return await crew_service.list_crews(
+        current_user, space_id=space_id, skip=skip, limit=limit, member_only=member_only
+    )
 
 
 @router.get(

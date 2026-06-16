@@ -72,6 +72,7 @@ class CrewService:
         space_id: Optional[UUID] = None,
         skip: int = 0,
         limit: int = 100,
+        member_only: bool = False,
     ) -> List[CrewResponse]:
         """
         List crews.
@@ -81,6 +82,11 @@ class CrewService:
             space_id: Optional space ID to filter
             skip: Number of records to skip
             limit: Maximum number of records
+            member_only: When True (and ``space_id`` given), return only the
+                crews the user is a MEMBER of — even for org admins. Used by
+                the ANALYSIS context selector (Option B), where you can only
+                pick a crew you belong to. The admin/management views leave
+                this False to see every crew.
 
         Returns:
             List[CrewResponse]: List of crews
@@ -89,7 +95,16 @@ class CrewService:
             crews_data = await self.crew_repo.get_by_space_with_stats(
                 space_id, skip=skip, limit=limit
             )
-            return [CrewResponse.model_validate(c) for c in crews_data]
+            result = [CrewResponse.model_validate(c) for c in crews_data]
+            if member_only:
+                member_ids = {
+                    str(cid)
+                    for cid in await self.member_repo.get_crew_ids_by_user_and_space(
+                        user.id, space_id
+                    )
+                }
+                result = [c for c in result if str(c.id) in member_ids]
+            return result
         else:
             # SECURITY: previously this called get_all_with_stats which
             # returned every crew in the tenant — a regular member saw

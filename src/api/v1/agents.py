@@ -317,6 +317,9 @@ async def get_agent(
         is_member = await _is_content_member(db, current_user, agent.scope, agent.scope_id)
     if not is_member:
         agent.findings = []
+        # Transient flag read by AgentResponse (from_attributes) so the UI can
+        # show an "ask to be added" mask rather than an empty insights tab.
+        agent.findings_restricted = True
     return agent
 
 
