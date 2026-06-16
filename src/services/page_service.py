@@ -62,8 +62,18 @@ class PageService:
             PageResponse: Created page
         """
         crew_id = getattr(page_data, "crew_id", None)
+        space_id = getattr(page_data, "space_id", None)
 
-        # P0 fix: validate crew membership before creating collaborative page
+        # G2 — creation must be gated on the caller's role in the TARGET crew/
+        # space, not "editor anywhere". The endpoint's bare pages.create check
+        # only proves the user is an editor somewhere; here we require editor+
+        # in the specific scope the page lands in, so a viewer of THIS crew
+        # (even if they're an editor of another) cannot create here. Membership
+        # is implied by holding a crew/space role. Personal pages (no scope)
+        # keep the existing owner-isolated behaviour.
+        from src.services.rbac_service import RBACService
+
+        rbac = RBACService(self.db)
         if crew_id:
             # Reject personal type with crew_id
             if page_data.type == "personal":
@@ -71,22 +81,17 @@ class PageService:
                     "Personal pages cannot be assigned to a crew. "
                     "Use type='team' for collaborative pages."
                 )
-            # Verify the crew exists and user is a member
-            from src.repositories.crew import CrewMemberRepository, CrewRepository
+            # Verify the crew exists (clean 404 before the authz check).
+            from src.repositories.crew import CrewRepository
 
-            crew_repo = CrewRepository(self.db)
-            crew = await crew_repo.get_by_id(crew_id)
+            crew = await CrewRepository(self.db).get_by_id(crew_id)
             if not crew:
                 raise NotFoundError("Crew not found")
-            crew_member_repo = CrewMemberRepository(self.db)
-            member = await crew_member_repo.get_by_crew_and_user(crew_id, user.id)
-            # Allow if user is tenant-level admin (bypass) or crew member
-            if not member and not is_tenant_admin(user):
-                raise ForbiddenError(
-                    "You must be a member of this crew to create collaborative pages"
-                )
-
-        space_id = getattr(page_data, "space_id", None)
+            # Editor+ in THIS crew (tenant admin/super_admin still bypass).
+            await rbac.assert_permission(user, "pages.create", crew_id=crew_id)
+        elif space_id:
+            # Editor+ in THIS space.
+            await rbac.assert_permission(user, "pages.create", space_id=space_id)
 
         page = await self.page_repo.create(
             name=page_data.name,
@@ -472,9 +477,30 @@ class PageService:
         if not page or page.deleted_at:
             raise NotFoundError("Page not found")
 
+        # G3/G4 — a crew page is governed by the crew, NOT treated as a
+        # personal page (which would let only its creator delete it and lock
+        # out the crew owner). The crew's default (canonical) page is the
+        # shared convergence anchor and cannot be deleted at all. Any other
+        # crew page may be deleted by its creator OR the crew owner — not a
+        # bare member, and (per Lucas 2026-06-16) not a non-member platform
+        # admin.
+        if page.crew_id is not None:
+            from src.services.authorization import Authorization, SpaceRole
+
+            default = await self.page_repo.get_default_crew_page(page.crew_id)
+            if default is not None and default.id == page.id:
+                raise ForbiddenError("The crew's default page cannot be deleted")
+            if page.owner_id != user.id:
+                crew_role = await Authorization(self.db).get_crew_role(
+                    user.id, page.crew_id
+                )
+                if crew_role != SpaceRole.OWNER:
+                    raise ForbiddenError(
+                        "Only the page creator or the crew owner can delete this page"
+                    )
         # Personal: owner-only (map owner_id onto the guard's
         # owner_user_id shape).
-        if getattr(page, "space_id", None) is None:
+        elif getattr(page, "space_id", None) is None:
             if page.owner_id != user.id:
                 raise ForbiddenError("Only page owner can delete")
         else:

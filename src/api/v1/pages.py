@@ -254,7 +254,12 @@ async def delete_page(
     Returns:
         SuccessResponse: Success message
     """
-    await RBACService(db).assert_permission(current_user, "pages.delete")
+    # Authorization is delegated to PageService.delete_page, which governs
+    # every page type precisely: personal → owner only; space → creator or
+    # space-owner (pages.delete); crew → creator or crew owner, with the crew's
+    # default page protected. The previous bare pages.delete check here
+    # required "owner anywhere" and wrongly blocked a crew editor from
+    # deleting their own crew page, so the service is now the single authority.
     page_service = PageService(db)
     await page_service.delete_page(page_id, current_user)
     return SuccessResponse(message="Page deleted successfully")
