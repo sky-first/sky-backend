@@ -360,6 +360,10 @@ async def delete_agent(
         permission="agents.delete",
     )
     await service.delete_agent(agent_id, current_user)
+    # Release the tier slot — mirror of record_agent_created in POST /. The
+    # counter is decremented only after the delete commits; _bump_counter
+    # clamps at 0 so this can never underflow.
+    await pricing_service.record_agent_deleted(db)
     return None
 
 
