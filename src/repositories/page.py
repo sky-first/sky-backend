@@ -56,7 +56,8 @@ class PageRepository(BaseRepository[Page]):
         # deactivation during a mode switch), always preferring the most
         # recently accessed one.
         result = await self.db.execute(
-            select(Page).where(
+            select(Page)
+            .where(
                 Page.owner_id == user_id,
                 Page.is_active == True,  # noqa: E712
                 Page.deleted_at.is_(None),
@@ -163,7 +164,9 @@ class PageRepository(BaseRepository[Page]):
         result = await self.db.execute(
             select(Page)
             .where(Page.crew_id == crew_id, Page.deleted_at.is_(None))
-            .order_by(Page.created_at.asc())
+            # Prefer the explicitly-flagged canonical page; fall back to the
+            # oldest for legacy crews not yet backfilled.
+            .order_by(Page.is_canonical.desc(), Page.created_at.asc())
             .limit(1)
         )
         return result.scalars().first()
@@ -183,7 +186,7 @@ class PageRepository(BaseRepository[Page]):
                 Page.crew_id.is_(None),
                 Page.deleted_at.is_(None),
             )
-            .order_by(Page.created_at.asc())
+            .order_by(Page.is_canonical.desc(), Page.created_at.asc())
             .limit(1)
         )
         return result.scalars().first()

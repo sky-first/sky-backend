@@ -403,9 +403,16 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
+        # Tenant admins/owners may list any space's crews (navigation/management
+        # plane) — mirrors get_space_connections. Without this an admin who
+        # isn't a member of a space got a 403 when entering it, so the FE never
+        # resolved the default "General" crew (landed on a bare space + empty
+        # page). Listing crews is not content; the per-crew content gates still
+        # apply downstream.
         is_creator = space.created_by == user.id
+        is_admin = (user.role or "").lower() in ("admin", "owner", "super_admin")
         is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
-        if not is_creator and not is_member:
+        if not is_creator and not is_admin and not is_member:
             raise ForbiddenError("Access denied to this space")
 
         crews = await self.space_repo.get_space_crews(space_id)
