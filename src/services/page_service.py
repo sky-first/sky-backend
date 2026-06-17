@@ -184,12 +184,30 @@ class PageService:
         except Exception:
             pass
 
+        # Name the canonical page after the crew ("General Page", "Finance
+        # Page", …) so every member recognises the shared room they land on.
+        canonical_name = f"{(crew.name or 'Crew').strip()} Page"
+
         existing = await self.page_repo.get_default_crew_page(crew_id)
         if existing is not None:
+            # Self-heal legacy crews not covered by the backfill: promote the
+            # resolved page to canonical so all members converge on it. Only
+            # rename the old hardcoded "Team Canvas" default — never clobber a
+            # name a member chose deliberately.
+            changed = False
+            if not existing.is_canonical:
+                existing.is_canonical = True
+                changed = True
+            if (existing.name or "").strip() in ("", "Team Canvas"):
+                existing.name = canonical_name
+                changed = True
+            if changed:
+                await self.db.commit()
+                await self.db.refresh(existing)
             return PageResponse.model_validate(existing)
 
         page = await self.page_repo.create(
-            name="Team Canvas",
+            name=canonical_name,
             description=None,
             type="team",
             color="#3b82f6",
@@ -198,6 +216,7 @@ class PageService:
             crew_id=crew_id,
             space_id=None,
             is_active=False,
+            is_canonical=True,
         )
         await self.member_repo.create(page_id=page.id, user_id=user.id, role="owner")
         await self.db.commit()
@@ -239,6 +258,12 @@ class PageService:
 
         existing = await self.page_repo.get_default_space_page(space_id)
         if existing is not None:
+            # Self-heal: promote the resolved page to canonical so members
+            # converge on it (legacy spaces not covered by the backfill).
+            if not existing.is_canonical:
+                existing.is_canonical = True
+                await self.db.commit()
+                await self.db.refresh(existing)
             return PageResponse.model_validate(existing)
 
         page = await self.page_repo.create(
@@ -251,6 +276,7 @@ class PageService:
             crew_id=None,
             space_id=space_id,
             is_active=False,
+            is_canonical=True,
         )
         await self.member_repo.create(page_id=page.id, user_id=user.id, role="owner")
         await self.db.commit()
@@ -477,13 +503,23 @@ class PageService:
         if not page or page.deleted_at:
             raise NotFoundError("Page not found")
 
+        # The canonical page is the crew/space's shared room — every member
+        # converges on it for live collaboration. Deleting it would strand
+        # members on different pages (the exact bug this model fixes), so it
+        # is undeletable. Members can still create/delete OTHER pages.
+        if getattr(page, "is_canonical", False):
+            raise ForbiddenError(
+                "The canonical page can't be deleted — it's the crew's shared "
+                "page where everyone collaborates."
+            )
+
         # G3/G4 — a crew page is governed by the crew, NOT treated as a
         # personal page (which would let only its creator delete it and lock
         # out the crew owner). The crew's default (canonical) page is the
-        # shared convergence anchor and cannot be deleted at all. Any other
-        # crew page may be deleted by its creator OR the crew owner — not a
-        # bare member, and (per Lucas 2026-06-16) not a non-member platform
-        # admin.
+        # shared convergence anchor and cannot be deleted at all (already
+        # guarded above via is_canonical). Any other crew page may be deleted
+        # by its creator OR the crew owner — not a bare member, and (per Lucas
+        # 2026-06-16) not a non-member platform admin.
         if page.crew_id is not None:
             from src.services.authorization import Authorization, SpaceRole
 
@@ -563,10 +599,12 @@ class PageService:
         )
         shared_page_ids = sa_select(PageMember.page_id).where(PageMember.user_id == user.id)
         await self.db.execute(
-            update(Page).where(
+            update(Page)
+            .where(
                 Page.id.in_(shared_page_ids),
                 Page.id != page_id,
-            ).values(is_active=False)
+            )
+            .values(is_active=False)
         )
 
         # Activate this page
