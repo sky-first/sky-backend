@@ -6,6 +6,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
@@ -15,6 +16,77 @@ from src.repositories.agent import AgentFindingRepository, AgentRepository
 from src.schemas.agent import AgentCreate, AgentUpdate
 
 logger = logging.getLogger(__name__)
+
+
+async def resolve_metadata_space_id(
+    db: AsyncSession, agent: Agent, connection_id: Optional[str] = None
+) -> Optional[str]:
+    """Resolve the space_id that actually stamps this agent's connection metadata.
+
+    The AI service filters its metadata lookup by ``space_id`` (the
+    ``table_metadata`` query and the strict crew permission filter). Passing the
+    agent's raw ``scope_id`` is wrong for two scopes and produces a false
+    "No metadata found for this connection" 404:
+
+      - **crew**: ``scope_id`` is a *crew* id, but metadata is stamped with the
+        owning *space* id — they never match, so the lookup returns 0 rows.
+      - **personal**: ``scope_id`` is the creator's *user* id (normalised at
+        creation), which is never a space id either.
+
+    Resolution:
+      - ``space``            -> ``scope_id`` (already a space id)
+      - ``crew``             -> ``crews.space_id`` (the crew's parent space)
+      - ``personal`` / other -> the space that owns the target connection
+        (``connection_id`` when given, else the agent's first connection),
+        via ``space_connections``
+
+    Returns ``None`` when nothing resolves; callers fall back to the prior
+    "default" behaviour, and the AI still serves space-less metadata
+    (``space_id IS NULL``) or the connection_metadata catalog.
+    """
+    scope = (agent.scope or "").lower()
+
+    if scope == "space" and agent.scope_id:
+        return str(agent.scope_id)
+
+    if scope == "crew" and agent.scope_id:
+        try:
+            from src.models.crew import Crew
+
+            res = await db.execute(
+                select(Crew.space_id).where(Crew.id == UUID(str(agent.scope_id)))
+            )
+            crew_space_id = res.scalar_one_or_none()
+            if crew_space_id:
+                return str(crew_space_id)
+        except Exception as e:  # noqa: BLE001 - non-fatal; fall through to conn lookup
+            logger.warning(
+                "Could not resolve crew.space_id for agent %s: %s", agent.id, e
+            )
+
+    # personal (or a crew whose parent space could not be resolved):
+    # use the space that owns the target connection.
+    target_conn = connection_id or (
+        str(agent.connection_ids[0]) if agent.connection_ids else None
+    )
+    if target_conn:
+        try:
+            from src.models.space import SpaceConnection
+
+            res = await db.execute(
+                select(SpaceConnection.space_id)
+                .where(SpaceConnection.connection_id == UUID(str(target_conn)))
+                .limit(1)
+            )
+            owning_space_id = res.scalar_one_or_none()
+            if owning_space_id:
+                return str(owning_space_id)
+        except Exception as e:  # noqa: BLE001 - non-fatal
+            logger.warning(
+                "Could not resolve owning space for connection %s: %s", target_conn, e
+            )
+
+    return None
 
 # Coarse buckets — fine-grained cadence lives in schedule_jsonb.
 # `once` and `manual` deliberately map to "no next run" — the scheduler

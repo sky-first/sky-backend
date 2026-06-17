@@ -524,11 +524,19 @@ async def _execute_agent_async(agent_id: str):
                         )
 
                     from src.core.locale import resolve_locale
+                    from src.services.agent_service import resolve_metadata_space_id
+
+                    # Resolve the REAL owning space - sending the raw scope_id is
+                    # wrong for crew (crew id) and personal (user id) and causes a
+                    # false "No metadata found" 404. See resolve_metadata_space_id.
+                    _effective_space_id = await resolve_metadata_space_id(
+                        db, agent, str(conn_id)
+                    )
                     response = await ai_client.query_connection(
                         connection_id=str(conn_id),
                         question=question,
                         user_id=str(agent.created_by) if agent.created_by else "system",
-                        space_id=agent.scope_id or "default",
+                        space_id=_effective_space_id or agent.scope_id or "default",
                         selected_datasets=effective_datasets,
                         instructions=agent_instructions,
                         agent_mode=monitor_type,

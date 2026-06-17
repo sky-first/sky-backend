@@ -640,6 +640,14 @@ async def run_agent_stream(
                 current_user.id, str(agent.scope_id)
             )
 
+        # Resolve the REAL owning space for the metadata lookup. The AI filters
+        # table_metadata by space_id; sending the raw scope_id is wrong for crew
+        # (scope_id is a crew id) and personal (scope_id is a user id), which
+        # caused a false "No metadata found" 404. See resolve_metadata_space_id.
+        from src.services.agent_service import resolve_metadata_space_id
+
+        effective_space_id = await resolve_metadata_space_id(db, agent, conn_id)
+
         # ── Normal single-query path ───────────────────────────────────────────
         try:
             table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
@@ -662,7 +670,7 @@ async def run_agent_stream(
                 connection_id=conn_id,
                 question=question,
                 user_id=str(current_user.id),
-                space_id=agent.scope_id or "default",
+                space_id=effective_space_id or agent.scope_id or "default",
                 instructions=agent_instructions,
                 is_personal=is_personal,
                 selected_context=selected_ctx,
