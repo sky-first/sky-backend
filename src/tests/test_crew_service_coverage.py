@@ -172,9 +172,11 @@ async def test_create_crew_grants_data_access_restricted_to_space(db_session):
 
 
 @pytest.mark.asyncio
-async def test_create_crew_without_data_access_is_unrestricted(db_session):
-    """Omitting connection_ids leaves the crew with no explicit grants (legacy
-    behaviour — inherits the space)."""
+async def test_create_crew_without_connections_grants_no_access(db_session):
+    """Omitting connection_ids creates NO CrewConnection/CrewTable rows — the
+    crew starts with no data access. Fail-closed: the space must liberate
+    tables to the crew explicitly via CrewTable; there is no inheritance from
+    the space (see PermissionService.get_authorized_tables)."""
     user = User(
         id=uuid.uuid4(),
         email="crew.noaccess@example.com",
@@ -199,3 +201,11 @@ async def test_create_crew_without_data_access_is_unrestricted(db_session):
         .all()
     )
     assert conn_rows == []
+    # No CrewTable grants either — the crew is fail-closed until tables are
+    # explicitly liberated to it by the space.
+    table_rows = (
+        (await db_session.execute(select(CrewTable.table_name).where(CrewTable.crew_id == crew.id)))
+        .scalars()
+        .all()
+    )
+    assert table_rows == []
