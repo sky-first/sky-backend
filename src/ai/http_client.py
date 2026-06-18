@@ -155,6 +155,7 @@ class AIServiceHTTPClient:
         is_personal: Optional[bool] = None,
         selected_context: Optional[Dict[str, List[str]]] = None,
         crew_ids: Optional[List[str]] = None,
+        authorized_tables: Optional[List[str]] = None,
         agent_mode: Optional[str] = None,
         connection_ids: Optional[List[str]] = None,
         selected_datasets: Optional[List[str]] = None,
@@ -192,6 +193,11 @@ class AIServiceHTTPClient:
             payload["selected_context"] = selected_context
         if crew_ids:
             payload["crew_ids"] = crew_ids
+        # Sent even when empty: [] is a real answer (fail-closed — the user is
+        # authorized for no tables on this connection), distinct from None
+        # (not computed → AI falls back to its own permission filter).
+        if authorized_tables is not None:
+            payload["authorized_tables"] = authorized_tables
         if agent_mode:
             payload["agent_mode"] = agent_mode
         if connection_ids:

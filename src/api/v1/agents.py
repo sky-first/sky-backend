@@ -652,6 +652,35 @@ async def run_agent_stream(
 
         effective_space_id = await resolve_metadata_space_id(db, agent, conn_id)
 
+        # Control-plane authorization: the backend resolves which tables this run
+        # may see and forwards the list, so the AI never receives tables outside
+        # the user's grant (same model as the chat). Personal mode expands to ALL
+        # the user's crews — mirroring the personal-mode chat — while space/crew
+        # use the already-resolved crews. Fail-closed on error.
+        authorized_tables: Optional[List[str]] = None
+        if conn_id:
+            try:
+                from src.services.permission_service import PermissionService
+
+                if is_personal:
+                    from src.services.ai_service import AIService as _AIServicePerms
+
+                    _perm_crew_ids = await _AIServicePerms(db)._get_user_crew_ids(
+                        current_user.id, None, all_spaces=True
+                    )
+                else:
+                    _perm_crew_ids = resolved_crew_ids
+                authorized_tables = await PermissionService(db).get_authorized_tables(
+                    current_user.id,
+                    UUID(conn_id),
+                    space_id=UUID(effective_space_id) if effective_space_id else None,
+                    crew_ids=[UUID(c) for c in _perm_crew_ids] if _perm_crew_ids else None,
+                    is_personal=is_personal,
+                )
+            except Exception as e:  # noqa: BLE001 — fail closed
+                logger.warning(f"Could not resolve authorized tables for agent {agent.id}: {e}")
+                authorized_tables = []
+
         # ── Normal single-query path ───────────────────────────────────────────
         try:
             table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
@@ -679,6 +708,7 @@ async def run_agent_stream(
                 is_personal=is_personal,
                 selected_context=selected_ctx,
                 crew_ids=resolved_crew_ids or None,
+                authorized_tables=authorized_tables,
                 agent_mode=monitor_type,
                 connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
                 selected_datasets=effective_datasets,
