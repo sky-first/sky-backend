@@ -534,6 +534,8 @@ async def remove_space_member(
     )
     space_service = SpaceService(db)
     await space_service.remove_space_member(space_id, user_id, current_user)
+    # Release the tier slot — mirror of record_user_created in add_space_member.
+    await pricing_service.record_user_deleted(db)
     return SuccessResponse(message="Member removed successfully")
 
 

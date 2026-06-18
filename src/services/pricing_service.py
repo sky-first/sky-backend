@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import PaymentRequiredError
@@ -315,12 +315,38 @@ async def record_agent_created(
     await _bump_counter(db, tenant_id, "current_agents", 1, resource="agents")
 
 
+async def record_agent_deleted(
+    db: AsyncSession,
+    tenant_id: UUID | str | None = None,
+) -> None:
+    """Decrement current_agents by one (called after a successful DELETE).
+
+    Mirror of ``record_agent_created``. Without this the counter only ever
+    grew: a tenant that created and deleted N agents stayed pinned at N/N and
+    could never create another, even with zero live agents. ``_bump_counter``
+    clamps at 0 so this never underflows.
+    """
+    await _bump_counter(db, tenant_id, "current_agents", -1, resource="agents")
+
+
 async def record_user_created(
     db: AsyncSession,
     tenant_id: UUID | str | None = None,
 ) -> None:
     """Bump current_users by one (called after a successful INSERT)."""
     await _bump_counter(db, tenant_id, "current_users", 1, resource="users")
+
+
+async def record_user_deleted(
+    db: AsyncSession,
+    tenant_id: UUID | str | None = None,
+) -> None:
+    """Decrement current_users by one (called after a successful DELETE).
+
+    Same asymmetry fix as ``record_agent_deleted`` — user creation bumped the
+    counter but removal never released the slot.
+    """
+    await _bump_counter(db, tenant_id, "current_users", -1, resource="users")
 
 
 async def record_query_usage(
@@ -406,11 +432,16 @@ async def _bump_counter(
     previous_percent = _percent(previous_count, limit)
 
     # Atomic increment — works the same on Postgres and SQLite.
+    # Clamp at 0 so a decrement (e.g. agent deletion) can never drive the
+    # counter negative — otherwise a double-delete or a delete of a row that
+    # predates the counter would leave it below zero and silently inflate the
+    # tenant's remaining quota. `case` is portable across Postgres and SQLite.
     col = getattr(TenantPlanLimits, column)
+    new_value = col + delta
     await db.execute(
         update(TenantPlanLimits)
         .where(TenantPlanLimits.tenant_id == tid)
-        .values({column: col + delta})
+        .values({column: case((new_value < 0, 0), else_=new_value)})
     )
     await db.flush()
     await db.refresh(row)
@@ -530,9 +561,11 @@ __all__ = [
     "check_can_create_user",
     "get_limits",
     "record_agent_created",
+    "record_agent_deleted",
     "record_query_usage",
     "record_storage_usage",
     "record_user_created",
+    "record_user_deleted",
     "set_tier",
     "should_alert",
     "usage_percent",

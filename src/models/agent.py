@@ -212,8 +212,12 @@ class Agent(Base):
     )
 
     # Relationships
-    findings = relationship("AgentFinding", back_populates="agent", cascade="all, delete-orphan", order_by="AgentFinding.created_at.desc()")
-    executions = relationship("AgentExecution", back_populates="agent", cascade="all, delete-orphan", order_by="AgentExecution.started_at.desc()")
+    # No delete cascade: deleting an agent detaches its findings/executions
+    # (FK ON DELETE SET NULL) instead of erasing them — see the agent_id
+    # columns below. passive_deletes lets the DB perform the SET NULL without
+    # the ORM loading and rewriting every child row first.
+    findings = relationship("AgentFinding", back_populates="agent", passive_deletes=True, order_by="AgentFinding.created_at.desc()")
+    executions = relationship("AgentExecution", back_populates="agent", passive_deletes=True, order_by="AgentExecution.started_at.desc()")
     creator = relationship("User", foreign_keys=[created_by])
     service_principal = relationship("ServicePrincipal", foreign_keys=[service_principal_id])
 
@@ -248,10 +252,14 @@ class AgentFinding(Base):
     __tablename__ = "agent_findings"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # SET NULL (not CASCADE): deleting an agent must NOT erase the insights it
+    # already produced. The finding is kept and simply detached from the agent
+    # (agent_id -> NULL). Insights added to a page are independent widgets that
+    # survive anyway; this preserves the finding history too.
     agent_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("agents.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("agents.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     execution_id = Column(
@@ -318,10 +326,13 @@ class AgentExecution(Base):
     __tablename__ = "agent_executions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # SET NULL (not CASCADE): keep the execution history when the agent is
+    # deleted, so the findings it produced (which reference this execution)
+    # retain their context instead of being erased.
     agent_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("agents.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("agents.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
 
