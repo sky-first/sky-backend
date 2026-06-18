@@ -1094,6 +1094,7 @@ class AIService:
                                 connection_id=UUID(connection_id),
                                 space_id=perm_space_id,
                                 crew_ids=perm_crew_ids,
+                                is_personal=is_personal,
                             )
                         except Exception as e:
                             logger.error(f"Error checking authorized tables: {e}", exc_info=True)
@@ -1176,6 +1177,7 @@ class AIService:
                                             if extra_crew_ids
                                             else None
                                         ),
+                                        is_personal=is_personal,
                                     )
                                     for tname in extra_authorized:
                                         tname = (tname or "").strip()
@@ -1796,6 +1798,7 @@ class AIService:
                                 connection_id=UUID(connection_id),
                                 space_id=perm_space_id,
                                 crew_ids=perm_crew_ids,
+                                is_personal=is_personal,
                             )
                         except Exception as e:
                             logger.error(

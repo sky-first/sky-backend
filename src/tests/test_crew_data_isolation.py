@@ -74,3 +74,10 @@ async def test_crew_table_access_is_fail_closed_and_isolated(db_session):
     # ...and never a sibling crew's tables (no cross-crew leak).
     assert "payments" not in a
     assert "orders" not in b
+
+    # Personal mode is ADDITIVE: crew_ids means "all the user's crews", so it
+    # unions every crew's grants (here A + B) instead of fail-closing to one.
+    personal = await svc.get_authorized_tables(
+        user.id, conn.id, crew_ids=[crew_a.id, crew_b.id], is_personal=True
+    )
+    assert set(personal) == {"customers", "orders", "payments"}
