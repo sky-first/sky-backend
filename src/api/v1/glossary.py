@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_current_user, get_db_session
 from src.core.exceptions import ForbiddenError
 from src.models.user import User
 from src.schemas.glossary import GlossaryTermCreate, GlossaryTermResponse, GlossaryTermUpdate
@@ -38,7 +38,7 @@ router = APIRouter()
 
 
 async def get_glossary_service(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ) -> GlossaryService:
     return GlossaryService(db)
 
@@ -50,7 +50,7 @@ async def list_glossary(
     mine: bool = Query(False, description="Only list terms owned by the caller (personal scope)."),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     await RBACService(db).assert_permission(current_user, "connections.view")
     # Pass the caller identity + platform role so the service can fall
@@ -74,7 +74,7 @@ async def create_glossary(
     crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     _assert_not_personal(space_id, crew_id)
     await RBACService(db).assert_permission(current_user, "connections.edit")
@@ -93,7 +93,7 @@ async def create_glossary(
 async def suggest_glossary_from_connection(
     connection_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """First-setup glossary derived faithfully from real schema.
 
@@ -127,7 +127,7 @@ async def get_glossary_term(
     crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     await RBACService(db).assert_permission(current_user, "connections.view")
     return await service.get_term(term_id, space_id=space_id, crew_id=crew_id)
@@ -141,7 +141,7 @@ async def update_glossary_term(
     crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     _assert_not_personal(space_id, crew_id)
     await RBACService(db).assert_permission(current_user, "connections.edit")
@@ -155,7 +155,7 @@ async def delete_glossary_term(
     crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     _assert_not_personal(space_id, crew_id)
     await RBACService(db).assert_permission(current_user, "connections.edit")
