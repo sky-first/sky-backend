@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.services.permission_grant_service import PermissionGrantService
 
@@ -52,7 +52,7 @@ async def grant_permission(
     target_user_id: UUID,
     body: GrantRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     service = PermissionGrantService(db)
     grant = await service.grant(
@@ -70,7 +70,7 @@ async def revoke_permission(
     target_user_id: UUID,
     permission: str,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     service = PermissionGrantService(db)
     await service.revoke(
@@ -85,7 +85,7 @@ async def revoke_permission(
 async def list_permission_grants(
     target_user_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     # Anyone can read someone's live grants — they're not secret, the
     # information is needed to render UIs that surface "this admin can
