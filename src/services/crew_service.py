@@ -1,7 +1,7 @@
 """Crew service."""
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from src.schemas.crew import (
     CrewConnectionResponse,
     CrewConnectionTable,
     CrewCreate,
+    CrewDataAccessUpdate,
     CrewMemberCreate,
     CrewMemberResponse,
     CrewMemberUpdate,
@@ -235,7 +236,38 @@ class CrewService:
 
         return CrewResponse.model_validate(crew)
 
-    async def _grant_crew_data_access(self, crew, space_id: UUID, crew_data: CrewCreate) -> None:
+    async def set_crew_data_access(
+        self, crew_id: UUID, user: User, data: CrewDataAccessUpdate
+    ) -> List[CrewConnectionResponse]:
+        """Replace an existing crew's data-access grant with the provided set.
+
+        Fully REPLACES the crew's ``CrewConnection``/``CrewTable`` rows (set
+        semantics), re-validated against the parent space (a crew can only be
+        granted what the space already exposes — see ``_grant_crew_data_access``).
+        Empty/omitted input revokes all access (fail-closed). This is the manual
+        rollout path: the admin liberates tables to crews that start with none.
+        """
+        crew = await self.crew_repo.get_by_id(crew_id)
+        if not crew:
+            raise NotFoundError("Crew not found")
+        await self._assert_crew_write_access(crew.space_id, user)
+
+        from sqlalchemy import delete
+
+        from src.models.crew import CrewConnection, CrewTable
+
+        # Wipe the current grant first (emitted immediately), then re-apply the
+        # subset-of-space rules; the new rows are INSERTed on commit.
+        await self.db.execute(delete(CrewTable).where(CrewTable.crew_id == crew_id))
+        await self.db.execute(delete(CrewConnection).where(CrewConnection.crew_id == crew_id))
+        await self._grant_crew_data_access(crew, crew.space_id, data)
+        await self.db.commit()
+
+        return await self.get_crew_connections(crew_id, user)
+
+    async def _grant_crew_data_access(
+        self, crew, space_id: UUID, crew_data: Union[CrewCreate, CrewDataAccessUpdate]
+    ) -> None:
         """Persist the crew's connection/table grants, restricted to the space.
 
         Rules (the "crew = subset of space" model):

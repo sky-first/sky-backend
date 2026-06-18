@@ -11,6 +11,7 @@ from src.models.space import Space, SpaceConnection, SpaceTable
 from src.models.user import User
 from src.schemas.crew import (
     CrewCreate,
+    CrewDataAccessUpdate,
     CrewMemberCreate,
     CrewMemberUpdate,
     CrewTableSelection,
@@ -172,9 +173,100 @@ async def test_create_crew_grants_data_access_restricted_to_space(db_session):
 
 
 @pytest.mark.asyncio
-async def test_create_crew_without_data_access_is_unrestricted(db_session):
-    """Omitting connection_ids leaves the crew with no explicit grants (legacy
-    behaviour — inherits the space)."""
+async def test_set_crew_data_access_replaces_grant_and_is_subset_of_space(db_session):
+    """The manual-rollout endpoint: an EXISTING crew that starts with no access
+    can be granted tables, the grant fully replaces the previous one (set
+    semantics), an empty payload revokes everything, and connections/tables
+    outside the parent space are silently dropped."""
+    user = User(
+        id=uuid.uuid4(),
+        email="crew.setaccess@example.com",
+        role="owner",
+        password_hash="dummy",
+        name="Set Access User",
+    )
+    space = Space(id=uuid.uuid4(), name="Set Access Space", created_by=user.id)
+    conn_in = DataConnection(
+        id=uuid.uuid4(), name="In-Space DB", connector_id="postgres", config={}, created_by=user.id
+    )
+    conn_out = DataConnection(
+        id=uuid.uuid4(), name="Other DB", connector_id="postgres", config={}, created_by=user.id
+    )
+    db_session.add_all([user, space, conn_in, conn_out])
+    await db_session.flush()
+
+    # Space exposes conn_in (all its tables), not conn_out.
+    db_session.add(SpaceConnection(space_id=space.id, connection_id=conn_in.id))
+    await db_session.flush()
+
+    service = CrewService(db_session)
+    # Crew is born fail-closed (no connections).
+    crew = await service.create_crew(user, CrewCreate(name="Grow Crew", space_id=space.id))
+
+    async def _conn_ids():
+        return set(
+            (
+                await db_session.execute(
+                    select(CrewConnection.connection_id).where(CrewConnection.crew_id == crew.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    async def _table_rows():
+        return set(
+            (
+                await db_session.execute(
+                    select(CrewTable.connection_id, CrewTable.table_name).where(
+                        CrewTable.crew_id == crew.id
+                    )
+                )
+            ).all()
+        )
+
+    assert await _conn_ids() == set()
+
+    # 1. Grant conn_in narrowed to one table; conn_out must be dropped.
+    out = await service.set_crew_data_access(
+        crew.id,
+        user,
+        CrewDataAccessUpdate(
+            connection_ids=[conn_in.id, conn_out.id],
+            tables=[
+                CrewTableSelection(connection_id=conn_in.id, table_name="invoices"),
+                CrewTableSelection(connection_id=conn_out.id, table_name="anything"),
+            ],
+        ),
+    )
+    assert await _conn_ids() == {conn_in.id}
+    assert await _table_rows() == {(conn_in.id, "invoices")}
+    assert [c.connection_id for c in out] == [conn_in.id]
+
+    # 2. Replace with a different table set — old rows are gone (not merged).
+    await service.set_crew_data_access(
+        crew.id,
+        user,
+        CrewDataAccessUpdate(
+            connection_ids=[conn_in.id],
+            tables=[CrewTableSelection(connection_id=conn_in.id, table_name="payments")],
+        ),
+    )
+    assert await _table_rows() == {(conn_in.id, "payments")}
+
+    # 3. Empty payload revokes all access (fail-closed).
+    revoked = await service.set_crew_data_access(crew.id, user, CrewDataAccessUpdate())
+    assert await _conn_ids() == set()
+    assert await _table_rows() == set()
+    assert revoked == []
+
+
+@pytest.mark.asyncio
+async def test_create_crew_without_connections_grants_no_access(db_session):
+    """Omitting connection_ids creates NO CrewConnection/CrewTable rows — the
+    crew starts with no data access. Fail-closed: the space must liberate
+    tables to the crew explicitly via CrewTable; there is no inheritance from
+    the space (see PermissionService.get_authorized_tables)."""
     user = User(
         id=uuid.uuid4(),
         email="crew.noaccess@example.com",
@@ -199,3 +291,11 @@ async def test_create_crew_without_data_access_is_unrestricted(db_session):
         .all()
     )
     assert conn_rows == []
+    # No CrewTable grants either — the crew is fail-closed until tables are
+    # explicitly liberated to it by the space.
+    table_rows = (
+        (await db_session.execute(select(CrewTable.table_name).where(CrewTable.crew_id == crew.id)))
+        .scalars()
+        .all()
+    )
+    assert table_rows == []

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
-from src.models.crew import CrewMember
+from src.models.crew import CrewMember, CrewTable
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
 from src.repositories.crew import CrewMemberRepository, CrewRepository
@@ -640,6 +640,7 @@ class PermissionService:
         connection_id: UUID,
         space_id: Optional[UUID] = None,
         crew_ids: Optional[List[UUID]] = None,
+        is_personal: bool = False,
     ) -> List[str]:
         """
         Get authorized tables for a user in a specific context.
@@ -649,6 +650,9 @@ class PermissionService:
             connection_id: Connection ID
             space_id: Optional Space ID
             crew_ids: Optional list of Crew IDs
+            is_personal: Personal mode. ``crew_ids`` then means "all the user's
+                crews" (expand access) rather than "this specific crew"
+                (restrict). Personal mode is ADDITIVE — never fail-closed.
 
         Returns:
             List[str]: List of authorized table names
@@ -670,6 +674,31 @@ class PermissionService:
         # If in Space or Crew context, enforce strict filtering (Fail-Closed).
         if connection.created_by == user_id and not space_id and not crew_ids:
             return get_all_tables()
+
+        # Personal mode is ADDITIVE: the user sees every table they can reach —
+        # tables on connections they own (or that are assigned to them via
+        # user_datasets) PLUS the grants of any crew they belong to. Here
+        # crew_ids means "all the user's crews", so it expands access, never
+        # restricts it. Mirrors what the personal-mode chat returns.
+        if is_personal:
+            personal_tables: Set[str] = set()
+            if connection.created_by == user_id or await self._user_has_connection_dataset(
+                user_id, connection_id
+            ):
+                personal_tables.update(get_all_tables())
+            if crew_ids:
+                personal_tables.update(await self._get_crew_table_names(connection_id, crew_ids))
+            return sorted(t for t in personal_tables if t)
+
+        # 2. Collaborative crew context is FAIL-CLOSED: a crew sees ONLY the
+        # tables explicitly granted to it via CrewTable — never inherits "all
+        # tables" from the space. The space still bounds it: CrewTable rows are
+        # a subset of the space's tables by construction
+        # (CrewService._grant_crew_data_access). Multiple active crews union
+        # their grants. No grant → no access. Single source of truth for
+        # crew-scoped access; short-circuits the space/user/member resolution.
+        if crew_ids:
+            return await self._get_crew_table_names(connection_id, crew_ids)
 
         authorized_tables: Set[str] = set()
         is_restricted_by_space = False
@@ -700,18 +729,8 @@ class PermissionService:
                 authorized_tables.update(linked_tables)
                 is_restricted_by_space = True
 
-        # 3. Crew Permissions
-        if crew_ids:
-            for crew_id in crew_ids:
-                perm = await self.permission_repo.get_by_connection_and_space(
-                    connection_id, None, crew_id
-                )
-                if perm:
-                    if perm.access_level == "full":
-                        return get_all_tables()  # Full access at crew level
-                    elif perm.table_access:
-                        authorized_tables.update(perm.table_access)
-                        is_restricted_by_space = True
+        # (Crew context is handled fail-closed at the top via CrewTable and
+        #  returns early, so there is no crew branch here.)
 
         # 4. Individual User Connection Permissions
         user_conn_perm = await self.permission_repo.get_by_connection_and_space(
@@ -761,16 +780,41 @@ class PermissionService:
         # grant full read access. This covers demo connections not owned by the user but
         # explicitly assigned to them for personal-mode queries.
         if not authorized_tables and not space_id and not crew_ids:
-            from src.models.dataset import UserDataset
-            ud_q = select(UserDataset).where(
-                UserDataset.user_id == user_id,
-                UserDataset.dataset_id == str(connection_id),
-                UserDataset.dataset_type == "connection",
-            )
-            ud_result = await self.db.execute(ud_q)
-            if ud_result.scalar_one_or_none() is not None:
+            if await self._user_has_connection_dataset(user_id, connection_id):
                 return get_all_tables()
 
         # Final safety filter: ensure everything in authorized_tables is a non-None string
         final_list = [t for t in authorized_tables if t and isinstance(t, str)]
         return sorted(list(set(final_list)))
+
+    async def _get_crew_table_names(self, connection_id: UUID, crew_ids: List[UUID]) -> List[str]:
+        """Tables explicitly granted to any of these crews for this connection.
+
+        Single source of truth for crew-scoped data access. The space liberates
+        access table-by-table (CrewTable); no row means no access (fail-closed).
+        Multiple crews union their grants. Returns sorted, de-duplicated names.
+        """
+        if not crew_ids:
+            return []
+        result = await self.db.execute(
+            select(CrewTable.table_name).where(
+                CrewTable.connection_id == connection_id,
+                CrewTable.crew_id.in_(crew_ids),
+            )
+        )
+        return sorted({row[0] for row in result.all() if row[0]})
+
+    async def _user_has_connection_dataset(self, user_id: UUID, connection_id: UUID) -> bool:
+        """True if the connection is assigned to the user via user_datasets
+        (dataset_type='connection') — a shared/demo connection the user may
+        read in personal mode without owning it."""
+        from src.models.dataset import UserDataset
+
+        result = await self.db.execute(
+            select(UserDataset).where(
+                UserDataset.user_id == user_id,
+                UserDataset.dataset_id == str(connection_id),
+                UserDataset.dataset_type == "connection",
+            )
+        )
+        return result.scalar_one_or_none() is not None

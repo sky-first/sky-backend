@@ -63,6 +63,20 @@ class CrewUpdate(BaseModel):
     space_id: Optional[UUID] = None
 
 
+class CrewDataAccessUpdate(BaseModel):
+    """Replace a crew's data-access grant (which connections/tables it may query).
+
+    Same shape as the data-access fields of ``CrewCreate``, but used to edit an
+    EXISTING crew. Set semantics: the provided set fully REPLACES the crew's
+    current ``CrewConnection``/``CrewTable`` rows. Empty/omitted revokes all
+    access (fail-closed). Grants are re-validated against the parent space — a
+    crew can only receive what the space already exposes.
+    """
+
+    connection_ids: Optional[List[UUID]] = None
+    tables: Optional[List[CrewTableSelection]] = None
+
+
 class CrewResponse(CrewBase):
     """Crew response schema."""
 
