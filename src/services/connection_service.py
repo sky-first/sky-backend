@@ -356,6 +356,22 @@ class ConnectionService:
         # We skip this during tests as the tables might not exist and raw SQL execution
         # is unstable in SQLite async tests. SQLAlchemy session handles Model cleanup in tests.
         if "pytest" not in sys.modules:
+            # 1.0. embeddings (pgvector) — its FK to table_metadata.id is
+            # ON DELETE NO ACTION, so any table_metadata row that was ever
+            # embedded blocks its own deletion until the child embeddings are
+            # cleared first. A connection synced + embedded (e.g. on staging,
+            # but not on a fresh local DB) therefore 500'd on the DELETE FROM
+            # table_metadata below with a ForeignKeyViolation. Clear the
+            # children first — same order the AI service uses in
+            # core/ingestion/db_metadata.py.
+            await self.db.execute(
+                text(
+                    "DELETE FROM embeddings WHERE table_metadata_id IN "
+                    "(SELECT id FROM table_metadata WHERE data_connection_id = :conn_id)"
+                ),
+                {"conn_id": connection_id},
+            )
+
             # 1.1. table_metadata (AI table without SQLAlchemy model in Backend)
             await self.db.execute(
                 text("DELETE FROM table_metadata WHERE data_connection_id = :conn_id"),
