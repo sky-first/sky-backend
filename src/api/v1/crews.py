@@ -12,6 +12,7 @@ from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.crew import (
     CrewConnectionResponse,
     CrewCreate,
+    CrewDataAccessUpdate,
     CrewMemberCreate,
     CrewMemberResponse,
     CrewMemberUpdate,
@@ -422,3 +423,36 @@ async def get_crew_connections(
     """
     crew_service = CrewService(db)
     return await crew_service.get_crew_connections(crew_id, current_user)
+
+
+@router.put(
+    "/{crew_id}/data-access",
+    response_model=List[CrewConnectionResponse],
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Set crew data access",
+    description="Replace the connections/tables a crew may query (a subset of its space)",
+)
+async def set_crew_data_access(
+    crew_id: UUID,
+    data: CrewDataAccessUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[CrewConnectionResponse]:
+    """
+    Replace the data access granted to a crew. Set semantics: the provided
+    connections/tables fully replace the crew's current grant (empty revokes
+    all). Grants are restricted to what the parent space already exposes.
+
+    Args:
+        crew_id: Crew ID
+        data: Connections/tables to grant (replaces the existing set)
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        List[CrewConnectionResponse]: The crew's resulting data access
+    """
+    await RBACService(db).assert_permission(current_user, "crews.edit", crew_id=crew_id)
+    crew_service = CrewService(db)
+    return await crew_service.set_crew_data_access(crew_id, current_user, data)
