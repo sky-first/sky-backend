@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_current_user, get_db_session
 from src.core.locale import DEFAULT_LOCALE, get_message, normalize_locale
 from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.user import User
@@ -75,7 +75,7 @@ def _sanitize_json(obj: Any) -> Any:
     return obj
 
 
-async def get_agent_service(db: AsyncSession = Depends(get_db)) -> AgentService:
+async def get_agent_service(db: AsyncSession = Depends(get_db_session)) -> AgentService:
     return AgentService(db)
 
 
@@ -161,7 +161,7 @@ async def list_agents(
     ),
     scope_id: Optional[str] = Query(None, description="Filter by scope entity ID"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """List agents. Filter by scope/scope_id or get all accessible agents."""
@@ -200,7 +200,7 @@ async def list_agents(
 async def create_agent(
     data: AgentCreate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Create a new agent.
@@ -294,7 +294,7 @@ async def create_agent(
 async def get_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Get agent detail. Findings (content) are included only for members."""
@@ -328,7 +328,7 @@ async def update_agent(
     agent_id: UUID,
     data: AgentUpdate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Update agent configuration."""
@@ -347,7 +347,7 @@ async def update_agent(
 async def delete_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Delete an agent and all its findings."""
@@ -371,7 +371,7 @@ async def delete_agent(
 async def pause_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Pause an active agent."""
@@ -390,7 +390,7 @@ async def pause_agent(
 async def resume_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Resume a paused agent."""
@@ -409,7 +409,7 @@ async def resume_agent(
 async def run_agent_now(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Trigger an immediate execution of the agent."""
     import logging
@@ -448,7 +448,7 @@ async def run_agent_now(
 async def run_agent_stream(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Execute an agent with SSE streaming — shows live progress as AI analyzes data.
@@ -880,7 +880,7 @@ async def list_all_insights(
     include_dismissed: bool = Query(False),
     limit: int = Query(50),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """List all insights across all agents, optionally filtered by scope.
 
@@ -951,7 +951,7 @@ async def list_findings(
     agent_id: UUID,
     include_dismissed: bool = Query(False),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """List findings for an agent."""
@@ -988,7 +988,7 @@ async def list_findings(
 async def get_agent_metrics(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Per-agent usage metrics.
 
@@ -1125,7 +1125,7 @@ async def get_agent_metrics(
 @router.get("/metrics/summary")
 async def get_tenant_agent_metrics(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Tenant-level roll-up for Settings → Usage & Metrics.
 
@@ -1221,7 +1221,7 @@ async def dismiss_finding(
     agent_id: UUID,
     finding_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Dismiss a finding."""
@@ -1239,7 +1239,7 @@ async def add_finding_to_page(
     finding_id: UUID,
     payload: AddFindingToPageRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Materialise an agent finding as a Widget on the target page.
