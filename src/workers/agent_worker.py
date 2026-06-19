@@ -265,11 +265,19 @@ async def _execute_agent_async(agent_id: str):
     5. Update agent execution stats
     6. Schedule next execution
     """
-    from src.config.database import AsyncSessionLocal  # noqa: E402
+    from src.config.tenant_connection_manager import tenant_connection_manager  # noqa: E402
+    from src.core.tenant_context import current_tenant  # noqa: E402
     from src.models.agent import Agent, AgentExecution, AgentFinding
     from src.ai.http_client import AIServiceHTTPClient
 
-    async with AsyncSessionLocal() as db:
+    # Tenant-aware session: the Celery task_prerun signal (PR #8,
+    # tenant_context_propagation) has already restored current_tenant()
+    # from the x-tenant-slug header attached when the run endpoint called
+    # .delay(). Using the global AsyncSessionLocal here looked the agent
+    # up in the platform DB and logged "Agent not found" for every tenant
+    # agent. session_for(default) still routes to the global pool, so the
+    # single-tenant path is unchanged.
+    async with tenant_connection_manager.session_for(current_tenant()) as db:
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
 
