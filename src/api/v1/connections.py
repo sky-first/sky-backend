@@ -684,6 +684,32 @@ async def refresh_ai_catalog(
     # into the backend `connection_metadata` table.
     # We ignore run_in_background for now and perform the sync inline (frontend already shows loading).
     sync = await connection_service.sync_connection(connection_id, current_user)
+
+    # Robust discovery (2026-06-19): sync_connection notifies the AI engine
+    # with run_in_background=True (fire-and-forget). Under load that background
+    # discover can silently fail to generate the table embeddings, leaving the
+    # AI /query path with "No metadata found — execute table discovery first"
+    # for a freshly-linked connection. This endpoint is an explicit operator
+    # "refresh catalog" action (the FE already shows a loading state and it is
+    # NOT the hot query path), so force a SYNCHRONOUS discover for THIS space.
+    # That makes "link a connection to a space → it is immediately queryable"
+    # hold reliably, instead of best-effort. Never fatal: a failure here still
+    # returns the synced metadata, and the AI side can be re-discovered.
+    try:
+        await connection_service.ai_client.discover_connection(
+            connection_id=str(connection_id),
+            space_id=UUID(space_id),
+            run_in_background=False,
+        )
+    except Exception as _discover_err:  # pragma: no cover — best-effort hardening
+        _logger.warning(
+            "synchronous AI discover after catalog refresh failed for "
+            "connection=%s space=%s: %s",
+            connection_id,
+            space_id,
+            _discover_err,
+        )
+
     metadata = await connection_service.metadata_repo.get_by_connection_id(
         connection_id
     )  # type: ignore[attr-defined]
