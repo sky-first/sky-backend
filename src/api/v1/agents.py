@@ -935,15 +935,74 @@ async def list_all_insights(
     result = await db.execute(query.options(selectinload(Agent.findings)))
     agents = result.scalars().all()
 
-    all_findings: list = []
+    # Keep the finding paired with its agent so we can stamp the origin
+    # (agent name + scope + space/page) onto each response below. The global
+    # Pulse feed needs this to badge "space › crew › page" and deep-link.
+    pairs: list = []
     for agent in agents:
         for f in agent.findings or []:
             if not include_dismissed and f.dismissed:
                 continue
-            all_findings.append(f)
+            pairs.append((f, agent))
 
-    all_findings.sort(key=lambda f: f.created_at or "", reverse=True)
-    return all_findings[:limit]
+    pairs.sort(key=lambda p: p[0].created_at or "", reverse=True)
+    pairs = pairs[:limit]
+
+    # Batch-resolve crew → space and page names for just the limited set
+    # (one extra query each, only when there's something to resolve).
+    from src.models.crew import Crew
+    from src.models.page import Page
+    from src.models.space import Space
+
+    crew_ids = {
+        str(a.scope_id)
+        for _, a in pairs
+        if (a.scope or "").lower() == "crew" and a.scope_id
+    }
+    page_ids = {str(f.added_to_page_id) for f, _ in pairs if f.added_to_page_id}
+
+    crew_to_space: dict[str, tuple[Optional[str], Optional[str]]] = {}
+    if crew_ids:
+        rows = (
+            await db.execute(
+                select(Crew.id, Crew.space_id, Space.name)
+                .join(Space, Space.id == Crew.space_id, isouter=True)
+                .where(Crew.id.in_([UUID(c) for c in crew_ids]))
+            )
+        ).all()
+        for cid, sid, sname in rows:
+            crew_to_space[str(cid)] = (str(sid) if sid else None, sname)
+
+    page_names: dict[str, str] = {}
+    if page_ids:
+        rows = (
+            await db.execute(
+                select(Page.id, Page.name).where(Page.id.in_([UUID(p) for p in page_ids]))
+            )
+        ).all()
+        page_names = {str(pid): pname for pid, pname in rows}
+
+    responses: list[AgentFindingResponse] = []
+    for f, agent in pairs:
+        resp = AgentFindingResponse.model_validate(f)
+        scope_lower = (agent.scope or "").lower()
+        resp.agent_name = agent.name
+        resp.scope = agent.scope
+        resp.scope_id = str(agent.scope_id) if agent.scope_id else None
+        resp.scope_name = agent.scope_name
+        if scope_lower == "crew" and agent.scope_id:
+            sid, sname = crew_to_space.get(str(agent.scope_id), (None, None))
+            resp.space_id = sid
+            resp.space_name = sname
+        elif scope_lower == "space" and agent.scope_id:
+            resp.space_id = str(agent.scope_id)
+            resp.space_name = agent.scope_name
+        if f.added_to_page_id:
+            resp.page_id = f.added_to_page_id
+            resp.page_name = page_names.get(str(f.added_to_page_id))
+        responses.append(resp)
+
+    return responses
 
 
 @router.get("/{agent_id}/findings", response_model=List[AgentFindingResponse])
