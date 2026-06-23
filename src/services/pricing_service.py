@@ -47,11 +47,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.exceptions import PaymentRequiredError
 from src.core.tenant_context import current_tenant
 from src.models.internal_console import InternalConsoleAudit
+from src.models.tenant import Tenant
 from src.models.tenant_plan_limits import (
     TIER_LIMITS,
     UPGRADE_HINT,
     TenantPlanLimits,
 )
+
+# Product tiers (tenant_registry.tier) that don't exist in TIER_LIMITS
+# are treated as enterprise/unlimited — they pre-date the pricing model.
+_ENTERPRISE_CAPS = TIER_LIMITS["enterprise"]
+_SENTINEL_UUID_STR = "00000000-0000-0000-0000-000000000000"
 
 
 logger = logging.getLogger(__name__)
@@ -247,20 +253,29 @@ async def get_limits(
 ) -> TenantPlanLimits:
     """Fetch (or auto-provision) the plan-limits row for a tenant.
 
-    The migration seeds every tenant_registry row with a Foundation
-    default. This method covers the gap where a tenant is registered
-    between the migration running and the row being created — we
-    self-heal by inserting a Foundation row on first read rather than
-    raising. Avoids a brittle "your tenant has no plan row" 500.
+    The migration seeds every tenant_registry row on deploy. This method
+    covers the gap where a tenant is registered between migrations — we
+    self-heal by inserting a row on first read rather than raising 500.
+    The tier preset is derived from the tenant's actual product tier in
+    tenant_registry, falling back to enterprise (unlimited) for product
+    tiers that pre-date the pricing model (strategic, core, advanced, …).
     """
     tid = _resolve_tenant_id(tenant_id)
 
     row = await db.get(TenantPlanLimits, tid)
     if row is None:
+        # Look up the tenant's product tier to pick the right caps.
+        tenant_row = (
+            await db.execute(select(Tenant).where(Tenant.id == tid))
+        ).scalar_one_or_none()
+        product_tier = tenant_row.tier if tenant_row else "foundation"
+        caps = TIER_LIMITS.get(product_tier, _ENTERPRISE_CAPS)
+        pricing_tier = product_tier if product_tier in TIER_LIMITS else "enterprise"
+
         row = TenantPlanLimits(
             tenant_id=tid,
-            tier="foundation",
-            **TIER_LIMITS["foundation"],
+            tier=pricing_tier,
+            **caps,
             queries_period_start=datetime.now(timezone.utc),
             last_threshold_alerted={},
         )
