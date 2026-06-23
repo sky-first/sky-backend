@@ -87,8 +87,12 @@ if "sqlite" not in settings.DATABASE_URL.lower():
 
     # asyncpg-specific connect args. Always set the server-side timeouts;
     # PgBouncer-specific overrides only fire when the flag is on.
+    # connect_timeout caps the TCP handshake so a missing/unreachable host
+    # fails in 5 s instead of waiting for the OS TCP retransmit timeout
+    # (up to 75 s on macOS), which would hang pytest and CI pipelines.
     connect_args: dict[str, object] = {
         "server_settings": _postgres_server_settings(),
+        "connect_timeout": 5,
         **_asyncpg_pgbouncer_kwargs(),
     }
     engine_kwargs["connect_args"] = connect_args

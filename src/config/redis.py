@@ -42,6 +42,8 @@ async def init_redis() -> None:
                 port=settings.REDIS_PORT,
                 db=settings.REDIS_DB,
                 password=settings.REDIS_PASSWORD or None,
+                socket_connect_timeout=5,
+                socket_timeout=5,
                 encoding="utf-8",
                 decode_responses=True,
                 max_connections=50,
