@@ -131,7 +131,14 @@ if "sqlite" not in settings.DATABASE_URL.lower():
     _async_db_url, _ssl_kwargs = prepare_async_db_url(settings.DATABASE_URL)
     connect_args: dict[str, object] = {
         "server_settings": _postgres_server_settings(),
-        "connect_timeout": 5,
+        # asyncpg's connect() takes ``timeout`` (connection-establishment
+        # seconds), NOT libpq/psycopg2's ``connect_timeout``. Passing the
+        # latter raises ``TypeError: connect() got an unexpected keyword
+        # argument 'connect_timeout'`` on every new connection, which broke
+        # the platform-DB engine used by the tenant resolver → every
+        # host-based tenant lookup failed with ``tenant_not_found`` (login
+        # fell back to Google/demo, branding/logo stopped resolving).
+        "timeout": 5,
         **_asyncpg_pgbouncer_kwargs(),
         **_ssl_kwargs,
     }

@@ -121,6 +121,19 @@ class AgentFindingResponse(BaseModel):
     dismissed: bool = False
     created_at: datetime
 
+    # Origin metadata — populated by GET /agents/insights/all so the global
+    # Pulse feed (topbar chip + panel) can badge each finding with where it
+    # came from (space › crew › page) and deep-link the user to it. Left None
+    # on the per-agent findings endpoint, where the origin is already implicit.
+    agent_name: Optional[str] = None
+    scope: Optional[str] = None
+    scope_id: Optional[str] = None
+    scope_name: Optional[str] = None
+    space_id: Optional[str] = None
+    space_name: Optional[str] = None
+    page_id: Optional[UUID] = None
+    page_name: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
