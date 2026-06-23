@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "seed_tenant_plan_limits_20260623"
-down_revision = "reconcile_agent_counter_20260617"
+down_revision = "agent_findings_set_null_20260617"
 branch_labels = None
 depends_on = None
 
