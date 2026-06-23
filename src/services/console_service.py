@@ -30,6 +30,7 @@ from src.models.internal_console import (
     ProvisioningJobType,
 )
 from src.models.tenant import Tenant
+from src.models.tenant_plan_limits import TenantPlanLimits
 from src.schemas.internal_console import (
     AuditEntryRead,
     ConsoleTenantDetail,
@@ -63,9 +64,11 @@ async def list_tenants(
 ) -> ConsoleTenantList:
     """List tenants with optional filters.
 
-    ``capacity_pct_*`` fields are computed from ``capacity_used`` over
-    ``capacity_limits``. A limit of zero means "no limit" for that
-    dimension — display as 0%.
+    ``capacity_pct_*`` and ``health_score`` are computed from the live
+    ``tenant_plan_limits`` counters (current_agents, current_users,
+    current_storage_bytes, current_queries_this_month) rather than the
+    stale ``capacity_used`` JSONB on tenant_registry, which has never
+    been backed by a sync task.
     """
     stmt = select(Tenant)
     if tier is not None:
@@ -86,6 +89,20 @@ async def list_tenants(
     rows = (
         await db.execute(stmt.order_by(Tenant.created_at.desc()).limit(limit).offset(offset))
     ).scalars().all()
+
+    # Batch-fetch plan limits for all tenants in one query — avoids N+1.
+    tenant_ids = [row.id for row in rows]
+    plan_by_id: Dict[Any, TenantPlanLimits] = {}
+    if tenant_ids:
+        plan_rows = (
+            await db.execute(
+                select(TenantPlanLimits).where(
+                    TenantPlanLimits.tenant_id.in_(tenant_ids)
+                )
+            )
+        ).scalars().all()
+        for p in plan_rows:
+            plan_by_id[p.tenant_id] = p
 
     # Latest pending/running provisioning job per tenant_slug, in one
     # query. PostgreSQL ``DISTINCT ON`` returns the first row per group
@@ -123,11 +140,10 @@ async def list_tenants(
             suspended_at=row.suspended_at,
             custom_domain=row.custom_domain,
             created_at=row.created_at,
-            capacity_pct_agents=_safe_pct(row.capacity_used, row.capacity_limits, "agents"),
-            capacity_pct_sources=_safe_pct(row.capacity_used, row.capacity_limits, "sources"),
-            capacity_pct_indexed_gb=_safe_pct(
-                row.capacity_used, row.capacity_limits, "indexed_gb"
-            ),
+            capacity_pct_agents=_pct_from_plan(plan_by_id.get(row.id), "agents"),
+            capacity_pct_sources=_pct_from_plan(plan_by_id.get(row.id), "users"),
+            capacity_pct_indexed_gb=_pct_from_plan(plan_by_id.get(row.id), "storage"),
+            health_score=_health_score_from_plan(plan_by_id.get(row.id)),
             active_job=(
                 ProvisioningJobRead.model_validate(active_jobs_by_slug[row.slug])
                 if row.slug in active_jobs_by_slug
@@ -662,3 +678,59 @@ def _safe_pct(used: Any, limits: Any, key: str) -> float:
         return round(100.0 * float(used_val) / float(limit_val), 1)
     except (TypeError, ValueError, ZeroDivisionError):
         return 0.0
+
+
+def _pct_from_plan(plan: Optional[TenantPlanLimits], dim: str) -> float:
+    """Compute usage % from a TenantPlanLimits row.
+
+    dim values:
+      "agents"  → current_agents / max_agents
+      "users"   → current_users / max_users   (mapped to Sources % in the UI)
+      "storage" → current_storage_bytes / (max_storage_gb * 1 GiB)
+    NULL ceiling (enterprise unlimited) returns 0.0 — UI renders "—".
+    """
+    if plan is None:
+        return 0.0
+    try:
+        if dim == "agents":
+            used, limit = plan.current_agents or 0, plan.max_agents
+        elif dim == "users":
+            used, limit = plan.current_users or 0, plan.max_users
+        elif dim == "storage":
+            used = plan.current_storage_bytes or 0
+            limit = (plan.max_storage_gb * 1_073_741_824) if plan.max_storage_gb else None
+        else:
+            return 0.0
+        if not limit:
+            return 0.0
+        return round(100.0 * float(used) / float(limit), 1)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def _health_score_from_plan(plan: Optional[TenantPlanLimits]) -> int:
+    """Compute a 0-100 health score from live plan counters.
+
+    Weights:
+      40% — agent adoption (agents created vs. cap)
+      60% — platform activity (queries this month vs. cap)
+    Unlimited tiers (max=None) score full weight for that dimension
+    as soon as any usage exists.
+    """
+    if plan is None:
+        return 0
+    score = 0.0
+    agents_used = plan.current_agents or 0
+    queries_used = plan.current_queries_this_month or 0
+
+    if plan.max_agents:
+        score += 40.0 * min(1.0, agents_used / plan.max_agents)
+    elif agents_used > 0:
+        score += 40.0
+
+    if plan.max_queries_per_month:
+        score += 60.0 * min(1.0, queries_used / plan.max_queries_per_month)
+    elif queries_used > 0:
+        score += 60.0
+
+    return min(100, int(score))
