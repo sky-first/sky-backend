@@ -7,13 +7,19 @@ from datetime import datetime, timezone
 from typing import Dict
 
 import pytest
+import pytest_asyncio
 from fastapi import Depends
 from sqlalchemy import select
 
 from src.api.console_auth import require_sky_team
 from src.api.deps import get_current_user
 from src.main import app
-from src.models.internal_console import InternalConsoleAudit, ProvisioningJob
+from src.models.internal_console import (
+    InternalConsoleAudit,
+    ProvisioningJob,
+    ProvisioningJobStatus,
+    ProvisioningJobType,
+)
 from src.models.tenant import Tenant
 from src.models.user import User
 
@@ -26,6 +32,24 @@ def sky_team_dev_bypass(monkeypatch):
     """Every test in this file runs as a Sky-team member."""
     monkeypatch.setenv("CONSOLE_DEV_BYPASS", "true")
     monkeypatch.setenv("CONSOLE_ALLOWED_EMAILS", "")
+    # Celery's send_task blocks trying to connect to the broker even when
+    # CELERY_BROKER_URL points to memory:// — the app object is already bound
+    # to the original URL at import time. Patch it to a no-op so
+    # create_tenant / suspend / destroy return immediately without any I/O.
+    import src.workers.celery_app as _celery_mod
+    monkeypatch.setattr(_celery_mod.celery_app, "send_task", lambda *a, **kw: None)
+    # rate_limit_middleware imports get_redis at module level; with REDIS_HOST=""
+    # init_redis() falls back to redis://localhost:6379/0 (lazy pool, no ping).
+    # The pool is non-None so the "if redis is None" branch is skipped, and
+    # redis.incr() then tries to connect to localhost:6379 with no timeout —
+    # hanging every test regardless of HTTP method. Returning None from the
+    # module-level reference makes the middleware skip rate-limiting entirely.
+    import src.api.middleware.rate_limit as _rl_mod
+
+    async def _no_redis():
+        return None
+
+    monkeypatch.setattr(_rl_mod, "get_redis", _no_redis)
     yield
 
 
@@ -43,17 +67,19 @@ def sky_team_user():
     )
 
 
-@pytest.fixture
-def authed_client(client, sky_team_user):
-    """``client`` overrides get_db_session; we additionally override
-    get_current_user + require_sky_team so the endpoints get a Sky-team
-    actor without requiring a real JWT."""
+@pytest_asyncio.fixture
+async def authed_client(console_async_client, sky_team_user):
+    """AsyncClient on localhost (passes console host-guard) with Sky-team overrides.
+
+    Uses console_async_client instead of the sync TestClient because
+    prometheus_fastapi_instrumentator v7 middleware is incompatible with
+    TestClient's ByteStream when streaming response bodies.
+    """
     app.dependency_overrides[get_current_user] = lambda: sky_team_user
     app.dependency_overrides[require_sky_team] = lambda: sky_team_user
-    yield client
-    # Clean up overrides specific to this fixture; the client fixture
-    # clears everything at teardown anyway.
+    yield console_async_client
     app.dependency_overrides.pop(require_sky_team, None)
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 def _registry_payload(slug: str = "gbt", **overrides) -> Dict:
@@ -76,8 +102,8 @@ def _registry_payload(slug: str = "gbt", **overrides) -> Dict:
 # ── /me ────────────────────────────────────────────────────────────
 
 
-def test_me_returns_actor(authed_client):
-    res = authed_client.get("/api/console/v1/me")
+async def test_me_returns_actor(authed_client):
+    res = await authed_client.get("/api/console/v1/me")
     assert res.status_code == 200
     body = res.json()
     assert body["email"] == "lucas@skyfirstlabs.com"
@@ -88,42 +114,42 @@ def test_me_returns_actor(authed_client):
 # ── /tenants ───────────────────────────────────────────────────────
 
 
-def test_list_tenants_empty(authed_client):
-    res = authed_client.get("/api/console/v1/tenants")
+async def test_list_tenants_empty(authed_client):
+    res = await authed_client.get("/api/console/v1/tenants")
     assert res.status_code == 200
     body = res.json()
     assert body == {"items": [], "total": 0}
 
 
-def test_create_tenant_201_and_appears_in_list(authed_client):
+async def test_create_tenant_201_and_appears_in_list(authed_client):
     payload = _registry_payload("acme")
-    res = authed_client.post("/api/console/v1/tenants", json=payload)
+    res = await authed_client.post("/api/console/v1/tenants", json=payload)
     assert res.status_code == 201, res.text
     body = res.json()
     assert body["slug"] == "acme"
     assert body["tier"] == "starter"
 
-    listed = authed_client.get("/api/console/v1/tenants").json()
+    listed = (await authed_client.get("/api/console/v1/tenants")).json()
     assert listed["total"] == 1
     assert listed["items"][0]["slug"] == "acme"
 
 
-def test_create_tenant_409_on_duplicate_slug(authed_client):
+async def test_create_tenant_409_on_duplicate_slug(authed_client):
     payload = _registry_payload("dupe")
-    res1 = authed_client.post("/api/console/v1/tenants", json=payload)
+    res1 = await authed_client.post("/api/console/v1/tenants", json=payload)
     assert res1.status_code == 201
-    res2 = authed_client.post("/api/console/v1/tenants", json=payload)
+    res2 = await authed_client.post("/api/console/v1/tenants", json=payload)
     assert res2.status_code == 409
 
 
-def test_get_tenant_404_for_missing_slug(authed_client):
-    res = authed_client.get("/api/console/v1/tenants/ghost")
+async def test_get_tenant_404_for_missing_slug(authed_client):
+    res = await authed_client.get("/api/console/v1/tenants/ghost")
     assert res.status_code == 404
 
 
-def test_get_tenant_detail(authed_client):
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("readme"))
-    res = authed_client.get("/api/console/v1/tenants/readme")
+async def test_get_tenant_detail(authed_client):
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("readme"))
+    res = await authed_client.get("/api/console/v1/tenants/readme")
     assert res.status_code == 200
     body = res.json()
     assert body["slug"] == "readme"
@@ -131,9 +157,9 @@ def test_get_tenant_detail(authed_client):
     assert "recent_jobs" in body
 
 
-def test_update_tenant_changes_display_name(authed_client):
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("upd"))
-    res = authed_client.patch(
+async def test_update_tenant_changes_display_name(authed_client):
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("upd"))
+    res = await authed_client.patch(
         "/api/console/v1/tenants/upd",
         json={"display_name": "Updated Display"},
     )
@@ -141,19 +167,19 @@ def test_update_tenant_changes_display_name(authed_client):
     assert res.json()["display_name"] == "Updated Display"
 
 
-def test_update_tenant_rejects_slug_field(authed_client):
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("imm"))
-    res = authed_client.patch(
+async def test_update_tenant_rejects_slug_field(authed_client):
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("imm"))
+    res = await authed_client.patch(
         "/api/console/v1/tenants/imm",
         json={"slug": "renamed"},
     )
     assert res.status_code == 422  # TenantUpdate has extra='forbid'
 
 
-def test_suspend_then_resume_roundtrip(authed_client):
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("life"))
+async def test_suspend_then_resume_roundtrip(authed_client):
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("life"))
 
-    sus = authed_client.post(
+    sus = await authed_client.post(
         "/api/console/v1/tenants/life/suspend", json={"reason": "billing"}
     )
     assert sus.status_code == 200
@@ -161,32 +187,32 @@ def test_suspend_then_resume_roundtrip(authed_client):
     assert body["job_type"] == "suspend"
     assert body["status"] == "success"
 
-    after_suspend = authed_client.get("/api/console/v1/tenants/life").json()
+    after_suspend = (await authed_client.get("/api/console/v1/tenants/life")).json()
     assert after_suspend["is_active"] is False
     assert after_suspend["suspended_at"] is not None
 
-    res = authed_client.post("/api/console/v1/tenants/life/resume")
+    res = await authed_client.post("/api/console/v1/tenants/life/resume")
     assert res.status_code == 200
     assert res.json()["job_type"] == "resume"
 
-    after_resume = authed_client.get("/api/console/v1/tenants/life").json()
+    after_resume = (await authed_client.get("/api/console/v1/tenants/life")).json()
     assert after_resume["is_active"] is True
     assert after_resume["suspended_at"] is None
 
 
-def test_suspend_unknown_tenant_404(authed_client):
-    res = authed_client.post("/api/console/v1/tenants/ghost/suspend", json={})
+async def test_suspend_unknown_tenant_404(authed_client):
+    res = await authed_client.post("/api/console/v1/tenants/ghost/suspend", json={})
     assert res.status_code == 404
 
 
 # ── Destroy ────────────────────────────────────────────────────────
 
 
-def test_destroy_requires_correct_confirmation(authed_client):
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("kill"))
+async def test_destroy_requires_correct_confirmation(authed_client):
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("kill"))
 
     # Wrong slug
-    res = authed_client.post(
+    res = await authed_client.post(
         "/api/console/v1/tenants/kill/destroy",
         json={
             "confirmation_slug": "wrong",
@@ -196,7 +222,7 @@ def test_destroy_requires_correct_confirmation(authed_client):
     assert res.status_code == 400
 
     # Wrong phrase
-    res = authed_client.post(
+    res = await authed_client.post(
         "/api/console/v1/tenants/kill/destroy",
         json={
             "confirmation_slug": "kill",
@@ -206,13 +232,13 @@ def test_destroy_requires_correct_confirmation(authed_client):
     assert res.status_code == 400
 
     # Tenant still active
-    detail = authed_client.get("/api/console/v1/tenants/kill").json()
+    detail = (await authed_client.get("/api/console/v1/tenants/kill")).json()
     assert detail["is_active"] is True
 
 
-def test_destroy_soft_deletes(authed_client):
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("die"))
-    res = authed_client.post(
+async def test_destroy_soft_deletes(authed_client):
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("die"))
+    res = await authed_client.post(
         "/api/console/v1/tenants/die/destroy",
         json={
             "confirmation_slug": "die",
@@ -222,7 +248,7 @@ def test_destroy_soft_deletes(authed_client):
     assert res.status_code == 200
     assert res.json()["job_type"] == "destroy"
 
-    detail = authed_client.get("/api/console/v1/tenants/die").json()
+    detail = (await authed_client.get("/api/console/v1/tenants/die")).json()
     assert detail["is_active"] is False
     assert detail["suspended_at"] is not None
 
@@ -230,15 +256,15 @@ def test_destroy_soft_deletes(authed_client):
 # ── Dashboard ──────────────────────────────────────────────────────
 
 
-def test_dashboard_summary(authed_client):
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("alpha"))
-    authed_client.post(
+async def test_dashboard_summary(authed_client):
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("alpha"))
+    await authed_client.post(
         "/api/console/v1/tenants",
         json=_registry_payload("beta", tier="foundation"),
     )
-    authed_client.post("/api/console/v1/tenants/alpha/suspend", json={})
+    await authed_client.post("/api/console/v1/tenants/alpha/suspend", json={})
 
-    res = authed_client.get("/api/console/v1/dashboard")
+    res = await authed_client.get("/api/console/v1/dashboard")
     assert res.status_code == 200
     body = res.json()
     assert body["total_tenants"] == 2
@@ -251,12 +277,12 @@ def test_dashboard_summary(authed_client):
 # ── Audit log ──────────────────────────────────────────────────────
 
 
-def test_audit_records_actions(authed_client):
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("aud"))
-    authed_client.get("/api/console/v1/tenants/aud")
-    authed_client.post("/api/console/v1/tenants/aud/suspend", json={})
+async def test_audit_records_actions(authed_client):
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("aud"))
+    await authed_client.get("/api/console/v1/tenants/aud")
+    await authed_client.post("/api/console/v1/tenants/aud/suspend", json={})
 
-    audit = authed_client.get("/api/console/v1/audit").json()
+    audit = (await authed_client.get("/api/console/v1/audit")).json()
     # At least: create_tenant, view_tenant, suspend_tenant.
     actions = {entry["action"] for entry in audit}
     assert "create_tenant" in actions
@@ -264,12 +290,12 @@ def test_audit_records_actions(authed_client):
     assert "suspend_tenant" in actions
 
 
-def test_audit_filter_by_tenant(authed_client):
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("f1"))
-    authed_client.post("/api/console/v1/tenants", json=_registry_payload("f2"))
-    authed_client.get("/api/console/v1/tenants/f1")
+async def test_audit_filter_by_tenant(authed_client):
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("f1"))
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("f2"))
+    await authed_client.get("/api/console/v1/tenants/f1")
 
-    f1_only = authed_client.get("/api/console/v1/audit?tenant_slug=f1").json()
+    f1_only = (await authed_client.get("/api/console/v1/audit?tenant_slug=f1")).json()
     slugs = {entry["tenant_slug"] for entry in f1_only}
     assert slugs == {"f1"}
 
@@ -277,30 +303,31 @@ def test_audit_filter_by_tenant(authed_client):
 # ── Auth distinctions: 401 anonymous vs 403 non-Sky-team ───────────
 
 
-def test_anonymous_is_401(client, monkeypatch):
+async def test_anonymous_is_401(console_async_client, monkeypatch):
     """No JWT (no get_current_user override) → 401 unauthenticated.
 
     Separates the unauthenticated case from the authenticated-but-not-
     Sky-team case so the FE can route the user to /login (re-auth) vs
     /page (access denied) appropriately. See useAccess.tsx.
+
+    Uses console_async_client (base_url=localhost) instead of the sync
+    TestClient — prometheus_fastapi_instrumentator v7 is incompatible
+    with Starlette's ByteStream when wrapping responses via sync client,
+    which turns any upstream error into a 500 before the assert runs.
     """
     monkeypatch.delenv("CONSOLE_DEV_BYPASS", raising=False)
     monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
     monkeypatch.delenv("CONSOLE_ALLOWED_HOSTS", raising=False)
     # No dependency_overrides — get_current_user runs for real and
     # fails with no Authorization header, surfacing as None inside
-    # require_sky_team which raises 401. Host header satisfies the
-    # Console host gate (PR #487); without it the dependency rejects
-    # 404 before touching auth.
-    res = client.get(
-        "/api/console/v1/me",
-        headers={"host": "console-stg.skyfirstlabs.com"},
-    )
+    # require_sky_team which raises 401. base_url=localhost satisfies
+    # the Console host gate; no explicit Host header needed.
+    res = await console_async_client.get("/api/console/v1/me")
     assert res.status_code == 401
     assert "unauthenticated" in res.json()["error"]["message"]
 
 
-def test_non_sky_team_is_403(client, monkeypatch):
+async def test_non_sky_team_is_403(console_async_client, monkeypatch):
     """An authenticated user that isn't on the Sky-team gets 403.
 
     ``require_sky_team`` calls ``get_current_user`` directly rather
@@ -308,6 +335,9 @@ def test_non_sky_team_is_403(client, monkeypatch):
     we patch the symbol that ``console_auth`` actually imports instead.
     The fake accepts the new kwargs (``credentials`` + ``db``) that the
     fix-of-2026-05-29 passes through.
+
+    Uses console_async_client to avoid the prometheus v7 / ByteStream
+    incompatibility that turns 403 into 500 with the sync TestClient.
     """
     monkeypatch.delenv("CONSOLE_DEV_BYPASS", raising=False)
     monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
@@ -328,9 +358,141 @@ def test_non_sky_team_is_403(client, monkeypatch):
     monkeypatch.delenv("CONSOLE_ALLOWED_HOSTS", raising=False)
     from src.api import console_auth as _ca
     monkeypatch.setattr(_ca, "get_current_user", _fake_get_current_user)
-    res = client.get(
-        "/api/console/v1/me",
-        headers={"host": "console-stg.skyfirstlabs.com"},
-    )
+    res = await console_async_client.get("/api/console/v1/me")
     assert res.status_code == 403
     assert "sky_team_required" in res.json()["error"]["message"]
+
+
+# ── /health ────────────────────────────────────────────────────────
+
+
+async def test_health_returns_ok(authed_client):
+    res = await authed_client.get("/api/console/v1/health")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "ok"
+    assert "version" in body
+
+
+# ── /tenants/{slug}/status ─────────────────────────────────────────
+
+
+async def test_tenant_status_no_job(authed_client, db_session):
+    # Create the tenant directly — going through the API would automatically
+    # produce a ProvisioningJob (create_tenant records one), making last_job
+    # non-None and defeating the point of this test.
+    tenant = Tenant(
+        slug="nojob",
+        display_name="NoJob Co.",
+        tier="starter",
+        db_host="postgres-nojob.local",
+        db_name="tenant_nojob",
+        db_credentials_secret_arn="arn:secret:nojob:db",
+        redis_host="redis-nojob.local",
+        redis_credentials_secret_arn="arn:secret:nojob:redis",
+        sso_provider="google",
+    )
+    db_session.add(tenant)
+    await db_session.commit()
+
+    res = await authed_client.get("/api/console/v1/tenants/nojob/status")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["tenant_slug"] == "nojob"
+    assert body["exists"] is True
+    assert body["last_job"] is None
+
+
+async def test_tenant_status_unknown_slug_not_exists(authed_client):
+    res = await authed_client.get("/api/console/v1/tenants/doesnotexist/status")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["exists"] is False
+    assert body["last_job"] is None
+
+
+async def test_tenant_status_with_job(authed_client, db_session):
+    await authed_client.post("/api/console/v1/tenants", json=_registry_payload("withjob"))
+    job = ProvisioningJob(
+        id=uuid.uuid4(),
+        tenant_slug="withjob",
+        actor_email="lucas@skyfirstlabs.com",
+        job_type=ProvisioningJobType.CREATE.value,
+        status=ProvisioningJobStatus.SUCCESS.value,
+        request_payload={"tier": "starter"},
+    )
+    db_session.add(job)
+    await db_session.commit()
+
+    res = await authed_client.get("/api/console/v1/tenants/withjob/status")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["exists"] is True
+    assert body["last_job"] is not None
+    assert body["last_job"]["status"] == "success"
+
+
+# ── /tenants/{slug}/runs ───────────────────────────────────────────
+
+
+async def test_tenant_runs_404_for_missing_slug(authed_client):
+    res = await authed_client.get("/api/console/v1/tenants/ghost/runs")
+    assert res.status_code == 404
+
+
+async def test_tenant_runs_empty_for_new_tenant(authed_client, db_session):
+    # Create tenant directly so that no ProvisioningJob is produced at
+    # creation time (the API route automatically records a "create" job).
+    tenant = Tenant(
+        slug="noruns",
+        display_name="NoRuns Co.",
+        tier="starter",
+        db_host="postgres-noruns.local",
+        db_name="tenant_noruns",
+        db_credentials_secret_arn="arn:secret:noruns:db",
+        redis_host="redis-noruns.local",
+        redis_credentials_secret_arn="arn:secret:noruns:redis",
+        sso_provider="google",
+    )
+    db_session.add(tenant)
+    await db_session.commit()
+
+    res = await authed_client.get("/api/console/v1/tenants/noruns/runs")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["items"] == []
+    assert body["total"] == 0
+
+
+async def test_tenant_runs_returns_jobs(authed_client, db_session):
+    # Create tenant directly to avoid the implicit "create" ProvisioningJob
+    # that the API route records, which would inflate the expected count.
+    tenant = Tenant(
+        slug="hasruns",
+        display_name="HasRuns Co.",
+        tier="starter",
+        db_host="postgres-hasruns.local",
+        db_name="tenant_hasruns",
+        db_credentials_secret_arn="arn:secret:hasruns:db",
+        redis_host="redis-hasruns.local",
+        redis_credentials_secret_arn="arn:secret:hasruns:redis",
+        sso_provider="google",
+    )
+    db_session.add(tenant)
+    for _ in range(3):
+        job = ProvisioningJob(
+            id=uuid.uuid4(),
+            tenant_slug="hasruns",
+            actor_email="lucas@skyfirstlabs.com",
+            job_type=ProvisioningJobType.CREATE.value,
+            status=ProvisioningJobStatus.PENDING.value,
+            request_payload={},
+        )
+        db_session.add(job)
+    await db_session.commit()
+
+    res = await authed_client.get("/api/console/v1/tenants/hasruns/runs")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["total"] == 3
+    assert len(body["items"]) == 3

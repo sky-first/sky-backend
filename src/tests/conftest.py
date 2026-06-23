@@ -8,6 +8,11 @@ import os
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["REDIS_HOST"] = ""   # força fallback localhost → fast-fail sem hang
 os.environ["REDIS_URL"] = ""    # idem — init_redis() nunca tenta host remoto
+# Celery: rota broker para memória so celery_app.send_task() retorna imediatamente
+# sem tentar TCP para Redis. Sem isso, create_tenant/suspend_tenant ficam aguardando
+# retry do broker por minutos, causando timeout nos testes do console.
+os.environ["CELERY_BROKER_URL"] = "memory://"
+os.environ["CELERY_RESULT_BACKEND"] = "cache+memory://"
 
 from datetime import datetime, timedelta, timezone  # noqa: E402
 
