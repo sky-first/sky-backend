@@ -43,6 +43,7 @@ Used by the migrate Job command in ``gitops/bootstrap/clients/{slug}``
 values files. The workflow that creates a new tenant injects the
 TENANT_SEED_* env vars when it copies the chart values template.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -99,8 +100,7 @@ def _prepare_async_url(url: str) -> str:
     parsed = urlparse(url)
     if not parsed.query:
         return url
-    keep = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
-            if k != "sslmode"]
+    keep = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k != "sslmode"]
     return urlunparse(parsed._replace(query=urlencode(keep)))
 
 
@@ -141,7 +141,7 @@ async def main() -> int:
     if not isinstance(auth_methods, dict) or not auth_methods:
         raise SystemExit(
             "TENANT_SEED_AUTH_METHODS must be a non-empty JSON object "
-            "(e.g. '{\"password\":true,\"google\":false}')"
+            '(e.g. \'{"password":true,"google":false}\')'
         )
 
     print(f"  seeding tenant_registry row for slug={slug!r} into tenant DB")

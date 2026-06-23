@@ -67,8 +67,7 @@ async def _load_registry_row(slug: str) -> Tenant:
         ).scalar_one_or_none()
         if row is None:
             raise SystemExit(
-                f"No tenant_registry row for slug={slug!r}. "
-                f"Run scripts/seed_tenants.py first."
+                f"No tenant_registry row for slug={slug!r}. " f"Run scripts/seed_tenants.py first."
             )
         return row
 
@@ -184,9 +183,7 @@ async def _seed_tenant_registry_row(
     try:
         async with session_maker() as session:
             existing = (
-                await session.execute(
-                    select(Tenant).where(Tenant.slug == tenant.slug)
-                )
+                await session.execute(select(Tenant).where(Tenant.slug == tenant.slug))
             ).scalar_one_or_none()
             if existing is None:
                 copy = Tenant(
@@ -214,10 +211,7 @@ async def _seed_tenant_registry_row(
                 )
                 session.add(copy)
                 await session.commit()
-                print(
-                    f"    [OK] tenant_registry row for {tenant.slug!r} "
-                    f"seeded into tenant DB"
-                )
+                print(f"    [OK] tenant_registry row for {tenant.slug!r} " f"seeded into tenant DB")
             else:
                 # Refresh the mutable Owner-visible columns; leave the
                 # ID alone so any FKs pointing at it stay valid.
@@ -235,8 +229,7 @@ async def _seed_tenant_registry_row(
                 existing.auth_methods = tenant.auth_methods or {}
                 await session.commit()
                 print(
-                    f"    [OK] tenant_registry row for {tenant.slug!r} "
-                    f"refreshed in tenant DB"
+                    f"    [OK] tenant_registry row for {tenant.slug!r} " f"refreshed in tenant DB"
                 )
     finally:
         await engine.dispose()

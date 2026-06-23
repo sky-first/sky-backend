@@ -34,9 +34,7 @@ async def main(email: str) -> None:
     Session = async_sessionmaker(engine, expire_on_commit=False)
 
     async with Session() as session:
-        user = (
-            await session.execute(select(User).where(User.email == email))
-        ).scalar_one_or_none()
+        user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
         if user is None:
             print(
                 f"User {email!r} not found. Run scripts/seed-rbac-demo-users.py first.",

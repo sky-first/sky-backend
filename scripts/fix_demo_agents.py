@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv
+
 load_dotenv(ROOT / ".env", override=False)
 load_dotenv(ROOT.parent / ".env", override=False)
 
@@ -185,9 +186,7 @@ async def fix_space(
     conn_ids = list(sc_q.scalars().all())
 
     dc_q = await session.execute(
-        select(DataConnection.id, DataConnection.name).where(
-            DataConnection.id.in_(conn_ids)
-        )
+        select(DataConnection.id, DataConnection.name).where(DataConnection.id.in_(conn_ids))
     )
     conn_by_label: dict[str, UUID] = {}
     for cid, cname in dc_q.all():
@@ -219,10 +218,7 @@ async def fix_space(
         current_conns = sorted(str(c) for c in (agent.connection_ids or []))
         desired_conns_sorted = sorted(str(c) for c in desired_conns)
 
-        needs_update = (
-            current_conns != desired_conns_sorted
-            or agent.focus != seed["focus"]
-        )
+        needs_update = current_conns != desired_conns_sorted or agent.focus != seed["focus"]
 
         if needs_update:
             if not dry_run:
@@ -249,9 +245,9 @@ async def main(dry_run: bool) -> None:
     async with Session() as session:
         # Find all spaces that have at least one demo connection bound.
         demo_sc_q = await session.execute(
-            select(SpaceConnection.space_id).where(
-                SpaceConnection.connection_id.in_([UUID(i) for i in DEMO_CONN_IDS])
-            ).distinct()
+            select(SpaceConnection.space_id)
+            .where(SpaceConnection.connection_id.in_([UUID(i) for i in DEMO_CONN_IDS]))
+            .distinct()
         )
         space_ids = list(demo_sc_q.scalars().all())
         print(f"Found {len(space_ids)} demo spaces.")
@@ -284,6 +280,8 @@ async def main(dry_run: bool) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would change without writing."
+    )
     args = parser.parse_args()
     asyncio.run(main(dry_run=args.dry_run))

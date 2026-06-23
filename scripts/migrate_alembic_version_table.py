@@ -64,9 +64,7 @@ async def main(expected_head: Optional[str]) -> int:
     # asyncpg rejects ``sslmode`` as a kwarg; strip it to ``ssl`` in
     # connect_args. See ``src.config.database.prepare_async_db_url``.
     cleaned_url, ssl_kwargs = prepare_async_db_url(db_url)
-    engine = create_async_engine(
-        cleaned_url, echo=False, connect_args=ssl_kwargs
-    )
+    engine = create_async_engine(cleaned_url, echo=False, connect_args=ssl_kwargs)
     sky_be_revs = _local_sky_be_revisions()
     print(f"  loaded {len(sky_be_revs)} sky-be revisions from script tree")
 
@@ -87,9 +85,7 @@ async def main(expected_head: Optional[str]) -> int:
 
         # Read all rows from legacy table.
         rows: List[str] = list(
-            (
-                await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalars()
+            (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalars()
         )
         print(f"  legacy alembic_version contains {len(rows)} row(s): {rows}")
 
@@ -136,9 +132,7 @@ async def main(expected_head: Optional[str]) -> int:
 
         # Seed if empty.
         already = (
-            await conn.execute(
-                text("SELECT version_num FROM alembic_version_be")
-            )
+            await conn.execute(text("SELECT version_num FROM alembic_version_be"))
         ).scalar_one_or_none()
         if already:
             print(f"  alembic_version_be already populated with {already!r} — no-op")
@@ -153,10 +147,7 @@ async def main(expected_head: Optional[str]) -> int:
         # leave sky-ai's untouched.
         if sky_be_rows:
             await conn.execute(
-                text(
-                    "DELETE FROM alembic_version "
-                    "WHERE version_num = ANY(:revs)"
-                ),
+                text("DELETE FROM alembic_version " "WHERE version_num = ANY(:revs)"),
                 {"revs": sky_be_rows},
             )
             print(f"  removed {len(sky_be_rows)} sky-be row(s) from legacy table")

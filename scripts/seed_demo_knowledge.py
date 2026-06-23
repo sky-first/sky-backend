@@ -277,7 +277,9 @@ async def upsert_glossary(
     term = res.scalar_one_or_none()
 
     related_metric_ids = [
-        str(metric_id_by_slug[s]) for s in spec.get("related_metric_slugs", []) if s in metric_id_by_slug
+        str(metric_id_by_slug[s])
+        for s in spec.get("related_metric_slugs", [])
+        if s in metric_id_by_slug
     ]
 
     fields = {
@@ -321,10 +323,8 @@ async def main() -> None:
 
         # Match either em-dash variant ("Demo — Sky") or hyphen ("Demo - Sky")
         spaces = (
-            await db.execute(
-                select(Space).where(Space.created_by == owner.id)
-            )
-        ).scalars().all()
+            (await db.execute(select(Space).where(Space.created_by == owner.id))).scalars().all()
+        )
         space = next(
             (s for s in spaces if s.name and s.name.startswith("Demo") and "Sky" in s.name),
             None,
@@ -336,13 +336,17 @@ async def main() -> None:
 
         # Map schema name → connection_id so metric.source_id can FK to it
         conns = (
-            await db.execute(
-                select(DataConnection).where(
-                    DataConnection.created_by == owner.id,
-                    DataConnection.deleted_at.is_(None),
+            (
+                await db.execute(
+                    select(DataConnection).where(
+                        DataConnection.created_by == owner.id,
+                        DataConnection.deleted_at.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         source_id_by_table = {}
         for c in conns:
             cfg = c.config or {}

@@ -29,9 +29,7 @@ from src.models.user import User  # noqa: E402
 
 
 async def main() -> int:
-    target_email = os.getenv(
-        "SEED_USER_EMAIL", "lucas.ventura@skyfirstlabs.com"
-    )
+    target_email = os.getenv("SEED_USER_EMAIL", "lucas.ventura@skyfirstlabs.com")
     async with AsyncSessionLocal() as db:
         user = (
             await db.execute(select(User).where(User.email == target_email))
