@@ -5,6 +5,7 @@ on:
     branches: [staging, main]
     paths:
       - 'src/**'
+      - 'migrations/**'
       - 'scripts/**'
       - 'requirements.txt'
       - 'pyproject.toml'
