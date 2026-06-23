@@ -131,6 +131,7 @@ if "sqlite" not in settings.DATABASE_URL.lower():
     _async_db_url, _ssl_kwargs = prepare_async_db_url(settings.DATABASE_URL)
     connect_args: dict[str, object] = {
         "server_settings": _postgres_server_settings(),
+        "connect_timeout": 5,
         **_asyncpg_pgbouncer_kwargs(),
         **_ssl_kwargs,
     }
