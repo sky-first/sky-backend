@@ -242,3 +242,24 @@ async def async_client(db_session, valid_token_payload):
         yield ac
 
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def console_async_client(db_session):
+    """AsyncClient that sends Host: localhost so the Console host-guard
+    lets requests through. The main async_client uses host=test which
+    is not in _allowed_console_hosts(), causing all /api/console/v1/*
+    requests to 404 before the auth logic even runs."""
+    async def override_get_db():
+        yield db_session
+
+    async def override_get_db_session():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    async with AsyncClient(app=app, base_url="http://localhost") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()

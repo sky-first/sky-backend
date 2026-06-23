@@ -17,12 +17,35 @@ from typing import Dict, List, Optional
 
 from src.models.user import User
 
-# Roles that bypass every granular check below. Keep this list narrow —
-# it's the escape hatch, not the default. `owner` is here because it is
-# defined as "founder seat above admin" in ADR-002 and must see/do
-# anything admin can plus the OWNER_EXCLUSIVE_PERMISSIONS in the
-# frontend catalogue.
-_BYPASS_ROLES = ("owner", "admin")
+# Tenant-level role taxonomy after the 2026-06-03 rename:
+#     super_admin → tenant founder (full bypass, billing + delete tenant)
+#     admin       → ops-level admin (full bypass, no founder-only perms)
+#     member      → regular user
+# Scope (Space / Crew / Page) roles stay owner / editor / viewer and live
+# in their own membership tables — ``user.role`` never carries ``owner``
+# any more. The DB migration ``rename_role_20260603`` has already
+# converted any legacy ``user.role == "owner"`` rows to ``super_admin``,
+# so this bypass list does NOT need to include ``owner`` for production
+# data; it would only mask bugs elsewhere if it did.
+TENANT_ADMIN_ROLES = ("super_admin", "admin")
+# Legacy bypass list — used by the deprecated ``check_permission()``
+# helper below. Accepts the legacy ``owner`` string as a defensive
+# alias for ``super_admin`` so a stale session token / legacy DB row
+# is never 403'd. New code should call :func:`is_tenant_admin` (strict,
+# no ``owner``) instead of reading this tuple directly.
+_BYPASS_ROLES = TENANT_ADMIN_ROLES + ("owner",)
+
+
+def is_tenant_admin(user: "User") -> bool:
+    """True iff ``user`` holds a tenant-level admin role.
+
+    Use this anywhere you'd otherwise write ``user.role == "admin"`` —
+    that pattern silently locks ``super_admin`` (the tenant founder) out
+    of the very things they're supposed to control. The helper is the
+    single source of truth for "is this caller a platform-wide admin?"
+    and stays in lockstep with :data:`TENANT_ADMIN_ROLES`.
+    """
+    return user.role in TENANT_ADMIN_ROLES
 
 # Permission definitions. Each allowed-role list MUST include `owner`
 # wherever it includes `admin`; otherwise the Owner user is denied by

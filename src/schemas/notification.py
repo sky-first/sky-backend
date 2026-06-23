@@ -1,7 +1,7 @@
 """Notification schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -16,6 +16,11 @@ class NotificationBase(BaseModel):
     entity_type: str
     entity_id: str
     deep_link: Optional[str] = None
+
+    title_key: Optional[str] = None
+    title_params: Optional[Dict[str, Any]] = None
+    description_key: Optional[str] = None
+    description_params: Optional[Dict[str, Any]] = None
 
 
 class NotificationCreate(NotificationBase):

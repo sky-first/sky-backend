@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 from uuid import UUID
 
+from src.core.locale import get_message
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,6 +137,7 @@ def guard_user_input(
     message: str,
     *,
     user_id: Optional[UUID] = None,
+    locale: Optional[str] = None,
     max_chars: int = MAX_MESSAGE_CHARS,
     max_lines: int = MAX_MESSAGE_LINES,
     max_line_chars: int = MAX_SINGLE_LINE_CHARS,
@@ -149,13 +152,13 @@ def guard_user_input(
       - ``ChatPolicyViolation`` when a forbidden category matches.
     """
     if message is None:
-        raise ChatMessageEmpty("Empty message.")
+        raise ChatMessageEmpty(get_message("empty_message", locale))
 
     original_length = len(message)
 
     # [1] Hard limits (raw bytes).
     if original_length == 0:
-        raise ChatMessageEmpty("Empty message.")
+        raise ChatMessageEmpty(get_message("empty_message", locale))
     if original_length > max_chars:
         raise ChatMessageTooLong(
             f"Message too long ({original_length} chars, max {max_chars})."

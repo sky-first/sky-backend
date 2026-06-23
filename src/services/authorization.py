@@ -7,14 +7,14 @@ matrix UI is gone in favour of explicit per-resource sharing
 (see resource_acl table introduced in Phase 2).
 
 Model:
-  • Platform roles:  owner | admin | member
+  • Platform roles:  super_admin | admin | member  (legacy alias: owner → super_admin)
   • Space roles:     owner | editor | viewer  (per Space membership)
   • Resource ACL:    explicit overrides on individual connections /
                       dashboards / agents / knowledge files (Phase 2)
 
 Resolution order in `can(...)`:
   1. Sky support without active JIT          → deny
-  2. Platform owner                          → allow (except never)
+  2. Platform super_admin                    → allow (except never)
   3. Platform admin                          → allow except owner-only
   4. Action category:
        - tenant       → check user.role only (member denied for admin actions)
@@ -41,7 +41,8 @@ from src.models.user import User
 
 
 class PlatformRole(str, Enum):
-    OWNER = "owner"
+    SUPER_ADMIN = "super_admin"
+    OWNER = "owner"  # legacy alias — DB rows may still carry this value
     ADMIN = "admin"
     MEMBER = "member"
 
@@ -96,6 +97,34 @@ RequiredLevel = Literal[
 # Space's member list.
 SPACE_ADMIN_KEYS: frozenset[str] = frozenset({
     "spaces.members.manage",
+})
+
+
+# ── DATA / CONTENT plane (2026-06, "management vs data plane", Option B) ──
+# Permission keys that read/act on a Space/Crew's CONTENT (querying data,
+# running agents, seeing agent insights/findings, chat). For these keys the
+# platform-role bypass (super_admin/admin/owner) does NOT apply — access
+# requires real Space/Crew MEMBERSHIP. A platform admin manages the
+# structure but cannot see content of a crew they were not added to.
+# Management keys (listing/creating/configuring spaces/crews/members,
+# connection config, settings, audit) are NOT here and keep the admin
+# bypass. Personal-mode keys (e.g. ``ai.query.personal``) are NOT here —
+# they have no space/crew to gate on. Grow this set per-phase as each
+# content endpoint is wired to pass the right space_id/crew_id.
+# IMPORTANT — two rules for membership of this set:
+#  1. The key MUST have a ("space", level) rule in PERMISSION_RULES, else
+#     skipping the bypass makes can() fall through to "rule is None →
+#     return False" and deny EVERYONE.
+#  2. The key MUST always be asserted WITH a space_id/crew_id at every call
+#     site. Keys used by "list across my accessible scopes" endpoints
+#     (e.g. agents.findings.view in list_all_insights, which asserts with NO
+#     context and does its own membership filtering) would wrongly hard-deny
+#     here — those are gated per-endpoint via ``assert_content_access`` on
+#     the resource's scope instead, NOT through this central set.
+# ``ai.query`` qualifies: it is only used when a space_id is present
+# (personal queries use the separate ``ai.query.personal`` key).
+DATA_PLANE_PERMS: frozenset[str] = frozenset({
+    "ai.query",
 })
 
 
@@ -256,6 +285,47 @@ class Authorization:
             return False
         return SPACE_ROLE_LEVEL[actual] >= SPACE_ROLE_LEVEL[required]
 
+    async def assert_content_access(
+        self,
+        user: User,
+        *,
+        space_id: Optional[UUID] = None,
+        crew_id: Optional[UUID] = None,
+    ) -> None:
+        """Require REAL membership for CONTENT access (Option B, 2026-06).
+
+        Unlike :meth:`can`, this NEVER applies a platform-role bypass — a
+        super_admin/admin who is not a member is denied. Used by content
+        endpoints (AI query against a resolved crew, agent insights, …) to
+        gate the SPECIFIC crew, not just "any crew in the space".
+
+        - ``crew_id`` given → the user must be a member of THAT crew
+          (owner/editor/viewer all grant access).
+        - else ``space_id`` given → the user must be a member of the space
+          itself OR of at least one crew inside it.
+        - neither → personal context, allowed.
+
+        Raises :class:`ForbiddenError` when the user is not a member.
+        """
+        if crew_id is not None:
+            role = await self.get_crew_role(user.id, crew_id)
+            if role is None:
+                raise ForbiddenError(
+                    "You must be a member of this crew to see its content. "
+                    "Ask a crew owner to add you."
+                )
+            return
+        if space_id is not None:
+            if await self.get_space_role(user.id, space_id) is not None:
+                return
+            if await self.get_best_crew_role_in_space(user.id, space_id) is not None:
+                return
+            raise ForbiddenError(
+                "You must be a member of this space to see its content."
+            )
+        # Personal context (no space/crew) — nothing to gate.
+        return
+
     async def get_resource_acl_level(
         self,
         user_id: UUID,
@@ -323,12 +393,22 @@ class Authorization:
         scope, required = rule
         platform = user.role
 
-        # Platform Owner bypasses everything.
-        if platform == PlatformRole.OWNER.value:
+        # DATA/CONTENT plane (Option B): platform role does NOT grant content
+        # access — fall through to real Space/Crew membership evaluation. An
+        # admin who is not a member of the crew is denied here. Management
+        # keys are unaffected (they keep the bypasses below).
+        is_data_plane = permission_key in DATA_PLANE_PERMS
+
+        # Platform SuperAdmin/Owner bypasses everything (management plane).
+        # Accept both ``super_admin`` (new) and ``owner`` (legacy alias).
+        if not is_data_plane and platform in (
+            PlatformRole.SUPER_ADMIN.value,
+            PlatformRole.OWNER.value,
+        ):
             return True
 
-        # Platform Admin: bypasses everything except owner-only.
-        if platform == PlatformRole.ADMIN.value:
+        # Platform Admin: bypasses everything except super_admin-exclusive perms.
+        if not is_data_plane and platform == PlatformRole.ADMIN.value:
             return required != "owner_only"
 
         # From here, user is a Member.

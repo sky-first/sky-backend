@@ -17,15 +17,11 @@ from src.schemas.page import (
     PageResponse,
     PageUpdate,
 )
-from src.schemas.widget import (
-    PageExportResponse,
-    WidgetCreate,
-    WidgetResponse,
-)
-from src.services.widget_service import WidgetService
+from src.schemas.widget import PageExportResponse, WidgetCreate, WidgetResponse
 from src.services.page_service import PageService
 from src.services.rbac_service import RBACService
 from src.services.starred_service import StarredItemService
+from src.services.widget_service import WidgetService
 
 router = APIRouter()
 
@@ -137,6 +133,50 @@ async def create_page(
     return await page_service.create_page(current_user, page_data)
 
 
+@router.post(
+    "/crew/{crew_id}/default-page",
+    response_model=PageResponse,
+    status_code=status.HTTP_200_OK,
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    summary="Get or create the crew's shared default page",
+    description=(
+        "Returns the crew's canonical shared page, creating it once if none "
+        "exists. Idempotent across members so everyone converges on the same "
+        "page id (the shared collaborative room)."
+    ),
+)
+async def ensure_crew_default_page(
+    crew_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PageResponse:
+    await RBACService(db).assert_permission(current_user, "pages.view")
+    page_service = PageService(db)
+    return await page_service.ensure_default_crew_page(crew_id, current_user)
+
+
+@router.post(
+    "/space/{space_id}/default-page",
+    response_model=PageResponse,
+    status_code=status.HTTP_200_OK,
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    summary="Get or create the space's shared default page",
+    description=(
+        "Returns the space's canonical shared page, creating it once if none "
+        "exists. Idempotent across members so everyone converges on the same "
+        "page id (the shared collaborative room)."
+    ),
+)
+async def ensure_space_default_page(
+    space_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> PageResponse:
+    await RBACService(db).assert_permission(current_user, "pages.view")
+    page_service = PageService(db)
+    return await page_service.ensure_default_space_page(space_id, current_user)
+
+
 @router.put(
     "/{page_id}",
     response_model=PageResponse,
@@ -214,7 +254,12 @@ async def delete_page(
     Returns:
         SuccessResponse: Success message
     """
-    await RBACService(db).assert_permission(current_user, "pages.delete")
+    # Authorization is delegated to PageService.delete_page, which governs
+    # every page type precisely: personal → owner only; space → creator or
+    # space-owner (pages.delete); crew → creator or crew owner, with the crew's
+    # default page protected. The previous bare pages.delete check here
+    # required "owner anywhere" and wrongly blocked a crew editor from
+    # deleting their own crew page, so the service is now the single authority.
     page_service = PageService(db)
     await page_service.delete_page(page_id, current_user)
     return SuccessResponse(message="Page deleted successfully")
@@ -404,9 +449,7 @@ async def lock_page(
     """Lock the page (replaces /dashboards/{id}/lock)."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
     page_service = PageService(db)
-    return await page_service.update_page(
-        page_id, current_user, PageUpdate(is_locked=True)
-    )
+    return await page_service.update_page(page_id, current_user, PageUpdate(is_locked=True))
 
 
 @router.post(
@@ -425,9 +468,7 @@ async def unlock_page(
     """Unlock the page (replaces /dashboards/{id}/unlock)."""
     await RBACService(db).assert_permission(current_user, "pages.edit")
     page_service = PageService(db)
-    return await page_service.update_page(
-        page_id, current_user, PageUpdate(is_locked=False)
-    )
+    return await page_service.update_page(page_id, current_user, PageUpdate(is_locked=False))
 
 
 @router.post(
@@ -445,6 +486,10 @@ async def export_page(
 ):
     """Export page (replaces /dashboards/{id}/export)."""
     await RBACService(db).assert_permission(current_user, "pages.view")
+    # Option B — export dumps every widget + connection on the page, so gate
+    # on real page access (owner / page member / crew member / space member),
+    # not just the RBAC verb, before handing it over.
+    await PageService(db).get_page(page_id, current_user)
     widget_service = WidgetService(db)
     return await widget_service.export_page(page_id, current_user)
 

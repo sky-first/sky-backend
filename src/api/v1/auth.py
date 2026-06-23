@@ -1,11 +1,14 @@
 """Authentication endpoints."""
 
+import re
 from typing import List, Optional
 from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import (  # get_current_user usado em outros endpoints
@@ -14,6 +17,7 @@ from src.api.deps import (  # get_current_user usado em outros endpoints
 )
 from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError, ForbiddenError
+from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.permission import EffectivePermissionsResponse
@@ -27,6 +31,9 @@ from src.schemas.user import (
     InviteValidateResponse,
     LoginRequest,
     LoginResponse,
+    MFAFinalizeEnrollmentRequest,
+    MFAFinalizeEnrollmentResponse,
+    MFALoginRequest,
     RefreshTokenRequest,
     RefreshTokenResponse,
     RegisterRequest,
@@ -37,10 +44,143 @@ from src.schemas.user import (
 )
 from src.services.auth0_service import Auth0Service
 from src.services.auth_service import AuthenticationService, user_to_response_dict
-from src.services.invite_service import InviteService
+from src.services.invite_service import InviteService, request_base_url
+from src.services.password_reset_service import PasswordResetService
 from src.services.rbac_service import RBACService
 
 router = APIRouter()
+
+
+# ── Per-tenant auth methods helpers ───────────────────────────────────
+# Subdomain shape: ``workspace-<slug>[-stg].<domain>``. The slug is the
+# only thing we trust from the host header, and the regex below has to
+# match the one in ``src/api/middleware/tenant_resolver.py`` so the two
+# paths agree on which slug to look up.
+# Accept these subdomain patterns so the same regex covers every host
+# the onboard-client workflow can mint (kept in sync with
+# tenant_resolver.py's ``_SUBDOMAIN_RE``):
+#
+#   workspace-<slug>.skyfirstlabs.com       (production explicit prefix)
+#   workspace-<slug>-stg.skyfirstlabs.com   (staging explicit prefix)
+#   api-<slug>.skyfirstlabs.com             (production API subdomain)
+#   api-<slug>-stg.skyfirstlabs.com         (staging API subdomain)
+#   <slug>-stg.skyfirstlabs.com             (legacy bare slug, staging)
+#
+# A bare host with neither a ``workspace-``/``api-`` prefix nor a
+# ``-stg`` suffix (``demo.``, ``api.``, the base) is NOT a tenant.
+# ``sky-stg.skyfirstlabs.com`` (the platform default) never matches in
+# practice — the workflow's reserved-name list rejects ``sky``.
+_AUTH_SUBDOMAIN_RE = re.compile(
+    r"^(?:(?:workspace|api)-([a-z0-9-]{2,50}?)(?:-stg)?|([a-z0-9-]{2,50}?)-stg)\."
+)
+
+
+class AuthMethodsResponse(BaseModel):
+    """Public shape returned by ``GET /auth/methods``.
+
+    Drives what the ``/login`` page renders. The frontend mounts this
+    on entry so a tenant that allows only password sees an
+    email/password form, and one that allows only Google sees the
+    ``Continue with Google`` button.
+
+    ``show_demo`` is independent of the four auth methods. It controls
+    whether the public "Try the live demo" link appears below the
+    sign-in box. The Sky landing keeps it on by default so prospects
+    can try the product; a tenant created via the Console starts with
+    it off (the operator opts back in by ticking the checkbox).
+    """
+
+    password: bool = False
+    google: bool = True
+    azure: bool = False
+    okta: bool = False
+    show_demo: bool = True
+    tenant_slug: Optional[str] = None
+
+
+def _slug_from_request(request: Request) -> Optional[str]:
+    host_header = request.headers.get("host")
+    if not host_header:
+        return None
+    host = host_header.split(":", 1)[0].lower()
+    m = _AUTH_SUBDOMAIN_RE.match(host)
+    if not m:
+        return None
+    # Group 1 = prefixed form (workspace-/api-), group 2 = bare -stg form.
+    return m.group(1) or m.group(2)
+
+
+async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthMethodsResponse:
+    """Resolve the tenant for the request and return its auth methods.
+
+    Resolution order:
+
+    1. ``request.state.tenant_context`` populated by the tenant
+       resolver middleware (Model B path — the resolver already
+       looked up ``tenant_registry`` against the platform DB and
+       attached ``auth_methods`` + ``feature_flags`` to the context).
+       Cheapest path, no extra DB round-trip.
+    2. Legacy alias ``request.state.tenant`` — kept for safety so
+       callers that pre-date the middleware rename don't crash.
+    3. Slug parsed from the ``Host`` header → DB lookup. Used by
+       requests that escape the middleware (some health probes /
+       internal paths skip it on purpose).
+    4. Nothing resolvable → fall back to ``DEFAULT_AUTH_METHODS``
+       (Google-only) so the platform's bare hostname keeps working.
+    """
+    methods: Optional[dict] = None
+    feature_flags: Optional[dict] = None
+    slug: Optional[str] = None
+
+    ctx = (
+        getattr(request.state, "tenant_context", None) or getattr(request.state, "tenant", None)
+        if hasattr(request, "state")
+        else None
+    )
+    if ctx is not None and not getattr(ctx, "is_default", False):
+        ctx_slug = getattr(ctx, "slug", None)
+        ctx_methods = getattr(ctx, "auth_methods", None)
+        if ctx_slug:
+            slug = ctx_slug
+        if ctx_methods:
+            methods = dict(ctx_methods)
+        ctx_ff = getattr(ctx, "feature_flags", None)
+        if ctx_ff:
+            feature_flags = dict(ctx_ff)
+
+    if methods is None:
+        slug = slug or _slug_from_request(request)
+        if slug:
+            row = (
+                await db.execute(
+                    select(Tenant.auth_methods, Tenant.feature_flags).where(Tenant.slug == slug)
+                )
+            ).one_or_none()
+            if row is not None:
+                methods = dict(row[0]) if row[0] else None
+                feature_flags = dict(row[1]) if row[1] else None
+
+    if not methods:
+        methods = dict(DEFAULT_AUTH_METHODS)
+
+    # Demo link policy:
+    # * No tenant resolved (bare Sky landing) → demo on by default.
+    # * Tenant resolved → off unless ``feature_flags.demo_enabled`` is true.
+    # Tenants opt back in via the "Show demo link" checkbox in the
+    # Console create-tenant form.
+    if slug is None:
+        show_demo = True
+    else:
+        show_demo = bool((feature_flags or {}).get("demo_enabled", False))
+
+    return AuthMethodsResponse(
+        password=bool(methods.get("password", False)),
+        google=bool(methods.get("google", False)),
+        azure=bool(methods.get("azure", False)),
+        okta=bool(methods.get("okta", False)),
+        show_demo=show_demo,
+        tenant_slug=slug,
+    )
 
 
 @router.post(
@@ -58,7 +198,9 @@ async def register(
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
     """Self-registration is disabled. Access is granted via SSO or admin invite."""
-    raise ForbiddenError("Self-registration is disabled. Please sign in with your company account via SSO.")
+    raise ForbiddenError(
+        "Self-registration is disabled. Please sign in with your company account via SSO."
+    )
 
 
 @router.post(
@@ -75,17 +217,114 @@ async def login(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db_session),
 ) -> LoginResponse:
-    """
-    Login endpoint.
+    """Email + password login, gated per tenant.
 
-    Args:
-        login_data: Login credentials
-        db: Database session
-
-    Returns:
-        LoginResponse: Access token, refresh token, and user data
+    A tenant with ``auth_methods.password == false`` (the production
+    default) rejects with 403 just like before. Starter tenants
+    that need a quick way to onboard users without setting up SSO can
+    flip the flag in the Internal Console; the handler then runs the
+    standard credential check.
     """
-    raise ForbiddenError("Password login is disabled. Please sign in with your company account via SSO.")
+    methods = await _auth_methods_for_request(request, db)
+    if not methods.password:
+        raise ForbiddenError(
+            "Password login is disabled for this workspace. "
+            "Please sign in with your company SSO."
+        )
+
+    auth_service = AuthenticationService(db)
+    user_agent = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+    return await auth_service.login(
+        email=login_data.email,
+        password=login_data.password,
+        user_agent=user_agent,
+        ip_address=ip_address,
+        background_tasks=background_tasks,
+    )
+
+
+@router.post(
+    "/login/mfa",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="Complete MFA login",
+    description=(
+        "Redeems a short-lived MFA challenge token (issued by "
+        "/auth/login when ``require_mfa`` is true) plus a 6-digit "
+        "TOTP code (or a single-use recovery code) for the real "
+        "access + refresh pair."
+    ),
+)
+async def login_mfa(
+    body: MFALoginRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session),
+) -> LoginResponse:
+    auth_service = AuthenticationService(db)
+    user_agent = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+    return await auth_service.complete_mfa_login(
+        challenge_token=body.challenge_token,
+        code=body.code,
+        is_recovery_code=body.is_recovery_code,
+        user_agent=user_agent,
+        ip_address=ip_address,
+        background_tasks=background_tasks,
+    )
+
+
+@router.post(
+    "/login/mfa-finalize",
+    response_model=MFAFinalizeEnrollmentResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    summary="Finalise first-time MFA enrolment + complete login",
+    description=(
+        "Closes the forced-enrolment loop: takes the enrolment token "
+        "issued by /auth/login (when ``force_enrollment`` was true) "
+        "plus the user's first 6-digit TOTP code, persists the secret "
+        "and the bcrypt-hashed recovery codes, and mints the session "
+        "tokens in the same response. The recovery codes are returned "
+        "EXACTLY ONCE — the FE must surface them to the user and warn "
+        "they cannot be retrieved again."
+    ),
+)
+async def login_mfa_finalize(
+    body: MFAFinalizeEnrollmentRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session),
+) -> MFAFinalizeEnrollmentResponse:
+    auth_service = AuthenticationService(db)
+    user_agent = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+    return await auth_service.finalize_mfa_enrollment(
+        enrollment_token=body.enrollment_token,
+        code=body.code,
+        user_agent=user_agent,
+        ip_address=ip_address,
+        background_tasks=background_tasks,
+    )
+
+
+@router.get(
+    "/methods",
+    response_model=AuthMethodsResponse,
+    summary="Authentication methods enabled for this workspace",
+    description=(
+        "Returns the auth methods enabled for the tenant resolved from "
+        "the Host header. The login page mounts this and renders only "
+        "the methods set to true."
+    ),
+)
+async def get_auth_methods(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+) -> AuthMethodsResponse:
+    return await _auth_methods_for_request(request, db)
 
 
 @router.post(
@@ -113,6 +352,7 @@ async def logout(
     logout.
     """
     import time
+
     from jose import jwt as _jwt
 
     auth_service = AuthenticationService(db)
@@ -129,6 +369,7 @@ async def logout(
 
     if user_id:
         from src.core.token_blocklist import revoke_user_tokens
+
         await revoke_user_tokens(user_id, issued_before_epoch=int(time.time()))
 
     return SuccessResponse(message="Logged out successfully")
@@ -224,52 +465,105 @@ async def get_effective_permissions(
     "/forgot-password",
     response_model=SuccessResponse,
     status_code=status.HTTP_200_OK,
+    responses={403: {"model": ErrorResponse}},
     summary="Forgot password",
     description="Request password reset email",
 )
 async def forgot_password(
     request_data: ForgotPasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
     Forgot password endpoint.
 
+    Gated by the same per-tenant ``methods.password`` flag as /login:
+    an SSO-only workspace has no password to reset, so the request is
+    refused with 403 (mirrors the login handler) before any token is
+    minted.
+
+    For tenants that allow password auth the response is ALWAYS the same
+    generic success message, whether or not the email matches an account
+    — this is deliberate so the endpoint cannot be used to enumerate
+    which addresses have accounts. When the account does exist a reset
+    token is minted, stored (1h expiry), and a reset email is sent
+    best-effort (a delivery failure never changes the response).
+
     Args:
         request_data: Email address
+        request: FastAPI request (tenant resolution + host for the link)
         db: Database session
 
     Returns:
-        SuccessResponse: Success message (always returns success for security)
+        SuccessResponse: Generic success message (no account-existence leak)
     """
-    raise ForbiddenError("Password reset is disabled. Please sign in with your company account via SSO.")
+    methods = await _auth_methods_for_request(request, db)
+    if not methods.password:
+        raise ForbiddenError(
+            "Password reset is disabled for this workspace. "
+            "Please sign in with your company SSO."
+        )
+
+    # Build the reset link on the host the request actually arrived on —
+    # the tenant's own domain — so the token resolves against the tenant
+    # DB, exactly like the invite flow.
+    base_url = request_base_url(request)
+
+    reset_service = PasswordResetService(db)
+    await reset_service.request_reset(email=request_data.email, base_url=base_url)
+
+    return SuccessResponse(
+        message="If an account exists for that email, we've sent password reset instructions."
+    )
 
 
 @router.post(
     "/reset-password",
     response_model=SuccessResponse,
     status_code=status.HTTP_200_OK,
-    responses={400: {"model": ErrorResponse}},
+    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
     summary="Reset password",
     description="Reset password using reset token",
 )
 async def reset_password(
     request_data: ResetPasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
     Reset password endpoint.
 
+    Gated by the same per-tenant ``methods.password`` flag as /login.
+    Validates the reset token (must exist and not be expired), sets the
+    new password, and clears the token so it cannot be replayed. An
+    invalid or expired token is rejected with a clean 400.
+
     Args:
         request_data: Reset token and new password
+        request: FastAPI request (tenant resolution)
         db: Database session
 
     Returns:
         SuccessResponse: Success message
 
     Raises:
-        BadRequestError: If token is invalid
+        BadRequestError: If the token is invalid or expired
+        ForbiddenError: If the workspace disables password auth
     """
-    raise ForbiddenError("Password reset is disabled. Please sign in with your company account via SSO.")
+    methods = await _auth_methods_for_request(request, db)
+    if not methods.password:
+        raise ForbiddenError(
+            "Password reset is disabled for this workspace. "
+            "Please sign in with your company SSO."
+        )
+
+    reset_service = PasswordResetService(db)
+    await reset_service.reset_password(
+        token=request_data.token,
+        new_password=request_data.new_password,
+    )
+
+    return SuccessResponse(message="Password has been reset successfully.")
 
 
 @router.post(
@@ -413,6 +707,7 @@ async def revoke_session(
 
     if result.rowcount == 0:  # type: ignore[attr-defined]
         from src.core.exceptions import NotFoundError
+
         raise NotFoundError("Session not found or already revoked")
 
     return SuccessResponse(message="Session revoked successfully")
@@ -562,6 +857,7 @@ async def accept_invite_endpoint(
 )
 async def generate_invite(
     invite_data: InviteGenerateRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> InviteGenerateResponse:
@@ -581,17 +877,26 @@ async def generate_invite(
         BadRequestError: If email already exists
     """
     from src.core.exceptions import ForbiddenError
+    from src.core.permissions import is_tenant_admin
 
-    # Check if user is admin
-    if current_user.role != "admin":
+    # Tenant founder (super_admin) and admins can mint invites.
+    if not is_tenant_admin(current_user):
         raise ForbiddenError("Only admins can generate invite tokens")
 
+    # Build the invite link on the host the admin is actually using — the
+    # tenant's own domain (e.g. gbtsolutions-stg.skyfirstlabs.com), honouring
+    # the ingress-forwarded scheme. Sending the invitee to this host (rather
+    # than the platform host) is what lets the token resolve to the tenant DB.
+    base_url = request_base_url(request)
+
     invite_service = InviteService(db)
-    token = await invite_service.create_invite(
+    token, email_sent = await invite_service.create_invite(
         invited_by=current_user,
         email=invite_data.email,
         expires_days=invite_data.expires_days,
         name=invite_data.name,
+        role=invite_data.role,
+        base_url=base_url,
     )
 
     # Get expiration date
@@ -603,6 +908,7 @@ async def generate_invite(
         token=token,
         email=invite_data.email,
         expires_at=expires_at.isoformat(),
+        email_sent=email_sent,
         message=f"Invite token generated successfully. Expires in {invite_data.expires_days} days.",
     )
 
@@ -656,11 +962,7 @@ async def sso_login(
         # login flow on staging again.
         forwarded_proto = request.headers.get("x-forwarded-proto")
         forwarded_host = request.headers.get("x-forwarded-host")
-        scheme = (
-            forwarded_proto.split(",", 1)[0].strip()
-            if forwarded_proto
-            else request.url.scheme
-        )
+        scheme = forwarded_proto.split(",", 1)[0].strip() if forwarded_proto else request.url.scheme
         host = (
             forwarded_host.split(",", 1)[0].strip()
             if forwarded_host
@@ -675,9 +977,7 @@ async def sso_login(
             redirect_uri = f"{scheme}://{host}/api/v1/auth/sso/{provider}/callback"
         else:
             base_url = str(request.base_url)
-            redirect_uri = (
-                f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
-            )
+            redirect_uri = f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
 
     # Get OAuth URL based on provider
     if provider == "google":
@@ -771,11 +1071,7 @@ async def sso_callback(
     if not redirect_uri:
         forwarded_proto = request.headers.get("x-forwarded-proto")
         forwarded_host = request.headers.get("x-forwarded-host")
-        scheme = (
-            forwarded_proto.split(",", 1)[0].strip()
-            if forwarded_proto
-            else request.url.scheme
-        )
+        scheme = forwarded_proto.split(",", 1)[0].strip() if forwarded_proto else request.url.scheme
         host = (
             forwarded_host.split(",", 1)[0].strip()
             if forwarded_host
@@ -787,9 +1083,7 @@ async def sso_callback(
             redirect_uri = f"{scheme}://{host}/api/v1/auth/sso/{provider}/callback"
         else:
             base_url = str(request.base_url)
-            redirect_uri = (
-                f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
-            )
+            redirect_uri = f"{base_url.rstrip('/')}/api/v1/auth/sso/{provider}/callback"
 
     # Handle callback based on provider
     if provider == "google":

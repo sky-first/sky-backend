@@ -93,7 +93,7 @@ async def get_cost_metrics(
     platform Owner / Admin. Members get a 403; the FE Profile page
     already hides the panel for non-admins via `canSeePlatformUsage`.
     """
-    if getattr(current_user, "role", None) not in ("owner", "admin"):
+    if getattr(current_user, "role", None) not in ("super_admin", "owner", "admin"):
         raise ForbiddenError(
             "Tenant cost metrics are restricted to platform Owner / Admin."
         )

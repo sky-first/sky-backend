@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     func,
@@ -34,9 +35,9 @@ class User(Base):
     role = Column(
         String(50),
         nullable=False,
-        default="user",
-        server_default="user",
-    )  # admin, user, viewer
+        default="member",
+        server_default="member",
+    )  # super_admin, admin, member (legacy aliases: owner, user)
     email_verified = Column(Boolean, nullable=False, default=False, server_default="false")
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
     onboarding_step = Column(Integer, nullable=True, default=0, server_default="0")
@@ -57,6 +58,13 @@ class User(Base):
 
     # Sky Support operator flag
     is_sky_operator = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Internal hierarchy on the Sky platform itself — ``ceo``, ``admin``,
+    # ``support`` or ``read_only``. Independent of ``role`` above, which
+    # is the tenant-side role (owner / admin / member of a customer
+    # workspace). Null for customer users; set only when
+    # ``is_sky_operator`` is True. The Console gates features by this
+    # value via :func:`src.api.console_auth.role_for`.
+    sky_role = Column(String(20), nullable=True)
 
     # Public demo guest (Cenário B). is_demo=true marks users provisioned
     # via /demo/signup; the cleanup cron uses demo_expires_at to decide
@@ -80,8 +88,30 @@ class User(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    # Password reset (forgot-password / reset-password flow).
+    # A urlsafe token minted by ``POST /auth/forgot-password`` and cleared
+    # the moment ``POST /auth/reset-password`` consumes it (or it expires).
+    # Mirrors the invite-token columns above: nullable, short-lived, and
+    # only set for tenants that allow password auth. SSO-only tenants
+    # never populate these — the endpoints 403 before minting.
+    password_reset_token = Column(String(255), nullable=True, index=True)
+    password_reset_expires_at = Column(DateTime(timezone=True), nullable=True)
+
     # SSO Metadata
     sso_metadata = Column(JSON, nullable=True)  # Store provider-specific data
+
+    # Multi-Factor Authentication (TOTP — Phase 3).
+    # ``mfa_enabled`` gates the second-factor branch in the login
+    # service. The secret + recovery codes are Fernet-encrypted with
+    # ENCRYPTION_KEY at the service layer (see src/services/mfa_service.py)
+    # so a DB-only leak does not expose working TOTP seeds. Recovery
+    # codes are stored as bcrypt hashes inside the encrypted JSON
+    # payload — single-use, single-show.
+    mfa_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    mfa_secret_encrypted = Column(LargeBinary, nullable=True)
+    mfa_recovery_codes_encrypted = Column(LargeBinary, nullable=True)
+    mfa_enrolled_at = Column(DateTime(timezone=True), nullable=True)
+    mfa_last_used_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(
         DateTime(timezone=True),
@@ -122,6 +152,11 @@ class User(Base):
             "idx_users_invite_token",
             "invite_token",
             postgresql_where=invite_token.isnot(None),
+        ),
+        Index(
+            "idx_users_password_reset_token",
+            "password_reset_token",
+            postgresql_where=password_reset_token.isnot(None),
         ),
     )
 

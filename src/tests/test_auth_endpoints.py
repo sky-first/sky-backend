@@ -5,12 +5,16 @@ from httpx import AsyncClient
 
 
 class TestLoginEndpoint:
-    """Tests for POST /api/v1/auth/login."""
+    """Tests for POST /api/v1/auth/login.
 
-    # NOTE: password-based login was removed in favour of SSO. The endpoint
-    # now unconditionally raises ForbiddenError, so the success/invalid-email/
-    # invalid-password paths all collapse to the same 403 response. These
-    # tests pin the current contract so a future re-enable is loud.
+    Password login is now per-tenant (controlled by
+    ``tenant.auth_methods.password``). When the request does not carry
+    a Host header that resolves to a tenant, the helper falls back to
+    ``DEFAULT_AUTH_METHODS`` (Google-only) so the endpoint still
+    rejects with 403. These tests pin that default path. The
+    tenant-enabled path is covered in ``TestLoginPerTenantAuthMethods``
+    below.
+    """
 
     @pytest.mark.asyncio
     async def test_login_password_auth_disabled(self, async_client: AsyncClient, test_user: dict):

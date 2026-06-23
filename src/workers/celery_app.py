@@ -2,12 +2,43 @@
 
 import logging
 import os
+import ssl
 from datetime import timedelta
 from urllib.parse import quote_plus, unquote_plus
 
 from celery import Celery
 
 from src.config.settings import settings
+
+
+# Managed Redis (ElastiCache, Upstash) presents the URL as `rediss://` —
+# Celery's redis backend then refuses to start with:
+#   "A rediss:// URL must have parameter ssl_cert_reqs and this must be
+#    set to CERT_REQUIRED, CERT_OPTIONAL, or CERT_NONE"
+# unless ssl options are supplied via Celery config (it does NOT read
+# them from the URL query string for the result backend, only via the
+# `broker_use_ssl` / `redis_backend_use_ssl` settings).
+#
+# Map string → ssl enum (we accept the string form for parity with the
+# rest of the codebase / env var conventions).
+_SSL_CERT_REQS_MAP: dict[str, int] = {
+    "CERT_NONE":     ssl.CERT_NONE,
+    "CERT_OPTIONAL": ssl.CERT_OPTIONAL,
+    "CERT_REQUIRED": ssl.CERT_REQUIRED,
+}
+
+
+def _redis_ssl_options(url: str) -> dict | None:
+    """Return Celery ssl options dict for a `rediss://` URL, else None.
+
+    Reads CELERY_REDIS_SSL_CERT_REQS env var (default CERT_NONE — matches
+    ElastiCache-in-VPC posture where the TLS hop terminates at a private
+    endpoint and chain validation against an internal CA adds no value).
+    """
+    if not url.startswith("rediss://"):
+        return None
+    name = (os.getenv("CELERY_REDIS_SSL_CERT_REQS") or "CERT_NONE").upper()
+    return {"ssl_cert_reqs": _SSL_CERT_REQS_MAP.get(name, ssl.CERT_NONE)}
 
 
 def build_redis_url_from_env(host: str, port: int, password: str, db: int) -> str:
@@ -91,6 +122,14 @@ celery_app = Celery(
     backend=backend_url,
 )
 
+# Projeto A — register the before/prerun/postrun signal handlers that
+# propagate TenantContext from the publishing process into the worker
+# process. Side-effect import; nothing exported is used here.
+from src.workers import tenant_context_propagation  # noqa: E402, F401
+
+_broker_ssl = _redis_ssl_options(broker_url)
+_backend_ssl = _redis_ssl_options(backend_url)
+
 # Update configuration
 celery_app.conf.update(
     task_serializer="json",
@@ -104,6 +143,10 @@ celery_app.conf.update(
     task_soft_time_limit=25 * 60,  # 25 minutes
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
+    # SSL config for `rediss://` URLs (managed Redis like ElastiCache).
+    # None values are skipped by Celery, so plain `redis://` is unaffected.
+    broker_use_ssl=_broker_ssl,
+    redis_backend_use_ssl=_backend_ssl,
     task_queues={
         "celery": {"exchange": "celery"},
         "knowledge": {"exchange": "knowledge"},  # dedicated queue, concurrency 4
@@ -120,6 +163,9 @@ celery_app.conf.update(
         "src.workers.agent_revocation_worker",
         "src.workers.demo_cleanup_worker",
         "src.workers.knowledge_worker",
+        "src.workers.pricing_worker",
+        "src.workers.provisioning_worker",
+        "src.workers.llm_metrics_worker",
     ],
 )
 
@@ -130,44 +176,70 @@ celery_app.conf.result_backend = backend_url
 
 # Periodic tasks (Celery Beat)
 try:
+    _base_schedule: dict = {
+        **getattr(celery_app.conf, "beat_schedule", {}),
+        "schedule-agents": {
+            "task": "src.workers.agent_worker.schedule_agents",
+            "schedule": timedelta(minutes=5),
+        },
+        # Insight-mode agents have their own scheduler because they
+        # use the new AgentRunService state machine (iteration 1.6)
+        # and run at finer granularities (down to 1 minute). Legacy
+        # agents stay on the 5-minute beat.
+        "schedule-insight-agents": {
+            "task": "src.workers.insight_agent_worker.schedule_insight_agents",
+            "schedule": timedelta(minutes=1),
+        },
+        # Agent revocation safety net — every 15 minutes, sweep
+        # every ACTIVE agent and pause any whose creator no longer
+        # belongs to the agent's scope (HI-002 / W12). Synchronous
+        # hook in space/crew remove_member is best-effort; this is
+        # the guarantee of eventual consistency.
+        "sweep-orphan-agents": {
+            "task": "src.workers.agent_revocation_worker.sweep_orphan_agents",
+            "schedule": timedelta(minutes=15),
+        },
+        # Public demo (Cenário B) sandbox cleanup. Daily pass deletes
+        # any Space/User past its TTL — keeps the table small and
+        # protects against vandalism living on the public surface
+        # for more than the advertised window.
+        "cleanup-expired-demo-spaces": {
+            "task": "src.workers.demo_cleanup_worker.cleanup_expired_demo_spaces",
+            "schedule": timedelta(hours=24),
+        },
+        # Pricing Fase 1 — monthly query counter rollover. Daily sweep
+        # so a quiet tenant whose first query of the new month hasn't
+        # landed yet doesn't show last month's number forever. Cheap:
+        # one SELECT + N UPDATEs gated on "not same month".
+        "pricing-roll-over-query-counters": {
+            "task": "src.workers.pricing_worker.roll_over_query_counters",
+            "schedule": timedelta(hours=24),
+        },
+        # Pricing Fase 1 — recompute current_storage_bytes from the
+        # filesystem of record. Coarse for now (whole-DB sum onto the
+        # default tenant); Fase 3 will scope per-tenant once tenant_id
+        # columns land on the source tables.
+        "pricing-compute-storage-usage": {
+            "task": "src.workers.pricing_worker.compute_storage_usage",
+            "schedule": timedelta(hours=24),
+        },
+        # Daily LLM cost snapshot — pulls yesterday's per-tenant
+        # usage + cost from Langfuse and writes one row per tenant
+        # into ``tenant_llm_daily_snapshots``. The Console then reads
+        # from that table for the 30-day trend chart instead of
+        # hammering Langfuse on every page load.
+        "snapshot-llm-metrics": {
+            "task": "src.workers.llm_metrics_worker.snapshot_llm_metrics",
+            "schedule": timedelta(hours=24),
+        },
+    }
     interval = int(getattr(settings, "CACHE_WARMING_INTERVAL_SECONDS", 300) or 300)
     if getattr(settings, "CACHE_WARMING_ENABLED", True) and interval > 0:
-        celery_app.conf.beat_schedule = {
-            **getattr(celery_app.conf, "beat_schedule", {}),
-            "warm-ai-response-cache": {
-                "task": "src.workers.cache_warming_worker.warm_ai_response_cache",
-                "schedule": timedelta(seconds=interval),
-            },
-            "schedule-agents": {
-                "task": "src.workers.agent_worker.schedule_agents",
-                "schedule": timedelta(minutes=5),
-            },
-            # Insight-mode agents have their own scheduler because they
-            # use the new AgentRunService state machine (iteration 1.6)
-            # and run at finer granularities (down to 1 minute). Legacy
-            # agents stay on the 5-minute beat.
-            "schedule-insight-agents": {
-                "task": "src.workers.insight_agent_worker.schedule_insight_agents",
-                "schedule": timedelta(minutes=1),
-            },
-            # Agent revocation safety net — every 15 minutes, sweep
-            # every ACTIVE agent and pause any whose creator no longer
-            # belongs to the agent's scope (HI-002 / W12). Synchronous
-            # hook in space/crew remove_member is best-effort; this is
-            # the guarantee of eventual consistency.
-            "sweep-orphan-agents": {
-                "task": "src.workers.agent_revocation_worker.sweep_orphan_agents",
-                "schedule": timedelta(minutes=15),
-            },
-            # Public demo (Cenário B) sandbox cleanup. Daily pass deletes
-            # any Space/User past its TTL — keeps the table small and
-            # protects against vandalism living on the public surface
-            # for more than the advertised window.
-            "cleanup-expired-demo-spaces": {
-                "task": "src.workers.demo_cleanup_worker.cleanup_expired_demo_spaces",
-                "schedule": timedelta(hours=24),
-            },
+        _base_schedule["warm-ai-response-cache"] = {
+            "task": "src.workers.cache_warming_worker.warm_ai_response_cache",
+            "schedule": timedelta(seconds=interval),
         }
+    celery_app.conf.beat_schedule = _base_schedule
 except Exception:
     # Fail-open: do not block worker startup if schedule can't be built.
     pass

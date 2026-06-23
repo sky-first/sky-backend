@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, UnauthorizedError
+from src.core.permissions import is_tenant_admin
 from src.core.security import (
     create_access_token,
     create_refresh_token,
@@ -54,7 +55,7 @@ def user_to_response_dict(user: User) -> dict:
         "onboarding_step": user.onboarding_step or 0,
         "onboarding_version": user.onboarding_version or 0,
         "needs_onboarding": (
-            user.role == "admin"
+            is_tenant_admin(user)
             and (user.onboarding_version or 0) < settings.ADMIN_ONBOARDING_VERSION
         ),
         "has_completed_onboarding": user.has_completed_onboarding,
@@ -63,6 +64,13 @@ def user_to_response_dict(user: User) -> dict:
         "last_login_at": user.last_login_at,
         "last_active_at": user.last_active_at,
         "status": user.status or "offline",
+        # Sky-platform fields — passed through so SSO callback /
+        # password login responses don't strip the operator flag and
+        # internal role. Without this, the FE user-store hydrates
+        # without ``is_sky_operator`` and the platform profile dropdown
+        # silently hides the Console shortcut for engineers.
+        "is_sky_operator": bool(getattr(user, "is_sky_operator", False)),
+        "sky_role": getattr(user, "sky_role", None),
         "created_at": user.created_at,
         "updated_at": user.updated_at,
     }
@@ -276,9 +284,74 @@ class AuthenticationService:
         if not user.password_hash or not verify_password(password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")
 
+        # Phase 3 — MFA gate. When the user has TOTP enabled we stop
+        # short of issuing real tokens and hand back a short-lived
+        # challenge token instead. The caller redeems it at
+        # /auth/login/mfa with the 6-digit code (or a recovery code)
+        # and only then receives access + refresh. last_login_at is
+        # bumped only after the second factor succeeds — otherwise an
+        # attacker with the password could ping it indefinitely and
+        # mask the fact that they don't have the device.
+        if getattr(user, "mfa_enabled", False):
+            from src.services.mfa_service import (
+                MFA_CHALLENGE_TTL_MINUTES,
+                issue_mfa_challenge_token,
+            )
+
+            # Commit nothing — no DB state changes for an MFA-required
+            # account at this stage. (Refresh tokens are only created
+            # after the second factor in ``complete_mfa_login``.)
+            challenge_token = issue_mfa_challenge_token(user)
+            return LoginResponse(
+                require_mfa=True,
+                mfa_challenge_token=challenge_token,
+                mfa_expires_in=MFA_CHALLENGE_TTL_MINUTES * 60,
+            )
+
+        # Force MFA enrolment on first password login (Lucas decision
+        # 2026-05-31). A password-authenticated account without MFA is
+        # the threat we want to close: phished credentials would walk
+        # straight in. SSO-only users skip this because the IdP already
+        # enforces 2FA. We bake the candidate secret into the enrolment
+        # token so a half-done enrolment doesn't leave a DB row behind
+        # — only the finalize-step writes anything.
+        from src.services.mfa_service import (
+            MFA_ENROLLMENT_TTL_MINUTES,
+            MFAService,
+            issue_mfa_enrollment_token,
+        )
+
+        mfa = MFAService(self.db)
+        # Issuer is the bare brand for now; per-tenant labelling can
+        # be wired once the resolver lands in this code path.
+        challenge = await mfa.generate_enrollment(user)
+        enrollment_token = issue_mfa_enrollment_token(user, challenge.secret)
+        return LoginResponse(
+            force_enrollment=True,
+            mfa_enrollment_token=enrollment_token,
+            mfa_enrollment_secret=challenge.secret,
+            mfa_enrollment_qrcode_b64=challenge.qrcode_png_b64,
+            mfa_enrollment_issuer="SkyFirst",
+            mfa_expires_in=MFA_ENROLLMENT_TTL_MINUTES * 60,
+        )
+
+    async def _issue_session(
+        self,
+        user: User,
+        *,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
+    ) -> LoginResponse:
+        """Mint access+refresh tokens for an authenticated user.
+
+        Shared between the no-MFA login path and ``complete_mfa_login``
+        so the post-auth side-effects (last_login_at, onboarding
+        bootstrap, refresh-token row) are guaranteed to be identical
+        regardless of whether a second factor was involved.
+        """
         # Update last login
         user.last_login_at = datetime.now(timezone.utc)
-        # Note: redundant refresh removed due to expire_on_commit=False
 
         # Ensure default page/space exists (fallback for legacy users)
         if user.id:
@@ -314,6 +387,138 @@ class AuthenticationService:
             refresh_token=refresh_token,
             expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
             user=UserResponse.model_validate(user_to_response_dict(user)),
+        )
+
+    async def complete_mfa_login(
+        self,
+        *,
+        challenge_token: str,
+        code: str,
+        is_recovery_code: bool = False,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
+    ) -> LoginResponse:
+        """Redeem an MFA challenge token + second factor for real tokens.
+
+        Phase 3 of the auth roadmap. The challenge token was issued
+        by ``login`` after a successful password check; it embeds the
+        ``sub`` (user id) and expires after 5 minutes. We re-load the
+        user here so a concurrent ``disable_mfa`` (e.g. via admin
+        impersonation) takes effect immediately — if the user no
+        longer has MFA enabled by the time the second-factor lands,
+        we still issue tokens (no second factor is required).
+        """
+        from src.services.mfa_service import MFAService, verify_mfa_challenge_token
+
+        try:
+            user_id_str = verify_mfa_challenge_token(challenge_token)
+        except ValueError:
+            raise UnauthorizedError("Invalid or expired MFA challenge")
+
+        try:
+            user_id = UUID(user_id_str)
+        except (TypeError, ValueError):
+            raise UnauthorizedError("Invalid MFA challenge payload")
+
+        user = await self.user_repo.get_by_id(user_id)
+        if not user:
+            raise UnauthorizedError("User not found")
+
+        # If MFA has been disabled in the meantime, accept the
+        # challenge as proof of password and skip the second factor.
+        if getattr(user, "mfa_enabled", False):
+            mfa = MFAService(self.db)
+            ok = False
+            if is_recovery_code:
+                ok = await mfa.consume_recovery_code(user, code)
+            else:
+                ok = await mfa.verify_login_code(user, code)
+            if not ok:
+                raise UnauthorizedError("Invalid MFA code")
+
+        return await self._issue_session(
+            user,
+            user_agent=user_agent,
+            ip_address=ip_address,
+            background_tasks=background_tasks,
+        )
+
+    async def finalize_mfa_enrollment(
+        self,
+        *,
+        enrollment_token: str,
+        code: str,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
+    ):
+        """Close the forced first-login MFA enrolment + mint tokens.
+
+        Path:
+          1. Verify the enrolment token, recover (user_id, secret).
+          2. Verify the user's 6-digit code matches the secret.
+          3. Persist the secret + bcrypt-hashed recovery codes.
+          4. Mint the access + refresh pair (same shape as a normal
+             login) and return the recovery codes ONCE in the body.
+
+        Refuses with a 409 if MFA is already enabled on the account —
+        protects against an attacker replaying a stale enrolment token
+        after the legitimate owner has finished onboarding.
+        """
+        from fastapi import HTTPException, status as http_status
+
+        from src.schemas.user import (
+            MFAFinalizeEnrollmentResponse,
+            UserResponse,
+        )
+        from src.services.mfa_service import (
+            MFAService,
+            verify_mfa_enrollment_token,
+        )
+
+        try:
+            user_id_str, secret = verify_mfa_enrollment_token(enrollment_token)
+        except ValueError:
+            raise UnauthorizedError("Invalid or expired enrolment token")
+
+        try:
+            user_id = UUID(user_id_str)
+        except (TypeError, ValueError):
+            raise UnauthorizedError("Invalid enrolment token payload")
+
+        user = await self.user_repo.get_by_id(user_id)
+        if not user:
+            raise UnauthorizedError("User not found")
+
+        mfa = MFAService(self.db)
+        try:
+            result = await mfa.persist_enrollment(user, secret=secret, code=code)
+        except ValueError as exc:
+            if str(exc) == "mfa_already_enabled":
+                raise HTTPException(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    detail="MFA is already enabled on this account",
+                )
+            raise UnauthorizedError("Invalid code")
+
+        # Mint the session tokens via the same pipeline that the
+        # password-without-MFA path used pre-Phase 3. Returns
+        # LoginResponse; we unpack into the enrolment-specific shape
+        # that also surfaces the freshly minted recovery codes.
+        session = await self._issue_session(
+            user,
+            user_agent=user_agent,
+            ip_address=ip_address,
+            background_tasks=background_tasks,
+        )
+        return MFAFinalizeEnrollmentResponse(
+            access_token=session.access_token,
+            refresh_token=session.refresh_token,
+            token_type=session.token_type,
+            expires_in=session.expires_in,
+            user=session.user,
+            recovery_codes=result.recovery_codes,
         )
 
     def _detect_auth_type(self, user: User) -> str:

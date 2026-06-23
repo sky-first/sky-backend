@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.schemas.ai_transparency import AIResponseTransparency  # W7
 
@@ -39,6 +39,19 @@ class AIQueryRequest(BaseModel):
         description="Whether the query is in personal mode (access across all crews/spaces).",
     )
     page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
+    # Conversation identity for multi-turn memory (Frente 1). The frontend sends a
+    # STABLE id per chat surface — the active chat-session id for the main chatbox
+    # (page-scoped, so a shared page's default "Chat 1" is the same id for every
+    # member → shared memory), or the conversation id for a reply/thread. The AI
+    # keys chat_history on this; a stable value across turns is what loads memory.
+    # Absent → process_query falls back to the per-query AIQuery id (no memory).
+    thread_id: Optional[str] = Field(
+        None,
+        description=(
+            "Stable conversation/session id for multi-turn memory. Same across "
+            "turns of the same chat tab/thread. Omit for one-shot queries."
+        ),
+    )
     # Collaborative mode: restrict AI data context to this specific crew
     crew_id: Optional[str] = Field(
         None,
@@ -54,6 +67,20 @@ class AIQueryRequest(BaseModel):
         default=None,
         description="Knowledge file IDs @mentioned by the user. Boosted during RAG retrieval.",
     )
+    # User's preferred locale — injected into the LLM system prompt so the AI
+    # responds in the selected language. Defaults to "pt" when absent.
+    locale: Optional[str] = Field(
+        default=None,
+        description="User's preferred locale ('pt' | 'en'). Injected into LLM system prompt.",
+    )
+
+    @field_validator("locale", mode="before")
+    @classmethod
+    def _normalize_locale(cls, v: object) -> object:
+        if v is None:
+            return None
+        from src.core.locale import normalize_locale
+        return normalize_locale(str(v))
 
 
 class AIQueryResponse(BaseModel):
@@ -138,6 +165,20 @@ class ChatMessageRequest(BaseModel):
         None,
         description="Preferred output structure (concise, detailed, step-by-step).",
     )
+    # User's preferred locale — injected into the LLM system prompt so the AI
+    # responds only in the selected language. Auto-injected by the frontend.
+    locale: Optional[str] = Field(
+        default=None,
+        description="User's preferred locale ('pt' | 'en'). Injected into LLM system prompt.",
+    )
+
+    @field_validator("locale", mode="before")
+    @classmethod
+    def _normalize_locale(cls, v: object) -> object:
+        if v is None:
+            return None
+        from src.core.locale import normalize_locale
+        return normalize_locale(str(v))
 
 
 class ChatMessageResponse(BaseModel):
@@ -224,6 +265,18 @@ class GenerateSQLRequest(BaseModel):
     knowledge: List[str] = Field(..., min_length=1)  # Table names or connection IDs
     sql_instructions: Optional[str] = None
     creativity: int = Field(default=50, ge=0, le=100)
+    locale: Optional[str] = Field(
+        default=None,
+        description="User's preferred locale ('pt' | 'en'). Injected into LLM system prompt.",
+    )
+
+    @field_validator("locale", mode="before")
+    @classmethod
+    def _normalize_locale(cls, v: object) -> object:
+        if v is None:
+            return None
+        from src.core.locale import normalize_locale
+        return normalize_locale(str(v))
 
 
 class GenerateSQLResponse(BaseModel):

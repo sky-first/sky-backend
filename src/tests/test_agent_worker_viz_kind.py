@@ -111,3 +111,65 @@ def test_callout_fallback_when_no_signal():
         )
         == "callout"
     )
+
+
+# ── Regression: the AI QueryResponse returns result rows under
+# `data_sample` (a list of row dicts), NOT `data`. The worker used to
+# read `data`, so rows never reached the heuristic and every finding
+# with a narrative answer fell through to "callout" — the Pulse card
+# rendered as text even when the agent had tabular data behind it.
+
+
+def test_pie_from_data_sample_list_of_dicts():
+    # Single numeric column + ≤8 categories → pie. This is the exact
+    # shape the AI emits for the demo "Support Ticket Spike" agent
+    # (feature_name → times_used_30d).
+    data_sample = [
+        {"feature_name": "knowledge graph", "times_used_30d": 117},
+        {"feature_name": "alerts", "times_used_30d": 127},
+        {"feature_name": "dashboards", "times_used_30d": 98},
+        {"feature_name": "exports", "times_used_30d": 64},
+    ]
+    assert (
+        _infer_viz_kind(
+            response={"title": "Feature adoption", "data_sample": data_sample},
+            answer="The least used feature over the past 30 days is knowledge graph.",
+        )
+        == "pie"
+    )
+
+
+def test_bar_from_data_sample_multi_numeric():
+    data_sample = [
+        {"plan": "starter", "mrr": 12000, "accounts": 40},
+        {"plan": "pro", "mrr": 45000, "accounts": 22},
+        {"plan": "enterprise", "mrr": 88000, "accounts": 9},
+    ]
+    assert (
+        _infer_viz_kind(
+            response={"title": "MRR by plan", "data_sample": data_sample},
+            answer="Enterprise drives the bulk of recurring revenue.",
+        )
+        == "bar"
+    )
+
+
+def test_data_sample_beats_long_narrative_answer():
+    # Long narrative answer that WOULD have been "callout" on its own,
+    # but the presence of tabular data_sample must drive a chart instead.
+    long_answer = (
+        "The feature with the lowest average usage over the past 30 days is "
+        "knowledge graph, while alerts shows the highest average usage. "
+        "Features used less on average also tend to have the most variance."
+    )
+    data_sample = [
+        {"feature_name": "knowledge graph", "times_used_30d": 117},
+        {"feature_name": "alerts", "times_used_30d": 127},
+    ]
+    assert (
+        _infer_viz_kind(
+            response={"title": "Feature adoption", "data_sample": data_sample},
+            answer=long_answer,
+        )
+        != "callout"
+    )

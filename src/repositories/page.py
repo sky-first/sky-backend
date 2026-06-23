@@ -50,7 +50,11 @@ class PageRepository(BaseRepository[Page]):
         Returns:
             Optional[Page]: Active page or None
         """
-        # First try to find page where user is owner and is_active = True
+        # First try to find page where user is owner and is_active = True.
+        # ORDER BY + LIMIT 1 makes the result deterministic in the rare case
+        # where multiple rows have is_active=True (e.g. after a failed
+        # deactivation during a mode switch), always preferring the most
+        # recently accessed one.
         result = await self.db.execute(
             select(Page)
             .where(
@@ -58,6 +62,8 @@ class PageRepository(BaseRepository[Page]):
                 Page.is_active == True,  # noqa: E712
                 Page.deleted_at.is_(None),
             )
+            .order_by(Page.last_accessed.desc().nulls_last())
+            .limit(1)
             # Page-consolidation (2026-05-20): Page IS the canvas now,
             # so Page.dashboards collection is gone. Only Page.members
             # remains as a relationship to eager-load.
@@ -112,8 +118,10 @@ class PageRepository(BaseRepository[Page]):
             select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
         ).scalar_subquery()
 
-        base = select(Page).outerjoin(PageMember, PageMember.page_id == Page.id).where(
-            Page.deleted_at.is_(None)
+        base = (
+            select(Page)
+            .outerjoin(PageMember, PageMember.page_id == Page.id)
+            .where(Page.deleted_at.is_(None))
         )
 
         if context == "personal":
@@ -147,6 +155,42 @@ class PageRepository(BaseRepository[Page]):
                 seen[page.id] = page
         return list(seen.values())
 
+    async def get_default_crew_page(self, crew_id: UUID) -> Optional[Page]:
+        """Return the crew's canonical (oldest) live page, or None.
+
+        Used to converge every crew member on the SAME shared page id
+        instead of each one creating their own. Oldest-by-created_at is a
+        stable choice across members (unlike updated_at, which churns)."""
+        result = await self.db.execute(
+            select(Page)
+            .where(Page.crew_id == crew_id, Page.deleted_at.is_(None))
+            # Prefer the explicitly-flagged canonical page; fall back to the
+            # oldest for legacy crews not yet backfilled.
+            .order_by(Page.is_canonical.desc(), Page.created_at.asc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+    async def get_default_space_page(self, space_id: UUID) -> Optional[Page]:
+        """Return the space's canonical (oldest) live shared page, or None.
+
+        Mirrors get_default_crew_page: converges every space member on the
+        SAME shared page id. Only pages bound to the space and NOT to a crew
+        count — a crew page lives in its own collaborative room, not the
+        space's default. Oldest-by-created_at is a stable choice across
+        members (unlike updated_at, which churns)."""
+        result = await self.db.execute(
+            select(Page)
+            .where(
+                Page.space_id == space_id,
+                Page.crew_id.is_(None),
+                Page.deleted_at.is_(None),
+            )
+            .order_by(Page.is_canonical.desc(), Page.created_at.asc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
 
 class PageMemberRepository(BaseRepository[PageMember]):
     """Page member repository."""
@@ -154,9 +198,7 @@ class PageMemberRepository(BaseRepository[PageMember]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, PageMember)
 
-    async def get_by_page_and_user(
-        self, page_id: UUID, user_id: UUID
-    ) -> Optional[PageMember]:
+    async def get_by_page_and_user(self, page_id: UUID, user_id: UUID) -> Optional[PageMember]:
         """
         Get page member by page and user.
 

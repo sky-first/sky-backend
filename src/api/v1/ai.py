@@ -10,8 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
-from src.middleware.request_limits import depth_guard_dependency
 from src.config.settings import settings
+from src.core.locale import DEFAULT_LOCALE, get_message
+from src.middleware.request_limits import depth_guard_dependency
 from src.models.user import User
 from src.rate_limit.core import (
     RateLimitExceeded,
@@ -47,6 +48,7 @@ from src.schemas.ai import (
     ValidateSQLResponse,
 )
 from src.schemas.common import ErrorResponse, SuccessResponse
+from src.services import pricing_service
 from src.services.ai_service import AIService
 from src.services.beats_service import BeatsService
 from src.services.rbac_service import RBACService
@@ -103,6 +105,43 @@ async def process_query(
             space_uuid = None
     permission_key = "ai.query" if space_uuid is not None else "ai.query.personal"
     await rbac.assert_permission(current_user, permission_key, space_id=space_uuid)
+
+    # Space→Crew security boundary (2026-06): in collaborative mode a
+    # question MUST target a crew, never a bare space. A query with a
+    # space_id but no crew_id (and not Personal mode) would otherwise fall
+    # back to "all crews the user belongs to in this space" — which leaks
+    # the union of every crew's tables instead of the explicitly selected
+    # crew's surface. Reject it here, server-side. Personal mode
+    # (is_personal=True, no space) is exempt. Every space has a default
+    # "General" crew, so a valid crew is always selectable in the FE.
+    if settings.CREW_REQUIRED_FOR_QUERY and space_uuid is not None:
+        is_personal_q = bool(getattr(query_data, "is_personal", False))
+        if not is_personal_q and not query_data.crew_id:
+            from src.core.exceptions import BadRequestError
+
+            raise BadRequestError(
+                "A crew must be selected to ask questions in a space. "
+                "Pick a crew — every space has a default 'General' crew."
+            )
+
+    # Content-plane membership gate (Option B, 2026-06): querying a Space/Crew's
+    # data requires REAL membership of that specific crew (or space) — platform
+    # admins do NOT bypass content. This is stricter than the ai.query RBAC key
+    # (which only requires "some membership in the space"): here we gate the
+    # EXACT crew whose data is requested, so an admin who belongs to crew A
+    # cannot read crew B's data. Personal mode is exempt.
+    if space_uuid is not None and not bool(getattr(query_data, "is_personal", False)):
+        from src.services.authorization import Authorization
+
+        crew_uuid: Optional[UUID] = None
+        if query_data.crew_id:
+            try:
+                crew_uuid = UUID(query_data.crew_id)
+            except Exception:
+                crew_uuid = None
+        await Authorization(db).assert_content_access(
+            current_user, space_id=space_uuid, crew_id=crew_uuid
+        )
 
     ai_service = AIService(db)
 
@@ -166,6 +205,11 @@ async def process_query(
         page_service = PageService(db)
         await page_service.get_user_page_or_404(query_data.page_id, current_user.id)
 
+    # Locale fallback — same pattern as /chat and /chat/stream.
+    prefs = current_user.preferences or {}
+    if query_data.locale is None:
+        query_data.locale = prefs.get("language", DEFAULT_LOCALE)
+
     # Beats quota gate — fires AFTER rate limit (cheap Redis check)
     # and AFTER page validation, so users near their cap aren't
     # charged when those earlier gates would have rejected the call
@@ -173,10 +217,20 @@ async def process_query(
     # records 20 beats on success. Demo: 500 beats / 7d. Starter:
     # 5K / 30d. See src/config/plan_quotas.py.
     await BeatsService(db).check_and_record(
-        current_user, kind="chat", source_id=None,
+        current_user,
+        kind="chat",
+        source_id=None,
     )
 
-    return await ai_service.process_query(current_user.id, query_data)
+    response = await ai_service.process_query(current_user.id, query_data)
+    # Pricing Fase 1 — bump the monthly query counter at the end of
+    # the request so failed queries (LLM error, etc.) don't get
+    # charged against the tenant's quota.
+    try:
+        await pricing_service.record_query_usage(db)
+    except Exception:  # pragma: no cover — accounting failure is non-fatal
+        logger.exception("pricing_record_query_usage_failed")
+    return response
 
 
 @router.get(
@@ -347,7 +401,7 @@ async def chat_bootstrap(
         if not payload or not isinstance(payload, dict):
             logger.warning(f"[chat_bootstrap] AI service returned invalid payload: {payload}")
             return ChatBootstrapResponse(
-                greeting="How can I help you today?",
+                greeting=get_message("how_can_i_help", language),
                 suggestions=[
                     {
                         "title": "Available data",
@@ -365,7 +419,7 @@ async def chat_bootstrap(
 
         # Ensure required fields are present even if payload is a dict
         if "greeting" not in payload:
-            payload["greeting"] = "How can I help you today?"
+            payload["greeting"] = get_message("how_can_i_help", language)
         if "suggestions" not in payload or not payload["suggestions"]:
             payload["suggestions"] = [
                 {
@@ -388,7 +442,7 @@ async def chat_bootstrap(
         return out
     except Exception as e:
         return ChatBootstrapResponse(
-            greeting="How can I help you with your data?",
+            greeting=get_message("how_can_i_help_data", language),
             suggestions=[
                 {
                     "title": "Create dashboard",
@@ -459,17 +513,25 @@ async def send_chat_message(
         page_service = PageService(db)
         await page_service.get_user_page_or_404(message_data.page_id, current_user.id)
 
-    # AI Customization fallback: if the client didn't pass tone/style in the
-    # request, pull them from the user's saved preferences (Settings → AI
+    # AI Customization fallback: if the client didn't pass tone/style/locale in
+    # the request, pull them from the user's saved preferences (Settings → AI
     # Customization). Request-level values always win over saved defaults.
     prefs = current_user.preferences or {}
     if message_data.ai_tone is None:
         message_data.ai_tone = prefs.get("ai_tone")
     if message_data.ai_style is None:
         message_data.ai_style = prefs.get("ai_style")
+    if message_data.locale is None:
+        message_data.locale = prefs.get("language", "pt")
 
     ai_service = AIService(db)
-    return await ai_service.send_chat_message(current_user.id, message_data)
+    response = await ai_service.send_chat_message(current_user.id, message_data)
+    # Pricing Fase 1 — counter bump on success only.
+    try:
+        await pricing_service.record_query_usage(db)
+    except Exception:  # pragma: no cover — accounting failure is non-fatal
+        logger.exception("pricing_record_query_usage_failed")
+    return response
 
 
 @router.post(
@@ -506,19 +568,23 @@ async def send_chat_message_stream(
         active_page = await page_repo.get_active_page(current_user.id)
         if not active_page:
             from src.core.exceptions import NotFoundError
+
             raise NotFoundError("No active page found for user")
         message_data.page_id = active_page.id
     else:
         from src.services.page_service import PageService
+
         page_service = PageService(db)
         await page_service.get_user_page_or_404(message_data.page_id, current_user.id)
 
-    # Tone/style fallback — same as /chat.
+    # Tone/style/locale fallback — same as /chat.
     prefs = current_user.preferences or {}
     if message_data.ai_tone is None:
         message_data.ai_tone = prefs.get("ai_tone")
     if message_data.ai_style is None:
         message_data.ai_style = prefs.get("ai_style")
+    if message_data.locale is None:
+        message_data.locale = prefs.get("language", "pt")
 
     # Resolve scope inline. We can't reuse AIService.send_chat_message
     # because it persists and returns a single blob; streaming needs us
@@ -563,9 +629,7 @@ async def send_chat_message_stream(
             # Trust the page-level crew signal but intersect with the
             # user's actual membership so a compromised client can't
             # read a Crew they don't belong to.
-            user_crews = await ai_service._get_user_crew_ids(
-                current_user.id, str(scope_space_id)
-            )
+            user_crews = await ai_service._get_user_crew_ids(current_user.id, str(scope_space_id))
             if str(explicit_crew_id) in user_crews:
                 resolved_crew_ids = [str(explicit_crew_id)]
             # else: the client asked for a Crew the user doesn't belong
@@ -576,6 +640,7 @@ async def send_chat_message_stream(
             )
 
     import json as _json
+
     ai_client = AIServiceHTTPClient()
 
     # Load knowledge context (OKRs, strategies, table relationships) and merge
@@ -586,6 +651,7 @@ async def send_chat_message_stream(
             load_knowledge_context_for_user,
             render_knowledge_for_prompt,
         )
+
         _kc = await load_knowledge_context_for_user(db, current_user)
         _rendered = render_knowledge_for_prompt(_kc)
         if _rendered:
@@ -601,10 +667,10 @@ async def send_chat_message_stream(
         started = False
         try:
             if not resolved_connection_id:
-                yield f"data: {_json.dumps({'type': 'error', 'message': 'No data source available for this chat.'})}\n\n"
+                yield f"data: {_json.dumps({'type': 'error', 'message': get_message('no_data_source', message_data.locale)})}\n\n"
                 return
 
-            yield f"data: {_json.dumps({'type': 'progress', 'stage': 'starting', 'message': 'Thinking...'})}\n\n"
+            yield f"data: {_json.dumps({'type': 'progress', 'stage': 'starting', 'message': get_message('thinking', message_data.locale)})}\n\n"
             started = True
 
             async for line in ai_client.stream_query_connection(
@@ -615,7 +681,10 @@ async def send_chat_message_stream(
                 instructions=stream_instructions or None,
                 is_personal=scope_is_personal,
                 crew_ids=resolved_crew_ids or None,
-                connection_ids=resolved_all_connection_ids if len(resolved_all_connection_ids) > 1 else None,
+                connection_ids=(
+                    resolved_all_connection_ids if len(resolved_all_connection_ids) > 1 else None
+                ),
+                locale=message_data.locale,
             ):
                 if line.startswith("data: "):
                     try:
@@ -634,7 +703,7 @@ async def send_chat_message_stream(
             if started:
                 yield f"data: {_json.dumps({'type': 'error', 'message': str(exc)[:200]})}\n\n"
             else:
-                yield f"data: {_json.dumps({'type': 'error', 'message': 'Unable to start chat stream.'})}\n\n"
+                yield f"data: {_json.dumps({'type': 'error', 'message': get_message('unable_to_start_stream', message_data.locale)})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -660,7 +729,9 @@ async def get_popular_questions(
 ) -> List[dict]:
     """List popular questions, anonymised. Each row: {question, count}."""
     from datetime import datetime, timedelta, timezone
+
     from sqlalchemy import func, select
+
     from src.models.ai import AIQuery
 
     # Last 30 days, completed only — incomplete/error queries shouldn't drive
@@ -1183,6 +1254,10 @@ async def generate_sql(
     Returns:
         GenerateSQLResponse: Generated SQL
     """
+    if request.locale is None:
+        prefs = current_user.preferences or {}
+        request.locale = prefs.get("language", DEFAULT_LOCALE)
+
     ai_service = AIService(db)
     return await ai_service.generate_sql(current_user.id, request)
 
@@ -1469,7 +1544,9 @@ async def suggest_widget_title(
     # suggest_title is 5 beats (single gpt-4o-mini call, much cheaper
     # than the L3 chat path).
     await BeatsService(db).check_and_record(
-        current_user, kind="suggest_title", source_id=None,
+        current_user,
+        kind="suggest_title",
+        source_id=None,
     )
 
     client = AIServiceHTTPClient()

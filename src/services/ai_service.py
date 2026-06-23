@@ -17,6 +17,7 @@ from src.schemas.ai_transparency import EvidenceChunkOut, ReasoningStepOut
 from src.config.redis import get_redis
 from src.config.settings import settings
 from src.core.exceptions import NotFoundError
+from src.core.locale import get_message
 from src.models.ai import AIFeedback, AIHistory, AIQuery, ChatMessage, Pipeline
 from src.models.user import User
 from src.repositories.base import BaseRepository
@@ -419,9 +420,23 @@ class AIService:
     async def _get_all_connections_for_space(
         self, user_id: UUID, space_id: str
     ) -> List[str]:
-        """Return IDs of all active connections linked to the given space."""
+        """Return IDs of all active connections of the space the user can reach.
+
+        Access is granted via EITHER a direct SpaceMember/owner relationship OR
+        CrewMember of a crew inside the space. The previous implementation
+        intersected the space's connections with ``connection_repo.get_by_user``
+        (own + SpaceMember only), so a crew-only user — who is NOT a SpaceMember
+        (``add_crew_member`` writes only CrewMember) — got an EMPTY result and the
+        Space path fell back to their own/None connection, never reaching the
+        space's data. We now gate by space-OR-crew access and return the space's
+        active connections directly. Per-table crew permission is still enforced
+        downstream (``get_authorized_tables`` on the primary + the generic extras
+        loop), so a crew-only user sees the connections but only their crew's tables.
+        """
         try:
             from uuid import UUID as UUIDType
+            from sqlalchemy import select as sa_select
+            from src.models.connection import DataConnection
             from src.repositories.space import SpaceRepository
 
             space_uuid = UUIDType(space_id)
@@ -429,29 +444,88 @@ class AIService:
             space_links = await space_repo.get_space_connections(space_uuid)
             allowed_ids = {str(link.connection_id) for link in space_links}
             if not allowed_ids:
-                first = await self._get_first_active_connection(user_id)
-                return [first] if first else []
-            active = await self.connection_repo.get_by_user(
-                user_id, filters={"status": "active"}, limit=100
+                return []
+
+            # Access gate: SpaceMember/owner OR crew-in-space. Fail-closed — a
+            # user with neither path gets an empty scope (the caller then falls
+            # back / fast-fails) instead of leaking another scope's connection.
+            is_member = await self._is_space_member(user_id, space_id)
+            crew_ids = await self._get_user_crew_ids(user_id, space_id)
+            if not is_member and not crew_ids:
+                logger.warning(
+                    "space_scope: user=%s has no space/crew access to space=%s — empty scope",
+                    user_id, space_id,
+                )
+                return []
+
+            # Active, non-deleted connections among the space's links. Queried
+            # directly (NOT via get_by_user, which is SpaceMember-scoped and would
+            # drop crew-only users).
+            res = await self.db.execute(
+                sa_select(DataConnection.id).where(
+                    DataConnection.id.in_([UUIDType(x) for x in allowed_ids]),
+                    DataConnection.deleted_at.is_(None),
+                    DataConnection.status == "active",
+                )
             )
-            result = [str(c.id) for c in active if str(c.id) in allowed_ids]
-            return result if result else [await self._get_first_active_connection(user_id) or ""]
+            return [str(row[0]) for row in res]
         except Exception as e:
             logger.error(f"Error getting all connections for space {space_id}: {e}", exc_info=True)
-            first = await self._get_first_active_connection(user_id)
-            return [first] if first else []
+            return []
 
     async def _get_all_connections_for_user(self, user_id: UUID) -> List[str]:
-        """Return IDs of all active connections the user has access to (personal mode)."""
+        """Return IDs of all active connections the user has access to (personal mode).
+
+        Union of two access paths:
+          1. SpaceMember path — own connections + connections of spaces the user is
+             a direct member of (``connection_repo.get_by_user``).
+          2. Crew path — a user added to a crew is NOT made a SpaceMember
+             (``crew_service.add_crew_member`` only writes CrewMember), so
+             get_by_user MISSES the connections of spaces the user reaches only via
+             a crew, leaving such users with an empty scope. We add the connections
+             of those crew spaces here. The per-table crew filter (applied to the
+             primary and, since the security fix, to the extras) then narrows each
+             connection down to the tables the crew actually permits — so a
+             crew-only user sees the connections but only their crew's tables.
+        """
+        ids: set[str] = set()
         try:
             active = await self.connection_repo.get_by_user(
                 user_id, filters={"status": "active"}, limit=200
             )
-            return [str(c.id) for c in active]
+            ids.update(str(c.id) for c in active)
         except Exception as e:
-            logger.error(f"Error getting all connections for user {user_id}: {e}", exc_info=True)
-            first = await self._get_first_active_connection(user_id)
-            return [first] if first else []
+            logger.error(f"Error getting space-member connections for user {user_id}: {e}", exc_info=True)
+
+        try:
+            from sqlalchemy import select as sa_select
+            from src.models.crew import Crew, CrewMember
+            from src.models.connection import DataConnection
+            from src.models.space import SpaceConnection
+
+            crew_space_ids = (
+                sa_select(Crew.space_id)
+                .join(CrewMember, CrewMember.crew_id == Crew.id)
+                .where(CrewMember.user_id == user_id)
+            ).scalar_subquery()
+            crew_conn_q = (
+                sa_select(DataConnection.id)
+                .join(SpaceConnection, SpaceConnection.connection_id == DataConnection.id)
+                .where(
+                    SpaceConnection.space_id.in_(crew_space_ids),
+                    DataConnection.deleted_at.is_(None),
+                    DataConnection.status == "active",
+                )
+            )
+            crew_res = await self.db.execute(crew_conn_q)
+            ids.update(str(row[0]) for row in crew_res)
+        except Exception as e:
+            logger.error(f"Error getting crew-path connections for user {user_id}: {e}", exc_info=True)
+
+        if ids:
+            return list(ids)
+        first = await self._get_first_active_connection(user_id)
+        return [first] if first else []
 
     async def _resolve_connection_id_from_tables(
         self, table_names: List[str], user_id: UUID
@@ -600,8 +674,13 @@ class AIService:
 
         In Personal mode, the frontend may not send a space_id. However, the AI engine
         expects a space_id to scope metadata/permissions. This tries to find a space where:
-        - the user is a member, and
+        - the user reaches the space (owner, SpaceMember, OR CrewMember), and
         - the connection is linked to that space (space_connections).
+
+        The CrewMember path matters: a user added only to a crew is not a SpaceMember
+        (add_crew_member writes only CrewMember). Without it this returned None for a
+        crew-only user, so get_authorized_tables ran with no space/crew context and
+        fail-closed to ZERO tables — the user couldn't even see their crew's grant.
         """
         try:
             from uuid import UUID as UUIDType
@@ -609,15 +688,28 @@ class AIService:
             from sqlalchemy import or_, select
 
             from src.models.space import Space, SpaceConnection, SpaceMember
+            from src.models.crew import Crew, CrewMember
 
             conn_uuid = UUIDType(connection_id)
+
+            crew_space_ids = (
+                select(Crew.space_id)
+                .join(CrewMember, CrewMember.crew_id == Crew.id)
+                .where(CrewMember.user_id == user_id)
+            ).scalar_subquery()
 
             stmt = (
                 select(SpaceConnection.space_id)
                 .join(Space, Space.id == SpaceConnection.space_id)
                 .outerjoin(SpaceMember, SpaceMember.space_id == SpaceConnection.space_id)
                 .where(SpaceConnection.connection_id == conn_uuid)
-                .where(or_(Space.created_by == user_id, SpaceMember.user_id == user_id))
+                .where(
+                    or_(
+                        Space.created_by == user_id,
+                        SpaceMember.user_id == user_id,
+                        Space.id.in_(crew_space_ids),
+                    )
+                )
                 .limit(1)
             )
             space_uuid = await self.db.scalar(stmt)
@@ -628,6 +720,37 @@ class AIService:
                 exc_info=True,
             )
             return None
+
+    async def _is_space_member(self, user_id: UUID, space_id: Optional[str]) -> bool:
+        """True only if the user really belongs to the space (owner or SpaceMember).
+
+        Gate for whether the SPACE-level permission applies. A space's "full" grant
+        must NOT be handed to someone who reaches the space only via a restricted
+        crew — passing the space_id to get_authorized_tables would otherwise grant
+        them everything (the space perm wins before the crew perm is checked). For
+        non-members we pass space_id=None so the gate falls to their crew grant.
+        """
+        if not space_id:
+            return False
+        try:
+            from uuid import UUID as UUIDType
+            from sqlalchemy import or_, select
+            from src.models.space import Space, SpaceMember
+
+            sid = UUIDType(space_id) if isinstance(space_id, str) else space_id
+            stmt = (
+                select(Space.id)
+                .outerjoin(SpaceMember, SpaceMember.space_id == Space.id)
+                .where(Space.id == sid)
+                .where(or_(Space.created_by == user_id, SpaceMember.user_id == user_id))
+                .limit(1)
+            )
+            return (await self.db.scalar(stmt)) is not None
+        except Exception as e:
+            logger.error(
+                "Error checking space membership (user=%s space=%s): %s", user_id, space_id, e
+            )
+            return False
 
     async def process_query(self, user_id: UUID, query_data: AIQueryRequest) -> AIQueryResponse:
         """
@@ -646,7 +769,7 @@ class AIService:
         # sanitised text feeds the rest of the flow; transparency
         # bundle (trace_id + flags) is attached to the response.
         pipeline = ChatPipeline(user_id=user_id, endpoint="/ai/query")
-        guarded_input = pipeline.preflight(query_data.question)
+        guarded_input = pipeline.preflight(query_data.question, locale=getattr(query_data, "locale", None))
         sanitised_question = guarded_input.text
         # Evidence chunks extracted from the AI engine response (when
         # present). Flows through to the W7 transparency bundle.
@@ -739,37 +862,78 @@ class AIService:
                 _personal_ud_ids: List[str] = []
                 _is_personal_mode = bool(getattr(query_data, "is_personal", False))
                 if _is_personal_mode and not getattr(query_data, "space_id", None):
-                    # Eagerly fetch user_datasets IDs regardless of how connection_id
-                    # was resolved (from knowledge UUID or fallback). This ensures
-                    # extra_connection_ids is populated even when a specific connection
-                    # was passed directly in the request.
-                    _personal_ud_ids = await self._get_user_dataset_connection_ids(user_id)
+                    # Frente 1 — personal mode = the user's FULL accessible scope:
+                    # own connections + every space they belong to (via
+                    # space_connections), i.e. the same aggregate the Sources panel
+                    # shows. Previously this read user_datasets, which for non-demo
+                    # users held STALE demo links and NONE of the real connections —
+                    # so personal queries answered from demo data. (Demo users still
+                    # get their demo connections, which are space-linked.)
+                    # NOTE: ``get_by_user`` covers own + spaces; crew-only access that
+                    # is not space-linked is a follow-up to verify (senior review).
+                    # Feeds both the router below and extra_connection_ids passed to
+                    # the AI, so the AI receives the whole real scope.
+                    _personal_ud_ids = await self._get_all_connections_for_user(user_id)
                     logger.info(
-                        "personal_mode_multi_source: user=%s ud_ids=%s",
+                        "personal_mode_multi_source: user=%s accessible_ids=%s",
                         user_id, _personal_ud_ids,
+                    )
+
+                # Collaborative (Space) mode — apply the SAME treatment proved in
+                # personal mode to the Space branch: enumerate the whole accessible
+                # scope of the active space (crew-aware via _get_all_connections_for_space,
+                # so a crew-only user who is NOT a SpaceMember still sees the space's
+                # connections) and forward it to the AI's semantic RAG. No keyword
+                # pre-routing; per-table crew permission is enforced by the generic
+                # extras loop + primary gate below.
+                _space_scope_ids: List[str] = []
+                _space_id_req = getattr(query_data, "space_id", None)
+                if _space_id_req:
+                    _space_scope_ids = await self._get_all_connections_for_space(
+                        user_id, _space_id_req
+                    )
+                    logger.info(
+                        "space_mode_scope: user=%s space=%s scope=%s",
+                        user_id, _space_id_req, _space_scope_ids,
                     )
 
                 # If still no connection_id, try to get first active connection
                 if not connection_id:
                     space_id = getattr(query_data, "space_id", None)
                     if space_id:
-                        connection_id = await self._get_first_active_connection_for_space(
-                            user_id, space_id, question=configure_data.question
-                        )
-                    else:
-                        # Personal mode: score user_datasets connections (demo/shared)
-                        # exclusively so that owned background connections don't dilute
-                        # the keyword score with their larger table/column surface area.
-                        # _personal_ud_ids was already fetched eagerly above.
-                        if _personal_ud_ids:
-                            connection_id = await self._get_best_connection_for_question(
-                                user_id=user_id,
-                                space_id=str(user_id),
-                                question=configure_data.question,
-                                allowed_ids=set(_personal_ud_ids),
-                            )
+                        # Frente Space: NO keyword pre-routing (same rationale as
+                        # personal — the old router scored PT questions against EN
+                        # schemas at ~0 and forwarded ONE connection, so the AI never
+                        # saw the right schema). Primary is just the URL target; the
+                        # table choice is the AI's semantic RAG across the whole space
+                        # scope, forwarded as extra_connection_ids below.
+                        if _space_scope_ids:
+                            connection_id = _space_scope_ids[0]
                             logger.info(
-                                "personal_mode_ud_routing: user=%s ud_ids=%s best=%s",
+                                "space_mode_primary: user=%s space=%s primary=%s "
+                                "(semantic routing delegated to AI orchestrator)",
+                                user_id, space_id, connection_id,
+                            )
+                        else:
+                            # No crew/space scope resolved — safety net (no question,
+                            # so no keyword routing): first active connection in space.
+                            connection_id = await self._get_first_active_connection_for_space(
+                                user_id, space_id
+                            )
+                    else:
+                        # Personal mode (Frente 2): NO keyword pre-routing. The whole
+                        # accessible scope is forwarded to the AI via
+                        # extra_connection_ids below, and the orchestrator's semantic
+                        # RAG picks the right table across ALL of them. The old keyword
+                        # router mis-picked cross-language (PT "faturamento" vs EN
+                        # "billing"/"revenue") and forwarded only ONE connection — so the
+                        # AI never saw the right schema. The primary connection_id here is
+                        # just the URL target; the table choice is the AI's, not ours.
+                        if _personal_ud_ids:
+                            connection_id = _personal_ud_ids[0]
+                            logger.info(
+                                "personal_mode_scope: user=%s scope=%s primary=%s "
+                                "(semantic routing delegated to AI orchestrator)",
                                 user_id, _personal_ud_ids, connection_id,
                             )
                         if not connection_id:
@@ -778,6 +942,30 @@ class AIService:
                         logger.info(
                             f"No connection_id in knowledge, using best connection: {connection_id}"
                         )
+
+                # Fast-fail: no connection resolved after every fallback.
+                # Without this guard the request falls through to the real
+                # AI engine (which times out at ~90s waiting for SQL it
+                # can never run) or to the mock (which produces noise the
+                # user cannot trust). Returning a clear answer here lets
+                # the chat UI render a friendly note instead of looking
+                # broken. The endpoint still returns 200 with status
+                # "completed" so the FE doesn't surface an error banner.
+                if not connection_id:
+                    logger.info(
+                        "process_query: no connection resolved (user=%s, space=%s) — returning empty-state answer",
+                        user_id,
+                        getattr(query_data, "space_id", None),
+                    )
+                    query.answer = (
+                        "This space has no data connections yet. "
+                        "Connect a data source from the toolbar (Sources → Connect) "
+                        "so I can answer questions grounded in your data."
+                    )
+                    query.status = "completed"
+                    await self.db.commit()
+                    await self.db.refresh(query)
+                    return query
 
                 if connection_id:
                     # --- KILL SWITCH (HARD CAP) ---
@@ -886,15 +1074,19 @@ class AIService:
                         # and returns every table the user owns on the
                         # connection. Passing a non-Space UUID would match
                         # zero SpaceTable links and produce an empty list.
-                        perm_space_id = (
-                            None
-                            if space_id_is_personal_fallback
-                            else (UUID(space_id) if space_id else None)
+                        # Pass space_id to the permission gate ONLY for real members of
+                        # the space. Otherwise a space-level "full" grant would be handed
+                        # to a user who reaches the space only via a restricted crew —
+                        # the space perm wins before the crew perm is checked. Non-members
+                        # get space_id=None so the gate falls to their crew grant.
+                        _primary_is_member = (
+                            bool(space_id)
+                            and not space_id_is_personal_fallback
+                            and await self._is_space_member(user_id, space_id)
                         )
+                        perm_space_id = UUID(space_id) if _primary_is_member else None
                         perm_crew_ids = (
-                            None
-                            if space_id_is_personal_fallback
-                            else ([UUID(cid) for cid in crew_ids] if crew_ids else None)
+                            [UUID(cid) for cid in crew_ids] if crew_ids else None
                         )
                         try:
                             authorized_tables = await self.permission_service.get_authorized_tables(
@@ -902,6 +1094,7 @@ class AIService:
                                 connection_id=UUID(connection_id),
                                 space_id=perm_space_id,
                                 crew_ids=perm_crew_ids,
+                                is_personal=is_personal,
                             )
                         except Exception as e:
                             logger.error(f"Error checking authorized tables: {e}", exc_info=True)
@@ -917,9 +1110,22 @@ class AIService:
                         # permission check needed. The AI service loads their table metadata
                         # itself via load_agent_config(connection_ids=...).
                         extra_connection_ids: List[str] = []
-                        if _personal_ud_ids and space_id_is_personal_fallback:
+                        # Frente 2: forward the WHOLE personal scope so the AI's
+                        # orchestrator can semantically route across all connections.
+                        # Do NOT gate on space_id_is_personal_fallback — that flag flips
+                        # to False as soon as the primary connection resolves to a real
+                        # space (via _resolve_space_id_for_connection above), which used
+                        # to silently drop the extras and leave the AI with one DB.
+                        # _personal_ud_ids is only populated in personal mode and
+                        # _space_scope_ids only in Space mode (mutually exclusive:
+                        # personal has no space_id, Space has one). Either way the
+                        # whole accessible scope is forwarded so the AI's orchestrator
+                        # can semantically route across all connections. The extras
+                        # then go through the SAME generic crew-permission loop below.
+                        _scope_for_extras = _personal_ud_ids or _space_scope_ids
+                        if _scope_for_extras:
                             extra_connection_ids = [
-                                cid for cid in _personal_ud_ids if cid != connection_id
+                                cid for cid in _scope_for_extras if cid != connection_id
                             ]
                             logger.info(
                                 "multi_source: primary=%s extras=%s",
@@ -933,30 +1139,57 @@ class AIService:
                         # primary-connection tables as candidates and doesn't pick tables
                         # from the secondary connections.
                         if extra_connection_ids:
-                            meta_repo = ConnectionMetadataRepository(self.db)
                             for extra_cid in extra_connection_ids:
                                 try:
-                                    extra_meta = await meta_repo.get_by_connection_id(
-                                        UUID(extra_cid)
+                                    # SECURITY (crew permission): run each extra through the
+                                    # SAME fail-closed, crew-scoped gate the primary uses —
+                                    # do NOT add raw metadata. The old code forwarded EVERY
+                                    # table of every extra, so a user who reaches a space only
+                                    # via a restricted crew saw tables the crew forbids. We
+                                    # resolve each extra's OWN space/crew context (it may live
+                                    # in a different space than the primary) and forward only
+                                    # the tables get_authorized_tables permits. Fail-closed: if
+                                    # it returns nothing, the extra contributes nothing.
+                                    extra_space = await self._resolve_space_id_for_connection(
+                                        user_id, extra_cid
                                     )
-                                    if extra_meta and isinstance(extra_meta.tables, list):
-                                        for t in extra_meta.tables:
-                                            if not isinstance(t, dict):
-                                                continue
-                                            tname = (
-                                                t.get("logical_name")
-                                                or t.get("name")
-                                                or ""
-                                            ).strip()
-                                            if tname and tname not in authorized_tables:
-                                                authorized_tables.append(tname)
-                                except Exception as extra_meta_err:
+                                    extra_crew_ids = (
+                                        await self._get_user_crew_ids(user_id, extra_space)
+                                        if extra_space
+                                        else None
+                                    )
+                                    # space_id to the gate only for real members (same
+                                    # rule as the primary) — a crew-only user must not
+                                    # inherit the space's "full" grant on an extra.
+                                    extra_is_member = await self._is_space_member(
+                                        user_id, extra_space
+                                    )
+                                    extra_authorized = await self.permission_service.get_authorized_tables(
+                                        user_id=user_id,
+                                        connection_id=UUID(extra_cid),
+                                        space_id=(
+                                            UUID(extra_space)
+                                            if (extra_space and extra_is_member)
+                                            else None
+                                        ),
+                                        crew_ids=(
+                                            [UUID(c) for c in extra_crew_ids]
+                                            if extra_crew_ids
+                                            else None
+                                        ),
+                                        is_personal=is_personal,
+                                    )
+                                    for tname in extra_authorized:
+                                        tname = (tname or "").strip()
+                                        if tname and tname not in authorized_tables:
+                                            authorized_tables.append(tname)
+                                except Exception as extra_perm_err:
                                     logger.warning(
-                                        "multi_source_hint: failed to load tables for extra connection %s: %s",
-                                        extra_cid, extra_meta_err,
+                                        "multi_source_perm: failed to authorize tables for extra connection %s: %s",
+                                        extra_cid, extra_perm_err,
                                     )
                             logger.info(
-                                "multi_source_hint: authorized_tables extended to %s",
+                                "multi_source_perm: authorized_tables (crew-filtered) extended to %s",
                                 authorized_tables,
                             )
 
@@ -1045,7 +1278,12 @@ class AIService:
                             space_id=space_id,
                             crew_ids=crew_ids if crew_ids else None,
                             space_ids=caller_space_ids,
-                            thread_id=str(query.id),
+                            # Multi-turn memory (Frente 1): prefer the stable
+                            # conversation/session id the frontend sends so the
+                            # AI loads chat_history across turns. Fall back to the
+                            # per-query id only when the client sends nothing
+                            # (one-shot calls) — that path has no cross-turn memory.
+                            thread_id=getattr(query_data, "thread_id", None) or str(query.id),
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
                             authorized_tables=list(authorized_tables),
@@ -1054,6 +1292,7 @@ class AIService:
                             security_config=sec_config,
                             mentioned_file_ids=getattr(query_data, "mentioned_file_ids", None),
                             connection_ids=extra_connection_ids or None,
+                            locale=getattr(query_data, "locale", None),
                         )
 
                         # Update query with real AI results
@@ -1272,7 +1511,7 @@ class AIService:
                     )
                 elif code == 400:
                     error_key = "chat.server"
-                    friendly = "I couldn't understand that question. Try rephrasing it."
+                    friendly = get_message("couldnt_understand", getattr(query_data, "locale", None))
                 else:
                     error_key = "chat.server"
                     friendly = "The AI service rejected the request. Please retry or open a ticket."
@@ -1406,7 +1645,7 @@ class AIService:
         # handler turns into the right CHAT_* envelope. The trace_id
         # travels with every downstream log line.
         pipeline = ChatPipeline(user_id=user_id, endpoint="/ai/chat")
-        guarded_input = pipeline.preflight(message_data.message)
+        guarded_input = pipeline.preflight(message_data.message, locale=message_data.locale)
         # Use the sanitised text downstream — strips control chars,
         # invisibles, NFC normalisation. Length limits already enforced.
         sanitised_message = guarded_input.text
@@ -1559,6 +1798,7 @@ class AIService:
                                 connection_id=UUID(connection_id),
                                 space_id=perm_space_id,
                                 crew_ids=perm_crew_ids,
+                                is_personal=is_personal,
                             )
                         except Exception as e:
                             logger.error(
@@ -1671,6 +1911,7 @@ class AIService:
                             authorized_tables=list(authorized_tables),
                             ai_tone=message_data.ai_tone,
                             ai_style=message_data.ai_style,
+                            locale=message_data.locale,
                             instructions=merged_instructions or None,
                             connection_ids=extra_connection_ids or None,
                         )
@@ -1945,6 +2186,7 @@ class AIService:
             selected_datasets=selected,
             authorized_tables=authorized_tables,
             connection_ids=extra_ids or None,
+            locale=request.locale,
         )
 
         sql = (result.get("sql") or "").strip()

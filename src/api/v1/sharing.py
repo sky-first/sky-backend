@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_current_user, get_db_session
 from src.core.exceptions import ForbiddenError
 from src.models.resource_acl import ResourceAcl
 from src.models.user import User
@@ -47,7 +47,7 @@ async def _assert_can_manage_share(
 ) -> None:
     """Allow Owner/Admin always; Members must hold owner-level on the
     resource (via space membership or explicit ACL row)."""
-    if user.role in ("owner", "admin"):
+    if user.role in ("owner", "admin", "super_admin"):
         return
     # Member: check explicit owner-level grant on this resource.
     grant = (
@@ -77,7 +77,7 @@ async def upsert_grant(
     resource_id: UUID,
     body: GrantCreate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ) -> GrantResponse:
     """Create or update a grant on a resource.
 
@@ -138,11 +138,11 @@ async def list_grants(
     resource_type: ResourceType,
     resource_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ) -> GrantList:
     """List every explicit grant on a resource. Auth: Owner/Admin or any
     user that holds at least viewer-level access on the resource."""
-    if current_user.role not in ("owner", "admin"):
+    if current_user.role not in ("owner", "admin", "super_admin"):
         # Member must have at least one grant of any level to see the ACL.
         own_grant = (
             await db.execute(
@@ -182,7 +182,7 @@ async def revoke_grant(
     resource_id: UUID,
     grant_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ) -> Response:
     await _assert_can_manage_share(current_user, db, resource_type, resource_id)
     row = (

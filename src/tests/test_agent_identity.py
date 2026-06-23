@@ -219,12 +219,13 @@ async def test_nonexistent_page_raises_not_found(
 
 
 @pytest.mark.asyncio
-async def test_space_page_without_sp_raises_not_found(
+async def test_space_page_without_sp_auto_creates_one(
     test_user_with_tokens: dict, db_session: AsyncSession
 ):
-    """Invariant violation: if a space has no SP (shouldn't happen after
-    the migration backfill + auto-create), we refuse to fall back to the
-    creator user — that would be a silent security hole."""
+    """Legacy spaces created before the April migration have no SP.
+    Rather than crashing with 500, we create the SP on-the-fly so agent
+    creation is unblocked. The resolved identity must be service_principal,
+    not the creator user (falling back to the user would be a security hole)."""
     user = test_user_with_tokens["user"]
     # Create a space WITHOUT going through SpaceService, so no SP is made
     space = Space(name="Bare space", created_by=user.id)
@@ -233,10 +234,22 @@ async def test_space_page_without_sp_raises_not_found(
     await db_session.refresh(space)
     page = await _make_page(db_session, owner_id=user.id, space_id=space.id)
 
-    with pytest.raises(NotFoundError, match="service principal"):
-        await resolve_identity_for_page(
-            db=db_session, page_id=page.id, creator_user_id=user.id
+    resolved = await resolve_identity_for_page(
+        db=db_session, page_id=page.id, creator_user_id=user.id
+    )
+
+    assert resolved.identity_type == "service_principal"
+    assert resolved.space_id == space.id
+    assert resolved.attributed_to_user_id == user.id
+
+    # SP must have been persisted
+    sp = (
+        await db_session.execute(
+            select(ServicePrincipal).where(ServicePrincipal.space_id == space.id)
         )
+    ).scalar_one_or_none()
+    assert sp is not None
+    assert sp.name.startswith("sa-space-")
 
 
 # ─── C6: lifecycle — crew/space delete ends agents ────────────────────────

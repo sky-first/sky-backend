@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -20,10 +21,11 @@ def _deep_copy_json(value: Any) -> Any:
 
 
 from src.core.exceptions import ForbiddenError, NotFoundError
-from src.models.page import Page
+from src.core.permissions import is_tenant_admin
+from src.models.page import Page, PageMember
 from src.models.user import User
-from src.repositories.widget import WidgetRepository
 from src.repositories.page import PageMemberRepository, PageRepository
+from src.repositories.widget import WidgetRepository
 from src.schemas.page import (
     PageCreate,
     PageMemberCreate,
@@ -60,8 +62,18 @@ class PageService:
             PageResponse: Created page
         """
         crew_id = getattr(page_data, "crew_id", None)
+        space_id = getattr(page_data, "space_id", None)
 
-        # P0 fix: validate crew membership before creating collaborative page
+        # G2 — creation must be gated on the caller's role in the TARGET crew/
+        # space, not "editor anywhere". The endpoint's bare pages.create check
+        # only proves the user is an editor somewhere; here we require editor+
+        # in the specific scope the page lands in, so a viewer of THIS crew
+        # (even if they're an editor of another) cannot create here. Membership
+        # is implied by holding a crew/space role. Personal pages (no scope)
+        # keep the existing owner-isolated behaviour.
+        from src.services.rbac_service import RBACService
+
+        rbac = RBACService(self.db)
         if crew_id:
             # Reject personal type with crew_id
             if page_data.type == "personal":
@@ -69,22 +81,17 @@ class PageService:
                     "Personal pages cannot be assigned to a crew. "
                     "Use type='team' for collaborative pages."
                 )
-            # Verify the crew exists and user is a member
-            from src.repositories.crew import CrewMemberRepository, CrewRepository
+            # Verify the crew exists (clean 404 before the authz check).
+            from src.repositories.crew import CrewRepository
 
-            crew_repo = CrewRepository(self.db)
-            crew = await crew_repo.get_by_id(crew_id)
+            crew = await CrewRepository(self.db).get_by_id(crew_id)
             if not crew:
                 raise NotFoundError("Crew not found")
-            crew_member_repo = CrewMemberRepository(self.db)
-            member = await crew_member_repo.get_by_crew_and_user(crew_id, user.id)
-            # Allow if user is admin (admin bypass) or crew member
-            if not member and user.role != "admin":
-                raise ForbiddenError(
-                    "You must be a member of this crew to create collaborative pages"
-                )
-
-        space_id = getattr(page_data, "space_id", None)
+            # Editor+ in THIS crew (tenant admin/super_admin still bypass).
+            await rbac.assert_permission(user, "pages.create", crew_id=crew_id)
+        elif space_id:
+            # Editor+ in THIS space.
+            await rbac.assert_permission(user, "pages.create", space_id=space_id)
 
         page = await self.page_repo.create(
             name=page_data.name,
@@ -114,29 +121,166 @@ class PageService:
         # are logged + swallowed — creation must never be blocked.
         try:
             import logging
+
             from src.ai.http_client import AIServiceHTTPClient
+
             _logger = logging.getLogger(__name__)
             ai_client = AIServiceHTTPClient()
             is_personal = page.type == "personal"
-            await ai_client.ingest_knowledge_graph({
-                "id": str(page.id),
-                "entity_type": "page",
-                "name": page.name,
-                "description": page.description,
-                "space_id": str(page.space_id) if page.space_id else None,
-                "crew_id": str(page.crew_id) if page.crew_id else None,
-                "owner_user_id": str(user.id) if is_personal else None,
-                "entity_details": {
-                    "type": page.type,
-                    "color": page.color,
-                    "icon": page.icon,
-                    "owner_id": str(page.owner_id),
-                },
-            })
+            await ai_client.ingest_knowledge_graph(
+                {
+                    "id": str(page.id),
+                    "entity_type": "page",
+                    "name": page.name,
+                    "description": page.description,
+                    "space_id": str(page.space_id) if page.space_id else None,
+                    "crew_id": str(page.crew_id) if page.crew_id else None,
+                    "owner_user_id": str(user.id) if is_personal else None,
+                    "entity_details": {
+                        "type": page.type,
+                        "color": page.color,
+                        "icon": page.icon,
+                        "owner_id": str(page.owner_id),
+                    },
+                }
+            )
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).warning(f"AI ingest failed for page {page.id}: {exc}")
 
+        return PageResponse.model_validate(page)
+
+    async def ensure_default_crew_page(self, crew_id: UUID, user: User) -> PageResponse:
+        """Return the crew's shared default page, creating it once if absent.
+
+        Every crew member converges on the SAME page id (the canonical,
+        oldest crew page) so the chat and widgets they collaborate on live
+        on one shared room. A Postgres advisory lock serialises concurrent
+        callers: two members entering an empty crew at the same instant
+        can't each create their own page — the per-user idempotency key
+        can't dedupe across different users, so this is the only safe
+        guard against the fork.
+        """
+        from src.repositories.crew import CrewMemberRepository, CrewRepository
+
+        crew = await CrewRepository(self.db).get_by_id(crew_id)
+        if not crew:
+            raise NotFoundError("Crew not found")
+        if not is_tenant_admin(user):
+            member = await CrewMemberRepository(self.db).get_by_crew_and_user(crew_id, user.id)
+            if not member:
+                raise ForbiddenError("You must be a member of this crew")
+
+        # Serialise concurrent ensures for this crew. Postgres-only; on the
+        # SQLite test DB advisory locks don't exist and the suite is
+        # single-threaded, so skipping the lock there is safe.
+        try:
+            if self.db.get_bind().dialect.name == "postgresql":
+                await self.db.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+                    {"k": f"crew_default_page:{crew_id}"},
+                )
+        except Exception:
+            pass
+
+        # Name the canonical page after the crew ("General Page", "Finance
+        # Page", …) so every member recognises the shared room they land on.
+        canonical_name = f"{(crew.name or 'Crew').strip()} Page"
+
+        existing = await self.page_repo.get_default_crew_page(crew_id)
+        if existing is not None:
+            # Self-heal legacy crews not covered by the backfill: promote the
+            # resolved page to canonical so all members converge on it. Only
+            # rename the old hardcoded "Team Canvas" default — never clobber a
+            # name a member chose deliberately.
+            changed = False
+            if not existing.is_canonical:
+                existing.is_canonical = True
+                changed = True
+            if (existing.name or "").strip() in ("", "Team Canvas"):
+                existing.name = canonical_name
+                changed = True
+            if changed:
+                await self.db.commit()
+                await self.db.refresh(existing)
+            return PageResponse.model_validate(existing)
+
+        page = await self.page_repo.create(
+            name=canonical_name,
+            description=None,
+            type="team",
+            color="#3b82f6",
+            icon=None,
+            owner_id=user.id,
+            crew_id=crew_id,
+            space_id=None,
+            is_active=False,
+            is_canonical=True,
+        )
+        await self.member_repo.create(page_id=page.id, user_id=user.id, role="owner")
+        await self.db.commit()
+        await self.db.refresh(page)
+        return PageResponse.model_validate(page)
+
+    async def ensure_default_space_page(self, space_id: UUID, user: User) -> PageResponse:
+        """Return the space's shared default page, creating it once if absent.
+
+        Mirror of ensure_default_crew_page for Spaces: every space member
+        converges on the SAME page id (the canonical, oldest space page) so
+        the chat and widgets they collaborate on live in one shared room.
+        A Postgres advisory lock serialises concurrent callers so two
+        members entering an empty space at the same instant can't each fork
+        their own page — the per-user idempotency key can't dedupe across
+        different users, so this is the only safe guard against the fork.
+        """
+        from src.repositories.space import SpaceMemberRepository, SpaceRepository
+
+        space = await SpaceRepository(self.db).get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+        if not is_tenant_admin(user):
+            member = await SpaceMemberRepository(self.db).get_by_space_and_user(space_id, user.id)
+            if not member:
+                raise ForbiddenError("You must be a member of this space")
+
+        # Serialise concurrent ensures for this space. Postgres-only; on the
+        # SQLite test DB advisory locks don't exist and the suite is
+        # single-threaded, so skipping the lock there is safe.
+        try:
+            if self.db.get_bind().dialect.name == "postgresql":
+                await self.db.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+                    {"k": f"space_default_page:{space_id}"},
+                )
+        except Exception:
+            pass
+
+        existing = await self.page_repo.get_default_space_page(space_id)
+        if existing is not None:
+            # Self-heal: promote the resolved page to canonical so members
+            # converge on it (legacy spaces not covered by the backfill).
+            if not existing.is_canonical:
+                existing.is_canonical = True
+                await self.db.commit()
+                await self.db.refresh(existing)
+            return PageResponse.model_validate(existing)
+
+        page = await self.page_repo.create(
+            name="Space Canvas",
+            description=None,
+            type="team",
+            color="#3b82f6",
+            icon=None,
+            owner_id=user.id,
+            crew_id=None,
+            space_id=space_id,
+            is_active=False,
+            is_canonical=True,
+        )
+        await self.member_repo.create(page_id=page.id, user_id=user.id, role="owner")
+        await self.db.commit()
+        await self.db.refresh(page)
         return PageResponse.model_validate(page)
 
     async def get_page(self, page_id: UUID, user: User) -> PageResponse:
@@ -158,17 +302,32 @@ class PageService:
         if not page or page.deleted_at:
             raise NotFoundError("Page not found")
 
-        # Check access
+        # Check access. Collaborative pages are reachable by the whole
+        # scope, not just explicit page_members — this MUST mirror the
+        # listing endpoint (get_user_pages), which returns every crew/space
+        # page the user can reach. Without the space branch a space member
+        # who isn't the page owner gets a 404 on a page the listing just
+        # handed them — which is exactly what broke shared-page convergence
+        # (the canonical "Space Canvas" is owned by whoever created it
+        # first; every other member is neither owner nor page_member).
         if page.owner_id != user.id:
             member = await self.member_repo.get_by_page_and_user(page_id, user.id)
             if not member:
-                # Check crew membership for collaborative pages
                 if page.crew_id:
                     from src.repositories.crew import CrewMemberRepository
 
                     crew_member_repo = CrewMemberRepository(self.db)
                     crew_member = await crew_member_repo.get_by_crew_and_user(page.crew_id, user.id)
                     if not crew_member:
+                        raise NotFoundError("Page not found")
+                elif page.space_id:
+                    from src.repositories.space import SpaceMemberRepository
+
+                    space_member_repo = SpaceMemberRepository(self.db)
+                    space_member = await space_member_repo.get_by_space_and_user(
+                        page.space_id, user.id
+                    )
+                    if not space_member:
                         raise NotFoundError("Page not found")
                 else:
                     raise NotFoundError("Page not found")
@@ -269,9 +428,7 @@ class PageService:
             crew_id=original.crew_id,
             space_id=original.space_id,
             is_active=False,
-            canvas_settings=(
-                original.canvas_settings.copy() if original.canvas_settings else None
-            ),
+            canvas_settings=(original.canvas_settings.copy() if original.canvas_settings else None),
             is_locked=False,  # copies always start unlocked
             template_id=original.template_id,
         )
@@ -346,9 +503,40 @@ class PageService:
         if not page or page.deleted_at:
             raise NotFoundError("Page not found")
 
+        # The canonical page is the crew/space's shared room — every member
+        # converges on it for live collaboration. Deleting it would strand
+        # members on different pages (the exact bug this model fixes), so it
+        # is undeletable. Members can still create/delete OTHER pages.
+        if getattr(page, "is_canonical", False):
+            raise ForbiddenError(
+                "The canonical page can't be deleted — it's the crew's shared "
+                "page where everyone collaborates."
+            )
+
+        # G3/G4 — a crew page is governed by the crew, NOT treated as a
+        # personal page (which would let only its creator delete it and lock
+        # out the crew owner). The crew's default (canonical) page is the
+        # shared convergence anchor and cannot be deleted at all (already
+        # guarded above via is_canonical). Any other crew page may be deleted
+        # by its creator OR the crew owner — not a bare member, and (per Lucas
+        # 2026-06-16) not a non-member platform admin.
+        if page.crew_id is not None:
+            from src.services.authorization import Authorization, SpaceRole
+
+            default = await self.page_repo.get_default_crew_page(page.crew_id)
+            if default is not None and default.id == page.id:
+                raise ForbiddenError("The crew's default page cannot be deleted")
+            if page.owner_id != user.id:
+                crew_role = await Authorization(self.db).get_crew_role(
+                    user.id, page.crew_id
+                )
+                if crew_role != SpaceRole.OWNER:
+                    raise ForbiddenError(
+                        "Only the page creator or the crew owner can delete this page"
+                    )
         # Personal: owner-only (map owner_id onto the guard's
         # owner_user_id shape).
-        if getattr(page, "space_id", None) is None:
+        elif getattr(page, "space_id", None) is None:
             if page.owner_id != user.id:
                 raise ForbiddenError("Only page owner can delete")
         else:
@@ -356,6 +544,7 @@ class PageService:
             # page's space.
             if page.owner_id != user.id:
                 from src.services.rbac_service import RBACService
+
                 await RBACService(self.db).assert_permission(
                     user, "pages.delete", space_id=page.space_id
                 )
@@ -397,11 +586,25 @@ class PageService:
                 else:
                     raise NotFoundError("Page not found")
 
-        # Deactivate all other pages for this user
-        from sqlalchemy import update
+        # Deactivate all other pages for this user.
+        # Two passes are needed: owned pages (owner_id filter) and shared pages
+        # the user can access via PageMember. Without the second pass, a shared
+        # page where owner_id != user.id remains is_active=True after switching
+        # to a personal page, which causes get_active_page() to return the wrong
+        # mode on the next AI request.
+        from sqlalchemy import update, select as sa_select
 
         await self.db.execute(
             update(Page).where(Page.owner_id == user.id, Page.id != page_id).values(is_active=False)
+        )
+        shared_page_ids = sa_select(PageMember.page_id).where(PageMember.user_id == user.id)
+        await self.db.execute(
+            update(Page)
+            .where(
+                Page.id.in_(shared_page_ids),
+                Page.id != page_id,
+            )
+            .values(is_active=False)
         )
 
         # Activate this page
@@ -467,7 +670,7 @@ class PageService:
                     description=f"{user.name or user.email} added you as {member_data.role}",
                     entity_type="page",
                     entity_id=str(page_id),
-                    deep_link=f"/dashboard?page={page_id}",
+                    deep_link=f"/page?page={page_id}",
                 )
             )
         except Exception:

@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from src.api.v1 import _test as _test_endpoints
 from src.api.v1 import (
     admin_actions,
     agents,
@@ -14,6 +15,7 @@ from src.api.v1 import (
     chat_ws,
     comments,
     connections,
+    chat_sessions,
     connectors,
     context_health,
     context_rows,
@@ -35,6 +37,7 @@ from src.api.v1 import (
     knowledge,
     messages,
     metrics,
+    mfa,
     notifications,
     pages,
     permission_grants,
@@ -60,6 +63,12 @@ api_router = APIRouter()
 # Authentication endpoints
 api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 
+# Multi-Factor Authentication (Phase 3) — TOTP enrolment + management.
+# The login-time MFA redemption (POST /auth/login/mfa) lives on the
+# auth router so it can be called without a valid access token; this
+# router covers the authenticated enrolment + status + disable flows.
+api_router.include_router(mfa.router, prefix="/mfa", tags=["MFA"])
+
 # Public demo signup — gated by DEMO_ENABLED. Mounted as a sibling to
 # /auth so it lives outside any middleware that assumes the user is
 # already authenticated.
@@ -79,6 +88,11 @@ api_router.include_router(pages.router, prefix="/pages", tags=["Pages"])
 # Conversation endpoints — collection under /pages, operations under /conversations
 api_router.include_router(conversations.page_router, prefix="/pages", tags=["Conversations"])
 api_router.include_router(conversations.router, prefix="/conversations", tags=["Conversations"])
+
+# Chat sessions — "Chat 1 / 2 / 3" containers per page. Collection under
+# /pages, single-session ops under /chat-sessions.
+api_router.include_router(chat_sessions.page_router, prefix="/pages", tags=["Chat Sessions"])
+api_router.include_router(chat_sessions.router, prefix="/chat-sessions", tags=["Chat Sessions"])
 
 # Message endpoints — nested under conversations for list/create/fork,
 # top-level /messages for pin.
@@ -268,3 +282,10 @@ api_router.include_router(chat_ws.router, prefix="", tags=["Chat WS"])
 # Customer-raised support tickets — distinct from /support which manages
 # Sky-operator JIT sessions.
 api_router.include_router(tickets.router, prefix="/tickets", tags=["Tickets"])
+
+# Multi-tenant smoke endpoints (Projeto A). Public by design — they
+# return only the resolver's view of the current request, never any
+# customer data. Listed in auth.public_paths so they bypass JWT.
+api_router.include_router(
+    _test_endpoints.router, prefix="/_test", tags=["Multi-tenant smoke"]
+)

@@ -237,4 +237,26 @@ class TemplateService:
 
         await self.db.commit()
 
+        # Broadcast one widget.created per widget so peers on the shared
+        # page see the whole template appear live (mirrors the single-widget
+        # create path). Without this, a template's widgets only show up for
+        # other crew members on the next refetch / 30s poll.
+        from src.api.v1.chat_ws import broadcast_event_nowait
+
+        page_id = str(apply_data.page_id)
+        for w in created_widgets:
+            broadcast_event_nowait(
+                page_id,
+                "widget.created",
+                {
+                    "id": w.get("id"),
+                    "dashboard_id": page_id,
+                    "type": w.get("type"),
+                    "title": w.get("title"),
+                    "position": w.get("position"),
+                    "size": w.get("size"),
+                    "data": w.get("data"),
+                },
+            )
+
         return TemplateApplyResponse(widgets=created_widgets)

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from src.core.exceptions import ForbiddenError, NotFoundError
+from src.core.permissions import is_tenant_admin
 from src.models.conversation import Conversation
 from src.models.crew import CrewMember
 from src.models.space import SpaceMember
@@ -65,40 +66,69 @@ class ConversationService:
         return [row[0] for row in result.all()]
 
     async def _can_view(self, conv: Conversation, user: User) -> bool:
-        # Admins see everything (matches the existing admin bypass used by
-        # spaces / crews). This is intentional: Phase 1 does not introduce a
-        # separate "conversation admin" role.
-        if user.role == "admin":
-            return True
-        # Creator always sees their own conversations.
+        # Option B (2026-06): conversation CONTENT requires real membership —
+        # platform admins do NOT bypass. A non-member admin manages structure
+        # but cannot read a crew's chat. Creator always sees their own.
         if conv.created_by == user.id:
             return True
-        # Scope-based visibility
-        if conv.space_id is not None:
-            return conv.space_id in await self._user_space_ids(user.id)
+        # Scope-based visibility (membership of the conversation's space/crew).
         if conv.crew_id is not None:
             return conv.crew_id in await self._user_crew_ids(user.id)
-        # Personal conversation from another user
+        if conv.space_id is not None:
+            return conv.space_id in await self._user_space_ids(user.id)
+        # Personal conversation from another user.
         return False
 
     def _can_mutate(self, conv: Conversation, user: User) -> bool:
-        # Only the creator (or admin) can rename / archive / delete. Member
-        # visibility does NOT grant mutation rights.
-        return user.role == "admin" or conv.created_by == user.id
+        # Only the creator can rename / archive / delete. Option B: a
+        # non-member admin does not get content-mutation rights either;
+        # member visibility alone also does NOT grant mutation.
+        return conv.created_by == user.id
 
     # ─── CRUD ────────────────────────────────────────────────────────────
 
     async def create(
         self, *, page_id: UUID, user: User, payload: ConversationCreate
     ) -> Conversation:
+        space_id = payload.space_id
+        crew_id = payload.crew_id
+        # Inherit the page's collaborative scope when the caller didn't
+        # pin one. A conversation created on a crew/space page IS the
+        # shared room's chat — it must be visible to every crew/space
+        # member, not a personal thread only its author can see. This
+        # makes scoping correct regardless of what the client sends.
+        if space_id is None and crew_id is None:
+            from src.repositories.page import PageRepository
+
+            page = await PageRepository(self.db).get_by_id(page_id)
+            if page is not None:
+                space_id = page.space_id
+                crew_id = page.crew_id
+        # Resolve the chat session this thread belongs to. Honour a pinned
+        # (valid, viewable) session; otherwise drop it in the page's default
+        # "Chat 1" so the switcher always has somewhere to show it.
+        from src.services.chat_session_service import ChatSessionService
+
+        session_id = await ChatSessionService(self.db)._ensure_session_id(
+            page_id=page_id, user=user, session_id=payload.session_id
+        )
         conv = await self.repo.create(
             page_id=page_id,
             created_by=user.id,
-            space_id=payload.space_id,
-            crew_id=payload.crew_id,
+            space_id=space_id,
+            crew_id=crew_id,
+            session_id=session_id,
         )
         await self.db.commit()
         await self.db.refresh(conv)
+        # Tell every peer on the page a new thread exists so it shows up
+        # live in their chat list — without this they'd only learn about
+        # it on the next poll / page navigation.
+        broadcast_event_nowait(
+            str(page_id),
+            "conversation.created",
+            ConversationResponse.model_validate(conv).model_dump(mode="json"),
+        )
         return conv
 
     async def get(self, conversation_id: UUID, user: User) -> Conversation:
@@ -116,6 +146,7 @@ class ConversationService:
         *,
         page_id: UUID,
         user: User,
+        session_id: Optional[UUID] = None,
         include_archived: bool = False,
         limit: int = 20,
         cursor: Optional[datetime] = None,
@@ -127,6 +158,7 @@ class ConversationService:
             user_id=user.id,
             user_space_ids=space_ids,
             user_crew_ids=crew_ids,
+            session_id=session_id,
             include_archived=include_archived,
             limit=limit,
             cursor=cursor,
@@ -297,6 +329,66 @@ class ConversationService:
         broadcast_event_nowait(
             str(conv.page_id),
             "conversation.resolved",
+            ConversationResponse.model_validate(conv).model_dump(mode="json"),
+        )
+        return conv
+
+    # ─── Ownership transfer (chat-threads master plan PR6) ────────────────
+    async def transfer_ownership(
+        self,
+        conversation_id: UUID,
+        new_owner_id: UUID,
+        user: User,
+    ) -> Conversation:
+        """Reassign a thread's creator to another user.
+
+        Authorised callers: the current owner, or any platform admin.
+        (Space admin / editor RBAC is enforced by the FE for now; the
+        BE accepts platform admin as the override path until the
+        per-space role check is wired through here.)
+        """
+        conv = await self.repo.get_by_id(conversation_id)
+        if not conv:
+            raise NotFoundError("Conversation not found")
+        if not await self._can_view(conv, user):
+            raise NotFoundError("Conversation not found")
+        is_owner = conv.created_by == user.id
+        is_admin = is_tenant_admin(user)
+        if not (is_owner or is_admin):
+            raise ForbiddenError(
+                "Only the conversation owner or a platform admin can "
+                "transfer ownership"
+            )
+
+        previous_owner = conv.created_by
+        if previous_owner == new_owner_id:
+            return conv
+
+        conv.created_by = new_owner_id
+        conv.updated_at = datetime.utcnow()
+        await self.db.commit()
+        await self.db.refresh(conv)
+        try:
+            from src.services.audit_service import AuditService
+            await AuditService(self.db).log_event(
+                actor_kind="user",
+                actor_id=user.id,
+                action="conversation.ownership_transferred",
+                resource_kind="conversation",
+                resource_id=str(conv.id),
+                decision="allow",
+                metadata={
+                    "previous_owner_id": str(previous_owner) if previous_owner else None,
+                    "new_owner_id": str(new_owner_id),
+                    "page_id": str(conv.page_id),
+                },
+            )
+        except Exception:
+            # Audit failures must not block the user-facing transfer.
+            pass
+        broadcast_event_nowait(
+            str(conv.page_id),
+            "conversation.ownership_transferred",
             ConversationResponse.model_validate(conv).model_dump(mode="json"),
         )
         return conv

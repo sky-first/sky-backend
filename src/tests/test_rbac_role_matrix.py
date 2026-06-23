@@ -25,8 +25,8 @@ from fastapi.testclient import TestClient
 
 # Phase 7 vocabulary. The Space-axis roles are viewer/editor/owner; the
 # last two entries are platform-axis sentinels — `platform_admin`
-# (user.role == "admin") and `tenant_owner` (user.role == "owner") have
-# universal access regardless of their Space membership.
+# (user.role == "admin") and `tenant_owner` (user.role == "super_admin")
+# have universal access regardless of their Space membership.
 ROLES = ["viewer", "editor", "owner", "platform_admin", "tenant_owner"]
 ROLE_IDX = {r: i for i, r in enumerate(ROLES)}
 
@@ -42,6 +42,16 @@ def _expect_for_role(allowed_from: str, role: str) -> Expect:
     anyone below is denied.
     """
     return "allow" if ROLE_IDX[role] >= ROLE_IDX[allowed_from] else "deny"
+
+
+def _expect_content(role: str) -> Expect:
+    """Option B (2026-06): CONTENT (agent findings/insights, chat, query
+    results) requires real Space/Crew MEMBERSHIP — the platform role does
+    NOT bypass. In ``seeded`` only viewer/editor/owner are members of the
+    space; platform_admin / tenant_owner are non-members, so they are
+    denied content (they would still see the agent COUNT via the list, just
+    not its findings)."""
+    return "allow" if role in ("viewer", "editor", "owner") else "deny"
 
 
 def _auth_headers(token: str) -> dict:
@@ -80,12 +90,13 @@ async def seeded(db_session) -> dict:
     tokens: dict[str, str] = {}
 
     for role in ROLES:
-        # Map the test-fixture label to the user.role column. `tenant_owner`
-        # gets user.role="owner" (the platform-axis tenant founder); the
-        # Space-axis "owner" entry stays a member at the platform level
-        # and gains its privileges through the SpaceMember row.
+        # Map the test-fixture label to the user.role column.
+        # ``tenant_owner`` gets user.role="super_admin" (the platform-axis
+        # tenant founder); the Space-axis "owner" entry stays a member at
+        # the platform level and gains its privileges through the
+        # SpaceMember row.
         platform_role = (
-            "owner" if role == "tenant_owner"
+            "super_admin" if role == "tenant_owner"
             else "admin" if role == "platform_admin"
             else "member"
         )
@@ -181,7 +192,9 @@ async def test_section_i_09_get_agent(seeded, async_client, role):
 @pytest.mark.parametrize("role", ROLES)
 async def test_section_i_10_list_findings(seeded, async_client, role):
     r = await async_client.get(f"/api/v1/agents/{seeded['agent_id']}/findings", headers=_auth_headers(seeded["tokens"][role]))
-    _assert_outcome(r, _expect_for_role("viewer", role), "I-10")
+    # Option B: findings are content → platform admins who are not members
+    # are denied (they were allowed under the old admin bypass).
+    _assert_outcome(r, _expect_content(role), "I-10")
 
 
 @pytest.mark.asyncio

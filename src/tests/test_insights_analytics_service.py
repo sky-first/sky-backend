@@ -37,7 +37,7 @@ async def _user(db):
         email=f"{uuid.uuid4().hex[:8]}@example.com",
         password_hash=get_password_hash("Test@2024!"),
         name="Analytics Test",
-        role="owner",
+        role="super_admin",
     )
 
 

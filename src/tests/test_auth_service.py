@@ -17,31 +17,30 @@ class TestAuthenticationServiceLogin:
     """Tests for login functionality."""
 
     async def test_login_success(self, db_session: AsyncSession, test_user: dict):
-        """Test successful login."""
+        """Test successful login.
+
+        Since 2026-05-31 every password-authenticated account without MFA
+        enrolled is redirected to the enrolment flow on first login (Lucas
+        decision — phished credentials would otherwise walk straight in).
+        The service returns force_enrollment=True with an enrolment token
+        instead of issuing access/refresh tokens.  This test verifies that
+        contract so a regression of either shape fails loudly.
+        """
         auth_service = AuthenticationService(db_session)
 
         response = await auth_service.login(test_user["email"], test_user["password"])
 
-        # Verify response structure
-        assert response.access_token is not None
-        assert response.refresh_token is not None
-        assert response.token_type == "bearer"
-        assert response.expires_in > 0
-        assert response.user.email == test_user["email"]
-        assert response.user.id == test_user["user"].id
+        # New contract: first password login without MFA → force enrolment.
+        assert response.force_enrollment is True
+        assert response.mfa_enrollment_token is not None
+        assert response.mfa_enrollment_secret is not None
+        # No tokens yet — they are issued only after the user completes enrolment.
+        assert response.access_token is None
+        assert response.refresh_token is None
 
-        # Verify last_login_at was updated
-        await db_session.refresh(test_user["user"])
-        assert test_user["user"].last_login_at is not None
-
-        # Verify refresh token was saved
-        result = await db_session.execute(
-            select(RefreshToken).where(RefreshToken.token == response.refresh_token)
-        )
-        refresh_token_model = result.scalar_one_or_none()
-        assert refresh_token_model is not None
-        assert refresh_token_model.user_id == test_user["user"].id
-        assert refresh_token_model.revoked_at is None
+        # last_login_at is intentionally NOT updated here: bumping it before
+        # the second factor would let an attacker with only the password mask
+        # repeated probes.  It is set in complete_mfa_login after TOTP succeeds.
 
     async def test_login_invalid_email(self, db_session: AsyncSession, faker):
         """Test login with non-existent email."""

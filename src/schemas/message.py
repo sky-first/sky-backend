@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -38,6 +38,13 @@ class MessageResponse(BaseModel):
     role: str
     kind: Optional[str] = None
     content: str
+    # Author of the message. ``user_id`` is the writer's user id (NULL for
+    # assistant/system messages); ``author_name`` is their display name,
+    # resolved server-side so collaborators always see the REAL author
+    # instead of their own name in a shared (space/crew) chat. Both are
+    # None for AI/system messages and for legacy rows with no author.
+    user_id: Optional[UUID] = None
+    author_name: Optional[str] = None
     query_id: Optional[UUID]
     cost_tokens: Optional[int]
     cost_usd: Optional[Decimal]
@@ -45,8 +52,23 @@ class MessageResponse(BaseModel):
     pinned_widget_id: Optional[UUID]
     parent_message_id: Optional[UUID] = None
     incorporated_in_message_id: Optional[UUID] = None
+    # Slack-style reactions: {"emoji": ["user_id", …]}. Empty dict
+    # when no one reacted. FE derives counts and "did I react?" from
+    # this shape.
+    reactions: Dict[str, List[str]] = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReactionToggleRequest(BaseModel):
+    """Toggle a single emoji reaction on a message for the current user.
+
+    The endpoint adds the user to the emoji's list if absent, removes
+    them if present. Idempotent on the resulting state — useful for
+    optimistic UI that may retry.
+    """
+
+    emoji: str = Field(..., min_length=1, max_length=16)
 
 
 class MessageListResponse(BaseModel):
@@ -63,7 +85,7 @@ class PinRequest(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
     widget_type: str = Field(default="insight", max_length=50)
     position: Optional[dict] = None  # {x, y}
-    size: Optional[dict] = None      # {width, height}
+    size: Optional[dict] = None  # {width, height}
 
 
 class ForkRequest(BaseModel):

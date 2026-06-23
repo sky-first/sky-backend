@@ -75,6 +75,13 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_object=include_object,
+        # Isolate sky-be's migration head from sky-ai's — they share the
+        # same Postgres database in staging and need separate
+        # ``alembic_version_*`` tables (see ``skyfirst-alembic-version-conflict``
+        # memory). Bootstrap the new table from the legacy one via
+        # ``scripts/migrate_alembic_version_table.py`` before the first
+        # deploy with this env file.
+        version_table="alembic_version_be",
     )
 
     with context.begin_transaction():
@@ -107,9 +114,13 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, 
+            connection=connection,
             target_metadata=target_metadata,
-            include_object=include_object
+            include_object=include_object,
+            # See offline-mode docstring above — keeps sky-be heads in
+            # ``alembic_version_be`` so sky-ai's rows in the legacy
+            # ``alembic_version`` table never confuse our stamp/upgrade.
+            version_table="alembic_version_be",
         )
 
         with context.begin_transaction():

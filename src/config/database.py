@@ -4,6 +4,7 @@ import logging
 import sys
 import json
 import uuid
+from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 from uuid import UUID
 from typing import Any, AsyncGenerator, Dict
 
@@ -13,6 +14,45 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool
 
 from src.config.settings import settings
+
+
+def prepare_async_db_url(url: str) -> tuple[str, dict[str, object]]:
+    """Split libpq-style ``sslmode`` out of a postgresql+asyncpg URL.
+
+    asyncpg's ``connect()`` accepts ``ssl=`` as a kwarg but rejects
+    ``sslmode=`` ('connect() got an unexpected keyword argument
+    "sslmode"'). SQLAlchemy passes URL query params straight through
+    as DBAPI kwargs, so a URL like
+    ``postgresql+asyncpg://...?sslmode=require`` blows up at the very
+    first connect.
+
+    We have to keep ``sslmode=require`` in the URL stored in the AWS
+    secret because the same URL is consumed by the sync (psycopg2)
+    Alembic path, which is libpq-native and only understands
+    ``sslmode``. So translate at runtime: strip ``sslmode`` from the
+    async URL and return the equivalent ``ssl`` kwarg for asyncpg's
+    ``connect()`` (passed via SQLAlchemy ``connect_args``).
+
+    Returns ``(cleaned_url, ssl_connect_args)`` where ``ssl_connect_args``
+    is empty when the source URL carried no sslmode.
+    """
+    parsed = urlparse(url)
+    if not parsed.query:
+        return url, {}
+    pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    extra: dict[str, object] = {}
+    remaining: list[tuple[str, str]] = []
+    for k, v in pairs:
+        if k == "sslmode":
+            # libpq → asyncpg: ``sslmode`` is a strict superset
+            # (``disable / allow / prefer / require / verify-ca /
+            # verify-full``); asyncpg's ``ssl`` accepts the same
+            # string values, so pass them through unchanged.
+            extra["ssl"] = v
+        else:
+            remaining.append((k, v))
+    cleaned = urlunparse(parsed._replace(query=urlencode(remaining)))
+    return cleaned, extra
 
 logger = logging.getLogger(__name__)
 
@@ -86,18 +126,19 @@ if "sqlite" not in settings.DATABASE_URL.lower():
         )
 
     # asyncpg-specific connect args. Always set the server-side timeouts;
-    # PgBouncer-specific overrides only fire when the flag is on.
-    # connect_timeout caps the TCP handshake so a missing/unreachable host
-    # fails in 5 s instead of waiting for the OS TCP retransmit timeout
-    # (up to 75 s on macOS), which would hang pytest and CI pipelines.
+    # PgBouncer-specific overrides only fire when the flag is on. SSL is
+    # added from the URL's ``sslmode`` (see ``prepare_async_db_url``).
+    _async_db_url, _ssl_kwargs = prepare_async_db_url(settings.DATABASE_URL)
     connect_args: dict[str, object] = {
         "server_settings": _postgres_server_settings(),
         "connect_timeout": 5,
         **_asyncpg_pgbouncer_kwargs(),
+        **_ssl_kwargs,
     }
     engine_kwargs["connect_args"] = connect_args
 else:
     # SQLite-specific settings
+    _async_db_url = settings.DATABASE_URL
     engine_kwargs.update(
         {
             "connect_args": {"check_same_thread": False},
@@ -105,7 +146,7 @@ else:
         }
     )
 
-engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
+engine = create_async_engine(_async_db_url, **engine_kwargs)
 
 # Create async session factory
 AsyncSessionLocal = async_sessionmaker(

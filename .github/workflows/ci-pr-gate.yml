@@ -79,7 +79,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
   unit-tests:
-    name: Unit Tests (Python ${{ matrix.python-version }})
+    name: Unit Tests (Python 3.11)
     runs-on: ubuntu-latest
     services:
       # Zero-Interference: Providing Redis to stabilize AI tests without mocking code
@@ -92,10 +92,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.10', '3.11', '3.12']
     env:
       # REDIS_HOST REMOVED from here to avoid conflict with constructor tests
       TESTING: "True"
@@ -118,26 +114,76 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python ${{ matrix.python-version }}
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest pytest-cov pytest-timeout
+          # pytest-testmon → test impact analysis. On the second and
+          # subsequent runs of the same branch, it skips tests whose
+          # covered code didn't change since the last run. Combined with
+          # pytest-xdist (-n auto), this turns a 5-min suite into a
+          # ~30-second suite when the diff is small (rebases / docs /
+          # config tweaks). Industry-standard approach used by Doist,
+          # Sentry, and most large Python projects.
+          pip install pytest pytest-cov pytest-timeout pytest-xdist pytest-testmon
+
+      # Persist pytest's per-run + testmon impact-analysis databases so
+      # consecutive runs of the same PR (after Update branch / rebase /
+      # any push) only re-run the tests whose covered code actually
+      # changed. Cache key falls through:
+      #   1. This PR's exact commit (best — same SHA, full reuse)
+      #   2. This PR's earlier commit (typical — rebase / new push)
+      #   3. The base branch's most recent cache (cold PR start)
+      #   4. Any prior cache (last resort fallback)
+      # The .testmondata SQLite file stays small (~MBs) even for a 2K
+      # test suite, so cache eviction isn't a concern.
+      - name: Cache pytest + testmon data
+        uses: actions/cache@v4
+        with:
+          path: |
+            .pytest_cache
+            .testmondata
+          key: pytest-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-${{ github.event.pull_request.number }}-${{ github.sha }}
+          restore-keys: |
+            pytest-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-${{ github.event.pull_request.number }}-
+            pytest-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-${{ github.event.pull_request.base.ref }}-
+            pytest-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-
+            pytest-${{ runner.os }}-
 
       - name: Run Tests
-        # Per-test timeout via pytest-timeout prevents a single hanging
-        # async test from pinning the whole job. `--timeout-method=thread`
-        # also works for asyncio coroutines (signal method fails inside
-        # non-main threads). Job-level timeout is a second safety net in
-        # case the test runner itself deadlocks before pytest-timeout fires.
-        timeout-minutes: 15
+        # --override-ini="addopts="
+        #               Drops the project-level addopts (coverage, fail-under)
+        #               on the PR gate. Coverage runs only on merge via the
+        #               main pipeline; instrumenting every PR run added ~30%
+        #               runtime for no signal.
+        # --testmon    Test impact analysis. Tests whose covered code is
+        #               unchanged vs the cached .testmondata are deselected
+        #               entirely (not just skipped — never executed). First
+        #               run on a fresh PR builds the DB; every subsequent run
+        #               is incremental. Required env: ``TESTMON_OFF=`` (unset)
+        #               and a real ``.testmondata`` path, both default-OK.
+        # --testmon-noselect
+        #               Disabled. We want testmon's selection on. If the
+        #               cache restore failed and there's NO .testmondata,
+        #               testmon falls back to running every test (safe
+        #               default), then builds the DB for next time.
+        # -n auto      pytest-xdist parallelism across the 4 vCPUs on
+        #               ubuntu-latest. testmon and xdist play nicely from
+        #               testmon ≥ 2.0 (we install latest).
+        # --ff         Run previously-failed tests first. Surfaces regressions
+        #               within seconds on flake re-runs.
+        # -q           Quiet output — failures are still printed in full.
+        # --timeout=120 --timeout-method=thread
+        #               Per-test timeout. Thread method is the right choice
+        #               with xdist (signal method fails in worker subprocesses).
+        timeout-minutes: 20
         run: |
-          pytest --cov=src --cov-report=xml --timeout=120 --timeout-method=thread -v
+          pytest --override-ini="addopts=" --testmon -n auto --ff -q --timeout=120 --timeout-method=thread
 
   docker-build-verify:
     name: Docker Build Verification

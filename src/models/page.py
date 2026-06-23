@@ -59,9 +59,7 @@ class Page(Base):
         nullable=True,
         comment="Canvas viewport: {scale, position, snapToGrid, gridSize}",
     )
-    is_locked = Column(
-        Boolean, nullable=False, default=False, server_default="false"
-    )
+    is_locked = Column(Boolean, nullable=False, default=False, server_default="false")
     template_id = Column(
         UUID(as_uuid=True),
         ForeignKey("templates.id", ondelete="SET NULL"),
@@ -69,6 +67,11 @@ class Page(Base):
     )
 
     is_active = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Exactly one canonical page per crew (and per space-level scope): the
+    # shared "room" every member converges on so live cursors/websockets work.
+    # Enforced by partial unique indexes (see migration) + the ensure_default_*
+    # services. The canonical page cannot be deleted.
+    is_canonical = Column(Boolean, nullable=False, default=False, server_default="false")
     last_accessed = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
@@ -86,9 +89,7 @@ class Page(Base):
     # ─── Relationships ─────────────────────────────────────────────────────
     owner = relationship("User", foreign_keys=[owner_id], back_populates="owned_pages")
     members = relationship("PageMember", back_populates="page", cascade="all, delete-orphan")
-    widgets = relationship(
-        "Widget", back_populates="page", cascade="all, delete-orphan"
-    )
+    widgets = relationship("Widget", back_populates="page", cascade="all, delete-orphan")
     widget_connections = relationship(
         "Connection", back_populates="page", cascade="all, delete-orphan"
     )
@@ -149,6 +150,4 @@ class PageMember(Base):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<PageMember(page_id={self.page_id}, user_id={self.user_id}, role={self.role})>"
-        )
+        return f"<PageMember(page_id={self.page_id}, user_id={self.user_id}, role={self.role})>"

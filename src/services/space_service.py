@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.http_client import AIServiceHTTPClient
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.crew import Crew
 from src.models.space import SpaceConnection
@@ -22,9 +23,14 @@ from src.schemas.space import (
     SpaceTableCreate,
     SpaceUpdate,
 )
-from src.ai.http_client import AIServiceHTTPClient
 
 logger = logging.getLogger(__name__)
+
+# Space→Crew model (2026-06): the name of the default crew auto-created
+# with every space. Lucas's directive: "General" (the other candidate was
+# "all"). Kept as a module constant so the resolver, backfill and tests
+# all agree on the canonical name.
+DEFAULT_CREW_NAME = "General"
 
 
 class SpaceService:
@@ -60,7 +66,7 @@ class SpaceService:
         Anything outside that triple is treated as below-floor and
         denied — callers must speak Phase 7 vocabulary.
         """
-        if user.role in ("admin", "owner"):
+        if user.role in ("admin", "owner", "super_admin"):
             return
         member = await self.member_repo.get_by_space_and_user(space_id, user.id)
         if not member:
@@ -69,9 +75,7 @@ class SpaceService:
         member_rank = rank.get(member.role, -1)
         min_rank = rank.get(min_role, 0)
         if member_rank < min_rank:
-            raise ForbiddenError(
-                f"Requires space role '{min_role}' (you have '{member.role}')"
-            )
+            raise ForbiddenError(f"Requires space role '{min_role}' (you have '{member.role}')")
 
     async def list_spaces(self, user: User, skip: int = 0, limit: int = 100) -> List[SpaceResponse]:
         """
@@ -93,14 +97,13 @@ class SpaceService:
             Space the demo flow has provisioned.
         """
         try:
-            is_admin_like = (
-                getattr(user, "role", None) in ("admin", "owner")
-                or getattr(user, "is_sky_operator", False)
-            )
+            is_admin_like = getattr(user, "role", None) in (
+                "admin",
+                "owner",
+                "super_admin",
+            ) or getattr(user, "is_sky_operator", False)
             if is_admin_like:
-                spaces_data = await self.space_repo.get_all_with_stats(
-                    skip=skip, limit=limit
-                )
+                spaces_data = await self.space_repo.get_all_with_stats(skip=skip, limit=limit)
             else:
                 spaces_data = await self.space_repo.get_by_user_with_stats(
                     user.id, skip=skip, limit=limit
@@ -147,12 +150,14 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id and user.role not in ("admin", "owner"):
+        if space.created_by != user.id and user.role not in ("admin", "owner", "super_admin"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
                 # Phase 2.5 — Crew membership inside the Space also
                 # grants visibility (a Crew is a sub-team of the Space).
-                from src.models.crew import Crew as _Crew, CrewMember as _CrewMember
+                from src.models.crew import Crew as _Crew
+                from src.models.crew import CrewMember as _CrewMember
+
                 _crew_check = await self.db.execute(
                     select(_CrewMember.id)
                     .join(_Crew, _Crew.id == _CrewMember.crew_id)
@@ -224,24 +229,72 @@ class SpaceService:
             # filter treat it as space-wide. Stamping the creator here
             # (pre-fix) caused the Space record to behave like a Personal
             # entity and silently hid it from other members.
-            await self.ai_client.ingest_knowledge_graph({
-                "id": str(space.id),
-                "entity_type": "space",
-                "name": space.name,
-                "description": space.description,
-                "space_id": str(space.id),
-                "crew_id": None,
-                "owner_user_id": None,
-                "entity_details": {
-                    "created_by": str(user.id),
-                    "color": space.color,
-                    "icon": space.icon,
-                },
-            })
+            await self.ai_client.ingest_knowledge_graph(
+                {
+                    "id": str(space.id),
+                    "entity_type": "space",
+                    "name": space.name,
+                    "description": space.description,
+                    "space_id": str(space.id),
+                    "crew_id": None,
+                    "owner_user_id": None,
+                    "entity_details": {
+                        "created_by": str(user.id),
+                        "color": space.color,
+                        "icon": space.icon,
+                    },
+                }
+            )
         except Exception as exc:
             logger.warning(f"AI ingest failed for space {space.id}: {exc}")
 
+        # Space→Crew model (2026-06): every space owns at least one crew,
+        # the default "General" crew. Questions/agents are ALWAYS scoped to
+        # a crew (never a bare space) — see the crew-required guard in
+        # src/api/v1/ai.py and src/api/v1/agents.py. "General" means
+        # "shared with every member of this space" but it is still
+        # permission-restricted at the table level (TableMetadata.crew_id);
+        # it is NOT an unrestricted "all tables" surface. Creating it here
+        # guarantees the UI can always force a crew selection. Failure to
+        # create it is logged + swallowed so it never blocks Space creation;
+        # the backfill (ensure_default_crew) repairs any miss.
+        try:
+            from src.schemas.crew import CrewCreate
+            from src.services.crew_service import CrewService
+
+            await CrewService(self.db).create_crew(
+                user,
+                CrewCreate(
+                    name=DEFAULT_CREW_NAME,
+                    description="Default crew — shared with every member of this space.",
+                    space_id=space.id,
+                ),
+            )
+        except Exception as exc:
+            logger.warning(f"Default crew creation failed for space {space.id}: {exc}")
+
         return SpaceResponse.model_validate(space)
+
+    async def ensure_default_crew(self, space_id: UUID, user: User) -> None:
+        """Idempotent backfill: guarantee a space has its default "General"
+        crew. Safe to call on existing spaces created before the Space→Crew
+        model (2026-06). No-op when a crew named "General" already exists.
+        """
+        from src.schemas.crew import CrewCreate
+        from src.services.crew_service import CrewService
+
+        crew_service = CrewService(self.db)
+        existing = await crew_service.list_crews(user, space_id=space_id, limit=500)
+        if any((c.name or "").strip().lower() == DEFAULT_CREW_NAME.lower() for c in existing):
+            return
+        await crew_service.create_crew(
+            user,
+            CrewCreate(
+                name=DEFAULT_CREW_NAME,
+                description="Default crew — shared with every member of this space.",
+                space_id=space_id,
+            ),
+        )
 
     async def update_space(
         self, space_id: UUID, user: User, space_data: SpaceUpdate
@@ -307,7 +360,7 @@ class SpaceService:
             )
         else:
             # Production mode: only admin or owner can delete
-            if user.role not in ("admin", "owner") and space.created_by != user.id:
+            if user.role not in ("admin", "owner", "super_admin") and space.created_by != user.id:
                 raise ForbiddenError("Access denied to this space")
 
         # C6: end every agent scoped to this space before cascade-deleting.
@@ -350,9 +403,16 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
+        # Tenant admins/owners may list any space's crews (navigation/management
+        # plane) — mirrors get_space_connections. Without this an admin who
+        # isn't a member of a space got a 403 when entering it, so the FE never
+        # resolved the default "General" crew (landed on a bare space + empty
+        # page). Listing crews is not content; the per-crew content gates still
+        # apply downstream.
         is_creator = space.created_by == user.id
+        is_admin = (user.role or "").lower() in ("admin", "owner", "super_admin")
         is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
-        if not is_creator and not is_member:
+        if not is_creator and not is_admin and not is_member:
             raise ForbiddenError("Access denied to this space")
 
         crews = await self.space_repo.get_space_crews(space_id)
@@ -377,12 +437,14 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id and user.role not in ("admin", "owner"):
+        if space.created_by != user.id and user.role not in ("admin", "owner", "super_admin"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
                 # Phase 2.5 — Crew membership inside the Space also
                 # grants visibility (a Crew is a sub-team of the Space).
-                from src.models.crew import Crew as _Crew, CrewMember as _CrewMember
+                from src.models.crew import Crew as _Crew
+                from src.models.crew import CrewMember as _CrewMember
+
                 _crew_check = await self.db.execute(
                     select(_CrewMember.id)
                     .join(_Crew, _Crew.id == _CrewMember.crew_id)
@@ -504,12 +566,14 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id and user.role not in ("admin", "owner"):
+        if space.created_by != user.id and user.role not in ("admin", "owner", "super_admin"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
                 # Phase 2.5 — Crew membership inside the Space also
                 # grants visibility (a Crew is a sub-team of the Space).
-                from src.models.crew import Crew as _Crew, CrewMember as _CrewMember
+                from src.models.crew import Crew as _Crew
+                from src.models.crew import CrewMember as _CrewMember
+
                 _crew_check = await self.db.execute(
                     select(_CrewMember.id)
                     .join(_Crew, _Crew.id == _CrewMember.crew_id)
@@ -540,9 +604,7 @@ class SpaceService:
                 )
         return out
 
-    async def update_space_member_role(
-        self, space_id: UUID, user_id: UUID, role: str
-    ):
+    async def update_space_member_role(self, space_id: UUID, user_id: UUID, role: str):
         """Change an existing member's per-space role (two-axis RBAC)."""
         from src.schemas.space import SPACE_MEMBER_ROLES
 
@@ -599,7 +661,9 @@ class SpaceService:
         # bringing in arbitrary outside emails.
         if space.is_demo:
             from sqlalchemy import select as _select
+
             from src.models.user import User as _User
+
             owner_q = await self.db.execute(
                 _select(_User.email).where(_User.id == space.created_by)
             )
@@ -622,6 +686,7 @@ class SpaceService:
 
         # Validate the requested Space role (two-axis RBAC, Phase 1).
         from src.schemas.space import SPACE_MEMBER_ROLES
+
         role = (member_data.role or "editor").lower()
         if role not in SPACE_MEMBER_ROLES:
             raise BadRequestError(
@@ -640,19 +705,32 @@ class SpaceService:
 
         # Notify the new member they've been added to the space
         try:
+            from src.core.locale import get_message, resolve_locale
             from src.schemas.notification import NotificationCreate
             from src.services.notification_service import NotificationService
+
+            # Localize in the new member's own language, not the actor's.
+            recipient_locale = resolve_locale(None, getattr(member, "user", None))
+            actor_name = user.name or user.email
 
             notif_svc = NotificationService(self.db)
             await notif_svc.create(
                 NotificationCreate(
                     user_id=member_data.user_id,
                     type="space_member_added",
-                    title=f"You were added to space '{space.name}'",
-                    description=f"{user.name or user.email} added you to this space",
+                    title=get_message("notif_space_added_title", recipient_locale).format(
+                        space=space.name
+                    ),
+                    description=get_message("notif_space_added_desc", recipient_locale).format(
+                        actor=actor_name
+                    ),
                     entity_type="space",
                     entity_id=str(space_id),
-                    deep_link=f"/dashboard?space={space_id}",
+                    deep_link=f"/page?space={space_id}",
+                    title_key="notif_space_added_title",
+                    title_params={"space": space.name},
+                    description_key="notif_space_added_desc",
+                    description_params={"actor": actor_name},
                 )
             )
         except Exception:
@@ -677,7 +755,11 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != current_user.id and current_user.role not in ("admin", "owner"):
+        if space.created_by != current_user.id and current_user.role not in (
+            "admin",
+            "owner",
+            "super_admin",
+        ):
             raise ForbiddenError("Access denied to this space")
 
         # Check if member exists
@@ -698,18 +780,21 @@ class SpaceService:
         # logged but do NOT roll back the membership removal — the
         # primary action (revocation of access) already happened.
         try:
-            from src.services.agent_revocation_service import (
-                AgentRevocationService,
-            )
+            from src.services.agent_revocation_service import AgentRevocationService
+
             await AgentRevocationService(self.db).revoke_on_space_removal(
-                user_id=user_id, space_id=space_id,
+                user_id=user_id,
+                space_id=space_id,
             )
         except Exception as exc:  # pragma: no cover - defensive
             import logging
+
             logging.getLogger(__name__).warning(
                 "Agent revocation on space-member-removal failed "
                 "(user=%s space=%s): %s. Periodic sweep will catch up.",
-                user_id, space_id, exc,
+                user_id,
+                space_id,
+                exc,
             )
 
         await self.db.commit()
@@ -732,12 +817,14 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id and user.role not in ("admin", "owner"):
+        if space.created_by != user.id and user.role not in ("admin", "owner", "super_admin"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
                 # Phase 2.5 — Crew membership inside the Space also
                 # grants visibility (a Crew is a sub-team of the Space).
-                from src.models.crew import Crew as _Crew, CrewMember as _CrewMember
+                from src.models.crew import Crew as _Crew
+                from src.models.crew import CrewMember as _CrewMember
+
                 _crew_check = await self.db.execute(
                     select(_CrewMember.id)
                     .join(_Crew, _Crew.id == _CrewMember.crew_id)
@@ -974,12 +1061,14 @@ class SpaceService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if space.created_by != user.id and user.role not in ("admin", "owner"):
+        if space.created_by != user.id and user.role not in ("admin", "owner", "super_admin"):
             is_member = await self.member_repo.get_by_space_and_user(space_id, user.id) is not None
             if not is_member:
                 # Phase 2.5 — Crew membership inside the Space also
                 # grants visibility (a Crew is a sub-team of the Space).
-                from src.models.crew import Crew as _Crew, CrewMember as _CrewMember
+                from src.models.crew import Crew as _Crew
+                from src.models.crew import CrewMember as _CrewMember
+
                 _crew_check = await self.db.execute(
                     select(_CrewMember.id)
                     .join(_Crew, _Crew.id == _CrewMember.crew_id)
@@ -1027,6 +1116,7 @@ class SpaceService:
             if not b or b <= 0:
                 return "0B"
             import math
+
             size_name = ("B", "KB", "MB", "GB", "TB")
             i = int(math.floor(math.log(b, 1024)))
             p = math.pow(1024, i)

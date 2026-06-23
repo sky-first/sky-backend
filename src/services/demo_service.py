@@ -863,7 +863,10 @@ class DemoService:
                     "account_id, score, and risk_level for each."
                 ),
             },
-            # ── 6 × L1 (quick) ──────────────────────────────────────
+            # ── 5 × L1 (quick) ──────────────────────────────────────
+            # One demo agent slot is intentionally left free: the demo seeds
+            # 9 agents against a DEMO_MAX_AGENTS_PER_USER cap of 10 so visitors
+            # can still create at least one agent of their own.
             {
                 "name": "Pipeline Velocity Delta",
                 "archetype": "growth_intelligence",
@@ -929,19 +932,6 @@ class DemoService:
                     "than 20% compared to the previous week. Also show the "
                     "top 3 pages (by page_path) visited in web_analytics."
                     "events grouped by page_path."
-                ),
-            },
-            {
-                "name": "Campaign ROI Watch",
-                "archetype": "growth_intelligence",
-                "depth": "quick",
-                "frequency": "daily",
-                "connections": _conns("marketing"),
-                "focus": (
-                    "Show all marketing campaigns with their budget, spend, and "
-                    "lead count. Which channels have the most leads? Group "
-                    "campaigns by channel and show total budget vs total spend "
-                    "per channel."
                 ),
             },
         ]
@@ -1231,31 +1221,6 @@ class DemoService:
                         ["-6h", 13], ["-5h", 14], ["-4h", 12],
                         ["-3h", 15], ["-2h", 13], ["-1h", 14],
                         ["now", 14],
-                    ],
-                    "truncated": False,
-                },
-            },
-            "Campaign ROI Watch": {
-                "type": "opportunity",
-                "severity": "medium",
-                "viz_kind": "scatter",
-                "title": "LinkedIn campaign CAC down 22% — scale budget",
-                "description": (
-                    "LinkedIn 'AI for Finance' campaign: CAC dropped from €182 "
-                    "to €142 over 7 days. Conversion rate up 14%, click-through "
-                    "stable. Cohort quality (7-day activation) unchanged."
-                ),
-                "recommendation": (
-                    "Marketing ops: lift LinkedIn daily budget by 30% next "
-                    "Monday. Watch CAC for 14 days before further scale."
-                ),
-                "confidence": 0.80,
-                "rows": {
-                    "columns": ["day", "cac_eur"],
-                    "data": [
-                        ["D-7", 182], ["D-6", 178], ["D-5", 168],
-                        ["D-4", 161], ["D-3", 154], ["D-2", 148],
-                        ["D-1", 142],
                     ],
                     "truncated": False,
                 },

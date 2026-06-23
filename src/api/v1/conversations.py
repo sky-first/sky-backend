@@ -26,8 +26,10 @@ from src.schemas.conversation import (
     ConversationListResponse,
     ConversationResponse,
     ConversationUpdate,
+    TransferOwnershipRequest,
 )
 from src.services.conversation_service import ConversationService
+from src.services.page_service import PageService
 
 
 # ─── Page-scoped collection (/pages/{page_id}/conversations) ──────────────
@@ -48,6 +50,10 @@ async def create_conversation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConversationResponse:
+    # Option B — a conversation is page content. Validate page access (owner /
+    # page member / crew member / space member) before creating it; without
+    # this a non-member could open a conversation on a crew page.
+    await PageService(db).get_page(page_id, current_user)
     service = ConversationService(db)
     conv = await service.create(page_id=page_id, user=current_user, payload=payload)
     return ConversationResponse.model_validate(conv)
@@ -61,6 +67,9 @@ async def create_conversation(
 )
 async def list_conversations(
     page_id: UUID,
+    session_id: Optional[UUID] = Query(
+        None, description="Narrow to a single chat session (the active chat)."
+    ),
     include_archived: bool = Query(False),
     limit: int = Query(20, ge=1, le=100),
     cursor: Optional[datetime] = Query(
@@ -70,10 +79,13 @@ async def list_conversations(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConversationListResponse:
+    # Option B — gate on real page access before listing its conversations.
+    await PageService(db).get_page(page_id, current_user)
     service = ConversationService(db)
     items = await service.list_for_page(
         page_id=page_id,
         user=current_user,
+        session_id=session_id,
         include_archived=include_archived,
         limit=limit,
         cursor=cursor,
@@ -280,6 +292,35 @@ async def unresolve_conversation(
     service = ConversationService(db)
     try:
         conv = await service.unresolve(conversation_id, current_user)
+    except NotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+    except ForbiddenError as err:
+        raise HTTPException(status_code=403, detail=str(err))
+    return ConversationResponse.model_validate(conv)
+
+
+@router.post(
+    "/{conversation_id}/transfer-ownership",
+    response_model=ConversationResponse,
+    summary="Reassign the thread to another member (owner / platform admin)",
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def transfer_ownership(
+    conversation_id: UUID,
+    payload: TransferOwnershipRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConversationResponse:
+    """chat-threads master plan PR6 — covers HR off-boarding flows
+    and "this conversation no longer belongs to me" handoffs. The
+    service records an audit event capturing the previous + new owner
+    and the actor; the change is broadcast over /ws/chat so other
+    page members see the new owner in real time."""
+    service = ConversationService(db)
+    try:
+        conv = await service.transfer_ownership(
+            conversation_id, payload.new_owner_id, current_user
+        )
     except NotFoundError as err:
         raise HTTPException(status_code=404, detail=str(err))
     except ForbiddenError as err:
