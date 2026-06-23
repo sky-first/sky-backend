@@ -31,6 +31,11 @@ class PublicBrandingConfig(BaseModel):
 
     logo_url: str | None = None
     company_name: str = "SkyFirstLabs"
+    # Optional second logo for the in-app topbar (top-left). When a tenant
+    # wants a compact mark in the app distinct from the full /login logo,
+    # the operator stores it under ``feature_flags.nav_logo_url``. The FE
+    # topbar uses this and falls back to ``logo_url`` when it is unset.
+    nav_logo_url: str | None = None
 
 
 @router.get(
@@ -60,7 +65,14 @@ async def get_public_branding(
     if ctx is not None and not getattr(ctx, "is_default", False):
         logo = getattr(ctx, "logo_url", None) or None
         company = getattr(ctx, "display_name", None) or "SkyFirstLabs"
-        return PublicBrandingConfig(logo_url=logo, company_name=company)
+        # Topbar logo lives in feature_flags (no schema migration). The
+        # resolver already inflates feature_flags onto the context, so this
+        # is a dict read — no extra DB round-trip.
+        flags = getattr(ctx, "feature_flags", None) or {}
+        nav_logo = flags.get("nav_logo_url") or None
+        return PublicBrandingConfig(
+            logo_url=logo, company_name=company, nav_logo_url=nav_logo
+        )
 
     # 2. Legacy fallback: ``platform_branding`` table inside the
     #    tenant DB. Used by tenants that pre-date the Console-managed
