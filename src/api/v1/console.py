@@ -68,6 +68,7 @@ from src.schemas.internal_console import (
     LlmMetricsResponse,
     MyAccessResponse,
     PlatformHealthResponse,
+    ProvisioningJobListResponse,
     ProvisioningJobRead,
     RenewalEntry,
     RenewalsResponse,
@@ -105,6 +106,7 @@ from src.schemas.internal_console import (
     TenantCompareEntry,
     TenantCompareResponse,
 )
+from src.config.settings import settings
 from src.services import (
     console_rbac,
     console_service,
@@ -470,6 +472,13 @@ async def list_audit(
     )
 
 
+@router.get("/health", summary="Console API liveness check")
+async def health_check(
+    _: User = Depends(require_sky_team),
+) -> dict:
+    return {"status": "ok", "version": settings.APP_VERSION}
+
+
 @router.get("/jobs", response_model=List[ProvisioningJobRead])
 async def list_jobs(
     user: User = Depends(require_sky_team),
@@ -478,6 +487,45 @@ async def list_jobs(
     limit: int = Query(100, ge=1, le=500),
 ) -> List[ProvisioningJobRead]:
     return await console_service.list_jobs(db, tenant_slug=tenant_slug, limit=limit)
+
+
+@router.get(
+    "/tenants/{slug}/status",
+    summary="Latest provisioning status for a tenant",
+)
+async def get_tenant_provisioning_status(
+    slug: str,
+    _: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Returns whether the tenant exists and the most recent provisioning job."""
+    tenant_q = await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
+    exists = tenant_q.scalar_one_or_none() is not None
+    jobs = await console_service.list_jobs(db, tenant_slug=slug, limit=1)
+    last_job = jobs[0] if jobs else None
+    return {
+        "tenant_slug": slug,
+        "exists": exists,
+        "last_job": last_job.model_dump() if last_job else None,
+    }
+
+
+@router.get(
+    "/tenants/{slug}/runs",
+    response_model=ProvisioningJobListResponse,
+    summary="Provisioning run history for a tenant",
+)
+async def list_tenant_runs(
+    slug: str,
+    _: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+    limit: int = Query(20, ge=1, le=100),
+) -> ProvisioningJobListResponse:
+    tenant_q = await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
+    if tenant_q.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    items = await console_service.list_jobs(db, tenant_slug=slug, limit=limit)
+    return ProvisioningJobListResponse(items=items, total=len(items))
 
 
 @router.post(
