@@ -21,6 +21,7 @@ from src.models.internal_console import (
     ProvisioningJobType,
 )
 from src.models.tenant import Tenant
+from src.models.tenant_plan_limits import TenantPlanLimits
 from src.models.user import User
 
 
@@ -496,3 +497,113 @@ async def test_tenant_runs_returns_jobs(authed_client, db_session):
     body = res.json()
     assert body["total"] == 3
     assert len(body["items"]) == 3
+
+
+# ── Capacity metrics from tenant_plan_limits ───────────────────────
+
+
+async def test_tenant_list_capacity_zero_without_plan_row(authed_client, db_session):
+    """When no TenantPlanLimits row exists, capacity fields default to 0."""
+    tenant = Tenant(
+        slug="noplans",
+        display_name="No Plans Co.",
+        tier="starter",
+        db_host="pg.local",
+        db_name="tenant_noplans",
+        db_credentials_secret_arn="arn:secret:noplans:db",
+        redis_host="redis.local",
+        redis_credentials_secret_arn="arn:secret:noplans:redis",
+        sso_provider="google",
+    )
+    db_session.add(tenant)
+    await db_session.commit()
+
+    res = await authed_client.get("/api/console/v1/tenants")
+    assert res.status_code == 200
+    t = next(i for i in res.json()["items"] if i["slug"] == "noplans")
+    assert t["capacity_pct_agents"] == 0.0
+    assert t["capacity_pct_sources"] == 0.0
+    assert t["capacity_pct_indexed_gb"] == 0.0
+    assert t["health_score"] == 0
+
+
+async def test_tenant_list_capacity_reflects_plan_counters(authed_client, db_session):
+    """capacity_pct_* and health_score are computed from TenantPlanLimits live counters."""
+    tenant = Tenant(
+        slug="withplan",
+        display_name="With Plan Co.",
+        tier="foundation",
+        db_host="pg.local",
+        db_name="tenant_withplan",
+        db_credentials_secret_arn="arn:secret:withplan:db",
+        redis_host="redis.local",
+        redis_credentials_secret_arn="arn:secret:withplan:redis",
+        sso_provider="google",
+    )
+    db_session.add(tenant)
+    await db_session.flush()
+
+    plan = TenantPlanLimits(
+        tenant_id=tenant.id,
+        tier="foundation",
+        max_agents=10,
+        max_users=25,
+        max_storage_gb=50,
+        max_queries_per_month=10_000,
+        current_agents=5,
+        current_users=10,
+        current_storage_bytes=5 * 1_073_741_824,  # 5 GiB of 50 GiB
+        current_queries_this_month=6_000,
+    )
+    db_session.add(plan)
+    await db_session.commit()
+
+    res = await authed_client.get("/api/console/v1/tenants")
+    assert res.status_code == 200
+    t = next(i for i in res.json()["items"] if i["slug"] == "withplan")
+    assert t["capacity_pct_agents"] == 50.0      # 5/10
+    assert t["capacity_pct_sources"] == 40.0     # 10/25
+    assert t["capacity_pct_indexed_gb"] == 10.0  # 5/50
+    # health_score: 40% * (5/10) + 60% * (6000/10000) = 20 + 36 = 56
+    assert t["health_score"] == 56
+
+
+async def test_tenant_list_health_score_unlimited_tier(authed_client, db_session):
+    """Enterprise tier (max=None) scores full weight as soon as there is usage."""
+    tenant = Tenant(
+        slug="enterprise",
+        display_name="Enterprise Co.",
+        tier="strategic",
+        db_host="pg.local",
+        db_name="tenant_enterprise",
+        db_credentials_secret_arn="arn:secret:enterprise:db",
+        redis_host="redis.local",
+        redis_credentials_secret_arn="arn:secret:enterprise:redis",
+        sso_provider="google",
+    )
+    db_session.add(tenant)
+    await db_session.flush()
+
+    plan = TenantPlanLimits(
+        tenant_id=tenant.id,
+        tier="enterprise",
+        max_agents=None,
+        max_users=None,
+        max_storage_gb=None,
+        max_queries_per_month=None,
+        current_agents=3,
+        current_users=8,
+        current_storage_bytes=0,
+        current_queries_this_month=500,
+    )
+    db_session.add(plan)
+    await db_session.commit()
+
+    res = await authed_client.get("/api/console/v1/tenants")
+    assert res.status_code == 200
+    t = next(i for i in res.json()["items"] if i["slug"] == "enterprise")
+    # Unlimited ceilings → capacity shown as 0% (no denominator)
+    assert t["capacity_pct_agents"] == 0.0
+    assert t["capacity_pct_indexed_gb"] == 0.0
+    # But health_score gets full credit for both dimensions since usage > 0
+    assert t["health_score"] == 100

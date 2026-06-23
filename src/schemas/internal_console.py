@@ -118,10 +118,11 @@ class ConsoleTenantSummary(BaseModel):
     suspended_at: Optional[datetime]
     custom_domain: Optional[str]
     created_at: datetime
-    # ── computed by the service layer ──
+    # ── computed by the service layer from tenant_plan_limits ──
     capacity_pct_agents: float = 0.0
     capacity_pct_sources: float = 0.0
     capacity_pct_indexed_gb: float = 0.0
+    health_score: int = 0
     # Latest pending/running provisioning job for this tenant, if any.
     # The Console renders a "Destroying" / "Provisioning" pill with the
     # current phase so operators see ops in flight without drilling into
