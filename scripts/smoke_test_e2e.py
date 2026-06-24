@@ -53,28 +53,92 @@ REPORT_PATH = os.environ.get("REPORT_PATH", "/tmp/smoke-report.md")
 QUESTIONS: list[dict] = [
     # ── Category A — SQL puro (tests connection retrieval + SQL specialist + Bedrock) ─
     {"cat": "SQL", "conn_hint": "Sales", "q": "What are the top 5 customers by total revenue?"},
-    {"cat": "SQL", "conn_hint": "Marketing", "q": "Which marketing channels delivered the most new signups in the last 90 days?"},
-    {"cat": "SQL", "conn_hint": "Finance", "q": "Show me total active subscription value grouped by plan tier."},
-    {"cat": "SQL", "conn_hint": "Web Analytics", "q": "What pages had the highest bounce rate last month?"},
-    {"cat": "SQL", "conn_hint": "Product Usage", "q": "How many distinct active users did we have yesterday?"},
+    {
+        "cat": "SQL",
+        "conn_hint": "Marketing",
+        "q": "Which marketing channels delivered the most new signups in the last 90 days?",
+    },
+    {
+        "cat": "SQL",
+        "conn_hint": "Finance",
+        "q": "Show me total active subscription value grouped by plan tier.",
+    },
+    {
+        "cat": "SQL",
+        "conn_hint": "Web Analytics",
+        "q": "What pages had the highest bounce rate last month?",
+    },
+    {
+        "cat": "SQL",
+        "conn_hint": "Product Usage",
+        "q": "How many distinct active users did we have yesterday?",
+    },
     # ── Category B — Metric retrieval (tests RAG over `metrics`) ─
-    {"cat": "METRIC", "conn_hint": "Finance", "q": "How is MRR calculated in this workspace, and what's the current threshold?"},
+    {
+        "cat": "METRIC",
+        "conn_hint": "Finance",
+        "q": "How is MRR calculated in this workspace, and what's the current threshold?",
+    },
     {"cat": "METRIC", "conn_hint": "Finance", "q": "Show me ARPU and explain the formula we use."},
-    {"cat": "METRIC", "conn_hint": "Marketing", "q": "What's our CAC target, and what counts as the warning threshold?"},
-    {"cat": "METRIC", "conn_hint": "Product Usage", "q": "Explain how we measure DAU/MAU and what the target ratio is."},
-    {"cat": "METRIC", "conn_hint": "Finance", "q": "What metric do we use for customer churn, and how is it computed?"},
+    {
+        "cat": "METRIC",
+        "conn_hint": "Marketing",
+        "q": "What's our CAC target, and what counts as the warning threshold?",
+    },
+    {
+        "cat": "METRIC",
+        "conn_hint": "Product Usage",
+        "q": "Explain how we measure DAU/MAU and what the target ratio is.",
+    },
+    {
+        "cat": "METRIC",
+        "conn_hint": "Finance",
+        "q": "What metric do we use for customer churn, and how is it computed?",
+    },
     # ── Category C — Glossary retrieval (tests RAG over `glossary_terms`) ─
     {"cat": "GLOSSARY", "conn_hint": "Sales", "q": "Define cohort in our context."},
-    {"cat": "GLOSSARY", "conn_hint": "Sales", "q": "What does GMV stand for, and how is it different from revenue?"},
+    {
+        "cat": "GLOSSARY",
+        "conn_hint": "Sales",
+        "q": "What does GMV stand for, and how is it different from revenue?",
+    },
     {"cat": "GLOSSARY", "conn_hint": "Sales", "q": "Explain LTV and how it relates to ARPU."},
-    {"cat": "GLOSSARY", "conn_hint": "Sales", "q": "What's a payback period and what's a healthy benchmark for B2B SaaS?"},
-    {"cat": "GLOSSARY", "conn_hint": "Sales", "q": "Difference between voluntary and involuntary churn — and what fixes each?"},
+    {
+        "cat": "GLOSSARY",
+        "conn_hint": "Sales",
+        "q": "What's a payback period and what's a healthy benchmark for B2B SaaS?",
+    },
+    {
+        "cat": "GLOSSARY",
+        "conn_hint": "Sales",
+        "q": "Difference between voluntary and involuntary churn — and what fixes each?",
+    },
     # ── Category D — Mixed (tests orchestrator coordinating multiple sources) ─
-    {"cat": "MIXED", "conn_hint": "Finance", "q": "Calculate this month's MRR from our Finance subscriptions and define cohort while you're at it."},
-    {"cat": "MIXED", "conn_hint": "Marketing", "q": "Is our CAC above the warning threshold? Define CAC first, then check the data."},
-    {"cat": "MIXED", "conn_hint": "Product Usage", "q": "Show DAU/MAU evolution over the last 30 days and reference the glossary definition of cohort."},
-    {"cat": "MIXED", "conn_hint": "Sales", "q": "Which customer cohort by signup month has the highest retention? Use LTV definition from glossary."},
-    {"cat": "MIXED", "conn_hint": "Finance", "q": "Is our churn rate above target? Reference the metric definition and the voluntary-vs-involuntary glossary entry."},
+    {
+        "cat": "MIXED",
+        "conn_hint": "Finance",
+        "q": "Calculate this month's MRR from our Finance subscriptions and define cohort while you're at it.",
+    },
+    {
+        "cat": "MIXED",
+        "conn_hint": "Marketing",
+        "q": "Is our CAC above the warning threshold? Define CAC first, then check the data.",
+    },
+    {
+        "cat": "MIXED",
+        "conn_hint": "Product Usage",
+        "q": "Show DAU/MAU evolution over the last 30 days and reference the glossary definition of cohort.",
+    },
+    {
+        "cat": "MIXED",
+        "conn_hint": "Sales",
+        "q": "Which customer cohort by signup month has the highest retention? Use LTV definition from glossary.",
+    },
+    {
+        "cat": "MIXED",
+        "conn_hint": "Finance",
+        "q": "Is our churn rate above target? Reference the metric definition and the voluntary-vs-involuntary glossary entry.",
+    },
 ]
 
 
@@ -100,12 +164,8 @@ def excerpt(s: str, n: int = 220) -> str:
 
 
 async def resolve_owner_and_space(db) -> tuple[User, Space, dict[str, str]]:
-    owner = (
-        await db.execute(select(User).where(User.email == OWNER_EMAIL))
-    ).scalar_one()
-    spaces = (
-        await db.execute(select(Space).where(Space.created_by == owner.id))
-    ).scalars().all()
+    owner = (await db.execute(select(User).where(User.email == OWNER_EMAIL))).scalar_one()
+    spaces = (await db.execute(select(Space).where(Space.created_by == owner.id))).scalars().all()
     space = next(
         (s for s in spaces if s.name and s.name.startswith("Demo") and "Sky" in s.name),
         None,
@@ -114,17 +174,21 @@ async def resolve_owner_and_space(db) -> tuple[User, Space, dict[str, str]]:
         raise RuntimeError("'Demo' Space not found — run seed_demo_connections.py first")
 
     conns = (
-        await db.execute(
-            select(DataConnection).where(
-                DataConnection.created_by == owner.id,
-                DataConnection.deleted_at.is_(None),
+        (
+            await db.execute(
+                select(DataConnection).where(
+                    DataConnection.created_by == owner.id,
+                    DataConnection.deleted_at.is_(None),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     conn_by_hint: dict[str, str] = {}
     for c in conns:
-        n = (c.name or "")
+        n = c.name or ""
         if "Sales" in n:
             conn_by_hint["Sales"] = str(c.id)
         elif "Marketing" in n:
@@ -261,7 +325,9 @@ def render_report(results: list[QuestionResult]) -> str:
     return "\n".join(lines) + "\n"
 
 
-async def discover_all(client: httpx.AsyncClient, conn_by_hint: dict[str, str], space_id: str) -> None:
+async def discover_all(
+    client: httpx.AsyncClient, conn_by_hint: dict[str, str], space_id: str
+) -> None:
     """Trigger AI-side metadata discovery + embeddings for each connection.
 
     The AI service holds its own copy of table metadata and embeddings
@@ -325,7 +391,10 @@ async def main() -> None:
             print(f"  Q{n:>2} [{spec['cat']:<8}] {spec['q'][:70]}")
             res = await ask_one(client, n, spec, str(owner.id), str(space.id), conn_id)
             tag = "OK  " if res.success else "FAIL"
-            print(f"        {tag} {res.latency_ms} ms" + (f"  err={res.error[:80]}" if res.error else ""))
+            print(
+                f"        {tag} {res.latency_ms} ms"
+                + (f"  err={res.error[:80]}" if res.error else "")
+            )
             results.append(res)
 
     report = render_report(results)
@@ -336,7 +405,9 @@ async def main() -> None:
     print("=" * 60)
     # Final summary line stdout-friendly
     ok = sum(1 for r in results if r.success)
-    print(f"PASS={ok}/{len(results)}  p50={int(statistics.median([r.latency_ms for r in results]))}ms")
+    print(
+        f"PASS={ok}/{len(results)}  p50={int(statistics.median([r.latency_ms for r in results]))}ms"
+    )
 
 
 if __name__ == "__main__":

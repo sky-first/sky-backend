@@ -80,10 +80,14 @@ async def reset(keep_email: Optional[str]) -> None:
         # schema generations, so silently skip anything that isn't here.
         present = {
             row[0]
-            for row in (await conn.execute(text(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = 'public'"
-            ))).fetchall()
+            for row in (
+                await conn.execute(
+                    text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema = 'public'"
+                    )
+                )
+            ).fetchall()
         }
 
         to_truncate = [t for t in TRUNCATE_TABLES if t in present]
@@ -109,10 +113,9 @@ async def reset(keep_email: Optional[str]) -> None:
             print(f"Removed {deleted.rowcount} users — kept only {keep_email}")
             # Clear the refresh tokens of the deleted users (cascade may
             # already handle this, but be explicit in case FK wasn't set).
-            await conn.execute(text(
-                "DELETE FROM refresh_tokens WHERE user_id NOT IN "
-                "(SELECT id FROM users)"
-            ))
+            await conn.execute(
+                text("DELETE FROM refresh_tokens WHERE user_id NOT IN " "(SELECT id FROM users)")
+            )
 
     await engine.dispose()
     print("✅ Reset complete.")
@@ -120,7 +123,10 @@ async def reset(keep_email: Optional[str]) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Reset tenant data for first-user testing.")
-    ap.add_argument("--keep-email", help="If set, delete every user except this one. Otherwise, users are kept as-is.")
+    ap.add_argument(
+        "--keep-email",
+        help="If set, delete every user except this one. Otherwise, users are kept as-is.",
+    )
     ap.add_argument("--yes", action="store_true", help="Skip the confirmation prompt.")
     args = ap.parse_args()
 

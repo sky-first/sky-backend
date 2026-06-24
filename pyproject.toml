@@ -14,7 +14,10 @@ extend-exclude = '''
   | build
   | dist
   | migrations
+  | scratch
 )/
+# one-off script with non-ASCII bytes literal unsupported by black
+| scripts/test_knowledge_pipeline\.py
 '''
 
 [tool.isort]

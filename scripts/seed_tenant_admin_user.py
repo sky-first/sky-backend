@@ -23,6 +23,7 @@ Idempotent: an existing user with the same email is refreshed (new
 password hash + role=admin) so re-running the migrate Job after a
 schema bump doesn't leave dual accounts.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -58,8 +59,7 @@ def _prepare_async_url(url: str) -> str:
     parsed = urlparse(url)
     if not parsed.query:
         return url
-    keep = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
-            if k != "sslmode"]
+    keep = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k != "sslmode"]
     return urlunparse(parsed._replace(query=urlencode(keep)))
 
 

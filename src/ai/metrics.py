@@ -32,6 +32,8 @@ from prometheus_client import (
 )
 from prometheus_client.metrics_core import Metric
 
+from src.core.tenant_context import current_tenant
+
 
 # ---------------------------------------------------------------------------
 #  Counters
@@ -40,8 +42,8 @@ from prometheus_client.metrics_core import Metric
 
 ai_requests_total = Counter(
     "sky_ai_requests_total",
-    "Chat / agent requests by endpoint + status + category.",
-    labelnames=("endpoint", "status", "category"),
+    "Chat / agent requests by endpoint + status + category + tenant.",
+    labelnames=("endpoint", "status", "category", "tenant"),
 )
 
 ai_guard_decisions_total = Counter(
@@ -100,7 +102,8 @@ ai_upstream_latency_seconds = Histogram(
 
 
 def record_request(endpoint: str, status: str, category: str = "ok") -> None:
-    ai_requests_total.labels(endpoint=endpoint, status=status, category=category).inc()
+    tenant = current_tenant().slug
+    ai_requests_total.labels(endpoint=endpoint, status=status, category=category, tenant=tenant).inc()
 
 
 def record_input_guard(

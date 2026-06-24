@@ -73,9 +73,7 @@ SEED_TENANTS: list[dict] = [
 
 async def upsert_one(session: AsyncSession, payload: dict) -> Tenant:
     existing = (
-        await session.execute(
-            select(Tenant).where(Tenant.slug == payload["slug"])
-        )
+        await session.execute(select(Tenant).where(Tenant.slug == payload["slug"]))
     ).scalar_one_or_none()
 
     if existing is not None:
@@ -105,10 +103,7 @@ async def main(action: str, slugs: Iterable[str]) -> None:
                 if slugs and payload["slug"] not in slugs:
                     continue
                 tenant = await upsert_one(session, payload)
-                print(
-                    f"  [seed] {tenant.slug}  tier={tenant.tier}  "
-                    f"db={tenant.db_name}"
-                )
+                print(f"  [seed] {tenant.slug}  tier={tenant.tier}  " f"db={tenant.db_name}")
         elif action == "remove":
             for payload in SEED_TENANTS:
                 if slugs and payload["slug"] not in slugs:

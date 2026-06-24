@@ -74,30 +74,31 @@ from src.services.onboarding_service import ensure_default_page_and_space
 def _throwaway_hash() -> str:
     return get_password_hash(secrets.token_urlsafe(32))
 
+
 USERS = [
     # Platform-only (no Space) — owner/admin bypass Space gates; member → Personal.
-    ("rbac.owner@example.com",         "owner",  "RBAC Owner",          None),
-    ("rbac.admin@example.com",         "admin",  "RBAC Admin",          None),
-    ("rbac.member@example.com",        "member", "RBAC Member",         None),
+    ("rbac.owner@example.com", "owner", "RBAC Owner", None),
+    ("rbac.admin@example.com", "admin", "RBAC Admin", None),
+    ("rbac.member@example.com", "member", "RBAC Member", None),
     # Full 3×3 platform × Space-role cross-axis (rbac.<plat>-<sr>@…).
     # NEW vocabulary: owner / editor / viewer (was commander/navigator/explorer).
-    ("rbac.owner-spaceowner@example.com",  "owner",  "RBAC Owner / Space Owner",  "owner"),
-    ("rbac.owner-editor@example.com",      "owner",  "RBAC Owner / Editor",       "editor"),
-    ("rbac.owner-viewer@example.com",      "owner",  "RBAC Owner / Viewer",       "viewer"),
-    ("rbac.admin-spaceowner@example.com",  "admin",  "RBAC Admin / Space Owner",  "owner"),
-    ("rbac.admin-editor@example.com",      "admin",  "RBAC Admin / Editor",       "editor"),
-    ("rbac.admin-viewer@example.com",      "admin",  "RBAC Admin / Viewer",       "viewer"),
+    ("rbac.owner-spaceowner@example.com", "owner", "RBAC Owner / Space Owner", "owner"),
+    ("rbac.owner-editor@example.com", "owner", "RBAC Owner / Editor", "editor"),
+    ("rbac.owner-viewer@example.com", "owner", "RBAC Owner / Viewer", "viewer"),
+    ("rbac.admin-spaceowner@example.com", "admin", "RBAC Admin / Space Owner", "owner"),
+    ("rbac.admin-editor@example.com", "admin", "RBAC Admin / Editor", "editor"),
+    ("rbac.admin-viewer@example.com", "admin", "RBAC Admin / Viewer", "viewer"),
     ("rbac.member-spaceowner@example.com", "member", "RBAC Member / Space Owner", "owner"),
-    ("rbac.demo@example.com",              "member", "RBAC Demo Visitor",         "editor"),
-    ("rbac.member-viewer@example.com",     "member", "RBAC Member / Viewer",      "viewer"),
+    ("rbac.demo@example.com", "member", "RBAC Demo Visitor", "editor"),
+    ("rbac.member-viewer@example.com", "member", "RBAC Member / Viewer", "viewer"),
 ]
 
 # Phase 2.5 — Crew personas. The 4-tuple is repurposed for these rows:
 #   (email, platform_role, name, space_role_or_None_if_crew_only)
 CREW_USERS = [
-    ("rbac.crew-only-editor@example.com",  "member", "RBAC Crew-Only Editor",     None),
-    ("rbac.viewer-crewowner@example.com",  "member", "RBAC Viewer / Crew Owner",  "viewer"),
-    ("rbac.multi-crew@example.com",        "member", "RBAC Multi-Crew Member",    None),
+    ("rbac.crew-only-editor@example.com", "member", "RBAC Crew-Only Editor", None),
+    ("rbac.viewer-crewowner@example.com", "member", "RBAC Viewer / Crew Owner", "viewer"),
+    ("rbac.multi-crew@example.com", "member", "RBAC Multi-Crew Member", None),
 ]
 SPACE_NAME = "RBAC Demo Space"
 TAX_CREW_NAME = "RBAC Tax Crew"
@@ -153,9 +154,7 @@ async def upsert_membership(session, user, space, context_role):
 
 async def upsert_crew(session, space, owner, name):
     existing = (
-        await session.execute(
-            select(Crew).where(Crew.space_id == space.id, Crew.name == name)
-        )
+        await session.execute(select(Crew).where(Crew.space_id == space.id, Crew.name == name))
     ).scalar_one_or_none()
     if existing:
         return existing
@@ -230,9 +229,7 @@ async def main():
     print()
     print("   Phase 2.5 — Crew personas (Space '{}'):".format(SPACE_NAME))
     print(f"   member   rbac.crew-only-editor@example.com  ({TAX_CREW_NAME}: editor)")
-    print(
-        f"   member   rbac.viewer-crewowner@example.com  (Space: viewer, {TAX_CREW_NAME}: owner)"
-    )
+    print(f"   member   rbac.viewer-crewowner@example.com  (Space: viewer, {TAX_CREW_NAME}: owner)")
     print(
         f"   member   rbac.multi-crew@example.com        ({TAX_CREW_NAME}: viewer, {AUDIT_CREW_NAME}: owner)"
     )

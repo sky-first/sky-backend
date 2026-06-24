@@ -190,6 +190,7 @@ async def main() -> None:
     # session so the introspection runs against fully-committed rows.
     if created_ids:
         from src.services.connection_service import ConnectionService
+
         async with AsyncSessionLocal() as db2:
             svc = ConnectionService(db2)
             owner2 = (await db2.execute(select(User).where(User.email == OWNER_EMAIL))).scalar_one()

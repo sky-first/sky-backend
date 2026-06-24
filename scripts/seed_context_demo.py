@@ -32,6 +32,7 @@ from src.config.database import AsyncSessionLocal
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.glossary import GlossaryTerm
 from src.models.space import Space
+
 # Strategy seed removed in the Knowledge refactor (2026-04-25). The
 # Metric-based seed lands in Phase 2 — see KNOWLEDGE_REFACTOR.md.
 from src.models.user import User
@@ -43,38 +44,113 @@ logger = logging.getLogger("seed_context_demo")
 # ─── Dictionaries of realistic demo content ──────────────────────────────
 
 GLOSSARY_TERMS = [
-    ("GMV", "Gross Merchandise Value — soma bruta do valor de todos os pedidos colocados na plataforma em um período."),
+    (
+        "GMV",
+        "Gross Merchandise Value — soma bruta do valor de todos os pedidos colocados na plataforma em um período.",
+    ),
     ("ARR", "Annual Recurring Revenue — receita recorrente anualizada das assinaturas ativas."),
     ("MRR", "Monthly Recurring Revenue — receita recorrente mensal das assinaturas ativas."),
     ("CAC", "Customer Acquisition Cost — custo médio gasto para adquirir um novo cliente pagante."),
-    ("LTV", "Lifetime Value — receita total esperada de um cliente ao longo de todo o ciclo de vida."),
+    (
+        "LTV",
+        "Lifetime Value — receita total esperada de um cliente ao longo de todo o ciclo de vida.",
+    ),
     ("Churn", "Taxa mensal de cancelamento de clientes sobre a base ativa do período anterior."),
-    ("MAU", "Monthly Active Users — usuários únicos que executaram ao menos uma ação no período de 30 dias."),
-    ("NPS", "Net Promoter Score — índice de recomendação líquida medido por pesquisa periódica de satisfação."),
-    ("Runway", "Meses de operação restantes ao ritmo atual de caima de caixa, dado o saldo disponível."),
-    ("Payback period", "Tempo médio necessário para recuperar o custo de aquisição de um cliente via receita."),
+    (
+        "MAU",
+        "Monthly Active Users — usuários únicos que executaram ao menos uma ação no período de 30 dias.",
+    ),
+    (
+        "NPS",
+        "Net Promoter Score — índice de recomendação líquida medido por pesquisa periódica de satisfação.",
+    ),
+    (
+        "Runway",
+        "Meses de operação restantes ao ritmo atual de caima de caixa, dado o saldo disponível.",
+    ),
+    (
+        "Payback period",
+        "Tempo médio necessário para recuperar o custo de aquisição de um cliente via receita.",
+    ),
     ("TAM", "Total Addressable Market — tamanho total do mercado acessível para o produto."),
     ("SAM", "Serviceable Addressable Market — fatia do TAM que efetivamente pode ser atendida."),
-    ("SOM", "Serviceable Obtainable Market — parcela do SAM capturável em 12 meses dado canal e capacidade."),
-    ("OKR", "Objectives and Key Results — framework de metas com objetivo qualitativo e resultados mensuráveis."),
+    (
+        "SOM",
+        "Serviceable Obtainable Market — parcela do SAM capturável em 12 meses dado canal e capacidade.",
+    ),
+    (
+        "OKR",
+        "Objectives and Key Results — framework de metas com objetivo qualitativo e resultados mensuráveis.",
+    ),
     ("Pillar", "Direção estratégica plurianual que agrupa objetivos e iniciativas relacionadas."),
 ]
 
 
 PILLARS = [
-    ("Experiência do Cliente", "Elevar satisfação e retenção via jornada fluida e suporte proativo.", "#8b5cf6"),
-    ("Eficiência Operacional", "Reduzir custos unitários e aumentar throughput sem prejuízo de qualidade.", "#10b981"),
-    ("Expansão de Receita", "Acelerar aquisição em novos segmentos e upsell dentro da base atual.", "#f59e0b"),
-    ("Inovação de Produto", "Lançar 2 produtos novos com adoção ≥ 20% da base em 12 meses.", "#3b82f6"),
+    (
+        "Experiência do Cliente",
+        "Elevar satisfação e retenção via jornada fluida e suporte proativo.",
+        "#8b5cf6",
+    ),
+    (
+        "Eficiência Operacional",
+        "Reduzir custos unitários e aumentar throughput sem prejuízo de qualidade.",
+        "#10b981",
+    ),
+    (
+        "Expansão de Receita",
+        "Acelerar aquisição em novos segmentos e upsell dentro da base atual.",
+        "#f59e0b",
+    ),
+    (
+        "Inovação de Produto",
+        "Lançar 2 produtos novos com adoção ≥ 20% da base em 12 meses.",
+        "#3b82f6",
+    ),
 ]
 
 
 OBJECTIVES = [
-    ("corporate", "Aumentar ARR em 30% até Q4/2026", "Crescer receita recorrente via novos contratos e upsell.", "on_track", "high", "Revenue"),
-    ("corporate", "Reduzir churn mensal para < 2%", "Churn mensal nos últimos 3 meses foi 3.1%; meta é 2%.", "at_risk", "critical", "Retention"),
-    ("unit", "Elevar NPS corporate de 42 para 60", "Programa de customer success proativo + melhoria de SLA.", "on_track", "medium", "CX"),
-    ("team", "Lançar onboarding self-service v2", "Reduzir tempo até primeiro valor (TTV) de 14 para 5 dias.", "lagging", "high", "Product"),
-    ("team", "Implantar pipeline CI/CD unificada", "Consolidar 3 pipelines legadas em 1 com trace distribuído.", "on_track", "medium", "Eng"),
+    (
+        "corporate",
+        "Aumentar ARR em 30% até Q4/2026",
+        "Crescer receita recorrente via novos contratos e upsell.",
+        "on_track",
+        "high",
+        "Revenue",
+    ),
+    (
+        "corporate",
+        "Reduzir churn mensal para < 2%",
+        "Churn mensal nos últimos 3 meses foi 3.1%; meta é 2%.",
+        "at_risk",
+        "critical",
+        "Retention",
+    ),
+    (
+        "unit",
+        "Elevar NPS corporate de 42 para 60",
+        "Programa de customer success proativo + melhoria de SLA.",
+        "on_track",
+        "medium",
+        "CX",
+    ),
+    (
+        "team",
+        "Lançar onboarding self-service v2",
+        "Reduzir tempo até primeiro valor (TTV) de 14 para 5 dias.",
+        "lagging",
+        "high",
+        "Product",
+    ),
+    (
+        "team",
+        "Implantar pipeline CI/CD unificada",
+        "Consolidar 3 pipelines legadas em 1 com trace distribuído.",
+        "on_track",
+        "medium",
+        "Eng",
+    ),
 ]
 
 
@@ -95,18 +171,54 @@ KEY_RESULTS = [
 
 
 INITIATIVES = [
-    ("Playbook CS proativo por tier", "Segmentar base por tier e criar playbook por segmento.", "active"),
-    ("Automação de cobrança recorrente", "Reduzir falhas de pagamento em 40% com retry inteligente.", "active"),
-    ("Programa de referral empresarial", "Incentivo duplo para referrals Enterprise fechados em 90 dias.", "planned"),
+    (
+        "Playbook CS proativo por tier",
+        "Segmentar base por tier e criar playbook por segmento.",
+        "active",
+    ),
+    (
+        "Automação de cobrança recorrente",
+        "Reduzir falhas de pagamento em 40% com retry inteligente.",
+        "active",
+    ),
+    (
+        "Programa de referral empresarial",
+        "Incentivo duplo para referrals Enterprise fechados em 90 dias.",
+        "planned",
+    ),
     ("Redesenho do onboarding self-service", "Fluxo guiado em 4 etapas com telemetria.", "active"),
 ]
 
 
 RISKS = [
-    ("Dependência de 1 provedor de pagamento", "Risco de indisponibilidade caso único PSP falhe por > 1h.", "infrastructure", 4, 3),
-    ("Concentração de receita em 5 contas", "Top-5 contas representam 38% do ARR.", "commercial", 5, 3),
-    ("Gap de perfis seniores em dados", "Fila de ramp-up em Eng-Data pode atrasar projetos de Q3.", "people", 4, 4),
-    ("Compliance LGPD para novos produtos", "Novos flows podem exigir DPIA antes do lançamento.", "legal", 3, 3),
+    (
+        "Dependência de 1 provedor de pagamento",
+        "Risco de indisponibilidade caso único PSP falhe por > 1h.",
+        "infrastructure",
+        4,
+        3,
+    ),
+    (
+        "Concentração de receita em 5 contas",
+        "Top-5 contas representam 38% do ARR.",
+        "commercial",
+        5,
+        3,
+    ),
+    (
+        "Gap de perfis seniores em dados",
+        "Fila de ramp-up em Eng-Data pode atrasar projetos de Q3.",
+        "people",
+        4,
+        4,
+    ),
+    (
+        "Compliance LGPD para novos produtos",
+        "Novos flows podem exigir DPIA antes do lançamento.",
+        "legal",
+        3,
+        3,
+    ),
 ]
 
 
@@ -120,8 +232,18 @@ RELATIONSHIPS = [
     ("ARR", "GMV", "derives_from", "ARR é uma projeção linear de 12× MRR atualizado."),
     ("MRR", "Churn", "affected_by", "Churn mensal reduz base que compõe MRR no mês seguinte."),
     ("LTV", "CAC", "ratio", "Saúde unit economics: LTV/CAC ≥ 3× é alvo saudável."),
-    ("Deploy failure", "Churn", "risk_contributor", "Incidentes de produção correlacionam com churn 90d."),
-    ("NPS", "Retention", "leading_indicator", "Movimento do NPS antecipa variação de retenção em 1 trimestre."),
+    (
+        "Deploy failure",
+        "Churn",
+        "risk_contributor",
+        "Incidentes de produção correlacionam com churn 90d.",
+    ),
+    (
+        "NPS",
+        "Retention",
+        "leading_indicator",
+        "Movimento do NPS antecipa variação de retenção em 1 trimestre.",
+    ),
 ]
 
 

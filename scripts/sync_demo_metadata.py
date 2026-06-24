@@ -35,12 +35,18 @@ OWNER_EMAIL = "rbac.owner@example.com"
 async def main() -> None:
     async with AsyncSessionLocal() as db:
         owner = (await db.execute(select(User).where(User.email == OWNER_EMAIL))).scalar_one()
-        rows = (await db.execute(
-            select(DataConnection).where(
-                DataConnection.name.like("Demo —%"),
-                DataConnection.deleted_at.is_(None),
+        rows = (
+            (
+                await db.execute(
+                    select(DataConnection).where(
+                        DataConnection.name.like("Demo —%"),
+                        DataConnection.deleted_at.is_(None),
+                    )
+                )
             )
-        )).scalars().all()
+            .scalars()
+            .all()
+        )
         ids = [(c.id, c.name, c.status) for c in rows]
 
     print(f"Found {len(ids)} demo connections")

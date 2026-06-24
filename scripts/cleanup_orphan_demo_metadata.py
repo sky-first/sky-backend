@@ -45,17 +45,24 @@ def _demo_connection_ids() -> List[str]:
 
 async def _count_orphans(db: AsyncSession, conn_ids: List[str]) -> dict:
     rows = (
-        await db.execute(
-            text(
-                "SELECT (SELECT count(*) FROM table_metadata WHERE data_connection_id = ANY(:cids) AND space_id IS NOT NULL) AS table_metadata, "
-                "(SELECT count(*) FROM embeddings WHERE table_metadata_id IN ("
-                "  SELECT id FROM table_metadata WHERE data_connection_id = ANY(:cids) AND space_id IS NOT NULL"
-                ")) AS embeddings"
-            ),
-            {"cids": conn_ids},
+        (
+            await db.execute(
+                text(
+                    "SELECT (SELECT count(*) FROM table_metadata WHERE data_connection_id = ANY(:cids) AND space_id IS NOT NULL) AS table_metadata, "
+                    "(SELECT count(*) FROM embeddings WHERE table_metadata_id IN ("
+                    "  SELECT id FROM table_metadata WHERE data_connection_id = ANY(:cids) AND space_id IS NOT NULL"
+                    ")) AS embeddings"
+                ),
+                {"cids": conn_ids},
+            )
         )
-    ).mappings().first()
-    return {"table_metadata": int(rows["table_metadata"] or 0), "embeddings": int(rows["embeddings"] or 0)}
+        .mappings()
+        .first()
+    )
+    return {
+        "table_metadata": int(rows["table_metadata"] or 0),
+        "embeddings": int(rows["embeddings"] or 0),
+    }
 
 
 async def _delete_orphans(db: AsyncSession, conn_ids: List[str]) -> dict:

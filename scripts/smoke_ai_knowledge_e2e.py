@@ -45,8 +45,8 @@ async def main() -> int:
             ).scalar_one_or_none()
         else:
             user = (
-                await db.execute(select(User).order_by(User.created_at.asc()))
-            ).scalars().first()
+                (await db.execute(select(User).order_by(User.created_at.asc()))).scalars().first()
+            )
         if user is None:
             print("[FAIL] no user in DB to run the smoke against")
             return 2
@@ -63,10 +63,10 @@ async def main() -> int:
         # we count what's reachable so the smoke proves the user has a
         # real live data source feeding the chat.
         connections = (
-            await db.execute(
-                select(Connection).where(Connection.created_by == user.id)
-            )
-        ).scalars().all()
+            (await db.execute(select(Connection).where(Connection.created_by == user.id)))
+            .scalars()
+            .all()
+        )
 
         print(f"[ctx] metrics      : {len(metrics)} (preferred org: {len(preferred)})")
         print(f"[ctx] glossary     : {len(glossary)}")
@@ -84,13 +84,9 @@ async def main() -> int:
         if not glossary:
             problems.append("glossary empty — Knowledge layer would not surface any terms")
         if not relationships:
-            problems.append(
-                "relationships empty — AI cannot reason about cross-source joins"
-            )
+            problems.append("relationships empty — AI cannot reason about cross-source joins")
         if not connections:
-            problems.append(
-                "no connection owned by user — AI has no data source to query"
-            )
+            problems.append("no connection owned by user — AI has no data source to query")
 
         if problems:
             print("[WARN] empty contexts detected:")
@@ -108,9 +104,9 @@ async def main() -> int:
         # Hard contract: when relationships exist, the prompt must surface
         # them so the AI can reason about joins.
         if relationships:
-            assert "Enterprise relationships" in rendered, (
-                "relationships present in ctx but not in rendered prompt"
-            )
+            assert (
+                "Enterprise relationships" in rendered
+            ), "relationships present in ctx but not in rendered prompt"
 
         print("[PASS] loader contract green — all 4 contexts wired into the AI prompt")
         return 0
