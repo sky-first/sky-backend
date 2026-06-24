@@ -38,6 +38,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.config.settings import settings
 from src.services.console_telemetry import (
+    ClusterNode,
     PlatformHealth,
     PodInfo,
     TelemetryUnavailable,
@@ -718,15 +719,49 @@ class KubernetesTelemetryProvider:
     def tenant_health(self, slug: str) -> TenantHealth:
         return self.get_tenant_health_sync(slug).to_tenant_health()
 
-    def cluster_nodes(self) -> List[Any]:
-        # Node-level telemetry intentionally not implemented in this PR;
-        # the K8s SA only needs list-pods + list-events to keep RBAC tight.
-        # Routes that call this will surface a 503 hinting at the missing
-        # ClusterRole binding (see PR description / infra repo).
-        raise TelemetryUnavailable(
-            "cluster_nodes via K8sTelemetryProvider not yet wired — needs a "
-            "sky-be-telemetry-nodes ClusterRoleBinding in sky-poc-infra."
-        )
+    def cluster_nodes(self) -> List[ClusterNode]:
+        core_v1 = self._ensure_client()
+        try:
+            nodes = core_v1.list_node().items
+        except Exception as exc:
+            raise TelemetryUnavailable(
+                f"cluster_nodes: list_node failed: {exc}"
+            ) from exc
+        out: List[ClusterNode] = []
+        for n in nodes:
+            labels = n.metadata.labels or {}
+            # sky-pool label (apps/infra) is the most informative role;
+            # fall back to standard node-role.kubernetes.io/* labels.
+            role = labels.get("sky-pool", "worker")
+            if role == "worker":
+                for k in labels:
+                    if k.startswith("node-role.kubernetes.io/"):
+                        role = k.split("/", 1)[1] or role
+                        break
+            status = "not_ready"
+            for cond in (n.status.conditions or []):
+                if cond.type == "Ready":
+                    status = "ready" if cond.status == "True" else "not_ready"
+                    break
+            pods_count = 0
+            try:
+                pods_count = len(
+                    core_v1.list_pod_for_all_namespaces(
+                        field_selector=f"spec.nodeName={n.metadata.name}"
+                    ).items
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            out.append(ClusterNode(
+                name=n.metadata.name,
+                cluster="stg",
+                role=role,
+                cpu_pct=0.0,
+                memory_pct=0.0,
+                pods_count=pods_count,
+                status=status,
+            ))
+        return out
 
     # ── test/operator helpers ────────────────────────────────────
 
