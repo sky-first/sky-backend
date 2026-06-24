@@ -153,6 +153,7 @@ async def list_tenants(
         )
         for row in rows
     ]
+    items.sort(key=lambda t: t.health_score, reverse=True)
     return ConsoleTenantList(items=items, total=total)
 
 

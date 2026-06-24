@@ -1757,7 +1757,20 @@ async def get_revenue_summary(
     user: User = Depends(require_sky_team),
 ) -> RevenueSummaryResponse:
     try:
-        data = billing_provider().revenue_summary()
+        billing = billing_provider().revenue_summary()
+        cost = cost_provider().platform_cost()
+        spend_usd = cost.total_usd
+        mrr_usd = billing["mrr_eur"] * 1.08  # EUR→USD for margin calc
+        gross_margin_pct = (
+            round((mrr_usd - spend_usd) / mrr_usd * 100, 1)
+            if mrr_usd > 0 else 0.0
+        )
+        data = {
+            "mrr_eur": billing["mrr_eur"],
+            "this_month_spend_usd": spend_usd,
+            "gross_margin_pct": gross_margin_pct,
+            "projection_eom_usd": spend_usd,
+        }
     except TelemetryUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     return RevenueSummaryResponse(**data)
