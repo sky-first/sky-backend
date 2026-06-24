@@ -61,6 +61,7 @@ GH_REPO_ENV = "GH_PROVISIONING_REPO"
 GH_WORKFLOW_ENV = "GH_PROVISIONING_WORKFLOW"
 GH_REF_ENV = "GH_PROVISIONING_REF"
 WEBHOOK_URL_ENV = "PROVISIONING_WEBHOOK_URL"
+WEBHOOK_URL_INTERNAL_ENV = "PROVISIONING_WEBHOOK_URL_INTERNAL"
 WEBHOOK_SECRET_ENV = "PROVISIONING_WEBHOOK_SECRET"
 
 DEFAULT_OWNER = "sky-first"
@@ -93,6 +94,7 @@ def _build_dispatch_payload(
     *,
     ref: str,
     webhook_url: str,
+    webhook_url_internal: str,
     webhook_secret: str,
     dispatch_token: str,
 ) -> dict[str, Any]:
@@ -110,6 +112,7 @@ def _build_dispatch_payload(
             "job_id": str(job.id),
             "tenant_slug": job.tenant_slug,
             "webhook_url": webhook_url,
+            "webhook_url_internal": webhook_url_internal,
             "webhook_secret": webhook_secret,
             "dispatch_token": dispatch_token,
             "admin_email": admin_email,
@@ -177,6 +180,7 @@ async def _provision_async(job_id: str) -> dict[str, Any]:
     workflow = os.getenv(GH_WORKFLOW_ENV) or DEFAULT_WORKFLOW
     ref = os.getenv(GH_REF_ENV) or DEFAULT_REF
     webhook_url = os.getenv(WEBHOOK_URL_ENV) or ""
+    webhook_url_internal = os.getenv(WEBHOOK_URL_INTERNAL_ENV) or webhook_url
     webhook_secret = os.getenv(WEBHOOK_SECRET_ENV) or ""
 
     async with AsyncSessionLocal() as session:  # type: AsyncSession
@@ -208,6 +212,7 @@ async def _provision_async(job_id: str) -> dict[str, Any]:
                     job,
                     ref=ref,
                     webhook_url=webhook_url,
+                    webhook_url_internal=webhook_url_internal,
                     webhook_secret=webhook_secret,
                     dispatch_token=dispatch_token,
                 )
@@ -305,6 +310,7 @@ async def _destroy_async(job_id: str) -> dict[str, Any]:
     workflow = DEFAULT_DESTROY_WORKFLOW
     ref = os.getenv(GH_REF_ENV) or DEFAULT_REF
     webhook_url = os.getenv(WEBHOOK_URL_ENV) or ""
+    webhook_url_internal = os.getenv(WEBHOOK_URL_INTERNAL_ENV) or webhook_url
     webhook_secret = os.getenv(WEBHOOK_SECRET_ENV) or ""
 
     async with AsyncSessionLocal() as session:  # type: AsyncSession
@@ -336,6 +342,7 @@ async def _destroy_async(job_id: str) -> dict[str, Any]:
                     job,
                     ref=ref,
                     webhook_url=webhook_url,
+                    webhook_url_internal=webhook_url_internal,
                     webhook_secret=webhook_secret,
                     dispatch_token=dispatch_token,
                 )

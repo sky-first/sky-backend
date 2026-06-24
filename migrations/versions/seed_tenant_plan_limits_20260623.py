@@ -80,13 +80,17 @@ def upgrade() -> None:
 
     # Fetch sentinel counters (single-tenant legacy data).  If no sentinel
     # row exists yet, default everything to 0.
-    sentinel = bind.execute(
-        sa.text(
-            "SELECT current_agents, current_users, current_storage_bytes, "
-            "current_queries_this_month, queries_period_start "
-            f"FROM tenant_plan_limits WHERE tenant_id = '{_SENTINEL_UUID}'"
+    sentinel = (
+        bind.execute(
+            sa.text(
+                "SELECT current_agents, current_users, current_storage_bytes, "
+                "current_queries_this_month, queries_period_start "
+                f"FROM tenant_plan_limits WHERE tenant_id = '{_SENTINEL_UUID}'"
+            )
         )
-    ).mappings().one_or_none()
+        .mappings()
+        .one_or_none()
+    )
 
     sentinel_agents = sentinel["current_agents"] if sentinel else 0
     sentinel_users = sentinel["current_users"] if sentinel else 0
@@ -94,9 +98,7 @@ def upgrade() -> None:
     sentinel_queries = sentinel["current_queries_this_month"] if sentinel else 0
     sentinel_period = sentinel["queries_period_start"] if sentinel else sa.func.now()
 
-    tenants = bind.execute(
-        sa.text("SELECT id, slug, tier FROM tenant_registry")
-    ).mappings().all()
+    tenants = bind.execute(sa.text("SELECT id, slug, tier FROM tenant_registry")).mappings().all()
 
     for tenant in tenants:
         caps = _caps_for(tenant["tier"])
@@ -112,7 +114,8 @@ def upgrade() -> None:
         current_queries = sentinel_queries if is_enterprise else 0
 
         bind.execute(
-            sa.text("""
+            sa.text(
+                """
                 INSERT INTO tenant_plan_limits (
                     tenant_id, tier,
                     max_agents, max_users, max_storage_gb, max_queries_per_month,
@@ -127,7 +130,8 @@ def upgrade() -> None:
                     '{}', NOW(), NOW()
                 )
                 ON CONFLICT (tenant_id) DO NOTHING
-            """),
+            """
+            ),
             {
                 "tenant_id": str(tenant["id"]),
                 "tier": caps["tier"],
@@ -151,9 +155,7 @@ def downgrade() -> None:
     inspector = sa.inspect(bind)
     if "tenant_plan_limits" not in inspector.get_table_names():
         return
-    tenants = bind.execute(
-        sa.text("SELECT id FROM tenant_registry")
-    ).mappings().all()
+    tenants = bind.execute(sa.text("SELECT id FROM tenant_registry")).mappings().all()
     for tenant in tenants:
         bind.execute(
             sa.text(

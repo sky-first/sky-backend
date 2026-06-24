@@ -606,7 +606,10 @@ class MoloniBillingProvider:
         # ``+asyncpg`` so psycopg2 picks it up. Reuse of the existing
         # async pool isn't possible across sync/async boundaries.
         sync_url = str(async_engine.url).replace("+asyncpg", "")
-        sync_engine = create_engine(sync_url, pool_pre_ping=True, future=True)
+        sync_engine = create_engine(
+            sync_url, pool_pre_ping=True, future=True,
+            connect_args={"sslmode": "require"},
+        )
         try:
             with sync_engine.connect() as conn:
                 rows = conn.execute(
@@ -654,21 +657,21 @@ class PrometheusActivityProvider:
         PROMETHEUS_QUERY_TOP_TENANTS    — optional override
 
     The default queries assume the BE app exposes
-    ``http_requests_total{tenant="<slug>"}``. If your exporter uses
-    different labels, set the env-var overrides.
+    ``sky_ai_requests_total{tenant="<slug>"}`` (emitted by src/ai/metrics.py).
+    Override via env vars if needed.
 
     Network errors surface as ``TelemetryUnavailable`` — the Console
     catches that and renders a 503 banner.
     """
 
     DEFAULT_PLATFORM_24H = (
-        'sum by (tenant) (rate(http_requests_total{tenant!=""}[5m]))'
+        'sum by (tenant) (rate(sky_ai_requests_total{tenant!=""}[5m]))'
     )
     DEFAULT_TENANT_7D = (
-        'sum(rate(http_requests_total{tenant="__SLUG__"}[1h]))'
+        'sum(rate(sky_ai_requests_total{tenant="__SLUG__"}[1h]))'
     )
     DEFAULT_TOP_TENANTS = (
-        'topk(10, sum by (tenant) (increase(http_requests_total{tenant!=""}[24h])))'
+        'topk(10, sum by (tenant) (increase(sky_ai_requests_total{tenant!=""}[24h])))'
     )
 
     def __init__(self) -> None:

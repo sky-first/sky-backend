@@ -144,6 +144,7 @@ async def list_tenants(
             capacity_pct_sources=_pct_from_plan(plan_by_id.get(row.id), "users"),
             capacity_pct_indexed_gb=_pct_from_plan(plan_by_id.get(row.id), "storage"),
             health_score=_health_score_from_plan(plan_by_id.get(row.id)),
+            is_unlimited=_is_unlimited(plan_by_id.get(row.id)),
             active_job=(
                 ProvisioningJobRead.model_validate(active_jobs_by_slug[row.slug])
                 if row.slug in active_jobs_by_slug
@@ -734,3 +735,10 @@ def _health_score_from_plan(plan: Optional[TenantPlanLimits]) -> int:
         score += 60.0
 
     return min(100, int(score))
+
+
+def _is_unlimited(plan: Optional[TenantPlanLimits]) -> bool:
+    """True when the plan has no capacity ceiling on any dimension."""
+    if plan is None:
+        return False
+    return plan.max_agents is None and plan.max_users is None and plan.max_storage_gb is None
