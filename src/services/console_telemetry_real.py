@@ -357,7 +357,10 @@ class AwsCostProvider:
         storage = sum(v for k, v in by_service.items() if "EBS" in k or "S3" in k)
         network = sum(v for k, v in by_service.items() if "Transfer" in k)
         bedrock = sum(v for k, v in by_service.items() if "Bedrock" in k)
-        total = sum(by_service.values())
+        # AWS Cost Explorer can return negative rows for data-transfer credits that
+        # exactly cancel out the corresponding compute charges. Sum only positive
+        # amounts so Spend MTD reflects gross spend, not the net after credits.
+        total = sum(v for v in by_service.values() if v > 0)
         end = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         return CostBreakdown(
             period_start=(end - timedelta(days=30)).isoformat(),
@@ -381,7 +384,7 @@ class AwsCostProvider:
         storage = sum(v for k, v in by_service.items() if "EBS" in k or "S3" in k)
         network = sum(v for k, v in by_service.items() if "Transfer" in k)
         bedrock = sum(v for k, v in by_service.items() if "Bedrock" in k)
-        total = sum(by_service.values())
+        total = sum(v for v in by_service.values() if v > 0)
         end = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         return CostBreakdown(
             period_start=(end - timedelta(days=30)).isoformat(),
@@ -643,9 +646,92 @@ class MoloniBillingProvider:
         return []
 
     def incidents(self) -> List[IncidentEntry]:
-        # Same rationale as alerts(): until we wire Sentry/PagerDuty
-        # the Billing tab returns an empty list instead of fake rows.
-        return []
+        """Return recent platform incidents from live Kubernetes Warning events.
+
+        Groups events by (reason, namespace, base-name) so repeated firings
+        of the same issue appear as a single entry. Skips pure-infra namespaces
+        (kube-system, monitoring, cert-manager, etc.) that are not relevant to
+        platform operators. Silently returns [] on any error so a K8s outage
+        does not prevent the Console from loading.
+        """
+        _SKIP_NS = {
+            "kube-system", "kube-public", "kube-node-lease",
+            "velero", "cert-manager", "ingress-nginx",
+        }
+        _RELEVANT_REASONS = {
+            "backoff", "crashloopbackoff", "failed", "failedmount",
+            "failedscheduling", "unhealthy", "imagepullbackoff",
+            "errimagepull", "oomkilled", "failedcreate",
+        }
+        try:
+            from kubernetes import client as _k8s, config as _cfg  # type: ignore[import-not-found]
+        except ImportError:
+            return []
+        try:
+            try:
+                _cfg.load_incluster_config()
+            except Exception:  # noqa: BLE001
+                _cfg.load_kube_config()
+            v1 = _k8s.CoreV1Api()
+            raw = v1.list_event_for_all_namespaces(field_selector="type=Warning").items
+        except Exception:  # noqa: BLE001
+            return []
+
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        import re
+        _numeric_suffix = re.compile(r"-\d+$")
+
+        # Group: (reason, namespace, base-name) → latest event + first seen
+        groups: Dict[tuple, dict] = {}
+        for ev in raw:
+            ns = getattr(getattr(ev, "involved_object", None), "namespace", None) or ""
+            if ns in _SKIP_NS:
+                continue
+            reason = (ev.reason or "").lower()
+            if not any(r in reason for r in _RELEVANT_REASONS):
+                continue
+            ts = ev.last_timestamp or ev.event_time or ev.first_timestamp
+            if ts is None:
+                continue
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts < since:
+                continue
+            name = getattr(getattr(ev, "involved_object", None), "name", "") or ""
+            base_name = _numeric_suffix.sub("", name)
+            key = (ev.reason or "", ns, base_name)
+            entry = groups.get(key)
+            if entry is None or ts > entry["last_ts"]:
+                groups[key] = {
+                    "ts": ev.first_timestamp or ts,
+                    "last_ts": ts,
+                    "message": (ev.message or "")[:120],
+                    "ns": ns,
+                    "base_name": base_name,
+                    "reason": ev.reason or "",
+                    "count": ev.count or 1,
+                }
+
+        out: List[IncidentEntry] = []
+        for (reason, ns, base_name), g in sorted(
+            groups.items(), key=lambda x: x[1]["last_ts"], reverse=True
+        )[:20]:
+            severity = (
+                "critical" if reason.lower() in {"oomkilled", "crashloopbackoff"}
+                else "warning"
+            )
+            first_ts = g["ts"]
+            if first_ts and first_ts.tzinfo is None:
+                first_ts = first_ts.replace(tzinfo=timezone.utc)
+            out.append(IncidentEntry(
+                id=f"k8s-{ns}-{base_name}-{reason}",
+                severity=severity,
+                title=f"{reason}: {base_name}" + (f" (×{g['count']})" if g["count"] > 1 else ""),
+                started_at=first_ts.isoformat() if first_ts else g["last_ts"].isoformat(),
+                resolved_at=None,
+                affected_tenants=[],
+            ))
+        return out
 
 
 # ── Prometheus activity ────────────────────────────────────────────

@@ -79,6 +79,9 @@ class PlatformHealthSnapshot:
     api_uptime_pct: float = 0.0
     api_latency_p95_ms: float = 0.0
     api_error_rate_pct: float = 0.0
+    # PostgreSQL pg_stat_activity; 0 when DB is unreachable
+    db_connections_used: int = 0
+    db_connections_max: int = 0
 
     def to_platform_health(self) -> PlatformHealth:
         """Project onto the legacy ``PlatformHealth`` shape so the
@@ -90,8 +93,8 @@ class PlatformHealthSnapshot:
             pods_running=self.pods_running,
             pods_pending=self.pods_pending,
             pods_crashlooping=self.pods_crashlooping,
-            db_connections_used=0,
-            db_connections_max=0,
+            db_connections_used=self.db_connections_used,
+            db_connections_max=self.db_connections_max,
             last_incident=None,
         )
 
@@ -518,6 +521,37 @@ class KubernetesTelemetryProvider:
             out[name] = (cpu_m, mem_b)
         return out
 
+    @staticmethod
+    def _fetch_db_connections() -> tuple[int, int]:
+        """Return ``(used, max)`` from ``pg_stat_activity``.
+
+        Uses a one-shot sync engine so it can be called from a sync
+        context without an event loop. Returns ``(0, 0)`` on any error
+        so a DB hiccup never blocks the health endpoint.
+        """
+        db_url = os.getenv("DATABASE_URL", "").replace("+asyncpg", "")
+        if not db_url:
+            return 0, 0
+        try:
+            from sqlalchemy import create_engine, text
+            engine = create_engine(
+                db_url, pool_pre_ping=True, connect_args={"sslmode": "require"}
+            )
+            try:
+                with engine.connect() as conn:
+                    used = int(conn.execute(text(
+                        "SELECT count(*) FROM pg_stat_activity"
+                        " WHERE datname = current_database()"
+                    )).scalar() or 0)
+                    max_conn = int(conn.execute(text(
+                        "SELECT setting FROM pg_settings WHERE name = 'max_connections'"
+                    )).scalar() or 0)
+                    return used, max_conn
+            finally:
+                engine.dispose()
+        except Exception:  # noqa: BLE001
+            return 0, 0
+
     def _prometheus_scalar(self, query: str, default: float = 0.0) -> float:
         """Hit the Prometheus instant-query API and return the first scalar result.
 
@@ -681,6 +715,8 @@ class KubernetesTelemetryProvider:
             ' / sum(rate(http_requests_total{job="sky-api"}[5m])) * 100'
         )
 
+        db_used, db_max = self._fetch_db_connections()
+
         return PlatformHealthSnapshot(
             pods_total=len(pods),
             pods_running=running,
@@ -691,6 +727,8 @@ class KubernetesTelemetryProvider:
             api_uptime_pct=round(uptime_pct, 2),
             api_latency_p95_ms=round(latency_p95_ms, 1),
             api_error_rate_pct=round(error_rate_pct, 3),
+            db_connections_used=db_used,
+            db_connections_max=db_max,
         )
 
     def get_tenant_health_sync(self, slug: str) -> TenantHealthSnapshot:
