@@ -29,9 +29,14 @@ mocks in production.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import math
+import os
 import threading
 import time
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -70,14 +75,18 @@ class PlatformHealthSnapshot:
     pods_unhealthy_last_24h: int
     namespaces_scanned: List[str] = field(default_factory=list)
     collected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    # Prometheus-sourced; 0.0 when Prometheus is unavailable
+    api_uptime_pct: float = 0.0
+    api_latency_p95_ms: float = 0.0
+    api_error_rate_pct: float = 0.0
 
     def to_platform_health(self) -> PlatformHealth:
         """Project onto the legacy ``PlatformHealth`` shape so the
         existing Console route keeps working."""
         return PlatformHealth(
-            api_uptime_pct=0.0,
-            api_latency_p95_ms=0,
-            api_error_rate_pct=0.0,
+            api_uptime_pct=self.api_uptime_pct,
+            api_latency_p95_ms=int(self.api_latency_p95_ms),
+            api_error_rate_pct=self.api_error_rate_pct,
             pods_running=self.pods_running,
             pods_pending=self.pods_pending,
             pods_crashlooping=self.pods_crashlooping,
@@ -509,6 +518,27 @@ class KubernetesTelemetryProvider:
             out[name] = (cpu_m, mem_b)
         return out
 
+    def _prometheus_scalar(self, query: str, default: float = 0.0) -> float:
+        """Hit the Prometheus instant-query API and return the first scalar result.
+
+        Returns *default* on any failure: no PROMETHEUS_URL env var, network
+        error, no series returned, or NaN/Inf from the query engine.
+        """
+        prom_url = os.getenv("PROMETHEUS_URL", "").rstrip("/")
+        if not prom_url:
+            return default
+        try:
+            url = f"{prom_url}/api/v1/query?query={urllib.parse.quote(query)}"
+            with urllib.request.urlopen(url, timeout=5) as r:
+                data = json.loads(r.read())
+            results = data.get("data", {}).get("result", [])
+            if not results:
+                return default
+            val = float(results[0]["value"][1])
+            return default if (math.isnan(val) or math.isinf(val)) else val
+        except Exception:
+            return default
+
     @staticmethod
     def _pod_limits(pod: Any) -> tuple[float, float]:
         """Return ``(cpu_limit_mCPU, memory_limit_bytes)`` for the pod
@@ -638,6 +668,19 @@ class KubernetesTelemetryProvider:
 
         unhealthy_24h = self._count_unhealthy_pods_last_24h(namespaces_scanned)
 
+        uptime_pct = self._prometheus_scalar(
+            'avg_over_time(up{job="sky-api"}[30d]) * 100'
+        )
+        latency_p95_ms = self._prometheus_scalar(
+            'histogram_quantile(0.95,'
+            ' sum by(le)(rate(http_request_duration_seconds_bucket{job="sky-api"}[5m])))'
+            ' * 1000'
+        )
+        error_rate_pct = self._prometheus_scalar(
+            'sum(rate(http_requests_total{job="sky-api",status="5xx"}[5m]))'
+            ' / sum(rate(http_requests_total{job="sky-api"}[5m])) * 100'
+        )
+
         return PlatformHealthSnapshot(
             pods_total=len(pods),
             pods_running=running,
@@ -645,6 +688,9 @@ class KubernetesTelemetryProvider:
             pods_crashlooping=crash,
             pods_unhealthy_last_24h=unhealthy_24h,
             namespaces_scanned=namespaces_scanned,
+            api_uptime_pct=round(uptime_pct, 2),
+            api_latency_p95_ms=round(latency_p95_ms, 1),
+            api_error_rate_pct=round(error_rate_pct, 3),
         )
 
     def get_tenant_health_sync(self, slug: str) -> TenantHealthSnapshot:
@@ -727,6 +773,24 @@ class KubernetesTelemetryProvider:
             raise TelemetryUnavailable(
                 f"cluster_nodes: list_node failed: {exc}"
             ) from exc
+
+        # Fetch node-level usage from metrics-server (graceful fallback to {})
+        node_metrics: Dict[str, tuple[float, float]] = {}
+        try:
+            from kubernetes import client as _k8s_client  # type: ignore[import-not-found]
+            custom = _k8s_client.CustomObjectsApi()
+            resp = custom.list_cluster_custom_object("metrics.k8s.io", "v1beta1", "nodes")
+            for item in (resp or {}).get("items", []) or []:
+                name = (item.get("metadata") or {}).get("name", "")
+                usage = item.get("usage") or {}
+                if name:
+                    node_metrics[name] = (
+                        self._parse_cpu_millicores(usage.get("cpu")),
+                        self._parse_memory_bytes(usage.get("memory")),
+                    )
+        except Exception:  # noqa: BLE001
+            pass
+
         out: List[ClusterNode] = []
         for n in nodes:
             labels = n.metadata.labels or {}
@@ -752,12 +816,26 @@ class KubernetesTelemetryProvider:
                 )
             except Exception:  # noqa: BLE001
                 pass
+
+            cpu_pct = 0.0
+            memory_pct = 0.0
+            node_name = n.metadata.name
+            if node_name in node_metrics:
+                used_cpu_m, used_mem_b = node_metrics[node_name]
+                capacity = n.status.capacity or {}
+                cap_cpu_m = self._parse_cpu_millicores(capacity.get("cpu"))
+                cap_mem_b = self._parse_memory_bytes(capacity.get("memory"))
+                if cap_cpu_m > 0:
+                    cpu_pct = round(100.0 * used_cpu_m / cap_cpu_m, 1)
+                if cap_mem_b > 0:
+                    memory_pct = round(100.0 * used_mem_b / cap_mem_b, 1)
+
             out.append(ClusterNode(
-                name=n.metadata.name,
+                name=node_name,
                 cluster="stg",
                 role=role,
-                cpu_pct=0.0,
-                memory_pct=0.0,
+                cpu_pct=cpu_pct,
+                memory_pct=memory_pct,
                 pods_count=pods_count,
                 status=status,
             ))
