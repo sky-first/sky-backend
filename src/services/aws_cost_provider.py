@@ -354,7 +354,10 @@ class AwsCostProvider:
                     amt = 0.0
                 bucket = _bucket_for_service(service)
                 buckets[bucket] = buckets.get(bucket, 0.0) + amt
-                day_total += amt
+                # Only count positive charges toward the daily bar so
+                # data-transfer credits don't cancel out compute spend.
+                if amt > 0:
+                    day_total += amt
 
             # ResultsByTime entries also carry a Total when no GroupBy
             # produced rows (e.g. tenant has no tagged resources). Use
@@ -386,7 +389,9 @@ class AwsCostProvider:
         """
         resp = self._query_cost_and_usage(days=days)
         buckets, daily = self._aggregate_response(resp)
-        total = sum(buckets.values())
+        # Gross positive spend — excludes data-transfer credits (negative rows)
+        # that would otherwise net the total to zero.
+        total = sum(v for v in buckets.values() if v > 0)
         end = datetime.now(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
@@ -415,7 +420,7 @@ class AwsCostProvider:
             raise TelemetryUnavailable("tenant slug is required")
         resp = self._query_cost_and_usage(days=days, tenant_slug=slug_clean)
         buckets, daily = self._aggregate_response(resp)
-        total = sum(buckets.values())
+        total = sum(v for v in buckets.values() if v > 0)
         end = datetime.now(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
