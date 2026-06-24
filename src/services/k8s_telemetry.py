@@ -534,8 +534,12 @@ class KubernetesTelemetryProvider:
             return 0, 0
         try:
             from sqlalchemy import create_engine, text
+            from sqlalchemy.pool import NullPool
+            # NullPool: open one connection, run queries, close immediately.
+            # A pooled engine would leave idle connections in pg_stat_activity
+            # after every health-check poll, causing the count to drift upward.
             engine = create_engine(
-                db_url, pool_pre_ping=True, connect_args={"sslmode": "require"}
+                db_url, poolclass=NullPool, connect_args={"sslmode": "require"}
             )
             try:
                 with engine.connect() as conn:
