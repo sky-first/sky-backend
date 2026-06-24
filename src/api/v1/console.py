@@ -1757,7 +1757,7 @@ async def get_revenue_summary(
     user: User = Depends(require_sky_team),
 ) -> RevenueSummaryResponse:
     try:
-        data = cost_provider().revenue_summary()
+        data = billing_provider().revenue_summary()
     except TelemetryUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     return RevenueSummaryResponse(**data)
@@ -2251,7 +2251,7 @@ async def get_board_pack(
 
     summary = await console_service.dashboard_summary(db)
     cost = cost_provider().platform_cost()
-    revenue = cost_provider().revenue_summary()
+    revenue = billing_provider().revenue_summary()
     tenants = (await db.execute(select(Tenant))).scalars().all()
 
     # Customers at risk
