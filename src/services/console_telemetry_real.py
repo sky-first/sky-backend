@@ -601,11 +601,15 @@ class MoloniBillingProvider:
                 f"revenue_summary import failed: {exc}"
             ) from exc
 
-        # Build a one-shot sync engine off the same DB URL. The
-        # async engine's URL has ``postgresql+asyncpg``; strip the
-        # ``+asyncpg`` so psycopg2 picks it up. Reuse of the existing
-        # async pool isn't possible across sync/async boundaries.
-        sync_url = str(async_engine.url).replace("+asyncpg", "")
+        # Build a one-shot sync engine off the same DB URL.
+        # render_as_string(hide_password=False) is required — str(url)
+        # redacts the password as *** in SQLAlchemy 2.0, causing
+        # authentication failure.
+        try:
+            raw_url = async_engine.url.render_as_string(hide_password=False)
+        except Exception as exc:
+            raise TelemetryUnavailable(f"revenue_summary: failed to build DB URL: {exc}") from exc
+        sync_url = raw_url.replace("+asyncpg", "")
         sync_engine = create_engine(
             sync_url, pool_pre_ping=True, future=True,
             connect_args={"sslmode": "require"},
@@ -615,6 +619,8 @@ class MoloniBillingProvider:
                 rows = conn.execute(
                     select(Tenant.tier).where(Tenant.is_active.is_(True))
                 ).all()
+        except Exception as exc:
+            raise TelemetryUnavailable(f"revenue_summary: DB query failed: {exc}") from exc
         finally:
             sync_engine.dispose()
 
