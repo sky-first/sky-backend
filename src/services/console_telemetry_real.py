@@ -337,10 +337,15 @@ class AwsCostProvider:
             for g in period.get("Groups", []):
                 service = (g.get("Keys") or ["unknown"])[0]
                 amt = float(g["Metrics"]["UnblendedCost"]["Amount"])
-                day_total += amt
+                # Accumulate all amounts per-service (negatives kept for
+                # the cost-mix breakdown), but only count positive amounts
+                # toward the daily spend bar so data-transfer credits don't
+                # cancel out compute charges on the chart.
                 totals_by_service[service] = (
                     totals_by_service.get(service, 0) + amt
                 )
+                if amt > 0:
+                    day_total += amt
             daily.append(
                 TimeseriesPoint(
                     t=period["TimePeriod"]["Start"] + "T00:00:00+00:00",
