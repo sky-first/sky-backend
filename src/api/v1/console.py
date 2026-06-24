@@ -1841,7 +1841,7 @@ async def get_tenant_activity(
     return TenantActivityResponse(
         points_7d=[p.__dict__ for p in points],
         total_queries_7d=total,
-        total_agents_runs_7d=int(total * 0.08),
+        total_agents_runs_7d=0,
     )
 
 
@@ -2267,6 +2267,12 @@ async def get_board_pack(
     revenue = billing_provider().revenue_summary()
     tenants = (await db.execute(select(Tenant))).scalars().all()
 
+    mrr_usd = revenue["mrr_eur"] * 1.08  # EUR→USD (same conversion as revenue_summary route)
+    gross_margin_pct = (
+        round((mrr_usd - cost.total_usd) / mrr_usd * 100, 1)
+        if mrr_usd > 0 else 0.0
+    )
+
     # Customers at risk
     at_risk: list[dict] = []
     for t in tenants:
@@ -2294,7 +2300,7 @@ async def get_board_pack(
             "arr_run_rate_eur": revenue["mrr_eur"] * 12,
             "spend_mtd_usd": cost.total_usd,
             "projected_eom_usd": revenue["projection_eom_usd"],
-            "gross_margin_pct": revenue["gross_margin_pct"],
+            "gross_margin_pct": gross_margin_pct,
         },
         tenants_by_tier=summary.tenants_by_tier,
         customers_at_risk=at_risk,
