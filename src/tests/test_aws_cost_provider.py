@@ -240,9 +240,12 @@ def test_tenant_cost_breakdown_filters_by_tag():
 
     assert breakdown.bedrock_usd == pytest.approx(1.25)
     call_kwargs = ce.get_cost_and_usage.call_args.kwargs
-    assert call_kwargs["Filter"] == {
-        "Tags": {"Key": TENANT_TAG_KEY, "Values": ["gbt"]},
-    }
+    # Credit exclusion is always on, so the tenant tag is combined with the
+    # RECORD_TYPE "Not" clause via ``And``.
+    f = call_kwargs["Filter"]
+    assert "And" in f
+    assert {"Tags": {"Key": TENANT_TAG_KEY, "Values": ["gbt"]}} in f["And"]
+    assert any("Not" in clause for clause in f["And"])
 
 
 def test_tenant_with_no_tagged_resources_returns_zero_not_error():
@@ -292,7 +295,8 @@ def test_linked_account_filter_is_combined_with_tenant_tag():
     f = call_kwargs["Filter"]
     assert "And" in f
     keys = {next(iter(clause)) for clause in f["And"]}
-    assert keys == {"Dimensions", "Tags"}
+    # "Not" is the always-on credit/refund exclusion.
+    assert keys == {"Not", "Dimensions", "Tags"}
 
 
 def test_cost_provider_factory_returns_aws_when_gated_on(monkeypatch):
@@ -321,6 +325,51 @@ def test_tenant_cost_provider_resolves_to_same_provider(monkeypatch):
     assert isinstance(b, AwsCostProvider)
     # Both come from the same singleton.
     assert a is b
+
+
+def test_platform_query_excludes_credits_and_refunds():
+    """Every platform-wide query must carry a ``Not`` RECORD_TYPE filter
+    excluding Credit/Refund so the buckets reflect real usage (no negative
+    slice from a credit landing on a single service)."""
+    ce = MagicMock()
+    ce.get_cost_and_usage.return_value = _ce_response(
+        [{"start": "2026-05-01", "groups": [("Amazon Elastic Kubernetes Service", 8.75)]}]
+    )
+    provider = _make_provider(ce)
+
+    provider.platform_cost_breakdown(days=30)
+
+    f = ce.get_cost_and_usage.call_args.kwargs["Filter"]
+    # No linked account / tenant → the only clause is the credit exclusion.
+    assert f == {
+        "Not": {"Dimensions": {"Key": "RECORD_TYPE", "Values": ["Credit", "Refund"]}}
+    }
+
+
+def test_networking_services_map_to_network_bucket():
+    """NAT gateway, VPC, load balancers and Route 53 must land in the
+    network bucket — previously they leaked into compute and made the
+    Network slice look artificially tiny."""
+    ce = MagicMock()
+    ce.get_cost_and_usage.return_value = _ce_response(
+        [
+            {
+                "start": "2026-05-01",
+                "groups": [
+                    ("Amazon Virtual Private Cloud", 3.0),  # NAT gateway hours
+                    ("Elastic Load Balancing", 2.0),
+                    ("Amazon Route 53", 0.5),
+                    ("Amazon Elastic Kubernetes Service", 4.0),
+                ],
+            },
+        ]
+    )
+    provider = _make_provider(ce)
+
+    b = provider.platform_cost_breakdown(days=7)
+
+    assert b.network_usd == pytest.approx(3.0 + 2.0 + 0.5)
+    assert b.compute_usd == pytest.approx(4.0)
 
 
 def test_revenue_summary_raises_telemetry_unavailable():
