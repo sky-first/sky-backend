@@ -59,6 +59,23 @@ DEFAULT_CACHE_TTL_SECONDS = 1800
 # resource (sky-poc-infra: modules/tenant_cluster/main.tf).
 TENANT_TAG_KEY = "tenant"
 
+# Cost Explorer is a *global* service. Its only regional endpoint lives in
+# ``us-east-1`` for the standard AWS partition — passing any other region
+# (e.g. the platform's home ``eu-west-1``) risks an EndpointConnectionError
+# on some botocore versions. Home the CE client here regardless of the
+# platform region so the query never fails just because of endpoint
+# resolution.
+COST_EXPLORER_ENDPOINT_REGION = "us-east-1"
+
+# RECORD_TYPE values that represent credits/refunds rather than real
+# resource usage. We exclude them from the cost query so the Console shows
+# what we actually *consumed* (which reconciles with the AWS Billing
+# console's charge view) instead of the credit-masked net. Excluding them
+# also removes the nonsensical negative slice we were seeing when a single
+# credit landed on one service (e.g. a data-transfer credit rendering
+# Network < 0).
+CREDIT_RECORD_TYPES = ["Credit", "Refund"]
+
 
 # ── Service → bucket mapping ──────────────────────────────────────
 
@@ -79,9 +96,22 @@ def _bucket_for_service(service_name: str) -> str:
     # Bedrock first (it's an LLM service, not "compute" in the EC2 sense).
     if "bedrock" in s:
         return "bedrock_usd"
-    # Network: CloudFront + the DataTransfer pseudo-service. Includes
-    # "AWS Data Transfer" which CE reports as its own SERVICE row.
-    if "cloudfront" in s or "data transfer" in s or "datatransfer" in s:
+    # Network: CloudFront + the DataTransfer pseudo-service, plus the
+    # networking services that carry the bulk of real egress/ingress cost
+    # — NAT gateways, VPC endpoints, load balancers and Route 53. Without
+    # these, NAT/VPC/ELB spend (often the biggest network line) silently
+    # fell into ``compute`` and the Network slice looked artificially tiny.
+    if (
+        "cloudfront" in s
+        or "data transfer" in s
+        or "datatransfer" in s
+        or "virtual private cloud" in s
+        or "nat gateway" in s
+        or "elastic load balancing" in s
+        or "route 53" in s
+        or "route53" in s
+        or "global accelerator" in s
+    ):
         return "network_usd"
     # Storage: S3, EBS, EFS. EBS shows up as part of "Amazon Elastic
     # Compute Cloud - Compute" usage types in some accounts, but the
@@ -92,6 +122,8 @@ def _bucket_for_service(service_name: str) -> str:
         or "elastic block store" in s
         or "elastic file system" in s
         or "amazon s3" in s
+        or "glacier" in s
+        or "backup" in s
         or " ebs" in s
         or " efs" in s
     ):
@@ -225,7 +257,11 @@ class AwsCostProvider:
             )
             raise TelemetryUnavailable(self._init_error) from exc
         try:
-            self._ce_client = boto3.client("ce", region_name=self._region)
+            # CE is global — always target its us-east-1 endpoint (see
+            # COST_EXPLORER_ENDPOINT_REGION) regardless of self._region.
+            self._ce_client = boto3.client(
+                "ce", region_name=COST_EXPLORER_ENDPOINT_REGION
+            )
         except Exception as exc:  # noqa: BLE001
             self._init_error = f"AWS Cost Explorer client init failed: {exc}"
             raise TelemetryUnavailable(self._init_error) from exc
@@ -238,18 +274,34 @@ class AwsCostProvider:
         return d.strftime("%Y-%m-%d")
 
     def _build_filter(
-        self, *, tenant_slug: Optional[str] = None
+        self,
+        *,
+        tenant_slug: Optional[str] = None,
+        exclude_credits: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """Build the ``Filter`` clause for ``get_cost_and_usage``.
 
-        Combines (when both apply):
+        Combines (when they apply):
+        * Credit/refund exclusion (``exclude_credits``, default on) so the
+          numbers reflect real resource usage — see ``CREDIT_RECORD_TYPES``.
         * Linked-account filter from settings (master payer use case)
         * Tenant tag filter ``tenant=<slug>``
 
-        Returns ``None`` when no filter is needed (master account, all
-        tenants summed → the platform-wide call).
+        Returns ``None`` only when *no* clause applies (i.e. credits are
+        explicitly kept and neither a linked account nor a tenant is set).
         """
         clauses: List[Dict[str, Any]] = []
+        if exclude_credits:
+            clauses.append(
+                {
+                    "Not": {
+                        "Dimensions": {
+                            "Key": "RECORD_TYPE",
+                            "Values": CREDIT_RECORD_TYPES,
+                        }
+                    }
+                }
+            )
         if self._linked_account_id:
             clauses.append(
                 {
