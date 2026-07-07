@@ -268,18 +268,14 @@ class KubernetesInfraProvider:
 
 
 class AwsCostProvider:
-    """Real ``CostProvider`` backed by AWS Cost Explorer.
+    """Legacy ``CostProvider`` shim — delegates to ``aws_cost_provider``.
 
-    Required env vars:
-        AWS_REGION                — typically eu-west-1
-        AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY  (or IRSA when on EKS)
-        BEDROCK_PROFILE_PREFIX    — applied to tenant inference profile
-                                    ARNs to group spend (default sky-)
-
-    Uses cost-allocation tags ``TenantID`` and ``ApplicationID`` to
-    split spend per tenant. Tags must be activated in the Billing
-    console and propagated for at least 24h before this surfaces
-    real data; until then ``TelemetryUnavailable`` is raised.
+    This class is the fallback the factory picks when
+    ``AWS_COSTS_TELEMETRY_ENABLED`` is unset (mock off). Its cost methods
+    now delegate to the canonical ``aws_cost_provider.AwsCostProvider``
+    (credit/refund exclusion, us-east-1 endpoint, ``tenant`` allocation
+    tag, richer service→bucket map) so both wiring paths return identical
+    numbers. ``revenue_summary`` is not sourced from AWS and still raises.
     """
 
     def __init__(self) -> None:
@@ -354,53 +350,25 @@ class AwsCostProvider:
             )
         return daily, totals_by_service
 
+    # NOTE (2026-07): the bucketing logic that used to live in these two
+    # methods diverged from the canonical provider — lossy service→bucket
+    # map (NAT/VPC/RDS leaked into compute), tag key ``TenantID`` instead of
+    # ``tenant``, and an ad-hoc positive-only total that differs from proper
+    # credit/refund exclusion. Both methods now delegate to
+    # ``aws_cost_provider`` (single source of truth: excludes Credit/Refund
+    # RECORD_TYPE, us-east-1 endpoint, richer network mapping) so this
+    # fallback path (AWS_COSTS_TELEMETRY_ENABLED unset) can never regress to
+    # the old numbers. ``_daily_series`` is retained only for reference.
+
     def platform_cost(self) -> CostBreakdown:
-        daily, by_service = self._daily_series()
-        compute = sum(
-            v for k, v in by_service.items() if "EC2" in k or "EKS" in k or "Fargate" in k
-        )
-        storage = sum(v for k, v in by_service.items() if "EBS" in k or "S3" in k)
-        network = sum(v for k, v in by_service.items() if "Transfer" in k)
-        bedrock = sum(v for k, v in by_service.items() if "Bedrock" in k)
-        # AWS Cost Explorer can return negative rows for data-transfer credits that
-        # exactly cancel out the corresponding compute charges. Sum only positive
-        # amounts so Spend MTD reflects gross spend, not the net after credits.
-        total = sum(v for v in by_service.values() if v > 0)
-        end = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        return CostBreakdown(
-            period_start=(end - timedelta(days=30)).isoformat(),
-            period_end=end.isoformat(),
-            compute_usd=round(compute, 2),
-            storage_usd=round(storage, 2),
-            network_usd=round(network, 2),
-            bedrock_usd=round(bedrock, 2),
-            total_usd=round(total, 2),
-            daily=daily,
-        )
+        from src.services.aws_cost_provider import get_provider
+
+        return get_provider().platform_cost()
 
     def tenant_cost(self, slug: str) -> CostBreakdown:
-        ce_filter = {
-            "Tags": {"Key": "TenantID", "Values": [slug]},
-        }
-        daily, by_service = self._daily_series(ce_filter=ce_filter)
-        compute = sum(
-            v for k, v in by_service.items() if "EC2" in k or "EKS" in k or "Fargate" in k
-        )
-        storage = sum(v for k, v in by_service.items() if "EBS" in k or "S3" in k)
-        network = sum(v for k, v in by_service.items() if "Transfer" in k)
-        bedrock = sum(v for k, v in by_service.items() if "Bedrock" in k)
-        total = sum(v for v in by_service.values() if v > 0)
-        end = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        return CostBreakdown(
-            period_start=(end - timedelta(days=30)).isoformat(),
-            period_end=end.isoformat(),
-            compute_usd=round(compute, 2),
-            storage_usd=round(storage, 2),
-            network_usd=round(network, 2),
-            bedrock_usd=round(bedrock, 2),
-            total_usd=round(total, 2),
-            daily=daily,
-        )
+        from src.services.aws_cost_provider import get_provider
+
+        return get_provider().tenant_cost(slug)
 
     def revenue_summary(self) -> Dict[str, float]:
         # Revenue comes from Moloni, not from AWS — this provider

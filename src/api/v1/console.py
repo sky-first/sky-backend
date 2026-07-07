@@ -1752,6 +1752,35 @@ async def get_platform_cost(
     )
 
 
+def _month_to_date_and_projection(
+    daily: List, now: datetime
+) -> tuple[float, float]:
+    """Derive month-to-date spend and a linear end-of-month projection
+    from a daily cost series.
+
+    ``daily`` is the CostBreakdown.daily list (each item has ``.t`` ISO
+    date + ``.value``). We sum only the points that fall in ``now``'s
+    calendar month → MTD (this reconciles 1:1 with the AWS console's
+    month-to-date view). The projection linearly extrapolates that MTD
+    across the full month: ``mtd / days_elapsed * days_in_month``.
+
+    Kept as a pure function so the arithmetic is unit-tested without
+    standing up the app or mocking Cost Explorer.
+    """
+    import calendar
+
+    ym = now.strftime("%Y-%m")
+    mtd = round(
+        sum(float(getattr(p, "value", 0.0)) for p in daily
+            if str(getattr(p, "t", "")).startswith(ym)),
+        2,
+    )
+    days_in_month = calendar.monthrange(now.year, now.month)[1]
+    days_elapsed = max(1, now.day)
+    projection = round(mtd / days_elapsed * days_in_month, 2)
+    return mtd, projection
+
+
 @router.get("/dashboard/revenue", response_model=RevenueSummaryResponse)
 async def get_revenue_summary(
     user: User = Depends(require_sky_team),
@@ -1759,17 +1788,26 @@ async def get_revenue_summary(
     try:
         billing = billing_provider().revenue_summary()
         cost = cost_provider().platform_cost()
-        spend_usd = cost.total_usd
-        mrr_usd = billing["mrr_eur"] * 1.08  # EUR→USD for margin calc
+        # Month-to-date spend (reconciles with the AWS console) + a linear
+        # EOM projection, both derived from the daily usage series. The
+        # series already excludes credits/refunds (aws_cost_provider), so
+        # these are real-usage numbers.
+        mtd_usd, projection_eom_usd = _month_to_date_and_projection(
+            cost.daily, datetime.now(timezone.utc)
+        )
+        mrr_usd = billing["mrr_eur"] * settings.EUR_USD_RATE
+        # Monthly gross margin: contracted MRR vs the *projected* full-month
+        # spend (apples-to-apples — both are month-scale), not the raw 30d
+        # or partial MTD figure.
         gross_margin_pct = (
-            round((mrr_usd - spend_usd) / mrr_usd * 100, 1)
+            round((mrr_usd - projection_eom_usd) / mrr_usd * 100, 1)
             if mrr_usd > 0 else 0.0
         )
         data = {
             "mrr_eur": billing["mrr_eur"],
-            "this_month_spend_usd": spend_usd,
+            "this_month_spend_usd": mtd_usd,
             "gross_margin_pct": gross_margin_pct,
-            "projection_eom_usd": spend_usd,
+            "projection_eom_usd": projection_eom_usd,
         }
     except TelemetryUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
