@@ -570,6 +570,13 @@ class Settings(BaseSettings):
     # rest of SkyFirst's infra footprint.
     AWS_COSTS_REGION: str = "eu-west-1"
 
+    # EUR→USD rate used to compare MRR (billed in EUR via Moloni) against
+    # AWS spend (reported in USD by Cost Explorer) when computing gross
+    # margin on the Console. Kept as a setting rather than a hardcoded
+    # literal so it can be nudged without a code change; a live FX feed
+    # can replace this later without touching the route.
+    EUR_USD_RATE: float = 1.08
+
     # ─── Langfuse — LLM observability + cost tracking ─────────────────────
     # Langfuse is already wired in sky-poc-ai (see
     # ``core/agents/full_context_agent.py``) — every LLM call emits a
