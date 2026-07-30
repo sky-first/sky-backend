@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 from src.config.settings import settings
+from src.core.device_tenant import carry_tenant_claims, tenant_claims_for_context
 from src.core.exceptions import BadRequestError, UnauthorizedError
 from src.core.permissions import is_tenant_admin
 from src.core.security import (
@@ -20,6 +21,7 @@ from src.core.security import (
     verify_password,
     verify_token,
 )
+from src.core.tenant_context import current_tenant, reset_current_tenant, set_current_tenant
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
 from src.schemas.user import (
@@ -149,20 +151,23 @@ class AuthenticationService:
         # they end up as a member of shared scopes.
         try:
             from src.ai.http_client import AIServiceHTTPClient
+
             ai_client = AIServiceHTTPClient()
-            await ai_client.ingest_knowledge_graph({
-                "id": str(user.id),
-                "entity_type": "user",
-                "name": user.name,
-                "description": f"Platform user — {user.role}" if user.role else "Platform user",
-                "space_id": None,
-                "crew_id": None,
-                "owner_user_id": str(user.id),
-                "entity_details": {
-                    "email": user.email,
-                    "role": user.role,
-                },
-            })
+            await ai_client.ingest_knowledge_graph(
+                {
+                    "id": str(user.id),
+                    "entity_type": "user",
+                    "name": user.name,
+                    "description": f"Platform user — {user.role}" if user.role else "Platform user",
+                    "space_id": None,
+                    "crew_id": None,
+                    "owner_user_id": str(user.id),
+                    "entity_details": {
+                        "email": user.email,
+                        "role": user.role,
+                    },
+                }
+            )
         except Exception as exc:
             logger.warning(f"AI ingest failed for user {user.id}: {exc}")
 
@@ -213,7 +218,14 @@ class AuthenticationService:
             raise BadRequestError("Failed to create user")
 
         # Create tokens (same logic as login)
-        token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+        token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            # BE-01: stamp the resolved tenant so device clients carry a
+            # signed, immutable tenant claim. No-op in single-tenant mode.
+            **tenant_claims_for_context(current_tenant()),
+        }
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data)
 
@@ -361,7 +373,14 @@ class AuthenticationService:
                 await ensure_default_page_and_space(self.db, user)
 
         # Create tokens
-        token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+        token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            # BE-01: stamp the resolved tenant so device clients carry a
+            # signed, immutable tenant claim. No-op in single-tenant mode.
+            **tenant_claims_for_context(current_tenant()),
+        }
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data)
 
@@ -388,6 +407,31 @@ class AuthenticationService:
             expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
             user=UserResponse.model_validate(user_to_response_dict(user)),
         )
+
+    async def issue_session_for_tenant(
+        self,
+        user: User,
+        tenant_ctx,
+        *,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> LoginResponse:
+        """Re-issue a session scoped to ``tenant_ctx`` — the BE-01 workspace
+        switch (``POST /auth/select-workspace``).
+
+        Switching tenants is always an *explicit* re-issue, never a side
+        effect of refreshing. We set the tenant contextvar so
+        ``_issue_session`` stamps the correct ``tid``/``tslug`` into the new
+        tokens, then restore it — reusing every standard post-auth side
+        effect (refresh-token row, last_login_at) unchanged. The caller is
+        responsible for verifying the user's membership of ``tenant_ctx``
+        *before* calling this.
+        """
+        token = set_current_tenant(tenant_ctx)
+        try:
+            return await self._issue_session(user, user_agent=user_agent, ip_address=ip_address)
+        finally:
+            reset_current_tenant(token)
 
     async def complete_mfa_login(
         self,
@@ -466,16 +510,11 @@ class AuthenticationService:
         protects against an attacker replaying a stale enrolment token
         after the legitimate owner has finished onboarding.
         """
-        from fastapi import HTTPException, status as http_status
+        from fastapi import HTTPException
+        from fastapi import status as http_status
 
-        from src.schemas.user import (
-            MFAFinalizeEnrollmentResponse,
-            UserResponse,
-        )
-        from src.services.mfa_service import (
-            MFAService,
-            verify_mfa_enrollment_token,
-        )
+        from src.schemas.user import MFAFinalizeEnrollmentResponse, UserResponse
+        from src.services.mfa_service import MFAService, verify_mfa_enrollment_token
 
         try:
             user_id_str, secret = verify_mfa_enrollment_token(enrollment_token)
@@ -590,7 +629,15 @@ class AuthenticationService:
         token_model.revoked_at = datetime.now(timezone.utc)
 
         # Create new tokens
-        token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+        # BE-01: a refresh must PRESERVE the tenant — switching workspace is
+        # an explicit /auth/select-workspace re-issue, never a side effect of
+        # refreshing. We carry the tid/tslug forward from the incoming token.
+        token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            **carry_tenant_claims(payload),
+        }
         new_access_token = create_access_token(token_data)
         new_refresh_token = create_refresh_token(token_data)
 

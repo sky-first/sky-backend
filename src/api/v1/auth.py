@@ -15,6 +15,7 @@ from src.api.deps import (  # get_current_user usado em outros endpoints
     get_current_user,
     get_db_session,
 )
+from src.api.middleware.tenant_resolver import _load_tenant_by_id
 from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError, ForbiddenError
 from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
@@ -47,6 +48,7 @@ from src.services.auth_service import AuthenticationService, user_to_response_di
 from src.services.invite_service import InviteService, request_base_url
 from src.services.password_reset_service import PasswordResetService
 from src.services.rbac_service import RBACService
+from src.services.tenant_membership_service import TenantMembershipService
 
 router = APIRouter()
 
@@ -399,6 +401,108 @@ async def refresh_token(
     """
     auth_service = AuthenticationService(db)
     return await auth_service.refresh_access_token(refresh_token_data.refresh_token)
+
+
+# ── BE-01 · Mobile workspace switcher ──────────────────────────────────────
+# Device clients carry no sub-domain, so the tenant travels as a signed
+# ``tid`` claim. These endpoints let a user who belongs to more than one
+# tenant list them and switch — always via an explicit token re-issue.
+
+
+class WorkspaceSummary(BaseModel):
+    tenant_id: str
+    slug: str
+    name: str
+    role: str
+
+
+class WorkspacesResponse(BaseModel):
+    workspaces: List[WorkspaceSummary]
+
+
+class SelectWorkspaceRequest(BaseModel):
+    tenant_id: str
+
+
+@router.get(
+    "/me/workspaces",
+    response_model=WorkspacesResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="List the workspaces the current user may act as",
+    description=(
+        "Every tenant the authenticated user is a member of, with their "
+        "role — the source for the mobile workspace switcher."
+    ),
+)
+async def list_my_workspaces(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> WorkspacesResponse:
+    memberships = await TenantMembershipService.list_for_user(db, current_user.id)
+    if not memberships:
+        return WorkspacesResponse(workspaces=[])
+
+    rows = (
+        (await db.execute(select(Tenant).where(Tenant.id.in_([m.tenant_id for m in memberships]))))
+        .scalars()
+        .all()
+    )
+    tenants_by_id = {str(t.id): t for t in rows}
+
+    workspaces: List[WorkspaceSummary] = []
+    for membership in memberships:
+        tenant = tenants_by_id.get(str(membership.tenant_id))
+        if tenant is None:
+            continue  # membership to a tenant that no longer exists — skip
+        workspaces.append(
+            WorkspaceSummary(
+                tenant_id=str(membership.tenant_id),
+                slug=tenant.slug,
+                name=tenant.display_name,
+                role=membership.role,
+            )
+        )
+    return WorkspacesResponse(workspaces=workspaces)
+
+
+@router.post(
+    "/select-workspace",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
+    summary="Switch the active workspace and re-issue tokens",
+    description=(
+        "Explicitly re-issues an access+refresh pair scoped to another tenant "
+        "the user belongs to. Switching is never a side effect of refreshing."
+    ),
+)
+async def select_workspace(
+    body: SelectWorkspaceRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> LoginResponse:
+    # Authorization: a valid session is not enough — the user must be a
+    # current member of the target tenant (re-checked live).
+    if not await TenantMembershipService.is_member(db, current_user.id, body.tenant_id):
+        raise ForbiddenError("You are not a member of that workspace.")
+
+    ctx = await _load_tenant_by_id(body.tenant_id)
+    if ctx is None:
+        raise BadRequestError("Workspace not found or suspended.")
+
+    auth_service = AuthenticationService(db)
+    return await auth_service.issue_session_for_tenant(
+        current_user,
+        ctx,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=request.client.host if request.client else None,
+    )
 
 
 @router.get(
