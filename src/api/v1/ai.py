@@ -48,10 +48,12 @@ from src.schemas.ai import (
     ValidateSQLResponse,
 )
 from src.schemas.common import ErrorResponse, SuccessResponse
+from src.schemas.scan_insight import ScanInsightNotifyRequest, ScanInsightNotifyResponse
 from src.services import pricing_service
 from src.services.ai_service import AIService
 from src.services.beats_service import BeatsService
 from src.services.rbac_service import RBACService
+from src.services.scan_insight_service import record_scan_finding
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -231,6 +233,36 @@ async def process_query(
     except Exception:  # pragma: no cover — accounting failure is non-fatal
         logger.exception("pricing_record_query_usage_failed")
     return response
+
+
+@router.post(
+    "/scan-insights/notify",
+    response_model=ScanInsightNotifyResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    summary="Record a structured scan finding (engine → backend)",
+    description=(
+        "The autonomous scan agent posts a structured finding here so it lands "
+        "in the mobile Insights feed. Validated strictly — a missing or "
+        "out-of-enum field is rejected 422 with no partial row (BE-03)."
+    ),
+)
+async def scan_insights_notify(
+    body: ScanInsightNotifyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ScanInsightNotifyResponse:
+    finding = await record_scan_finding(db, body)
+    await db.commit()
+    # ``is_live`` is derived at read time (BE-02); a freshly-recorded scan
+    # finding is, by definition, live.
+    return ScanInsightNotifyResponse(
+        id=str(finding.id),
+        source=finding.source,
+        type=finding.type,
+        severity=finding.severity,
+        is_live=True,
+    )
 
 
 @router.get(
