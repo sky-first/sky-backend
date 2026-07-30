@@ -33,6 +33,7 @@ from src.api.v1 import (
     glossary,
     impersonation,
     insight_agents,
+    insights,
     insights_analytics,
     knowledge,
     messages,
@@ -152,6 +153,7 @@ api_router.include_router(crews.router, prefix="/crews", tags=["Crews"])
 
 # AI endpoints
 api_router.include_router(ai.router, prefix="/ai", tags=["AI"])
+api_router.include_router(insights.router, prefix="/insights", tags=["Insights"])
 
 # Beats / quota usage. /me/beats returns the caller's own slice
 # (everyone can read theirs); /tenant/beats aggregates across the
