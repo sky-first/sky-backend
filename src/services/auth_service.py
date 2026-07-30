@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -239,6 +239,8 @@ class AuthenticationService:
             expires_at=expires_at,
             user_agent=user_agent,
             ip_address=ip_address,
+            # BE-05 — a fresh login opens a new token family (login lineage).
+            family_id=uuid4(),
         )
         self.db.add(refresh_token_model)
         await self.db.commit()
@@ -394,6 +396,8 @@ class AuthenticationService:
             expires_at=expires_at,
             user_agent=user_agent,
             ip_address=ip_address,
+            # BE-05 — a fresh login opens a new token family (login lineage).
+            family_id=uuid4(),
         )
         self.db.add(refresh_token_model)
 
@@ -605,19 +609,39 @@ class AuthenticationService:
         if not user_id:
             raise UnauthorizedError("Invalid token payload")
 
-        # Check if refresh token exists and is valid
+        # BE-05 — look the token up WITHOUT the revoked/expired filter so we
+        # can tell three cases apart: unknown (forged), already-rotated (reuse
+        # = theft), or genuinely active. The old code collapsed all three into
+        # one 401, so a stolen token that had already been rotated could be
+        # replayed and nobody would notice.
+        #
+        # TODO(BE-09): TOCTOU on concurrent refresh. Two simultaneous refreshes
+        # with the same token can both read it as active before either revokes,
+        # so the loser trips the reuse detector and nukes a healthy family by
+        # mistake. Harden with a row lock (SELECT ... FOR UPDATE) + a short
+        # grace window, plus a concurrency test. Accepted for now (BE-05).
         from sqlalchemy import select
 
         result = await self.db.execute(
-            select(RefreshToken).where(
-                RefreshToken.token == refresh_token,
-                RefreshToken.expires_at > datetime.now(timezone.utc),
-                RefreshToken.revoked_at.is_(None),
-            )
+            select(RefreshToken).where(RefreshToken.token == refresh_token)
         )
         token_model = result.scalar_one_or_none()
 
-        if not token_model:
+        if token_model is None:
+            # A token we never issued (or already pruned) — nothing to nuke.
+            raise UnauthorizedError("Invalid refresh token")
+
+        if token_model.revoked_at is not None:
+            # 🚨 A revoked token is being reused. Treat it as compromise:
+            # revoke the whole family and blocklist the user's access tokens.
+            await self._revoke_token_family(token_model)
+            raise UnauthorizedError("Refresh token reuse detected")
+
+        # Normalise tz: SQLite hands back naive datetimes, Postgres aware ones.
+        expires_at = token_model.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
             raise UnauthorizedError("Invalid or expired refresh token")
 
         # Get user
@@ -625,7 +649,7 @@ class AuthenticationService:
         if not user:
             raise UnauthorizedError("User not found")
 
-        # Revoke old token
+        # Revoke old token (rotation)
         token_model.revoked_at = datetime.now(timezone.utc)
 
         # Create new tokens
@@ -641,7 +665,6 @@ class AuthenticationService:
         new_access_token = create_access_token(token_data)
         new_refresh_token = create_refresh_token(token_data)
 
-        # Save new refresh token (set to 100 years in the future - effectively infinite)
         expires_at = datetime.now(timezone.utc) + timedelta(
             days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
         )
@@ -649,6 +672,9 @@ class AuthenticationService:
             user_id=user.id,
             token=new_refresh_token,
             expires_at=expires_at,
+            # BE-05 — the rotated token stays in the same family as its parent
+            # (``or id`` covers legacy rows backfilled to their own id).
+            family_id=token_model.family_id or token_model.id,
         )
         self.db.add(new_token_model)
         await self.db.commit()
@@ -658,6 +684,51 @@ class AuthenticationService:
             refresh_token=new_refresh_token,
             expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         )
+
+    async def _revoke_token_family(self, token_model: RefreshToken) -> None:
+        """BE-05 — a revoked refresh token was replayed: treat it as theft.
+
+        Revoke every still-live token in the same family (the login lineage)
+        so neither attacker nor victim can rotate it again, then bump the
+        user's access-token blocklist so any outstanding access token minted
+        from this login dies within seconds (Option A). Other devices keep
+        their own families and simply re-refresh silently.
+        """
+        from sqlalchemy import or_, update
+
+        family = token_model.family_id or token_model.id
+        now = datetime.now(timezone.utc)
+        await self.db.execute(
+            update(RefreshToken)
+            .where(
+                or_(
+                    RefreshToken.family_id == family,
+                    RefreshToken.id == family,  # legacy row: family == own id
+                ),
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+        )
+        await self.db.commit()
+        logger.warning(
+            "BE-05: refresh-token reuse detected — revoked family %s for user %s",
+            family,
+            token_model.user_id,
+        )
+        # Best-effort: kill outstanding access tokens for this user. A Redis
+        # hiccup must never swallow the reuse signal — the family is already dead.
+        try:
+            from src.core.token_blocklist import revoke_user_tokens
+
+            await revoke_user_tokens(
+                str(token_model.user_id), issued_before_epoch=int(now.timestamp())
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "BE-05 reuse: access-token blocklist bump failed for user %s: %s",
+                token_model.user_id,
+                exc,
+            )
 
     async def logout(self, refresh_token: str) -> None:
         """

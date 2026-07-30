@@ -188,6 +188,12 @@ class RefreshToken(Base):
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     user_agent = Column(String(255), nullable=True)
     ip_address = Column(String(45), nullable=True)
+    # BE-05 (Sky Mobile) — the login lineage this token belongs to. A fresh
+    # login opens a new family; every rotation stays in the same family. If a
+    # revoked token is ever replayed we revoke the whole family (reuse =
+    # theft). Nullable for backfill: old rows are each their own family
+    # (family_id == id), resolved via ``family_id or id`` at read time.
+    family_id = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     # Relationships
     user = relationship("User", back_populates="refresh_tokens")
@@ -196,6 +202,7 @@ class RefreshToken(Base):
         Index("idx_refresh_tokens_user_id", "user_id"),
         Index("idx_refresh_tokens_token", "token"),
         Index("idx_refresh_tokens_expires_at", "expires_at"),
+        Index("idx_refresh_tokens_family_id", "family_id"),
     )
 
     def __repr__(self) -> str:
