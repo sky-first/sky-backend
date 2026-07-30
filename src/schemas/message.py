@@ -48,6 +48,10 @@ class MessageResponse(BaseModel):
     query_id: Optional[UUID]
     cost_tokens: Optional[int]
     cost_usd: Optional[Decimal]
+    # BE-04 (Sky Mobile) — how the message was created. 'voice' turns render a
+    # mic glyph in the transcript; ``duration_ms`` is set for spoken turns.
+    origin: str = "text"
+    duration_ms: Optional[int] = None
     created_at: datetime
     pinned_widget_id: Optional[UUID]
     parent_message_id: Optional[UUID] = None

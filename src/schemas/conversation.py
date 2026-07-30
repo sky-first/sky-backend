@@ -58,6 +58,10 @@ class ConversationResponse(BaseModel):
     # chat-threads-master-plan PR1, 2026-05-20
     resolved_at: Optional[datetime] = None
     pinned_message_id: Optional[UUID] = None
+    # BE-04 (Sky Mobile) — derived voice/text icon for the History row: 'voice'
+    # when the thread contains any spoken message, else 'text'. Stamped by the
+    # list endpoint (not a stored column); defaults to 'text'.
+    origin: str = "text"
 
     model_config = ConfigDict(from_attributes=True)
 

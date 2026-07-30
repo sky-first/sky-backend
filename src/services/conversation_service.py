@@ -16,12 +16,12 @@ The page the conversation is on is expected to be accessible to the user
 page they can't see, the page-level check will reject it before we get here.
 """
 
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.core.permissions import is_tenant_admin
@@ -30,16 +30,13 @@ from src.models.crew import CrewMember
 from src.models.space import SpaceMember
 from src.models.user import User
 from src.repositories.conversation import ConversationRepository
-from src.schemas.conversation import (
-    ConversationCreate,
-    ConversationResponse,
-    ConversationUpdate,
-)
+from src.schemas.conversation import ConversationCreate, ConversationResponse, ConversationUpdate
 
 try:
     # PR4 broadcast helper — see message_service for the import dance.
     from src.api.v1.chat_ws import broadcast_event_nowait
 except Exception:  # pragma: no cover
+
     def broadcast_event_nowait(*args, **kwargs):
         return None
 
@@ -164,6 +161,21 @@ class ConversationService:
             cursor=cursor,
         )
 
+    async def voice_conversation_ids(self, conversation_ids: List[UUID]) -> set:
+        """The subset of ``conversation_ids`` that contain at least one voice
+        message — drives the History row's voice/text icon (BE-04)."""
+        if not conversation_ids:
+            return set()
+        from src.models.conversation import Message  # avoid circular import
+
+        rows = await self.db.execute(
+            select(Message.conversation_id)
+            .where(Message.conversation_id.in_(conversation_ids))
+            .where(Message.origin == "voice")
+            .distinct()
+        )
+        return set(rows.scalars().all())
+
     async def update(
         self, conversation_id: UUID, user: User, payload: ConversationUpdate
     ) -> Conversation:
@@ -236,9 +248,7 @@ class ConversationService:
         if not await self._can_view(conv, user):
             raise NotFoundError("Conversation not found")
         if not self._can_mutate(conv, user):
-            raise ForbiddenError(
-                "Only the conversation owner can pin a message"
-            )
+            raise ForbiddenError("Only the conversation owner can pin a message")
 
         # Validate the message belongs to this conversation; otherwise
         # an attacker could pin a message from a thread they don't own.
@@ -266,9 +276,7 @@ class ConversationService:
         if not await self._can_view(conv, user):
             raise NotFoundError("Conversation not found")
         if not self._can_mutate(conv, user):
-            raise ForbiddenError(
-                "Only the conversation owner can unpin a message"
-            )
+            raise ForbiddenError("Only the conversation owner can unpin a message")
 
         conv.pinned_message_id = None
         conv.updated_at = datetime.utcnow()
@@ -281,9 +289,7 @@ class ConversationService:
         )
         return conv
 
-    async def resolve(
-        self, conversation_id: UUID, user: User
-    ) -> Conversation:
+    async def resolve(self, conversation_id: UUID, user: User) -> Conversation:
         conv = await self.repo.get_by_id(conversation_id)
         if not conv:
             raise NotFoundError("Conversation not found")
@@ -294,9 +300,7 @@ class ConversationService:
         # "page editor" with _can_mutate; a future PR will read the
         # pages.edit gate from the RBAC catalog.
         if not self._can_mutate(conv, user):
-            raise ForbiddenError(
-                "Only the conversation owner can resolve the thread"
-            )
+            raise ForbiddenError("Only the conversation owner can resolve the thread")
 
         conv.resolved_at = datetime.utcnow()
         conv.updated_at = datetime.utcnow()
@@ -309,18 +313,14 @@ class ConversationService:
         )
         return conv
 
-    async def unresolve(
-        self, conversation_id: UUID, user: User
-    ) -> Conversation:
+    async def unresolve(self, conversation_id: UUID, user: User) -> Conversation:
         conv = await self.repo.get_by_id(conversation_id)
         if not conv:
             raise NotFoundError("Conversation not found")
         if not await self._can_view(conv, user):
             raise NotFoundError("Conversation not found")
         if not self._can_mutate(conv, user):
-            raise ForbiddenError(
-                "Only the conversation owner can re-open the thread"
-            )
+            raise ForbiddenError("Only the conversation owner can re-open the thread")
 
         conv.resolved_at = None
         conv.updated_at = datetime.utcnow()
@@ -356,8 +356,7 @@ class ConversationService:
         is_admin = is_tenant_admin(user)
         if not (is_owner or is_admin):
             raise ForbiddenError(
-                "Only the conversation owner or a platform admin can "
-                "transfer ownership"
+                "Only the conversation owner or a platform admin can " "transfer ownership"
             )
 
         previous_owner = conv.created_by
@@ -370,6 +369,7 @@ class ConversationService:
         await self.db.refresh(conv)
         try:
             from src.services.audit_service import AuditService
+
             await AuditService(self.db).log_event(
                 actor_kind="user",
                 actor_id=user.id,

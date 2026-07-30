@@ -152,6 +152,18 @@ class Message(Base):
     # Insights-Analytics — see src/services/insights_tier.py.
     tier = Column(String(2), nullable=True)
     duration_ms = Column(Integer, nullable=True)
+    # BE-04 (Sky Mobile) — how the message was created. A 'voice' message
+    # shows the mic glyph in the transcript and flips its conversation's
+    # voice/text icon in History. Default 'text' so every existing row and
+    # every typed message is unaffected; the voice pipeline (BE-07) sets
+    # 'voice' + duration_ms when it persists a spoken turn. The IN ('text',
+    # 'voice') CHECK is enforced server-side in the migration.
+    origin = Column(
+        String(10),
+        nullable=False,
+        default="text",
+        server_default=text("'text'"),
+    )
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
