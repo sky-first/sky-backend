@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import (  # get_current_user usado em outros endpoints
+    enforce_device_tenant,
     get_current_user,
     get_db_session,
 )
@@ -521,6 +522,7 @@ async def select_workspace(
 )
 async def get_me(
     current_user: User = Depends(get_current_user),
+    _tenant: None = Depends(enforce_device_tenant),  # BE-01 device-tenant gate
 ) -> UserResponse:
     """
     Get current user endpoint.

@@ -1,7 +1,8 @@
 """Main API router."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from src.api.deps import enforce_device_tenant
 from src.api.v1 import _test as _test_endpoints
 from src.api.v1 import (
     admin_actions,
@@ -12,10 +13,10 @@ from src.api.v1 import (
     beats,
     branding,
     change_requests,
+    chat_sessions,
     chat_ws,
     comments,
     connections,
-    chat_sessions,
     connectors,
     context_health,
     context_rows,
@@ -24,8 +25,8 @@ from src.api.v1 import (
     cost_metrics,
     crews,
     cursor,
-    db_health,
     datasets,
+    db_health,
     demo,
     enterprise_apis,
     enterprise_relationships,
@@ -119,16 +120,12 @@ api_router.include_router(permissions.router, prefix="/permissions", tags=["Perm
 # Per-user delegable permission grants (Knowledge refactor Phase 3 —
 # starts with knowledge.certify, more delegations land later as the
 # matrix expands). Mounted under /users/{id}/permission-grants.
-api_router.include_router(
-    permission_grants.router, prefix="/users", tags=["Permission Grants"]
-)
+api_router.include_router(permission_grants.router, prefix="/users", tags=["Permission Grants"])
 
 # Generic per-resource sharing (Phase 2 of RBAC rewrite). Single endpoint
 # family replaces the per-table grant tables (ConnectionPermission etc.)
 # with rows in resource_acl. Resource type is in the path.
-api_router.include_router(
-    sharing.router, prefix="/resources", tags=["Resource Sharing"]
-)
+api_router.include_router(sharing.router, prefix="/resources", tags=["Resource Sharing"])
 
 # Audit endpoints — mounted at /audit-logs (resource-oriented naming).
 # The older /audit mount is kept so existing callers (if any) keep working
@@ -153,7 +150,14 @@ api_router.include_router(crews.router, prefix="/crews", tags=["Crews"])
 
 # AI endpoints
 api_router.include_router(ai.router, prefix="/ai", tags=["AI"])
-api_router.include_router(insights.router, prefix="/insights", tags=["Insights"])
+# BE-01 — the Insights feed is device-facing; enforce the signed tenant claim
+# (no-op in single-tenant mode, pass-through for web sub-domain requests).
+api_router.include_router(
+    insights.router,
+    prefix="/insights",
+    tags=["Insights"],
+    dependencies=[Depends(enforce_device_tenant)],
+)
 
 # Beats / quota usage. /me/beats returns the caller's own slice
 # (everyone can read theirs); /tenant/beats aggregates across the
@@ -161,9 +165,7 @@ api_router.include_router(insights.router, prefix="/insights", tags=["Insights"]
 api_router.include_router(beats.router, prefix="", tags=["Beats"])
 
 # Insights Analytics — Owner-only value-meter dashboard.
-api_router.include_router(
-    insights_analytics.router, prefix="", tags=["Insights Analytics"]
-)
+api_router.include_router(insights_analytics.router, prefix="", tags=["Insights Analytics"])
 
 # Template endpoints
 api_router.include_router(templates.router, prefix="/templates", tags=["Templates"])
@@ -196,7 +198,9 @@ api_router.include_router(db_health.router, prefix="/db-health", tags=["DB Healt
 # ingest worker to fetch the full source row before embedding. Paired
 # with the Redis event stream in src/core/context_events.py.
 api_router.include_router(context_rows.router, prefix="/context", tags=["Context Rows"])
-api_router.include_router(context_semantic.router, prefix="/context", tags=["Universe Intelligence v2"])
+api_router.include_router(
+    context_semantic.router, prefix="/context", tags=["Universe Intelligence v2"]
+)
 
 # Admin actions (pause-all, audit export) — admin-only.
 api_router.include_router(admin_actions.router, prefix="/admin", tags=["Admin Actions"])
@@ -288,6 +292,4 @@ api_router.include_router(tickets.router, prefix="/tickets", tags=["Tickets"])
 # Multi-tenant smoke endpoints (Projeto A). Public by design — they
 # return only the resolver's view of the current request, never any
 # customer data. Listed in auth.public_paths so they bypass JWT.
-api_router.include_router(
-    _test_endpoints.router, prefix="/_test", tags=["Multi-tenant smoke"]
-)
+api_router.include_router(_test_endpoints.router, prefix="/_test", tags=["Multi-tenant smoke"])

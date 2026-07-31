@@ -174,9 +174,7 @@ async def get_current_user(
                     request.state.user_id = str(user_id)
                     request.state.user_role = payload.get("role", "user")
                     request.state.auth_type = "custom_query"
-                    logger.debug(
-                        f"🔍 Token verified from query param: {user_id}"
-                    )
+                    logger.debug(f"🔍 Token verified from query param: {user_id}")
             except Exception as e:
                 logger.debug(f"🔍 Query-param token validation failed: {str(e)}")
 
@@ -253,6 +251,64 @@ async def get_current_user(
     asyncio.ensure_future(_track_activity(UUID(user_id)))
 
     return user
+
+
+async def enforce_device_tenant(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    """BE-01 — enforce the signed tenant claim on device (no-subdomain) requests.
+
+    Previously the ``resolve_device_tenant`` policy existed and was unit-tested
+    but was **never wired into the request path** — so a device token with no
+    tid, or a tid the user has been off-boarded from, was silently accepted.
+    This dependency is that missing wiring.
+
+    - No-op unless ``MULTI_TENANT_ENABLED`` (single-tenant mode is unaffected).
+    - Web requests (tenant came from the Host sub-domain / X-Tenant-Slug) are a
+      pass-through — they are not device requests.
+    - Device requests apply the policy: no tid → 400, or a tid the user is not a
+      member of → 403 (membership is re-checked live, so off-boarding bites even
+      with a still-valid token).
+    """
+    from src.config.settings import settings
+
+    if not settings.MULTI_TENANT_ENABLED:
+        return
+
+    from src.api.middleware.tenant_resolver import _load_tenant_by_id, _slug_from_host
+
+    # Web path — the tenant was resolved from the sub-domain, not a device.
+    host_slug = _slug_from_host(request.headers.get("host")) or request.headers.get("x-tenant-slug")
+    if host_slug:
+        return
+
+    from src.core.device_tenant import DeviceResolution, resolve_device_tenant
+    from src.core.exceptions import BadRequestError, ForbiddenError
+    from src.core.security import verify_token
+    from src.services.tenant_membership_service import TenantMembershipService
+
+    authorization = request.headers.get("Authorization") or ""
+    claims: dict = {}
+    if authorization.lower().startswith("bearer "):
+        try:
+            claims = verify_token(authorization.split(" ", 1)[1], token_type="access")
+        except Exception:
+            claims = {}
+
+    async def _is_member(user_id: str, tid: str) -> bool:
+        return await TenantMembershipService.is_member(db, user_id, tid)
+
+    result = await resolve_device_tenant(
+        claims, load_tenant_by_id=_load_tenant_by_id, is_member=_is_member
+    )
+    if result.resolution is DeviceResolution.UNRESOLVED:
+        raise BadRequestError(
+            "Tenant unresolved — a device request must carry a valid tenant claim."
+        )
+    if result.resolution is DeviceResolution.FORBIDDEN:
+        raise ForbiddenError("You are not a member of the requested workspace.")
 
 
 async def get_db_session_for_context(ctx=None) -> AsyncGenerator[AsyncSession, None]:
