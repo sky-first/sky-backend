@@ -47,6 +47,15 @@ from src.schemas.ai import (
     ValidateSQLRequest,
     ValidateSQLResponse,
 )
+from src.schemas.chat_stream import (
+    done_event,
+    error_event,
+    normalize_event,
+    parse_sse_data_line,
+    progress_event,
+    sse,
+    with_heartbeat,
+)
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.scan_insight import ScanInsightNotifyRequest, ScanInsightNotifyResponse
 from src.services import pricing_service
@@ -575,9 +584,11 @@ async def send_chat_message(
     description=(
         "Same contract as POST /chat but streams the AI response back as "
         "Server-Sent Events. Each event is a `data: {...}` line with a "
-        "`type` field: 'progress', 'chunk', 'rows', 'meta', 'done', or "
-        "'error'. Lets the UI render tokens as they arrive instead of "
-        "waiting for the full response — first-visible-content typically "
+        "`type` field, locked to: 'progress', 'chunk', 'meta', 'error', "
+        "'done' (see src/schemas/chat_stream.py — the single source of "
+        "truth). Any other engine-internal event is dropped, and idle "
+        "connections get a periodic ': keepalive' comment. Lets the UI "
+        "render tokens as they arrive — first-visible-content typically "
         "2-3 seconds vs. ~8-30s end-to-end."
     ),
 )
@@ -694,15 +705,17 @@ async def send_chat_message_stream(
         logger.debug("[chat/stream] knowledge_context_loader skipped: %s", _kc_err)
 
     async def event_stream():
-        """Forward AI service SSE lines to the client. Adds a final
-        'done' event when the upstream stream completes."""
+        """Normalize AI-engine SSE events onto the locked mobile contract
+        (src/schemas/chat_stream.py) and forward only those. The backend owns
+        the single terminal 'done'; engine debug/unknown events are dropped so
+        mobile never sees an event outside the documented contract."""
         started = False
         try:
             if not resolved_connection_id:
-                yield f"data: {_json.dumps({'type': 'error', 'message': get_message('no_data_source', message_data.locale)})}\n\n"
+                yield sse(error_event(get_message("no_data_source", message_data.locale)))
                 return
 
-            yield f"data: {_json.dumps({'type': 'progress', 'stage': 'starting', 'message': get_message('thinking', message_data.locale)})}\n\n"
+            yield sse(progress_event("starting", get_message("thinking", message_data.locale)))
             started = True
 
             async for line in ai_client.stream_query_connection(
@@ -718,26 +731,20 @@ async def send_chat_message_stream(
                 ),
                 locale=message_data.locale,
             ):
-                if line.startswith("data: "):
-                    try:
-                        _ev = _json.loads(line[6:])
-                        if _ev.get("type") == "done":
-                            continue  # Suppress AI service's done — backend emits its own below
-                    except _json.JSONDecodeError:
-                        pass
-                    yield line + "\n\n"
-                elif line.strip():
-                    yield f"data: {line.strip()}\n\n"
+                event = normalize_event(parse_sse_data_line(line))
+                if event is not None:
+                    yield sse(event)
 
-            yield f"data: {_json.dumps({'type': 'done'})}\n\n"
+            yield sse(done_event())
         except Exception as exc:
             logger.error(f"Chat stream failed: {exc}", exc_info=True)
             if started:
-                yield f"data: {_json.dumps({'type': 'error', 'message': str(exc)[:200]})}\n\n"
+                yield sse(error_event(str(exc)[:200]))
             else:
-                yield f"data: {_json.dumps({'type': 'error', 'message': get_message('unable_to_start_stream', message_data.locale)})}\n\n"
+                yield sse(error_event(get_message("unable_to_start_stream", message_data.locale)))
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    # Wrap with a heartbeat so idle mobile SSE connections aren't reaped.
+    return StreamingResponse(with_heartbeat(event_stream()), media_type="text/event-stream")
 
 
 @router.get(
