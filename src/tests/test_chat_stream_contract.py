@@ -19,12 +19,67 @@ from src.schemas.chat_stream import (
     done_event,
     error_event,
     meta_event,
+    normalize_citations,
     normalize_event,
     parse_sse_data_line,
     progress_event,
     sse,
     with_heartbeat,
 )
+
+
+# ─── T-08.2 · meta citations are locked to the documented shape ─────────────
+def test_t08_2_citations_shape_is_locked():
+    engine_meta = {
+        "type": "meta",
+        "meta": {
+            "detected_language": "en",
+            "citations": [
+                {
+                    "file_id": "f1",
+                    "file_name": "q3.pdf",
+                    "chunk_index": 2,
+                    "page_number": 5,
+                    "excerpt": "revenue up 18%",
+                    "score": 0.91,
+                    "internal_debug": "should be dropped",  # extra field
+                },
+                "not-a-dict",  # dropped
+            ],
+        },
+        "data_sample": [],
+    }
+    out = normalize_event(engine_meta)
+    cites = out["meta"]["citations"]
+    assert len(cites) == 1
+    assert set(cites[0].keys()) == {
+        "file_id",
+        "file_name",
+        "chunk_index",
+        "page_number",
+        "excerpt",
+        "score",
+    }
+    assert "internal_debug" not in cites[0]  # extra engine fields don't leak
+    # other meta fields pass through untouched
+    assert out["meta"]["detected_language"] == "en"
+
+
+def test_t08_2_meta_without_citations_is_unchanged():
+    out = normalize_event({"type": "meta", "meta": {"detected_language": "pt"}})
+    assert "citations" not in out["meta"]
+    assert normalize_citations("nonsense") == []
+
+
+# ─── T-08.5 · errors carry a machine-readable code ──────────────────────────
+def test_t08_5_error_code():
+    # explicit code preserved
+    assert (
+        normalize_event({"type": "error", "message": "boom", "code": "rate_limited"})["code"]
+        == "rate_limited"
+    )
+    # missing code → default
+    assert error_event("x")["code"] == "stream_error"
 
 
 # ─── T-08.1 · every engine event maps to the right locked shape ─────────────
@@ -51,6 +106,7 @@ def test_t08_1_engine_events_normalize():
     assert normalize_event({"type": "error", "message": "boom"}) == {
         "type": "error",
         "message": "boom",
+        "code": "stream_error",  # T-08.5 — a default machine-readable code
     }
 
 

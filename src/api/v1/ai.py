@@ -704,6 +704,27 @@ async def send_chat_message_stream(
     except Exception as _kc_err:
         logger.debug("[chat/stream] knowledge_context_loader skipped: %s", _kc_err)
 
+    # BE-08 (T-08.3) — "Ask Sky about this": when the client passes
+    # context.insight_id, load that finding (scoped to the caller — out-of-scope
+    # ids are ignored) and prepend it so the answer is grounded in the insight.
+    _ctx = getattr(message_data, "context", None) or {}
+    _insight_id = _ctx.get("insight_id") if isinstance(_ctx, dict) else None
+    if _insight_id:
+        try:
+            from src.services.insight_feed_service import InsightFeedService
+
+            _insight = await InsightFeedService(db).detail(current_user.id, str(_insight_id))
+            if _insight is not None:
+                _lead = (
+                    f"The user is asking about this insight — "
+                    f'"{_insight.title}": {_insight.summary}'
+                )
+                stream_instructions = (
+                    f"{_lead}\n\n{stream_instructions}" if stream_instructions else _lead
+                )
+        except Exception as _ins_err:
+            logger.debug("[chat/stream] insight context skipped: %s", _ins_err)
+
     async def event_stream():
         """Normalize AI-engine SSE events onto the locked mobile contract
         (src/schemas/chat_stream.py) and forward only those. The backend owns
@@ -712,7 +733,12 @@ async def send_chat_message_stream(
         started = False
         try:
             if not resolved_connection_id:
-                yield sse(error_event(get_message("no_data_source", message_data.locale)))
+                yield sse(
+                    error_event(
+                        get_message("no_data_source", message_data.locale),
+                        code="no_data_source",
+                    )
+                )
                 return
 
             yield sse(progress_event("starting", get_message("thinking", message_data.locale)))
@@ -739,9 +765,14 @@ async def send_chat_message_stream(
         except Exception as exc:
             logger.error(f"Chat stream failed: {exc}", exc_info=True)
             if started:
-                yield sse(error_event(str(exc)[:200]))
+                yield sse(error_event(str(exc)[:200], code="stream_failed"))
             else:
-                yield sse(error_event(get_message("unable_to_start_stream", message_data.locale)))
+                yield sse(
+                    error_event(
+                        get_message("unable_to_start_stream", message_data.locale),
+                        code="unable_to_start",
+                    )
+                )
 
     # Wrap with a heartbeat so idle mobile SSE connections aren't reaped.
     return StreamingResponse(with_heartbeat(event_stream()), media_type="text/event-stream")

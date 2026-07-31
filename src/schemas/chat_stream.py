@@ -55,12 +55,43 @@ def chunk_event(content: str) -> Dict[str, Any]:
     return {"type": EVENT_CHUNK, "content": content}
 
 
+# BE-08 (T-08.2) — the locked citation shape. When the engine surfaces sources
+# in a meta event, every citation is projected onto exactly these keys so the
+# mobile client can rely on the shape regardless of what the engine adds.
+_CITATION_FIELDS = (
+    "file_id",
+    "file_name",
+    "chunk_index",
+    "page_number",
+    "excerpt",
+    "score",
+)
+
+
+def normalize_citations(raw: Any) -> list:
+    """Project each citation onto the locked field set; drop non-dict entries."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for c in raw:
+        if isinstance(c, dict):
+            out.append({k: c.get(k) for k in _CITATION_FIELDS})
+    return out
+
+
 def meta_event(meta: Optional[dict] = None, data_sample: Optional[list] = None) -> Dict[str, Any]:
-    return {"type": EVENT_META, "meta": meta or {}, "data_sample": data_sample or []}
+    meta = dict(meta or {})
+    # Lock the citations sub-shape if the engine included any (T-08.2). Other
+    # meta fields (language, transparency, …) pass through unchanged.
+    if "citations" in meta:
+        meta["citations"] = normalize_citations(meta.get("citations"))
+    return {"type": EVENT_META, "meta": meta, "data_sample": data_sample or []}
 
 
-def error_event(message: str) -> Dict[str, Any]:
-    return {"type": EVENT_ERROR, "message": message}
+def error_event(message: str, code: str = "stream_error") -> Dict[str, Any]:
+    # BE-08 (T-08.5) — errors always carry a machine-readable ``code`` so the
+    # client can branch without string-matching the human message.
+    return {"type": EVENT_ERROR, "message": message, "code": code}
 
 
 def done_event() -> Dict[str, Any]:
@@ -110,7 +141,7 @@ def normalize_event(raw: Any) -> Optional[Dict[str, Any]]:
     if etype == EVENT_META:
         return meta_event(raw.get("meta"), raw.get("data_sample"))
     if etype == EVENT_ERROR:
-        return error_event(str(raw.get("message", "")))
+        return error_event(str(raw.get("message", "")), str(raw.get("code") or "stream_error"))
     # done / datasets_selected / sql_generated / anything unknown → dropped
     return None
 
@@ -126,17 +157,32 @@ async def with_heartbeat(
     Keeps idle mobile SSE connections alive without touching the event
     contract (heartbeats are SSE comments). ``shield`` keeps the pending
     upstream item alive across a heartbeat timeout so nothing is lost.
+
+    On abort (the client disconnects → GeneratorExit) or normal end, the
+    upstream source is closed and any pending read cancelled, so no worker /
+    generator leaks behind a dropped connection (BE-08 T-08.4).
     """
     agen = source.__aiter__()
-    while True:
-        nxt = asyncio.ensure_future(agen.__anext__())
+    nxt = None
+    try:
         while True:
+            nxt = asyncio.ensure_future(agen.__anext__())
+            while True:
+                try:
+                    item = await asyncio.wait_for(asyncio.shield(nxt), timeout=interval_seconds)
+                    break
+                except asyncio.TimeoutError:
+                    yield HEARTBEAT_COMMENT
+                    continue
+                except StopAsyncIteration:
+                    return
+            yield item
+    finally:
+        if nxt is not None and not nxt.done():
+            nxt.cancel()
+        aclose = getattr(agen, "aclose", None)
+        if aclose is not None:
             try:
-                item = await asyncio.wait_for(asyncio.shield(nxt), timeout=interval_seconds)
-                break
-            except asyncio.TimeoutError:
-                yield HEARTBEAT_COMMENT
-                continue
-            except StopAsyncIteration:
-                return
-        yield item
+                await aclose()
+            except Exception:
+                pass
