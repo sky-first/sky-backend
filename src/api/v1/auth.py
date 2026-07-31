@@ -268,6 +268,9 @@ async def login_mfa(
     auth_service = AuthenticationService(db)
     user_agent = request.headers.get("user-agent")
     ip_address = request.client.host if request.client else None
+    # BE-05 — a device that sends `X-Client-Type: mobile` gets the long
+    # refresh TTL; anything else keeps the web default.
+    client_type = request.headers.get("x-client-type")
     return await auth_service.complete_mfa_login(
         challenge_token=body.challenge_token,
         code=body.code,
@@ -275,6 +278,7 @@ async def login_mfa(
         user_agent=user_agent,
         ip_address=ip_address,
         background_tasks=background_tasks,
+        client_type=client_type,
     )
 
 
@@ -303,12 +307,14 @@ async def login_mfa_finalize(
     auth_service = AuthenticationService(db)
     user_agent = request.headers.get("user-agent")
     ip_address = request.client.host if request.client else None
+    client_type = request.headers.get("x-client-type")  # BE-05 — mobile TTL
     return await auth_service.finalize_mfa_enrollment(
         enrollment_token=body.enrollment_token,
         code=body.code,
         user_agent=user_agent,
         ip_address=ip_address,
         background_tasks=background_tasks,
+        client_type=client_type,
     )
 
 
@@ -790,26 +796,16 @@ async def revoke_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
-    """Revoke a specific session."""
-    from datetime import datetime, timezone
+    """Revoke a specific session (this device only) — BE-05 T-05.7.
 
-    from sqlalchemy import update
-
-    from src.models.user import RefreshToken
-
-    now = datetime.now(timezone.utc)
-    result = await db.execute(
-        update(RefreshToken)
-        .where(
-            RefreshToken.id == session_id,
-            RefreshToken.user_id == current_user.id,
-            RefreshToken.revoked_at.is_(None),
-        )
-        .values(revoked_at=now)
+    Kills the whole family of that session's refresh token, so the device's
+    rotated tokens all die, while other devices keep working (no user-level
+    access blocklist bump).
+    """
+    revoked = await AuthenticationService(db).revoke_device_session(
+        session_id=session_id, user_id=UUID(str(current_user.id))
     )
-    await db.commit()
-
-    if result.rowcount == 0:  # type: ignore[attr-defined]
+    if not revoked:
         from src.core.exceptions import NotFoundError
 
         raise NotFoundError("Session not found or already revoked")

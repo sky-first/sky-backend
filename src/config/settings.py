@@ -307,6 +307,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # BE-05 (Sky Mobile) — device clients keep a much longer refresh so users
+    # aren't forced to re-auth on a phone every week; reuse-detection + family
+    # revocation (see auth_service) is what keeps a long-lived token safe.
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS_MOBILE: int = 45
 
     # Password
     PASSWORD_HASH_ALGORITHM: str = "bcrypt"

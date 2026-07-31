@@ -18,6 +18,7 @@ from src.core.security import (
     create_access_token,
     create_refresh_token,
     get_password_hash,
+    refresh_ttl_days,
     verify_password,
     verify_token,
 )
@@ -356,6 +357,7 @@ class AuthenticationService:
         user_agent: Optional[str] = None,
         ip_address: Optional[str] = None,
         background_tasks: Optional[BackgroundTasks] = None,
+        client_type: Optional[str] = None,
     ) -> LoginResponse:
         """Mint access+refresh tokens for an authenticated user.
 
@@ -363,6 +365,9 @@ class AuthenticationService:
         so the post-auth side-effects (last_login_at, onboarding
         bootstrap, refresh-token row) are guaranteed to be identical
         regardless of whether a second factor was involved.
+
+        ``client_type='mobile'`` gives the refresh token the longer mobile
+        TTL (BE-05) and stamps a ``ctyp`` claim so rotations keep it.
         """
         # Update last login
         user.last_login_at = datetime.now(timezone.utc)
@@ -384,12 +389,10 @@ class AuthenticationService:
             **tenant_claims_for_context(current_tenant()),
         }
         access_token = create_access_token(token_data)
-        refresh_token = create_refresh_token(token_data)
+        refresh_token = create_refresh_token(token_data, client_type=client_type)
 
-        # Save refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(
-            days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
-        )
+        # BE-05 — refresh row TTL matches the JWT exp (mobile gets the long one).
+        expires_at = datetime.now(timezone.utc) + timedelta(days=refresh_ttl_days(client_type))
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,
@@ -446,6 +449,7 @@ class AuthenticationService:
         user_agent: Optional[str] = None,
         ip_address: Optional[str] = None,
         background_tasks: Optional[BackgroundTasks] = None,
+        client_type: Optional[str] = None,
     ) -> LoginResponse:
         """Redeem an MFA challenge token + second factor for real tokens.
 
@@ -490,6 +494,7 @@ class AuthenticationService:
             user_agent=user_agent,
             ip_address=ip_address,
             background_tasks=background_tasks,
+            client_type=client_type,
         )
 
     async def finalize_mfa_enrollment(
@@ -500,6 +505,7 @@ class AuthenticationService:
         user_agent: Optional[str] = None,
         ip_address: Optional[str] = None,
         background_tasks: Optional[BackgroundTasks] = None,
+        client_type: Optional[str] = None,
     ):
         """Close the forced first-login MFA enrolment + mint tokens.
 
@@ -554,6 +560,7 @@ class AuthenticationService:
             user_agent=user_agent,
             ip_address=ip_address,
             background_tasks=background_tasks,
+            client_type=client_type,
         )
         return MFAFinalizeEnrollmentResponse(
             access_token=session.access_token,
@@ -604,6 +611,15 @@ class AuthenticationService:
             payload = verify_token(refresh_token, token_type="refresh")
         except Exception:
             raise UnauthorizedError("Invalid refresh token")
+
+        # BE-05 (T-05.8) — a refresh token is bound to its tenant. If the
+        # request resolves to a different tenant than the token's signed tid,
+        # reject: a tenant-A token must never refresh against tenant B. No-op
+        # in single-tenant mode (no tid on either side).
+        token_tid = payload.get("tid")
+        ctx_tid = tenant_claims_for_context(current_tenant()).get("tid")
+        if token_tid and ctx_tid and str(token_tid) != str(ctx_tid):
+            raise UnauthorizedError("Refresh token tenant mismatch")
 
         user_id = UUID(payload.get("sub"))
         if not user_id:
@@ -662,12 +678,13 @@ class AuthenticationService:
             "role": user.role,
             **carry_tenant_claims(payload),
         }
+        # BE-05 — carry the client type forward so a mobile session keeps its
+        # long refresh TTL across every rotation, not just the first one.
+        client_type = payload.get("ctyp")
         new_access_token = create_access_token(token_data)
-        new_refresh_token = create_refresh_token(token_data)
+        new_refresh_token = create_refresh_token(token_data, client_type=client_type)
 
-        expires_at = datetime.now(timezone.utc) + timedelta(
-            days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
-        )
+        expires_at = datetime.now(timezone.utc) + timedelta(days=refresh_ttl_days(client_type))
         new_token_model = RefreshToken(
             user_id=user.id,
             token=new_refresh_token,
@@ -771,6 +788,44 @@ class AuthenticationService:
             .values(revoked_at=datetime.now(timezone.utc))
         )
         await self.db.commit()
+
+    async def revoke_device_session(self, *, session_id: UUID, user_id: UUID) -> bool:
+        """BE-05 (T-05.7) — surgically revoke ONE device's session.
+
+        Revokes the whole family of the refresh token identified by
+        ``session_id`` (so that device's rotated tokens all die) but touches
+        no other family and does NOT bump the user-level access blocklist —
+        so the user's *other* devices keep working. This is the "sign out
+        this device" primitive behind ``DELETE /auth/sessions/{id}``, distinct
+        from ``logout`` (current device) and ``revoke_all_tokens`` (all).
+
+        Returns True if a matching, still-live session was found.
+        """
+        from sqlalchemy import or_, select, update
+
+        row = (
+            await self.db.execute(
+                select(RefreshToken).where(
+                    RefreshToken.id == session_id,
+                    RefreshToken.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return False
+
+        family = row.family_id or row.id
+        result = await self.db.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                or_(RefreshToken.family_id == family, RefreshToken.id == family),
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(timezone.utc))
+        )
+        await self.db.commit()
+        return result.rowcount > 0
 
     async def get_current_user(self, user_id: UUID) -> UserResponse:
         """
