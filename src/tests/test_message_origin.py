@@ -77,6 +77,38 @@ async def test_t04_4_response_carries_origin(db_session):
 # ─── Option A · conversation-level voice/text derivation (History icon) ──────
 
 
+# ─── T-04.3 · pre-existing rows (no origin written) default to 'text' ────────
+
+
+@pytest.mark.asyncio
+async def test_t04_3_preexisting_row_defaults_to_text(db_session):
+    from datetime import datetime, timezone
+
+    from sqlalchemy import insert, select
+
+    # A Core insert that omits `origin` entirely reproduces a row written
+    # before the column existed: the DB server_default ('text') fills it,
+    # exactly as the migration backfills legacy rows. (The ORM python-side
+    # default is bypassed by a Core insert, so this proves the server_default.)
+    conv = uuid.uuid4()
+    await db_session.execute(
+        insert(Message).values(
+            id=uuid.uuid4(),
+            conversation_id=conv,
+            role="user",
+            content="legacy row",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.commit()
+
+    row = (
+        await db_session.execute(select(Message).where(Message.conversation_id == conv))
+    ).scalar_one()
+    assert row.origin == "text"  # nothing breaks; legacy rows read as text
+    assert row.duration_ms is None
+
+
 @pytest.mark.asyncio
 async def test_conversation_voice_origin_derivation(db_session):
     conv_voice = uuid.uuid4()
