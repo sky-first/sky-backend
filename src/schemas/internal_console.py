@@ -913,3 +913,47 @@ class TenantCompareEntry(BaseModel):
 
 class TenantCompareResponse(BaseModel):
     items: List[TenantCompareEntry]
+
+
+# ── Unit economics (Console → /dashboard/unit-economics) ──────────
+
+
+class UnitEconomicsTenant(BaseModel):
+    slug: str
+    display_name: str
+    tier: str
+    mrr_usd: float
+    llm_usd: float
+    activity_share_pct: float
+    shared_equal_usd: float
+    shared_weighted_usd: float
+    cost_equal_usd: float
+    cost_weighted_usd: float
+    margin_equal_usd: float
+    margin_weighted_usd: float
+    margin_equal_pct: float
+    margin_weighted_pct: float
+    llm_available: bool
+
+
+class MarginCurvePointModel(BaseModel):
+    n: int
+    blended_margin_pct: float
+
+
+class UnitEconomicsResponse(BaseModel):
+    window_days: int
+    n_active: int
+    platform_total_usd: float
+    bedrock_usd: float
+    llm_total_usd: float
+    shared_total_usd: float
+    mrr_total_usd: float
+    blended_margin_equal_pct: float
+    blended_margin_weighted_pct: float
+    break_even_n: Optional[int]
+    marginal_cost_next_usd: float
+    marginal_margin_next_usd: float
+    tenants: List[UnitEconomicsTenant]
+    curve: List[MarginCurvePointModel]
+    weighted_fell_back_to_equal: bool

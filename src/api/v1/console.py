@@ -55,6 +55,7 @@ from src.schemas.internal_console import (
     ConsoleTenantDetail,
     ConsoleTenantList,
     CostBreakdownModel,
+    UnitEconomicsResponse,
     CreateRoleGrantRequest,
     CreateTenantRequest,
     CSMNotesRead,
@@ -2422,3 +2423,45 @@ async def get_tenant_usage(
         "last_threshold_alerted": row.last_threshold_alerted or {},
         "updated_at": row.updated_at,
     }
+
+
+@router.get("/dashboard/unit-economics", response_model=UnitEconomicsResponse)
+async def get_unit_economics(
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+    days: int = Query(30, ge=1, le=90),
+) -> UnitEconomicsResponse:
+    """Per-tenant fully-loaded cost + margin, and the margin-vs-N curve.
+
+    Shared platform cost is allocated two ways — ``equal`` (the cost of
+    the architecture, which falls as tenants are added) and ``weighted``
+    by real consumption. Bedrock is excluded from the shared pool because
+    LLM spend is attributed per tenant from the Langfuse snapshots;
+    counting both would charge the same tokens twice.
+
+    See ``docs/tenant-unit-economics.md``.
+    """
+    from src.services.unit_economics import build_unit_economics
+
+    try:
+        data = await build_unit_economics(db, days=days)
+    except TelemetryUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    return UnitEconomicsResponse(
+        window_days=data.window_days,
+        n_active=data.n_active,
+        platform_total_usd=data.platform_total_usd,
+        bedrock_usd=data.bedrock_usd,
+        llm_total_usd=data.llm_total_usd,
+        shared_total_usd=data.shared_total_usd,
+        mrr_total_usd=data.mrr_total_usd,
+        blended_margin_equal_pct=data.blended_margin_equal_pct,
+        blended_margin_weighted_pct=data.blended_margin_weighted_pct,
+        break_even_n=data.break_even_n,
+        marginal_cost_next_usd=data.marginal_cost_next_usd,
+        marginal_margin_next_usd=data.marginal_margin_next_usd,
+        tenants=[t.__dict__ for t in data.tenants],
+        curve=[c.__dict__ for c in data.curve],
+        weighted_fell_back_to_equal=data.weighted_fell_back_to_equal,
+    )
