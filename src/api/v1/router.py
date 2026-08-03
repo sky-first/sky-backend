@@ -56,6 +56,7 @@ from src.api.v1 import (
     tenant_plan,
     tickets,
     users,
+    voice,
     widgets,
     workspaces,
 )
@@ -150,6 +151,8 @@ api_router.include_router(crews.router, prefix="/crews", tags=["Crews"])
 
 # AI endpoints
 api_router.include_router(ai.router, prefix="/ai", tags=["AI"])
+# Voice session persistence (BE-07 slice)
+api_router.include_router(voice.router, prefix="/voice", tags=["Voice"])
 # BE-01 — the Insights feed is device-facing; enforce the signed tenant claim
 # (no-op in single-tenant mode, pass-through for web sub-domain requests).
 api_router.include_router(
