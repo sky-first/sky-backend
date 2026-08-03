@@ -48,8 +48,15 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import JSON
+from sqlalchemy.types import Text as SAText
 
 from src.config.database import Base
+
+# Shims para o SQLite dos testes. O mesmo padrão de models/agent.py: em
+# Postgres usa-se o tipo nativo, em SQLite a alternativa mais próxima.
+# Sem isto a tabela nem chega a ser criada em teste.
+_JSONB_OR_JSON = JSONB().with_variant(JSON(), "sqlite")
 
 # Tem de bater com a coluna pgvector que o serviço de AI já usa. A
 # migração 005 do sky-poc-ai levou todas as colunas de vector para 1024,
@@ -87,9 +94,7 @@ class DemoDataset(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    insights = relationship(
-        "DemoInsight", back_populates="dataset", cascade="all, delete-orphan"
-    )
+    insights = relationship("DemoInsight", back_populates="dataset", cascade="all, delete-orphan")
     qas = relationship("DemoQA", back_populates="dataset", cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -101,11 +106,18 @@ class DemoDataset(Base):
         Index("idx_demo_datasets_lookup", "vertical", "locale"),
         # Um só default por locale, garantido pela base e não pela
         # aplicação — dois defaults tornariam a entrada não-determinista.
+        #
+        # O predicado tem de ser declarado para os DOIS dialectos: só com
+        # ``postgresql_where``, o SQLite ignora-o e cria um índice único
+        # sobre `locale` inteiro, o que proíbe dois datasets no mesmo
+        # idioma. Apanhado em teste — em Postgres teria passado
+        # despercebido até alguém tentar semear duas verticais.
         Index(
             "uq_demo_datasets_one_default_per_locale",
             "locale",
             unique=True,
             postgresql_where=Column("is_default") == True,  # noqa: E712
+            sqlite_where=Column("is_default") == True,  # noqa: E712
         ),
     )
 
@@ -134,12 +146,12 @@ class DemoInsight(Base):
 
     # [{t: ISO-date, v: number}] — a sparkline. Opcional: nem todo o
     # dataset tem série temporal, e o layout não pode partir sem ela.
-    series = Column(JSONB, nullable=True)
+    series = Column(_JSONB_OR_JSON, nullable=True)
     # [{label, value}], até 3. São os números grandes.
-    stat_tiles = Column(JSONB, nullable=False, default=list)
+    stat_tiles = Column(_JSONB_OR_JSON, nullable=False, default=list)
     # [{table, description}] — as fontes à vista, que é o que separa
     # isto de um gerador de texto.
-    sources = Column(JSONB, nullable=False, default=list)
+    sources = Column(_JSONB_OR_JSON, nullable=False, default=list)
     # O SQL por trás do "ver o SQL". É o elemento de prova mais barato e
     # mais convincente do ecrã.
     executed_sql = Column(Text, nullable=True)
@@ -153,9 +165,7 @@ class DemoInsight(Base):
 
     dataset = relationship("DemoDataset", back_populates="insights")
 
-    __table_args__ = (
-        Index("idx_demo_insights_dataset", "dataset_id", "position"),
-    )
+    __table_args__ = (Index("idx_demo_insights_dataset", "dataset_id", "position"),)
 
     def __repr__(self) -> str:
         return f"<DemoInsight {self.title[:40]!r}>"
@@ -183,8 +193,8 @@ class DemoQA(Base):
 
     question = Column(Text, nullable=False)
     answer_markdown = Column(Text, nullable=False)
-    citations = Column(JSONB, nullable=False, default=list)
-    chart_spec = Column(JSONB, nullable=True)
+    citations = Column(_JSONB_OR_JSON, nullable=False, default=list)
+    chart_spec = Column(_JSONB_OR_JSON, nullable=True)
     executed_sql = Column(Text, nullable=True)
 
     # Só as primeiras N (por position) são mostradas como sugestões; as
@@ -192,7 +202,10 @@ class DemoQA(Base):
     position = Column(SmallInteger, nullable=False, default=0)
     is_suggested = Column(Boolean, nullable=False, default=True)
 
-    embedding = Column(Vector(EMBEDDING_DIM), nullable=True)
+    # O pgvector não existe em SQLite; a variante guarda como texto para
+    # a tabela poder ser criada em teste. A pesquisa vectorial só corre
+    # em Postgres, que é onde importa.
+    embedding = Column(Vector(EMBEDDING_DIM).with_variant(SAText(), "sqlite"), nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
@@ -215,10 +228,60 @@ class DemoQA(Base):
         return f"<DemoQA {self.question[:40]!r}>"
 
 
+class DemoLead(Base):
+    """Contacto deixado depois de o visitante ver valor.
+
+    Deliberadamente **sem verificação**: um campo, sem empresa, sem cargo
+    e sem bloqueio de domínios. O filtro de "throwaway providers" da demo
+    antiga barrava clientes reais que usam gmail como email de empresa —
+    um falso positivo caro num formulário de captura.
+
+    Não verificar aqui é seguro porque **nada é provisionado neste
+    momento**: até o visitante carregar dados próprios, tudo o que ele vê
+    é conteúdo estático curado. Não há sandbox, não há base de dados, não
+    há custo. Um email falso custa um lead mau, não recursos.
+
+    A verificação (magic link) pertence ao passo seguinte — o
+    provisionamento — que é onde há custo real. Ver BE-10.
+    """
+
+    __tablename__ = "demo_leads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String(320), nullable=False)
+    dataset_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("demo_datasets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # As perguntas que ele clicou antes de deixar o contacto. É o sinal
+    # comercial mais valioso da sessão: diz o que lhe interessou.
+    questions_asked = Column(_JSONB_OR_JSON, nullable=False, default=list)
+    vertical = Column(String(32), nullable=True)
+    locale = Column(String(10), nullable=True)
+    source = Column(String(64), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        # Idempotente por email: submeter duas vezes actualiza em vez de
+        # duplicar. Um lead por pessoa, não um por clique.
+        UniqueConstraint("email", name="uq_demo_leads_email"),
+        Index("idx_demo_leads_created", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DemoLead {self.email}>"
+
+
 __all__ = [
     "EMBEDDING_DIM",
     "VERTICALS",
     "DemoDataset",
     "DemoInsight",
+    "DemoLead",
     "DemoQA",
 ]

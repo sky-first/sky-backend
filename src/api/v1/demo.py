@@ -14,18 +14,27 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.params import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_db_session
-from src.api.deps import get_current_user
+from src.api.deps import get_current_user, get_db_session
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.space import Space
 from src.models.user import User
 from src.schemas.common import ErrorResponse
 from src.schemas.demo import DemoSignupRequest, DemoSignupResponse
+from src.schemas.demo_content import (
+    DemoAnswerResponse,
+    DemoAskRequest,
+    DemoBootstrapResponse,
+    DemoInsightModel,
+    DemoLeadRequest,
+    DemoLeadResponse,
+    SuggestedQuestion,
+)
+from src.services import demo_content_service
 from src.services.demo_service import DemoService
 
 router = APIRouter()
@@ -109,23 +118,17 @@ async def extend_demo_user(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     if current_user.role not in ("owner", "admin", "super_admin"):
-        raise ForbiddenError(
-            "Only the tenant Owner or an Admin can extend a demo TTL."
-        )
+        raise ForbiddenError("Only the tenant Owner or an Admin can extend a demo TTL.")
     if days <= 0 or days > 90:
         raise BadRequestError("`days` must be between 1 and 90.")
 
-    target = (
-        await db.execute(select(User).where(User.id == user_id))
-    ).scalar_one_or_none()
+    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if target is None or not getattr(target, "is_demo", False):
         raise NotFoundError("Demo user not found.")
 
     now = datetime.now(timezone.utc)
     base = (
-        target.demo_expires_at
-        if target.demo_expires_at and target.demo_expires_at > now
-        else now
+        target.demo_expires_at if target.demo_expires_at and target.demo_expires_at > now else now
     )
     new_ttl = base + timedelta(days=days)
     target.demo_expires_at = new_ttl
@@ -195,7 +198,197 @@ async def reseed_space(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     if current_user.role not in ("owner", "admin", "super_admin"):
-        raise ForbiddenError(
-            "Only the tenant Owner or an Admin can reseed a demo Space."
-        )
+        raise ForbiddenError("Only the tenant Owner or an Admin can reseed a demo Space.")
     return await DemoService(db).reseed_space(space_id, current_user)
+
+
+# ─── Conteúdo curado (BE-12) ─────────────────────────────────────────────
+#
+# Endpoints públicos, sem autenticação e sem captcha. Servem conteúdo
+# curado sobre datasets sintéticos — não tocam em dados de tenant e não
+# provisionam nada.
+#
+# Não provisionar é o que torna seguro remover o captcha da entrada: até
+# o visitante carregar dados próprios não há sandbox, não há base de
+# dados e não há custo. Um script que martele estes endpoints consome
+# cache, não recursos.
+
+
+def _demo_rate_ok(request: Request, bucket: str, limit: int) -> bool:
+    from src.services.demo_service import _check_ip_rate_limit
+
+    return _check_ip_rate_limit(f"{bucket}:{_client_ip(request) or ''}", limit)
+
+
+@router.get(
+    "/bootstrap",
+    response_model=DemoBootstrapResponse,
+    summary="Conteúdo de entrada da demo (público, cacheável)",
+    description=(
+        "Devolve o insight herói e as perguntas sugeridas para uma vertical. "
+        "Não toca no motor de AI — é conteúdo curado, servido estático. "
+        "Uma vertical desconhecida devolve o dataset de omissão, nunca 404."
+    ),
+)
+async def demo_bootstrap(
+    response: Response,
+    vertical: Optional[str] = Query(None, max_length=32),
+    locale: str = Query("en", max_length=10),
+    db: AsyncSession = Depends(get_db_session),
+) -> DemoBootstrapResponse:
+    dataset = await demo_content_service.get_dataset(db, vertical=vertical, locale=locale)
+    if dataset is None:
+        # Sem conteúdo curado ainda. 503 e não 404: a rota existe, falta
+        # o conteúdo — e é isso que o frontend precisa de distinguir.
+        raise HTTPException(
+            status_code=503,
+            detail="Demo content not seeded yet.",
+        )
+
+    insight = await demo_content_service.get_insight(db, dataset.id)
+    suggested = await demo_content_service.get_suggested(db, dataset.id)
+
+    # Cacheável em CDN: o conteúdo é o mesmo para toda a gente e muda
+    # apenas quando alguém corre a curadoria.
+    response.headers["Cache-Control"] = "public, max-age=300"
+
+    return DemoBootstrapResponse(
+        dataset_id=str(dataset.id),
+        vertical=dataset.vertical,
+        locale=dataset.locale,
+        insight=_insight_to_model(insight) if insight else None,
+        suggested_questions=[
+            SuggestedQuestion(id=str(q.id), question=q.question) for q in suggested
+        ],
+    )
+
+
+@router.get(
+    "/answer/{qa_id}",
+    response_model=DemoAnswerResponse,
+    summary="Resposta pré-calculada a uma pergunta sugerida",
+)
+async def demo_answer(
+    qa_id: UUID,
+    response: Response,
+    db: AsyncSession = Depends(get_db_session),
+) -> DemoAnswerResponse:
+    qa = await demo_content_service.get_qa(db, qa_id)
+    if qa is None:
+        raise NotFoundError("Answer not found.")
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return _qa_to_model(qa, is_fallback=False)
+
+
+@router.post(
+    "/ask",
+    response_model=DemoAnswerResponse,
+    summary="Pergunta livre, com queda para conteúdo curado",
+    description=(
+        "Tenta responder ao vivo. Se o motor exceder o tempo ou falhar, "
+        "devolve a resposta curada mais próxima com is_fallback=true. "
+        "Nunca devolve erro de motor ao visitante."
+    ),
+)
+async def demo_ask(
+    payload: DemoAskRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+) -> DemoAnswerResponse:
+    if not _demo_rate_ok(request, "demo:ask", 10):
+        raise HTTPException(status_code=429, detail="Too many questions. Try again later.")
+
+    try:
+        dataset_id = UUID(payload.dataset_id)
+    except (ValueError, AttributeError):
+        raise BadRequestError("Invalid dataset_id.")
+
+    qa, live, is_fallback = await demo_content_service.ask(
+        db, dataset_id=dataset_id, question=payload.question
+    )
+
+    if live is not None:
+        return DemoAnswerResponse(
+            id=live.get("id", ""),
+            question=payload.question,
+            answer_markdown=live.get("answer_markdown", ""),
+            citations=live.get("citations", []),
+            chart_spec=live.get("chart_spec"),
+            executed_sql=live.get("executed_sql"),
+            is_fallback=False,
+        )
+
+    if qa is None:
+        # Sem conteúdo curado para cair. Devolve uma resposta honesta em
+        # vez de 500 — o visitante não pode ver um ecrã de erro.
+        return DemoAnswerResponse(
+            id="",
+            question=payload.question,
+            answer_markdown=(
+                "This demo dataset doesn't cover that question yet. "
+                "Try one of the suggested questions, or bring your own data."
+            ),
+            is_fallback=True,
+        )
+
+    return _qa_to_model(qa, is_fallback=is_fallback, question=payload.question)
+
+
+@router.post(
+    "/lead",
+    response_model=DemoLeadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Contacto deixado depois de ver valor",
+)
+async def demo_lead(
+    payload: DemoLeadRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+) -> DemoLeadResponse:
+    if not _demo_rate_ok(request, "demo:lead", 5):
+        raise HTTPException(status_code=429, detail="Too many submissions. Try again later.")
+
+    dataset_id = None
+    if payload.dataset_id:
+        try:
+            dataset_id = UUID(payload.dataset_id)
+        except ValueError:
+            dataset_id = None
+
+    await demo_content_service.record_lead(
+        db,
+        email=str(payload.email),
+        dataset_id=dataset_id,
+        questions_asked=payload.questions_asked,
+        vertical=payload.vertical,
+        locale=payload.locale,
+        source=payload.source,
+    )
+    return DemoLeadResponse(accepted=True)
+
+
+def _insight_to_model(i) -> DemoInsightModel:
+    return DemoInsightModel(
+        id=str(i.id),
+        severity=i.severity,
+        severity_level=i.severity_level,
+        agent_name=i.agent_name,
+        title=i.title,
+        summary=i.summary,
+        series=i.series or None,
+        stat_tiles=i.stat_tiles or [],
+        sources=i.sources or [],
+        executed_sql=i.executed_sql,
+    )
+
+
+def _qa_to_model(q, *, is_fallback: bool, question: Optional[str] = None) -> DemoAnswerResponse:
+    return DemoAnswerResponse(
+        id=str(q.id),
+        question=question or q.question,
+        answer_markdown=q.answer_markdown,
+        citations=q.citations or [],
+        chart_spec=q.chart_spec,
+        executed_sql=q.executed_sql,
+        is_fallback=is_fallback,
+    )

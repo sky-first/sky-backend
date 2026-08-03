@@ -69,11 +69,14 @@ def upgrade() -> None:
         sa.UniqueConstraint("vertical", "locale", name="uq_demo_datasets_vertical_locale"),
     )
     op.create_index("idx_demo_datasets_lookup", "demo_datasets", ["vertical", "locale"])
-    if is_pg:
-        op.execute(
-            "CREATE UNIQUE INDEX uq_demo_datasets_one_default_per_locale "
-            "ON demo_datasets (locale) WHERE is_default"
-        )
+    # Índice parcial: único apenas entre as linhas com is_default. Sem o
+    # predicado seria um único sobre `locale` inteiro, o que proibiria
+    # dois datasets no mesmo idioma. Postgres e SQLite suportam ambos
+    # índices parciais, com a mesma sintaxe.
+    op.execute(
+        "CREATE UNIQUE INDEX uq_demo_datasets_one_default_per_locale "
+        "ON demo_datasets (locale) WHERE is_default"
+    )
 
     op.create_table(
         "demo_insights",
