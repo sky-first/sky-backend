@@ -157,14 +157,20 @@ def upgrade() -> None:
     )
     op.create_index("idx_demo_qas_dataset", "demo_qas", ["dataset_id", "position"])
 
+    # A coluna existe SEMPRE, em qualquer dialecto — o modelo declara-a,
+    # portanto qualquer `SELECT` sobre demo_qas rebentaria se ela
+    # faltasse. Sem pgvector guarda-se como TEXT (a mesma variante que o
+    # modelo já usa em SQLite): fica sempre NULL, a pesquisa vectorial
+    # nunca corre, e o fallback textual serve na mesma.
+    #
+    # Criá-la incondicionalmente também impede a migração e o
+    # `create_all` dos testes de divergirem — dois caminhos a produzir
+    # esquemas diferentes é a espécie de diferença que só aparece em
+    # produção.
+    col_type = f"vector({EMBEDDING_DIM})" if has_vector else "text"
+    op.execute(f"ALTER TABLE demo_qas ADD COLUMN embedding {col_type}")
+
     if is_pg:
-        # A coluna existe SEMPRE — o modelo declara-a, portanto qualquer
-        # `SELECT` sobre demo_qas rebentaria se ela faltasse. Sem
-        # pgvector guarda-se como TEXT (a mesma variante já usada em
-        # SQLite): fica sempre NULL, a pesquisa vectorial nunca corre, e
-        # o fallback textual serve na mesma.
-        col_type = f"vector({EMBEDDING_DIM})" if has_vector else "text"
-        op.execute(f"ALTER TABLE demo_qas ADD COLUMN embedding {col_type}")
         op.execute(
             "CREATE INDEX idx_demo_qas_suggested ON demo_qas (dataset_id, position) "
             "WHERE is_suggested"
