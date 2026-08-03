@@ -112,6 +112,15 @@ async def _nearest_qa(db: AsyncSession, dataset_id, question: str) -> Optional[D
     Tenta pesquisa vectorial; se o provider de embeddings não estiver
     disponível — ou se as QA não tiverem embedding — cai para a primeira
     sugerida. Um fallback que também pode falhar não é fallback.
+
+    **Hoje o ramo vectorial nunca corre.** ``src.ai.embeddings`` ainda
+    não existe neste repo e o comando de curadoria deixa ``embedding``
+    a NULL, portanto o ``ImportError`` é apanhado abaixo e serve-se
+    sempre a primeira sugerida. Está escrito assim de propósito — o
+    ramo fica pronto para quando o módulo existir (BE-15) sem que a
+    demo dependa dele para funcionar — mas não confundir "código
+    presente" com "comportamento activo": qualquer medição de qualidade
+    do fallback hoje está a medir a primeira sugerida.
     """
     try:
         from src.ai.embeddings import embed_query  # type: ignore

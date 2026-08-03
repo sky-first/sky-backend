@@ -1,0 +1,132 @@
+{
+  "_readme": [
+    "Conteúdo curado da demo pública — a fonte de verdade do que o visitante vê.",
+    "",
+    "Aplicar com:  python scripts/curate_demo_content.py --apply",
+    "Propor novo:  python scripts/curate_demo_content.py --propose --vertical saas",
+    "",
+    "REGRA EDITORIAL, e não é decorativa: nada aqui pode ser sobre metadados.",
+    "Contagens de linhas, tabelas mais usadas e resumos de esquema estão",
+    "proibidos. Foi exactamente esse tipo de resposta — 'resumo de alto nível:",
+    "contagem de linhas e tabelas mais usadas' — que arruinou a primeira",
+    "impressão da demo antiga. Cada título aqui responde a uma pergunta que um",
+    "COO faria em voz alta, e cada número tem SQL por trás que o produz.",
+    "",
+    "O `executed_sql` não é decoração: é verificado contra a base sintética",
+    "antes de persistir (--verify-sql). Conteúdo que afirme um número que o",
+    "seu próprio SQL não devolve é pior do que não ter conteúdo nenhum — numa",
+    "demo comercial, um número errado que o prospect consegue conferir custa",
+    "a venda inteira."
+  ],
+
+  "datasets": [
+    {
+      "vertical": "saas",
+      "locale": "en",
+      "is_default": true,
+      "name": "Northwind Cloud — SaaS B2B",
+      "description": "CRM, marketing, finance, web analytics and product usage for a fictional B2B SaaS. 5 connected schemas.",
+      "connection_ref": "Demo — Sales",
+
+      "insight": {
+        "severity": "revenue_at_risk",
+        "severity_level": "warning",
+        "agent_name": "Revenue Watch",
+        "title": "Enterprise accounts paying for seats they stopped using",
+        "summary": "Enterprise accounts are billing more seats than they log into. Seat utilisation is the earliest churn signal there is — it moves months before the cancellation email, and it is visible today across CRM, billing and product usage at once.",
+        "stat_tiles": [
+          {
+            "label": "Enterprise accounts under 60% seat use",
+            "value_sql": "SELECT COUNT(*) FROM crm.accounts a JOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL JOIN product_usage.account_health h ON h.account_id = a.id WHERE a.plan = 'enterprise' AND h.seats_paid > 0 AND h.seats_used < 0.6 * h.seats_paid"
+          },
+          {
+            "label": "Monthly revenue exposed",
+            "value_sql": "SELECT COALESCE(SUM(s.monthly_amount), 0) FROM crm.accounts a JOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL JOIN product_usage.account_health h ON h.account_id = a.id WHERE a.plan = 'enterprise' AND h.seats_paid > 0 AND h.seats_used < 0.6 * h.seats_paid",
+            "format": "eur"
+          },
+          {
+            "label": "Avg. seat utilisation",
+            "value_sql": "SELECT ROUND(AVG(100.0 * h.seats_used / NULLIF(h.seats_paid, 0)), 1) FROM crm.accounts a JOIN product_usage.account_health h ON h.account_id = a.id WHERE a.plan = 'enterprise' AND h.seats_paid > 0",
+            "format": "pct"
+          }
+        ],
+        "sources": [
+          {"table": "crm.accounts", "description": "Account plan and region"},
+          {"table": "finance.subscriptions", "description": "Monthly billed amount"},
+          {"table": "product_usage.account_health", "description": "Seats paid vs seats actually used"}
+        ],
+        "executed_sql": "SELECT a.name,\n       s.monthly_amount,\n       h.seats_paid,\n       h.seats_used,\n       ROUND(100.0 * h.seats_used / NULLIF(h.seats_paid, 0), 1) AS seat_utilisation_pct\nFROM crm.accounts a\nJOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL\nJOIN product_usage.account_health h ON h.account_id = a.id\nWHERE a.plan = 'enterprise'\n  AND h.seats_paid > 0\n  AND h.seats_used < 0.6 * h.seats_paid\nORDER BY s.monthly_amount DESC",
+        "series_sql": "SELECT DATE_TRUNC('month', i.issued_at)::date AS t,\n       SUM(i.amount)                             AS v\nFROM finance.invoices i\nWHERE i.status = 'paid'\nGROUP BY 1\nORDER BY 1"
+      },
+
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Which customers are most likely to churn, and what revenue is at stake?",
+          "answer_markdown": "Accounts flagged **risk** or **churn** by health score, ranked by the monthly revenue they still pay.\n\nWhat makes this actionable rather than interesting: it joins the health signal to the money. A low health score on a small account is noise; the same score on the largest subscription in the book is a board-level problem.\n\nThe accounts at the top of this list are still paying. That is the window.",
+          "citations": [
+            {"table": "crm.accounts"},
+            {"table": "finance.subscriptions"},
+            {"table": "product_usage.account_health"}
+          ],
+          "executed_sql": "SELECT a.name,\n       a.plan,\n       h.risk_level,\n       h.score,\n       s.monthly_amount,\n       h.last_login_at\nFROM product_usage.account_health h\nJOIN crm.accounts a         ON a.id = h.account_id\nJOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL\nWHERE h.risk_level IN ('risk', 'churn')\nORDER BY s.monthly_amount DESC\nLIMIT 10",
+          "chart_spec": {"type": "bar", "x": "name", "y": "monthly_amount", "series_label": "Monthly revenue at risk"}
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "Which marketing channel actually produces revenue, not just leads?",
+          "answer_markdown": "Spend per channel against **closed-won** revenue traced back through the lead that opened the deal.\n\nThe distinction matters. Channels that produce many leads and few deals look excellent on a marketing dashboard and lose money in the ledger — the cost per lead is flattering, the cost per euro of revenue is not.\n\nThis follows the chain end to end: campaign spend → lead → opportunity → closed-won amount.",
+          "citations": [
+            {"table": "marketing.campaigns"},
+            {"table": "marketing.leads"},
+            {"table": "crm.opportunities"}
+          ],
+          "executed_sql": "SELECT c.channel,\n       SUM(DISTINCT c.spend)                                    AS spend,\n       COUNT(DISTINCT l.id)                                     AS leads,\n       COUNT(DISTINCT o.id) FILTER (WHERE o.stage = 'closed_won') AS deals_won,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS revenue_won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l   ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY revenue_won DESC",
+          "chart_spec": {"type": "bar", "x": "channel", "y": "revenue_won", "series_label": "Closed-won revenue by channel"}
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "How much revenue is sitting in overdue invoices, and who owes it?",
+          "answer_markdown": "Overdue invoices by account, oldest first.\n\nCash that has been earned and not collected is the cheapest cash in the business — no discount, no new deal, no campaign. It only needs someone to know it exists.\n\nThe join to the account name is the whole point: an invoice ID is not something anyone can act on, a customer name with a phone number is.",
+          "citations": [
+            {"table": "finance.invoices"},
+            {"table": "finance.subscriptions"},
+            {"table": "crm.accounts"}
+          ],
+          "executed_sql": "SELECT a.name,\n       i.issued_at,\n       i.amount,\n       CURRENT_DATE - i.issued_at AS days_outstanding\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a          ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at ASC\nLIMIT 15",
+          "chart_spec": {"type": "bar", "x": "name", "y": "amount", "series_label": "Overdue amount"}
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "What is the win rate, and how long does a deal take to close?",
+          "answer_markdown": "Win rate and average cycle length per plan tier.\n\nThe two numbers belong together. A high win rate with a long cycle and a lower win rate with a short one are very different businesses, and reporting either alone hides which one you are.",
+          "citations": [{"table": "crm.opportunities"}, {"table": "crm.accounts"}],
+          "executed_sql": "SELECT a.plan,\n       COUNT(*) FILTER (WHERE o.stage = 'closed_won')  AS won,\n       COUNT(*) FILTER (WHERE o.stage = 'closed_lost') AS lost,\n       ROUND(100.0 * COUNT(*) FILTER (WHERE o.stage = 'closed_won')\n             / NULLIF(COUNT(*) FILTER (WHERE o.stage IN ('closed_won','closed_lost')), 0), 1) AS win_rate_pct,\n       ROUND(AVG(o.amount) FILTER (WHERE o.stage = 'closed_won'), 2) AS avg_won_amount\nFROM crm.opportunities o\nJOIN crm.accounts a ON a.id = o.account_id\nGROUP BY a.plan\nORDER BY win_rate_pct DESC NULLS LAST"
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Which product features do our healthiest customers use that the at-risk ones don't?",
+          "answer_markdown": "Feature adoption split by health band.\n\nThe gap between the two columns is the onboarding backlog. A feature that healthy accounts use heavily and at-risk accounts never touched is not a product problem — it is a feature nobody showed them.",
+          "citations": [
+            {"table": "product_usage.feature_adoption"},
+            {"table": "product_usage.account_health"}
+          ],
+          "executed_sql": "SELECT f.feature_name,\n       ROUND(AVG(f.times_used_30d) FILTER (WHERE h.risk_level = 'healthy'), 1)          AS healthy_avg_uses,\n       ROUND(AVG(f.times_used_30d) FILTER (WHERE h.risk_level IN ('risk','churn')), 1)  AS at_risk_avg_uses,\n       COUNT(DISTINCT f.account_id)                                                     AS accounts_using\nFROM product_usage.feature_adoption f\nJOIN product_usage.account_health h ON h.account_id = f.account_id\nGROUP BY f.feature_name\nORDER BY healthy_avg_uses DESC NULLS LAST"
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Where does our website traffic come from, and does it convert?",
+          "answer_markdown": "Sessions by acquisition source against the accounts that ended up signing.\n\nTraffic without the conversion column is a vanity number. The two together tell you which source to buy more of.",
+          "citations": [{"table": "web_analytics.sessions"}, {"table": "crm.accounts"}],
+          "executed_sql": "SELECT COALESCE(s.utm_source, 'direct')                     AS source,\n       COUNT(*)                                            AS sessions,\n       COUNT(DISTINCT s.account_id)                        AS known_accounts,\n       ROUND(AVG(s.pages_viewed), 1)                       AS avg_pages\nFROM web_analytics.sessions s\nGROUP BY 1\nORDER BY sessions DESC"
+        }
+      ]
+    }
+  ]
+}
