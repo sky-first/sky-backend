@@ -21,7 +21,8 @@ from src.core.security import (
 from src.models.agent import AgentFinding
 from src.models.conversation import Conversation, Message
 from src.models.page import Page
-from src.models.space import Space, SpaceMember
+from src.models.connection import DataConnection
+from src.models.space import Space, SpaceConnection, SpaceMember
 from src.models.tenant import Tenant
 from src.models.user import RefreshToken
 from src.repositories.user import UserRepository
@@ -37,6 +38,13 @@ EMAIL = "demo@skyfirstlabs.com"
 PASSWORD = "SkyDemo!2026"
 DEMO_SPACE = uuid.UUID("11111111-1111-1111-1111-111111111111")
 DEMO_PAGE = uuid.UUID("22222222-2222-2222-2222-222222222222")
+# Local data-source the demo space is linked to, so /ai/chat/stream resolves a
+# real connection (otherwise it returns no_data_source and the client falls back
+# to a simulated answer). Defaults to the GBT local-mirror Postgres connection;
+# override with DEMO_LOCAL_CONNECTION_ID for a different local dataset.
+DEMO_LOCAL_CONNECTION_ID = os.getenv(
+    "DEMO_LOCAL_CONNECTION_ID", "57de9594-3f50-4b8a-a04b-978f583f44fa"
+)
 
 # (title, days_ago, hours_ago, origin, duration_ms)
 _CONVERSATIONS = [
@@ -142,6 +150,34 @@ async def main() -> None:
         if exists.first() is None:
             db.add(SpaceMember(user_id=user.id, space_id=DEMO_SPACE, role="member"))
         await db.commit()
+
+        # Link the demo space to a real local data connection so the AI chat
+        # (and voice) resolve a data source and stream REAL answers. Without
+        # this, /ai/chat/stream emits `no_data_source` and the mobile client
+        # falls back to a clearly-labelled simulated answer. Idempotent; skips
+        # with a warning if the connection isn't present in this environment.
+        try:
+            conn_id = uuid.UUID(str(DEMO_LOCAL_CONNECTION_ID))
+        except (ValueError, TypeError):
+            conn_id = None
+        conn = await db.get(DataConnection, conn_id) if conn_id else None
+        if conn is not None:
+            link = await db.execute(
+                SpaceConnection.__table__.select().where(
+                    (SpaceConnection.space_id == DEMO_SPACE)
+                    & (SpaceConnection.connection_id == conn.id)
+                )
+            )
+            if link.first() is None:
+                db.add(SpaceConnection(space_id=DEMO_SPACE, connection_id=conn.id))
+                await db.commit()
+            print(f"Linked demo space to data connection: {conn.name} ({conn.id})")
+        else:
+            print(
+                "WARNING: DEMO_LOCAL_CONNECTION_ID "
+                f"({DEMO_LOCAL_CONNECTION_ID}) not found — the AI chat will fall "
+                "back to a simulated answer until a data connection is linked."
+            )
 
         # Refresh the demo insights (delete + re-insert for idempotency).
         await db.execute(
