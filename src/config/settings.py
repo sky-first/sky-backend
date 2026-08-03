@@ -31,7 +31,13 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
     CORS_ORIGINS: str = Field(
-        default="http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001",
+        default=(
+            "http://localhost:3000,http://localhost:3001,"
+            "http://127.0.0.1:3000,http://127.0.0.1:3001,"
+            # Expo web dev server (Sky Mobile app) — harmless localhost origins.
+            "http://localhost:19006,http://127.0.0.1:19006,"
+            "http://localhost:8081,http://127.0.0.1:8081"
+        ),
         description="CORS allowed origins (comma-separated)",
     )
 
