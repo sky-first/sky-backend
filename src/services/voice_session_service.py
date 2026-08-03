@@ -7,7 +7,7 @@ conversation and reopens as a transcript.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Tuple
 from uuid import UUID
 
@@ -48,7 +48,7 @@ class VoiceSessionService:
         await self.db.flush()  # get conv.id
 
         count = 0
-        for turn in payload.turns:
+        for i, turn in enumerate(payload.turns):
             is_user = turn.role == "user"
             self.db.add(
                 Message(
@@ -59,7 +59,8 @@ class VoiceSessionService:
                     # Session duration is attributed to the user's spoken turns.
                     duration_ms=payload.duration_ms if is_user else None,
                     user_id=user.id if is_user else None,
-                    created_at=now,
+                    # Stagger so the transcript reads oldest-first in turn order.
+                    created_at=now + timedelta(milliseconds=i * 10),
                 )
             )
             count += 1
