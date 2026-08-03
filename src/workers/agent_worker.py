@@ -733,38 +733,81 @@ def execute_agent(self, agent_id: str):
         raise self.retry(exc=exc, countdown=120)
 
 
+async def _schedule_agents_async():
+    """Inner async body of :func:`schedule_agents`.
+
+    Module-level (rather than nested) so tests can exercise it directly
+    with a patched session factory — same pattern as
+    ``agent_revocation_worker._sweep_async``.
+
+    Returns ``(enqueued, rescheduled)``.
+    """
+    from src.config.database import AsyncSessionLocal  # noqa: E402
+    from src.models.agent import Agent
+    from src.services.agent_service import FREQUENCY_HOURS
+    from sqlalchemy import or_, select
+
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        # Insight-mode agents are scheduled by insight_agent_worker
+        # via the new AgentRunService state machine; the legacy
+        # scheduler only handles question/datasource/sql modes here
+        # so the two flows don't double-enqueue.
+        #
+        # NULL next_execution_at has to be matched explicitly: in SQL
+        # `NULL <= now` evaluates to NULL, not TRUE, so an active agent
+        # whose schedule was lost is invisible to the plain comparison
+        # and stops for good — silently, while the UI still reports it
+        # as active. Production hit exactly that: 50 active agents, all
+        # with a NULL schedule, none executed for 54 days.
+        result = await db.execute(
+            select(Agent).where(
+                Agent.status == "active",
+                Agent.monitor_type != "insight",
+                or_(
+                    Agent.next_execution_at <= now,
+                    Agent.next_execution_at.is_(None),
+                ),
+            )
+        )
+        candidates = result.scalars().all()
+
+        due_agents = [a for a in candidates if a.next_execution_at is not None]
+        orphans = [a for a in candidates if a.next_execution_at is None]
+
+        # Heal the orphans instead of running them. Firing every
+        # recovered agent at once would stampede the AI service and
+        # spike LLM spend the moment this ships; spreading them
+        # deterministically across their own frequency window gets them
+        # back on cadence without a thundering herd.
+        for idx, agent in enumerate(orphans):
+            hours = FREQUENCY_HOURS.get(agent.frequency, 24)
+            share = (idx + 1) / (len(orphans) + 1)
+            agent.next_execution_at = now + timedelta(hours=hours * share)
+        if orphans:
+            await db.commit()
+            logger.warning(
+                "Agent scheduler: rescheduled %d active agent(s) that had no "
+                "next_execution_at (they were stalled and would never have "
+                "run); staggered across their frequency window",
+                len(orphans),
+            )
+
+        for agent in due_agents:
+            logger.info(f"Scheduling agent {agent.id} ({agent.name}) for execution")
+            execute_agent.delay(str(agent.id))
+
+        return len(due_agents), len(orphans)
+
+
 @celery_app.task
 def schedule_agents():
     """
     Periodic task — checks all active agents and enqueues those due for execution.
     Runs every 5 minutes via Celery Beat.
     """
-    async def _check():
-        from src.config.database import AsyncSessionLocal  # noqa: E402
-        from src.models.agent import Agent
-        from sqlalchemy import select
-
-        now = datetime.now(timezone.utc)
-        async with AsyncSessionLocal() as db:
-            # Insight-mode agents are scheduled by insight_agent_worker
-            # via the new AgentRunService state machine; the legacy
-            # scheduler only handles question/datasource/sql modes here
-            # so the two flows don't double-enqueue.
-            result = await db.execute(
-                select(Agent).where(
-                    Agent.status == "active",
-                    Agent.next_execution_at <= now,
-                    Agent.monitor_type != "insight",
-                )
-            )
-            due_agents = result.scalars().all()
-
-            for agent in due_agents:
-                logger.info(f"Scheduling agent {agent.id} ({agent.name}) for execution")
-                execute_agent.delay(str(agent.id))
-
-            return len(due_agents)
-
-    count = _run_async(_check())
-    logger.info(f"Agent scheduler: {count} agents enqueued for execution")
-    return {"agents_scheduled": count}
+    count, healed = _run_async(_schedule_agents_async())
+    logger.info(
+        f"Agent scheduler: {count} agents enqueued for execution, {healed} rescheduled"
+    )
+    return {"agents_scheduled": count, "agents_rescheduled": healed}
