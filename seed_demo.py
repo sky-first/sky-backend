@@ -22,9 +22,12 @@ from src.models.agent import AgentFinding
 from src.models.conversation import Conversation, Message
 from src.models.page import Page
 from src.models.space import Space, SpaceMember
+from src.models.tenant import Tenant
 from src.models.user import RefreshToken
 from src.repositories.user import UserRepository
 from src.services.mfa_service import MFAService
+
+DEMO_TENANT_SLUG = "demo"
 
 APP_DEV_SESSION = os.path.join(
     os.path.dirname(__file__), "..", "sky-mobile-app", "apps", "mobile", "src", "devSession.ts"
@@ -75,6 +78,31 @@ _INSIGHTS = [
 
 async def main() -> None:
     async with AsyncSessionLocal() as db:
+        # A demo tenant with password login enabled, so the app can do REAL
+        # email/password + MFA (the default workspace disables password). The
+        # app sends X-Tenant-Slug: demo so the login gate resolves this row.
+        tenant = (
+            await db.execute(Tenant.__table__.select().where(Tenant.slug == DEMO_TENANT_SLUG))
+        ).first()
+        if tenant is None:
+            db.add(
+                Tenant(
+                    slug=DEMO_TENANT_SLUG,
+                    display_name="Demo Workspace",
+                    tier="starter",
+                    db_host="localhost",
+                    db_name="ai_saas_db",
+                    db_credentials_secret_arn="local-dev",
+                    redis_host="localhost",
+                    redis_credentials_secret_arn="local-dev",
+                    sso_provider="",
+                    sso_config={},
+                    auth_methods={"password": True, "google": True, "azure": False, "okta": False},
+                    is_active=True,
+                )
+            )
+            await db.commit()
+
         users = UserRepository(db)
 
         user = await users.get_by_email(EMAIL)
@@ -92,11 +120,10 @@ async def main() -> None:
 
         # Enrol MFA with a secret we control, so we can print a working code.
         mfa = MFAService(db)
-        challenge = await mfa.generate_enrollment(user)
-        secret = challenge.secret
-        await mfa.verify_enrollment(
-            user, secret=secret, code=pyotp.TOTP(secret).now()
-        )
+        # Fixed secret so you add it to an authenticator ONCE and it survives
+        # re-seeds (generate_enrollment would rotate it every run).
+        secret = "SKYMOBILEDEMO234"
+        await mfa.verify_enrollment(user, secret=secret, code=pyotp.TOTP(secret).now())
         await db.commit()
 
         # The space (real Postgres enforces the FK) + membership so the feed

@@ -103,14 +103,17 @@ class AuthMethodsResponse(BaseModel):
 
 def _slug_from_request(request: Request) -> Optional[str]:
     host_header = request.headers.get("host")
-    if not host_header:
-        return None
-    host = host_header.split(":", 1)[0].lower()
-    m = _AUTH_SUBDOMAIN_RE.match(host)
-    if not m:
-        return None
-    # Group 1 = prefixed form (workspace-/api-), group 2 = bare -stg form.
-    return m.group(1) or m.group(2)
+    if host_header:
+        host = host_header.split(":", 1)[0].lower()
+        m = _AUTH_SUBDOMAIN_RE.match(host)
+        if m:
+            # Group 1 = prefixed (workspace-/api-), group 2 = bare -stg form.
+            return m.group(1) or m.group(2)
+    # Device clients have no sub-domain — honour the explicit X-Tenant-Slug
+    # override (same header the tenant resolver already accepts), so mobile can
+    # reach a workspace's auth methods (e.g. password-enabled) on a bare host.
+    header_slug = request.headers.get("x-tenant-slug")
+    return header_slug.strip().lower() if header_slug else None
 
 
 async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthMethodsResponse:
