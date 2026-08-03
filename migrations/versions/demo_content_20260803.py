@@ -37,38 +37,24 @@ depends_on = None
 EMBEDDING_DIM = 1024
 
 
-def _try_enable_vector(bind) -> bool:
-    """Activa pgvector, devolvendo se está disponível.
-
-    Produção e staging têm-no (o serviço de AI já o usa), mas o
-    `docker-compose` de desenvolvimento corre `postgres:14-alpine`, que
-    não traz a extensão. Sem esta salvaguarda a migração rebentava na
-    máquina de quem só quer ver a demo a funcionar.
-
-    Sem pgvector cria-se tudo excepto a coluna de embedding, e o
-    fallback de ``/demo/ask`` usa a primeira pergunta sugerida em vez da
-    semanticamente mais próxima — que é precisamente a degradação que o
-    serviço já sabe fazer quando não há embeddings. A demo funciona; só
-    o fallback é menos fino.
-    """
-    try:
-        with bind.begin_nested():
-            bind.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
-        return True
-    except Exception as exc:  # noqa: BLE001
-        print(
-            f"[demo_content] pgvector indisponível ({exc.__class__.__name__}); "
-            "demo_qas fica sem coluna `embedding` e o fallback de /demo/ask "
-            "usa a primeira sugerida. Em produção isto NÃO deve acontecer."
-        )
-        return False
-
-
 def upgrade() -> None:
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
 
-    has_vector = _try_enable_vector(bind) if is_pg else False
+    # pgvector é requisito duro do backend desde `ctx_docs_20260415`
+    # (Abril de 2026), que também faz `CREATE EXTENSION vector` e sem
+    # ele nem chega aqui. Nada a degradar, portanto: se falhar, tem de
+    # falhar alto.
+    #
+    # Houve aqui uma tentativa de tolerar a ausência da extensão criando
+    # `embedding` como TEXT. Foi removida: resolvia um cenário que não
+    # existe — uma base sem pgvector não sobrevive às migrações de Abril
+    # — e em troca escondia um problema real de produção atrás de uma
+    # divergência de esquema silenciosa. Quem correr isto contra um
+    # `postgres:*-alpine` precisa da imagem `pgvector/pgvector`, não de
+    # uma migração mais complacente.
+    if is_pg:
+        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     uuid_type = postgresql.UUID(as_uuid=True) if is_pg else sa.String(36)
     json_type = postgresql.JSONB if is_pg else sa.JSON
@@ -167,7 +153,7 @@ def upgrade() -> None:
     # `create_all` dos testes de divergirem — dois caminhos a produzir
     # esquemas diferentes é a espécie de diferença que só aparece em
     # produção.
-    col_type = f"vector({EMBEDDING_DIM})" if has_vector else "text"
+    col_type = f"vector({EMBEDDING_DIM})" if is_pg else "text"
     op.execute(f"ALTER TABLE demo_qas ADD COLUMN embedding {col_type}")
 
     if is_pg:

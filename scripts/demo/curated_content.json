@@ -56,7 +56,7 @@
           {"table": "product_usage.account_health", "description": "Seats paid vs seats actually used"}
         ],
         "executed_sql": "SELECT a.name,\n       s.monthly_amount,\n       h.seats_paid,\n       h.seats_used,\n       ROUND(100.0 * h.seats_used / NULLIF(h.seats_paid, 0), 1) AS seat_utilisation_pct\nFROM crm.accounts a\nJOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL\nJOIN product_usage.account_health h ON h.account_id = a.id\nWHERE a.plan = 'enterprise'\n  AND h.seats_paid > 0\n  AND h.seats_used < 0.6 * h.seats_paid\nORDER BY s.monthly_amount DESC",
-        "series_sql": "SELECT DATE_TRUNC('month', i.issued_at)::date AS t,\n       SUM(i.amount)                             AS v\nFROM finance.invoices i\nWHERE i.status = 'paid'\nGROUP BY 1\nORDER BY 1"
+        "_series_sql_omitido": "Sem sparkline de propósito. A única série temporal desta base é a facturação, e ela é rigorosamente constante (46 facturas de 18.904 € todos os meses — o gerador do seed não introduz variação). Uma linha perfeitamente recta debaixo deste título não acrescenta informação e faz os dados parecerem inventados, que é o oposto do que a demo tem de provar. O campo é opcional no modelo por esta razão. Quando o seed sintético ganhar variação realista, repor: SELECT DATE_TRUNC('month', i.issued_at)::date AS t, SUM(i.amount) AS v FROM finance.invoices i WHERE i.status = 'paid' GROUP BY 1 ORDER BY 1"
       },
 
       "qas": [
@@ -89,14 +89,14 @@
         {
           "position": 2,
           "is_suggested": true,
-          "question": "How much revenue is sitting in overdue invoices, and who owes it?",
-          "answer_markdown": "Overdue invoices by account, oldest first.\n\nCash that has been earned and not collected is the cheapest cash in the business — no discount, no new deal, no campaign. It only needs someone to know it exists.\n\nThe join to the account name is the whole point: an invoice ID is not something anyone can act on, a customer name with a phone number is.",
+          "question": "How much billed revenue is still uncollected, and who owes it?",
+          "answer_markdown": "Invoices issued and not yet paid, by account, oldest first.\n\nCash that has been earned and not collected is the cheapest cash in the business — no discount, no new deal, no campaign. It only needs someone to know it exists.\n\nThe join to the account name is the whole point: an invoice ID is not something anyone can act on, a customer name with a phone number is.",
           "citations": [
             {"table": "finance.invoices"},
             {"table": "finance.subscriptions"},
             {"table": "crm.accounts"}
           ],
-          "executed_sql": "SELECT a.name,\n       i.issued_at,\n       i.amount,\n       CURRENT_DATE - i.issued_at AS days_outstanding\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a          ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at ASC\nLIMIT 15",
+          "executed_sql": "SELECT a.name,\n       i.issued_at,\n       i.amount,\n       CURRENT_DATE - i.issued_at AS days_outstanding\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a          ON a.id = s.account_id\nWHERE i.status IN ('sent', 'overdue')\nORDER BY i.issued_at ASC\nLIMIT 15",
           "chart_spec": {"type": "bar", "x": "name", "y": "amount", "series_label": "Overdue amount"}
         },
         {
@@ -117,6 +117,15 @@
             {"table": "product_usage.account_health"}
           ],
           "executed_sql": "SELECT f.feature_name,\n       ROUND(AVG(f.times_used_30d) FILTER (WHERE h.risk_level = 'healthy'), 1)          AS healthy_avg_uses,\n       ROUND(AVG(f.times_used_30d) FILTER (WHERE h.risk_level IN ('risk','churn')), 1)  AS at_risk_avg_uses,\n       COUNT(DISTINCT f.account_id)                                                     AS accounts_using\nFROM product_usage.feature_adoption f\nJOIN product_usage.account_health h ON h.account_id = f.account_id\nGROUP BY f.feature_name\nORDER BY healthy_avg_uses DESC NULLS LAST"
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "How has new business trended over the last year?",
+          "answer_markdown": "Closed-won revenue by month.\n\nThe shape matters more than the total. A book that grows in steps — a flat stretch, then a jump — is a business that closes a few large deals, and it needs a different forecast than one that grows smoothly.",
+          "citations": [{"table": "crm.opportunities"}],
+          "executed_sql": "SELECT DATE_TRUNC('month', o.close_date)::date AS month,\n       COUNT(*)                                    AS deals_won,\n       SUM(o.amount)                               AS revenue_won\nFROM crm.opportunities o\nWHERE o.stage = 'closed_won'\nGROUP BY 1\nORDER BY 1",
+          "chart_spec": {"type": "line", "x": "month", "y": "revenue_won", "series_label": "Closed-won revenue"}
         },
         {
           "position": 5,

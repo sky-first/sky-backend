@@ -336,15 +336,52 @@ async def cmd_apply(content_path: Path, apply_changes: bool, verify_sql: bool) -
             return 3
 
         # Portão de SQL.
+        #
+        # Verificar que o SQL *executa* não chega — foi a lição de correr
+        # isto contra dados reais pela primeira vez. A pergunta sobre
+        # facturas vencidas executava perfeitamente e devolvia zero
+        # linhas, porque a base sintética não tem uma única factura em
+        # atraso. Uma tabela vazia numa demo comercial é tão má como um
+        # erro: o visitante conclui que o produto não encontrou nada.
         if verifier is not None:
+            failures = 0
             for spec in datasets:
                 for label, sql in _all_sql(spec):
                     try:
-                        await verifier.rows(sql, limit=1)
+                        rows = await verifier.rows(sql, limit=2)
                     except Exception as exc:  # noqa: BLE001
                         print(f"✗ SQL falhou [{spec['vertical']} / {label}]: {exc}")
-                        return 4
-                print(f"  ✓ SQL verificado: {spec['vertical']}")
+                        failures += 1
+                        continue
+                    if not rows:
+                        print(
+                            f"✗ SQL sem resultados [{spec['vertical']} / {label}] — "
+                            "a demo mostraria um quadro vazio"
+                        )
+                        failures += 1
+                # A série tem de variar. Uma sparkline constante ocupa
+                # espaço no ecrã para não dizer nada, e quando a linha é
+                # perfeitamente recta parece dados inventados — que é o
+                # oposto do que a demo tem de provar.
+                series_sql = (spec.get("insight") or {}).get("series_sql")
+                if series_sql:
+                    points = await verifier.rows(series_sql, limit=60)
+                    values = {
+                        str(p[list(p)[1]])
+                        for p in points
+                        if list(p)[1:] and p[list(p)[1]] is not None
+                    }
+                    if len(values) < 2:
+                        print(
+                            f"✗ série constante [{spec['vertical']}] — "
+                            f"{len(points)} pontos, todos iguais"
+                        )
+                        failures += 1
+                if failures == 0:
+                    print(f"  ✓ SQL verificado: {spec['vertical']}")
+            if failures:
+                print(f"\nNada aplicado. {failures} problema(s) de SQL.", file=sys.stderr)
+                return 4
 
         if not apply_changes:
             print("\n(dry-run) Tudo válido. Repete com --apply para persistir.")
