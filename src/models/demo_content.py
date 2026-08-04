@@ -68,7 +68,10 @@ _JSONB_OR_JSON = JSONB().with_variant(JSON(), "sqlite")
 # declara 768 e está desalinhado da coluna real.
 EMBEDDING_DIM = 1024
 
-VERTICALS = ("saas", "distribution", "services", "default")
+# Os quatro sectores que a demo oferece no passo 1, mais o de omissão.
+# "industry" faltava aqui e o passo 1 já o mostrava — quem o escolhesse
+# caía no dataset de omissão e recebia perguntas de outro negócio.
+VERTICALS = ("saas", "distribution", "services", "industry", "default")
 
 
 class DemoDataset(Base):

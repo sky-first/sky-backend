@@ -253,3 +253,56 @@ def test_the_curated_file_has_extra_insights_in_every_locale():
             for tile in one["stat_tiles"]:
                 # Nenhum valor escrito à mão: todos saem de SQL medido.
                 assert tile.get("value_sql"), f"{tile['label']} com valor fixo"
+
+
+# ── todo o sector oferecido tem de ter conteúdo ─────────────────────
+
+
+def test_every_offered_sector_has_curated_content():
+    """O bug que isto fecha custou uma migração.
+
+    O passo 1 oferecia quatro sectores desde o início. O modelo e a
+    restrição da base de dados só conheciam três — quem escolhesse
+    Indústria caía no dataset de omissão e recebia perguntas sobre
+    subscrições e lugares.
+
+    Não falhava nada: nem erro, nem log, nem teste. Só um prospect a
+    concluir em dois segundos que aquilo não era sobre o negócio dele,
+    que é a falha mais cara e a mais silenciosa.
+    """
+    from src.models.demo_content import VERTICALS
+
+    fluxo = json.loads((ROOT / "scripts" / "demo" / "flow_content.json").read_text(encoding="utf-8"))
+    oferecidas = {v["id"] for v in fluxo["verticals"]}
+    doc = json.loads(CONTENT.read_text(encoding="utf-8"))
+
+    for vertical in sorted(oferecidas):
+        assert vertical in VERTICALS, (
+            f"o passo 1 oferece {vertical!r} e o modelo não o aceita — "
+            "o dataset nem chega a ser criado"
+        )
+        for locale in ("pt", "en"):
+            tem = any(
+                d.get("vertical") == vertical and d.get("locale") == locale
+                for d in doc["datasets"]
+            )
+            assert tem, (
+                f"o passo 1 oferece {vertical!r} e não há conteúdo curado em {locale!r} — "
+                "quem o escolher recebe as perguntas de outro negócio"
+            )
+
+
+def test_each_sector_tells_its_own_story():
+    """Sectores diferentes têm de ter achados diferentes.
+
+    Copiar o conteúdo de um sector para outro passaria em todos os
+    outros testes — o SQL corre, os números saem, o ecrã enche. E seria
+    pior do que não ter sector nenhum, porque parece deliberado.
+    """
+    doc = json.loads(CONTENT.read_text(encoding="utf-8"))
+    titulos = [
+        d["insight"]["title"] for d in doc["datasets"] if d.get("locale") == "en"
+    ]
+    assert len(titulos) == len(set(titulos)), (
+        f"dois sectores partilham o mesmo achado herói: {titulos}"
+    )
