@@ -88,7 +88,23 @@
             "x": "name",
             "y": "monthly_amount",
             "series_label": "Monthly revenue at risk"
-          }
+          },
+          "stat_tiles": [
+            {
+              "label": "Accounts at risk or churning",
+              "value_sql": "SELECT COUNT(*) FROM product_usage.account_health h JOIN finance.subscriptions s ON s.account_id=h.account_id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn')"
+            },
+            {
+              "label": "Monthly revenue at stake",
+              "value_sql": "SELECT COALESCE(SUM(s.monthly_amount),0) FROM product_usage.account_health h JOIN finance.subscriptions s ON s.account_id=h.account_id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn')",
+              "format": "eur"
+            },
+            {
+              "label": "Largest single account",
+              "value_sql": "SELECT COALESCE(MAX(s.monthly_amount),0) FROM product_usage.account_health h JOIN finance.subscriptions s ON s.account_id=h.account_id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn')",
+              "format": "eur"
+            }
+          ]
         },
         {
           "position": 1,
@@ -112,7 +128,23 @@
             "x": "channel",
             "y": "revenue_won",
             "series_label": "Closed-won revenue by channel"
-          }
+          },
+          "stat_tiles": [
+            {
+              "label": "Best channel",
+              "value_sql": "SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1"
+            },
+            {
+              "label": "Revenue it brought",
+              "value_sql": "SELECT COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) AS r FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY r DESC LIMIT 1",
+              "format": "eur"
+            },
+            {
+              "label": "Total spend",
+              "value_sql": "SELECT COALESCE(SUM(spend),0) FROM marketing.campaigns",
+              "format": "eur"
+            }
+          ]
         },
         {
           "position": 2,
@@ -136,7 +168,22 @@
             "x": "name",
             "y": "amount",
             "series_label": "Overdue amount"
-          }
+          },
+          "stat_tiles": [
+            {
+              "label": "Overdue invoices",
+              "value_sql": "SELECT COUNT(*) FROM finance.invoices WHERE status='overdue'"
+            },
+            {
+              "label": "Total uncollected",
+              "value_sql": "SELECT COALESCE(SUM(amount),0) FROM finance.invoices WHERE status='overdue'",
+              "format": "eur"
+            },
+            {
+              "label": "Oldest one",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - issued_at),0) FROM finance.invoices WHERE status='overdue'"
+            }
+          ]
         },
         {
           "position": 3,
@@ -272,7 +319,23 @@
             "x": "name",
             "y": "monthly_amount",
             "series_label": "Monthly revenue at risk"
-          }
+          },
+          "stat_tiles": [
+            {
+              "label": "Contas em risco ou saída",
+              "value_sql": "SELECT COUNT(*) FROM product_usage.account_health h JOIN finance.subscriptions s ON s.account_id=h.account_id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn')"
+            },
+            {
+              "label": "Receita mensal em jogo",
+              "value_sql": "SELECT COALESCE(SUM(s.monthly_amount),0) FROM product_usage.account_health h JOIN finance.subscriptions s ON s.account_id=h.account_id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn')",
+              "format": "eur"
+            },
+            {
+              "label": "A maior delas",
+              "value_sql": "SELECT COALESCE(MAX(s.monthly_amount),0) FROM product_usage.account_health h JOIN finance.subscriptions s ON s.account_id=h.account_id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn')",
+              "format": "eur"
+            }
+          ]
         },
         {
           "position": 1,
@@ -296,7 +359,23 @@
             "x": "channel",
             "y": "revenue_won",
             "series_label": "Closed-won revenue by channel"
-          }
+          },
+          "stat_tiles": [
+            {
+              "label": "Melhor canal",
+              "value_sql": "SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1"
+            },
+            {
+              "label": "Receita que trouxe",
+              "value_sql": "SELECT COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) AS r FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY r DESC LIMIT 1",
+              "format": "eur"
+            },
+            {
+              "label": "Investimento total",
+              "value_sql": "SELECT COALESCE(SUM(spend),0) FROM marketing.campaigns",
+              "format": "eur"
+            }
+          ]
         },
         {
           "position": 2,
@@ -320,7 +399,22 @@
             "x": "name",
             "y": "amount",
             "series_label": "Overdue amount"
-          }
+          },
+          "stat_tiles": [
+            {
+              "label": "Faturas vencidas",
+              "value_sql": "SELECT COUNT(*) FROM finance.invoices WHERE status='overdue'"
+            },
+            {
+              "label": "Total por cobrar",
+              "value_sql": "SELECT COALESCE(SUM(amount),0) FROM finance.invoices WHERE status='overdue'",
+              "format": "eur"
+            },
+            {
+              "label": "A mais antiga",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - issued_at),0) FROM finance.invoices WHERE status='overdue'"
+            }
+          ]
         },
         {
           "position": 3,

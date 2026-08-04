@@ -61,6 +61,7 @@ class DemoAnswerResponse(BaseModel):
     question: str
     answer_markdown: str
     citations: List[Dict[str, Any]] = Field(default_factory=list)
+    stat_tiles: List[StatTile] = Field(default_factory=list)
     chart_spec: Optional[Dict[str, Any]] = None
     executed_sql: Optional[str] = None
     # Verdadeiro quando a resposta veio do banco curado por a geração ao

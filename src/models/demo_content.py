@@ -194,6 +194,11 @@ class DemoQA(Base):
     question = Column(Text, nullable=False)
     answer_markdown = Column(Text, nullable=False)
     citations = Column(_JSONB_OR_JSON, nullable=False, default=list)
+    # Os números da resposta, calculados contra os dados sintéticos na
+    # curadoria. Sem eles a resposta descreve a análise em vez de a
+    # mostrar — e uma demo que fala sobre números sem os apresentar
+    # perde exactamente o argumento que estava a tentar fazer.
+    stat_tiles = Column(_JSONB_OR_JSON, nullable=False, default=list)
     chart_spec = Column(_JSONB_OR_JSON, nullable=True)
     executed_sql = Column(Text, nullable=True)
 

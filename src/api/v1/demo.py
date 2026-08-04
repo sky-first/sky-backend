@@ -413,6 +413,7 @@ def _qa_to_model(q, *, is_fallback: bool, question: Optional[str] = None) -> Dem
         question=question or q.question,
         answer_markdown=q.answer_markdown,
         citations=q.citations or [],
+        stat_tiles=q.stat_tiles or [],
         chart_spec=q.chart_spec,
         executed_sql=q.executed_sql,
         is_fallback=is_fallback,

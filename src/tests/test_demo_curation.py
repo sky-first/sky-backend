@@ -51,7 +51,15 @@ def _minimal_spec(**over):
             "executed_sql": "SELECT 1",
         },
         "qas": [
-            {"question": f"Q{i}", "answer_markdown": "A", "is_suggested": i < 3} for i in range(5)
+            {
+                "question": f"Q{i}",
+                "answer_markdown": "A",
+                "is_suggested": i < 3,
+                # As sugeridas tem de trazer numeros: descrever a
+                # analise nao e responder.
+                **({"stat_tiles": [{"label": "x", "value": "1"}]} if i < 3 else {}),
+            }
+            for i in range(5)
         ],
     }
     spec.update(over)
@@ -132,10 +140,19 @@ def test_ficheiro_curado_passa_as_proprias_regras():
         assert curate._editorial_problems(spec) == [], spec["vertical"]
 
 
-def test_ficheiro_curado_tem_exactamente_um_default():
-    """Duas linhas com is_default tornariam a entrada da demo
-    não-determinista — e o índice parcial só rebentaria no apply."""
-    assert sum(bool(d.get("is_default")) for d in _real_datasets()) == 1
+def test_um_default_por_idioma():
+    """Um por idioma, não um no total.
+
+    O índice parcial na base é `unique (locale) where is_default`, e é
+    isso que tem de ser espelhado aqui: dois defaults no mesmo idioma
+    tornariam a entrada da demo não-determinista, mas o inglês e o
+    português precisam cada um do seu."""
+    from collections import Counter
+
+    counts = Counter(d.get("locale", "en") for d in _real_datasets() if d.get("is_default"))
+
+    assert counts, "sem default nenhum, quem carrega em Saltar vai parar a lado nenhum"
+    assert all(n == 1 for n in counts.values()), dict(counts)
 
 
 def test_todo_o_numero_mostrado_tem_sql_por_tras():
@@ -152,6 +169,21 @@ def test_perguntas_curadas_tem_sql_e_citacoes():
         for qa in spec["qas"]:
             assert qa.get("executed_sql"), qa["question"]
             assert qa.get("citations"), qa["question"]
+
+
+def test_perguntas_sugeridas_trazem_numeros():
+    """A queixa que motivou isto: "contas marcadas como risco, ordenadas
+    pela receita mensal" descreve a query e não responde a nada. Uma
+    demo que fala sobre números sem os mostrar perde o argumento que
+    estava a tentar fazer."""
+    for spec in _real_datasets():
+        for qa in spec["qas"]:
+            if not qa.get("is_suggested"):
+                continue
+            tiles = qa.get("stat_tiles") or []
+            assert tiles, f"{spec['locale']}: {qa['question'][:50]!r}"
+            for tile in tiles:
+                assert "value_sql" in tile, tile["label"]
 
 
 def test_sql_do_ficheiro_curado_e_sintacticamente_valido():

@@ -172,6 +172,13 @@ def _editorial_problems(spec: Dict[str, Any]) -> List[str]:
     if len(insight.get("stat_tiles") or []) > 3:
         problems.append("mais de 3 stat_tiles — não cabem no ecrã")
 
+    for qa in qas:
+        if qa.get("is_suggested") and not (qa.get("stat_tiles") or []):
+            problems.append(
+                f"pergunta sugerida sem números: {qa.get('question', '')[:50]!r} — "
+                "descrever a análise não é responder"
+            )
+
     suggested = [q for q in qas if q.get("is_suggested")]
     if len(suggested) < 3:
         problems.append(f"só {len(suggested)} perguntas sugeridas — o ecrã precisa de 3")
@@ -275,6 +282,21 @@ async def _replace_content(
     )
 
     for qspec in spec.get("qas") or []:
+        # Os números da resposta, pelo mesmo caminho dos cartões do
+        # insight: SQL escalar, executado contra os dados sintéticos e
+        # recusado se falhar. Uma resposta que descreve a análise em vez
+        # de a mostrar perde o argumento todo da demo.
+        qa_tiles: List[Dict[str, Any]] = []
+        for tile in qspec.get("stat_tiles") or []:
+            value = tile.get("value")
+            if "value_sql" in tile:
+                value = (
+                    _format_value(await verifier.scalar(tile["value_sql"]), tile.get("format"))
+                    if verifier is not None
+                    else "—"
+                )
+            qa_tiles.append({"label": tile["label"], "value": value})
+
         db.add(
             DemoQA(
                 id=uuid.uuid4(),
@@ -282,6 +304,7 @@ async def _replace_content(
                 question=qspec["question"],
                 answer_markdown=qspec["answer_markdown"],
                 citations=qspec.get("citations") or [],
+                stat_tiles=qa_tiles,
                 chart_spec=qspec.get("chart_spec"),
                 executed_sql=qspec.get("executed_sql"),
                 position=qspec.get("position", 0),
@@ -420,6 +443,9 @@ def _all_sql(spec: Dict[str, Any]):
     for qa in spec.get("qas") or []:
         if qa.get("executed_sql"):
             yield f"qa:{qa['question'][:28]}", qa["executed_sql"]
+        for tile in qa.get("stat_tiles") or []:
+            if tile.get("value_sql"):
+                yield f"qa-tile:{tile['label'][:24]}", tile["value_sql"]
 
 
 # ── proposta ────────────────────────────────────────────────────────
