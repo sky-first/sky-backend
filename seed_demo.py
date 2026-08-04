@@ -196,6 +196,26 @@ async def main() -> None:
             )
             await db.commit()
 
+        # Register the demo email domain → demo tenant, so the app logs in the
+        # Teams way: email + password only, the domain identifies the workspace
+        # (no X-Tenant-Slug needed). Idempotent; unique per domain.
+        from src.models.tenant_domain import TenantDomain, domain_of_email
+
+        tenant_row = (
+            await db.execute(Tenant.__table__.select().where(Tenant.slug == DEMO_TENANT_SLUG))
+        ).first()
+        demo_domain = domain_of_email(EMAIL)
+        if tenant_row is not None and demo_domain:
+            has_domain = (
+                await db.execute(
+                    TenantDomain.__table__.select().where(TenantDomain.domain == demo_domain)
+                )
+            ).first()
+            if has_domain is None:
+                db.add(TenantDomain(domain=demo_domain, tenant_id=tenant_row.id, is_active=True))
+                await db.commit()
+            print(f"Tenant domain for Teams login: {demo_domain} → {DEMO_TENANT_SLUG}")
+
         users = UserRepository(db)
 
         user = await users.get_by_email(EMAIL)
