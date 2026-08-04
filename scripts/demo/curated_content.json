@@ -616,6 +616,672 @@
           "series_sql": "SELECT DATE_TRUNC('month', o.close_date)::date AS t, ROUND(SUM(o.amount)) AS v FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' GROUP BY 1 ORDER BY 1"
         }
       ]
+    },
+    {
+      "vertical": "distribution",
+      "locale": "pt",
+      "is_default": false,
+      "name": "Distribuidora Atlântico — Retalho alimentar",
+      "description": "Distribuidor com 100 clientes de revenda e horeca, 60 referências e quatro armazéns.",
+      "connection_ref": "Demo — Distribuição",
+      "insight": {
+        "severity": "margin_leak",
+        "severity_level": "warning",
+        "agent_name": "Margem",
+        "title": "Uma família inteira vendida com desconto seis vezes maior que o resto",
+        "summary": "O desconto não está a ser negociado encomenda a encomenda — está aplicado de forma sistemática a uma família inteira. O custo dessa família não é diferente do resto do catálogo; o que é diferente é o preço à saída. É por isso que a margem aparece onde ninguém a foi procurar: no ficheiro de vendas, não no de compras.",
+        "stat_tiles": [
+          {
+            "label": "Família com maior desconto",
+            "value_sql": "SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1"
+          },
+          {
+            "label": "Desconto médio",
+            "value_sql": "SELECT ROUND(100.0 * AVG(l.discount), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+            "format": "pct"
+          },
+          {
+            "label": "Margem que sobra",
+            "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+            "format": "pct"
+          }
+        ],
+        "sources": [
+          {
+            "table": "sales.order_lines",
+            "description": "Linhas de encomenda, com desconto"
+          },
+          {
+            "table": "catalog.products",
+            "description": "Custo e preço de tabela"
+          },
+          {
+            "table": "inventory.stock",
+            "description": "Quantidade e última movimentação"
+          },
+          {
+            "table": "supply.receipts",
+            "description": "Prometido contra recebido"
+          }
+        ],
+        "executed_sql": "SELECT p.family,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * AVG(l.discount), 1) AS avg_discount_pct,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.order_lines l\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY margin_pct",
+        "series_sql": "SELECT DATE_TRUNC('month', o.ordered_at)::date AS t,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS v\nFROM sales.order_lines l\nJOIN sales.orders o ON o.id = l.order_id\nJOIN catalog.products p ON p.id = l.product_id\nWHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "cash_in_stock",
+          "severity_level": "warning",
+          "agent_name": "Inventário",
+          "title": "Dinheiro parado em prateleira há mais de meio ano",
+          "summary": "Stock parado não aparece em lado nenhum como custo — está pago, está contabilizado como activo, e continua lá. O agente olha para a data do último movimento e não para a quantidade, porque a quantidade parece saudável até ao dia em que se percebe que ninguém lhe toca.",
+          "stat_tiles": [
+            {
+              "label": "Referências paradas",
+              "value_sql": "SELECT COUNT(*) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            },
+            {
+              "label": "Valor imobilizado",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            },
+            {
+              "label": "A mais antiga, em dias",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - last_movement), 0) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            }
+          ],
+          "sources": [
+            {
+              "table": "inventory.stock",
+              "description": "Quantidade e última movimentação"
+            },
+            {
+              "table": "catalog.products",
+              "description": "Custo e preço de tabela"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, w.name AS warehouse, s.quantity,\n       ROUND(s.quantity * p.unit_cost) AS euros,\n       CURRENT_DATE - s.last_movement AS days_still\nFROM inventory.stock s\nJOIN catalog.products p ON p.id = s.product_id\nJOIN inventory.warehouses w ON w.id = s.warehouse_id\nWHERE s.last_movement < CURRENT_DATE - 180\nORDER BY euros DESC",
+          "series_sql": "SELECT b.faixa AS t, COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) AS v\nFROM (VALUES (1,'180-220'),(2,'221-260'),(3,'261-300'),(4,'301+')) AS b(ord, faixa)\nLEFT JOIN inventory.stock s ON s.last_movement < CURRENT_DATE - 180\n AND width_bucket(CURRENT_DATE - s.last_movement, ARRAY[221,261,301]) + 1 = b.ord\nLEFT JOIN catalog.products p ON p.id = s.product_id\nGROUP BY b.ord, b.faixa ORDER BY b.ord"
+        },
+        {
+          "severity": "supplier_delay",
+          "severity_level": "info",
+          "agent_name": "Fornecedores",
+          "title": "Um fornecedor entrega sempre tarde. Os outros não.",
+          "summary": "Um atraso é ruído. O mesmo atraso todos os meses é um prazo mal acordado — e é uma conversa que se tem com um número à frente, não de memória. Comparar o prometido com o recebido é trivial; o que ninguém faz é fazê-lo todos os meses, para todos os fornecedores.",
+          "stat_tiles": [
+            {
+              "label": "Fornecedor",
+              "value_sql": "SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1"
+            },
+            {
+              "label": "Atraso médio, em dias",
+              "value_sql": "SELECT ROUND(MAX(m), 1) FROM (SELECT AVG(r.received_at - r.promised_at) m FROM supply.receipts r WHERE r.received_at IS NOT NULL GROUP BY r.supplier_id) x"
+            },
+            {
+              "label": "Recepções afectadas",
+              "value_sql": "SELECT COUNT(*) FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "supply.receipts",
+              "description": "Prometido contra recebido"
+            }
+          ],
+          "executed_sql": "SELECT sup.name, sup.country, sup.lead_time_days,\n       COUNT(*) AS receipts,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS avg_days_late\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL\nGROUP BY sup.name, sup.country, sup.lead_time_days\nORDER BY avg_days_late DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', r.promised_at)::date AS t,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS v\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)\nGROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Que família de produtos está a perder margem, e porquê?",
+          "answer_markdown": "**É o desconto, não é o custo.** A família com pior margem é também a que leva o maior desconto médio — várias vezes acima do resto do catálogo, e aplicado de forma transversal e não caso a caso.\n\nIsto interessa porque muda quem resolve o problema. Se fosse custo, era uma conversa com o fornecedor; sendo desconto, é uma política de preço que alguém definiu e ninguém reviu.\n\nO número sai do cruzamento de duas tabelas que ninguém cruza: o preço praticado está nas linhas de encomenda, o custo está no catálogo.",
+          "citations": [
+            {
+              "table": "sales.order_lines"
+            },
+            {
+              "table": "catalog.products"
+            }
+          ],
+          "executed_sql": "SELECT p.family,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * AVG(l.discount), 1) AS avg_discount_pct,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.order_lines l\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY margin_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Família",
+              "value_sql": "SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1"
+            },
+            {
+              "label": "Desconto médio",
+              "value_sql": "SELECT ROUND(100.0 * AVG(l.discount), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+              "format": "pct"
+            },
+            {
+              "label": "Margem que sobra",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "Quanto dinheiro está parado em stock que não mexe?",
+          "answer_markdown": "**Está tudo em poucas referências.** O valor imobilizado concentra-se num punhado de artigos que não têm movimento há mais de meio ano — e a mais antiga já passou os dez meses.\n\nStock parado é o custo mais fácil de ignorar porque não aparece em lado nenhum como custo: está pago, está no activo, e continua lá. Só a data do último movimento o denuncia.\n\nCom uma lista destas, a decisão é operacional: promoção, devolução ao fornecedor, ou abate. Sem ela, a decisão nunca chega a ser tomada.",
+          "citations": [
+            {
+              "table": "inventory.stock"
+            },
+            {
+              "table": "catalog.products"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, w.name AS warehouse, s.quantity,\n       ROUND(s.quantity * p.unit_cost) AS euros,\n       CURRENT_DATE - s.last_movement AS days_still\nFROM inventory.stock s\nJOIN catalog.products p ON p.id = s.product_id\nJOIN inventory.warehouses w ON w.id = s.warehouse_id\nWHERE s.last_movement < CURRENT_DATE - 180\nORDER BY euros DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Referências paradas",
+              "value_sql": "SELECT COUNT(*) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            },
+            {
+              "label": "Valor imobilizado",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            },
+            {
+              "label": "A mais antiga, em dias",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - last_movement), 0) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Que fornecedor entrega fora do prazo, e quanto?",
+          "answer_markdown": "**Um fornecedor destaca-se, e não por pouco.** A média de atraso dele está numa ordem de grandeza diferente da de todos os outros, que entregam praticamente dentro do prometido.\n\nÉ por isso que isto é accionável: não é o mercado, não é a época, é um fornecedor. O prazo que ele acordou não é o prazo que ele cumpre — e isso renegoceia-se com o histórico à frente.\n\nA comparação é entre o que ele prometeu e o que entregou, recepção a recepção.",
+          "citations": [
+            {
+              "table": "supply.receipts"
+            },
+            {
+              "table": "supply.suppliers"
+            }
+          ],
+          "executed_sql": "SELECT sup.name, sup.country, sup.lead_time_days,\n       COUNT(*) AS receipts,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS avg_days_late\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL\nGROUP BY sup.name, sup.country, sup.lead_time_days\nORDER BY avg_days_late DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Fornecedor",
+              "value_sql": "SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1"
+            },
+            {
+              "label": "Atraso médio, em dias",
+              "value_sql": "SELECT ROUND(MAX(m), 1) FROM (SELECT AVG(r.received_at - r.promised_at) m FROM supply.receipts r WHERE r.received_at IS NOT NULL GROUP BY r.supplier_id) x"
+            },
+            {
+              "label": "Recepções afectadas",
+              "value_sql": "SELECT COUNT(*) FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Que canal de venda dá mais margem — revenda, horeca, retalho ou online?",
+          "answer_markdown": "**O canal que factura mais não é o que deixa mais.** A ordem muda conforme se olha para a receita ou para a margem, e é essa diferença que decide onde vale a pena pôr comercial.\n\nReceita sem margem ao lado é uma métrica de vaidade: cresce, sente-se bem, e não diz se o negócio melhorou.",
+          "citations": [
+            {
+              "table": "sales.customers"
+            },
+            {
+              "table": "sales.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT c.channel, COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.orders o\nJOIN sales.customers c ON c.id = o.customer_id\nJOIN sales.order_lines l ON l.order_id = o.id\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY c.channel\nORDER BY margin_pct DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Melhor canal por margem",
+              "value_sql": "SELECT c.channel FROM sales.orders o JOIN sales.customers c ON c.id = o.customer_id JOIN sales.order_lines l ON l.order_id = o.id JOIN catalog.products p ON p.id = l.product_id GROUP BY c.channel ORDER BY SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Margem global",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Receita total",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Quem são os maiores clientes, e em que canal?",
+          "answer_markdown": "**Os dez maiores, por receita entregue.** A lista sai das encomendas entregues, não das lançadas — canceladas não contam para ninguém.\n\nO canal ao lado do nome é o que torna isto útil: dois clientes com a mesma factura em canais diferentes não são o mesmo cliente para efeitos de margem.",
+          "citations": [
+            {
+              "table": "sales.customers"
+            },
+            {
+              "table": "sales.orders"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.channel,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue\nFROM sales.customers c\nJOIN sales.orders o ON o.customer_id = c.id\nJOIN sales.order_lines l ON l.order_id = o.id\nGROUP BY c.name, c.channel\nORDER BY revenue DESC\nLIMIT 10",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Maior cliente",
+              "value_sql": "SELECT c.name FROM sales.customers c JOIN sales.orders o ON o.customer_id = c.id JOIN sales.order_lines l ON l.order_id = o.id GROUP BY c.name ORDER BY SUM(l.quantity * l.unit_price * (1 - l.discount)) DESC LIMIT 1"
+            },
+            {
+              "label": "Encomendas entregues",
+              "value_sql": "SELECT COUNT(*) FROM sales.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "Receita total",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Como evoluiu a facturação nos últimos meses?",
+          "answer_markdown": "**Mês a mês, sobre encomendas entregues.** A série mostra a tendência e o ruído ao mesmo tempo — e é o ruído que costuma explicar as reuniões em que alguém pergunta porque é que o mês foi mau.\n\nUma média mensal sozinha esconde exactamente a informação que interessa.",
+          "citations": [
+            {
+              "table": "sales.orders"
+            },
+            {
+              "table": "sales.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT DATE_TRUNC('month', o.ordered_at)::date AS t,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS v\nFROM sales.orders o\nJOIN sales.order_lines l ON l.order_id = o.id\nGROUP BY 1 ORDER BY 1",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Receita total",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            },
+            {
+              "label": "Encomendas entregues",
+              "value_sql": "SELECT COUNT(*) FROM sales.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "Margem global",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "Que produtos têm stock mas nunca se venderam?",
+          "answer_markdown": "**Compraram-se e nunca saíram.** São referências com quantidade em armazém e zero linhas de venda em todo o histórico — o caso extremo do stock parado.\n\nVale a pena olhar para elas antes da próxima encomenda ao fornecedor, que é exactamente quando ninguém olha.",
+          "citations": [
+            {
+              "table": "catalog.products"
+            },
+            {
+              "table": "inventory.stock"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, SUM(s.quantity) AS in_stock\nFROM catalog.products p\nJOIN inventory.stock s ON s.product_id = p.id\nLEFT JOIN sales.order_lines l ON l.product_id = p.id\nWHERE l.id IS NULL\nGROUP BY p.sku, p.name\nORDER BY in_stock DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Referências sem uma venda",
+              "value_sql": "SELECT COUNT(*) FROM (SELECT p.id FROM catalog.products p JOIN inventory.stock s ON s.product_id = p.id LEFT JOIN sales.order_lines l ON l.product_id = p.id WHERE l.id IS NULL GROUP BY p.id) x"
+            },
+            {
+              "label": "Valor imobilizado",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vertical": "distribution",
+      "locale": "en",
+      "is_default": false,
+      "name": "Atlantico Wholesale — Food retail",
+      "description": "Wholesaler with 100 resale and horeca customers, 60 SKUs and four warehouses.",
+      "connection_ref": "Demo — Distribution",
+      "insight": {
+        "severity": "margin_leak",
+        "severity_level": "warning",
+        "agent_name": "Margin Watch",
+        "title": "One whole family sold at six times the discount of everything else",
+        "summary": "The discount isn't being negotiated order by order — it's applied systematically across a whole family. That family's cost is no different from the rest of the catalogue; what's different is the price at the till. Which is why the margin shows up where nobody went looking: in the sales file, not the buying file.",
+        "stat_tiles": [
+          {
+            "label": "Family with the largest discount",
+            "value_sql": "SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1"
+          },
+          {
+            "label": "Average discount",
+            "value_sql": "SELECT ROUND(100.0 * AVG(l.discount), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+            "format": "pct"
+          },
+          {
+            "label": "Margin left",
+            "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+            "format": "pct"
+          }
+        ],
+        "sources": [
+          {
+            "table": "sales.order_lines",
+            "description": "Linhas de encomenda, com desconto"
+          },
+          {
+            "table": "catalog.products",
+            "description": "Custo e preço de tabela"
+          },
+          {
+            "table": "inventory.stock",
+            "description": "Quantidade e última movimentação"
+          },
+          {
+            "table": "supply.receipts",
+            "description": "Prometido contra recebido"
+          }
+        ],
+        "executed_sql": "SELECT p.family,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * AVG(l.discount), 1) AS avg_discount_pct,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.order_lines l\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY margin_pct",
+        "series_sql": "SELECT DATE_TRUNC('month', o.ordered_at)::date AS t,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS v\nFROM sales.order_lines l\nJOIN sales.orders o ON o.id = l.order_id\nJOIN catalog.products p ON p.id = l.product_id\nWHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "cash_in_stock",
+          "severity_level": "warning",
+          "agent_name": "Inventory",
+          "title": "Cash sitting on a shelf for more than six months",
+          "summary": "Idle stock shows up nowhere as a cost — it's paid for, it's booked as an asset, and there it stays. The agent watches the last movement date, not the quantity, because the quantity looks healthy right up until you realise nobody has touched it.",
+          "stat_tiles": [
+            {
+              "label": "SKUs not moving",
+              "value_sql": "SELECT COUNT(*) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            },
+            {
+              "label": "Cash tied up",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            },
+            {
+              "label": "Oldest, in days",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - last_movement), 0) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            }
+          ],
+          "sources": [
+            {
+              "table": "inventory.stock",
+              "description": "Quantidade e última movimentação"
+            },
+            {
+              "table": "catalog.products",
+              "description": "Custo e preço de tabela"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, w.name AS warehouse, s.quantity,\n       ROUND(s.quantity * p.unit_cost) AS euros,\n       CURRENT_DATE - s.last_movement AS days_still\nFROM inventory.stock s\nJOIN catalog.products p ON p.id = s.product_id\nJOIN inventory.warehouses w ON w.id = s.warehouse_id\nWHERE s.last_movement < CURRENT_DATE - 180\nORDER BY euros DESC",
+          "series_sql": "SELECT b.faixa AS t, COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) AS v\nFROM (VALUES (1,'180-220'),(2,'221-260'),(3,'261-300'),(4,'301+')) AS b(ord, faixa)\nLEFT JOIN inventory.stock s ON s.last_movement < CURRENT_DATE - 180\n AND width_bucket(CURRENT_DATE - s.last_movement, ARRAY[221,261,301]) + 1 = b.ord\nLEFT JOIN catalog.products p ON p.id = s.product_id\nGROUP BY b.ord, b.faixa ORDER BY b.ord"
+        },
+        {
+          "severity": "supplier_delay",
+          "severity_level": "info",
+          "agent_name": "Supply",
+          "title": "One supplier is always late. The others aren't.",
+          "summary": "One late delivery is noise. The same delay every month is a lead time that was agreed wrong — and that's a conversation you have with a number in front of you, not from memory. Comparing promised against received is trivial; what nobody does is do it every month, for every supplier.",
+          "stat_tiles": [
+            {
+              "label": "Supplier",
+              "value_sql": "SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1"
+            },
+            {
+              "label": "Average delay, in days",
+              "value_sql": "SELECT ROUND(MAX(m), 1) FROM (SELECT AVG(r.received_at - r.promised_at) m FROM supply.receipts r WHERE r.received_at IS NOT NULL GROUP BY r.supplier_id) x"
+            },
+            {
+              "label": "Deliveries affected",
+              "value_sql": "SELECT COUNT(*) FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "supply.receipts",
+              "description": "Prometido contra recebido"
+            }
+          ],
+          "executed_sql": "SELECT sup.name, sup.country, sup.lead_time_days,\n       COUNT(*) AS receipts,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS avg_days_late\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL\nGROUP BY sup.name, sup.country, sup.lead_time_days\nORDER BY avg_days_late DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', r.promised_at)::date AS t,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS v\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)\nGROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Which product family is losing margin, and why?",
+          "answer_markdown": "**It's the discount, not the cost.** The family with the worst margin is also the one carrying the largest average discount — several times the rest of the catalogue, and applied across the board rather than case by case.\n\nThat matters because it changes who fixes it. If it were cost, it'd be a conversation with the supplier; being discount, it's a pricing policy somebody set and nobody revisited.\n\nThe number comes from joining two tables nobody joins: the price actually charged is in the order lines, the cost is in the catalogue.",
+          "citations": [
+            {
+              "table": "sales.order_lines"
+            },
+            {
+              "table": "catalog.products"
+            }
+          ],
+          "executed_sql": "SELECT p.family,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * AVG(l.discount), 1) AS avg_discount_pct,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.order_lines l\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY margin_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Family",
+              "value_sql": "SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1"
+            },
+            {
+              "label": "Average discount",
+              "value_sql": "SELECT ROUND(100.0 * AVG(l.discount), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+              "format": "pct"
+            },
+            {
+              "label": "Margin left",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "How much cash is sitting in stock that doesn't move?",
+          "answer_markdown": "**It's concentrated in a handful of SKUs.** The tied-up cash sits in a few items with no movement for over six months — and the oldest is past ten.\n\nIdle stock is the easiest cost to ignore because it shows up nowhere as a cost: it's paid for, it's on the balance sheet, and there it stays. Only the last movement date gives it away.\n\nWith a list like this the decision is operational: promotion, return to supplier, or write-off. Without it, the decision simply never gets made.",
+          "citations": [
+            {
+              "table": "inventory.stock"
+            },
+            {
+              "table": "catalog.products"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, w.name AS warehouse, s.quantity,\n       ROUND(s.quantity * p.unit_cost) AS euros,\n       CURRENT_DATE - s.last_movement AS days_still\nFROM inventory.stock s\nJOIN catalog.products p ON p.id = s.product_id\nJOIN inventory.warehouses w ON w.id = s.warehouse_id\nWHERE s.last_movement < CURRENT_DATE - 180\nORDER BY euros DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "SKUs not moving",
+              "value_sql": "SELECT COUNT(*) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            },
+            {
+              "label": "Cash tied up",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            },
+            {
+              "label": "Oldest, in days",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - last_movement), 0) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Which supplier delivers late, and by how much?",
+          "answer_markdown": "**One supplier stands out, and not by a little.** Its average delay is in a different order of magnitude from everyone else's — the rest deliver essentially on the promised date.\n\nThat's what makes it actionable: it isn't the market, it isn't the season, it's one supplier. The lead time it agreed to isn't the lead time it keeps — and that gets renegotiated with the history in front of you.\n\nThe comparison is promised against received, delivery by delivery.",
+          "citations": [
+            {
+              "table": "supply.receipts"
+            },
+            {
+              "table": "supply.suppliers"
+            }
+          ],
+          "executed_sql": "SELECT sup.name, sup.country, sup.lead_time_days,\n       COUNT(*) AS receipts,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS avg_days_late\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL\nGROUP BY sup.name, sup.country, sup.lead_time_days\nORDER BY avg_days_late DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Supplier",
+              "value_sql": "SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1"
+            },
+            {
+              "label": "Average delay, in days",
+              "value_sql": "SELECT ROUND(MAX(m), 1) FROM (SELECT AVG(r.received_at - r.promised_at) m FROM supply.receipts r WHERE r.received_at IS NOT NULL GROUP BY r.supplier_id) x"
+            },
+            {
+              "label": "Deliveries affected",
+              "value_sql": "SELECT COUNT(*) FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Which sales channel gives the most margin — resale, horeca, retail or online?",
+          "answer_markdown": "**The channel that bills most isn't the one that keeps most.** The order changes depending on whether you look at revenue or margin, and that difference is what decides where the sales effort goes.\n\nRevenue without margin beside it is a vanity metric: it grows, it feels good, and it doesn't tell you whether the business got better.",
+          "citations": [
+            {
+              "table": "sales.customers"
+            },
+            {
+              "table": "sales.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT c.channel, COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.orders o\nJOIN sales.customers c ON c.id = o.customer_id\nJOIN sales.order_lines l ON l.order_id = o.id\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY c.channel\nORDER BY margin_pct DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Best channel by margin",
+              "value_sql": "SELECT c.channel FROM sales.orders o JOIN sales.customers c ON c.id = o.customer_id JOIN sales.order_lines l ON l.order_id = o.id JOIN catalog.products p ON p.id = l.product_id GROUP BY c.channel ORDER BY SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Overall margin",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Total revenue",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Who are the largest customers, and in which channel?",
+          "answer_markdown": "**The top ten, by delivered revenue.** The list comes from delivered orders, not placed ones — cancellations count for nobody.\n\nThe channel beside the name is what makes it useful: two customers with the same invoice in different channels are not the same customer as far as margin goes.",
+          "citations": [
+            {
+              "table": "sales.customers"
+            },
+            {
+              "table": "sales.orders"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.channel,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue\nFROM sales.customers c\nJOIN sales.orders o ON o.customer_id = c.id\nJOIN sales.order_lines l ON l.order_id = o.id\nGROUP BY c.name, c.channel\nORDER BY revenue DESC\nLIMIT 10",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Largest customer",
+              "value_sql": "SELECT c.name FROM sales.customers c JOIN sales.orders o ON o.customer_id = c.id JOIN sales.order_lines l ON l.order_id = o.id GROUP BY c.name ORDER BY SUM(l.quantity * l.unit_price * (1 - l.discount)) DESC LIMIT 1"
+            },
+            {
+              "label": "Delivered orders",
+              "value_sql": "SELECT COUNT(*) FROM sales.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "Total revenue",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "How has revenue trended over the last months?",
+          "answer_markdown": "**Month by month, on delivered orders.** The series shows the trend and the noise at the same time — and it's usually the noise that explains the meetings where somebody asks why the month was bad.\n\nA monthly average on its own hides precisely the information that matters.",
+          "citations": [
+            {
+              "table": "sales.orders"
+            },
+            {
+              "table": "sales.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT DATE_TRUNC('month', o.ordered_at)::date AS t,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS v\nFROM sales.orders o\nJOIN sales.order_lines l ON l.order_id = o.id\nGROUP BY 1 ORDER BY 1",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Total revenue",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            },
+            {
+              "label": "Delivered orders",
+              "value_sql": "SELECT COUNT(*) FROM sales.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "Overall margin",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "Which products have stock but never sold?",
+          "answer_markdown": "**Bought and never shipped.** These are SKUs with quantity in the warehouse and zero sales lines across the whole history — the extreme case of idle stock.\n\nWorth looking at before the next purchase order, which is exactly when nobody looks.",
+          "citations": [
+            {
+              "table": "catalog.products"
+            },
+            {
+              "table": "inventory.stock"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, SUM(s.quantity) AS in_stock\nFROM catalog.products p\nJOIN inventory.stock s ON s.product_id = p.id\nLEFT JOIN sales.order_lines l ON l.product_id = p.id\nWHERE l.id IS NULL\nGROUP BY p.sku, p.name\nORDER BY in_stock DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "SKUs with no sale",
+              "value_sql": "SELECT COUNT(*) FROM (SELECT p.id FROM catalog.products p JOIN inventory.stock s ON s.product_id = p.id LEFT JOIN sales.order_lines l ON l.product_id = p.id WHERE l.id IS NULL GROUP BY p.id) x"
+            },
+            {
+              "label": "Cash tied up",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
