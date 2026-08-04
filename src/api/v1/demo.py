@@ -11,6 +11,7 @@ issues the JWT itself.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -23,11 +24,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
+from src.models.demo_content import DemoEvent
 from src.models.space import Space
 from src.models.user import User
 from src.schemas.common import ErrorResponse
 from src.schemas.demo import DemoSignupRequest, DemoSignupResponse
 from src.schemas.demo_content import (
+    DemoEventRequest,
+    DemoEventResponse,
     DemoSource,
     DemoUnlockedRequest,
     DemoUnlockedResponse,
@@ -43,6 +47,8 @@ from src.schemas.demo_content import (
 from src.services import demo_content_service, demo_email_service, demo_flow_service
 from src.services.demo_domain_gate import dataset_vocabulary, is_in_domain
 from src.services.demo_service import DemoService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -412,6 +418,8 @@ async def demo_lead(
     await demo_content_service.record_lead(
         db,
         email=str(payload.email),
+        name=payload.name,
+        last_step=payload.last_step,
         company=payload.company,
         role=payload.role,
         dataset_id=dataset_id,
@@ -436,6 +444,50 @@ async def demo_lead(
         )
     )
     return DemoLeadResponse(accepted=True)
+
+
+@router.post(
+    "/event",
+    response_model=DemoEventResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Um passo do funil da demo (anónimo)",
+)
+async def demo_event(
+    payload: DemoEventRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+) -> DemoEventResponse:
+    """Regista que uma visita chegou a um passo. Nunca levanta.
+
+    Antes disto só se sabia quem chegava ao fim e deixava o email. Quem
+    saía a meio era invisível — e portanto o passo que perde gente
+    também era, o que deixa a discussão sobre o fluxo no campo das
+    opiniões.
+
+    **Falhar aqui não pode estragar a visita.** Uma métrica que
+    transforma um erro de escrita na base de dados num ecrã partido
+    custa mais do que a métrica vale, portanto tudo é engolido.
+    """
+    if not _demo_rate_ok(request, "demo:event", 60):
+        return DemoEventResponse(accepted=False)
+
+    try:
+        db.add(
+            DemoEvent(
+                session_id=payload.session_id,
+                step=payload.step,
+                action=payload.action,
+                vertical=payload.vertical,
+                locale=payload.locale,
+            )
+        )
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("demo_event_failed: %s", exc)
+        await db.rollback()
+        return DemoEventResponse(accepted=False)
+
+    return DemoEventResponse(accepted=True)
 
 
 def _insight_to_model(i) -> DemoInsightModel:

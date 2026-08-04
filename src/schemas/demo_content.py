@@ -96,6 +96,10 @@ class DemoLeadRequest(BaseModel):
     # bloqueados: o filtro de "throwaway providers" da demo antiga barrava
     # clientes reais que usam gmail como email de empresa.
     email: EmailStr
+    name: Optional[str] = Field(default=None, max_length=160)
+    # Até onde ele chegou. Actualizado a cada passo pelo mesmo upsert,
+    # para haver uma lista de quem ficou a meio.
+    last_step: Optional[int] = Field(default=None, ge=1, le=10)
     # Opcionais: servem para preparar a conversa, não para qualificar
     # ninguém à entrada.
     company: Optional[str] = Field(default=None, max_length=160)
@@ -161,3 +165,23 @@ class DemoUnlockedResponse(BaseModel):
     intro_markdown: str = ""
     unlocked_intro: str = ""
     questions: List[str] = Field(default_factory=list)
+
+
+class DemoEventRequest(BaseModel):
+    """Um passo do funil. **Nada aqui identifica ninguém.**
+
+    `session_id` é gerado no browser e liga os passos de uma visita. Não
+    há campo para email, nome, IP ou user agent — e não é omissão: o que
+    esta rota mede é onde as pessoas param, e isso não precisa de saber
+    quem são.
+    """
+
+    session_id: str = Field(min_length=8, max_length=64)
+    step: int = Field(ge=1, le=10)
+    action: str = Field(max_length=32)
+    vertical: Optional[str] = Field(default=None, max_length=32)
+    locale: Optional[str] = Field(default=None, max_length=10)
+
+
+class DemoEventResponse(BaseModel):
+    accepted: bool = True

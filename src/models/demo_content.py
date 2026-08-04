@@ -40,6 +40,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     SmallInteger,
     String,
     Text,
@@ -269,8 +270,13 @@ class DemoLead(Base):
     # gastar a perguntar o básico. Opcionais de propósito — este é o
     # último ecrã de um fluxo em que ele já deu tempo, e cada campo
     # obrigatório a mais é uma razão a mais para fechar o separador.
+    name = Column(String(160), nullable=True)
     company = Column(String(160), nullable=True)
     role = Column(String(120), nullable=True)
+    # Até onde ele chegou no fluxo. É o que transforma um contacto numa
+    # lista de recuperação: quem ficou no passo 2 não precisa do mesmo
+    # email que quem chegou ao calendário e não marcou.
+    last_step = Column(Integer, nullable=True)
     vertical = Column(String(32), nullable=True)
     locale = Column(String(10), nullable=True)
     source = Column(String(64), nullable=True)
@@ -291,7 +297,44 @@ class DemoLead(Base):
         return f"<DemoLead {self.email}>"
 
 
+class DemoEvent(Base):
+    """Um passo de uma visita à demo. **Sem dados pessoais.**
+
+    Existe porque só se sabia quem chegava ao fim: quem saía a meio era
+    invisível, e portanto o passo que perde gente também era.
+
+    A alternativa considerada foi pedir nome e email no primeiro ecrã.
+    Media o mesmo e mais — permitia contactar quem desistiu — mas custa
+    conversões: este fluxo assenta em dar antes de pedir, e um
+    formulário à entrada é o imposto que faz sair quem ainda não viu
+    nada. Medir primeiro, decidir depois com números.
+
+    ``session_id`` é gerado no browser e não identifica ninguém. Sem IP,
+    sem user agent, sem nada que precise de consentimento.
+    """
+
+    __tablename__ = "demo_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(String(64), nullable=False)
+    step = Column(Integer, nullable=False)
+    action = Column(String(32), nullable=False)
+    vertical = Column(String(32), nullable=True)
+    locale = Column(String(10), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_demo_events_session", "session_id"),
+        Index("idx_demo_events_created", "created_at"),
+        Index("idx_demo_events_step", "step", "action"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DemoEvent {self.step}/{self.action}>"
+
+
 __all__ = [
+    "DemoEvent",
     "EMBEDDING_DIM",
     "VERTICALS",
     "DemoDataset",
