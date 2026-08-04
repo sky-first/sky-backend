@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class StatTile(BaseModel):
@@ -161,10 +161,23 @@ class DemoFileQuestion(BaseModel):
 
     question: str = Field(min_length=2, max_length=500)
     locale: Optional[str] = None
-    columns: List[str] = Field(default_factory=list)
-    rows: List[List[str]] = Field(default_factory=list)
+    columns: List[str] = Field(default_factory=list, max_length=80)
+    rows: List[List[str]] = Field(default_factory=list, max_length=200)
     total_rows: Optional[int] = None
-    text: Optional[str] = None
+    text: Optional[str] = Field(default=None, max_length=40_000)
+
+    @field_validator("rows")
+    @classmethod
+    def _trim_rows(cls, rows: List[List[str]]) -> List[List[str]]:
+        """Corta células absurdas antes de o conteúdo chegar ao modelo.
+
+        O limite global de 1 MiB por pedido já impede o pior, e o motor
+        corta a 120 linhas do seu lado. Isto é a terceira camada, e
+        existe porque as outras duas estão noutro sítio: quem lê este
+        endpoint tem de conseguir ver o que ele aceita sem ir procurar
+        um middleware e um serviço noutro repositório.
+        """
+        return [[str(cell)[:400] for cell in row[:80]] for row in rows]
 
 
 class DemoFileAnswer(BaseModel):
