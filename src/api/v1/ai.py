@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
-from src.api.deps import get_current_user, get_db_session
+from src.api.deps import get_current_user, get_db_session, require_service_principal
 from src.config.settings import settings
 from src.core.locale import DEFAULT_LOCALE, get_message
 from src.middleware.request_limits import depth_guard_dependency
@@ -258,7 +258,10 @@ async def process_query(
 )
 async def scan_insights_notify(
     body: ScanInsightNotifyRequest,
-    current_user: User = Depends(get_current_user),
+    # Serviço, não pessoa. Com `get_current_user` qualquer funcionário
+    # autenticado podia forjar um insight em qualquer espaço do seu
+    # cliente — o `space_id` vem no corpo e não era confrontado com nada.
+    _service: User = Depends(require_service_principal),
     db: AsyncSession = Depends(get_db_session),
 ) -> ScanInsightNotifyResponse:
     finding = await record_scan_finding(db, body)

@@ -3,10 +3,22 @@
 Run:  venv/bin/python seed_demo.py
 Prints the email / password / MFA secret / a live 6-digit code to log in with.
 Idempotent: re-running refreshes the same demo user + its insights.
+
+**Só corre contra uma base local.** Este script cria um utilizador com
+``role="admin"``, password conhecida e — o que é pior — um segredo TOTP
+fixo. Um segredo MFA conhecido não é MFA: quem tiver este ficheiro gera
+códigos válidos para sempre. Contra staging ou produção seria uma porta
+de administrador com chave publicada no repositório.
+
+A guarda abaixo verifica o *host* da base de dados, não uma variável de
+ambiente: `ENVIRONMENT` é fácil de deixar mal configurada, mas se o host
+não for local então a base não é local, ponto. Para forçar (nunca em
+produção), ``ALLOW_REMOTE_DEMO_SEED=1``.
 """
 
 import asyncio
 import os
+import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -33,6 +45,55 @@ DEMO_TENANT_SLUG = "demo"
 APP_DEV_SESSION = os.path.join(
     os.path.dirname(__file__), "..", "sky-mobile-app", "apps", "mobile", "src", "devSession.ts"
 )
+
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1", "host.docker.internal", "postgres", "db")
+
+
+def _refuse_unless_local() -> None:
+    """Aborta se a base de dados não for local.
+
+    Olha para o host real em vez de uma flag de ambiente: uma variável
+    mal configurada é o modo de falha mais comum, e aqui o custo de
+    falhar é um administrador com credenciais conhecidas numa base de
+    cliente.
+    """
+    if os.environ.get("ALLOW_REMOTE_DEMO_SEED") == "1":
+        print("⚠  ALLOW_REMOTE_DEMO_SEED=1 — a semear numa base NÃO local.")
+        return
+
+    url = os.environ.get("DATABASE_URL", "")
+    host = os.environ.get("POSTGRES_HOST", "")
+    if not url and not host:
+        return  # sem configuração explícita, o default do settings é local
+
+    # Extrair o host a sério, não procurar substrings. A primeira versão
+    # desta guarda comparava por `in` e deixava passar
+    # `sky-postgres-prod.eu-west-1.rds.amazonaws.com`, porque o nome
+    # contém "postgres". Uma guarda enganada pelo nome do servidor é
+    # pior do que nenhuma: dá confiança sem dar protecção.
+    resolved = host
+    if not resolved and url:
+        from urllib.parse import urlsplit
+
+        try:
+            resolved = urlsplit(url).hostname or ""
+        except ValueError:
+            resolved = ""
+
+    if resolved.lower() in _LOCAL_HOSTS:
+        return
+
+    print(
+        "RECUSADO: a base de dados não parece local.\n"
+        f"  Host resolvido: {resolved or '(desconhecido)'}\n\n"
+        "Este script cria um utilizador admin com password conhecida e um\n"
+        "segredo TOTP fixo. Contra staging ou produção isso é uma porta de\n"
+        "administrador com a chave publicada no repositório.\n\n"
+        "Se souberes mesmo o que estás a fazer: ALLOW_REMOTE_DEMO_SEED=1",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
 
 EMAIL = "demo@skyfirstlabs.com"
 PASSWORD = "SkyDemo!2026"
@@ -280,4 +341,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    _refuse_unless_local()
     asyncio.run(main())

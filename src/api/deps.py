@@ -266,25 +266,28 @@ async def enforce_device_tenant(
     This dependency is that missing wiring.
 
     - No-op unless ``MULTI_TENANT_ENABLED`` (single-tenant mode is unaffected).
-    - Web requests (tenant came from the Host sub-domain / X-Tenant-Slug) are a
-      pass-through — they are not device requests.
-    - Device requests apply the policy: no tid → 400, or a tid the user is not a
-      member of → 403 (membership is re-checked live, so off-boarding bites even
-      with a still-valid token).
+    - Um pedido é "de dispositivo" quando o **token** carrega ``tid``. Tokens
+      da web e do Internal Console não o carregam e passam sem verificação,
+      como sempre passaram.
+    - Pedidos de dispositivo aplicam a política: tid que não resolve → 400,
+      ou tid de que o utilizador não é membro → 403 (a pertença é reverificada
+      a cada pedido, portanto o off-boarding morde mesmo com token válido).
+
+    O discriminador é o token e nunca um header. Decidir por header deixava
+    um cliente móvel escolher se queria ou não ser verificado.
     """
     from src.config.settings import settings
 
     if not settings.MULTI_TENANT_ENABLED:
         return
 
-    from src.api.middleware.tenant_resolver import _load_tenant_by_id, _slug_from_host
+    from src.api.middleware.tenant_resolver import _load_tenant_by_id
 
-    # Web path — the tenant was resolved from the sub-domain, not a device.
-    host_slug = _slug_from_host(request.headers.get("host")) or request.headers.get("x-tenant-slug")
-    if host_slug:
-        return
-
-    from src.core.device_tenant import DeviceResolution, resolve_device_tenant
+    from src.core.device_tenant import (
+        TENANT_CLAIM,
+        DeviceResolution,
+        resolve_device_tenant,
+    )
     from src.core.exceptions import BadRequestError, ForbiddenError
     from src.core.security import verify_token
     from src.services.tenant_membership_service import TenantMembershipService
@@ -296,6 +299,30 @@ async def enforce_device_tenant(
             claims = verify_token(authorization.split(" ", 1)[1], token_type="access")
         except Exception:
             claims = {}
+
+    # O que distingue um pedido de dispositivo é o **token**, não os
+    # headers. Um token móvel carrega `tid`; um token da web ou do
+    # Internal Console não.
+    #
+    # A versão anterior decidia isto por header, e tratar
+    # `X-Tenant-Slug` como prova de "isto é web" abria uma saída de
+    # emergência: bastava um cliente móvel enviá-lo para o portão de
+    # pertença ser saltado, e com ele a garantia de que quem sai da
+    # empresa perde acesso assim que a linha de pertença desaparece
+    # (T-01.8). Um token assinado não pode perder o seu `tid`, portanto
+    # decidir pelo token não é contornável.
+    #
+    # Não era brecha entre clientes: a sessão é scoped ao tenant e o
+    # utilizador não existe na base do outro cliente, logo o pedido
+    # morria em 401. Era brecha na promessa de off-boarding — que é
+    # exactamente o que este portão existe para cumprir.
+    is_device_token = bool(claims.get(TENANT_CLAIM))
+    if not is_device_token:
+        # Web / console: o tenant vem do sub-domínio ou do header, como
+        # sempre veio. Sem `tid` não há nada de dispositivo a validar, e
+        # exigir um aqui partia o `/auth/me` do Internal Console, que
+        # fala com o hostname da própria plataforma.
+        return
 
     async def _is_member(user_id: str, tid: str) -> bool:
         return await TenantMembershipService.is_member(db, user_id, tid)
@@ -334,3 +361,53 @@ async def get_db_session_for_context(ctx=None) -> AsyncGenerator[AsyncSession, N
         raise
     finally:
         await session.close()
+
+
+# ─── Autenticação de serviço (motor de AI → backend) ────────────────
+
+# Claim que distingue um token emitido pelo serviço de AI de um token de
+# pessoa. Ambos são assinados com o mesmo JWT_SECRET_KEY — sem esta
+# marca o backend não os consegue distinguir, e foi por isso que
+# `/ai/scan-insights/notify` ficou aberto a qualquer utilizador
+# autenticado.
+SERVICE_CLAIM = "svc"
+
+
+async def require_service_principal(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Só o motor de AI passa. Uma pessoa autenticada não.
+
+    O caso que isto fecha: ``POST /ai/scan-insights/notify`` recebe um
+    ``space_id`` no corpo e escreve um ``AgentFinding`` com ele. Estando
+    guardado apenas por :func:`get_current_user`, qualquer funcionário
+    autenticado podia forjar um insight num espaço a que não tem acesso
+    — e o insight aparece na app como se tivesse sido produzido pela AI.
+    Não atravessa a fronteira entre clientes (a sessão é scoped ao
+    tenant, portanto a escrita fica na base do próprio cliente), mas
+    dentro de um cliente é falsificação de conteúdo que o produto
+    apresenta como verdade apurada por máquina.
+
+    A verificação é sobre o **token**, não sobre o utilizador: o serviço
+    de AI assina os seus pedidos com a identidade de um utilizador real
+    (``AI_SERVICE_USER_ID``), portanto olhar para o papel do utilizador
+    não distinguiria nada. O que distingue é o claim ``svc``, que só o
+    emissor com posse do segredo consegue produzir.
+    """
+    from src.core.exceptions import ForbiddenError
+    from src.core.security import verify_token
+
+    authorization = request.headers.get("Authorization") or ""
+    claims: dict = {}
+    if authorization.lower().startswith("bearer "):
+        try:
+            claims = verify_token(authorization.split(" ", 1)[1], token_type="access")
+        except Exception:  # noqa: BLE001 — token inválido cai no 403 abaixo
+            claims = {}
+
+    if not claims.get(SERVICE_CLAIM):
+        raise ForbiddenError(
+            "This endpoint is reserved for internal service calls."
+        )
+    return current_user
