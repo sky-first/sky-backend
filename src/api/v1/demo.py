@@ -461,5 +461,9 @@ async def demo_unlocked_questions(body: DemoUnlockedRequest) -> DemoUnlockedResp
     para tantas.
     """
     return DemoUnlockedResponse(
-        **demo_flow_service.unlocked_questions(source_ids=body.source_ids, vertical=body.vertical)
+        **demo_flow_service.unlocked_questions(
+            source_ids=body.source_ids,
+            vertical=body.vertical,
+            locale=body.locale or "en",
+        )
     )

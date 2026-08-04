@@ -167,3 +167,26 @@ def test_sem_escolha_nenhuma_ainda_devolve(bad):
     """Quem carrega em avançar sem escolher nada tem de ver alguma
     coisa — saltar não pode ser um beco."""
     assert flow.unlocked_questions(source_ids=bad)["questions"]
+
+
+def test_o_endpoint_passa_mesmo_o_idioma():
+    """Um `replace` que não pega é silencioso.
+
+    O serviço aceitava `locale` e o endpoint não lho passava; o
+    resultado era interface em português com o conteúdo em inglês —
+    exactamente a salada que este trabalho veio corrigir, reintroduzida
+    por uma substituição de texto que falhou sem avisar. Ler o
+    código-fonte é grosseiro, mas apanha isto e um teste de serviço não.
+    """
+    from pathlib import Path
+
+    src = (
+        Path(__file__)
+        .resolve()
+        .parents[1]
+        .joinpath("api", "v1", "demo.py")
+        .read_text(encoding="utf-8")
+    )
+    handler = src[src.index("async def demo_unlocked_questions") :][:900]
+
+    assert "locale=body.locale" in handler
