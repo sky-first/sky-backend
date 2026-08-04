@@ -197,3 +197,59 @@ def test_sql_do_ficheiro_curado_e_sintacticamente_valido():
             parsed = sqlparse.parse(sql)
             assert parsed, sql[:60]
             assert parsed[0].get_type() == "SELECT", sql[:60]
+
+
+# ── achados extra (o ecrã de agentes do telemóvel) ──────────────────
+
+
+def test_insight_specs_puts_the_hero_first():
+    """A ordem não é cosmética.
+
+    A posição 0 é o que o primeiro ecrã serve como bloco herói. Se um
+    extra passasse à frente, o herói curado para abrir a demo deixava de
+    abrir a demo — e ninguém daria por isso a rever o ficheiro JSON.
+    """
+    spec = {
+        "insight": {"agent_name": "Hero"},
+        "extra_insights": [{"agent_name": "Second"}, {"agent_name": "Third"}],
+    }
+    assert [i["agent_name"] for i in curate._insight_specs(spec)] == [
+        "Hero",
+        "Second",
+        "Third",
+    ]
+
+
+def test_an_extra_insight_without_sql_or_numbers_is_refused():
+    """Os extras passam pela mesma barra que o herói.
+
+    Um cartão com uma afirmação e nenhum número é indistinguível, no
+    ecrã, de um cartão medido — e é exactamente essa
+    indistinguibilidade que esta pipeline existe para não permitir.
+    """
+    spec = _minimal_spec()
+    spec["extra_insights"] = [
+        {"agent_name": "Collections", "title": "Faturas por cobrar", "stat_tiles": []}
+    ]
+    problems = curate._editorial_problems(spec)
+    assert any("executed_sql" in p for p in problems)
+    assert any("sem números" in p for p in problems)
+
+
+def test_the_curated_file_has_extra_insights_in_every_locale():
+    """O ecrã de achados precisa de mais do que um item.
+
+    Uma lista de um lê-se como um exemplo; o que se vende é um sistema a
+    olhar. E precisa deles nos dois idiomas — servir os extras só em
+    inglês devolvia a salada PT/EN que este trabalho veio corrigir.
+    """
+    doc = json.loads(CONTENT.read_text(encoding="utf-8"))
+    for ds in doc["datasets"]:
+        extras = ds.get("extra_insights") or []
+        assert len(extras) >= 2, f"{ds['vertical']}/{ds['locale']} sem achados extra"
+        for one in extras:
+            assert one.get("executed_sql")
+            assert one.get("stat_tiles")
+            for tile in one["stat_tiles"]:
+                # Nenhum valor escrito à mão: todos saem de SQL medido.
+                assert tile.get("value_sql"), f"{tile['label']} com valor fixo"

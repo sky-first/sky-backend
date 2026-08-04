@@ -247,3 +247,69 @@ async def test_lead_aceita_dominios_comuns(db_session):
     lead = await svc.record_lead(db_session, email="fundador@gmail.com")
 
     assert lead.email == "fundador@gmail.com"
+
+
+# ─── achados do ecrã de agentes ─────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_insights_devolve_todos_por_ordem(db_session):
+    """A ordem é a da curadoria, e o herói fica em primeiro.
+
+    O ecrã de achados do telemóvel serve esta lista tal como vem. Se a
+    ordem escorregasse, o achado escolhido para abrir a demo deixava de
+    a abrir sem que ninguém desse por isso.
+    """
+    ds = await _seed(db_session)
+    for i, name in enumerate(["Collections", "Growth"], start=1):
+        db_session.add(
+            DemoInsight(
+                id=uuid.uuid4(),
+                dataset_id=ds.id,
+                severity="cash_uncollected",
+                severity_level="warning",
+                agent_name=name,
+                title=f"Achado {i}",
+                summary="…",
+                stat_tiles=[{"label": "n", "value": "17"}],
+                sources=[{"table": "finance.invoices"}],
+                executed_sql="SELECT 1",
+                position=i,
+            )
+        )
+    await db_session.commit()
+
+    rows = await svc.get_insights(db_session, ds.id)
+    assert [r.agent_name for r in rows] == ["Pipeline Watch", "Collections", "Growth"]
+    # E o herói continua a ser o mesmo objecto que o primeiro ecrã serve.
+    hero = await svc.get_insight(db_session, ds.id)
+    assert hero is not None and hero.id == rows[0].id
+
+
+@pytest.mark.asyncio
+async def test_get_insights_nao_estoura_o_ecra(db_session):
+    """Mais achados curados do que os que cabem — corta, não enche.
+
+    Três é o que cabe no telefone sem cortar o último a meio, e um
+    cartão cortado lê-se como um erro de layout e não como "há mais".
+    """
+    ds = await _seed(db_session)
+    for i in range(1, 6):
+        db_session.add(
+            DemoInsight(
+                id=uuid.uuid4(),
+                dataset_id=ds.id,
+                severity="x",
+                severity_level="info",
+                agent_name=f"Agente {i}",
+                title=f"Achado {i}",
+                summary="…",
+                stat_tiles=[],
+                sources=[],
+                executed_sql="SELECT 1",
+                position=i,
+            )
+        )
+    await db_session.commit()
+
+    assert len(await svc.get_insights(db_session, ds.id)) == svc.INSIGHTS_LIMIT

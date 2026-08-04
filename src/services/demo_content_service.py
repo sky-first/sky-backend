@@ -85,6 +85,35 @@ async def get_insight(db: AsyncSession, dataset_id) -> Optional[DemoInsight]:
     ).scalar_one_or_none()
 
 
+# Quantos achados vão para o ecrã de agentes do telemóvel. Três é o que
+# cabe sem cortar o terceiro a meio — e um cartão cortado lê-se como um
+# erro de layout, não como "há mais".
+INSIGHTS_LIMIT = 3
+
+
+async def get_insights(
+    db: AsyncSession, dataset_id, limit: int = INSIGHTS_LIMIT
+) -> Sequence[DemoInsight]:
+    """Todos os achados curados do dataset, o herói primeiro.
+
+    O herói continua a sair por `get_insight` porque o primeiro ecrã só
+    quer esse; esta função serve o ecrã de achados, onde a lista é o
+    argumento — um sistema a olhar para o negócio, e não um exemplo.
+    """
+    return (
+        (
+            await db.execute(
+                select(DemoInsight)
+                .where(DemoInsight.dataset_id == dataset_id)
+                .order_by(DemoInsight.position)
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 async def get_suggested(
     db: AsyncSession, dataset_id, limit: int = SUGGESTED_LIMIT
 ) -> Sequence[DemoQA]:
@@ -233,6 +262,7 @@ __all__ = [
     "ask",
     "get_dataset",
     "get_insight",
+    "get_insights",
     "get_qa",
     "get_suggested",
     "record_lead",

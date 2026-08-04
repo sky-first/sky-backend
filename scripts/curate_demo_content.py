@@ -154,12 +154,32 @@ def _format_value(raw: Any, fmt: Optional[str]) -> str:
 # ── validação editorial ─────────────────────────────────────────────
 
 
+def _insight_specs(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """O insight herói seguido dos restantes, por ordem de apresentação.
+
+    Os extras existem por causa do ecrã de achados do telemóvel, que é
+    onde a demo faz o argumento inteiro: o produto a olhar para o
+    negócio sem ninguém perguntar. Um insight só não sustenta esse ecrã
+    — uma lista de um item lê-se como um exemplo, não como um sistema a
+    trabalhar.
+
+    Passam pelo mesmíssimo caminho do herói (SQL executado, valores
+    formatados a partir do que voltou). Um cartão com um número escrito
+    à mão seria indistinguível, no ecrã, de um cartão medido — e é essa
+    indistinguibilidade que esta pipeline existe para não permitir.
+    """
+    hero = spec.get("insight")
+    return ([hero] if hero else []) + list(spec.get("extra_insights") or [])
+
+
 def _editorial_problems(spec: Dict[str, Any]) -> List[str]:
     problems: List[str] = []
     insight = spec.get("insight") or {}
+    insights = _insight_specs(spec)
     qas = spec.get("qas") or []
 
-    haystacks = [insight.get("title", ""), insight.get("summary", "")]
+    haystacks = [i.get("title", "") for i in insights]
+    haystacks += [i.get("summary", "") for i in insights]
     haystacks += [q.get("question", "") for q in qas]
     for text_ in haystacks:
         low = text_.lower()
@@ -169,8 +189,26 @@ def _editorial_problems(spec: Dict[str, Any]) -> List[str]:
 
     if not insight.get("executed_sql"):
         problems.append("o insight não tem executed_sql — sem 'ver o SQL' não há prova")
-    if len(insight.get("stat_tiles") or []) > 3:
-        problems.append("mais de 3 stat_tiles — não cabem no ecrã")
+    for extra in spec.get("extra_insights") or []:
+        title = extra.get("title", "")[:50]
+        if not extra.get("executed_sql"):
+            problems.append(f"insight sem executed_sql: {title!r}")
+        if not (extra.get("stat_tiles") or []):
+            problems.append(f"insight sem números: {title!r} — no cartão fica só a afirmação")
+    for one in insights:
+        if len(one.get("stat_tiles") or []) > 3:
+            problems.append("mais de 3 stat_tiles — não cabem no ecrã")
+        # As fontes têm de ter a forma que a resposta declara.
+        #
+        # Uma chave errada aqui não rebenta na curadoria: rebenta no
+        # pedido, como 500 na rota pública da demo, porque o modelo de
+        # resposta só valida à saída. Custou exactamente isso uma vez.
+        for src in one.get("sources") or []:
+            if "table" not in src:
+                problems.append(
+                    f"fonte sem 'table' em {one.get('agent_name', '?')!r}: {src!r} — "
+                    "a resposta rejeita-a e a rota devolve 500"
+                )
 
     for qa in qas:
         if qa.get("is_suggested") and not (qa.get("stat_tiles") or []):
@@ -242,44 +280,45 @@ async def _replace_content(
         await db.delete(row)
     await db.flush()
 
-    ispec = spec["insight"]
+    for position, ispec in enumerate(_insight_specs(spec)):
+        tiles: List[Dict[str, Any]] = []
+        for tile in ispec.get("stat_tiles") or []:
+            value = tile.get("value")
+            if "value_sql" in tile:
+                if verifier is None:
+                    # Sem verificação não se inventa um número: mostra-se
+                    # um traço. Um valor plausível mas não medido é
+                    # exactamente o que esta pipeline existe para impedir.
+                    value = "—"
+                else:
+                    value = _format_value(
+                        await verifier.scalar(tile["value_sql"]), tile.get("format")
+                    )
+            tiles.append({"label": tile["label"], "value": value})
 
-    tiles: List[Dict[str, Any]] = []
-    for tile in ispec.get("stat_tiles") or []:
-        value = tile.get("value")
-        if "value_sql" in tile:
-            if verifier is None:
-                # Sem verificação não se inventa um número: mostra-se
-                # um traço. Um valor plausível mas não medido é
-                # exactamente o que esta pipeline existe para impedir.
-                value = "—"
-            else:
-                value = _format_value(await verifier.scalar(tile["value_sql"]), tile.get("format"))
-        tiles.append({"label": tile["label"], "value": value})
+        series = ispec.get("series")
+        if verifier is not None and ispec.get("series_sql"):
+            series = [
+                {"t": str(r[list(r)[0]]), "v": float(r[list(r)[1]])}
+                for r in await verifier.rows(ispec["series_sql"], limit=36)
+            ]
 
-    series = ispec.get("series")
-    if verifier is not None and ispec.get("series_sql"):
-        series = [
-            {"t": str(r[list(r)[0]]), "v": float(r[list(r)[1]])}
-            for r in await verifier.rows(ispec["series_sql"], limit=36)
-        ]
-
-    db.add(
-        DemoInsight(
-            id=uuid.uuid4(),
-            dataset_id=ds.id,
-            severity=ispec["severity"],
-            severity_level=ispec.get("severity_level", "info"),
-            agent_name=ispec["agent_name"],
-            title=ispec["title"],
-            summary=ispec["summary"],
-            series=series,
-            stat_tiles=tiles,
-            sources=ispec.get("sources") or [],
-            executed_sql=ispec.get("executed_sql"),
-            position=0,
+        db.add(
+            DemoInsight(
+                id=uuid.uuid4(),
+                dataset_id=ds.id,
+                severity=ispec["severity"],
+                severity_level=ispec.get("severity_level", "info"),
+                agent_name=ispec["agent_name"],
+                title=ispec["title"],
+                summary=ispec["summary"],
+                series=series,
+                stat_tiles=tiles,
+                sources=ispec.get("sources") or [],
+                executed_sql=ispec.get("executed_sql"),
+                position=position,
+            )
         )
-    )
 
     for qspec in spec.get("qas") or []:
         # Os números da resposta, pelo mesmo caminho dos cartões do
@@ -432,14 +471,15 @@ async def cmd_apply(content_path: Path, apply_changes: bool, verify_sql: bool) -
 
 
 def _all_sql(spec: Dict[str, Any]):
-    ispec = spec.get("insight") or {}
-    if ispec.get("executed_sql"):
-        yield "insight", ispec["executed_sql"]
-    if ispec.get("series_sql"):
-        yield "insight.series", ispec["series_sql"]
-    for tile in ispec.get("stat_tiles") or []:
-        if tile.get("value_sql"):
-            yield f"tile:{tile['label'][:28]}", tile["value_sql"]
+    for ispec in _insight_specs(spec):
+        name = ispec.get("agent_name", "insight")
+        if ispec.get("executed_sql"):
+            yield f"insight:{name}", ispec["executed_sql"]
+        if ispec.get("series_sql"):
+            yield f"insight:{name}.series", ispec["series_sql"]
+        for tile in ispec.get("stat_tiles") or []:
+            if tile.get("value_sql"):
+                yield f"tile:{tile['label'][:28]}", tile["value_sql"]
     for qa in spec.get("qas") or []:
         if qa.get("executed_sql"):
             yield f"qa:{qa['question'][:28]}", qa["executed_sql"]

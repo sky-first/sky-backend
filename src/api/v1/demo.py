@@ -252,7 +252,8 @@ async def demo_bootstrap(
             detail="Demo content not seeded yet.",
         )
 
-    insight = await demo_content_service.get_insight(db, dataset.id)
+    insights = await demo_content_service.get_insights(db, dataset.id)
+    insight = insights[0] if insights else None
     suggested = await demo_content_service.get_suggested(db, dataset.id)
 
     # Cacheável em CDN: o conteúdo é o mesmo para toda a gente e muda
@@ -264,6 +265,7 @@ async def demo_bootstrap(
         vertical=dataset.vertical,
         locale=dataset.locale,
         insight=_insight_to_model(insight) if insight else None,
+        insights=[_insight_to_model(one) for one in insights],
         suggested_questions=[
             SuggestedQuestion(id=str(q.id), question=q.question) for q in suggested
         ],
@@ -278,13 +280,35 @@ async def demo_bootstrap(
 async def demo_answer(
     qa_id: UUID,
     response: Response,
+    vertical: Optional[str] = Query(None, max_length=32),
+    locale: str = Query("en", max_length=10),
     db: AsyncSession = Depends(get_db_session),
 ) -> DemoAnswerResponse:
     qa = await demo_content_service.get_qa(db, qa_id)
-    if qa is None:
-        raise NotFoundError("Answer not found.")
-    response.headers["Cache-Control"] = "public, max-age=300"
-    return _qa_to_model(qa, is_fallback=False)
+    if qa is not None:
+        response.headers["Cache-Control"] = "public, max-age=300"
+        return _qa_to_model(qa, is_fallback=False)
+
+    # Id desconhecido — quase sempre um bootstrap em cache emitido antes
+    # da última curadoria.
+    #
+    # /bootstrap é servido com max-age=300, e a curadoria apaga e recria
+    # as QA com ids novos. Durante esses cinco minutos há visitantes com
+    # ids que já não existem, e um 404 apanha-os exactamente no clímax:
+    # carregam na pergunta sugerida e recebem um ecrã de erro. Servir a
+    # primeira sugerida do dataset é conteúdo curado, correcto, e sobre o
+    # mesmo assunto — perde-se a pergunta exacta, não a demo.
+    dataset = await demo_content_service.get_dataset(db, vertical=vertical, locale=locale)
+    if dataset is not None:
+        rows = await demo_content_service.get_suggested(db, dataset.id, limit=1)
+        if rows:
+            # Sem cache: a resposta não corresponde ao id pedido, e uma
+            # CDN que a guardasse serviria o mesmo desencontro a toda a
+            # gente muito depois de a janela ter fechado.
+            response.headers["Cache-Control"] = "no-store"
+            return _qa_to_model(rows[0], is_fallback=True)
+
+    raise NotFoundError("Answer not found.")
 
 
 @router.post(

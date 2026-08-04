@@ -53,6 +53,10 @@ class DemoBootstrapResponse(BaseModel):
     vertical: str
     locale: str
     insight: Optional[DemoInsightModel] = None
+    # Os achados que alimentam o ecrã de agentes. Inclui o herói, na
+    # primeira posição: é o mesmo objecto e duplicá-lo com outro texto
+    # daria dois achados onde há um.
+    insights: List[DemoInsightModel] = Field(default_factory=list)
     suggested_questions: List[SuggestedQuestion] = Field(default_factory=list)
 
 

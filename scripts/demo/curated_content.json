@@ -140,9 +140,8 @@
               "format": "eur"
             },
             {
-              "label": "Total spend",
-              "value_sql": "SELECT COALESCE(SUM(spend),0) FROM marketing.campaigns",
-              "format": "eur"
+              "label": "Deals it closed",
+              "value_sql": "SELECT COUNT(*) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1)"
             }
           ]
         },
@@ -247,6 +246,73 @@
             }
           ],
           "executed_sql": "SELECT COALESCE(s.utm_source, 'direct')                     AS source,\n       COUNT(*)                                            AS sessions,\n       COUNT(DISTINCT s.account_id)                        AS known_accounts,\n       ROUND(AVG(s.pages_viewed), 1)                       AS avg_pages\nFROM web_analytics.sessions s\nGROUP BY 1\nORDER BY sessions DESC"
+        }
+      ],
+      "extra_insights": [
+        {
+          "severity": "cash_uncollected",
+          "severity_level": "warning",
+          "agent_name": "Collections",
+          "title": "Invoices past due, and nobody is chasing the oldest ones",
+          "summary": "Overdue invoices don't age evenly — a few sit far longer than the rest, and those are the ones that stop being late and start being written off. The agent watches the age, not the balance, because the balance looks the same the day before it becomes a loss.",
+          "stat_tiles": [
+            {
+              "label": "Overdue invoices",
+              "value_sql": "SELECT COUNT(*) FROM finance.invoices WHERE status='overdue'"
+            },
+            {
+              "label": "Uncollected",
+              "value_sql": "SELECT COALESCE(SUM(amount),0) FROM finance.invoices WHERE status='overdue'",
+              "format": "eur"
+            },
+            {
+              "label": "Oldest, in days",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - issued_at),0) FROM finance.invoices WHERE status='overdue'"
+            }
+          ],
+          "sources": [
+            {
+              "table": "finance.invoices"
+            },
+            {
+              "table": "crm.accounts"
+            }
+          ],
+          "executed_sql": "SELECT i.id, a.name, i.amount, i.issued_at, CURRENT_DATE - i.issued_at AS days_open\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at"
+        },
+        {
+          "severity": "channel_mix",
+          "severity_level": "info",
+          "agent_name": "Growth",
+          "title": "One channel brings the revenue; the budget is spread as if they were equal",
+          "summary": "Leads are easy to count and easy to be wrong about. Following each lead through to the deal it did or didn't become puts the channels in a different order than the lead count does — which is the whole point of joining marketing to the pipeline.",
+          "stat_tiles": [
+            {
+              "label": "Best channel by revenue",
+              "value_sql": "SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1"
+            },
+            {
+              "label": "Revenue it closed",
+              "value_sql": "SELECT COALESCE(SUM(o.amount),0) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c2.channel FROM marketing.campaigns c2 LEFT JOIN marketing.leads l2 ON l2.campaign_id=c2.id LEFT JOIN crm.opportunities o2 ON o2.id=l2.converted_to_opportunity_id GROUP BY c2.channel ORDER BY COALESCE(SUM(o2.amount) FILTER (WHERE o2.stage='closed_won'),0) DESC LIMIT 1)",
+              "format": "eur"
+            },
+            {
+              "label": "Deals it closed",
+              "value_sql": "SELECT COUNT(*) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "marketing.campaigns"
+            },
+            {
+              "table": "marketing.leads"
+            },
+            {
+              "table": "crm.opportunities"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       SUM(c.spend) AS spend,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY won DESC"
         }
       ]
     },
@@ -371,9 +437,8 @@
               "format": "eur"
             },
             {
-              "label": "Investimento total",
-              "value_sql": "SELECT COALESCE(SUM(spend),0) FROM marketing.campaigns",
-              "format": "eur"
+              "label": "Negócios que fechou",
+              "value_sql": "SELECT COUNT(*) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1)"
             }
           ]
         },
@@ -478,6 +543,73 @@
             }
           ],
           "executed_sql": "SELECT COALESCE(s.utm_source, 'direct')                     AS source,\n       COUNT(*)                                            AS sessions,\n       COUNT(DISTINCT s.account_id)                        AS known_accounts,\n       ROUND(AVG(s.pages_viewed), 1)                       AS avg_pages\nFROM web_analytics.sessions s\nGROUP BY 1\nORDER BY sessions DESC"
+        }
+      ],
+      "extra_insights": [
+        {
+          "severity": "cash_uncollected",
+          "severity_level": "warning",
+          "agent_name": "Cobranças",
+          "title": "Faturas vencidas, e as mais antigas sem ninguém atrás delas",
+          "summary": "As faturas vencidas não envelhecem por igual — há sempre umas poucas muito mais antigas do que as outras, e são essas que deixam de estar em atraso e passam a estar perdidas. O agente olha para a idade e não para o valor, porque o valor está igual na véspera de virar prejuízo.",
+          "stat_tiles": [
+            {
+              "label": "Faturas vencidas",
+              "value_sql": "SELECT COUNT(*) FROM finance.invoices WHERE status='overdue'"
+            },
+            {
+              "label": "Por cobrar",
+              "value_sql": "SELECT COALESCE(SUM(amount),0) FROM finance.invoices WHERE status='overdue'",
+              "format": "eur"
+            },
+            {
+              "label": "A mais antiga, em dias",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - issued_at),0) FROM finance.invoices WHERE status='overdue'"
+            }
+          ],
+          "sources": [
+            {
+              "table": "finance.invoices"
+            },
+            {
+              "table": "crm.accounts"
+            }
+          ],
+          "executed_sql": "SELECT i.id, a.name, i.amount, i.issued_at, CURRENT_DATE - i.issued_at AS days_open\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at"
+        },
+        {
+          "severity": "channel_mix",
+          "severity_level": "info",
+          "agent_name": "Crescimento",
+          "title": "Há um canal que traz a receita; o orçamento está dividido como se fossem todos iguais",
+          "summary": "Leads são fáceis de contar e fáceis de interpretar mal. Seguir cada lead até ao negócio em que deu — ou não deu — põe os canais por outra ordem que não a do número de leads, e é exactamente para isso que se liga o marketing ao pipeline.",
+          "stat_tiles": [
+            {
+              "label": "Melhor canal por receita",
+              "value_sql": "SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1"
+            },
+            {
+              "label": "Receita que fechou",
+              "value_sql": "SELECT COALESCE(SUM(o.amount),0) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c2.channel FROM marketing.campaigns c2 LEFT JOIN marketing.leads l2 ON l2.campaign_id=c2.id LEFT JOIN crm.opportunities o2 ON o2.id=l2.converted_to_opportunity_id GROUP BY c2.channel ORDER BY COALESCE(SUM(o2.amount) FILTER (WHERE o2.stage='closed_won'),0) DESC LIMIT 1)",
+              "format": "eur"
+            },
+            {
+              "label": "Negócios que fechou",
+              "value_sql": "SELECT COUNT(*) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "marketing.campaigns"
+            },
+            {
+              "table": "marketing.leads"
+            },
+            {
+              "table": "crm.opportunities"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       SUM(c.spend) AS spend,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY won DESC"
         }
       ]
     }
