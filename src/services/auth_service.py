@@ -380,14 +380,36 @@ class AuthenticationService:
                 await ensure_default_page_and_space(self.db, user)
 
         # Create tokens
+        tenant_claims = tenant_claims_for_context(current_tenant())
         token_data = {
             "sub": str(user.id),
             "email": user.email,
             "role": user.role,
             # BE-01: stamp the resolved tenant so device clients carry a
             # signed, immutable tenant claim. No-op in single-tenant mode.
-            **tenant_claims_for_context(current_tenant()),
+            **tenant_claims,
         }
+
+        # Registar a pertença. `TenantMembershipService.grant` dizia na
+        # docstring "called on every successful login" mas ninguém o
+        # chamava — a tabela nunca era preenchida, portanto o portão de
+        # dispositivo (que verifica pertença a cada pedido) recusava
+        # todos os utilizadores móveis com 403. O portão falhava fechado,
+        # que é o lado certo para falhar, mas falhava.
+        #
+        # Aqui é o sítio certo: o login é o único momento em que sabemos
+        # ao mesmo tempo quem é a pessoa e a que cliente se autenticou
+        # com sucesso. Idempotente — não cria linhas repetidas.
+        if tenant_claims.get("tid"):
+            from src.services.tenant_membership_service import TenantMembershipService
+
+            await TenantMembershipService.upsert(
+                self.db,
+                user_id=user.id,
+                tenant_id=tenant_claims["tid"],
+                role=user.role or "member",
+            )
+
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data, client_type=client_type)
 

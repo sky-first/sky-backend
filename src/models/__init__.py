@@ -64,6 +64,7 @@ from src.models.starred import StarredItem
 # in the Pulse halo. See sky-security/docs/KNOWLEDGE_REFACTOR.md.
 from src.models.template import Template
 from src.models.tenant import DEFAULT_CAPACITY_SHAPE, Tenant, TenantTier
+from src.models.tenant_domain import TenantDomain
 from src.models.tenant_llm_daily_snapshot import TenantLlmDailySnapshot
 from src.models.tenant_plan_limits import TIER_LIMITS, UPGRADE_HINT, PricingTier, TenantPlanLimits
 from src.models.ticket import Ticket, TicketEvent
@@ -136,6 +137,7 @@ __all__ = [
     "UserPermissionGrant",
     "Tenant",
     "TenantTier",
+    "TenantDomain",
     "TenantPlanLimits",
     "TenantLlmDailySnapshot",
     "PricingTier",

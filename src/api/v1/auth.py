@@ -116,6 +116,56 @@ def _slug_from_request(request: Request) -> Optional[str]:
     return header_slug.strip().lower() if header_slug else None
 
 
+def _methods_from_tenant(tenant: Tenant) -> AuthMethodsResponse:
+    """Métodos de autenticação de um cliente já resolvido.
+
+    Existe porque o caminho por domínio resolve o cliente a partir do
+    email, sem passar pelo middleware — portanto não há
+    ``request.state.tenant_context`` nem slug no host para
+    ``_auth_methods_for_request`` seguir.
+    """
+    methods = dict(tenant.auth_methods or {}) or dict(DEFAULT_AUTH_METHODS)
+    flags = dict(tenant.feature_flags or {})
+    return AuthMethodsResponse(
+        password=bool(methods.get("password", False)),
+        google=bool(methods.get("google", False)),
+        azure=bool(methods.get("azure", False)),
+        okta=bool(methods.get("okta", False)),
+        show_demo=bool(flags.get("demo_enabled", False)),
+        tenant_slug=tenant.slug,
+    )
+
+
+async def _tenant_from_email_domain(request: Request, email: str):
+    """Descobre o cliente pelo domínio do email — o caminho do mobile.
+
+    Na web o cliente vem do sub-domínio. Uma app móvel fala com um host
+    só, portanto sem isto o backend não sabe em que base de dados
+    procurar quem está a tentar entrar: os utilizadores vivem em bases
+    separadas por cliente.
+
+    É o mesmo mecanismo do Microsoft Entra ID (*home realm discovery*):
+    o domínio identifica a organização, e cada organização pode ter
+    vários domínios registados.
+
+    Devolve ``None`` quando já há sub-domínio ou header — nesse caso o
+    caminho normal já resolveu o cliente e não há nada a descobrir — e
+    também quando o domínio não está registado. Quem chama trata os dois
+    silêncios da mesma maneira.
+
+    A consulta corre contra a base de **registo**, não contra a do
+    cliente: tem de responder antes de sabermos qual é o cliente.
+    """
+    if _slug_from_request(request):
+        return None  # web ou console — o cliente já está resolvido
+
+    from src.config.database import AsyncSessionLocal
+    from src.services.tenant_domain_service import TenantDomainService
+
+    async with AsyncSessionLocal() as registry:
+        return await TenantDomainService.resolve_by_email(registry, email)
+
+
 async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthMethodsResponse:
     """Resolve the tenant for the request and return its auth methods.
 
@@ -231,6 +281,52 @@ async def login(
     flip the flag in the Internal Console; the handler then runs the
     standard credential check.
     """
+    user_agent = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+
+    # Caminho móvel: sem sub-domínio, o cliente sai do domínio do email.
+    # Sem isto o `db` injectado aponta para a base por omissão, onde o
+    # utilizador da GBT simplesmente não existe.
+    domain_tenant = await _tenant_from_email_domain(request, login_data.email)
+
+    if domain_tenant is not None:
+        from src.api.middleware.tenant_resolver import _row_to_context
+        from src.config.tenant_connection_manager import tenant_connection_manager
+        from src.core.tenant_context import reset_current_tenant, set_current_tenant
+
+        ctx = _row_to_context(domain_tenant)
+        request.state.tenant_context = ctx
+        # O contextvar, não só o request.state: é de `current_tenant()`
+        # que `tenant_claims_for_context` tira o `tid` que vai assinado
+        # no token. Sem isto o login por domínio devolvia um token sem
+        # claim de cliente — e o portão de dispositivo recusava-o a
+        # seguir com 400, um bug que só aparece no segundo pedido.
+        token_ctx = set_current_tenant(ctx)
+
+        session = tenant_connection_manager.session_for(ctx)
+        try:
+            methods = _methods_from_tenant(domain_tenant)
+            if not methods.password:
+                raise ForbiddenError(
+                    "Password login is disabled for this workspace. "
+                    "Please sign in with your company SSO."
+                )
+            result = await AuthenticationService(session).login(
+                email=login_data.email,
+                password=login_data.password,
+                user_agent=user_agent,
+                ip_address=ip_address,
+                background_tasks=background_tasks,
+            )
+            await session.commit()
+            return result
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            reset_current_tenant(token_ctx)
+            await session.close()
+
     methods = await _auth_methods_for_request(request, db)
     if not methods.password:
         raise ForbiddenError(
@@ -239,8 +335,6 @@ async def login(
         )
 
     auth_service = AuthenticationService(db)
-    user_agent = request.headers.get("user-agent")
-    ip_address = request.client.host if request.client else None
     return await auth_service.login(
         email=login_data.email,
         password=login_data.password,
