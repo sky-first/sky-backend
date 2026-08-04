@@ -280,6 +280,8 @@ async def record_lead(
     db: AsyncSession,
     *,
     email: str,
+    name: Optional[str] = None,
+    last_step: Optional[int] = None,
     company: Optional[str] = None,
     role: Optional[str] = None,
     dataset_id=None,
@@ -316,11 +318,19 @@ async def record_lead(
             existing.company = company.strip()
         if role:
             existing.role = role.strip()
+        if name:
+            existing.name = name.strip()
+        # Só avança, nunca recua: voltar ao passo 2 para reler não pode
+        # apagar o facto de ele ter chegado ao 4.
+        if last_step and last_step > (existing.last_step or 0):
+            existing.last_step = last_step
         await db.commit()
         return existing
 
     lead = DemoLead(
         email=email,
+        name=(name or "").strip() or None,
+        last_step=last_step,
         company=(company or "").strip() or None,
         role=(role or "").strip() or None,
         dataset_id=dataset_id,
