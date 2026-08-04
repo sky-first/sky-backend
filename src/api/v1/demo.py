@@ -26,6 +26,8 @@ from src.models.user import User
 from src.schemas.common import ErrorResponse
 from src.schemas.demo import DemoSignupRequest, DemoSignupResponse
 from src.schemas.demo_content import (
+    DemoFileAnswer,
+    DemoFileQuestion,
     DemoSource,
     DemoUnlockedRequest,
     DemoUnlockedResponse,
@@ -467,4 +469,66 @@ async def demo_unlocked_questions(body: DemoUnlockedRequest) -> DemoUnlockedResp
             vertical=body.vertical,
             locale=body.locale or "en",
         )
+    )
+
+
+@router.post(
+    "/ask-file",
+    response_model=DemoFileAnswer,
+    summary="Pergunta sobre o ficheiro largado pelo visitante",
+)
+async def demo_ask_file(payload: DemoFileQuestion, request: Request) -> DemoFileAnswer:
+    """Manda a pergunta e uma amostra ao motor, e devolve a resposta.
+
+    Porque é que isto existe apesar de já haver análise no browser: o
+    cálculo local sabe somar e mais nada. "Qual é o nome da primeira
+    pessoa" ou qualquer coisa sobre um contrato em PDF ficavam sem
+    resposta, e a Sky passava a parecer uma ferramenta de BI em vez de
+    um produto que lê o que lhe derem.
+
+    Três protecções, e nenhuma é opcional:
+
+    * **limite por IP** — o visitante distraído, ou um ciclo no
+      frontend;
+    * **tecto diário global** — o único mecanismo que põe um número
+      máximo na fatura, porque quem quer queimar orçamento roda
+      endereços e o limite por IP não o apanha;
+    * **nada é guardado** — o conteúdo vive o tempo do pedido. Não há
+      escrita nenhuma neste caminho, o que é mais forte do que uma
+      tarefa de limpeza: a promessa cumpre-se por não existir código
+      que a possa quebrar.
+
+    Falha sempre com uma resposta, nunca com um erro. Numa demo
+    comercial um ecrã de erro custa a visita.
+    """
+    if not _demo_rate_ok(request, "demo:ask-file", 20):
+        return DemoFileAnswer(answer="", insufficient=True)
+
+    from src.services import demo_budget
+
+    allowed, _ = demo_budget.consume()
+    if not allowed:
+        return DemoFileAnswer(answer="", insufficient=True)
+
+    from src.ai.http_client import AIServiceHTTPClient
+
+    try:
+        client = AIServiceHTTPClient()
+        result = await client.answer_document(
+            {
+                "question": payload.question,
+                "locale": payload.locale or "en",
+                "columns": payload.columns,
+                "rows": payload.rows,
+                "total_rows": payload.total_rows,
+                "text": payload.text,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("demo_ask_file_failed: %s", exc)
+        return DemoFileAnswer(answer="", insufficient=True)
+
+    return DemoFileAnswer(
+        answer=(result or {}).get("answer", ""),
+        insufficient=bool((result or {}).get("insufficient", False)),
     )

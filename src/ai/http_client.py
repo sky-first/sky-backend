@@ -136,7 +136,9 @@ class AIServiceHTTPClient:
             # orchestrator can build cross-schema queries (multi-source path).
             payload["connection_ids"] = connection_ids
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout, headers=self._tenant_headers()
+        ) as client:
             logger.info(
                 f"Calling AI service: {url} with connection_id={connection_id}, "
                 f"space_id={space_id}, extra_connection_ids={connection_ids}"
@@ -273,7 +275,9 @@ class AIServiceHTTPClient:
         if table_names:
             params["table_names"] = table_names
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout, headers=self._tenant_headers()
+        ) as client:
             logger.info(
                 f"Discovering connection: {url} with connection_id={connection_id}, "
                 f"space_id={space_id if space_id != self.SHARED_INDEX else '(shared/global)'}"
@@ -305,7 +309,9 @@ class AIServiceHTTPClient:
         if is_personal is not None:
             params["is_personal"] = bool(is_personal)
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout, headers=self._tenant_headers()
+        ) as client:
             logger.info(
                 "Calling AI list tables: %s connection_id=%s space_id=%s",
                 url,
@@ -333,7 +339,9 @@ class AIServiceHTTPClient:
         if ttl_seconds is not None:
             params["ttl_seconds"] = ttl_seconds
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout, headers=self._tenant_headers()
+        ) as client:
             logger.info(
                 "Calling AI metadata status: %s connection_id=%s space_id=%s",
                 url,
@@ -379,7 +387,9 @@ class AIServiceHTTPClient:
         if is_personal is not None:
             payload["is_personal"] = bool(is_personal)
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout, headers=self._tenant_headers()
+        ) as client:
             logger.info(
                 "Calling AI chat bootstrap: %s connection_id=%s space_id=%s",
                 url,
@@ -445,7 +455,9 @@ class AIServiceHTTPClient:
         if context_tables:
             payload["context_tables"] = context_tables
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout, headers=self._tenant_headers()
+        ) as client:
             logger.info(
                 "Calling AI dashboard plan: %s connection_id=%s space_id=%s",
                 url,
@@ -617,8 +629,26 @@ class AIServiceHTTPClient:
         """
         url = f"{self.base_url}/knowledge-graph/ingest"
 
-        async with httpx.AsyncClient(timeout=self.timeout, headers=self._tenant_headers()) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout, headers=self._tenant_headers()
+        ) as client:
             logger.info(f"Ingesting into Knowledge Graph: {url} payload_id={payload.get('id')}")
             response = await client.post(url, json=payload)
             response.raise_for_status()
             return response.json()  # type: ignore
+
+    async def answer_document(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Pergunta sobre um ficheiro largado na demo pública.
+
+        Não passa por ``query_connection`` porque não há connection: o
+        visitante largou um ficheiro, não configurou uma ligação. O
+        motor recebe a pergunta e uma amostra, e devolve texto.
+
+        Tempo limite curto e próprio. O de 90s dos outros caminhos é
+        para consultas sobre armazéns reais; aqui do outro lado está
+        alguém a olhar para um ecrã, e passado meio minuto já desistiu.
+        """
+        async with httpx.AsyncClient(timeout=45.0, headers=self._tenant_headers()) as client:
+            response = await client.post(f"{self.base_url}/demo/answer-document", json=payload)
+            response.raise_for_status()
+            return response.json()

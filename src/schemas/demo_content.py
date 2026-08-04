@@ -147,3 +147,26 @@ class DemoUnlockedResponse(BaseModel):
     intro_markdown: str = ""
     unlocked_intro: str = ""
     questions: List[str] = Field(default_factory=list)
+
+
+class DemoFileQuestion(BaseModel):
+    """Uma pergunta sobre o ficheiro que o visitante acabou de largar.
+
+    Vai uma **amostra**, não o ficheiro. Não é só custo: um contexto
+    gigante dilui a pergunta e piora a resposta. E o que sobe é
+    transitório — usado para responder e nunca escrito em lado nenhum,
+    o mesmo modelo do iLovePDF, cumprido por não existir código que
+    escreva em vez de por uma limpeza que alguém tem de manter.
+    """
+
+    question: str = Field(min_length=2, max_length=500)
+    locale: Optional[str] = None
+    columns: List[str] = Field(default_factory=list)
+    rows: List[List[str]] = Field(default_factory=list)
+    total_rows: Optional[int] = None
+    text: Optional[str] = None
+
+
+class DemoFileAnswer(BaseModel):
+    answer: str = ""
+    insufficient: bool = False
