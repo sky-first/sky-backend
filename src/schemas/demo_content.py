@@ -68,6 +68,11 @@ class DemoAnswerResponse(BaseModel):
     # apresentar conteúdo de exemplo como se fosse sobre os dados dele
     # seria enganador.
     is_fallback: bool = False
+    # A pergunta não é sobre dados de negócio. Distinto de `is_fallback`:
+    # ali servimos conteúdo aproximado, aqui não servimos nada e
+    # dizemo-lo. O texto vive no frontend, que sabe o idioma do
+    # visitante — o backend diz o que aconteceu, não em que língua.
+    out_of_domain: bool = False
 
 
 class DemoAskRequest(BaseModel):
@@ -132,6 +137,7 @@ class DemoSource(BaseModel):
 class DemoUnlockedRequest(BaseModel):
     source_ids: List[str] = Field(default_factory=list)
     vertical: Optional[str] = None
+    locale: Optional[str] = None
 
 
 class DemoUnlockedResponse(BaseModel):

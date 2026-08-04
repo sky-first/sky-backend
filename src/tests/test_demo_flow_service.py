@@ -29,28 +29,33 @@ MARKETING_VAZIO = (
 # ─── passo 1 ────────────────────────────────────────────────────────
 
 
-def test_todas_as_verticais_tem_gancho():
-    """Uma opção sem gancho é um passo que pede sem devolver."""
-    verticals = flow.list_verticals()
+@pytest.mark.parametrize("locale", ["pt", "en"])
+def test_todas_as_verticais_tem_gancho(locale):
+    """Uma opção sem gancho é um passo que pede sem devolver — e tem de
+    o ter em **todos** os idiomas que servimos, senão metade dos
+    visitantes vê um passo mudo."""
+    verticals = flow.list_verticals(locale)
 
     assert verticals, "sem verticais o passo 1 não tem nada para mostrar"
     for v in verticals:
-        assert v["hook_markdown"].strip(), v["id"]
+        assert v["hook_markdown"].strip(), f"{v['id']}/{locale}"
 
 
-def test_ganchos_sao_concretos_e_nao_marketing():
+@pytest.mark.parametrize("locale", ["pt", "en"])
+def test_ganchos_sao_concretos_e_nao_marketing(locale):
     """'Os dados são o novo petróleo' não faz ninguém continuar.
     'Uma conta que paga 40 lugares e usa 18' faz."""
-    for v in flow.list_verticals():
+    for v in flow.list_verticals(locale):
         low = v["hook_markdown"].lower()
         for termo in MARKETING_VAZIO:
             assert termo not in low, f"{v['id']}: {termo!r}"
 
 
-def test_ganchos_tem_substancia():
+@pytest.mark.parametrize("locale", ["pt", "en"])
+def test_ganchos_tem_substancia(locale):
     """Uma frase solta não convence ninguém a dar o passo seguinte —
     o gancho tem de explicar *porque* é que aquilo acontece."""
-    for v in flow.list_verticals():
+    for v in flow.list_verticals(locale):
         assert len(v["hook_markdown"]) > 180, f"{v['id']} é curto de mais"
 
 
@@ -72,7 +77,7 @@ def test_nao_sei_bem_e_opcao_de_primeira_classe():
 
 
 def test_nao_sei_bem_acolhe_em_vez_de_corrigir():
-    res = flow.unlocked_questions(source_ids=["unknown"])
+    res = flow.unlocked_questions(source_ids=["unknown"], locale="pt")
 
     assert "problema" in res["intro_markdown"].lower()
     assert res["questions"], "mesmo sem saber a fonte, tem de receber perguntas"
@@ -107,13 +112,43 @@ def test_nunca_ha_perguntas_repetidas():
     assert len(set(res["questions"])) == len(res["questions"])
 
 
+def test_idioma_desconhecido_cai_para_ingles():
+    """Um visitante alemão lê inglês. Um que receba português sem o
+    pedir conclui que o produto é local."""
+    de = flow.list_verticals("de")[0]["hook_markdown"]
+    en = flow.list_verticals("en")[0]["hook_markdown"]
+
+    assert de == en
+
+
+def test_pt_e_pt_pt_sao_o_mesmo():
+    assert (
+        flow.list_verticals("pt-PT")[0]["hook_markdown"]
+        == flow.list_verticals("pt")[0]["hook_markdown"]
+    )
+
+
+def test_conteudo_difere_mesmo_entre_idiomas():
+    """Um teste que só verifica que a chave existe passaria com o
+    inglês copiado para o campo português."""
+    pt = flow.list_verticals("pt")[0]["hook_markdown"]
+    en = flow.list_verticals("en")[0]["hook_markdown"]
+
+    assert pt != en
+
+
 def test_a_objeccao_principal_e_respondida_sempre():
     """'Vão ter de mover os meus dados?' é a primeira pergunta de
     qualquer responsável de TI, e a resposta tem de estar à vista antes
     de ele a fazer."""
-    res = flow.unlocked_questions(source_ids=["postgres"])
-
-    assert "sem mover nada" in res["intro_markdown"].lower()
+    assert (
+        "sem mover nada"
+        in flow.unlocked_questions(source_ids=["postgres"], locale="pt")["intro_markdown"].lower()
+    )
+    assert (
+        "nothing moved"
+        in flow.unlocked_questions(source_ids=["postgres"], locale="en")["intro_markdown"].lower()
+    )
 
 
 # ─── robustez ───────────────────────────────────────────────────────

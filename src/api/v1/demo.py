@@ -39,6 +39,7 @@ from src.schemas.demo_content import (
     SuggestedQuestion,
 )
 from src.services import demo_content_service, demo_flow_service
+from src.services.demo_domain_gate import dataset_vocabulary, is_in_domain
 from src.services.demo_service import DemoService
 
 router = APIRouter()
@@ -307,6 +308,26 @@ async def demo_ask(
     except (ValueError, AttributeError):
         raise BadRequestError("Invalid dataset_id.")
 
+    # Portão de domínio **antes** de tudo o resto. Sem ele, "qual é a
+    # capital da França?" devolvia um relatório de churn: o produto não
+    # falhava, parecia estúpido — que num pitch é bastante pior. E uma
+    # pergunta fora de domínio não deve sequer acordar o motor.
+    #
+    # O portão é grosseiro de propósito. O erro caro é o falso positivo
+    # (responder com dados de negócio a quem não perguntou sobre
+    # negócio), portanto na dúvida recusa. Quem for recusado por engano
+    # recebe um convite a reformular; o inverso é ridículo.
+    insight_for_vocab = await demo_content_service.get_insight(db, dataset_id)
+    qas_for_vocab = await demo_content_service.get_suggested(db, dataset_id, limit=10)
+    if not is_in_domain(payload.question, dataset_vocabulary(insight_for_vocab, qas_for_vocab)):
+        return DemoAnswerResponse(
+            id="",
+            question=payload.question,
+            answer_markdown="",
+            is_fallback=True,
+            out_of_domain=True,
+        )
+
     qa, live, is_fallback = await demo_content_service.ask(
         db, dataset_id=dataset_id, question=payload.question
     )
@@ -410,9 +431,11 @@ def _qa_to_model(q, *, is_fallback: bool, question: Optional[str] = None) -> Dem
     response_model=List[DemoVertical],
     summary="Opções do passo 1, com o gancho de cada sector",
 )
-async def demo_verticals(response: Response) -> List[DemoVertical]:
+async def demo_verticals(response: Response, locale: str = "en") -> List[DemoVertical]:
     response.headers["Cache-Control"] = "public, max-age=3600"
-    return [DemoVertical(**v) for v in demo_flow_service.list_verticals()]
+    # `Vary: Accept-Language` não serve aqui — o idioma vem no query
+    # string, não no header, portanto a chave de cache já o inclui.
+    return [DemoVertical(**v) for v in demo_flow_service.list_verticals(locale)]
 
 
 @router.get(
@@ -420,9 +443,9 @@ async def demo_verticals(response: Response) -> List[DemoVertical]:
     response_model=List[DemoSource],
     summary="Conectores oferecidos no passo 2",
 )
-async def demo_sources(response: Response) -> List[DemoSource]:
+async def demo_sources(response: Response, locale: str = "en") -> List[DemoSource]:
     response.headers["Cache-Control"] = "public, max-age=3600"
-    return [DemoSource(**s) for s in demo_flow_service.list_sources()]
+    return [DemoSource(**s) for s in demo_flow_service.list_sources(locale)]
 
 
 @router.post(

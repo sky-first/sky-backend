@@ -30,6 +30,29 @@ CONTENT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "demo" / "flow_
 # passar de "olha o que isto responde" para "olha esta lista".
 UNLOCKED_LIMIT = 3
 
+# Idioma servido quando o pedido não traz nenhum, ou traz um que ainda
+# não temos. Inglês e não português: um visitante espanhol ou alemão
+# lê inglês; um que receba português sem o pedir conclui que o produto
+# é local.
+DEFAULT_LOCALE = "en"
+
+
+def _pick(value, locale: str):
+    """Escolhe o texto do idioma pedido.
+
+    Os campos traduzíveis são dicionários ``{"pt": …, "en": …}``. Aceita
+    também uma string simples, para o ficheiro poder ter campos que
+    nunca precisam de tradução sem os obrigar a fingir que precisam.
+
+    ``pt-PT`` e ``pt-BR`` colapsam ambos em ``pt`` por agora — a
+    distinção existe no site de marketing e há-de chegar aqui, mas
+    inventá-la sem o conteúdo escrito só produzia buracos.
+    """
+    if not isinstance(value, dict):
+        return value
+    base = (locale or DEFAULT_LOCALE).split("-")[0].lower()
+    return value.get(base) or value.get(DEFAULT_LOCALE) or next(iter(value.values()), "")
+
 
 @lru_cache(maxsize=1)
 def _content() -> Dict[str, Any]:
@@ -43,7 +66,7 @@ def _content() -> Dict[str, Any]:
         return {"verticals": [], "sources": [], "source_reply": {}}
 
 
-def list_verticals() -> List[Dict[str, str]]:
+def list_verticals(locale: str = DEFAULT_LOCALE) -> List[Dict[str, str]]:
     """Opções do passo 1, cada uma com o seu gancho.
 
     O gancho vem já com a opção: o frontend mostra-o assim que a pessoa
@@ -53,23 +76,29 @@ def list_verticals() -> List[Dict[str, str]]:
     return [
         {
             "id": v["id"],
-            "label": v["label"],
-            "hook_markdown": v.get("hook_markdown", ""),
+            "label": _pick(v["label"], locale),
+            "hook_markdown": _pick(v.get("hook_markdown", ""), locale),
         }
         for v in _content().get("verticals", [])
     ]
 
 
-def list_sources() -> List[Dict[str, Any]]:
+def list_sources(locale: str = DEFAULT_LOCALE) -> List[Dict[str, Any]]:
     """Conectores do passo 2."""
     return [
-        {"id": s["id"], "label": s["label"], "supported": bool(s.get("supported", True))}
+        {
+            "id": s["id"],
+            "label": _pick(s["label"], locale),
+            "supported": bool(s.get("supported", True)),
+        }
         for s in _content().get("sources", [])
     ]
 
 
 def unlocked_questions(
-    source_ids: Optional[List[str]] = None, vertical: Optional[str] = None
+    source_ids: Optional[List[str]] = None,
+    vertical: Optional[str] = None,
+    locale: str = DEFAULT_LOCALE,
 ) -> Dict[str, Any]:
     """A resposta do passo 2: o que passa a ter resposta.
 
@@ -85,11 +114,19 @@ def unlocked_questions(
     ids = [s for s in (source_ids or []) if s]
 
     only_unknown = ids == ["unknown"]
-    intro = (
-        reply.get("intro_unknown_markdown", "") if only_unknown else reply.get("intro_markdown", "")
+    intro = _pick(
+        (
+            reply.get("intro_unknown_markdown", "")
+            if only_unknown
+            else reply.get("intro_markdown", "")
+        ),
+        locale,
     )
 
-    by_source: Dict[str, List[str]] = reply.get("questions_by_source", {}) or {}
+    raw_by_source: Dict[str, Any] = reply.get("questions_by_source", {}) or {}
+    by_source: Dict[str, List[str]] = {
+        sid: _pick(options, locale) or [] for sid, options in raw_by_source.items()
+    }
     picked: List[str] = []
     # Alternar entre fontes em vez de esgotar a primeira: quem escolheu
     # Postgres e Excel deve ver que ambas contam, não três perguntas de
@@ -104,7 +141,7 @@ def unlocked_questions(
         if len(picked) >= UNLOCKED_LIMIT:
             break
 
-    for fallback in reply.get("questions_default", []):
+    for fallback in _pick(reply.get("questions_default", []), locale) or []:
         if len(picked) >= UNLOCKED_LIMIT:
             break
         if fallback not in picked:
@@ -112,7 +149,7 @@ def unlocked_questions(
 
     return {
         "intro_markdown": intro,
-        "unlocked_intro": reply.get("unlocked_intro", ""),
+        "unlocked_intro": _pick(reply.get("unlocked_intro", ""), locale),
         "questions": picked[:UNLOCKED_LIMIT],
     }
 
