@@ -30,6 +30,32 @@ router = APIRouter()
 # access logs (BE-07 T-07.3).
 VOICE_SUBPROTOCOL = "sky.voice.v1"
 
+async def _voice_answer(user, page_id, text: str) -> str:
+    """The grounded answer for one voice turn — the same Bedrock engine as chat.
+
+    Resolves the caller's connection and asks the AI engine, so a spoken
+    question gets the same data-grounded answer the typed chat gives. Returns
+    "" on any failure (the turn simply yields no TTS instead of erroring).
+    """
+    from src.ai.http_client import AIServiceHTTPClient
+    from src.config.database import AsyncSessionLocal
+    from src.services.ai_service import AIService
+
+    try:
+        async with AsyncSessionLocal() as db:
+            conn_id = await AIService(db)._get_first_active_connection(user.id)  # noqa: SLF001
+        if not conn_id:
+            return ""
+        result = await AIServiceHTTPClient().query_connection(
+            connection_id=conn_id,
+            question=text,
+            user_id=str(user.id),
+            space_id="default",
+        )
+        return (result.get("answer") or "").strip()
+    except Exception:
+        return ""
+
 
 @router.post(
     "/sessions",
@@ -67,6 +93,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     verifiable offline; Phase B swaps in Amazon Transcribe + Polly + the live
     engine behind the same VoiceProvider seam.
     """
+    import asyncio as _asyncio
     import json as _json
     import time as _time
 
@@ -115,6 +142,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     page_id = None
     muted = False
     persisted = False
+    turn_active = False
 
     async def finalize(send_final: bool) -> None:
         nonlocal persisted
@@ -140,6 +168,44 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             except Exception:
                 pass
 
+    async def do_turn(user_text: str) -> None:
+        """A finalized user utterance → thinking → grounded answer → speaking+TTS."""
+        nonlocal turn_active
+        user_text = user_text.strip()
+        if not user_text or turn_active:
+            return
+        turn_active = True
+        try:
+            turns.append(VoiceTurn(role="user", text=user_text))
+            await state("thinking")
+            answer = (await _voice_answer(user, page_id, user_text)).strip()
+            if answer:
+                turns.append(VoiceTurn(role="sky", text=answer))
+                await state("speaking")
+                async for audio in provider.synthesize(answer, "Joanna"):
+                    await websocket.send_bytes(audio)
+            await state("user_speaking")
+        finally:
+            turn_active = False
+
+    async def consume_transcripts() -> None:
+        """STT events from the provider → partial_transcript / end-of-turn.
+
+        The provider owns endpointing (Transcribe for real, energy VAD in the
+        stub), so a final result is the end of the user's turn."""
+        try:
+            async for ev in provider.transcripts():
+                if turn_active:
+                    continue  # ignore stray STT while Sky is answering
+                if ev.get("final"):
+                    await do_turn(ev.get("text", ""))
+                elif ev.get("text"):
+                    await send({"type": "partial_transcript", "text": ev["text"]})
+        except Exception:
+            pass
+
+    stt_task = _asyncio.create_task(consume_transcripts())
+
     await state("connecting")
     await state("user_speaking")
     try:
@@ -148,11 +214,8 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             if msg.get("type") == "websocket.disconnect":
                 break
             if msg.get("bytes") is not None:  # a mic audio frame
-                if muted:
-                    continue
-                partial = await provider.feed_audio(msg["bytes"])
-                if partial:
-                    await send({"type": "partial_transcript", "text": partial})
+                if not (muted or turn_active):  # never feed the mic during Sky's turn
+                    await provider.feed_audio(msg["bytes"])
                 continue
             raw = msg.get("text")
             if not raw:
@@ -172,21 +235,9 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             elif action == "unmute":
                 muted = False
             elif action == "barge_in":
-                # Phase B cancels the in-flight Polly stream; the stub has none.
                 await state("user_speaking")
             elif action in ("stop", "end_turn"):
-                utter = (await provider.end_of_turn()).strip()
-                if not utter:
-                    continue
-                turns.append(VoiceTurn(role="user", text=utter))
-                await state("thinking")
-                answer = "".join([tok async for tok in provider.answer(utter)]).strip()
-                if answer:
-                    turns.append(VoiceTurn(role="sky", text=answer))
-                    await state("speaking")
-                    async for audio in provider.synthesize(answer, "Joanna"):
-                        await websocket.send_bytes(audio)
-                await state("user_speaking")
+                await provider.flush()  # force end-of-utterance; consume runs the turn
             elif action == "end":
                 await state("ended")
                 await finalize(send_final=True)
@@ -194,6 +245,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        stt_task.cancel()
         await provider.close()
         await finalize(send_final=False)  # best-effort persist on an abrupt close
     try:

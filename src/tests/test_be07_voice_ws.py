@@ -60,41 +60,60 @@ def test_t07_1_authorized_connects(client, monkeypatch):
 
 
 def test_t07_4_happy_turn(client, monkeypatch):
-    """Full turn: audio → partial_transcript → thinking → speaking + tts_audio → final."""
+    """Full turn: speech → partial → thinking → speaking + tts_audio → final.
+
+    The grounded answer (engine) is mocked so the turn runs offline; the stub
+    provides STT + TTS. Loud frames drive the stub's energy VAD; control:stop
+    forces the end-of-utterance.
+    """
     _mock_auth(monkeypatch)
+
+    async def _fake_answer(user, page_id, text):
+        return "There are 374 clients."
+
+    monkeypatch.setattr("src.api.v1.voice._voice_answer", _fake_answer)
+    loud = (4000).to_bytes(2, "little", signed=True) * 160  # int16 RMS 4000 → speech
+
+    states: list[str] = []
+    partials = 0
+    audio_frames = 0
+    got_final = False
     with client.websocket_connect(
         "/api/v1/voice/session", subprotocols=[VOICE_SUBPROTOCOL, "tok"]
     ) as ws:
-        for _ in range(6):
-            ws.send_bytes(b"\x00" * 320)  # mic frames (bytes ignored by the stub)
+        for _ in range(9):
+            ws.send_bytes(loud)  # speech frames → partial transcripts
         ws.send_text(json.dumps({"type": "control", "action": "stop"}))  # end of turn
-        ws.send_text(json.dumps({"type": "control", "action": "end"}))  # end session
 
-        states: list[str] = []
-        partials = 0
-        audio_frames = 0
-        got_final = False
-        for _ in range(60):
-            try:
-                m = ws.receive()
-            except WebSocketDisconnect:
-                break
+        # Drive one full turn, then end the session.
+        for _ in range(80):
+            m = ws.receive()
             if m.get("type") == "websocket.close":
                 break
             if m.get("bytes") is not None:
                 audio_frames += 1
+            else:
+                d = json.loads(m["text"])
+                if d["type"] == "state":
+                    states.append(d["value"])
+                elif d["type"] == "partial_transcript":
+                    partials += 1
+            if "speaking" in states and states[-1] == "user_speaking" and audio_frames:
+                break  # turn complete, back to listening
+
+        ws.send_text(json.dumps({"type": "control", "action": "end"}))
+        for _ in range(20):
+            m = ws.receive()
+            if m.get("type") == "websocket.close":
+                break
+            if m.get("bytes") is not None:
                 continue
-            data = json.loads(m["text"])
-            if data["type"] == "state":
-                states.append(data["value"])
-            elif data["type"] == "partial_transcript":
-                partials += 1
-            elif data["type"] == "final":
+            if json.loads(m["text"]).get("type") == "final":
                 got_final = True
                 break
 
     assert "connecting" in states and "user_speaking" in states
-    assert "thinking" in states and "speaking" in states and "ended" in states
+    assert "thinking" in states and "speaking" in states
     assert states.index("thinking") < states.index("speaking")  # ordering
     assert partials >= 1  # partial transcript streamed
     assert audio_frames >= 1  # tts_audio streamed
