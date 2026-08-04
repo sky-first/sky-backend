@@ -162,8 +162,18 @@ async def _tenant_from_email_domain(request: Request, email: str):
     from src.config.database import AsyncSessionLocal
     from src.services.tenant_domain_service import TenantDomainService
 
-    async with AsyncSessionLocal() as registry:
-        return await TenantDomainService.resolve_by_email(registry, email)
+    # A lookup failure (registry unreachable, schema missing) is treated the
+    # same as "domain not registered": return None so login falls through to
+    # the normal path instead of 500-ing. Matches the service's silent-None
+    # design — the caller never distinguishes the reasons anyway.
+    try:
+        async with AsyncSessionLocal() as registry:
+            return await TenantDomainService.resolve_by_email(registry, email)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("tenant_domain_lookup_failed", exc_info=True)
+        return None
 
 
 async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthMethodsResponse:
