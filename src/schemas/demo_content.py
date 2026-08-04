@@ -103,3 +103,40 @@ __all__ = [
     "StatTile",
     "SuggestedQuestion",
 ]
+
+
+# ─── Fluxo de cinco passos (FE-06) ──────────────────────────────────
+
+
+class DemoVertical(BaseModel):
+    """Opção do passo 1, com o gancho já incluído.
+
+    O gancho viaja com a opção de propósito: o frontend mostra-o assim
+    que a pessoa clica, sem uma segunda ida ao servidor. Uma pausa de
+    rede entre o clique e a recompensa desfaz o efeito que se procura.
+    """
+
+    id: str
+    label: str
+    hook_markdown: str = ""
+
+
+class DemoSource(BaseModel):
+    """Conector do passo 2."""
+
+    id: str
+    label: str
+    supported: bool = True
+
+
+class DemoUnlockedRequest(BaseModel):
+    source_ids: List[str] = Field(default_factory=list)
+    vertical: Optional[str] = None
+
+
+class DemoUnlockedResponse(BaseModel):
+    """A devolução do passo 2 — o que passa a ter resposta."""
+
+    intro_markdown: str = ""
+    unlocked_intro: str = ""
+    questions: List[str] = Field(default_factory=list)

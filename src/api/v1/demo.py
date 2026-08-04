@@ -11,7 +11,7 @@ issues the JWT itself.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
@@ -26,6 +26,10 @@ from src.models.user import User
 from src.schemas.common import ErrorResponse
 from src.schemas.demo import DemoSignupRequest, DemoSignupResponse
 from src.schemas.demo_content import (
+    DemoSource,
+    DemoUnlockedRequest,
+    DemoUnlockedResponse,
+    DemoVertical,
     DemoAnswerResponse,
     DemoAskRequest,
     DemoBootstrapResponse,
@@ -34,7 +38,7 @@ from src.schemas.demo_content import (
     DemoLeadResponse,
     SuggestedQuestion,
 )
-from src.services import demo_content_service
+from src.services import demo_content_service, demo_flow_service
 from src.services.demo_service import DemoService
 
 router = APIRouter()
@@ -391,4 +395,48 @@ def _qa_to_model(q, *, is_fallback: bool, question: Optional[str] = None) -> Dem
         chart_spec=q.chart_spec,
         executed_sql=q.executed_sql,
         is_fallback=is_fallback,
+    )
+
+
+# ─── Fluxo de cinco passos (FE-06) ──────────────────────────────────
+#
+# Passos 1 e 2. Conteúdo editorial estático, sem base de dados e sem
+# LLM — o princípio do fluxo é que cada passo devolve algo concreto
+# **imediatamente**, e uma consulta a mais é tempo que se nota.
+
+
+@router.get(
+    "/verticals",
+    response_model=List[DemoVertical],
+    summary="Opções do passo 1, com o gancho de cada sector",
+)
+async def demo_verticals(response: Response) -> List[DemoVertical]:
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return [DemoVertical(**v) for v in demo_flow_service.list_verticals()]
+
+
+@router.get(
+    "/sources",
+    response_model=List[DemoSource],
+    summary="Conectores oferecidos no passo 2",
+)
+async def demo_sources(response: Response) -> List[DemoSource]:
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return [DemoSource(**s) for s in demo_flow_service.list_sources()]
+
+
+@router.post(
+    "/unlocked-questions",
+    response_model=DemoUnlockedResponse,
+    summary="O que passa a ter resposta com as fontes escolhidas",
+)
+async def demo_unlocked_questions(body: DemoUnlockedRequest) -> DemoUnlockedResponse:
+    """Devolve sempre três perguntas.
+
+    Um ecrã que promete três e mostra uma parece avariado, portanto
+    completa-se com as genéricas quando as fontes escolhidas não dão
+    para tantas.
+    """
+    return DemoUnlockedResponse(
+        **demo_flow_service.unlocked_questions(source_ids=body.source_ids, vertical=body.vertical)
     )
