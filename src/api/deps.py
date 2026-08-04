@@ -281,7 +281,7 @@ async def enforce_device_tenant(
     if not settings.MULTI_TENANT_ENABLED:
         return
 
-    from src.api.middleware.tenant_resolver import _load_tenant_by_id
+    from src.api.middleware.tenant_resolver import _load_tenant_by_id, _slug_from_host
 
     from src.core.device_tenant import (
         TENANT_CLAIM,
@@ -300,29 +300,35 @@ async def enforce_device_tenant(
         except Exception:
             claims = {}
 
-    # O que distingue um pedido de dispositivo é o **token**, não os
-    # headers. Um token móvel carrega `tid`; um token da web ou do
-    # Internal Console não.
+    # A ordem aqui é a correcção, e é subtil.
     #
-    # A versão anterior decidia isto por header, e tratar
-    # `X-Tenant-Slug` como prova de "isto é web" abria uma saída de
-    # emergência: bastava um cliente móvel enviá-lo para o portão de
-    # pertença ser saltado, e com ele a garantia de que quem sai da
-    # empresa perde acesso assim que a linha de pertença desaparece
-    # (T-01.8). Um token assinado não pode perder o seu `tid`, portanto
-    # decidir pelo token não é contornável.
+    # Um token que carrega `tid` é sempre verificado — antes de olhar
+    # para qualquer header. Era este o buraco: a versão anterior
+    # perguntava primeiro "veio um X-Tenant-Slug?" e, em caso
+    # afirmativo, devolvia sem verificar nada. Bastava um cliente móvel
+    # acrescentar o header para saltar o portão inteiro, e com ele a
+    # garantia de que quem sai da empresa perde acesso assim que a linha
+    # de pertença desaparece (T-01.8) — a única razão de o portão
+    # existir. Um token assinado não pode perder o seu `tid`, portanto
+    # verificar primeiro pelo token não é contornável.
     #
-    # Não era brecha entre clientes: a sessão é scoped ao tenant e o
-    # utilizador não existe na base do outro cliente, logo o pedido
-    # morria em 401. Era brecha na promessa de off-boarding — que é
-    # exactamente o que este portão existe para cumprir.
-    is_device_token = bool(claims.get(TENANT_CLAIM))
-    if not is_device_token:
-        # Web / console: o tenant vem do sub-domínio ou do header, como
-        # sempre veio. Sem `tid` não há nada de dispositivo a validar, e
-        # exigir um aqui partia o `/auth/me` do Internal Console, que
-        # fala com o hostname da própria plataforma.
-        return
+    # Não era brecha entre clientes: a sessão é scoped ao tenant, o
+    # utilizador não existe na base do outro cliente e o pedido morre em
+    # 401. Era brecha na promessa de off-boarding.
+    if not claims.get(TENANT_CLAIM):
+        # Sem `tid`. Se veio sub-domínio ou X-Tenant-Slug, é a web ou o
+        # Internal Console — que fala com o hostname da própria
+        # plataforma e por isso depende do header. Passa, como sempre
+        # passou.
+        if _slug_from_host(request.headers.get("host")) or request.headers.get("x-tenant-slug"):
+            return
+        # Sem tid e sem nenhuma pista de tenant: pedido de dispositivo
+        # mal formado. Recusar explicitamente (400) em vez de deixar cair
+        # no tenant por omissão, que seria servir o espaço errado em vez
+        # de dizer que não sabe qual é. Regra do Felipe, mantida (T-01.4).
+        raise BadRequestError(
+            "Tenant unresolved — a device request must carry a valid tenant claim."
+        )
 
     async def _is_member(user_id: str, tid: str) -> bool:
         return await TenantMembershipService.is_member(db, user_id, tid)
@@ -407,7 +413,5 @@ async def require_service_principal(
             claims = {}
 
     if not claims.get(SERVICE_CLAIM):
-        raise ForbiddenError(
-            "This endpoint is reserved for internal service calls."
-        )
+        raise ForbiddenError("This endpoint is reserved for internal service calls.")
     return current_user

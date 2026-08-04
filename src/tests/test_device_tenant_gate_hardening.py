@@ -105,8 +105,8 @@ async def test_tenant_desconhecido_nao_cai_no_default():
 def _source():
     from pathlib import Path
 
-    return Path(__file__).resolve().parents[1].joinpath("api", "deps.py").read_text(
-        encoding="utf-8"
+    return (
+        Path(__file__).resolve().parents[1].joinpath("api", "deps.py").read_text(encoding="utf-8")
     )
 
 
@@ -125,19 +125,40 @@ def _code_only(text: str) -> str:
     return "\n".join(out)
 
 
-def test_o_portao_nao_decide_por_header():
-    """O discriminador tem de ser o token, não um header que o cliente
-    escolhe. Um token assinado não pode perder o seu `tid`; um header
-    pode ser acrescentado por qualquer um."""
+def test_token_com_tid_e_verificado_antes_de_qualquer_header():
+    """A propriedade é a **ordem**, não a ausência do header.
+
+    O header `X-Tenant-Slug` é legítimo — o Internal Package Console fala
+    com o hostname da própria plataforma e depende dele. O que não pode
+    acontecer é ser consultado *antes* do `tid`: era assim que um
+    cliente móvel saltava o portão, bastando acrescentá-lo.
+
+    A primeira versão deste teste proibia o header no portão inteiro.
+    Estava a medir a coisa errada — proibia a solução em vez do defeito,
+    e teria forçado a partir o console para o satisfazer.
+    """
     src = _source()
     gate = src[src.index("async def enforce_device_tenant") :]
     gate = _code_only(gate[: gate.index("async def get_db_session_for_context")])
 
-    assert "x-tenant-slug" not in gate.lower(), (
-        "o portão voltou a decidir por header — um cliente móvel pode "
-        "enviá-lo e saltar a verificação de pertença"
+    tid_check = gate.index("TENANT_CLAIM")
+    header_check = gate.lower().index("x-tenant-slug")
+
+    assert tid_check < header_check, (
+        "o header é consultado antes do claim do token — um cliente "
+        "móvel pode enviá-lo e saltar a verificação de pertença"
     )
-    assert "TENANT_CLAIM" in gate, "o portão tem de decidir pelo claim do token"
+
+
+def test_pedido_de_dispositivo_sem_tenant_e_recusado():
+    """Sem `tid` e sem pista nenhuma de tenant, recusar explicitamente em
+    vez de cair no tenant por omissão — servir o espaço errado é pior do
+    que admitir que não se sabe qual é. (T-01.4, regra do Felipe.)"""
+    src = _source()
+    gate = src[src.index("async def enforce_device_tenant") :]
+    gate = gate[: gate.index("async def get_db_session_for_context")]
+
+    assert "BadRequestError" in gate
 
 
 def test_endpoint_de_scan_exige_servico():

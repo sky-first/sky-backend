@@ -118,30 +118,54 @@ _CONVERSATIONS = [
 
 _NOW = datetime.now(timezone.utc)
 _INSIGHTS = [
-    dict(kind="risk", level="high", title="North sales down 18% WoW",
-         summary="Three lapsed clients explain most of the gap — together ~€24k of Q2 revenue.",
-         series=[38, 41, 36, 33, 30, 27, 25, 22],
-         tiles=[{"label": "Change", "value": "-18% vs avg"},
-                {"label": "Lapsed clients", "value": "3"},
-                {"label": "Q2 impact", "value": "€24,000"}]),
-    dict(kind="opportunity", level="med", title="Pipeline velocity up 18% WoW, driven by 3 mid-market deals",
-         summary="Stage-to-close time dropped from 34d to 28d.",
-         series=[34, 33, 32, 31, 30, 29, 28, 28],
-         tiles=[{"label": "Velocity", "value": "+18%"},
-                {"label": "Cycle time", "value": "28 days"},
-                {"label": "Deals", "value": "3"}]),
-    dict(kind="insight", level="low", title="LinkedIn campaign CAC down 22% — room to scale budget",
-         summary="Cost per acquisition fell for the second week running.",
-         series=[120, 116, 110, 104, 99, 96, 94, 93],
-         tiles=[{"label": "CAC", "value": "-22%"},
-                {"label": "Current CAC", "value": "€93"},
-                {"label": "Trend", "value": "2 weeks"}]),
-    dict(kind="risk", level="med", title="Customer NPS dropped 22 pts after the v4.2 rollout",
-         summary="Support tickets tripled; renewal conversation in 6 weeks.",
-         series=[52, 50, 48, 44, 40, 33, 31, 30],
-         tiles=[{"label": "NPS", "value": "-22 pts"},
-                {"label": "Tickets", "value": "3x"},
-                {"label": "ARR at risk", "value": "€48k"}]),
+    dict(
+        kind="risk",
+        level="high",
+        title="North sales down 18% WoW",
+        summary="Three lapsed clients explain most of the gap — together ~€24k of Q2 revenue.",
+        series=[38, 41, 36, 33, 30, 27, 25, 22],
+        tiles=[
+            {"label": "Change", "value": "-18% vs avg"},
+            {"label": "Lapsed clients", "value": "3"},
+            {"label": "Q2 impact", "value": "€24,000"},
+        ],
+    ),
+    dict(
+        kind="opportunity",
+        level="med",
+        title="Pipeline velocity up 18% WoW, driven by 3 mid-market deals",
+        summary="Stage-to-close time dropped from 34d to 28d.",
+        series=[34, 33, 32, 31, 30, 29, 28, 28],
+        tiles=[
+            {"label": "Velocity", "value": "+18%"},
+            {"label": "Cycle time", "value": "28 days"},
+            {"label": "Deals", "value": "3"},
+        ],
+    ),
+    dict(
+        kind="insight",
+        level="low",
+        title="LinkedIn campaign CAC down 22% — room to scale budget",
+        summary="Cost per acquisition fell for the second week running.",
+        series=[120, 116, 110, 104, 99, 96, 94, 93],
+        tiles=[
+            {"label": "CAC", "value": "-22%"},
+            {"label": "Current CAC", "value": "€93"},
+            {"label": "Trend", "value": "2 weeks"},
+        ],
+    ),
+    dict(
+        kind="risk",
+        level="med",
+        title="Customer NPS dropped 22 pts after the v4.2 rollout",
+        summary="Support tickets tripled; renewal conversation in 6 weeks.",
+        series=[52, 50, 48, 44, 40, 33, 31, 30],
+        tiles=[
+            {"label": "NPS", "value": "-22 pts"},
+            {"label": "Tickets", "value": "3x"},
+            {"label": "ARR at risk", "value": "€48k"},
+        ],
+    ),
 ]
 
 
@@ -204,8 +228,7 @@ async def main() -> None:
 
         exists = await db.execute(
             SpaceMember.__table__.select().where(
-                (SpaceMember.user_id == user.id)
-                & (SpaceMember.space_id == DEMO_SPACE)
+                (SpaceMember.user_id == user.id) & (SpaceMember.space_id == DEMO_SPACE)
             )
         )
         if exists.first() is None:
@@ -241,9 +264,7 @@ async def main() -> None:
             )
 
         # Refresh the demo insights (delete + re-insert for idempotency).
-        await db.execute(
-            AgentFinding.__table__.delete().where(AgentFinding.space_id == DEMO_SPACE)
-        )
+        await db.execute(AgentFinding.__table__.delete().where(AgentFinding.space_id == DEMO_SPACE))
         for i, spec in enumerate(_INSIGHTS):
             db.add(
                 AgentFinding(
@@ -255,8 +276,10 @@ async def main() -> None:
                     severity=spec["level"],
                     title=spec["title"],
                     description=spec["summary"],
-                    series=[{"t": (_NOW - timedelta(days=len(spec["series"]) - j)).isoformat(), "v": v}
-                            for j, v in enumerate(spec["series"])],
+                    series=[
+                        {"t": (_NOW - timedelta(days=len(spec["series"]) - j)).isoformat(), "v": v}
+                        for j, v in enumerate(spec["series"])
+                    ],
                     stat_tiles=spec["tiles"],
                     viz_kind="line",
                     created_at=_NOW - timedelta(hours=i),
@@ -267,8 +290,13 @@ async def main() -> None:
         # ── History (BE-04): a page + conversations (voice/text, various days) ──
         if await db.get(Page, DEMO_PAGE) is None:
             db.add(
-                Page(id=DEMO_PAGE, name="Sky Chats", type="personal",
-                     color="#FAB721", owner_id=user.id)
+                Page(
+                    id=DEMO_PAGE,
+                    name="Sky Chats",
+                    type="personal",
+                    color="#FAB721",
+                    owner_id=user.id,
+                )
             )
             await db.commit()
 
@@ -279,9 +307,7 @@ async def main() -> None:
         ).fetchall()
         old_ids = [r.id for r in rows]
         if old_ids:
-            await db.execute(
-                Message.__table__.delete().where(Message.conversation_id.in_(old_ids))
-            )
+            await db.execute(Message.__table__.delete().where(Message.conversation_id.in_(old_ids)))
             await db.execute(
                 Conversation.__table__.delete().where(Conversation.page_id == DEMO_PAGE)
             )
@@ -290,15 +316,22 @@ async def main() -> None:
         for title, days, hours, origin, dur in _CONVERSATIONS:
             when = _NOW - timedelta(days=days, hours=hours)
             conv = Conversation(
-                page_id=DEMO_PAGE, created_by=user.id, title=title,
-                created_at=when, updated_at=when,
+                page_id=DEMO_PAGE,
+                created_by=user.id,
+                title=title,
+                created_at=when,
+                updated_at=when,
             )
             db.add(conv)
             await db.flush()
             db.add(
                 Message(
-                    conversation_id=conv.id, role="user", content=title,
-                    origin=origin, duration_ms=dur, created_at=when,
+                    conversation_id=conv.id,
+                    role="user",
+                    content=title,
+                    origin=origin,
+                    duration_ms=dur,
+                    created_at=when,
                 )
             )
         await db.commit()
