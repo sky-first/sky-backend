@@ -1,0 +1,2599 @@
+{
+  "_readme": [
+    "Conteúdo curado da demo pública — a fonte de verdade do que o visitante vê.",
+    "",
+    "Aplicar com:  python scripts/curate_demo_content.py --apply",
+    "Propor novo:  python scripts/curate_demo_content.py --propose --vertical saas",
+    "",
+    "REGRA EDITORIAL, e não é decorativa: nada aqui pode ser sobre metadados.",
+    "Contagens de linhas, tabelas mais usadas e resumos de esquema estão",
+    "proibidos. Foi exactamente esse tipo de resposta — 'resumo de alto nível:",
+    "contagem de linhas e tabelas mais usadas' — que arruinou a primeira",
+    "impressão da demo antiga. Cada título aqui responde a uma pergunta que um",
+    "COO faria em voz alta, e cada número tem SQL por trás que o produz.",
+    "",
+    "O `executed_sql` não é decoração: é verificado contra a base sintética",
+    "antes de persistir (--verify-sql). Conteúdo que afirme um número que o",
+    "seu próprio SQL não devolve é pior do que não ter conteúdo nenhum — numa",
+    "demo comercial, um número errado que o prospect consegue conferir custa",
+    "a venda inteira."
+  ],
+  "datasets": [
+    {
+      "vertical": "saas",
+      "locale": "en",
+      "is_default": true,
+      "name": "Northwind Cloud — SaaS B2B",
+      "description": "CRM, marketing, finance, web analytics and product usage for a fictional B2B SaaS. 5 connected schemas.",
+      "connection_ref": "Demo — Sales",
+      "insight": {
+        "severity": "revenue_at_risk",
+        "severity_level": "warning",
+        "agent_name": "Revenue Watch",
+        "title": "Enterprise accounts paying for seats they stopped using",
+        "summary": "Enterprise accounts are billing more seats than they log into. Seat utilisation is the earliest churn signal there is — it moves months before the cancellation email, and it is visible today across CRM, billing and product usage at once.",
+        "stat_tiles": [
+          {
+            "label": "Enterprise accounts under 60% seat use",
+            "value_sql": "SELECT COUNT(*) FROM crm.accounts a JOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL JOIN product_usage.account_health h ON h.account_id = a.id WHERE a.plan = 'enterprise' AND h.seats_paid > 0 AND h.seats_used < 0.6 * h.seats_paid"
+          },
+          {
+            "label": "Monthly revenue exposed",
+            "value_sql": "SELECT COALESCE(SUM(s.monthly_amount), 0) FROM crm.accounts a JOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL JOIN product_usage.account_health h ON h.account_id = a.id WHERE a.plan = 'enterprise' AND h.seats_paid > 0 AND h.seats_used < 0.6 * h.seats_paid",
+            "format": "eur"
+          },
+          {
+            "label": "Avg. seat utilisation",
+            "value_sql": "SELECT ROUND(AVG(100.0 * h.seats_used / NULLIF(h.seats_paid, 0)), 1) FROM crm.accounts a JOIN product_usage.account_health h ON h.account_id = a.id WHERE a.plan = 'enterprise' AND h.seats_paid > 0",
+            "format": "pct"
+          }
+        ],
+        "sources": [
+          {
+            "table": "crm.accounts",
+            "description": "Account plan and region"
+          },
+          {
+            "table": "finance.subscriptions",
+            "description": "Monthly billed amount"
+          },
+          {
+            "table": "product_usage.account_health",
+            "description": "Seats paid vs seats actually used"
+          }
+        ],
+        "executed_sql": "SELECT a.name,\n       s.monthly_amount,\n       h.seats_paid,\n       h.seats_used,\n       ROUND(100.0 * h.seats_used / NULLIF(h.seats_paid, 0), 1) AS seat_utilisation_pct\nFROM crm.accounts a\nJOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL\nJOIN product_usage.account_health h ON h.account_id = a.id\nWHERE a.plan = 'enterprise'\n  AND h.seats_paid > 0\n  AND h.seats_used < 0.6 * h.seats_paid\nORDER BY s.monthly_amount DESC",
+        "series_sql": "SELECT DATE_TRUNC('month', i.issued_at)::date AS t,\n       SUM(i.amount)                             AS v\nFROM finance.invoices i\nWHERE i.status = 'paid'\nGROUP BY 1\nORDER BY 1"
+      },
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Which customers are most likely to churn, and what revenue is at stake?",
+          "answer_markdown": "**Oscorp Industries, Cogswell Inc and Wonka Group** carry the most revenue at risk — all flagged risk or churn by health score, and all still paying.\n\nWhat makes this actionable rather than interesting: it joins the health signal to the money. A low score on a small account is noise; the same score on the largest subscription in the book is a board-level problem.\n\nThey are paying today. That is the window.",
+          "citations": [
+            {
+              "table": "crm.accounts"
+            },
+            {
+              "table": "finance.subscriptions"
+            },
+            {
+              "table": "product_usage.account_health"
+            }
+          ],
+          "executed_sql": "SELECT a.name,\n       a.plan,\n       h.risk_level,\n       h.score,\n       s.monthly_amount,\n       h.last_login_at\nFROM product_usage.account_health h\nJOIN crm.accounts a         ON a.id = h.account_id\nJOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL\nWHERE h.risk_level IN ('risk', 'churn')\nORDER BY s.monthly_amount DESC\nLIMIT 10",
+          "chart_spec": {
+            "type": "bar",
+            "x": "name",
+            "y": "monthly_amount",
+            "series_label": "Monthly revenue at risk"
+          },
+          "stat_tiles": [
+            {
+              "label": "Largest account at risk",
+              "value_sql": "SELECT a.name FROM product_usage.account_health h JOIN crm.accounts a ON a.id=h.account_id JOIN finance.subscriptions s ON s.account_id=a.id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn') ORDER BY s.monthly_amount DESC LIMIT 1"
+            },
+            {
+              "label": "Monthly revenue at stake",
+              "value_sql": "SELECT COALESCE(SUM(s.monthly_amount),0) FROM product_usage.account_health h JOIN finance.subscriptions s ON s.account_id=h.account_id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn')",
+              "format": "eur"
+            },
+            {
+              "label": "Largest single account",
+              "value_sql": "SELECT COALESCE(MAX(s.monthly_amount),0) FROM product_usage.account_health h JOIN finance.subscriptions s ON s.account_id=h.account_id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn')",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "Which marketing channel actually produces revenue, not just leads?",
+          "answer_markdown": "Spend per channel against **closed-won** revenue traced back through the lead that opened the deal.\n\nThe distinction matters. Channels that produce many leads and few deals look excellent on a marketing dashboard and lose money in the ledger — the cost per lead is flattering, the cost per euro of revenue is not.\n\nThis follows the chain end to end: campaign spend → lead → opportunity → closed-won amount.",
+          "citations": [
+            {
+              "table": "marketing.campaigns"
+            },
+            {
+              "table": "marketing.leads"
+            },
+            {
+              "table": "crm.opportunities"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       SUM(DISTINCT c.spend)                                    AS spend,\n       COUNT(DISTINCT l.id)                                     AS leads,\n       COUNT(DISTINCT o.id) FILTER (WHERE o.stage = 'closed_won') AS deals_won,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS revenue_won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l   ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY revenue_won DESC",
+          "chart_spec": {
+            "type": "bar",
+            "x": "channel",
+            "y": "revenue_won",
+            "series_label": "Closed-won revenue by channel"
+          },
+          "stat_tiles": [
+            {
+              "label": "Best channel",
+              "value_sql": "SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1"
+            },
+            {
+              "label": "Revenue it brought",
+              "value_sql": "SELECT COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) AS r FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY r DESC LIMIT 1",
+              "format": "eur"
+            },
+            {
+              "label": "Deals it closed",
+              "value_sql": "SELECT COUNT(*) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1)"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "How much revenue is sitting in overdue invoices, and who owes it?",
+          "answer_markdown": "Invoices past due, by account, oldest first.\n\nCash that has been earned and not collected is the cheapest cash in the business — no discount, no new deal, no campaign. It only needs someone to know it exists.\n\nThe join to the account name is the whole point: an invoice ID is not something anyone can act on, a customer name with a phone number is.",
+          "citations": [
+            {
+              "table": "finance.invoices"
+            },
+            {
+              "table": "finance.subscriptions"
+            },
+            {
+              "table": "crm.accounts"
+            }
+          ],
+          "executed_sql": "SELECT a.name,\n       i.issued_at,\n       i.amount,\n       CURRENT_DATE - i.issued_at AS days_outstanding\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a          ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at ASC\nLIMIT 15",
+          "chart_spec": {
+            "type": "bar",
+            "x": "name",
+            "y": "amount",
+            "series_label": "Overdue amount"
+          },
+          "stat_tiles": [
+            {
+              "label": "Overdue invoices",
+              "value_sql": "SELECT COUNT(*) FROM finance.invoices WHERE status='overdue'"
+            },
+            {
+              "label": "Total uncollected",
+              "value_sql": "SELECT COALESCE(SUM(amount),0) FROM finance.invoices WHERE status='overdue'",
+              "format": "eur"
+            },
+            {
+              "label": "Oldest one",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - issued_at),0) FROM finance.invoices WHERE status='overdue'"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "What is the win rate, and how long does a deal take to close?",
+          "answer_markdown": "Win rate and average cycle length per plan tier.\n\nThe two numbers belong together. A high win rate with a long cycle and a lower win rate with a short one are very different businesses, and reporting either alone hides which one you are.",
+          "citations": [
+            {
+              "table": "crm.opportunities"
+            },
+            {
+              "table": "crm.accounts"
+            }
+          ],
+          "executed_sql": "SELECT a.plan,\n       COUNT(*) FILTER (WHERE o.stage = 'closed_won')  AS won,\n       COUNT(*) FILTER (WHERE o.stage = 'closed_lost') AS lost,\n       ROUND(100.0 * COUNT(*) FILTER (WHERE o.stage = 'closed_won')\n             / NULLIF(COUNT(*) FILTER (WHERE o.stage IN ('closed_won','closed_lost')), 0), 1) AS win_rate_pct,\n       ROUND(AVG(o.amount) FILTER (WHERE o.stage = 'closed_won'), 2) AS avg_won_amount\nFROM crm.opportunities o\nJOIN crm.accounts a ON a.id = o.account_id\nGROUP BY a.plan\nORDER BY win_rate_pct DESC NULLS LAST"
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Which product features do our healthiest customers use that the at-risk ones don't?",
+          "answer_markdown": "Feature adoption split by health band.\n\nThe gap between the two columns is the onboarding backlog. A feature that healthy accounts use heavily and at-risk accounts never touched is not a product problem — it is a feature nobody showed them.",
+          "citations": [
+            {
+              "table": "product_usage.feature_adoption"
+            },
+            {
+              "table": "product_usage.account_health"
+            }
+          ],
+          "executed_sql": "SELECT f.feature_name,\n       ROUND(AVG(f.times_used_30d) FILTER (WHERE h.risk_level = 'healthy'), 1)          AS healthy_avg_uses,\n       ROUND(AVG(f.times_used_30d) FILTER (WHERE h.risk_level IN ('risk','churn')), 1)  AS at_risk_avg_uses,\n       COUNT(DISTINCT f.account_id)                                                     AS accounts_using\nFROM product_usage.feature_adoption f\nJOIN product_usage.account_health h ON h.account_id = f.account_id\nGROUP BY f.feature_name\nORDER BY healthy_avg_uses DESC NULLS LAST"
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "How has new business trended over the last year?",
+          "answer_markdown": "Closed-won revenue by month.\n\nThe shape matters more than the total. A book that grows in steps — a flat stretch, then a jump — is a business that closes a few large deals, and it needs a different forecast than one that grows smoothly.",
+          "citations": [
+            {
+              "table": "crm.opportunities"
+            }
+          ],
+          "executed_sql": "SELECT DATE_TRUNC('month', o.close_date)::date AS month,\n       COUNT(*)                                    AS deals_won,\n       SUM(o.amount)                               AS revenue_won\nFROM crm.opportunities o\nWHERE o.stage = 'closed_won'\nGROUP BY 1\nORDER BY 1",
+          "chart_spec": {
+            "type": "line",
+            "x": "month",
+            "y": "revenue_won",
+            "series_label": "Closed-won revenue"
+          }
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Where does our website traffic come from, and does it convert?",
+          "answer_markdown": "Sessions by acquisition source against the accounts that ended up signing.\n\nTraffic without the conversion column is a vanity number. The two together tell you which source to buy more of.",
+          "citations": [
+            {
+              "table": "web_analytics.sessions"
+            },
+            {
+              "table": "crm.accounts"
+            }
+          ],
+          "executed_sql": "SELECT COALESCE(s.utm_source, 'direct')                     AS source,\n       COUNT(*)                                            AS sessions,\n       COUNT(DISTINCT s.account_id)                        AS known_accounts,\n       ROUND(AVG(s.pages_viewed), 1)                       AS avg_pages\nFROM web_analytics.sessions s\nGROUP BY 1\nORDER BY sessions DESC"
+        }
+      ],
+      "extra_insights": [
+        {
+          "severity": "cash_uncollected",
+          "severity_level": "warning",
+          "agent_name": "Collections",
+          "title": "Invoices past due, and nobody is chasing the oldest ones",
+          "summary": "Overdue invoices don't age evenly — a few sit far longer than the rest, and those are the ones that stop being late and start being written off. The agent watches the age, not the balance, because the balance looks the same the day before it becomes a loss.",
+          "stat_tiles": [
+            {
+              "label": "Overdue invoices",
+              "value_sql": "SELECT COUNT(*) FROM finance.invoices WHERE status='overdue'"
+            },
+            {
+              "label": "Uncollected",
+              "value_sql": "SELECT COALESCE(SUM(amount),0) FROM finance.invoices WHERE status='overdue'",
+              "format": "eur"
+            },
+            {
+              "label": "Oldest, in days",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - issued_at),0) FROM finance.invoices WHERE status='overdue'"
+            }
+          ],
+          "sources": [
+            {
+              "table": "finance.invoices"
+            },
+            {
+              "table": "crm.accounts"
+            }
+          ],
+          "executed_sql": "SELECT i.id, a.name, i.amount, i.issued_at, CURRENT_DATE - i.issued_at AS days_open\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at",
+          "series_sql": "SELECT b.bucket AS t, COALESCE(ROUND(SUM(i.amount)),0) AS v FROM (VALUES (1,'0-15'),(2,'16-30'),(3,'31-45'),(4,'46-60'),(5,'60+')) AS b(ord,bucket) LEFT JOIN finance.invoices i ON i.status='overdue' AND width_bucket(CURRENT_DATE - i.issued_at, ARRAY[16,31,46,61]) + 1 = b.ord GROUP BY b.ord, b.bucket ORDER BY b.ord"
+        },
+        {
+          "severity": "channel_mix",
+          "severity_level": "info",
+          "agent_name": "Growth",
+          "title": "One channel brings the revenue; the budget is spread as if they were equal",
+          "summary": "Leads are easy to count and easy to be wrong about. Following each lead through to the deal it did or didn't become puts the channels in a different order than the lead count does — which is the whole point of joining marketing to the pipeline.",
+          "stat_tiles": [
+            {
+              "label": "Best channel by revenue",
+              "value_sql": "SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1"
+            },
+            {
+              "label": "Revenue it closed",
+              "value_sql": "SELECT COALESCE(SUM(o.amount),0) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c2.channel FROM marketing.campaigns c2 LEFT JOIN marketing.leads l2 ON l2.campaign_id=c2.id LEFT JOIN crm.opportunities o2 ON o2.id=l2.converted_to_opportunity_id GROUP BY c2.channel ORDER BY COALESCE(SUM(o2.amount) FILTER (WHERE o2.stage='closed_won'),0) DESC LIMIT 1)",
+              "format": "eur"
+            },
+            {
+              "label": "Deals it closed",
+              "value_sql": "SELECT COUNT(*) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "marketing.campaigns"
+            },
+            {
+              "table": "marketing.leads"
+            },
+            {
+              "table": "crm.opportunities"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       SUM(c.spend) AS spend,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY won DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', o.close_date)::date AS t, ROUND(SUM(o.amount)) AS v FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "vertical": "saas",
+      "locale": "pt",
+      "is_default": true,
+      "name": "Northwind Cloud — SaaS B2B",
+      "description": "CRM, marketing, financeiro, analítica web e utilização de produto de um SaaS B2B fictício. 5 esquemas ligados.",
+      "connection_ref": "Demo — Sales",
+      "insight": {
+        "severity": "revenue_at_risk",
+        "severity_level": "warning",
+        "agent_name": "Revenue Watch",
+        "title": "Contas enterprise a pagar lugares que deixaram de usar",
+        "summary": "Há contas enterprise a pagar mais lugares do que aqueles em que alguém entra. A utilização de licenças é o sinal de saída mais antecipado que existe — move-se meses antes do email de cancelamento, e hoje está visível ao mesmo tempo no CRM, na faturação e no produto.",
+        "stat_tiles": [
+          {
+            "label": "Contas enterprise abaixo de 60% de uso",
+            "value_sql": "SELECT COUNT(*) FROM crm.accounts a JOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL JOIN product_usage.account_health h ON h.account_id = a.id WHERE a.plan = 'enterprise' AND h.seats_paid > 0 AND h.seats_used < 0.6 * h.seats_paid"
+          },
+          {
+            "label": "Receita mensal exposta",
+            "value_sql": "SELECT COALESCE(SUM(s.monthly_amount), 0) FROM crm.accounts a JOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL JOIN product_usage.account_health h ON h.account_id = a.id WHERE a.plan = 'enterprise' AND h.seats_paid > 0 AND h.seats_used < 0.6 * h.seats_paid",
+            "format": "eur"
+          },
+          {
+            "label": "Utilização média de lugares",
+            "value_sql": "SELECT ROUND(AVG(100.0 * h.seats_used / NULLIF(h.seats_paid, 0)), 1) FROM crm.accounts a JOIN product_usage.account_health h ON h.account_id = a.id WHERE a.plan = 'enterprise' AND h.seats_paid > 0",
+            "format": "pct"
+          }
+        ],
+        "sources": [
+          {
+            "table": "crm.accounts",
+            "description": "Plano e região da conta"
+          },
+          {
+            "table": "finance.subscriptions",
+            "description": "Valor faturado mensalmente"
+          },
+          {
+            "table": "product_usage.account_health",
+            "description": "Lugares pagos vs realmente usados"
+          }
+        ],
+        "executed_sql": "SELECT a.name,\n       s.monthly_amount,\n       h.seats_paid,\n       h.seats_used,\n       ROUND(100.0 * h.seats_used / NULLIF(h.seats_paid, 0), 1) AS seat_utilisation_pct\nFROM crm.accounts a\nJOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL\nJOIN product_usage.account_health h ON h.account_id = a.id\nWHERE a.plan = 'enterprise'\n  AND h.seats_paid > 0\n  AND h.seats_used < 0.6 * h.seats_paid\nORDER BY s.monthly_amount DESC",
+        "series_sql": "SELECT DATE_TRUNC('month', i.issued_at)::date AS t,\n       SUM(i.amount)                             AS v\nFROM finance.invoices i\nWHERE i.status = 'paid'\nGROUP BY 1\nORDER BY 1"
+      },
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Que clientes estão em risco e quanta receita está em jogo?",
+          "answer_markdown": "**Oscorp Industries, Cogswell Inc e Wonka Group** são as três com maior receita em risco — todas marcadas como risco ou saída pelo indicador de saúde, e todas ainda a pagar.\n\nO que torna isto accionável em vez de interessante: liga o sinal de saúde ao dinheiro. Um indicador baixo numa conta pequena é ruído; o mesmo indicador na maior subscrição da carteira é assunto de administração.\n\nEstão a pagar hoje. É essa a janela.",
+          "citations": [
+            {
+              "table": "crm.accounts"
+            },
+            {
+              "table": "finance.subscriptions"
+            },
+            {
+              "table": "product_usage.account_health"
+            }
+          ],
+          "executed_sql": "SELECT a.name,\n       a.plan,\n       h.risk_level,\n       h.score,\n       s.monthly_amount,\n       h.last_login_at\nFROM product_usage.account_health h\nJOIN crm.accounts a         ON a.id = h.account_id\nJOIN finance.subscriptions s ON s.account_id = a.id AND s.cancelled_at IS NULL\nWHERE h.risk_level IN ('risk', 'churn')\nORDER BY s.monthly_amount DESC\nLIMIT 10",
+          "chart_spec": {
+            "type": "bar",
+            "x": "name",
+            "y": "monthly_amount",
+            "series_label": "Monthly revenue at risk"
+          },
+          "stat_tiles": [
+            {
+              "label": "Maior conta em risco",
+              "value_sql": "SELECT a.name FROM product_usage.account_health h JOIN crm.accounts a ON a.id=h.account_id JOIN finance.subscriptions s ON s.account_id=a.id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn') ORDER BY s.monthly_amount DESC LIMIT 1"
+            },
+            {
+              "label": "Receita mensal em jogo",
+              "value_sql": "SELECT COALESCE(SUM(s.monthly_amount),0) FROM product_usage.account_health h JOIN finance.subscriptions s ON s.account_id=h.account_id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn')",
+              "format": "eur"
+            },
+            {
+              "label": "A maior delas",
+              "value_sql": "SELECT COALESCE(MAX(s.monthly_amount),0) FROM product_usage.account_health h JOIN finance.subscriptions s ON s.account_id=h.account_id AND s.cancelled_at IS NULL WHERE h.risk_level IN ('risk','churn')",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "Que canal de marketing produz receita a sério, e não só leads?",
+          "answer_markdown": "Investimento por canal contra a receita **ganha**, seguida até ao lead que abriu o negócio.\n\nA distinção importa. Canais que produzem muitos leads e poucos negócios ficam excelentes num relatório de marketing e perdem dinheiro no livro de contas — o custo por lead é lisonjeiro, o custo por euro de receita não é.\n\nIsto segue a cadeia até ao fim: investimento na campanha → lead → oportunidade → valor ganho.",
+          "citations": [
+            {
+              "table": "marketing.campaigns"
+            },
+            {
+              "table": "marketing.leads"
+            },
+            {
+              "table": "crm.opportunities"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       SUM(DISTINCT c.spend)                                    AS spend,\n       COUNT(DISTINCT l.id)                                     AS leads,\n       COUNT(DISTINCT o.id) FILTER (WHERE o.stage = 'closed_won') AS deals_won,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS revenue_won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l   ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY revenue_won DESC",
+          "chart_spec": {
+            "type": "bar",
+            "x": "channel",
+            "y": "revenue_won",
+            "series_label": "Closed-won revenue by channel"
+          },
+          "stat_tiles": [
+            {
+              "label": "Melhor canal",
+              "value_sql": "SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1"
+            },
+            {
+              "label": "Receita que trouxe",
+              "value_sql": "SELECT COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) AS r FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY r DESC LIMIT 1",
+              "format": "eur"
+            },
+            {
+              "label": "Negócios que fechou",
+              "value_sql": "SELECT COUNT(*) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1)"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Quanta receita está parada em faturas vencidas, e quem as deve?",
+          "answer_markdown": "Faturas fora de prazo, por cliente, das mais antigas para as mais recentes.\n\nDinheiro que já foi ganho e não foi cobrado é o dinheiro mais barato do negócio — sem desconto, sem negócio novo, sem campanha. Só precisa que alguém saiba que existe.\n\nA junção ao nome do cliente é o ponto todo: um número de fatura não é accionável, um nome com um telefone é.",
+          "citations": [
+            {
+              "table": "finance.invoices"
+            },
+            {
+              "table": "finance.subscriptions"
+            },
+            {
+              "table": "crm.accounts"
+            }
+          ],
+          "executed_sql": "SELECT a.name,\n       i.issued_at,\n       i.amount,\n       CURRENT_DATE - i.issued_at AS days_outstanding\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a          ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at ASC\nLIMIT 15",
+          "chart_spec": {
+            "type": "bar",
+            "x": "name",
+            "y": "amount",
+            "series_label": "Overdue amount"
+          },
+          "stat_tiles": [
+            {
+              "label": "Faturas vencidas",
+              "value_sql": "SELECT COUNT(*) FROM finance.invoices WHERE status='overdue'"
+            },
+            {
+              "label": "Total por cobrar",
+              "value_sql": "SELECT COALESCE(SUM(amount),0) FROM finance.invoices WHERE status='overdue'",
+              "format": "eur"
+            },
+            {
+              "label": "A mais antiga",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - issued_at),0) FROM finance.invoices WHERE status='overdue'"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Qual é a taxa de ganho, e quanto tempo demora a fechar?",
+          "answer_markdown": "Taxa de ganho e valor médio por escalão de plano.\n\nOs dois números pertencem um ao outro. Uma taxa alta com ciclo longo e uma taxa mais baixa com ciclo curto são negócios muito diferentes, e mostrar só um esconde qual deles é o teu.",
+          "citations": [
+            {
+              "table": "crm.opportunities"
+            },
+            {
+              "table": "crm.accounts"
+            }
+          ],
+          "executed_sql": "SELECT a.plan,\n       COUNT(*) FILTER (WHERE o.stage = 'closed_won')  AS won,\n       COUNT(*) FILTER (WHERE o.stage = 'closed_lost') AS lost,\n       ROUND(100.0 * COUNT(*) FILTER (WHERE o.stage = 'closed_won')\n             / NULLIF(COUNT(*) FILTER (WHERE o.stage IN ('closed_won','closed_lost')), 0), 1) AS win_rate_pct,\n       ROUND(AVG(o.amount) FILTER (WHERE o.stage = 'closed_won'), 2) AS avg_won_amount\nFROM crm.opportunities o\nJOIN crm.accounts a ON a.id = o.account_id\nGROUP BY a.plan\nORDER BY win_rate_pct DESC NULLS LAST"
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Que funcionalidades os clientes saudáveis usam e os em risco nunca tocaram?",
+          "answer_markdown": "Adoção de funcionalidades separada por banda de saúde.\n\nA diferença entre as duas colunas é a lista de espera do onboarding. Uma funcionalidade que as contas saudáveis usam muito e as contas em risco nunca abriram não é um problema de produto — é uma funcionalidade que ninguém lhes mostrou.",
+          "citations": [
+            {
+              "table": "product_usage.feature_adoption"
+            },
+            {
+              "table": "product_usage.account_health"
+            }
+          ],
+          "executed_sql": "SELECT f.feature_name,\n       ROUND(AVG(f.times_used_30d) FILTER (WHERE h.risk_level = 'healthy'), 1)          AS healthy_avg_uses,\n       ROUND(AVG(f.times_used_30d) FILTER (WHERE h.risk_level IN ('risk','churn')), 1)  AS at_risk_avg_uses,\n       COUNT(DISTINCT f.account_id)                                                     AS accounts_using\nFROM product_usage.feature_adoption f\nJOIN product_usage.account_health h ON h.account_id = f.account_id\nGROUP BY f.feature_name\nORDER BY healthy_avg_uses DESC NULLS LAST"
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "Como evoluiu o negócio novo no último ano?",
+          "answer_markdown": "Receita ganha por mês.\n\nA forma diz mais do que o total. Uma carteira que cresce aos degraus — um patamar, depois um salto — é um negócio que fecha poucos negócios grandes, e precisa de uma previsão diferente de outro que cresce suavemente.",
+          "citations": [
+            {
+              "table": "crm.opportunities"
+            }
+          ],
+          "executed_sql": "SELECT DATE_TRUNC('month', o.close_date)::date AS month,\n       COUNT(*)                                    AS deals_won,\n       SUM(o.amount)                               AS revenue_won\nFROM crm.opportunities o\nWHERE o.stage = 'closed_won'\nGROUP BY 1\nORDER BY 1",
+          "chart_spec": {
+            "type": "line",
+            "x": "month",
+            "y": "revenue_won",
+            "series_label": "Closed-won revenue"
+          }
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "De onde vem o tráfego do site, e converte?",
+          "answer_markdown": "Sessões por origem de aquisição, contra as contas que acabaram por assinar.\n\nTráfego sem a coluna de conversão é um número de vaidade. Os dois juntos dizem-te de qual comprar mais.",
+          "citations": [
+            {
+              "table": "web_analytics.sessions"
+            },
+            {
+              "table": "crm.accounts"
+            }
+          ],
+          "executed_sql": "SELECT COALESCE(s.utm_source, 'direct')                     AS source,\n       COUNT(*)                                            AS sessions,\n       COUNT(DISTINCT s.account_id)                        AS known_accounts,\n       ROUND(AVG(s.pages_viewed), 1)                       AS avg_pages\nFROM web_analytics.sessions s\nGROUP BY 1\nORDER BY sessions DESC"
+        }
+      ],
+      "extra_insights": [
+        {
+          "severity": "cash_uncollected",
+          "severity_level": "warning",
+          "agent_name": "Cobranças",
+          "title": "Faturas vencidas, e as mais antigas sem ninguém atrás delas",
+          "summary": "As faturas vencidas não envelhecem por igual — há sempre umas poucas muito mais antigas do que as outras, e são essas que deixam de estar em atraso e passam a estar perdidas. O agente olha para a idade e não para o valor, porque o valor está igual na véspera de virar prejuízo.",
+          "stat_tiles": [
+            {
+              "label": "Faturas vencidas",
+              "value_sql": "SELECT COUNT(*) FROM finance.invoices WHERE status='overdue'"
+            },
+            {
+              "label": "Por cobrar",
+              "value_sql": "SELECT COALESCE(SUM(amount),0) FROM finance.invoices WHERE status='overdue'",
+              "format": "eur"
+            },
+            {
+              "label": "A mais antiga, em dias",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - issued_at),0) FROM finance.invoices WHERE status='overdue'"
+            }
+          ],
+          "sources": [
+            {
+              "table": "finance.invoices"
+            },
+            {
+              "table": "crm.accounts"
+            }
+          ],
+          "executed_sql": "SELECT i.id, a.name, i.amount, i.issued_at, CURRENT_DATE - i.issued_at AS days_open\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at",
+          "series_sql": "SELECT b.bucket AS t, COALESCE(ROUND(SUM(i.amount)),0) AS v FROM (VALUES (1,'0-15'),(2,'16-30'),(3,'31-45'),(4,'46-60'),(5,'60+')) AS b(ord,bucket) LEFT JOIN finance.invoices i ON i.status='overdue' AND width_bucket(CURRENT_DATE - i.issued_at, ARRAY[16,31,46,61]) + 1 = b.ord GROUP BY b.ord, b.bucket ORDER BY b.ord"
+        },
+        {
+          "severity": "channel_mix",
+          "severity_level": "info",
+          "agent_name": "Crescimento",
+          "title": "Há um canal que traz a receita; o orçamento está dividido como se fossem todos iguais",
+          "summary": "Leads são fáceis de contar e fáceis de interpretar mal. Seguir cada lead até ao negócio em que deu — ou não deu — põe os canais por outra ordem que não a do número de leads, e é exactamente para isso que se liga o marketing ao pipeline.",
+          "stat_tiles": [
+            {
+              "label": "Melhor canal por receita",
+              "value_sql": "SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1"
+            },
+            {
+              "label": "Receita que fechou",
+              "value_sql": "SELECT COALESCE(SUM(o.amount),0) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c2.channel FROM marketing.campaigns c2 LEFT JOIN marketing.leads l2 ON l2.campaign_id=c2.id LEFT JOIN crm.opportunities o2 ON o2.id=l2.converted_to_opportunity_id GROUP BY c2.channel ORDER BY COALESCE(SUM(o2.amount) FILTER (WHERE o2.stage='closed_won'),0) DESC LIMIT 1)",
+              "format": "eur"
+            },
+            {
+              "label": "Negócios que fechou",
+              "value_sql": "SELECT COUNT(*) FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' WHERE c.channel=(SELECT c.channel FROM marketing.campaigns c LEFT JOIN marketing.leads l ON l.campaign_id=c.id LEFT JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id GROUP BY c.channel ORDER BY COALESCE(SUM(o.amount) FILTER (WHERE o.stage='closed_won'),0) DESC LIMIT 1)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "marketing.campaigns"
+            },
+            {
+              "table": "marketing.leads"
+            },
+            {
+              "table": "crm.opportunities"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       SUM(c.spend) AS spend,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY won DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', o.close_date)::date AS t, ROUND(SUM(o.amount)) AS v FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "vertical": "distribution",
+      "locale": "pt",
+      "is_default": false,
+      "name": "Distribuidora Atlântico — Retalho alimentar",
+      "description": "Distribuidor com 100 clientes de revenda e horeca, 60 referências e quatro armazéns.",
+      "connection_ref": "Demo — Distribuição",
+      "insight": {
+        "severity": "margin_leak",
+        "severity_level": "warning",
+        "agent_name": "Margem",
+        "title": "Uma família inteira vendida com desconto seis vezes maior que o resto",
+        "summary": "O desconto não está a ser negociado encomenda a encomenda — está aplicado de forma sistemática a uma família inteira. O custo dessa família não é diferente do resto do catálogo; o que é diferente é o preço à saída. É por isso que a margem aparece onde ninguém a foi procurar: no ficheiro de vendas, não no de compras.",
+        "stat_tiles": [
+          {
+            "label": "Família com maior desconto",
+            "value_sql": "SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1"
+          },
+          {
+            "label": "Desconto médio",
+            "value_sql": "SELECT ROUND(100.0 * AVG(l.discount), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+            "format": "pct"
+          },
+          {
+            "label": "Margem que sobra",
+            "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+            "format": "pct"
+          }
+        ],
+        "sources": [
+          {
+            "table": "sales.order_lines",
+            "description": "Linhas de encomenda, com desconto"
+          },
+          {
+            "table": "catalog.products",
+            "description": "Custo e preço de tabela"
+          },
+          {
+            "table": "inventory.stock",
+            "description": "Quantidade e última movimentação"
+          },
+          {
+            "table": "supply.receipts",
+            "description": "Prometido contra recebido"
+          }
+        ],
+        "executed_sql": "SELECT p.family,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * AVG(l.discount), 1) AS avg_discount_pct,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.order_lines l\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY margin_pct",
+        "series_sql": "SELECT DATE_TRUNC('month', o.ordered_at)::date AS t,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS v\nFROM sales.order_lines l\nJOIN sales.orders o ON o.id = l.order_id\nJOIN catalog.products p ON p.id = l.product_id\nWHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "cash_in_stock",
+          "severity_level": "warning",
+          "agent_name": "Inventário",
+          "title": "Dinheiro parado em prateleira há mais de meio ano",
+          "summary": "Stock parado não aparece em lado nenhum como custo — está pago, está contabilizado como activo, e continua lá. O agente olha para a data do último movimento e não para a quantidade, porque a quantidade parece saudável até ao dia em que se percebe que ninguém lhe toca.",
+          "stat_tiles": [
+            {
+              "label": "Referências paradas",
+              "value_sql": "SELECT COUNT(*) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            },
+            {
+              "label": "Valor imobilizado",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            },
+            {
+              "label": "A mais antiga, em dias",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - last_movement), 0) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            }
+          ],
+          "sources": [
+            {
+              "table": "inventory.stock",
+              "description": "Quantidade e última movimentação"
+            },
+            {
+              "table": "catalog.products",
+              "description": "Custo e preço de tabela"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, w.name AS warehouse, s.quantity,\n       ROUND(s.quantity * p.unit_cost) AS euros,\n       CURRENT_DATE - s.last_movement AS days_still\nFROM inventory.stock s\nJOIN catalog.products p ON p.id = s.product_id\nJOIN inventory.warehouses w ON w.id = s.warehouse_id\nWHERE s.last_movement < CURRENT_DATE - 180\nORDER BY euros DESC",
+          "series_sql": "SELECT b.faixa AS t, COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) AS v\nFROM (VALUES (1,'180-220'),(2,'221-260'),(3,'261-300'),(4,'301+')) AS b(ord, faixa)\nLEFT JOIN inventory.stock s ON s.last_movement < CURRENT_DATE - 180\n AND width_bucket(CURRENT_DATE - s.last_movement, ARRAY[221,261,301]) + 1 = b.ord\nLEFT JOIN catalog.products p ON p.id = s.product_id\nGROUP BY b.ord, b.faixa ORDER BY b.ord"
+        },
+        {
+          "severity": "supplier_delay",
+          "severity_level": "info",
+          "agent_name": "Fornecedores",
+          "title": "Um fornecedor entrega sempre tarde. Os outros não.",
+          "summary": "Um atraso é ruído. O mesmo atraso todos os meses é um prazo mal acordado — e é uma conversa que se tem com um número à frente, não de memória. Comparar o prometido com o recebido é trivial; o que ninguém faz é fazê-lo todos os meses, para todos os fornecedores.",
+          "stat_tiles": [
+            {
+              "label": "Fornecedor",
+              "value_sql": "SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1"
+            },
+            {
+              "label": "Atraso médio, em dias",
+              "value_sql": "SELECT ROUND(MAX(m), 1) FROM (SELECT AVG(r.received_at - r.promised_at) m FROM supply.receipts r WHERE r.received_at IS NOT NULL GROUP BY r.supplier_id) x"
+            },
+            {
+              "label": "Recepções afectadas",
+              "value_sql": "SELECT COUNT(*) FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "supply.receipts",
+              "description": "Prometido contra recebido"
+            }
+          ],
+          "executed_sql": "SELECT sup.name, sup.country, sup.lead_time_days,\n       COUNT(*) AS receipts,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS avg_days_late\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL\nGROUP BY sup.name, sup.country, sup.lead_time_days\nORDER BY avg_days_late DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', r.promised_at)::date AS t,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS v\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)\nGROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Que família de produtos está a perder margem, e porquê?",
+          "answer_markdown": "**É o desconto, não é o custo.** A família com pior margem é também a que leva o maior desconto médio — várias vezes acima do resto do catálogo, e aplicado de forma transversal e não caso a caso.\n\nIsto interessa porque muda quem resolve o problema. Se fosse custo, era uma conversa com o fornecedor; sendo desconto, é uma política de preço que alguém definiu e ninguém reviu.\n\nO número sai do cruzamento de duas tabelas que ninguém cruza: o preço praticado está nas linhas de encomenda, o custo está no catálogo.",
+          "citations": [
+            {
+              "table": "sales.order_lines"
+            },
+            {
+              "table": "catalog.products"
+            }
+          ],
+          "executed_sql": "SELECT p.family,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * AVG(l.discount), 1) AS avg_discount_pct,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.order_lines l\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY margin_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Família",
+              "value_sql": "SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1"
+            },
+            {
+              "label": "Desconto médio",
+              "value_sql": "SELECT ROUND(100.0 * AVG(l.discount), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+              "format": "pct"
+            },
+            {
+              "label": "Margem que sobra",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "Quanto dinheiro está parado em stock que não mexe?",
+          "answer_markdown": "**Está tudo em poucas referências.** O valor imobilizado concentra-se num punhado de artigos que não têm movimento há mais de meio ano — e a mais antiga já passou os dez meses.\n\nStock parado é o custo mais fácil de ignorar porque não aparece em lado nenhum como custo: está pago, está no activo, e continua lá. Só a data do último movimento o denuncia.\n\nCom uma lista destas, a decisão é operacional: promoção, devolução ao fornecedor, ou abate. Sem ela, a decisão nunca chega a ser tomada.",
+          "citations": [
+            {
+              "table": "inventory.stock"
+            },
+            {
+              "table": "catalog.products"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, w.name AS warehouse, s.quantity,\n       ROUND(s.quantity * p.unit_cost) AS euros,\n       CURRENT_DATE - s.last_movement AS days_still\nFROM inventory.stock s\nJOIN catalog.products p ON p.id = s.product_id\nJOIN inventory.warehouses w ON w.id = s.warehouse_id\nWHERE s.last_movement < CURRENT_DATE - 180\nORDER BY euros DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Referências paradas",
+              "value_sql": "SELECT COUNT(*) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            },
+            {
+              "label": "Valor imobilizado",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            },
+            {
+              "label": "A mais antiga, em dias",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - last_movement), 0) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Que fornecedor entrega fora do prazo, e quanto?",
+          "answer_markdown": "**Um fornecedor destaca-se, e não por pouco.** A média de atraso dele está numa ordem de grandeza diferente da de todos os outros, que entregam praticamente dentro do prometido.\n\nÉ por isso que isto é accionável: não é o mercado, não é a época, é um fornecedor. O prazo que ele acordou não é o prazo que ele cumpre — e isso renegoceia-se com o histórico à frente.\n\nA comparação é entre o que ele prometeu e o que entregou, recepção a recepção.",
+          "citations": [
+            {
+              "table": "supply.receipts"
+            },
+            {
+              "table": "supply.suppliers"
+            }
+          ],
+          "executed_sql": "SELECT sup.name, sup.country, sup.lead_time_days,\n       COUNT(*) AS receipts,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS avg_days_late\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL\nGROUP BY sup.name, sup.country, sup.lead_time_days\nORDER BY avg_days_late DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Fornecedor",
+              "value_sql": "SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1"
+            },
+            {
+              "label": "Atraso médio, em dias",
+              "value_sql": "SELECT ROUND(MAX(m), 1) FROM (SELECT AVG(r.received_at - r.promised_at) m FROM supply.receipts r WHERE r.received_at IS NOT NULL GROUP BY r.supplier_id) x"
+            },
+            {
+              "label": "Recepções afectadas",
+              "value_sql": "SELECT COUNT(*) FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Que canal de venda dá mais margem — revenda, horeca, retalho ou online?",
+          "answer_markdown": "**O canal que factura mais não é o que deixa mais.** A ordem muda conforme se olha para a receita ou para a margem, e é essa diferença que decide onde vale a pena pôr comercial.\n\nReceita sem margem ao lado é uma métrica de vaidade: cresce, sente-se bem, e não diz se o negócio melhorou.",
+          "citations": [
+            {
+              "table": "sales.customers"
+            },
+            {
+              "table": "sales.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT c.channel, COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.orders o\nJOIN sales.customers c ON c.id = o.customer_id\nJOIN sales.order_lines l ON l.order_id = o.id\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY c.channel\nORDER BY margin_pct DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Melhor canal por margem",
+              "value_sql": "SELECT c.channel FROM sales.orders o JOIN sales.customers c ON c.id = o.customer_id JOIN sales.order_lines l ON l.order_id = o.id JOIN catalog.products p ON p.id = l.product_id GROUP BY c.channel ORDER BY SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Margem global",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Receita total",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Quem são os maiores clientes, e em que canal?",
+          "answer_markdown": "**Os dez maiores, por receita entregue.** A lista sai das encomendas entregues, não das lançadas — canceladas não contam para ninguém.\n\nO canal ao lado do nome é o que torna isto útil: dois clientes com a mesma factura em canais diferentes não são o mesmo cliente para efeitos de margem.",
+          "citations": [
+            {
+              "table": "sales.customers"
+            },
+            {
+              "table": "sales.orders"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.channel,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue\nFROM sales.customers c\nJOIN sales.orders o ON o.customer_id = c.id\nJOIN sales.order_lines l ON l.order_id = o.id\nGROUP BY c.name, c.channel\nORDER BY revenue DESC\nLIMIT 10",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Maior cliente",
+              "value_sql": "SELECT c.name FROM sales.customers c JOIN sales.orders o ON o.customer_id = c.id JOIN sales.order_lines l ON l.order_id = o.id GROUP BY c.name ORDER BY SUM(l.quantity * l.unit_price * (1 - l.discount)) DESC LIMIT 1"
+            },
+            {
+              "label": "Encomendas entregues",
+              "value_sql": "SELECT COUNT(*) FROM sales.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "Receita total",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Como evoluiu a facturação nos últimos meses?",
+          "answer_markdown": "**Mês a mês, sobre encomendas entregues.** A série mostra a tendência e o ruído ao mesmo tempo — e é o ruído que costuma explicar as reuniões em que alguém pergunta porque é que o mês foi mau.\n\nUma média mensal sozinha esconde exactamente a informação que interessa.",
+          "citations": [
+            {
+              "table": "sales.orders"
+            },
+            {
+              "table": "sales.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT DATE_TRUNC('month', o.ordered_at)::date AS t,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS v\nFROM sales.orders o\nJOIN sales.order_lines l ON l.order_id = o.id\nGROUP BY 1 ORDER BY 1",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Receita total",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            },
+            {
+              "label": "Encomendas entregues",
+              "value_sql": "SELECT COUNT(*) FROM sales.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "Margem global",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "Que produtos têm stock mas nunca se venderam?",
+          "answer_markdown": "**Compraram-se e nunca saíram.** São referências com quantidade em armazém e zero linhas de venda em todo o histórico — o caso extremo do stock parado.\n\nVale a pena olhar para elas antes da próxima encomenda ao fornecedor, que é exactamente quando ninguém olha.",
+          "citations": [
+            {
+              "table": "catalog.products"
+            },
+            {
+              "table": "inventory.stock"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, SUM(s.quantity) AS in_stock\nFROM catalog.products p\nJOIN inventory.stock s ON s.product_id = p.id\nLEFT JOIN sales.order_lines l ON l.product_id = p.id\nWHERE l.id IS NULL\nGROUP BY p.sku, p.name\nORDER BY in_stock DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Referências sem uma venda",
+              "value_sql": "SELECT COUNT(*) FROM (SELECT p.id FROM catalog.products p JOIN inventory.stock s ON s.product_id = p.id LEFT JOIN sales.order_lines l ON l.product_id = p.id WHERE l.id IS NULL GROUP BY p.id) x"
+            },
+            {
+              "label": "Valor imobilizado",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vertical": "distribution",
+      "locale": "en",
+      "is_default": false,
+      "name": "Atlantico Wholesale — Food retail",
+      "description": "Wholesaler with 100 resale and horeca customers, 60 SKUs and four warehouses.",
+      "connection_ref": "Demo — Distribution",
+      "insight": {
+        "severity": "margin_leak",
+        "severity_level": "warning",
+        "agent_name": "Margin Watch",
+        "title": "One whole family sold at six times the discount of everything else",
+        "summary": "The discount isn't being negotiated order by order — it's applied systematically across a whole family. That family's cost is no different from the rest of the catalogue; what's different is the price at the till. Which is why the margin shows up where nobody went looking: in the sales file, not the buying file.",
+        "stat_tiles": [
+          {
+            "label": "Family with the largest discount",
+            "value_sql": "SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1"
+          },
+          {
+            "label": "Average discount",
+            "value_sql": "SELECT ROUND(100.0 * AVG(l.discount), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+            "format": "pct"
+          },
+          {
+            "label": "Margin left",
+            "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+            "format": "pct"
+          }
+        ],
+        "sources": [
+          {
+            "table": "sales.order_lines",
+            "description": "Linhas de encomenda, com desconto"
+          },
+          {
+            "table": "catalog.products",
+            "description": "Custo e preço de tabela"
+          },
+          {
+            "table": "inventory.stock",
+            "description": "Quantidade e última movimentação"
+          },
+          {
+            "table": "supply.receipts",
+            "description": "Prometido contra recebido"
+          }
+        ],
+        "executed_sql": "SELECT p.family,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * AVG(l.discount), 1) AS avg_discount_pct,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.order_lines l\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY margin_pct",
+        "series_sql": "SELECT DATE_TRUNC('month', o.ordered_at)::date AS t,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS v\nFROM sales.order_lines l\nJOIN sales.orders o ON o.id = l.order_id\nJOIN catalog.products p ON p.id = l.product_id\nWHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "cash_in_stock",
+          "severity_level": "warning",
+          "agent_name": "Inventory",
+          "title": "Cash sitting on a shelf for more than six months",
+          "summary": "Idle stock shows up nowhere as a cost — it's paid for, it's booked as an asset, and there it stays. The agent watches the last movement date, not the quantity, because the quantity looks healthy right up until you realise nobody has touched it.",
+          "stat_tiles": [
+            {
+              "label": "SKUs not moving",
+              "value_sql": "SELECT COUNT(*) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            },
+            {
+              "label": "Cash tied up",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            },
+            {
+              "label": "Oldest, in days",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - last_movement), 0) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            }
+          ],
+          "sources": [
+            {
+              "table": "inventory.stock",
+              "description": "Quantidade e última movimentação"
+            },
+            {
+              "table": "catalog.products",
+              "description": "Custo e preço de tabela"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, w.name AS warehouse, s.quantity,\n       ROUND(s.quantity * p.unit_cost) AS euros,\n       CURRENT_DATE - s.last_movement AS days_still\nFROM inventory.stock s\nJOIN catalog.products p ON p.id = s.product_id\nJOIN inventory.warehouses w ON w.id = s.warehouse_id\nWHERE s.last_movement < CURRENT_DATE - 180\nORDER BY euros DESC",
+          "series_sql": "SELECT b.faixa AS t, COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) AS v\nFROM (VALUES (1,'180-220'),(2,'221-260'),(3,'261-300'),(4,'301+')) AS b(ord, faixa)\nLEFT JOIN inventory.stock s ON s.last_movement < CURRENT_DATE - 180\n AND width_bucket(CURRENT_DATE - s.last_movement, ARRAY[221,261,301]) + 1 = b.ord\nLEFT JOIN catalog.products p ON p.id = s.product_id\nGROUP BY b.ord, b.faixa ORDER BY b.ord"
+        },
+        {
+          "severity": "supplier_delay",
+          "severity_level": "info",
+          "agent_name": "Supply",
+          "title": "One supplier is always late. The others aren't.",
+          "summary": "One late delivery is noise. The same delay every month is a lead time that was agreed wrong — and that's a conversation you have with a number in front of you, not from memory. Comparing promised against received is trivial; what nobody does is do it every month, for every supplier.",
+          "stat_tiles": [
+            {
+              "label": "Supplier",
+              "value_sql": "SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1"
+            },
+            {
+              "label": "Average delay, in days",
+              "value_sql": "SELECT ROUND(MAX(m), 1) FROM (SELECT AVG(r.received_at - r.promised_at) m FROM supply.receipts r WHERE r.received_at IS NOT NULL GROUP BY r.supplier_id) x"
+            },
+            {
+              "label": "Deliveries affected",
+              "value_sql": "SELECT COUNT(*) FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "supply.receipts",
+              "description": "Prometido contra recebido"
+            }
+          ],
+          "executed_sql": "SELECT sup.name, sup.country, sup.lead_time_days,\n       COUNT(*) AS receipts,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS avg_days_late\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL\nGROUP BY sup.name, sup.country, sup.lead_time_days\nORDER BY avg_days_late DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', r.promised_at)::date AS t,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS v\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)\nGROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Which product family is losing margin, and why?",
+          "answer_markdown": "**It's the discount, not the cost.** The family with the worst margin is also the one carrying the largest average discount — several times the rest of the catalogue, and applied across the board rather than case by case.\n\nThat matters because it changes who fixes it. If it were cost, it'd be a conversation with the supplier; being discount, it's a pricing policy somebody set and nobody revisited.\n\nThe number comes from joining two tables nobody joins: the price actually charged is in the order lines, the cost is in the catalogue.",
+          "citations": [
+            {
+              "table": "sales.order_lines"
+            },
+            {
+              "table": "catalog.products"
+            }
+          ],
+          "executed_sql": "SELECT p.family,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * AVG(l.discount), 1) AS avg_discount_pct,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.order_lines l\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY margin_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Family",
+              "value_sql": "SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1"
+            },
+            {
+              "label": "Average discount",
+              "value_sql": "SELECT ROUND(100.0 * AVG(l.discount), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+              "format": "pct"
+            },
+            {
+              "label": "Margin left",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id WHERE p.family = (SELECT p.family FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id GROUP BY p.family ORDER BY AVG(l.discount) DESC LIMIT 1)",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "How much cash is sitting in stock that doesn't move?",
+          "answer_markdown": "**It's concentrated in a handful of SKUs.** The tied-up cash sits in a few items with no movement for over six months — and the oldest is past ten.\n\nIdle stock is the easiest cost to ignore because it shows up nowhere as a cost: it's paid for, it's on the balance sheet, and there it stays. Only the last movement date gives it away.\n\nWith a list like this the decision is operational: promotion, return to supplier, or write-off. Without it, the decision simply never gets made.",
+          "citations": [
+            {
+              "table": "inventory.stock"
+            },
+            {
+              "table": "catalog.products"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, w.name AS warehouse, s.quantity,\n       ROUND(s.quantity * p.unit_cost) AS euros,\n       CURRENT_DATE - s.last_movement AS days_still\nFROM inventory.stock s\nJOIN catalog.products p ON p.id = s.product_id\nJOIN inventory.warehouses w ON w.id = s.warehouse_id\nWHERE s.last_movement < CURRENT_DATE - 180\nORDER BY euros DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "SKUs not moving",
+              "value_sql": "SELECT COUNT(*) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            },
+            {
+              "label": "Cash tied up",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            },
+            {
+              "label": "Oldest, in days",
+              "value_sql": "SELECT COALESCE(MAX(CURRENT_DATE - last_movement), 0) FROM inventory.stock WHERE last_movement < CURRENT_DATE - 180"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Which supplier delivers late, and by how much?",
+          "answer_markdown": "**One supplier stands out, and not by a little.** Its average delay is in a different order of magnitude from everyone else's — the rest deliver essentially on the promised date.\n\nThat's what makes it actionable: it isn't the market, it isn't the season, it's one supplier. The lead time it agreed to isn't the lead time it keeps — and that gets renegotiated with the history in front of you.\n\nThe comparison is promised against received, delivery by delivery.",
+          "citations": [
+            {
+              "table": "supply.receipts"
+            },
+            {
+              "table": "supply.suppliers"
+            }
+          ],
+          "executed_sql": "SELECT sup.name, sup.country, sup.lead_time_days,\n       COUNT(*) AS receipts,\n       ROUND(AVG(r.received_at - r.promised_at), 1) AS avg_days_late\nFROM supply.receipts r\nJOIN supply.suppliers sup ON sup.id = r.supplier_id\nWHERE r.received_at IS NOT NULL\nGROUP BY sup.name, sup.country, sup.lead_time_days\nORDER BY avg_days_late DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Supplier",
+              "value_sql": "SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1"
+            },
+            {
+              "label": "Average delay, in days",
+              "value_sql": "SELECT ROUND(MAX(m), 1) FROM (SELECT AVG(r.received_at - r.promised_at) m FROM supply.receipts r WHERE r.received_at IS NOT NULL GROUP BY r.supplier_id) x"
+            },
+            {
+              "label": "Deliveries affected",
+              "value_sql": "SELECT COUNT(*) FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL AND sup.name = (SELECT sup.name FROM supply.receipts r JOIN supply.suppliers sup ON sup.id = r.supplier_id WHERE r.received_at IS NOT NULL GROUP BY sup.name ORDER BY AVG(r.received_at - r.promised_at) DESC LIMIT 1)"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Which sales channel gives the most margin — resale, horeca, retail or online?",
+          "answer_markdown": "**The channel that bills most isn't the one that keeps most.** The order changes depending on whether you look at revenue or margin, and that difference is what decides where the sales effort goes.\n\nRevenue without margin beside it is a vanity metric: it grows, it feels good, and it doesn't tell you whether the business got better.",
+          "citations": [
+            {
+              "table": "sales.customers"
+            },
+            {
+              "table": "sales.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT c.channel, COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue,\n       ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost))\n             / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) AS margin_pct\nFROM sales.orders o\nJOIN sales.customers c ON c.id = o.customer_id\nJOIN sales.order_lines l ON l.order_id = o.id\nJOIN catalog.products p ON p.id = l.product_id\nGROUP BY c.channel\nORDER BY margin_pct DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Best channel by margin",
+              "value_sql": "SELECT c.channel FROM sales.orders o JOIN sales.customers c ON c.id = o.customer_id JOIN sales.order_lines l ON l.order_id = o.id JOIN catalog.products p ON p.id = l.product_id GROUP BY c.channel ORDER BY SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Overall margin",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Total revenue",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Who are the largest customers, and in which channel?",
+          "answer_markdown": "**The top ten, by delivered revenue.** The list comes from delivered orders, not placed ones — cancellations count for nobody.\n\nThe channel beside the name is what makes it useful: two customers with the same invoice in different channels are not the same customer as far as margin goes.",
+          "citations": [
+            {
+              "table": "sales.customers"
+            },
+            {
+              "table": "sales.orders"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.channel,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS revenue\nFROM sales.customers c\nJOIN sales.orders o ON o.customer_id = c.id\nJOIN sales.order_lines l ON l.order_id = o.id\nGROUP BY c.name, c.channel\nORDER BY revenue DESC\nLIMIT 10",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Largest customer",
+              "value_sql": "SELECT c.name FROM sales.customers c JOIN sales.orders o ON o.customer_id = c.id JOIN sales.order_lines l ON l.order_id = o.id GROUP BY c.name ORDER BY SUM(l.quantity * l.unit_price * (1 - l.discount)) DESC LIMIT 1"
+            },
+            {
+              "label": "Delivered orders",
+              "value_sql": "SELECT COUNT(*) FROM sales.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "Total revenue",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "How has revenue trended over the last months?",
+          "answer_markdown": "**Month by month, on delivered orders.** The series shows the trend and the noise at the same time — and it's usually the noise that explains the meetings where somebody asks why the month was bad.\n\nA monthly average on its own hides precisely the information that matters.",
+          "citations": [
+            {
+              "table": "sales.orders"
+            },
+            {
+              "table": "sales.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT DATE_TRUNC('month', o.ordered_at)::date AS t,\n       ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))) AS v\nFROM sales.orders o\nJOIN sales.order_lines l ON l.order_id = o.id\nGROUP BY 1 ORDER BY 1",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Total revenue",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(l.quantity * l.unit_price * (1 - l.discount))), 0) FROM sales.order_lines l",
+              "format": "eur"
+            },
+            {
+              "label": "Delivered orders",
+              "value_sql": "SELECT COUNT(*) FROM sales.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "Overall margin",
+              "value_sql": "SELECT ROUND(100.0 * SUM(l.quantity * (l.unit_price * (1 - l.discount) - p.unit_cost)) / NULLIF(SUM(l.quantity * l.unit_price * (1 - l.discount)), 0), 1) FROM sales.order_lines l JOIN catalog.products p ON p.id = l.product_id",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "Which products have stock but never sold?",
+          "answer_markdown": "**Bought and never shipped.** These are SKUs with quantity in the warehouse and zero sales lines across the whole history — the extreme case of idle stock.\n\nWorth looking at before the next purchase order, which is exactly when nobody looks.",
+          "citations": [
+            {
+              "table": "catalog.products"
+            },
+            {
+              "table": "inventory.stock"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, SUM(s.quantity) AS in_stock\nFROM catalog.products p\nJOIN inventory.stock s ON s.product_id = p.id\nLEFT JOIN sales.order_lines l ON l.product_id = p.id\nWHERE l.id IS NULL\nGROUP BY p.sku, p.name\nORDER BY in_stock DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "SKUs with no sale",
+              "value_sql": "SELECT COUNT(*) FROM (SELECT p.id FROM catalog.products p JOIN inventory.stock s ON s.product_id = p.id LEFT JOIN sales.order_lines l ON l.product_id = p.id WHERE l.id IS NULL GROUP BY p.id) x"
+            },
+            {
+              "label": "Cash tied up",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM inventory.stock s JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement < CURRENT_DATE - 180",
+              "format": "eur"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vertical": "services",
+      "locale": "pt",
+      "is_default": false,
+      "name": "Consultora Meridiano — 14 consultores",
+      "description": "Consultora com 24 projectos activos, contratos de preço fixo e time-and-materials.",
+      "connection_ref": "Demo — Serviços",
+      "insight": {
+        "severity": "capacity_leak",
+        "severity_level": "warning",
+        "agent_name": "Capacidade",
+        "title": "Um quarto das horas pagas não chega a ser faturável",
+        "summary": "A capacidade não se perde de uma vez — perde-se meia hora de cada vez, em trabalho interno, pré-venda e formação, que ninguém regista como problema porque cada peça é razoável. Só a soma é que não é.\n\nO número só existe cruzando o registo de tempos com o contrato: as horas estão num sistema, o que era suposto ser faturável está noutro.",
+        "stat_tiles": [
+          {
+            "label": "Horas faturáveis",
+            "value_sql": "SELECT ROUND(100.0 * SUM(CASE WHEN billable THEN hours ELSE 0 END) / NULLIF(SUM(hours), 0), 1) FROM delivery.time_entries",
+            "format": "pct"
+          },
+          {
+            "label": "Horas registadas",
+            "value_sql": "SELECT ROUND(SUM(hours)) FROM delivery.time_entries"
+          },
+          {
+            "label": "Horas não faturáveis",
+            "value_sql": "SELECT ROUND(SUM(hours)) FROM delivery.time_entries WHERE NOT billable"
+          }
+        ],
+        "sources": [
+          {
+            "table": "delivery.time_entries",
+            "description": "Horas, faturáveis e faturadas"
+          },
+          {
+            "table": "delivery.projects",
+            "description": "Contrato, horas vendidas, tarifa"
+          },
+          {
+            "table": "people.consultants",
+            "description": "Escalão e custo hora"
+          },
+          {
+            "table": "billing.invoices",
+            "description": "O que foi mesmo faturado"
+          }
+        ],
+        "executed_sql": "SELECT c.name, c.grade,\n       ROUND(SUM(t.hours)) AS hours,\n       ROUND(SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)) AS billable_hours,\n       ROUND(100.0 * SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)\n             / NULLIF(SUM(t.hours), 0), 1) AS billable_pct\nFROM people.consultants c\nJOIN delivery.time_entries t ON t.consultant_id = c.id\nGROUP BY c.name, c.grade\nORDER BY billable_pct",
+        "series_sql": "SELECT DATE_TRUNC('month', t.worked_on)::date AS t,\n       ROUND(100.0 * SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)\n             / NULLIF(SUM(t.hours), 0), 1) AS v\nFROM delivery.time_entries t\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "fixed_price_overrun",
+          "severity_level": "warning",
+          "agent_name": "Projectos",
+          "title": "Projectos de preço fixo já passaram as horas vendidas",
+          "summary": "Num contrato de time-and-materials mais horas é mais fatura. Num de preço fixo, mais horas é menos margem — e a diferença entre os dois casos não está em nenhum relatório de horas, está no tipo de contrato.\n\nO agente compara o consumido com o vendido, projecto a projecto, e só chama quando o segundo já foi ultrapassado.",
+          "stat_tiles": [
+            {
+              "label": "Projectos em estouro",
+              "value_sql": "SELECT COUNT(*) FROM (SELECT p.id FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.sold_hours HAVING SUM(t.hours) > p.sold_hours) x"
+            },
+            {
+              "label": "Valor das horas a mais",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(x.v)), 0) FROM (SELECT (SUM(t.hours) - p.sold_hours) * p.rate_per_hour AS v FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.sold_hours, p.rate_per_hour HAVING SUM(t.hours) > p.sold_hours) x",
+              "format": "eur"
+            },
+            {
+              "label": "O pior deles",
+              "value_sql": "SELECT p.name FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.name, p.sold_hours, p.rate_per_hour HAVING SUM(t.hours) > p.sold_hours ORDER BY (SUM(t.hours) - p.sold_hours) * p.rate_per_hour DESC LIMIT 1"
+            }
+          ],
+          "sources": [
+            {
+              "table": "delivery.projects",
+              "description": "Contrato, horas vendidas, tarifa"
+            },
+            {
+              "table": "delivery.time_entries",
+              "description": "Horas, faturáveis e faturadas"
+            }
+          ],
+          "executed_sql": "SELECT p.name, cl.name AS client, p.sold_hours,\n       ROUND(SUM(t.hours)) AS burned_hours,\n       ROUND(100.0 * SUM(t.hours) / NULLIF(p.sold_hours, 0)) AS pct_of_sold,\n       ROUND((SUM(t.hours) - p.sold_hours) * p.rate_per_hour) AS overrun_value\nFROM delivery.projects p\nJOIN billing.clients cl ON cl.id = p.client_id\nJOIN delivery.time_entries t ON t.project_id = p.id\nWHERE p.contract_type = 'fixed_price'\nGROUP BY p.id, p.name, cl.name, p.sold_hours, p.rate_per_hour\nHAVING SUM(t.hours) > p.sold_hours\nORDER BY overrun_value DESC",
+          "series_sql": "SELECT p.name AS t, ROUND(SUM(t.hours) - p.sold_hours) AS v\nFROM delivery.projects p\nJOIN delivery.time_entries t ON t.project_id = p.id\nWHERE p.contract_type = 'fixed_price'\nGROUP BY p.id, p.name, p.sold_hours\nHAVING SUM(t.hours) > p.sold_hours\nORDER BY v"
+        },
+        {
+          "severity": "unbilled_work",
+          "severity_level": "info",
+          "agent_name": "Faturação",
+          "title": "Trabalho feito, faturável, e ainda não faturado",
+          "summary": "É o dinheiro mais fácil de cobrar e o mais fácil de esquecer: já foi trabalhado, já foi marcado como faturável, e não chegou a entrar numa fatura. Não é uma discussão com o cliente — é uma tarefa que ninguém fez.\n\nQuanto mais antiga a hora, mais difícil é justificá-la. É por isso que o agente mostra a data da mais velha.",
+          "stat_tiles": [
+            {
+              "label": "Horas por faturar",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(hours)), 0) FROM delivery.time_entries WHERE billable AND NOT invoiced"
+            },
+            {
+              "label": "Valor por faturar",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(t.hours * p.rate_per_hour)), 0) FROM delivery.time_entries t JOIN delivery.projects p ON p.id = t.project_id WHERE t.billable AND NOT t.invoiced",
+              "format": "eur"
+            },
+            {
+              "label": "A mais antiga, em dias",
+              "value_sql": "SELECT COALESCE(CURRENT_DATE - MIN(worked_on), 0) FROM delivery.time_entries WHERE billable AND NOT invoiced"
+            }
+          ],
+          "sources": [
+            {
+              "table": "delivery.time_entries",
+              "description": "Horas, faturáveis e faturadas"
+            },
+            {
+              "table": "delivery.projects",
+              "description": "Contrato, horas vendidas, tarifa"
+            }
+          ],
+          "executed_sql": "SELECT p.name, cl.name AS client,\n       ROUND(SUM(t.hours)) AS hours,\n       ROUND(SUM(t.hours * p.rate_per_hour)) AS value,\n       MIN(t.worked_on) AS oldest_entry\nFROM delivery.time_entries t\nJOIN delivery.projects p ON p.id = t.project_id\nJOIN billing.clients cl ON cl.id = p.client_id\nWHERE t.billable AND NOT t.invoiced\nGROUP BY p.id, p.name, cl.name\nORDER BY value DESC",
+          "series_sql": null
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Quanto da capacidade da equipa é mesmo faturável?",
+          "answer_markdown": "**Cerca de três quartos.** O resto vai para trabalho interno, pré-venda e formação — nada disso é desperdício, mas nada disso entra numa fatura.\n\nO que torna este número accionável é vê-lo por pessoa. A média esconde o caso: há sempre quem esteja muito abaixo dela, e a razão nunca é a mesma duas vezes.\n\nSai do cruzamento do registo de tempos com o escalão de cada consultor.",
+          "citations": [
+            {
+              "table": "delivery.time_entries"
+            },
+            {
+              "table": "people.consultants"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.grade,\n       ROUND(SUM(t.hours)) AS hours,\n       ROUND(SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)) AS billable_hours,\n       ROUND(100.0 * SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)\n             / NULLIF(SUM(t.hours), 0), 1) AS billable_pct\nFROM people.consultants c\nJOIN delivery.time_entries t ON t.consultant_id = c.id\nGROUP BY c.name, c.grade\nORDER BY billable_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Horas faturáveis",
+              "value_sql": "SELECT ROUND(100.0 * SUM(CASE WHEN billable THEN hours ELSE 0 END) / NULLIF(SUM(hours), 0), 1) FROM delivery.time_entries",
+              "format": "pct"
+            },
+            {
+              "label": "Horas registadas",
+              "value_sql": "SELECT ROUND(SUM(hours)) FROM delivery.time_entries"
+            },
+            {
+              "label": "Não faturáveis",
+              "value_sql": "SELECT ROUND(SUM(hours)) FROM delivery.time_entries WHERE NOT billable"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "Que projectos de preço fixo já gastaram mais horas do que venderam?",
+          "answer_markdown": "**São poucos, e custam muito.** Cada hora acima do vendido num contrato de preço fixo sai directamente da margem — não há fatura do outro lado.\n\nA lista está ordenada pelo valor dessas horas e não pela percentagem: um estouro de 30% num projecto grande custa mais do que 90% num pequeno, e é o primeiro que vale a pena travar.\n\nCompara o registo de horas com as horas contratadas, projecto a projecto.",
+          "citations": [
+            {
+              "table": "delivery.projects"
+            },
+            {
+              "table": "delivery.time_entries"
+            }
+          ],
+          "executed_sql": "SELECT p.name, cl.name AS client, p.sold_hours,\n       ROUND(SUM(t.hours)) AS burned_hours,\n       ROUND(100.0 * SUM(t.hours) / NULLIF(p.sold_hours, 0)) AS pct_of_sold,\n       ROUND((SUM(t.hours) - p.sold_hours) * p.rate_per_hour) AS overrun_value\nFROM delivery.projects p\nJOIN billing.clients cl ON cl.id = p.client_id\nJOIN delivery.time_entries t ON t.project_id = p.id\nWHERE p.contract_type = 'fixed_price'\nGROUP BY p.id, p.name, cl.name, p.sold_hours, p.rate_per_hour\nHAVING SUM(t.hours) > p.sold_hours\nORDER BY overrun_value DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Projectos em estouro",
+              "value_sql": "SELECT COUNT(*) FROM (SELECT p.id FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.sold_hours HAVING SUM(t.hours) > p.sold_hours) x"
+            },
+            {
+              "label": "Valor das horas a mais",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(x.v)), 0) FROM (SELECT (SUM(t.hours) - p.sold_hours) * p.rate_per_hour AS v FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.sold_hours, p.rate_per_hour HAVING SUM(t.hours) > p.sold_hours) x",
+              "format": "eur"
+            },
+            {
+              "label": "O pior deles",
+              "value_sql": "SELECT p.name FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.name, p.sold_hours, p.rate_per_hour HAVING SUM(t.hours) > p.sold_hours ORDER BY (SUM(t.hours) - p.sold_hours) * p.rate_per_hour DESC LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Quanto trabalho está feito e ainda por faturar?",
+          "answer_markdown": "**Horas faturáveis que nunca entraram numa fatura.** O trabalho está feito e aceite; falta o passo administrativo.\n\nÉ a diferença entre resultado e tesouraria: o projecto parece rentável no relatório e o dinheiro não entrou. E quanto mais velha for a hora, mais difícil é justificá-la ao cliente.\n\nSai das horas marcadas como faturáveis e não faturadas, com a tarifa do contrato aplicada.",
+          "citations": [
+            {
+              "table": "delivery.time_entries"
+            },
+            {
+              "table": "billing.invoices"
+            }
+          ],
+          "executed_sql": "SELECT p.name, cl.name AS client,\n       ROUND(SUM(t.hours)) AS hours,\n       ROUND(SUM(t.hours * p.rate_per_hour)) AS value,\n       MIN(t.worked_on) AS oldest_entry\nFROM delivery.time_entries t\nJOIN delivery.projects p ON p.id = t.project_id\nJOIN billing.clients cl ON cl.id = p.client_id\nWHERE t.billable AND NOT t.invoiced\nGROUP BY p.id, p.name, cl.name\nORDER BY value DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Horas por faturar",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(hours)), 0) FROM delivery.time_entries WHERE billable AND NOT invoiced"
+            },
+            {
+              "label": "Valor por faturar",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(t.hours * p.rate_per_hour)), 0) FROM delivery.time_entries t JOIN delivery.projects p ON p.id = t.project_id WHERE t.billable AND NOT t.invoiced",
+              "format": "eur"
+            },
+            {
+              "label": "A mais antiga, em dias",
+              "value_sql": "SELECT COALESCE(CURRENT_DATE - MIN(worked_on), 0) FROM delivery.time_entries WHERE billable AND NOT invoiced"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Que clientes representam mais faturação?",
+          "answer_markdown": "**Por valor faturado, com o número de projectos ao lado.** As duas colunas juntas dizem coisas diferentes: muitos projectos pequenos e um projecto grande dão a mesma fatura e não dão o mesmo risco.\n\nA concentração num cliente é um dos poucos números que vale a pena olhar todos os meses.",
+          "citations": [
+            {
+              "table": "billing.clients"
+            },
+            {
+              "table": "billing.invoices"
+            }
+          ],
+          "executed_sql": "SELECT cl.name, cl.industry,\n       COUNT(DISTINCT p.id) AS projects,\n       ROUND(SUM(i.amount)) AS invoiced\nFROM billing.clients cl\nJOIN delivery.projects p ON p.client_id = cl.id\nJOIN billing.invoices i ON i.project_id = p.id\nGROUP BY cl.name, cl.industry\nORDER BY invoiced DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Maior cliente",
+              "value_sql": "SELECT cl.name FROM billing.clients cl JOIN delivery.projects p ON p.client_id = cl.id JOIN billing.invoices i ON i.project_id = p.id GROUP BY cl.name ORDER BY SUM(i.amount) DESC LIMIT 1"
+            },
+            {
+              "label": "Faturado no período",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(amount)), 0) FROM billing.invoices",
+              "format": "eur"
+            },
+            {
+              "label": "Projectos activos",
+              "value_sql": "SELECT COUNT(*) FROM delivery.projects WHERE status = 'active'"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Preço fixo ou time-and-materials — qual rende mais?",
+          "answer_markdown": "**Depende de quanto se erra na estimativa.** O quadro põe lado a lado as horas consumidas e o faturado por tipo de contrato.\n\nO preço fixo só ganha enquanto a estimativa aguentar — e a estimativa é a única variável que a empresa controla sozinha.",
+          "citations": [
+            {
+              "table": "delivery.projects"
+            },
+            {
+              "table": "billing.invoices"
+            }
+          ],
+          "executed_sql": "SELECT p.contract_type,\n       COUNT(DISTINCT p.id) AS projects,\n       ROUND(SUM(t.hours)) AS hours,\n       ROUND(SUM(i.amount)) AS invoiced\nFROM delivery.projects p\nLEFT JOIN delivery.time_entries t ON t.project_id = p.id\nLEFT JOIN billing.invoices i ON i.project_id = p.id\nGROUP BY p.contract_type",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Faturado no período",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(amount)), 0) FROM billing.invoices",
+              "format": "eur"
+            },
+            {
+              "label": "Horas registadas",
+              "value_sql": "SELECT ROUND(SUM(hours)) FROM delivery.time_entries"
+            },
+            {
+              "label": "Projectos em estouro",
+              "value_sql": "SELECT COUNT(*) FROM (SELECT p.id FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.sold_hours HAVING SUM(t.hours) > p.sold_hours) x"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Que faturas estão vencidas?",
+          "answer_markdown": "**Emitidas, aceites, e por receber.** A lista está por data de emissão e não por valor: uma fatura antiga pequena é pior sinal do que uma recente grande.\n\nNuma consultora, isto costuma competir com o trabalho por faturar — e são problemas diferentes, com donos diferentes.",
+          "citations": [
+            {
+              "table": "billing.invoices"
+            },
+            {
+              "table": "billing.clients"
+            }
+          ],
+          "executed_sql": "SELECT cl.name AS client, p.name AS project, i.issued_at, i.amount\nFROM billing.invoices i\nJOIN delivery.projects p ON p.id = i.project_id\nJOIN billing.clients cl ON cl.id = p.client_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Faturas vencidas",
+              "value_sql": "SELECT COUNT(*) FROM billing.invoices WHERE status = 'overdue'"
+            },
+            {
+              "label": "Por receber",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(amount)), 0) FROM billing.invoices WHERE status = 'overdue'",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "Como evoluiu a faturação ao longo do ano?",
+          "answer_markdown": "**Mês a mês, sobre faturas emitidas.** Numa consultora esta curva anda meio trimestre atrás da entrega — o trabalho faz-se num mês e fatura-se noutro.\n\nÉ por isso que a faturação sozinha é um mau indicador de saúde: mede o passado com atraso.",
+          "citations": [
+            {
+              "table": "billing.invoices"
+            }
+          ],
+          "executed_sql": "SELECT DATE_TRUNC('month', i.issued_at)::date AS t,\n       ROUND(SUM(i.amount)) AS v\nFROM billing.invoices i\nGROUP BY 1 ORDER BY 1",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Faturado no período",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(amount)), 0) FROM billing.invoices",
+              "format": "eur"
+            },
+            {
+              "label": "Horas faturáveis",
+              "value_sql": "SELECT ROUND(100.0 * SUM(CASE WHEN billable THEN hours ELSE 0 END) / NULLIF(SUM(hours), 0), 1) FROM delivery.time_entries",
+              "format": "pct"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vertical": "services",
+      "locale": "en",
+      "is_default": false,
+      "name": "Meridian Consulting — 14 consultants",
+      "description": "Consultancy with 24 live projects, fixed-price and time-and-materials contracts.",
+      "connection_ref": "Demo — Services",
+      "insight": {
+        "severity": "capacity_leak",
+        "severity_level": "warning",
+        "agent_name": "Utilisation",
+        "title": "A quarter of the hours you pay for never becomes billable",
+        "summary": "Capacity doesn't leak all at once — it leaks half an hour at a time, in internal work, pre-sales and training, none of which anyone logs as a problem because each piece is reasonable. It's only the sum that isn't.\n\nThe number only exists by joining the time log to the contract: the hours are in one system, what was meant to be billable is in another.",
+        "stat_tiles": [
+          {
+            "label": "Billable hours",
+            "value_sql": "SELECT ROUND(100.0 * SUM(CASE WHEN billable THEN hours ELSE 0 END) / NULLIF(SUM(hours), 0), 1) FROM delivery.time_entries",
+            "format": "pct"
+          },
+          {
+            "label": "Hours logged",
+            "value_sql": "SELECT ROUND(SUM(hours)) FROM delivery.time_entries"
+          },
+          {
+            "label": "Non-billable hours",
+            "value_sql": "SELECT ROUND(SUM(hours)) FROM delivery.time_entries WHERE NOT billable"
+          }
+        ],
+        "sources": [
+          {
+            "table": "delivery.time_entries",
+            "description": "Horas, faturáveis e faturadas"
+          },
+          {
+            "table": "delivery.projects",
+            "description": "Contrato, horas vendidas, tarifa"
+          },
+          {
+            "table": "people.consultants",
+            "description": "Escalão e custo hora"
+          },
+          {
+            "table": "billing.invoices",
+            "description": "O que foi mesmo faturado"
+          }
+        ],
+        "executed_sql": "SELECT c.name, c.grade,\n       ROUND(SUM(t.hours)) AS hours,\n       ROUND(SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)) AS billable_hours,\n       ROUND(100.0 * SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)\n             / NULLIF(SUM(t.hours), 0), 1) AS billable_pct\nFROM people.consultants c\nJOIN delivery.time_entries t ON t.consultant_id = c.id\nGROUP BY c.name, c.grade\nORDER BY billable_pct",
+        "series_sql": "SELECT DATE_TRUNC('month', t.worked_on)::date AS t,\n       ROUND(100.0 * SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)\n             / NULLIF(SUM(t.hours), 0), 1) AS v\nFROM delivery.time_entries t\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "fixed_price_overrun",
+          "severity_level": "warning",
+          "agent_name": "Delivery",
+          "title": "Fixed-price projects have burned past the hours sold",
+          "summary": "On a time-and-materials contract, more hours means more invoice. On a fixed-price one, more hours means less margin — and the difference between the two isn't in any timesheet report, it's in the contract type.\n\nThe agent compares burned against sold, project by project, and only calls when the second has already been passed.",
+          "stat_tiles": [
+            {
+              "label": "Projects over",
+              "value_sql": "SELECT COUNT(*) FROM (SELECT p.id FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.sold_hours HAVING SUM(t.hours) > p.sold_hours) x"
+            },
+            {
+              "label": "Value of the extra hours",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(x.v)), 0) FROM (SELECT (SUM(t.hours) - p.sold_hours) * p.rate_per_hour AS v FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.sold_hours, p.rate_per_hour HAVING SUM(t.hours) > p.sold_hours) x",
+              "format": "eur"
+            },
+            {
+              "label": "The worst of them",
+              "value_sql": "SELECT p.name FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.name, p.sold_hours, p.rate_per_hour HAVING SUM(t.hours) > p.sold_hours ORDER BY (SUM(t.hours) - p.sold_hours) * p.rate_per_hour DESC LIMIT 1"
+            }
+          ],
+          "sources": [
+            {
+              "table": "delivery.projects",
+              "description": "Contrato, horas vendidas, tarifa"
+            },
+            {
+              "table": "delivery.time_entries",
+              "description": "Horas, faturáveis e faturadas"
+            }
+          ],
+          "executed_sql": "SELECT p.name, cl.name AS client, p.sold_hours,\n       ROUND(SUM(t.hours)) AS burned_hours,\n       ROUND(100.0 * SUM(t.hours) / NULLIF(p.sold_hours, 0)) AS pct_of_sold,\n       ROUND((SUM(t.hours) - p.sold_hours) * p.rate_per_hour) AS overrun_value\nFROM delivery.projects p\nJOIN billing.clients cl ON cl.id = p.client_id\nJOIN delivery.time_entries t ON t.project_id = p.id\nWHERE p.contract_type = 'fixed_price'\nGROUP BY p.id, p.name, cl.name, p.sold_hours, p.rate_per_hour\nHAVING SUM(t.hours) > p.sold_hours\nORDER BY overrun_value DESC",
+          "series_sql": "SELECT p.name AS t, ROUND(SUM(t.hours) - p.sold_hours) AS v\nFROM delivery.projects p\nJOIN delivery.time_entries t ON t.project_id = p.id\nWHERE p.contract_type = 'fixed_price'\nGROUP BY p.id, p.name, p.sold_hours\nHAVING SUM(t.hours) > p.sold_hours\nORDER BY v"
+        },
+        {
+          "severity": "unbilled_work",
+          "severity_level": "info",
+          "agent_name": "Billing",
+          "title": "Work done, billable, and still not invoiced",
+          "summary": "This is the easiest money to collect and the easiest to forget: it's been worked, it's been marked billable, and it never made it onto an invoice. It isn't an argument with the client — it's a task nobody did.\n\nThe older the hour, the harder it is to justify. Which is why the agent shows the date of the oldest one.",
+          "stat_tiles": [
+            {
+              "label": "Hours unbilled",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(hours)), 0) FROM delivery.time_entries WHERE billable AND NOT invoiced"
+            },
+            {
+              "label": "Value unbilled",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(t.hours * p.rate_per_hour)), 0) FROM delivery.time_entries t JOIN delivery.projects p ON p.id = t.project_id WHERE t.billable AND NOT t.invoiced",
+              "format": "eur"
+            },
+            {
+              "label": "Oldest, in days",
+              "value_sql": "SELECT COALESCE(CURRENT_DATE - MIN(worked_on), 0) FROM delivery.time_entries WHERE billable AND NOT invoiced"
+            }
+          ],
+          "sources": [
+            {
+              "table": "delivery.time_entries",
+              "description": "Horas, faturáveis e faturadas"
+            },
+            {
+              "table": "delivery.projects",
+              "description": "Contrato, horas vendidas, tarifa"
+            }
+          ],
+          "executed_sql": "SELECT p.name, cl.name AS client,\n       ROUND(SUM(t.hours)) AS hours,\n       ROUND(SUM(t.hours * p.rate_per_hour)) AS value,\n       MIN(t.worked_on) AS oldest_entry\nFROM delivery.time_entries t\nJOIN delivery.projects p ON p.id = t.project_id\nJOIN billing.clients cl ON cl.id = p.client_id\nWHERE t.billable AND NOT t.invoiced\nGROUP BY p.id, p.name, cl.name\nORDER BY value DESC",
+          "series_sql": null
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "How much of the team's capacity is actually billable?",
+          "answer_markdown": "**About three quarters.** The rest goes to internal work, pre-sales and training — none of it waste, none of it on an invoice.\n\nWhat makes the number actionable is seeing it per person. The average hides the case: there's always someone well below it, and the reason is never the same twice.\n\nIt comes from joining the time log to each consultant's grade.",
+          "citations": [
+            {
+              "table": "delivery.time_entries"
+            },
+            {
+              "table": "people.consultants"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.grade,\n       ROUND(SUM(t.hours)) AS hours,\n       ROUND(SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)) AS billable_hours,\n       ROUND(100.0 * SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)\n             / NULLIF(SUM(t.hours), 0), 1) AS billable_pct\nFROM people.consultants c\nJOIN delivery.time_entries t ON t.consultant_id = c.id\nGROUP BY c.name, c.grade\nORDER BY billable_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Billable hours",
+              "value_sql": "SELECT ROUND(100.0 * SUM(CASE WHEN billable THEN hours ELSE 0 END) / NULLIF(SUM(hours), 0), 1) FROM delivery.time_entries",
+              "format": "pct"
+            },
+            {
+              "label": "Hours logged",
+              "value_sql": "SELECT ROUND(SUM(hours)) FROM delivery.time_entries"
+            },
+            {
+              "label": "Non-billable",
+              "value_sql": "SELECT ROUND(SUM(hours)) FROM delivery.time_entries WHERE NOT billable"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "Which fixed-price projects have burned more hours than they sold?",
+          "answer_markdown": "**There are few of them, and they cost a lot.** Every hour past the sold number on a fixed-price contract comes straight out of margin — there's no invoice on the other side.\n\nThe list is ordered by the value of those hours, not by percentage: a 30% overrun on a large project costs more than 90% on a small one, and it's the first one worth stopping.\n\nIt compares logged hours against contracted hours, project by project.",
+          "citations": [
+            {
+              "table": "delivery.projects"
+            },
+            {
+              "table": "delivery.time_entries"
+            }
+          ],
+          "executed_sql": "SELECT p.name, cl.name AS client, p.sold_hours,\n       ROUND(SUM(t.hours)) AS burned_hours,\n       ROUND(100.0 * SUM(t.hours) / NULLIF(p.sold_hours, 0)) AS pct_of_sold,\n       ROUND((SUM(t.hours) - p.sold_hours) * p.rate_per_hour) AS overrun_value\nFROM delivery.projects p\nJOIN billing.clients cl ON cl.id = p.client_id\nJOIN delivery.time_entries t ON t.project_id = p.id\nWHERE p.contract_type = 'fixed_price'\nGROUP BY p.id, p.name, cl.name, p.sold_hours, p.rate_per_hour\nHAVING SUM(t.hours) > p.sold_hours\nORDER BY overrun_value DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Projects over",
+              "value_sql": "SELECT COUNT(*) FROM (SELECT p.id FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.sold_hours HAVING SUM(t.hours) > p.sold_hours) x"
+            },
+            {
+              "label": "Value of the extra hours",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(x.v)), 0) FROM (SELECT (SUM(t.hours) - p.sold_hours) * p.rate_per_hour AS v FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.sold_hours, p.rate_per_hour HAVING SUM(t.hours) > p.sold_hours) x",
+              "format": "eur"
+            },
+            {
+              "label": "The worst of them",
+              "value_sql": "SELECT p.name FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.name, p.sold_hours, p.rate_per_hour HAVING SUM(t.hours) > p.sold_hours ORDER BY (SUM(t.hours) - p.sold_hours) * p.rate_per_hour DESC LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "How much work is done and still unbilled?",
+          "answer_markdown": "**Billable hours that never made it onto an invoice.** The work is done and accepted; what's missing is the admin step.\n\nIt's the difference between profit and cash: the project looks profitable in the report and the money hasn't arrived. And the older the hour, the harder it is to justify to the client.\n\nIt comes from hours marked billable and not invoiced, with the contract rate applied.",
+          "citations": [
+            {
+              "table": "delivery.time_entries"
+            },
+            {
+              "table": "billing.invoices"
+            }
+          ],
+          "executed_sql": "SELECT p.name, cl.name AS client,\n       ROUND(SUM(t.hours)) AS hours,\n       ROUND(SUM(t.hours * p.rate_per_hour)) AS value,\n       MIN(t.worked_on) AS oldest_entry\nFROM delivery.time_entries t\nJOIN delivery.projects p ON p.id = t.project_id\nJOIN billing.clients cl ON cl.id = p.client_id\nWHERE t.billable AND NOT t.invoiced\nGROUP BY p.id, p.name, cl.name\nORDER BY value DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Hours unbilled",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(hours)), 0) FROM delivery.time_entries WHERE billable AND NOT invoiced"
+            },
+            {
+              "label": "Value unbilled",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(t.hours * p.rate_per_hour)), 0) FROM delivery.time_entries t JOIN delivery.projects p ON p.id = t.project_id WHERE t.billable AND NOT t.invoiced",
+              "format": "eur"
+            },
+            {
+              "label": "Oldest, in days",
+              "value_sql": "SELECT COALESCE(CURRENT_DATE - MIN(worked_on), 0) FROM delivery.time_entries WHERE billable AND NOT invoiced"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Which clients account for the most billing?",
+          "answer_markdown": "**By invoiced value, with the project count beside it.** The two columns together say different things: many small projects and one large one produce the same invoice and not the same risk.\n\nConcentration in one client is one of the few numbers worth looking at every month.",
+          "citations": [
+            {
+              "table": "billing.clients"
+            },
+            {
+              "table": "billing.invoices"
+            }
+          ],
+          "executed_sql": "SELECT cl.name, cl.industry,\n       COUNT(DISTINCT p.id) AS projects,\n       ROUND(SUM(i.amount)) AS invoiced\nFROM billing.clients cl\nJOIN delivery.projects p ON p.client_id = cl.id\nJOIN billing.invoices i ON i.project_id = p.id\nGROUP BY cl.name, cl.industry\nORDER BY invoiced DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Largest client",
+              "value_sql": "SELECT cl.name FROM billing.clients cl JOIN delivery.projects p ON p.client_id = cl.id JOIN billing.invoices i ON i.project_id = p.id GROUP BY cl.name ORDER BY SUM(i.amount) DESC LIMIT 1"
+            },
+            {
+              "label": "Invoiced in the period",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(amount)), 0) FROM billing.invoices",
+              "format": "eur"
+            },
+            {
+              "label": "Live projects",
+              "value_sql": "SELECT COUNT(*) FROM delivery.projects WHERE status = 'active'"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Fixed price or time-and-materials — which pays better?",
+          "answer_markdown": "**It depends on how wrong the estimate is.** The table puts hours burned and amount invoiced side by side, by contract type.\n\nFixed price only wins while the estimate holds — and the estimate is the one variable the firm controls on its own.",
+          "citations": [
+            {
+              "table": "delivery.projects"
+            },
+            {
+              "table": "billing.invoices"
+            }
+          ],
+          "executed_sql": "SELECT p.contract_type,\n       COUNT(DISTINCT p.id) AS projects,\n       ROUND(SUM(t.hours)) AS hours,\n       ROUND(SUM(i.amount)) AS invoiced\nFROM delivery.projects p\nLEFT JOIN delivery.time_entries t ON t.project_id = p.id\nLEFT JOIN billing.invoices i ON i.project_id = p.id\nGROUP BY p.contract_type",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Invoiced in the period",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(amount)), 0) FROM billing.invoices",
+              "format": "eur"
+            },
+            {
+              "label": "Hours logged",
+              "value_sql": "SELECT ROUND(SUM(hours)) FROM delivery.time_entries"
+            },
+            {
+              "label": "Projects over",
+              "value_sql": "SELECT COUNT(*) FROM (SELECT p.id FROM delivery.projects p JOIN delivery.time_entries t ON t.project_id = p.id WHERE p.contract_type = 'fixed_price' GROUP BY p.id, p.sold_hours HAVING SUM(t.hours) > p.sold_hours) x"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Which invoices are overdue?",
+          "answer_markdown": "**Issued, accepted, and unpaid.** The list is by issue date, not amount: an old small invoice is a worse sign than a recent large one.\n\nIn a consultancy this usually competes with unbilled work — and they're different problems, with different owners.",
+          "citations": [
+            {
+              "table": "billing.invoices"
+            },
+            {
+              "table": "billing.clients"
+            }
+          ],
+          "executed_sql": "SELECT cl.name AS client, p.name AS project, i.issued_at, i.amount\nFROM billing.invoices i\nJOIN delivery.projects p ON p.id = i.project_id\nJOIN billing.clients cl ON cl.id = p.client_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Overdue invoices",
+              "value_sql": "SELECT COUNT(*) FROM billing.invoices WHERE status = 'overdue'"
+            },
+            {
+              "label": "Outstanding",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(amount)), 0) FROM billing.invoices WHERE status = 'overdue'",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "How has billing trended over the year?",
+          "answer_markdown": "**Month by month, on issued invoices.** In a consultancy this curve runs half a quarter behind delivery — the work happens one month and is invoiced another.\n\nWhich is why billing on its own is a poor health indicator: it measures the past, late.",
+          "citations": [
+            {
+              "table": "billing.invoices"
+            }
+          ],
+          "executed_sql": "SELECT DATE_TRUNC('month', i.issued_at)::date AS t,\n       ROUND(SUM(i.amount)) AS v\nFROM billing.invoices i\nGROUP BY 1 ORDER BY 1",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Invoiced in the period",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(amount)), 0) FROM billing.invoices",
+              "format": "eur"
+            },
+            {
+              "label": "Billable hours",
+              "value_sql": "SELECT ROUND(100.0 * SUM(CASE WHEN billable THEN hours ELSE 0 END) / NULLIF(SUM(hours), 0), 1) FROM delivery.time_entries",
+              "format": "pct"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vertical": "industry",
+      "locale": "pt",
+      "is_default": false,
+      "name": "Fábrica Ribatejo — 9 máquinas, 3 linhas",
+      "description": "Produção em três turnos, com registo de refugo por motivo e paragens por máquina.",
+      "connection_ref": "Demo — Indústria",
+      "insight": {
+        "severity": "scrap_concentration",
+        "severity_level": "warning",
+        "agent_name": "Qualidade",
+        "title": "Uma máquina faz quase todo o refugo, e é a mais velha",
+        "summary": "A taxa média de refugo da fábrica não diz nada, porque não é uma média — é uma máquina. Separada das outras, a diferença é de ordem de grandeza, e o motivo registado é sempre o mesmo.\n\nÉ essa concentração que transforma \"temos um problema de qualidade\" em \"temos um problema na M-07\". A primeira frase não tem dono; a segunda tem orçamento.",
+        "stat_tiles": [
+          {
+            "label": "Máquina",
+            "value_sql": "SELECT m.code FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id JOIN plant.machines m ON m.id = o.machine_id GROUP BY m.code ORDER BY SUM(s.units)::numeric / NULLIF(SUM(o.planned_units), 0) DESC LIMIT 1"
+          },
+          {
+            "label": "Refugo dela",
+            "value_sql": "SELECT ROUND(MAX(x.p), 2) FROM (SELECT SUM(s.units) * 100.0 / NULLIF(SUM(o.planned_units), 0) AS p FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id GROUP BY o.machine_id) x",
+            "format": "pct"
+          },
+          {
+            "label": "Média das outras",
+            "value_sql": "SELECT ROUND(AVG(x.p), 2) FROM (SELECT SUM(s.units) * 100.0 / NULLIF(SUM(o.planned_units), 0) AS p FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id GROUP BY o.machine_id ORDER BY p DESC OFFSET 1) x",
+            "format": "pct"
+          }
+        ],
+        "sources": [
+          {
+            "table": "production.orders",
+            "description": "Planeado contra bom, por turno"
+          },
+          {
+            "table": "quality.scrap",
+            "description": "Refugo e motivo"
+          },
+          {
+            "table": "maintenance.stoppages",
+            "description": "Paragens planeadas e não planeadas"
+          },
+          {
+            "table": "plant.machines",
+            "description": "Linha, ano e cadência nominal"
+          }
+        ],
+        "executed_sql": "SELECT m.code, m.line, m.installed_year,\n       SUM(s.units) AS scrap_units,\n       SUM(o.planned_units) AS planned_units,\n       ROUND(100.0 * SUM(s.units) / NULLIF(SUM(o.planned_units), 0), 2) AS scrap_pct\nFROM quality.scrap s\nJOIN production.orders o ON o.id = s.order_id\nJOIN plant.machines m ON m.id = o.machine_id\nGROUP BY m.code, m.line, m.installed_year\nORDER BY scrap_pct DESC",
+        "series_sql": "SELECT DATE_TRUNC('month', o.produced_on)::date AS t,\n       ROUND(100.0 * SUM(s.units) / NULLIF(SUM(o.planned_units), 0), 2) AS v\nFROM production.orders o\nLEFT JOIN quality.scrap s ON s.order_id = o.id\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "unplanned_downtime",
+          "severity_level": "warning",
+          "agent_name": "Manutenção",
+          "title": "Horas perdidas em paragens que ninguém planeou",
+          "summary": "Paragem planeada é custo; paragem não planeada é custo mais surpresa — e a surpresa é o que estraga o plano de produção da semana inteira.\n\nO agente separa as duas e soma só as segundas. A conta é simples e ninguém a faz todos os meses, porque vive num sistema diferente do da produção.",
+          "stat_tiles": [
+            {
+              "label": "Horas perdidas",
+              "value_sql": "SELECT ROUND(SUM(minutes) / 60.0, 1) FROM maintenance.stoppages WHERE NOT planned"
+            },
+            {
+              "label": "Pior máquina",
+              "value_sql": "SELECT m.code FROM maintenance.stoppages st JOIN plant.machines m ON m.id = st.machine_id WHERE NOT st.planned GROUP BY m.code ORDER BY SUM(st.minutes) DESC LIMIT 1"
+            },
+            {
+              "label": "Horas só dela",
+              "value_sql": "SELECT ROUND(MAX(x.h), 1) FROM (SELECT SUM(minutes) / 60.0 AS h FROM maintenance.stoppages WHERE NOT planned GROUP BY machine_id) x"
+            }
+          ],
+          "sources": [
+            {
+              "table": "maintenance.stoppages",
+              "description": "Paragens planeadas e não planeadas"
+            },
+            {
+              "table": "plant.machines",
+              "description": "Linha, ano e cadência nominal"
+            }
+          ],
+          "executed_sql": "SELECT m.code, m.line,\n       COUNT(*) AS stoppages,\n       ROUND(SUM(st.minutes) / 60.0, 1) AS hours_lost,\n       ROUND(AVG(st.minutes)) AS avg_minutes\nFROM maintenance.stoppages st\nJOIN plant.machines m ON m.id = st.machine_id\nWHERE NOT st.planned\nGROUP BY m.code, m.line\nORDER BY hours_lost DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', st.started_at)::date AS t,\n       ROUND(SUM(st.minutes) / 60.0, 1) AS v\nFROM maintenance.stoppages st\nWHERE NOT st.planned\nGROUP BY 1 ORDER BY 1"
+        },
+        {
+          "severity": "shift_gap",
+          "severity_level": "info",
+          "agent_name": "Turnos",
+          "title": "Um turno rende menos com o mesmo equipamento",
+          "summary": "As máquinas são as mesmas, as ordens são as mesmas, o rendimento não é. Quando o equipamento é constante e o resultado muda, a variável é humana — formação, dotação, ou o apoio que existe às três da manhã e não existe às onze.\n\nNão diz o que fazer. Diz onde olhar, que é mais do que uma média por fábrica alguma vez disse.",
+          "stat_tiles": [
+            {
+              "label": "Turno com menor rendimento",
+              "value_sql": "SELECT shift FROM production.orders GROUP BY shift ORDER BY SUM(good_units)::numeric / NULLIF(SUM(planned_units), 0) LIMIT 1"
+            },
+            {
+              "label": "Rendimento dele",
+              "value_sql": "SELECT ROUND(MIN(x.p), 1) FROM (SELECT SUM(good_units) * 100.0 / NULLIF(SUM(planned_units), 0) AS p FROM production.orders GROUP BY shift) x",
+              "format": "pct"
+            },
+            {
+              "label": "O melhor turno",
+              "value_sql": "SELECT ROUND(MAX(x.p), 1) FROM (SELECT SUM(good_units) * 100.0 / NULLIF(SUM(planned_units), 0) AS p FROM production.orders GROUP BY shift) x",
+              "format": "pct"
+            }
+          ],
+          "sources": [
+            {
+              "table": "production.orders",
+              "description": "Planeado contra bom, por turno"
+            }
+          ],
+          "executed_sql": "SELECT o.shift,\n       COUNT(*) AS orders,\n       SUM(o.planned_units) AS planned,\n       SUM(o.good_units) AS good,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS yield_pct\nFROM production.orders o\nGROUP BY o.shift\nORDER BY yield_pct",
+          "series_sql": "SELECT o.shift AS t,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS v\nFROM production.orders o\nGROUP BY o.shift\nORDER BY v"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Que máquina está a fazer mais refugo?",
+          "answer_markdown": "**Uma só, e com folga.** A taxa dela está numa ordem de grandeza diferente da média das restantes, e é também a mais antiga do parque.\n\nIsto muda a conversa: com uma taxa média de fábrica, a resposta é \"temos de melhorar a qualidade\", que não tem dono. Com a máquina identificada, é uma decisão de manutenção ou de substituição, com um número ao lado.\n\nCruza o refugo registado pela qualidade com as ordens de produção — dois sistemas, uma resposta.",
+          "citations": [
+            {
+              "table": "quality.scrap"
+            },
+            {
+              "table": "production.orders"
+            }
+          ],
+          "executed_sql": "SELECT m.code, m.line, m.installed_year,\n       SUM(s.units) AS scrap_units,\n       SUM(o.planned_units) AS planned_units,\n       ROUND(100.0 * SUM(s.units) / NULLIF(SUM(o.planned_units), 0), 2) AS scrap_pct\nFROM quality.scrap s\nJOIN production.orders o ON o.id = s.order_id\nJOIN plant.machines m ON m.id = o.machine_id\nGROUP BY m.code, m.line, m.installed_year\nORDER BY scrap_pct DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Máquina",
+              "value_sql": "SELECT m.code FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id JOIN plant.machines m ON m.id = o.machine_id GROUP BY m.code ORDER BY SUM(s.units)::numeric / NULLIF(SUM(o.planned_units), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Refugo dela",
+              "value_sql": "SELECT ROUND(MAX(x.p), 2) FROM (SELECT SUM(s.units) * 100.0 / NULLIF(SUM(o.planned_units), 0) AS p FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id GROUP BY o.machine_id) x",
+              "format": "pct"
+            },
+            {
+              "label": "Média das outras",
+              "value_sql": "SELECT ROUND(AVG(x.p), 2) FROM (SELECT SUM(s.units) * 100.0 / NULLIF(SUM(o.planned_units), 0) AS p FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id GROUP BY o.machine_id ORDER BY p DESC OFFSET 1) x",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "Quantas horas se perderam em paragens não planeadas?",
+          "answer_markdown": "**Separando as planeadas das não planeadas**, que é o passo que muda o número. A manutenção preventiva está no plano; o resto não estava, e é o resto que desfaz a semana.\n\nComo no refugo, concentra-se numa máquina. É a mesma máquina — o que já não é coincidência, é diagnóstico.\n\nSai do registo de paragens, com o motivo e a duração de cada uma.",
+          "citations": [
+            {
+              "table": "maintenance.stoppages"
+            },
+            {
+              "table": "plant.machines"
+            }
+          ],
+          "executed_sql": "SELECT m.code, m.line,\n       COUNT(*) AS stoppages,\n       ROUND(SUM(st.minutes) / 60.0, 1) AS hours_lost,\n       ROUND(AVG(st.minutes)) AS avg_minutes\nFROM maintenance.stoppages st\nJOIN plant.machines m ON m.id = st.machine_id\nWHERE NOT st.planned\nGROUP BY m.code, m.line\nORDER BY hours_lost DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Horas perdidas",
+              "value_sql": "SELECT ROUND(SUM(minutes) / 60.0, 1) FROM maintenance.stoppages WHERE NOT planned"
+            },
+            {
+              "label": "Pior máquina",
+              "value_sql": "SELECT m.code FROM maintenance.stoppages st JOIN plant.machines m ON m.id = st.machine_id WHERE NOT st.planned GROUP BY m.code ORDER BY SUM(st.minutes) DESC LIMIT 1"
+            },
+            {
+              "label": "Horas só dela",
+              "value_sql": "SELECT ROUND(MAX(x.h), 1) FROM (SELECT SUM(minutes) / 60.0 AS h FROM maintenance.stoppages WHERE NOT planned GROUP BY machine_id) x"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Que turno produz menos com o mesmo equipamento?",
+          "answer_markdown": "**A diferença entre o melhor e o pior turno é de vários pontos**, com as mesmas máquinas e o mesmo tipo de ordens.\n\nQuando o equipamento é constante e o resultado muda, a variável não é técnica. Não diz o que fazer — diz onde olhar, e é para isso que serve.\n\nCompara unidades boas com unidades planeadas, agrupado por turno.",
+          "citations": [
+            {
+              "table": "production.orders"
+            }
+          ],
+          "executed_sql": "SELECT o.shift,\n       COUNT(*) AS orders,\n       SUM(o.planned_units) AS planned,\n       SUM(o.good_units) AS good,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS yield_pct\nFROM production.orders o\nGROUP BY o.shift\nORDER BY yield_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Turno com menor rendimento",
+              "value_sql": "SELECT shift FROM production.orders GROUP BY shift ORDER BY SUM(good_units)::numeric / NULLIF(SUM(planned_units), 0) LIMIT 1"
+            },
+            {
+              "label": "Rendimento dele",
+              "value_sql": "SELECT ROUND(MIN(x.p), 1) FROM (SELECT SUM(good_units) * 100.0 / NULLIF(SUM(planned_units), 0) AS p FROM production.orders GROUP BY shift) x",
+              "format": "pct"
+            },
+            {
+              "label": "O melhor turno",
+              "value_sql": "SELECT ROUND(MAX(x.p), 1) FROM (SELECT SUM(good_units) * 100.0 / NULLIF(SUM(planned_units), 0) AS p FROM production.orders GROUP BY shift) x",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Quais são os motivos de refugo mais frequentes?",
+          "answer_markdown": "**Por unidades e por número de ocorrências**, que não dão a mesma ordem: um motivo raro que estraga lotes inteiros custa mais do que um frequente que estraga peças soltas.\n\nOlhar só para a frequência é o erro clássico — leva a equipa a atacar o motivo mais visível em vez do mais caro.",
+          "citations": [
+            {
+              "table": "quality.scrap"
+            }
+          ],
+          "executed_sql": "SELECT s.reason, SUM(s.units) AS units, COUNT(*) AS occurrences\nFROM quality.scrap s\nGROUP BY s.reason\nORDER BY units DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Motivo com mais unidades",
+              "value_sql": "SELECT reason FROM quality.scrap GROUP BY reason ORDER BY SUM(units) DESC LIMIT 1"
+            },
+            {
+              "label": "Unidades rejeitadas",
+              "value_sql": "SELECT COALESCE(SUM(units), 0) FROM quality.scrap"
+            },
+            {
+              "label": "Rendimento global",
+              "value_sql": "SELECT ROUND(100.0 * SUM(good_units) / NULLIF(SUM(planned_units), 0), 1) FROM production.orders",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Que linha de produção rende mais?",
+          "answer_markdown": "**Por rendimento e não por volume.** A linha que produz mais unidades não é necessariamente a que desperdiça menos — e é o desperdício que se paga duas vezes, no material e no tempo de máquina.\n\nCom três linhas, a diferença entre elas é a única referência interna honesta que existe.",
+          "citations": [
+            {
+              "table": "production.orders"
+            },
+            {
+              "table": "plant.machines"
+            }
+          ],
+          "executed_sql": "SELECT m.line,\n       COUNT(DISTINCT m.id) AS machines,\n       SUM(o.good_units) AS good_units,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS yield_pct\nFROM production.orders o\nJOIN plant.machines m ON m.id = o.machine_id\nGROUP BY m.line\nORDER BY yield_pct DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Melhor linha",
+              "value_sql": "SELECT m.line FROM production.orders o JOIN plant.machines m ON m.id = o.machine_id GROUP BY m.line ORDER BY SUM(o.good_units)::numeric / NULLIF(SUM(o.planned_units), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Rendimento global",
+              "value_sql": "SELECT ROUND(100.0 * SUM(good_units) / NULLIF(SUM(planned_units), 0), 1) FROM production.orders",
+              "format": "pct"
+            },
+            {
+              "label": "Unidades boas",
+              "value_sql": "SELECT SUM(good_units) FROM production.orders"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "A máquina mais antiga está a compensar?",
+          "answer_markdown": "**Idade, cadência nominal, rendimento real e horas de paragem, na mesma linha.** É a informação de que uma decisão de investimento precisa, e costuma estar em quatro sítios diferentes.\n\nUma máquina antiga que produza bem não é problema nenhum. O problema é quando a idade aparece ao lado do refugo e das paragens — e aí a conta faz-se sozinha.",
+          "citations": [
+            {
+              "table": "plant.machines"
+            },
+            {
+              "table": "maintenance.stoppages"
+            }
+          ],
+          "executed_sql": "SELECT m.code, m.installed_year, m.nominal_rate,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS yield_pct,\n       ROUND(SUM(st.minutes) / 60.0, 1) AS unplanned_hours\nFROM plant.machines m\nJOIN production.orders o ON o.machine_id = m.id\nLEFT JOIN maintenance.stoppages st ON st.machine_id = m.id AND NOT st.planned\nGROUP BY m.code, m.installed_year, m.nominal_rate\nORDER BY m.installed_year",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Máquina mais antiga",
+              "value_sql": "SELECT code FROM plant.machines ORDER BY installed_year LIMIT 1"
+            },
+            {
+              "label": "Ano de instalação",
+              "value_sql": "SELECT MIN(installed_year) FROM plant.machines"
+            },
+            {
+              "label": "Horas de paragem dela",
+              "value_sql": "SELECT ROUND(MAX(x.h), 1) FROM (SELECT SUM(minutes) / 60.0 AS h FROM maintenance.stoppages WHERE NOT planned GROUP BY machine_id) x"
+            }
+          ]
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "Como evoluiu a produção ao longo do ano?",
+          "answer_markdown": "**Planeado e bom lado a lado, mês a mês.** A distância entre as duas curvas é o rendimento, e é aí que se vê se as acções de melhoria deram alguma coisa.\n\nVolume sozinho engana: um mês bom em unidades pode ser um mês mau em rendimento, e o segundo é que se repete.",
+          "citations": [
+            {
+              "table": "production.orders"
+            }
+          ],
+          "executed_sql": "SELECT DATE_TRUNC('month', o.produced_on)::date AS month,\n       SUM(o.planned_units) AS planned,\n       SUM(o.good_units) AS good,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS yield_pct\nFROM production.orders o\nGROUP BY 1 ORDER BY 1",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Rendimento global",
+              "value_sql": "SELECT ROUND(100.0 * SUM(good_units) / NULLIF(SUM(planned_units), 0), 1) FROM production.orders",
+              "format": "pct"
+            },
+            {
+              "label": "Unidades boas",
+              "value_sql": "SELECT SUM(good_units) FROM production.orders"
+            },
+            {
+              "label": "Unidades rejeitadas",
+              "value_sql": "SELECT COALESCE(SUM(units), 0) FROM quality.scrap"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vertical": "industry",
+      "locale": "en",
+      "is_default": false,
+      "name": "Ribatejo Plant — 9 machines, 3 lines",
+      "description": "Three-shift production, with scrap by reason and stoppages by machine.",
+      "connection_ref": "Demo — Industry",
+      "insight": {
+        "severity": "scrap_concentration",
+        "severity_level": "warning",
+        "agent_name": "Quality",
+        "title": "One machine makes nearly all the scrap, and it's the oldest",
+        "summary": "The plant's average scrap rate says nothing, because it isn't an average — it's one machine. Separated from the rest the difference is an order of magnitude, and the logged reason is always the same one.\n\nThat concentration is what turns \"we have a quality problem\" into \"we have an M-07 problem\". The first sentence has no owner; the second has a budget.",
+        "stat_tiles": [
+          {
+            "label": "Machine",
+            "value_sql": "SELECT m.code FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id JOIN plant.machines m ON m.id = o.machine_id GROUP BY m.code ORDER BY SUM(s.units)::numeric / NULLIF(SUM(o.planned_units), 0) DESC LIMIT 1"
+          },
+          {
+            "label": "Its scrap rate",
+            "value_sql": "SELECT ROUND(MAX(x.p), 2) FROM (SELECT SUM(s.units) * 100.0 / NULLIF(SUM(o.planned_units), 0) AS p FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id GROUP BY o.machine_id) x",
+            "format": "pct"
+          },
+          {
+            "label": "The others' average",
+            "value_sql": "SELECT ROUND(AVG(x.p), 2) FROM (SELECT SUM(s.units) * 100.0 / NULLIF(SUM(o.planned_units), 0) AS p FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id GROUP BY o.machine_id ORDER BY p DESC OFFSET 1) x",
+            "format": "pct"
+          }
+        ],
+        "sources": [
+          {
+            "table": "production.orders",
+            "description": "Planeado contra bom, por turno"
+          },
+          {
+            "table": "quality.scrap",
+            "description": "Refugo e motivo"
+          },
+          {
+            "table": "maintenance.stoppages",
+            "description": "Paragens planeadas e não planeadas"
+          },
+          {
+            "table": "plant.machines",
+            "description": "Linha, ano e cadência nominal"
+          }
+        ],
+        "executed_sql": "SELECT m.code, m.line, m.installed_year,\n       SUM(s.units) AS scrap_units,\n       SUM(o.planned_units) AS planned_units,\n       ROUND(100.0 * SUM(s.units) / NULLIF(SUM(o.planned_units), 0), 2) AS scrap_pct\nFROM quality.scrap s\nJOIN production.orders o ON o.id = s.order_id\nJOIN plant.machines m ON m.id = o.machine_id\nGROUP BY m.code, m.line, m.installed_year\nORDER BY scrap_pct DESC",
+        "series_sql": "SELECT DATE_TRUNC('month', o.produced_on)::date AS t,\n       ROUND(100.0 * SUM(s.units) / NULLIF(SUM(o.planned_units), 0), 2) AS v\nFROM production.orders o\nLEFT JOIN quality.scrap s ON s.order_id = o.id\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "unplanned_downtime",
+          "severity_level": "warning",
+          "agent_name": "Maintenance",
+          "title": "Hours lost to stoppages nobody planned",
+          "summary": "Planned downtime is a cost; unplanned downtime is a cost plus a surprise — and the surprise is what wrecks the whole week's production plan.\n\nThe agent separates the two and adds up only the second. The arithmetic is simple and nobody does it monthly, because it lives in a different system from production.",
+          "stat_tiles": [
+            {
+              "label": "Hours lost",
+              "value_sql": "SELECT ROUND(SUM(minutes) / 60.0, 1) FROM maintenance.stoppages WHERE NOT planned"
+            },
+            {
+              "label": "Worst machine",
+              "value_sql": "SELECT m.code FROM maintenance.stoppages st JOIN plant.machines m ON m.id = st.machine_id WHERE NOT st.planned GROUP BY m.code ORDER BY SUM(st.minutes) DESC LIMIT 1"
+            },
+            {
+              "label": "Hours on that one alone",
+              "value_sql": "SELECT ROUND(MAX(x.h), 1) FROM (SELECT SUM(minutes) / 60.0 AS h FROM maintenance.stoppages WHERE NOT planned GROUP BY machine_id) x"
+            }
+          ],
+          "sources": [
+            {
+              "table": "maintenance.stoppages",
+              "description": "Paragens planeadas e não planeadas"
+            },
+            {
+              "table": "plant.machines",
+              "description": "Linha, ano e cadência nominal"
+            }
+          ],
+          "executed_sql": "SELECT m.code, m.line,\n       COUNT(*) AS stoppages,\n       ROUND(SUM(st.minutes) / 60.0, 1) AS hours_lost,\n       ROUND(AVG(st.minutes)) AS avg_minutes\nFROM maintenance.stoppages st\nJOIN plant.machines m ON m.id = st.machine_id\nWHERE NOT st.planned\nGROUP BY m.code, m.line\nORDER BY hours_lost DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', st.started_at)::date AS t,\n       ROUND(SUM(st.minutes) / 60.0, 1) AS v\nFROM maintenance.stoppages st\nWHERE NOT st.planned\nGROUP BY 1 ORDER BY 1"
+        },
+        {
+          "severity": "shift_gap",
+          "severity_level": "info",
+          "agent_name": "Shifts",
+          "title": "One shift yields less on the same equipment",
+          "summary": "The machines are the same, the orders are the same, the yield isn't. When the equipment is constant and the result changes, the variable is human — training, staffing, or the support that exists at eleven and doesn't at three in the morning.\n\nIt doesn't say what to do. It says where to look, which is more than a plant-wide average has ever said.",
+          "stat_tiles": [
+            {
+              "label": "Lowest-yield shift",
+              "value_sql": "SELECT shift FROM production.orders GROUP BY shift ORDER BY SUM(good_units)::numeric / NULLIF(SUM(planned_units), 0) LIMIT 1"
+            },
+            {
+              "label": "Its yield",
+              "value_sql": "SELECT ROUND(MIN(x.p), 1) FROM (SELECT SUM(good_units) * 100.0 / NULLIF(SUM(planned_units), 0) AS p FROM production.orders GROUP BY shift) x",
+              "format": "pct"
+            },
+            {
+              "label": "The best shift",
+              "value_sql": "SELECT ROUND(MAX(x.p), 1) FROM (SELECT SUM(good_units) * 100.0 / NULLIF(SUM(planned_units), 0) AS p FROM production.orders GROUP BY shift) x",
+              "format": "pct"
+            }
+          ],
+          "sources": [
+            {
+              "table": "production.orders",
+              "description": "Planeado contra bom, por turno"
+            }
+          ],
+          "executed_sql": "SELECT o.shift,\n       COUNT(*) AS orders,\n       SUM(o.planned_units) AS planned,\n       SUM(o.good_units) AS good,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS yield_pct\nFROM production.orders o\nGROUP BY o.shift\nORDER BY yield_pct",
+          "series_sql": "SELECT o.shift AS t,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS v\nFROM production.orders o\nGROUP BY o.shift\nORDER BY v"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Which machine is producing the most scrap?",
+          "answer_markdown": "**One, by a distance.** Its rate is an order of magnitude away from the average of the rest, and it's also the oldest machine on the floor.\n\nThat changes the conversation: with a plant-wide average, the answer is \"we need to improve quality\", which has no owner. With the machine named, it's a maintenance or replacement decision, with a number beside it.\n\nIt joins scrap logged by quality to the production orders — two systems, one answer.",
+          "citations": [
+            {
+              "table": "quality.scrap"
+            },
+            {
+              "table": "production.orders"
+            }
+          ],
+          "executed_sql": "SELECT m.code, m.line, m.installed_year,\n       SUM(s.units) AS scrap_units,\n       SUM(o.planned_units) AS planned_units,\n       ROUND(100.0 * SUM(s.units) / NULLIF(SUM(o.planned_units), 0), 2) AS scrap_pct\nFROM quality.scrap s\nJOIN production.orders o ON o.id = s.order_id\nJOIN plant.machines m ON m.id = o.machine_id\nGROUP BY m.code, m.line, m.installed_year\nORDER BY scrap_pct DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Machine",
+              "value_sql": "SELECT m.code FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id JOIN plant.machines m ON m.id = o.machine_id GROUP BY m.code ORDER BY SUM(s.units)::numeric / NULLIF(SUM(o.planned_units), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Its scrap rate",
+              "value_sql": "SELECT ROUND(MAX(x.p), 2) FROM (SELECT SUM(s.units) * 100.0 / NULLIF(SUM(o.planned_units), 0) AS p FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id GROUP BY o.machine_id) x",
+              "format": "pct"
+            },
+            {
+              "label": "The others' average",
+              "value_sql": "SELECT ROUND(AVG(x.p), 2) FROM (SELECT SUM(s.units) * 100.0 / NULLIF(SUM(o.planned_units), 0) AS p FROM quality.scrap s JOIN production.orders o ON o.id = s.order_id GROUP BY o.machine_id ORDER BY p DESC OFFSET 1) x",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "How many hours were lost to unplanned stoppages?",
+          "answer_markdown": "**Separating planned from unplanned**, which is the step that changes the number. Preventive maintenance is in the plan; the rest wasn't, and it's the rest that breaks the week.\n\nAs with scrap, it concentrates on one machine. It's the same machine — which stops being a coincidence and starts being a diagnosis.\n\nIt comes from the stoppage log, with the reason and duration of each.",
+          "citations": [
+            {
+              "table": "maintenance.stoppages"
+            },
+            {
+              "table": "plant.machines"
+            }
+          ],
+          "executed_sql": "SELECT m.code, m.line,\n       COUNT(*) AS stoppages,\n       ROUND(SUM(st.minutes) / 60.0, 1) AS hours_lost,\n       ROUND(AVG(st.minutes)) AS avg_minutes\nFROM maintenance.stoppages st\nJOIN plant.machines m ON m.id = st.machine_id\nWHERE NOT st.planned\nGROUP BY m.code, m.line\nORDER BY hours_lost DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Hours lost",
+              "value_sql": "SELECT ROUND(SUM(minutes) / 60.0, 1) FROM maintenance.stoppages WHERE NOT planned"
+            },
+            {
+              "label": "Worst machine",
+              "value_sql": "SELECT m.code FROM maintenance.stoppages st JOIN plant.machines m ON m.id = st.machine_id WHERE NOT st.planned GROUP BY m.code ORDER BY SUM(st.minutes) DESC LIMIT 1"
+            },
+            {
+              "label": "Hours on that one alone",
+              "value_sql": "SELECT ROUND(MAX(x.h), 1) FROM (SELECT SUM(minutes) / 60.0 AS h FROM maintenance.stoppages WHERE NOT planned GROUP BY machine_id) x"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Which shift produces less on the same equipment?",
+          "answer_markdown": "**The gap between the best and worst shift is several points**, on the same machines and the same kind of orders.\n\nWhen the equipment is constant and the result changes, the variable isn't technical. It doesn't say what to do — it says where to look, and that's what it's for.\n\nIt compares good units against planned units, grouped by shift.",
+          "citations": [
+            {
+              "table": "production.orders"
+            }
+          ],
+          "executed_sql": "SELECT o.shift,\n       COUNT(*) AS orders,\n       SUM(o.planned_units) AS planned,\n       SUM(o.good_units) AS good,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS yield_pct\nFROM production.orders o\nGROUP BY o.shift\nORDER BY yield_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Lowest-yield shift",
+              "value_sql": "SELECT shift FROM production.orders GROUP BY shift ORDER BY SUM(good_units)::numeric / NULLIF(SUM(planned_units), 0) LIMIT 1"
+            },
+            {
+              "label": "Its yield",
+              "value_sql": "SELECT ROUND(MIN(x.p), 1) FROM (SELECT SUM(good_units) * 100.0 / NULLIF(SUM(planned_units), 0) AS p FROM production.orders GROUP BY shift) x",
+              "format": "pct"
+            },
+            {
+              "label": "The best shift",
+              "value_sql": "SELECT ROUND(MAX(x.p), 1) FROM (SELECT SUM(good_units) * 100.0 / NULLIF(SUM(planned_units), 0) AS p FROM production.orders GROUP BY shift) x",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "What are the most common scrap reasons?",
+          "answer_markdown": "**By units and by number of occurrences**, which don't give the same order: a rare reason that ruins whole batches costs more than a frequent one that ruins single pieces.\n\nLooking only at frequency is the classic mistake — it sends the team after the most visible reason instead of the most expensive.",
+          "citations": [
+            {
+              "table": "quality.scrap"
+            }
+          ],
+          "executed_sql": "SELECT s.reason, SUM(s.units) AS units, COUNT(*) AS occurrences\nFROM quality.scrap s\nGROUP BY s.reason\nORDER BY units DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Reason with most units",
+              "value_sql": "SELECT reason FROM quality.scrap GROUP BY reason ORDER BY SUM(units) DESC LIMIT 1"
+            },
+            {
+              "label": "Units scrapped",
+              "value_sql": "SELECT COALESCE(SUM(units), 0) FROM quality.scrap"
+            },
+            {
+              "label": "Overall yield",
+              "value_sql": "SELECT ROUND(100.0 * SUM(good_units) / NULLIF(SUM(planned_units), 0), 1) FROM production.orders",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Which production line yields best?",
+          "answer_markdown": "**By yield, not by volume.** The line that makes the most units isn't necessarily the one that wastes least — and waste is paid for twice, in material and in machine time.\n\nWith three lines, the gap between them is the only honest internal benchmark there is.",
+          "citations": [
+            {
+              "table": "production.orders"
+            },
+            {
+              "table": "plant.machines"
+            }
+          ],
+          "executed_sql": "SELECT m.line,\n       COUNT(DISTINCT m.id) AS machines,\n       SUM(o.good_units) AS good_units,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS yield_pct\nFROM production.orders o\nJOIN plant.machines m ON m.id = o.machine_id\nGROUP BY m.line\nORDER BY yield_pct DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Best line",
+              "value_sql": "SELECT m.line FROM production.orders o JOIN plant.machines m ON m.id = o.machine_id GROUP BY m.line ORDER BY SUM(o.good_units)::numeric / NULLIF(SUM(o.planned_units), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Overall yield",
+              "value_sql": "SELECT ROUND(100.0 * SUM(good_units) / NULLIF(SUM(planned_units), 0), 1) FROM production.orders",
+              "format": "pct"
+            },
+            {
+              "label": "Good units",
+              "value_sql": "SELECT SUM(good_units) FROM production.orders"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Is the oldest machine still worth keeping?",
+          "answer_markdown": "**Age, nominal rate, real yield and downtime hours, on the same row.** It's the information an investment decision needs, and it usually lives in four different places.\n\nAn old machine that runs well is no problem at all. The problem is when age shows up next to scrap and stoppages — and then the arithmetic does itself.",
+          "citations": [
+            {
+              "table": "plant.machines"
+            },
+            {
+              "table": "maintenance.stoppages"
+            }
+          ],
+          "executed_sql": "SELECT m.code, m.installed_year, m.nominal_rate,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS yield_pct,\n       ROUND(SUM(st.minutes) / 60.0, 1) AS unplanned_hours\nFROM plant.machines m\nJOIN production.orders o ON o.machine_id = m.id\nLEFT JOIN maintenance.stoppages st ON st.machine_id = m.id AND NOT st.planned\nGROUP BY m.code, m.installed_year, m.nominal_rate\nORDER BY m.installed_year",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Oldest machine",
+              "value_sql": "SELECT code FROM plant.machines ORDER BY installed_year LIMIT 1"
+            },
+            {
+              "label": "Installed",
+              "value_sql": "SELECT MIN(installed_year) FROM plant.machines"
+            },
+            {
+              "label": "Its downtime hours",
+              "value_sql": "SELECT ROUND(MAX(x.h), 1) FROM (SELECT SUM(minutes) / 60.0 AS h FROM maintenance.stoppages WHERE NOT planned GROUP BY machine_id) x"
+            }
+          ]
+        },
+        {
+          "position": 6,
+          "is_suggested": false,
+          "question": "How has production trended over the year?",
+          "answer_markdown": "**Planned and good side by side, month by month.** The distance between the two curves is the yield, and that's where you see whether the improvement actions did anything.\n\nVolume alone misleads: a good month in units can be a bad month in yield, and it's the second one that repeats.",
+          "citations": [
+            {
+              "table": "production.orders"
+            }
+          ],
+          "executed_sql": "SELECT DATE_TRUNC('month', o.produced_on)::date AS month,\n       SUM(o.planned_units) AS planned,\n       SUM(o.good_units) AS good,\n       ROUND(100.0 * SUM(o.good_units) / NULLIF(SUM(o.planned_units), 0), 1) AS yield_pct\nFROM production.orders o\nGROUP BY 1 ORDER BY 1",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Overall yield",
+              "value_sql": "SELECT ROUND(100.0 * SUM(good_units) / NULLIF(SUM(planned_units), 0), 1) FROM production.orders",
+              "format": "pct"
+            },
+            {
+              "label": "Good units",
+              "value_sql": "SELECT SUM(good_units) FROM production.orders"
+            },
+            {
+              "label": "Units scrapped",
+              "value_sql": "SELECT COALESCE(SUM(units), 0) FROM quality.scrap"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

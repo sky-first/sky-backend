@@ -11,10 +11,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_current_user, get_db_session
 from src.core.exceptions import ForbiddenError
 from src.models.user import User
 from src.schemas.glossary import GlossaryTermCreate, GlossaryTermResponse, GlossaryTermUpdate
+from src.schemas.knowledge_suggest import GlossarySuggestionRead, GlossarySuggestionsResponse
+from src.services.connection_knowledge_suggest_service import derive_suggestions
+from src.services.connection_service import ConnectionService
 from src.services.glossary_service import GlossaryService
 from src.services.rbac_service import RBACService
 
@@ -35,7 +38,7 @@ router = APIRouter()
 
 
 async def get_glossary_service(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ) -> GlossaryService:
     return GlossaryService(db)
 
@@ -47,14 +50,14 @@ async def list_glossary(
     mine: bool = Query(False, description="Only list terms owned by the caller (personal scope)."),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     await RBACService(db).assert_permission(current_user, "connections.view")
     # Pass the caller identity + platform role so the service can fall
     # back to a tenant-safe default scope ("only terms in spaces I am a
     # member of, plus my own") when the FE doesn't pin space_id/crew_id.
     # Platform Owner / Admin bypass the filter (legacy global view).
-    is_platform_admin = (current_user.role or "").lower() in ("owner", "admin")
+    is_platform_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
     return await service.list_terms(
         space_id=space_id,
         crew_id=crew_id,
@@ -71,7 +74,7 @@ async def create_glossary(
     crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     _assert_not_personal(space_id, crew_id)
     await RBACService(db).assert_permission(current_user, "connections.edit")
@@ -83,6 +86,40 @@ async def create_glossary(
     )
 
 
+@router.post(
+    "/suggest-from-connection/{connection_id}",
+    response_model=GlossarySuggestionsResponse,
+)
+async def suggest_glossary_from_connection(
+    connection_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """First-setup glossary derived faithfully from real schema.
+
+    Reads the connection's already-discovered metadata (tables, columns,
+    descriptions) and proposes one term per real table plus one per
+    *documented* column. Definitions reuse the source's real description
+    when present, otherwise a minimal neutral sentence built from the
+    table name — never an invented business meaning. Each suggestion
+    carries provenance and is flagged ``source="auto"`` / unreviewed.
+
+    Read-only: nothing is persisted. The FE curates and POSTs the kept
+    terms through the normal create path. Empty / undiscovered connection
+    → empty list (no fabrication).
+    """
+    await RBACService(db).assert_permission(current_user, "connections.view")
+
+    # get_metadata performs the connection access check and returns the
+    # same validated TableMetadataSchema objects the rest of the app uses.
+    metadata = await ConnectionService(db).get_metadata(connection_id, current_user)
+    derived = derive_suggestions(metadata.tables or [])
+    return GlossarySuggestionsResponse(
+        connection_id=str(connection_id),
+        suggestions=[GlossarySuggestionRead.model_validate(s) for s in derived.glossary],
+    )
+
+
 @router.get("/{term_id}", response_model=GlossaryTermResponse)
 async def get_glossary_term(
     term_id: UUID,
@@ -90,7 +127,7 @@ async def get_glossary_term(
     crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     await RBACService(db).assert_permission(current_user, "connections.view")
     return await service.get_term(term_id, space_id=space_id, crew_id=crew_id)
@@ -104,7 +141,7 @@ async def update_glossary_term(
     crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     _assert_not_personal(space_id, crew_id)
     await RBACService(db).assert_permission(current_user, "connections.edit")
@@ -118,7 +155,7 @@ async def delete_glossary_term(
     crew_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     _assert_not_personal(space_id, crew_id)
     await RBACService(db).assert_permission(current_user, "connections.edit")

@@ -4,8 +4,8 @@ import asyncio
 import json
 import logging
 import re
+from datetime import date, datetime, timezone
 from decimal import Decimal
-from datetime import datetime, date, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -15,7 +15,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_current_user, get_db_session
+from src.core.locale import DEFAULT_LOCALE, get_message, normalize_locale
 from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.user import User
 
@@ -31,7 +32,7 @@ def _extract_tables_from_sql(sql: str) -> List[str]:
     if not sql:
         return []
     matches = re.findall(
-        r'\b(?:FROM|JOIN)\s+((?:\w+\.)?\w+)',
+        r"\b(?:FROM|JOIN)\s+((?:\w+\.)?\w+)",
         sql,
         re.IGNORECASE,
     )
@@ -46,12 +47,15 @@ def _extract_tables_from_sql(sql: str) -> List[str]:
 
 
 from src.schemas.agent import (
+    AddFindingToPageRequest,
+    AddFindingToPageResponse,
     AgentCreate,
     AgentFindingResponse,
     AgentListResponse,
     AgentResponse,
     AgentUpdate,
 )
+from src.services import pricing_service
 from src.services.agent_service import AgentService
 from src.services.rbac_service import RBACService
 
@@ -71,7 +75,7 @@ def _sanitize_json(obj: Any) -> Any:
     return obj
 
 
-async def get_agent_service(db: AsyncSession = Depends(get_db)) -> AgentService:
+async def get_agent_service(db: AsyncSession = Depends(get_db_session)) -> AgentService:
     return AgentService(db)
 
 
@@ -100,7 +104,7 @@ async def _assert_can_act_on_agent_scope(
 
     if scope_lower == "personal":
         platform = (user.role or "").lower()
-        if platform in ("owner", "admin"):
+        if platform in ("owner", "admin", "super_admin"):
             return
         try:
             owner_id = UUID(str(scope_id))
@@ -125,6 +129,31 @@ async def _assert_can_act_on_agent_scope(
     await RBACService(db).assert_permission(user, permission, space_id=s_id)
 
 
+async def _is_content_member(db: AsyncSession, user: User, scope, scope_id) -> bool:
+    """Option B: is ``user`` a real member entitled to an agent's CONTENT
+    (findings/insights)? No platform-role bypass. crew → crew membership;
+    space → space or any-crew-in-space membership; personal → the creator.
+    """
+    sc = (scope or "").lower()
+    if not scope_id:
+        return sc == "personal"  # malformed scoped agent — treat as private
+    from src.services.authorization import Authorization
+
+    authz = Authorization(db)
+    try:
+        sid = UUID(str(scope_id))
+    except (ValueError, TypeError):
+        return False
+    if sc == "crew":
+        return await authz.get_crew_role(user.id, sid) is not None
+    if sc == "space":
+        if await authz.get_space_role(user.id, sid) is not None:
+            return True
+        return await authz.get_best_crew_role_in_space(user.id, sid) is not None
+    # personal / organization — handled by the caller (creator check).
+    return False
+
+
 @router.get("/", response_model=List[AgentListResponse])
 async def list_agents(
     scope: Optional[str] = Query(
@@ -132,7 +161,7 @@ async def list_agents(
     ),
     scope_id: Optional[str] = Query(None, description="Filter by scope entity ID"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """List agents. Filter by scope/scope_id or get all accessible agents."""
@@ -161,7 +190,7 @@ async def list_agents(
     # unfiltered path for them. Scoped requests (space / crew) keep
     # the existing access-checked behaviour because the scope filter
     # itself constrains the visibility set.
-    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
     if not scope and not is_org_admin:
         return await service.list_agents(scope=None, scope_id=None, created_by=current_user.id)
     return await service.list_agents(scope=scope, scope_id=scope_id, created_by=None)
@@ -171,7 +200,7 @@ async def list_agents(
 async def create_agent(
     data: AgentCreate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Create a new agent.
@@ -181,14 +210,49 @@ async def create_agent(
     Space agents. ``_assert_can_act_on_agent_scope`` enforces the
     "owner-or-platform-admin" rule for personal scope and the standard
     Space-RBAC for collaborative scopes.
+
+    For personal scope, the route used to compare the posted scope_id
+    to the caller's id and 403 on mismatch — but the FE wizard in modo
+    PERSONAL frequently posts an empty / placeholder value, which
+    blocked users from ever creating a personal agent. The route now
+    short-circuits the RBAC check for personal scope (it implicitly
+    targets the current user) and the service normalises scope_id
+    back to user.id before the row is written.
     """
-    await _assert_can_act_on_agent_scope(
-        db,
-        current_user,
-        scope=data.scope,
-        scope_id=data.scope_id,
-        permission="agents.create",
-    )
+    scope_str = (
+        data.scope.value if hasattr(data.scope, "value") else str(data.scope or "")
+    ).lower()
+
+    # Space→Crew security boundary (2026-06): agents are ALWAYS created at
+    # the crew level, never on a bare space. A space-scoped agent would run
+    # over the union of the space's crews' tables; the new model requires an
+    # explicit crew so its data surface is the one the operator granted.
+    # Personal / crew / organization scopes are still allowed. Gated by the
+    # same flag as the query guard so FE + BE roll out together.
+    from src.config.settings import settings as _crew_settings
+
+    if _crew_settings.CREW_REQUIRED_FOR_QUERY and scope_str == "space":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Agents must be created at the crew level, not the space level. "
+                "Select a crew — every space has a default 'General' crew."
+            ),
+        )
+
+    if scope_str != "personal":
+        if not data.scope_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"scope_id is required when scope={scope_str!r}",
+            )
+        await _assert_can_act_on_agent_scope(
+            db,
+            current_user,
+            scope=data.scope,
+            scope_id=data.scope_id,
+            permission="agents.create",
+        )
 
     # Demo guard: limit how many agents each user can create so token
     # consumption stays bounded. Platform owners/admins are exempt.
@@ -196,9 +260,11 @@ async def create_agent(
 
     _max = _settings.DEMO_MAX_AGENTS_PER_USER if _settings.DEMO_ENABLED else 0
     _role = (current_user.role or "").lower()
-    if _max > 0 and _role not in ("owner", "admin"):
+    if _max > 0 and _role not in ("owner", "admin", "super_admin"):
         _count_result = await db.execute(
-            select(func.count()).select_from(Agent).where(
+            select(func.count())
+            .select_from(Agent)
+            .where(
                 Agent.created_by == current_user.id,
             )
         )
@@ -212,17 +278,26 @@ async def create_agent(
                 ),
             )
 
-    return await service.create_agent(data, user_id=current_user.id)
+    # Pricing Fase 1 — tier enforcement. Raises TierLimitExceededError
+    # (HTTP 402) BEFORE the agent row is created so we don't have to
+    # clean up on the way out. The counter bump happens after the
+    # service confirms the insert; if anything between here and the
+    # bump fails, the row is gone (transaction rollback) and the
+    # counter stays consistent.
+    await pricing_service.check_can_create_agent(db)
+    agent = await service.create_agent(data, user_id=current_user.id)
+    await pricing_service.record_agent_created(db)
+    return agent
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
-    """Get agent detail with findings."""
+    """Get agent detail. Findings (content) are included only for members."""
     agent = await service.get_agent(agent_id)
     await _assert_can_act_on_agent_scope(
         db,
@@ -231,6 +306,20 @@ async def get_agent(
         scope_id=agent.scope_id,
         permission="agents.view",
     )
+    # Option B (2026-06): findings are CONTENT. The scope check above lets a
+    # platform admin SEE the agent (management plane), but its insights
+    # require real membership — strip findings for non-members so an admin
+    # who was not added to the crew sees the agent exists, not its insights.
+    sc = (agent.scope or "").lower()
+    if sc in ("personal", "organization"):
+        is_member = agent.created_by == current_user.id
+    else:
+        is_member = await _is_content_member(db, current_user, agent.scope, agent.scope_id)
+    if not is_member:
+        agent.findings = []
+        # Transient flag read by AgentResponse (from_attributes) so the UI can
+        # show an "ask to be added" mask rather than an empty insights tab.
+        agent.findings_restricted = True
     return agent
 
 
@@ -239,7 +328,7 @@ async def update_agent(
     agent_id: UUID,
     data: AgentUpdate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Update agent configuration."""
@@ -258,7 +347,7 @@ async def update_agent(
 async def delete_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Delete an agent and all its findings."""
@@ -271,6 +360,10 @@ async def delete_agent(
         permission="agents.delete",
     )
     await service.delete_agent(agent_id, current_user)
+    # Release the tier slot — mirror of record_agent_created in POST /. The
+    # counter is decremented only after the delete commits; _bump_counter
+    # clamps at 0 so this can never underflow.
+    await pricing_service.record_agent_deleted(db)
     return None
 
 
@@ -278,7 +371,7 @@ async def delete_agent(
 async def pause_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Pause an active agent."""
@@ -297,7 +390,7 @@ async def pause_agent(
 async def resume_agent(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Resume a paused agent."""
@@ -316,11 +409,13 @@ async def resume_agent(
 async def run_agent_now(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Trigger an immediate execution of the agent."""
     import logging
+
     from sqlalchemy import select
+
     from src.models.agent import Agent
 
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
@@ -353,7 +448,7 @@ async def run_agent_now(
 async def run_agent_stream(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Execute an agent with SSE streaming — shows live progress as AI analyzes data.
@@ -425,7 +520,10 @@ async def run_agent_stream(
                 conn_id = await _ai_svc._get_first_active_connection(current_user.id)
 
         if not conn_id and monitor_type != "context":
-            yield f"data: {json.dumps({'type': 'error', 'message': 'No data source available. Add a connection in the Edit tab, or switch to Full context mode.'})}\n\n"
+            _err_locale = normalize_locale(
+                (current_user.preferences or {}).get("language", DEFAULT_LOCALE)
+            )
+            yield f"data: {json.dumps({'type': 'error', 'message': get_message('no_data_source_agent', _err_locale)})}\n\n"
             return
 
         # `focus` is the agent's objective/instructions, not a SQL question.
@@ -546,9 +644,47 @@ async def run_agent_stream(
                 current_user.id, str(agent.scope_id)
             )
 
+        # Resolve the REAL owning space for the metadata lookup. The AI filters
+        # table_metadata by space_id; sending the raw scope_id is wrong for crew
+        # (scope_id is a crew id) and personal (scope_id is a user id), which
+        # caused a false "No metadata found" 404. See resolve_metadata_space_id.
+        from src.services.agent_service import resolve_metadata_space_id
+
+        effective_space_id = await resolve_metadata_space_id(db, agent, conn_id)
+
+        # Control-plane authorization: the backend resolves which tables this run
+        # may see and forwards the list, so the AI never receives tables outside
+        # the user's grant (same model as the chat). Personal mode expands to ALL
+        # the user's crews — mirroring the personal-mode chat — while space/crew
+        # use the already-resolved crews. Fail-closed on error.
+        authorized_tables: Optional[List[str]] = None
+        if conn_id:
+            try:
+                from src.services.permission_service import PermissionService
+
+                if is_personal:
+                    from src.services.ai_service import AIService as _AIServicePerms
+
+                    _perm_crew_ids = await _AIServicePerms(db)._get_user_crew_ids(
+                        current_user.id, None, all_spaces=True
+                    )
+                else:
+                    _perm_crew_ids = resolved_crew_ids
+                authorized_tables = await PermissionService(db).get_authorized_tables(
+                    current_user.id,
+                    UUID(conn_id),
+                    space_id=UUID(effective_space_id) if effective_space_id else None,
+                    crew_ids=[UUID(c) for c in _perm_crew_ids] if _perm_crew_ids else None,
+                    is_personal=is_personal,
+                )
+            except Exception as e:  # noqa: BLE001 — fail closed
+                logger.warning(f"Could not resolve authorized tables for agent {agent.id}: {e}")
+                authorized_tables = []
+
         # ── Normal single-query path ───────────────────────────────────────────
         try:
             table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
+
             # table_ids are stored as "connectionId::schema.tableName" from the frontend.
             # The orchestrator matches by logical/physical name only (e.g. "accounts"),
             # so strip the "connId::" prefix and the "schema." prefix.
@@ -557,23 +693,27 @@ async def run_agent_stream(
                 return name.rsplit(".", 1)[-1] if "." in name else name
 
             table_names: Optional[List[str]] = (
-                [_extract_table_name(tid) for tid in table_ids]
-                if table_ids else None
+                [_extract_table_name(tid) for tid in table_ids] if table_ids else None
             ) or None
             effective_datasets = sql_table_hints or table_names
+            _agent_locale = normalize_locale(
+                (current_user.preferences or {}).get("language", DEFAULT_LOCALE)
+            )
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
                 question=question,
                 user_id=str(current_user.id),
-                space_id=agent.scope_id or "default",
+                space_id=effective_space_id or agent.scope_id or "default",
                 instructions=agent_instructions,
                 is_personal=is_personal,
                 selected_context=selected_ctx,
                 crew_ids=resolved_crew_ids or None,
+                authorized_tables=authorized_tables,
                 agent_mode=monitor_type,
                 connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
                 selected_datasets=effective_datasets,
                 sql_instructions=sql_instructions,
+                locale=_agent_locale,
             ):
                 # Forward SSE lines — they come as "data: {...}" from AI service
                 if line.startswith("data: "):
@@ -740,7 +880,7 @@ async def list_all_insights(
     include_dismissed: bool = Query(False),
     limit: int = Query(50),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """List all insights across all agents, optionally filtered by scope.
 
@@ -753,47 +893,116 @@ async def list_all_insights(
     await RBACService(db).assert_permission(current_user, "agents.findings.view")
     from sqlalchemy.orm import selectinload
 
-    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
-
     query = select(Agent)
     if scope:
         query = query.where(Agent.scope == scope)
     if scope_id:
         query = query.where(Agent.scope_id == scope_id)
 
-    if not is_org_admin and not (scope and scope_id):
-        # No explicit scope and not an org admin — restrict to:
-        #   (a) personal agents created by this user, OR
-        #   (b) Space agents in Spaces the user is a member of.
-        from src.models.space import SpaceMember
-        from sqlalchemy import or_, and_
+    # Option B (2026-06): agent findings are CONTENT — even org admins only
+    # see findings from agents they own or whose Space/Crew they belong to
+    # (no platform-role bypass). A crew member sees their crew-agents'
+    # findings; a non-member admin sees a count via the agents list but NOT
+    # the insights here.
+    from sqlalchemy import and_, or_
 
-        member_q = await db.execute(
-            select(SpaceMember.space_id).where(SpaceMember.user_id == current_user.id)
-        )
-        member_space_ids = [str(sid) for sid in member_q.scalars().all()]
-        clauses = [Agent.created_by == current_user.id]
-        if member_space_ids:
-            clauses.append(
-                and_(
-                    Agent.scope == "space",
-                    Agent.scope_id.in_(member_space_ids),
-                )
+    from src.models.crew import CrewMember
+    from src.models.space import SpaceMember
+
+    member_space_ids = [
+        str(sid)
+        for sid in (
+            await db.execute(
+                select(SpaceMember.space_id).where(SpaceMember.user_id == current_user.id)
             )
-        query = query.where(or_(*clauses))
+        ).scalars().all()
+    ]
+    member_crew_ids = [
+        str(cid)
+        for cid in (
+            await db.execute(
+                select(CrewMember.crew_id).where(CrewMember.user_id == current_user.id)
+            )
+        ).scalars().all()
+    ]
+    clauses = [Agent.created_by == current_user.id]
+    if member_space_ids:
+        clauses.append(and_(Agent.scope == "space", Agent.scope_id.in_(member_space_ids)))
+    if member_crew_ids:
+        clauses.append(and_(Agent.scope == "crew", Agent.scope_id.in_(member_crew_ids)))
+    query = query.where(or_(*clauses))
 
     result = await db.execute(query.options(selectinload(Agent.findings)))
     agents = result.scalars().all()
 
-    all_findings: list = []
+    # Keep the finding paired with its agent so we can stamp the origin
+    # (agent name + scope + space/page) onto each response below. The global
+    # Pulse feed needs this to badge "space › crew › page" and deep-link.
+    pairs: list = []
     for agent in agents:
         for f in agent.findings or []:
             if not include_dismissed and f.dismissed:
                 continue
-            all_findings.append(f)
+            pairs.append((f, agent))
 
-    all_findings.sort(key=lambda f: f.created_at or "", reverse=True)
-    return all_findings[:limit]
+    pairs.sort(key=lambda p: p[0].created_at or "", reverse=True)
+    pairs = pairs[:limit]
+
+    # Batch-resolve crew → space and page names for just the limited set
+    # (one extra query each, only when there's something to resolve).
+    from src.models.crew import Crew
+    from src.models.page import Page
+    from src.models.space import Space
+
+    crew_ids = {
+        str(a.scope_id)
+        for _, a in pairs
+        if (a.scope or "").lower() == "crew" and a.scope_id
+    }
+    page_ids = {str(f.added_to_page_id) for f, _ in pairs if f.added_to_page_id}
+
+    crew_to_space: dict[str, tuple[Optional[str], Optional[str]]] = {}
+    if crew_ids:
+        rows = (
+            await db.execute(
+                select(Crew.id, Crew.space_id, Space.name)
+                .join(Space, Space.id == Crew.space_id, isouter=True)
+                .where(Crew.id.in_([UUID(c) for c in crew_ids]))
+            )
+        ).all()
+        for cid, sid, sname in rows:
+            crew_to_space[str(cid)] = (str(sid) if sid else None, sname)
+
+    page_names: dict[str, str] = {}
+    if page_ids:
+        rows = (
+            await db.execute(
+                select(Page.id, Page.name).where(Page.id.in_([UUID(p) for p in page_ids]))
+            )
+        ).all()
+        page_names = {str(pid): pname for pid, pname in rows}
+
+    responses: list[AgentFindingResponse] = []
+    for f, agent in pairs:
+        resp = AgentFindingResponse.model_validate(f)
+        scope_lower = (agent.scope or "").lower()
+        resp.agent_name = agent.name
+        resp.scope = agent.scope
+        resp.scope_id = str(agent.scope_id) if agent.scope_id else None
+        resp.scope_name = agent.scope_name
+        if scope_lower == "crew" and agent.scope_id:
+            sid, sname = crew_to_space.get(str(agent.scope_id), (None, None))
+            resp.space_id = sid
+            resp.space_name = sname
+        elif scope_lower == "space" and agent.scope_id:
+            resp.space_id = str(agent.scope_id)
+            resp.space_name = agent.scope_name
+        if f.added_to_page_id:
+            resp.page_id = f.added_to_page_id
+            resp.page_name = page_names.get(str(f.added_to_page_id))
+        responses.append(resp)
+
+    return responses
 
 
 @router.get("/{agent_id}/findings", response_model=List[AgentFindingResponse])
@@ -801,11 +1010,36 @@ async def list_findings(
     agent_id: UUID,
     include_dismissed: bool = Query(False),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """List findings for an agent."""
     await RBACService(db).assert_permission(current_user, "agents.findings.view")
+    # Content gate (Option B): a crew/space-scoped agent's findings require
+    # membership of that crew/space — no platform-role bypass. Personal
+    # agents: only the creator.
+    agent_row = (
+        await db.execute(select(Agent).where(Agent.id == agent_id))
+    ).scalar_one_or_none()
+    if agent_row is not None:
+        scope_str = (agent_row.scope or "").lower()
+        scope_id_val = agent_row.scope_id
+        if scope_str == "crew" and scope_id_val:
+            from src.services.authorization import Authorization
+
+            await Authorization(db).assert_content_access(
+                current_user, crew_id=UUID(str(scope_id_val))
+            )
+        elif scope_str == "space" and scope_id_val:
+            from src.services.authorization import Authorization
+
+            await Authorization(db).assert_content_access(
+                current_user, space_id=UUID(str(scope_id_val))
+            )
+        elif scope_str == "personal" and agent_row.created_by != current_user.id:
+            from src.core.exceptions import ForbiddenError
+
+            raise ForbiddenError("You cannot view this agent's findings.")
     return await service.list_findings(agent_id, include_dismissed=include_dismissed)
 
 
@@ -813,7 +1047,7 @@ async def list_findings(
 async def get_agent_metrics(
     agent_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Per-agent usage metrics.
 
@@ -849,7 +1083,7 @@ async def get_agent_metrics(
     # for personal agents (matching ``scope_id`` against the caller),
     # but the legacy ``created_by`` IDOR guard stays as a second layer
     # in case a personal agent ever lands with a stale ``scope_id``.
-    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
     if (
         agent_pre.scope == "personal"
         and not is_org_admin
@@ -858,6 +1092,7 @@ async def get_agent_metrics(
         raise HTTPException(status_code=403, detail="Not allowed for this agent")
     import json
     from datetime import datetime, timezone
+
     from src.models.agent import AgentExecution
 
     exec_q = await db.execute(select(AgentExecution).where(AgentExecution.agent_id == agent_id))
@@ -949,7 +1184,7 @@ async def get_agent_metrics(
 @router.get("/metrics/summary")
 async def get_tenant_agent_metrics(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Tenant-level roll-up for Settings → Usage & Metrics.
 
@@ -968,13 +1203,15 @@ async def get_tenant_agent_metrics(
     """
     await RBACService(db).assert_permission(current_user, "metrics.view")
     from datetime import datetime, timezone
+
     from src.models.agent import AgentExecution
 
-    is_org_admin = (current_user.role or "").lower() in ("owner", "admin")
+    is_org_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
     agent_query = select(Agent)
     if not is_org_admin:
+        from sqlalchemy import and_, or_
+
         from src.models.space import SpaceMember
-        from sqlalchemy import or_, and_
 
         member_q = await db.execute(
             select(SpaceMember.space_id).where(SpaceMember.user_id == current_user.id)
@@ -1043,9 +1280,56 @@ async def dismiss_finding(
     agent_id: UUID,
     finding_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
     """Dismiss a finding."""
     await RBACService(db).assert_permission(current_user, "agents.findings.dismiss")
     return await service.dismiss_finding(finding_id)
+
+
+@router.post(
+    "/{agent_id}/findings/{finding_id}/add-to-page",
+    response_model=AddFindingToPageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_finding_to_page(
+    agent_id: UUID,
+    finding_id: UUID,
+    payload: AddFindingToPageRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    service: AgentService = Depends(get_agent_service),
+):
+    """Materialise an agent finding as a Widget on the target page.
+
+    Before this endpoint existed the FE "Add to page" CTA fell back to
+    the generic POST /widgets endpoint with type='text', so charts and
+    KPIs were lost — only the description ended up on the page. This
+    endpoint reads the finding's viz_kind + rows and builds a typed
+    Widget (chart / kpi / table / insight) so the canvas renders the
+    same visualisation the user saw in the Cockpit. The agent's first
+    connection is propagated so the widget can refresh later.
+    """
+    # Permission: the caller must be allowed to act on the agent (so a
+    # crew/space agent can be added to a page by any member) and must
+    # be the page owner / member. We reuse the existing helpers rather
+    # than open-coding ACL here.
+    agent = await service.get_agent(agent_id)
+    await _assert_can_act_on_agent_scope(
+        db,
+        current_user,
+        scope=getattr(agent, "scope", None),
+        scope_id=getattr(agent, "scope_id", None),
+        permission="agents.findings.view",
+    )
+
+    result = await service.add_finding_to_page(
+        agent_id=agent_id,
+        finding_id=finding_id,
+        page_id=payload.page_id,
+        user=current_user,
+        position=payload.position,
+        size=payload.size,
+    )
+    return AddFindingToPageResponse(**result)

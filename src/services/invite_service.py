@@ -8,13 +8,35 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.settings import settings
 from src.core.exceptions import BadRequestError, UnauthorizedError
 from src.core.security import create_access_token, create_refresh_token, get_password_hash
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
+from src.services.email_service import EmailService
 from src.services.onboarding_service import ensure_default_page_and_space
 
 logger = logging.getLogger(__name__)
+
+
+def request_base_url(request) -> Optional[str]:
+    """Return ``scheme://host`` for the incoming request.
+
+    Honours the ingress-forwarded scheme: the nginx ingress terminates
+    TLS, so ``request.url.scheme`` is plain ``http`` inside the cluster
+    while the public URL is ``https``. ``X-Forwarded-Proto`` carries the
+    real scheme. The ``Host`` header is the tenant's own domain
+    (``<slug>-stg.skyfirstlabs.com``), preserved end-to-end through the
+    ExternalName service. Returns ``None`` when no Host header is present
+    (callers then fall back to the platform origin).
+    """
+    try:
+        forwarded = request.headers.get("x-forwarded-proto")
+        scheme = forwarded.split(",")[0].strip() if forwarded else request.url.scheme
+        host = request.headers.get("host")
+        return f"{scheme}://{host}" if host else None
+    except Exception:  # pragma: no cover — never block invite on URL parsing
+        return None
 
 
 class InviteService:
@@ -59,7 +81,9 @@ class InviteService:
         email: str,
         expires_days: int = 7,
         name: Optional[str] = None,
-    ) -> str:
+        role: str = "member",
+        base_url: Optional[str] = None,
+    ) -> tuple[str, bool]:
         """
         Create an invite for a new user.
 
@@ -68,9 +92,12 @@ class InviteService:
             email: Email of the user to invite
             expires_days: Number of days until invite expires (default: 7)
             name: Optional name for the invited user
+            role: Tenant role for the invited user (default: "member")
 
         Returns:
-            str: Generated invite token
+            tuple[str, bool]: (invite token, email_sent). ``email_sent`` is
+            False when delivery failed (e.g. SES sandbox rejected an
+            unverified recipient) so the caller can warn the operator.
 
         Raises:
             BadRequestError: If email already exists or is invalid
@@ -86,26 +113,95 @@ class InviteService:
         # Calculate expiration date
         expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
 
-        # Create user record with invite token (user will complete registration later)
-        # We create a "pending" user with invite_token set
-        password_hash = get_password_hash(secrets.token_urlsafe(32))  # Temporary password
-
-        user = await self.user_repo.create(
-            email=email,
-            password_hash=password_hash,
-            name=name or email.split("@")[0],
-            role="user",
-            invite_token=token,
-            invite_expires_at=expires_at,
-            invited_by=invited_by.id,
-            email_verified=False,  # Will be verified when they complete registration
-        )
+        # A soft-deleted row with this email blocks a plain INSERT: the
+        # ``users.email`` unique constraint ignores ``deleted_at``, so
+        # re-inviting a previously-removed address used to 500 on a
+        # UniqueViolation (the active-user check above filters
+        # ``deleted_at IS NULL`` and never sees it). Revive the existing
+        # row in place instead of inserting a duplicate.
+        #
+        # This is intentionally different from the SSO callback
+        # (``auth0_service``), which refuses to auto-restore a
+        # soft-deleted user. There the *user themselves* is signing in,
+        # so silent restore would let a deactivated account bypass admin
+        # intent. Here an *admin* is explicitly re-inviting the address —
+        # that action IS the intent to re-grant access.
+        soft_deleted = await self.user_repo.get_by_email_including_deleted(email)
+        if soft_deleted is not None and soft_deleted.deleted_at is not None:
+            soft_deleted.deleted_at = None
+            soft_deleted.password_hash = get_password_hash(secrets.token_urlsafe(32))
+            soft_deleted.name = name or soft_deleted.name or email.split("@")[0]
+            soft_deleted.role = role
+            soft_deleted.invite_token = token
+            soft_deleted.invite_expires_at = expires_at
+            soft_deleted.invited_by = invited_by.id
+            soft_deleted.email_verified = False
+            soft_deleted.email_verified_at = None
+            soft_deleted.status = "offline"
+            user = soft_deleted
+            logger.info(f"♻️ Revived soft-deleted invite for {email}")
+        else:
+            # Create a fresh "pending" user with the invite token set;
+            # they complete registration (set password) via the link.
+            password_hash = get_password_hash(secrets.token_urlsafe(32))  # Temporary password
+            user = await self.user_repo.create(
+                email=email,
+                password_hash=password_hash,
+                name=name or email.split("@")[0],
+                role=role,
+                invite_token=token,
+                invite_expires_at=expires_at,
+                invited_by=invited_by.id,
+                email_verified=False,  # Will be verified when they complete registration
+            )
 
         await self.db.commit()
         await self.db.refresh(user)
 
         logger.info(f"✅ Created invite for {email}, token expires at {expires_at}")
-        return token
+
+        # Send invitation email — best-effort. Failure here must not 500
+        # the create_invite call: the token is already minted and the row
+        # already persisted; the admin can re-send via
+        # ``POST /users/{id}/invite`` if delivery fails. EmailService
+        # silently falls back to ``[MOCK EMAIL]`` logging when SMTP_HOST
+        # is unset (e.g. local dev) so this is also safe outside prod.
+        email_sent = False
+        try:
+            # Build the accept-invite link on the SAME host the request
+            # arrived on (``base_url`` — the tenant's own domain, e.g.
+            # https://gbtsolutions-stg.skyfirstlabs.com). This is what
+            # makes the invitee land on the tenant front-end AND lets the
+            # token validate against the tenant DB. Falling back to the
+            # platform CORS origin (sky-stg) would send the invitee to the
+            # wrong host and 404 the token ("Invalid invite token").
+            # The CORS fallback is kept only for non-request callers
+            # (scripts/tests) where ``base_url`` is unset.
+            frontend_url = base_url
+            if not frontend_url and getattr(settings, "CORS_ORIGINS", None):
+                frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
+            if not frontend_url:
+                frontend_url = "http://localhost:3000"
+            invite_link = f"{frontend_url.rstrip('/')}/auth/accept-invite?token={token}"
+            email_service = EmailService()
+            # workspace_name is derived from the tenant context inside
+            # send_invite_email, so the email is branded with the tenant's
+            # display_name rather than the platform APP_NAME.
+            #
+            # send_invite_email returns False when delivery fails — most
+            # notably under the AWS SES sandbox, which rejects any recipient
+            # that is not a verified identity. We surface that up so the
+            # caller can warn the operator ("invite created, email not
+            # delivered") instead of silently implying success. In mock mode
+            # (SMTP_HOST unset) it returns True, so local dev is unaffected.
+            email_sent = bool(
+                email_service.send_invite_email(email, invite_link, invited_by.name)
+            )
+        except Exception:  # pragma: no cover — guard against SMTP outage
+            logger.exception("Failed to send invite email to %s", email)
+            email_sent = False
+
+        return token, email_sent
 
     async def validate_invite_token(self, token: str) -> dict:
         """

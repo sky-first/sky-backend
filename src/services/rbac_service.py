@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ForbiddenError
+from src.core.permissions import TENANT_ADMIN_ROLES, is_tenant_admin
 from src.models.space import SpaceMember
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
@@ -44,8 +45,39 @@ async def _is_sky_operator_without_jit(user: User, db: AsyncSession) -> bool:
 
     Checks the `support_sessions` table for an active (non-revoked, non-expired)
     session for this operator. If none found, they are blocked.
+
+    The JIT-consent gate only makes sense in multi-tenant mode. When
+    ``MULTI_TENANT_ENABLED`` is False the deployment is the Sky
+    platform itself (single tenant); operators are accessing their own
+    data, not a customer's, so requiring break-glass consent is just
+    self-imposed lock-out. The flip side is also implemented below:
+    once we route multi-tenant traffic, an operator accessing their
+    *home* tenant (the Sky platform DB itself) skips the gate too —
+    only cross-tenant access (debugging a customer's space) requires a
+    fresh ``support_sessions`` row.
     """
     if not getattr(user, "is_sky_operator", False):
+        return False
+
+    # Single-tenant deployment — JIT consent is not applicable. The
+    # operator IS the platform; there is no customer to revoke from.
+    from src.config.settings import settings
+
+    if not settings.MULTI_TENANT_ENABLED:
+        return False
+
+    # Home-tenant access skips the gate too. A Sky operator working on
+    # the platform's own default context (e.g. the platform host
+    # sky-stg.skyfirstlabs.com, which tenant_resolver maps to the
+    # default context via its reserved-slug bypass) is on home turf —
+    # there is no customer to break-glass into. Only *cross-tenant*
+    # access (debugging a real customer's tenant DB) requires a fresh
+    # support_sessions row. This realises the intent documented in this
+    # function's docstring, which the multi-tenant path had not yet
+    # implemented — operators were being denied even on the platform.
+    from src.core.tenant_context import current_tenant
+
+    if current_tenant().is_default:
         return False
 
     # Check for active JIT session in the database
@@ -773,16 +805,25 @@ class RBACService:
                 permissions={},
             )
 
-        # Customer Owners and Admins bypass crew-level checks. This is the
-        # temporary behavior — the Sky Support JIT migration replaces this
-        # with the consent flow. Until then, log the bypass so operators can
-        # audit post-hoc via application logs.
+        # Customer SuperAdmins and Admins bypass crew-level checks. This is
+        # the temporary behavior — the Sky Support JIT migration replaces
+        # this with the consent flow. Until then, log the bypass so operators
+        # can audit post-hoc via application logs.
         #
-        # Owner vs Admin: Owner is the tenant founder (single seat). Owner
-        # passes EVERY permission, including tenant.delete / billing.manage /
-        # tenant.transfer_ownership. Admin passes everything EXCEPT those
-        # three — see assert_permission for the enforcement-time split.
-        if user.role in ("admin", "owner"):
+        # SuperAdmin vs Admin: SuperAdmin is the tenant founder (single seat).
+        # SuperAdmin passes EVERY permission, including tenant.delete,
+        # billing.manage and tenant.transfer_ownership. Admin passes
+        # everything EXCEPT those three — see assert_permission for the
+        # enforcement-time split.
+        #
+        # Tenant-level admins (super_admin + admin) bypass the granular
+        # crew/space matrix. The DB migration ``rename_role_20260603``
+        # already swapped any legacy ``owner`` tenant rows to
+        # ``super_admin``; this code path no longer needs to recognise
+        # ``owner`` at the tenant level (owner is now a Space/Crew/Page
+        # membership role only).
+        SUPER_ADMIN_ROLES = ("super_admin",)
+        if is_tenant_admin(user):
             logger.info(
                 "rbac.admin_bypass.effective_permissions user_id=%s role=%s crew_id=%s space_id=%s connection_id=%s",
                 getattr(user, "id", None),
@@ -795,10 +836,10 @@ class RBACService:
             merged = {}
             for role_map in DEFAULT_ROLE_PERMISSIONS.values():
                 merged.update({k: True for k in role_map.keys()})
-            # Owner-exclusive perms must be included when the role is owner;
-            # admin gets them as False so the assert_permission check can
-            # draw the line.
-            if user.role == "owner":
+            # Founder-exclusive perms only apply to ``super_admin``;
+            # ``admin`` gets them as False so the assert_permission check
+            # can draw the line.
+            if user.role in SUPER_ADMIN_ROLES:
                 merged["tenant.delete"] = True
                 merged["tenant.transfer_ownership"] = True
                 merged["billing.manage"] = True
@@ -909,40 +950,54 @@ class RBACService:
             )
             raise ForbiddenError("Sky support access requires an active JIT consent session")
 
-        # Owner-exclusive permissions — only the tenant Owner can run these,
-        # regardless of their crew role or the admin bypass.
-        OWNER_EXCLUSIVE_PERMS = {
+        # SuperAdmin-exclusive permissions — only the tenant SuperAdmin can
+        # run these, regardless of their crew role or the admin bypass.
+        # Historical name: ``OWNER_EXCLUSIVE_PERMS``. Kept the alias so any
+        # external import still resolves.
+        SUPER_ADMIN_EXCLUSIVE_PERMS = {
             "tenant.delete",
             "tenant.transfer_ownership",
             "billing.manage",
         }
+        OWNER_EXCLUSIVE_PERMS = SUPER_ADMIN_EXCLUSIVE_PERMS  # back-compat alias
 
-        # Owner bypass: owner passes every permission, including the three
-        # owner-exclusive ones above.
-        if user.role == "owner":
+        # DATA/CONTENT plane (Option B, 2026-06): platform role does NOT
+        # grant content access. For these keys we skip the super_admin/admin
+        # bypass and delegate to the membership-aware Authorization resolver,
+        # so an admin who is not a Space/Crew member is denied content.
+        from src.services.authorization import DATA_PLANE_PERMS
+
+        is_data_plane = permission_key in DATA_PLANE_PERMS
+
+        # SuperAdmin bypass: passes every permission, including the three
+        # exclusive ones above. After the 2026-06-03 DB migration the
+        # tenant founder role is canonically ``super_admin``; legacy
+        # ``owner`` rows were already converted in
+        # ``rename_role_20260603`` so we no longer need an alias here.
+        if user.role == "super_admin" and not is_data_plane:
             await self._audit_decision(
                 user,
                 permission_key,
                 "allow",
-                "owner_bypass",
+                "super_admin_bypass",
                 resource_kind=resource_kind,
                 resource_id=resource_id,
             )
             return
 
-        # Admin bypass: passes everything EXCEPT owner-exclusive perms.
-        if user.role == "admin":
-            if permission_key in OWNER_EXCLUSIVE_PERMS:
+        # Admin bypass: passes everything EXCEPT super_admin-exclusive perms.
+        if user.role == "admin" and not is_data_plane:
+            if permission_key in SUPER_ADMIN_EXCLUSIVE_PERMS:
                 await self._audit_decision(
                     user,
                     permission_key,
                     "deny",
-                    "admin_cannot_grant_owner_exclusive",
+                    "admin_cannot_grant_super_admin_exclusive",
                     resource_kind=resource_kind,
                     resource_id=resource_id,
                 )
                 raise ForbiddenError(
-                    f"Permission '{permission_key}' is reserved for the tenant Owner"
+                    f"Permission '{permission_key}' is reserved for the tenant SuperAdmin"
                 )
             await self._audit_decision(
                 user,

@@ -171,6 +171,23 @@ def test_throwaway_emails_blocked_by_schema():
     assert "work email" in str(exc.value).lower()
 
 
+def test_skyfirstlabs_domain_blocked_from_demo_signup():
+    """Engineering Workspace domain cannot create a *local* demo user —
+    that would let a stranger seed a fake ``lucas@skyfirstlabs.com`` in
+    our DB without ever passing Google verification, contaminating the
+    audit trail even though the real Console guard still requires
+    ``is_sky_operator=true``. Sky team members sign in via SSO."""
+    for variant in ("attacker@skyfirstlabs.com", "ATTACKER@SkyFirstLabs.COM"):
+        with pytest.raises(ValueError) as exc:
+            DemoSignupRequest(
+                name="Attacker",
+                email=variant,
+                company="Skyfirst",
+                turnstile_token="x",
+            )
+        assert "engineering" in str(exc.value).lower() or "reserved" in str(exc.value).lower()
+
+
 def test_schema_rejects_garbage_name_and_company():
     with pytest.raises(ValueError):
         DemoSignupRequest(
@@ -296,7 +313,9 @@ async def test_signup_seeds_ten_demo_agents(db_session: AsyncSession):
         select(Agent).where(Agent.scope == "space", Agent.scope_id == resp.space_id)
     )
     agents = agents_q.scalars().all()
-    assert len(agents) == 10, f"expected 10 demo agents, got {len(agents)}"
+    # Demo seeds 9 agents (not 10) so a demo visitor still has one free
+    # slot under DEMO_MAX_AGENTS_PER_USER (=10) to create their own agent.
+    assert len(agents) == 9, f"expected 9 demo agents, got {len(agents)}"
 
     names = {a.name for a in agents}
     assert names == {
@@ -312,16 +331,15 @@ async def test_signup_seeds_ten_demo_agents(db_session: AsyncSession):
         "Payment Failure Tracker",
         "Sign-up Anomaly",
         "Login Failure Watch",
-        "Campaign ROI Watch",
     }
 
-    # Tier distribution check — exactly 1 deep, 3 standard, 6 quick.
+    # Tier distribution check — exactly 1 deep, 3 standard, 5 quick.
     by_depth: dict[str, int] = {}
     for a in agents:
         by_depth[a.depth] = by_depth.get(a.depth, 0) + 1
     assert by_depth.get("deep") == 1, f"expected 1 L3 (deep), got {by_depth}"
     assert by_depth.get("standard") == 3, f"expected 3 L2 (standard), got {by_depth}"
-    assert by_depth.get("quick") == 6, f"expected 6 L1 (quick), got {by_depth}"
+    assert by_depth.get("quick") == 5, f"expected 5 L1 (quick), got {by_depth}"
 
     for a in agents:
         assert a.status == "active"
@@ -335,13 +353,13 @@ async def test_signup_seeds_ten_demo_agents(db_session: AsyncSession):
     again_q = await db_session.execute(
         select(Agent).where(Agent.scope == "space", Agent.scope_id == resp.space_id)
     )
-    assert len(again_q.scalars().all()) == 10, "returning login duplicated the agents"
+    assert len(again_q.scalars().all()) == 9, "returning login duplicated the agents"
 
 
 @pytest.mark.asyncio
 async def test_signup_seeds_one_finding_per_demo_agent(db_session: AsyncSession):
     """A fresh demo Space must ship with one pre-canned finding per
-    seeded agent (10 total) so the Pulse panel never lands on an empty
+    seeded agent (9 total) so the Pulse panel never lands on an empty
     "All clear" on the very screen we record for sales videos. Type +
     severity mix is intentional: at least one critical, several risks,
     a couple opportunities, the rest insights.
@@ -358,16 +376,16 @@ async def test_signup_seeds_one_finding_per_demo_agent(db_session: AsyncSession)
         )
     )
     agent_ids = [a for a in agent_ids_q.scalars().all()]
-    assert len(agent_ids) == 10
+    assert len(agent_ids) == 9
 
     findings_q = await db_session.execute(
         select(AgentFinding).where(AgentFinding.agent_id.in_(agent_ids))
     )
     findings = list(findings_q.scalars().all())
-    assert len(findings) == 10, f"expected 10 demo findings, got {len(findings)}"
+    assert len(findings) == 9, f"expected 9 demo findings, got {len(findings)}"
 
     by_agent = {f.agent_id for f in findings}
-    assert len(by_agent) == 10, "each agent should carry exactly one finding"
+    assert len(by_agent) == 9, "each agent should carry exactly one finding"
 
     # Severity mix sanity — must include at least one critical so the
     # red rail / animated halo gets a chance to shine in the video.
@@ -391,7 +409,7 @@ async def test_signup_seeds_one_finding_per_demo_agent(db_session: AsyncSession)
     again_q = await db_session.execute(
         select(AgentFinding).where(AgentFinding.agent_id.in_(agent_ids))
     )
-    assert len(list(again_q.scalars().all())) == 10, (
+    assert len(list(again_q.scalars().all())) == 9, (
         "returning login duplicated the canned findings"
     )
 

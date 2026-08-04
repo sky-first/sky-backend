@@ -1,12 +1,27 @@
 import uuid
 from enum import Enum
 
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, func, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
 
 from src.config.database import Base
+
 
 # SQLite has no native ARRAY type, so the test suite (which uses
 # sqlite+aiosqlite in memory) fails to create these tables with CompileError.
@@ -85,15 +100,21 @@ class Agent(Base):
     scope_name = Column(String(255), nullable=True)
 
     status = Column(String(20), nullable=False, default="configuring", index=True)
-    monitor_type = Column(String(20), nullable=False, default="question")  # question, datasource, sql
+    monitor_type = Column(
+        String(20), nullable=False, default="question"
+    )  # question, datasource, sql
     focus = Column(Text, nullable=True)  # The question or instructions for the agent
     custom_sql = Column(Text, nullable=True)  # For sql monitor_type
     frequency = Column(String(20), nullable=False, default="daily")
     depth = Column(String(20), nullable=True, default="standard")  # quick, standard, deep
 
     # Data sources this agent monitors
-    connection_ids = Column(_array_with_sqlite_variant(UUID(as_uuid=True)), nullable=False, default=[])
-    table_ids = Column(_array_with_sqlite_variant(String), nullable=True)  # Granular table selection
+    connection_ids = Column(
+        _array_with_sqlite_variant(UUID(as_uuid=True)), nullable=False, default=[]
+    )
+    table_ids = Column(
+        _array_with_sqlite_variant(String), nullable=True
+    )  # Granular table selection
 
     # Selected context — everything in Universe Intelligence that can be
     # scoped to an agent, indexed by entity kind. Keys mirror what the
@@ -212,8 +233,22 @@ class Agent(Base):
     )
 
     # Relationships
-    findings = relationship("AgentFinding", back_populates="agent", cascade="all, delete-orphan", order_by="AgentFinding.created_at.desc()")
-    executions = relationship("AgentExecution", back_populates="agent", cascade="all, delete-orphan", order_by="AgentExecution.started_at.desc()")
+    # No delete cascade: deleting an agent detaches its findings/executions
+    # (FK ON DELETE SET NULL) instead of erasing them — see the agent_id
+    # columns below. passive_deletes lets the DB perform the SET NULL without
+    # the ORM loading and rewriting every child row first.
+    findings = relationship(
+        "AgentFinding",
+        back_populates="agent",
+        passive_deletes=True,
+        order_by="AgentFinding.created_at.desc()",
+    )
+    executions = relationship(
+        "AgentExecution",
+        back_populates="agent",
+        passive_deletes=True,
+        order_by="AgentExecution.started_at.desc()",
+    )
     creator = relationship("User", foreign_keys=[created_by])
     service_principal = relationship("ServicePrincipal", foreign_keys=[service_principal_id])
 
@@ -248,10 +283,14 @@ class AgentFinding(Base):
     __tablename__ = "agent_findings"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # SET NULL (not CASCADE): deleting an agent must NOT erase the insights it
+    # already produced. The finding is kept and simply detached from the agent
+    # (agent_id -> NULL). Insights added to a page are independent widgets that
+    # survive anyway; this preserves the finding history too.
     agent_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("agents.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("agents.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     execution_id = Column(
@@ -271,7 +310,9 @@ class AgentFinding(Base):
     evidence = Column(Text, nullable=True)  # Raw data/evidence
     reasoning = Column(Text, nullable=True)  # Step-by-step reasoning
     recommendation = Column(Text, nullable=True)  # Recommended action
-    data_sources = Column(_array_with_sqlite_variant(String), nullable=True)  # tables/columns analyzed
+    data_sources = Column(
+        _array_with_sqlite_variant(String), nullable=True
+    )  # tables/columns analyzed
     # Structured tabular result set produced by the agent's SQL/datasource
     # run. Shape: {"columns": ["col1", "col2"], "data": [[...], [...]],
     # "truncated": bool?}. Null when the agent ran in question-only mode
@@ -288,6 +329,27 @@ class AgentFinding(Base):
     # picker registry: bar, line, donut, pie, kpi, big_number,
     # delta, range, heatmap, sparkline, text, list.
     viz_kind = Column(String(40), nullable=True)
+
+    # ── BE-03 (Sky Mobile) — structured feed fields ──────────────────
+    # The mobile Insights surface renders machine-readable objects, not
+    # prose. ``series`` is the sparkline/area series behind the headline
+    # number ([{"t": ..., "v": ...}], may be [] for aggregate-only
+    # findings). ``stat_tiles`` are the up-to-3 key/value pairs shown on
+    # the detail ([{"label": ..., "value": ...}]).
+    series = Column(_JSONB_OR_JSON, nullable=True)
+    stat_tiles = Column(_JSONB_OR_JSON, nullable=True)
+    # ``source`` distinguishes an autonomous *scan* finding from a
+    # registered-*agent* finding. Scan findings have no ``agent_id`` (the
+    # scan agent is not a persisted Agent row), so they carry their own
+    # ``space_id`` + ``agent_name`` for scoping and display.
+    source = Column(
+        String(20),
+        nullable=False,
+        default="agent",
+        server_default=text("'agent'"),
+    )
+    space_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    agent_name = Column(String(255), nullable=True)
 
     # Context
     connection_id = Column(UUID(as_uuid=True), nullable=True)
@@ -318,10 +380,13 @@ class AgentExecution(Base):
     __tablename__ = "agent_executions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # SET NULL (not CASCADE): keep the execution history when the agent is
+    # deleted, so the findings it produced (which reference this execution)
+    # retain their context instead of being erased.
     agent_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("agents.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("agents.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
 

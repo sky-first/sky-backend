@@ -71,7 +71,7 @@ async def _space_with_member(
 
 @pytest.mark.asyncio
 async def test_owner_can_tenant_delete(db_session):
-    user = await _user(db_session, role="owner", name="O")
+    user = await _user(db_session, role="super_admin", name="O")
     assert await Authorization(db_session).can(user, "tenant.delete") is True
 
 
@@ -83,7 +83,7 @@ async def test_admin_cannot_tenant_delete(db_session):
 
 @pytest.mark.asyncio
 async def test_owner_can_billing_manage(db_session):
-    user = await _user(db_session, role="owner", name="O")
+    user = await _user(db_session, role="super_admin", name="O")
     assert await Authorization(db_session).can(user, "billing.manage") is True
 
 
@@ -213,7 +213,7 @@ async def test_space_owner_can_manage_members(db_session):
 
 @pytest.mark.asyncio
 async def test_unknown_permission_key_denies_even_for_owner(db_session):
-    user = await _user(db_session, role="owner", name="O")
+    user = await _user(db_session, role="super_admin", name="O")
     # Defense-in-depth: unknown keys deny even for Owner. New permission
     # keys must be explicitly registered in PERMISSION_RULES; this prevents
     # silent allow if a typo or removal slips through during the rewrite.

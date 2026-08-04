@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
 from src.core.exceptions import ForbiddenError
+from src.core.permissions import is_tenant_admin
 from src.models.user import User
 from src.services.dsar_service import DSARService
 
@@ -35,7 +36,7 @@ async def dsar_export(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Export all data for a subject (GDPR right of access)."""
-    if current_user.role != "admin":
+    if not is_tenant_admin(current_user):
         raise ForbiddenError("DSAR export requires admin role")
 
     dsar = DSARService(db)
@@ -54,8 +55,8 @@ async def dsar_delete(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Erase a user's data (GDPR right to erasure)."""
-    # Only the deploy owner should be able to erase users
-    if current_user.role != "admin":
+    # Only tenant-level admins (super_admin or admin) may erase users.
+    if not is_tenant_admin(current_user):
         raise ForbiddenError("DSAR erasure requires admin role")
 
     if not request.confirm:

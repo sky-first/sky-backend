@@ -4,6 +4,7 @@ Works whether the table is called 'pages' or 'planets'.
 Run from the sky-poc-backend directory with the venv activated:
   python scripts/ensure-default-pages.py
 """
+
 import asyncio
 import os
 import sys
@@ -25,9 +26,11 @@ async def main():
 
     async with async_session() as db:
         # 1. Detect which table name is in use
-        result = await db.execute(text(
-            "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename IN ('pages','planets')"
-        ))
+        result = await db.execute(
+            text(
+                "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename IN ('pages','planets')"
+            )
+        )
         tables = [row[0] for row in result.fetchall()]
         print(f"Tables found: {tables}")
 
@@ -50,9 +53,12 @@ async def main():
 
         for user_id, user_name, user_email in users:
             # Check if user already has a page
-            result = await db.execute(text(
-                f"SELECT COUNT(*) FROM {page_table} WHERE owner_id = :uid AND deleted_at IS NULL"
-            ), {"uid": user_id})
+            result = await db.execute(
+                text(
+                    f"SELECT COUNT(*) FROM {page_table} WHERE owner_id = :uid AND deleted_at IS NULL"
+                ),
+                {"uid": user_id},
+            )
             count = result.scalar()
 
             if count and count > 0:
@@ -65,31 +71,41 @@ async def main():
             page_name = f"{first_name}'s Universe" if first_name else "My Universe"
             now = datetime.now(timezone.utc)
 
-            await db.execute(text(f"""
+            await db.execute(
+                text(
+                    f"""
                 INSERT INTO {page_table}
                     (id, name, description, type, color, icon, owner_id, is_active, created_at, updated_at)
                 VALUES
                     (:id, :name, :desc, 'personal', '#3B82F6', NULL, :owner, true, :now, :now)
-            """), {
-                "id": page_id,
-                "name": page_name,
-                "desc": "Your first universe",
-                "owner": user_id,
-                "now": now,
-            })
+            """
+                ),
+                {
+                    "id": page_id,
+                    "name": page_name,
+                    "desc": "Your first universe",
+                    "owner": user_id,
+                    "now": now,
+                },
+            )
 
             # Add owner as member
-            await db.execute(text(f"""
+            await db.execute(
+                text(
+                    f"""
                 INSERT INTO {member_table}
                     (id, {page_table[:-1]}_id, user_id, role, created_at)
                 VALUES
                     (:id, :page_id, :user_id, 'owner', :now)
-            """), {
-                "id": uuid.uuid4(),
-                "page_id": page_id,
-                "user_id": user_id,
-                "now": now,
-            })
+            """
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "page_id": page_id,
+                    "user_id": user_id,
+                    "now": now,
+                },
+            )
 
             await db.commit()
             print(f"  [created] {user_email} - created page '{page_name}'")

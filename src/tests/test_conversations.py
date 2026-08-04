@@ -19,14 +19,14 @@ from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.security import get_password_hash
 from src.models.crew import Crew, CrewMember
 from src.models.page import Page
 from src.models.space import Space, SpaceMember
 from src.repositories.user import UserRepository
-from src.core.security import get_password_hash
-
 
 # ─── Helpers ──────────────────────────────────────────────────────────────
+
 
 def get_auth_headers(access_token: str) -> dict:
     return {"Authorization": f"Bearer {access_token}"}
@@ -52,7 +52,9 @@ async def create_page(db_session: AsyncSession, owner_id, name="Test Page"):
     return page
 
 
-async def create_space_with_member(db_session: AsyncSession, owner_id, member_id=None, name="Space"):
+async def create_space_with_member(
+    db_session: AsyncSession, owner_id, member_id=None, name="Space"
+):
     space = Space(name=name, created_by=owner_id)
     db_session.add(space)
     await db_session.commit()
@@ -64,7 +66,9 @@ async def create_space_with_member(db_session: AsyncSession, owner_id, member_id
     return space
 
 
-async def create_crew_with_member(db_session: AsyncSession, space_id, owner_id, member_id=None, name="Crew"):
+async def create_crew_with_member(
+    db_session: AsyncSession, space_id, owner_id, member_id=None, name="Crew"
+):
     crew = Crew(name=name, space_id=space_id, created_by=owner_id)
     db_session.add(crew)
     await db_session.commit()
@@ -123,6 +127,115 @@ async def test_create_crew_conversation_stores_crew_id(
     assert data["space_id"] == str(space.id)
 
 
+@pytest.mark.asyncio
+async def test_conversation_on_crew_page_inherits_crew_scope(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """A conversation created on a crew page WITHOUT an explicit scope must
+    inherit the page's crew_id — so it's the shared room's chat, visible to
+    every crew member, not a personal thread only its author can see."""
+    user = test_user_with_tokens["user"]
+    space = await create_space_with_member(db_session, user.id)
+    crew = await create_crew_with_member(db_session, space.id, user.id)
+    page = Page(
+        name="Team Canvas",
+        type="team",
+        color="#3b82f6",
+        owner_id=user.id,
+        crew_id=crew.id,
+    )
+    db_session.add(page)
+    await db_session.commit()
+    await db_session.refresh(page)
+    headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    # No crew_id/space_id in the body — the server inherits it from the page.
+    response = await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["crew_id"] == str(crew.id)
+
+
+@pytest.mark.asyncio
+async def test_ensure_default_crew_page_converges_members(db_session: AsyncSession):
+    """Two different crew members calling ensure_default_crew_page must get
+    the SAME page id (the shared room), not each their own fork."""
+    from src.services.page_service import PageService
+
+    owner = await create_user(db_session, "crew-owner-conv@example.com")
+    member = await create_user(db_session, "crew-member-conv@example.com")
+    space = await create_space_with_member(db_session, owner.id, member_id=member.id)
+    crew = await create_crew_with_member(db_session, space.id, owner.id, member_id=member.id)
+
+    svc = PageService(db_session)
+    first = await svc.ensure_default_crew_page(crew.id, owner)
+    second = await svc.ensure_default_crew_page(crew.id, member)
+
+    assert first.id == second.id
+    assert str(first.crew_id) == str(crew.id)
+
+
+@pytest.mark.asyncio
+async def test_ensure_default_space_page_converges_members(db_session: AsyncSession):
+    """Two different space members calling ensure_default_space_page must get
+    the SAME page id (the shared room), not each their own fork."""
+    from src.services.page_service import PageService
+
+    owner = await create_user(db_session, "space-owner-conv@example.com")
+    member = await create_user(db_session, "space-member-conv@example.com")
+    space = await create_space_with_member(db_session, owner.id, member_id=member.id)
+
+    svc = PageService(db_session)
+    first = await svc.ensure_default_space_page(space.id, owner)
+    second = await svc.ensure_default_space_page(space.id, member)
+
+    assert first.id == second.id
+    assert str(first.space_id) == str(space.id)
+    assert first.crew_id is None
+
+
+@pytest.mark.asyncio
+async def test_get_page_allows_space_member_non_owner(db_session: AsyncSession):
+    """A space member who is neither the owner nor an explicit page_member
+    must still be able to GET a page bound to that space. Without this the
+    shared "Space Canvas" (owned by whoever created it first) 404s for every
+    other member, breaking convergence."""
+    from src.services.page_service import PageService
+
+    owner = await create_user(db_session, "space-page-owner@example.com")
+    member = await create_user(db_session, "space-page-member@example.com")
+    space = await create_space_with_member(db_session, owner.id, member_id=member.id)
+
+    svc = PageService(db_session)
+    # Owner creates the space's canonical shared page.
+    page = await svc.ensure_default_space_page(space.id, owner)
+
+    # The other space member (not owner, not page_member) can open it.
+    fetched = await svc.get_page(page.id, member)
+    assert fetched.id == page.id
+
+
+@pytest.mark.asyncio
+async def test_get_page_denies_non_space_member(db_session: AsyncSession):
+    """A user who is NOT a member of the space must still get 404 for its
+    pages — the new space-membership branch must not over-grant access."""
+    from src.core.exceptions import NotFoundError
+    from src.services.page_service import PageService
+
+    owner = await create_user(db_session, "space-page-owner2@example.com")
+    outsider = await create_user(db_session, "space-page-outsider@example.com")
+    space = await create_space_with_member(db_session, owner.id)
+
+    svc = PageService(db_session)
+    page = await svc.ensure_default_space_page(space.id, owner)
+
+    with pytest.raises(NotFoundError):
+        await svc.get_page(page.id, outsider)
+
+
 # ─── A9: list + pagination ────────────────────────────────────────────────
 
 
@@ -147,9 +260,7 @@ async def test_list_conversations_newest_first(
         # below is meaningful.
         await asyncio.sleep(0.02)
 
-    r = await async_client.get(
-        f"/api/v1/pages/{page.id}/conversations", headers=headers
-    )
+    r = await async_client.get(f"/api/v1/pages/{page.id}/conversations", headers=headers)
     assert r.status_code == 200
     items = r.json()["items"]
     assert len(items) == 3
@@ -168,15 +279,11 @@ async def test_list_conversations_pagination_cursor(
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
     for _ in range(5):
-        await async_client.post(
-            f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers
-        )
+        await async_client.post(f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers)
         await asyncio.sleep(0.02)
 
     # Page size 2 → expect next_cursor set
-    r = await async_client.get(
-        f"/api/v1/pages/{page.id}/conversations?limit=2", headers=headers
-    )
+    r = await async_client.get(f"/api/v1/pages/{page.id}/conversations?limit=2", headers=headers)
     data = r.json()
     assert len(data["items"]) == 2
     assert data["next_cursor"] is not None
@@ -205,9 +312,7 @@ async def test_rename_conversation_updates_title(
     page = await create_page(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
-    r = await async_client.post(
-        f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers
-    )
+    r = await async_client.post(f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers)
     conv_id = r.json()["id"]
 
     r2 = await async_client.patch(
@@ -228,14 +333,13 @@ async def test_rename_by_non_creator_returns_404_for_personal(
     page = await create_page(db_session, owner.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
-    r = await async_client.post(
-        f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers
-    )
+    r = await async_client.post(f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers)
     conv_id = r.json()["id"]
 
     # Different user tries to rename
     other = await create_user(db_session, "intruder@x.com")
     from src.core.security import create_access_token
+
     other_token = create_access_token({"sub": str(other.id)})
     other_headers = get_auth_headers(other_token)
 
@@ -258,18 +362,12 @@ async def test_archive_hides_from_default_list(
     page = await create_page(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
-    r = await async_client.post(
-        f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers
-    )
+    r = await async_client.post(f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers)
     conv_id = r.json()["id"]
 
-    await async_client.post(
-        f"/api/v1/conversations/{conv_id}/archive", headers=headers
-    )
+    await async_client.post(f"/api/v1/conversations/{conv_id}/archive", headers=headers)
 
-    default_list = await async_client.get(
-        f"/api/v1/pages/{page.id}/conversations", headers=headers
-    )
+    default_list = await async_client.get(f"/api/v1/pages/{page.id}/conversations", headers=headers)
     assert default_list.json()["items"] == []
 
     with_archived = await async_client.get(
@@ -288,17 +386,11 @@ async def test_unarchive_restores(
     page = await create_page(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
-    r = await async_client.post(
-        f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers
-    )
+    r = await async_client.post(f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers)
     conv_id = r.json()["id"]
 
-    await async_client.post(
-        f"/api/v1/conversations/{conv_id}/archive", headers=headers
-    )
-    r2 = await async_client.post(
-        f"/api/v1/conversations/{conv_id}/unarchive", headers=headers
-    )
+    await async_client.post(f"/api/v1/conversations/{conv_id}/archive", headers=headers)
+    r2 = await async_client.post(f"/api/v1/conversations/{conv_id}/unarchive", headers=headers)
     assert r2.status_code == 200
     assert r2.json()["archived_at"] is None
 
@@ -314,27 +406,25 @@ async def test_personal_conversation_invisible_to_others(
     page = await create_page(db_session, owner.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
-    r = await async_client.post(
-        f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers
-    )
+    r = await async_client.post(f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers)
     conv_id = r.json()["id"]
 
     other = await create_user(db_session, "other@x.com")
     from src.core.security import create_access_token
+
     other_token = create_access_token({"sub": str(other.id)})
     other_headers = get_auth_headers(other_token)
 
     # GET single conversation → 404
-    r2 = await async_client.get(
-        f"/api/v1/conversations/{conv_id}", headers=other_headers
-    )
+    r2 = await async_client.get(f"/api/v1/conversations/{conv_id}", headers=other_headers)
     assert r2.status_code == 404
 
-    # List on the same page → empty
-    r3 = await async_client.get(
-        f"/api/v1/pages/{page.id}/conversations", headers=other_headers
-    )
-    assert r3.json()["items"] == []
+    # List on the same page → 404. Option B (page child-resource gate): a
+    # non-member can't even see the page, so its conversation collection is
+    # hidden entirely, not returned as an empty list. Matches the single-GET
+    # above and the other page child routes (comments / chat-sessions).
+    r3 = await async_client.get(f"/api/v1/pages/{page.id}/conversations", headers=other_headers)
+    assert r3.status_code == status.HTTP_404_NOT_FOUND
 
 
 # ─── A13 & A14: shared RBAC ───────────────────────────────────────────────
@@ -348,12 +438,11 @@ async def test_crew_conversation_visible_to_crew_member(
     member = await create_user(db_session, "member@x.com")
     page = await create_page(db_session, owner.id)
     space = await create_space_with_member(db_session, owner.id, member_id=member.id)
-    crew = await create_crew_with_member(
-        db_session, space.id, owner.id, member_id=member.id
-    )
+    crew = await create_crew_with_member(db_session, space.id, owner.id, member_id=member.id)
 
     owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
     from src.core.security import create_access_token
+
     member_token = create_access_token({"sub": str(member.id)})
     member_headers = get_auth_headers(member_token)
 
@@ -366,9 +455,7 @@ async def test_crew_conversation_visible_to_crew_member(
     conv_id = r.json()["id"]
 
     # Member can see it
-    r2 = await async_client.get(
-        f"/api/v1/conversations/{conv_id}", headers=member_headers
-    )
+    r2 = await async_client.get(f"/api/v1/conversations/{conv_id}", headers=member_headers)
     assert r2.status_code == 200
     assert r2.json()["id"] == conv_id
 
@@ -384,6 +471,7 @@ async def test_space_conversation_visible_to_space_member(
 
     owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
     from src.core.security import create_access_token
+
     member_token = create_access_token({"sub": str(member.id)})
     member_headers = get_auth_headers(member_token)
 
@@ -394,9 +482,7 @@ async def test_space_conversation_visible_to_space_member(
     )
     conv_id = r.json()["id"]
 
-    r2 = await async_client.get(
-        f"/api/v1/conversations/{conv_id}", headers=member_headers
-    )
+    r2 = await async_client.get(f"/api/v1/conversations/{conv_id}", headers=member_headers)
     assert r2.status_code == 200
 
 
@@ -412,6 +498,7 @@ async def test_crew_conversation_invisible_to_non_member(
 
     owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
     from src.core.security import create_access_token
+
     outsider_token = create_access_token({"sub": str(outsider.id)})
     outsider_headers = get_auth_headers(outsider_token)
 
@@ -422,9 +509,7 @@ async def test_crew_conversation_invisible_to_non_member(
     )
     conv_id = r.json()["id"]
 
-    r2 = await async_client.get(
-        f"/api/v1/conversations/{conv_id}", headers=outsider_headers
-    )
+    r2 = await async_client.get(f"/api/v1/conversations/{conv_id}", headers=outsider_headers)
     assert r2.status_code == 404
 
 
@@ -439,19 +524,13 @@ async def test_delete_by_creator_succeeds(
     page = await create_page(db_session, user.id)
     headers = get_auth_headers(test_user_with_tokens["access_token"])
 
-    r = await async_client.post(
-        f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers
-    )
+    r = await async_client.post(f"/api/v1/pages/{page.id}/conversations", json={}, headers=headers)
     conv_id = r.json()["id"]
 
-    r2 = await async_client.delete(
-        f"/api/v1/conversations/{conv_id}", headers=headers
-    )
+    r2 = await async_client.delete(f"/api/v1/conversations/{conv_id}", headers=headers)
     assert r2.status_code == 204
 
-    r3 = await async_client.get(
-        f"/api/v1/conversations/{conv_id}", headers=headers
-    )
+    r3 = await async_client.get(f"/api/v1/conversations/{conv_id}", headers=headers)
     assert r3.status_code == 404
 
 
@@ -464,12 +543,11 @@ async def test_non_creator_member_cannot_delete_crew_conversation(
     member = await create_user(db_session, "m2@x.com")
     page = await create_page(db_session, owner.id)
     space = await create_space_with_member(db_session, owner.id, member_id=member.id)
-    crew = await create_crew_with_member(
-        db_session, space.id, owner.id, member_id=member.id
-    )
+    crew = await create_crew_with_member(db_session, space.id, owner.id, member_id=member.id)
 
     owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
     from src.core.security import create_access_token
+
     member_token = create_access_token({"sub": str(member.id)})
     member_headers = get_auth_headers(member_token)
 
@@ -481,13 +559,141 @@ async def test_non_creator_member_cannot_delete_crew_conversation(
     conv_id = r.json()["id"]
 
     # Member can view
-    r_view = await async_client.get(
-        f"/api/v1/conversations/{conv_id}", headers=member_headers
-    )
+    r_view = await async_client.get(f"/api/v1/conversations/{conv_id}", headers=member_headers)
     assert r_view.status_code == 200
 
     # But cannot delete
-    r_del = await async_client.delete(
-        f"/api/v1/conversations/{conv_id}", headers=member_headers
-    )
+    r_del = await async_client.delete(f"/api/v1/conversations/{conv_id}", headers=member_headers)
     assert r_del.status_code == 403
+
+
+# ─── Ownership transfer (chat-threads master plan PR6) ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_owner_can_hand_off_to_member(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    member = await create_user(db_session, "transfer-target@x.com")
+    page = await create_page(db_session, owner.id)
+    space = await create_space_with_member(db_session, owner.id, member_id=member.id)
+    crew = await create_crew_with_member(db_session, space.id, owner.id, member_id=member.id)
+
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    r = await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations",
+        json={"space_id": str(space.id), "crew_id": str(crew.id)},
+        headers=owner_headers,
+    )
+    conv_id = r.json()["id"]
+
+    r_xfer = await async_client.post(
+        f"/api/v1/conversations/{conv_id}/transfer-ownership",
+        json={"new_owner_id": str(member.id)},
+        headers=owner_headers,
+    )
+    assert r_xfer.status_code == 200
+    assert r_xfer.json()["created_by"] == str(member.id)
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_non_owner_gets_403(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    member = await create_user(db_session, "non-owner@x.com")
+    bystander = await create_user(db_session, "bystander@x.com")
+    page = await create_page(db_session, owner.id)
+    space = await create_space_with_member(db_session, owner.id, member_id=member.id)
+    crew = await create_crew_with_member(db_session, space.id, owner.id, member_id=member.id)
+
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+    from src.core.security import create_access_token
+
+    member_headers = get_auth_headers(create_access_token({"sub": str(member.id)}))
+
+    r = await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations",
+        json={"space_id": str(space.id), "crew_id": str(crew.id)},
+        headers=owner_headers,
+    )
+    conv_id = r.json()["id"]
+
+    r_xfer = await async_client.post(
+        f"/api/v1/conversations/{conv_id}/transfer-ownership",
+        json={"new_owner_id": str(bystander.id)},
+        headers=member_headers,
+    )
+    assert r_xfer.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_self_transfer_is_noop(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    page = await create_page(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    r = await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations", json={}, headers=owner_headers
+    )
+    conv_id = r.json()["id"]
+
+    r_xfer = await async_client.post(
+        f"/api/v1/conversations/{conv_id}/transfer-ownership",
+        json={"new_owner_id": str(owner.id)},
+        headers=owner_headers,
+    )
+    assert r_xfer.status_code == 200
+    # Owner stays the same — no change, no error.
+    assert r_xfer.json()["created_by"] == str(owner.id)
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_unknown_conversation_404(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    # Generated UUID that doesn't exist in the DB.
+    fake_conv_id = "00000000-0000-0000-0000-000000000123"
+    r_xfer = await async_client.post(
+        f"/api/v1/conversations/{fake_conv_id}/transfer-ownership",
+        json={"new_owner_id": str(owner.id)},
+        headers=owner_headers,
+    )
+    assert r_xfer.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_invalid_payload_422(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    owner = test_user_with_tokens["user"]
+    page = await create_page(db_session, owner.id)
+    owner_headers = get_auth_headers(test_user_with_tokens["access_token"])
+
+    r = await async_client.post(
+        f"/api/v1/pages/{page.id}/conversations", json={}, headers=owner_headers
+    )
+    conv_id = r.json()["id"]
+
+    # Missing new_owner_id
+    r_xfer = await async_client.post(
+        f"/api/v1/conversations/{conv_id}/transfer-ownership",
+        json={},
+        headers=owner_headers,
+    )
+    assert r_xfer.status_code == 422
+
+    # Malformed UUID
+    r_xfer2 = await async_client.post(
+        f"/api/v1/conversations/{conv_id}/transfer-ownership",
+        json={"new_owner_id": "not-a-uuid"},
+        headers=owner_headers,
+    )
+    assert r_xfer2.status_code == 422

@@ -1,7 +1,7 @@
 """User schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -13,7 +13,7 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: str = Field(default="user", pattern="^(owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
+    role: str = Field(default="member", pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
 
 
 class UserCreate(UserBase):
@@ -36,7 +36,7 @@ class UserUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: Optional[str] = Field(None, pattern="^(owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
+    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
     email_verified: Optional[bool] = None
     onboarding_step: Optional[int] = None
     onboarding_version: Optional[int] = None
@@ -100,7 +100,19 @@ class DemoDataRemovedResponse(BaseModel):
 
 
 class UserResponse(UserBase):
-    """User response schema."""
+    """User response schema.
+
+    ``role`` inherits the loose pattern on ``UserBase`` which accepts
+    the legacy ``user`` / ``owner`` strings in addition to the
+    canonical ``super_admin | admin | member`` taxonomy. The DB
+    migration ``rename_role_20260603`` normalised production rows,
+    but test fixtures and historical session tokens still ship the
+    legacy values — and a stricter regex here would 500 every
+    serialise. Clean taxonomy is enforced at the inbound
+    ``InviteGenerateRequest`` boundary (``^(admin|member)$``) and by
+    ``is_tenant_admin()`` which returns False for ``user`` / ``owner``,
+    so the loose pattern here cannot grant tenant-level privileges.
+    """
 
     id: UUID
     email_verified: bool
@@ -120,6 +132,15 @@ class UserResponse(UserBase):
     # guest and falls back to the regular paid-plan experience.
     is_demo: bool = False
     demo_expires_at: Optional[datetime] = None
+    # Sky-team operator flag. Exposed so the platform profile dropdown
+    # can show the "Console" entry only for engineers — keeping the
+    # operator surface invisible to customer users on the same UI.
+    is_sky_operator: bool = False
+    # Sky-platform internal role (ceo / admin / support / read_only),
+    # null for customer users. Independent from ``role`` above, which
+    # is the tenant-side role. The Console UI displays this; the
+    # platform never reads it.
+    sky_role: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -134,13 +155,154 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    """Login response schema."""
+    """Login response schema.
+
+    Three terminal states a password login can reach:
+
+    1. **Normal session** — ``access_token`` + ``refresh_token`` + ``user``
+       populated. User logged in successfully.
+    2. **MFA challenge** — ``require_mfa=true`` + ``mfa_challenge_token``.
+       Account already has TOTP enrolled; FE prompts for the 6-digit
+       code and POSTs to /auth/login/mfa.
+    3. **Force enrolment** — ``force_enrollment=true`` +
+       ``mfa_enrollment_token`` + ``mfa_enrollment_secret`` +
+       ``mfa_enrollment_qrcode_b64``. The account is configured with
+       password auth but has never enrolled MFA. We require enrolment
+       on this first successful password verification so the cliente
+       cannot dismiss it and keep logging in without a second factor.
+       FE shows the QR + secret, asks for the first 6-digit code, then
+       POSTs to /auth/login/mfa-finalize to persist the secret AND
+       receive the session tokens in the same response.
+
+    SSO callbacks never set the MFA fields — IdP-side 2FA already
+    covers that path and forcing on top would be user-hostile.
+    """
+
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: str = "bearer"
+    expires_in: int = 0
+    user: Optional[UserResponse] = None
+
+    # MFA second-step challenge (account already has TOTP enrolled).
+    require_mfa: bool = False
+    mfa_challenge_token: Optional[str] = None
+    mfa_expires_in: Optional[int] = None
+
+    # Force MFA enrolment (account has password auth but never enrolled).
+    # Mandatory for the cliente without SSO — design decision Lucas
+    # 2026-05-31: every password-authenticated user must have MFA.
+    force_enrollment: bool = False
+    mfa_enrollment_token: Optional[str] = None
+    mfa_enrollment_secret: Optional[str] = None
+    mfa_enrollment_qrcode_b64: Optional[str] = None
+    mfa_enrollment_issuer: Optional[str] = None
+
+
+class MFALoginRequest(BaseModel):
+    """Body for POST /auth/login/mfa — Phase 3.
+
+    The challenge token authorises the attempt (it embeds the user id
+    and is short-lived). ``code`` is either a 6-digit TOTP or a
+    recovery code; the boolean tells the service which path to take.
+    """
+
+    challenge_token: str = Field(..., description="Short-lived MFA challenge token from /auth/login")
+    code: str = Field(..., min_length=1, max_length=64)
+    is_recovery_code: bool = Field(
+        default=False,
+        description="True when ``code`` is a recovery code; otherwise a 6-digit TOTP",
+    )
+
+
+class MFAFinalizeEnrollmentRequest(BaseModel):
+    """Body for POST /auth/login/mfa-finalize — first login of a
+    password-authenticated account.
+
+    The FE collected the enrolment token + 6-digit code from the user
+    after they scanned the QR code returned by /auth/login. The BE
+    verifies the code, persists the secret + recovery codes, and only
+    then mints the session tokens. The response is a full
+    LoginResponse so the FE can drop the user straight into the
+    dashboard once they confirm they've stored the recovery codes.
+    """
+
+    enrollment_token: str = Field(
+        ..., description="Short-lived enrolment token from /auth/login"
+    )
+    code: str = Field(..., min_length=6, max_length=6, description="6-digit TOTP code")
+
+
+class MFAFinalizeEnrollmentResponse(BaseModel):
+    """Response of /auth/login/mfa-finalize.
+
+    Same shape as a normal LoginResponse PLUS the freshly-minted
+    recovery codes. The codes appear here EXACTLY ONCE; the FE must
+    surface them to the user (copy + download .txt) and warn that
+    they cannot be retrieved again.
+    """
 
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
     user: UserResponse
+    recovery_codes: List[str] = Field(
+        ..., description="Plaintext recovery codes — shown exactly once"
+    )
+
+
+# ── MFA enrolment / management ────────────────────────────────────────
+
+
+class MFAEnrollStartResponse(BaseModel):
+    """Response to POST /auth/mfa/enroll/start (Phase 3).
+
+    The ``secret`` field is the plaintext base32 TOTP seed — the
+    enrolling user needs it to either scan the QR or type it into
+    their authenticator manually. The BE does NOT persist anything
+    until /auth/mfa/enroll/verify succeeds; until then the FE owns
+    the secret in component state.
+    """
+
+    secret: str
+    otpauth_url: str
+    qrcode_png_b64: str
+    issuer: str
+
+
+class MFAEnrollVerifyRequest(BaseModel):
+    """Body for POST /auth/mfa/enroll/verify."""
+
+    secret: str = Field(..., description="Echo back of the secret from /enroll/start")
+    code: str = Field(..., min_length=6, max_length=6, description="6-digit TOTP code")
+
+
+class MFAEnrollVerifyResponse(BaseModel):
+    """Response to /auth/mfa/enroll/verify.
+
+    ``recovery_codes`` are returned plaintext exactly once. The FE
+    must surface them clearly (copy + download .txt) — they are the
+    only way back into the account if the user loses their device.
+    """
+
+    enabled: bool
+    recovery_codes: list[str]
+    enrolled_at: datetime
+
+
+class MFARotateRecoveryCodesResponse(BaseModel):
+    """Response to POST /auth/mfa/recovery-codes/rotate."""
+
+    recovery_codes: list[str]
+
+
+class MFAStatusResponse(BaseModel):
+    """Response to GET /auth/mfa/status (settings → Security)."""
+
+    enabled: bool
+    enrolled_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
 
 
 class RefreshTokenRequest(BaseModel):
@@ -187,14 +349,14 @@ class UserPermissionsResponse(BaseModel):
 class UserPermissionsUpdate(BaseModel):
     """User permissions update schema."""
 
-    role: str = Field(..., pattern="^(owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
+    role: str = Field(..., pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
 
 
 class UserInviteRequest(BaseModel):
     """User invite request schema."""
 
     workspace_id: Optional[UUID] = None
-    role: Optional[str] = Field(None, pattern="^(owner|admin|user|member|billing_admin|compliance_auditor|service_account)$")
+    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
 
 
 # Invite System Schemas
@@ -232,6 +394,17 @@ class InviteGenerateRequest(BaseModel):
     name: Optional[str] = Field(
         None, min_length=1, max_length=255, description="Optional name for invited user"
     )
+    # Tenant role the invitee gets after accepting. ``super_admin`` is
+    # intentionally absent — that role is reserved for the tenant
+    # founder and is granted on tenant creation, not via invite. The
+    # legacy ``user`` alias was normalised to ``member`` by the
+    # ``rename_role_20260603`` migration, so the canonical taxonomy is
+    # now ``admin | member`` for invites.
+    role: str = Field(
+        default="member",
+        pattern=r"^(admin|member)$",
+        description="Tenant role for the invited user (admin or member).",
+    )
 
 
 class InviteGenerateResponse(BaseModel):
@@ -240,6 +413,12 @@ class InviteGenerateResponse(BaseModel):
     token: str
     email: str
     expires_at: str
+    # False when the invitation email could not be delivered (e.g. the AWS
+    # SES sandbox rejects recipients that are not verified identities). The
+    # invite row + token are still created; the client surfaces a warning so
+    # the operator knows the email did not go out. Defaults True for mock
+    # mode and any caller that doesn't set it.
+    email_sent: bool = True
     message: str
 
 

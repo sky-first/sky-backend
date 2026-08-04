@@ -41,6 +41,7 @@ def _decrypt_config(config: Optional[dict]) -> dict:
     if not config:
         return {}
     from src.utils.encryption import decrypt_dict
+
     return decrypt_dict(config)
 
 
@@ -103,9 +104,7 @@ class ConnectionService:
 
         return base_time + timedelta(hours=1)
 
-    async def _assert_user_can_access_connection(
-        self, connection_id: UUID, user: User
-    ) -> None:
+    async def _assert_user_can_access_connection(self, connection_id: UUID, user: User) -> None:
         """Allow access for the connection creator OR any member of a Space
         the connection is bound to.
 
@@ -285,6 +284,7 @@ class ConnectionService:
         # `connections.edit` in the connection's space (viewer/edit-
         # or denied, owner/admin allowed).
         from src.services._mutation_guard import require_mutation_rights
+
         await require_mutation_rights(
             connection, user=user, rbac_permission="connections.edit", db=self.db
         )
@@ -343,6 +343,7 @@ class ConnectionService:
         # creator needs `connections.delete` in the connection's space
         # (matrix denies editor/viewer, allows owner/admin).
         from src.services._mutation_guard import require_mutation_rights
+
         await require_mutation_rights(
             connection, user=user, rbac_permission="connections.delete", db=self.db
         )
@@ -355,6 +356,22 @@ class ConnectionService:
         # We skip this during tests as the tables might not exist and raw SQL execution
         # is unstable in SQLite async tests. SQLAlchemy session handles Model cleanup in tests.
         if "pytest" not in sys.modules:
+            # 1.0. embeddings (pgvector) — its FK to table_metadata.id is
+            # ON DELETE NO ACTION, so any table_metadata row that was ever
+            # embedded blocks its own deletion until the child embeddings are
+            # cleared first. A connection synced + embedded (e.g. on staging,
+            # but not on a fresh local DB) therefore 500'd on the DELETE FROM
+            # table_metadata below with a ForeignKeyViolation. Clear the
+            # children first — same order the AI service uses in
+            # core/ingestion/db_metadata.py.
+            await self.db.execute(
+                text(
+                    "DELETE FROM embeddings WHERE table_metadata_id IN "
+                    "(SELECT id FROM table_metadata WHERE data_connection_id = :conn_id)"
+                ),
+                {"conn_id": connection_id},
+            )
+
             # 1.1. table_metadata (AI table without SQLAlchemy model in Backend)
             await self.db.execute(
                 text("DELETE FROM table_metadata WHERE data_connection_id = :conn_id"),
@@ -370,6 +387,16 @@ class ConnectionService:
             # 1.3. connection_metadata (children)
             await self.db.execute(
                 text("DELETE FROM connection_metadata WHERE connection_id = :conn_id"),
+                {"conn_id": connection_id},
+            )
+
+            # 1.4. pipeline_jobs — its FK to data_connections is ON DELETE
+            # NO ACTION, so a connection that ever ran an AI pipeline can't be
+            # deleted until these rows are cleared first. This was the cause of
+            # the 500 on connections with query history (e.g. BigQuery sources
+            # used in chat). Cleared best-effort like the rows above.
+            await self.db.execute(
+                text("DELETE FROM pipeline_jobs WHERE connection_id = :conn_id"),
                 {"conn_id": connection_id},
             )
 

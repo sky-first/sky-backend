@@ -34,6 +34,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
+from src.core.permissions import is_tenant_admin
 from src.models.agent import Agent, AgentExecution
 from src.models.user import User
 
@@ -41,8 +42,17 @@ router = APIRouter()
 
 
 def _require_admin(user: User) -> None:
-    role = (getattr(user, "role", None) or "").lower()
-    if role not in {"admin", "superadmin"}:
+    """Gate the admin-only actions in this module.
+
+    Delegates to :func:`is_tenant_admin` — the single source of truth —
+    rather than comparing role strings here. The hand-rolled check this
+    replaced accepted ``{"admin", "superadmin"}``: ``superadmin`` (no
+    underscore) is a string the taxonomy never produces, and the real
+    founder role ``super_admin`` was absent. Net effect in production:
+    the tenant founder got 403 from the emergency Pause All switch,
+    which is precisely what ``is_tenant_admin``'s docstring warns about.
+    """
+    if not is_tenant_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrator role required.",

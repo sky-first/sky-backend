@@ -28,6 +28,8 @@ def setup_cors(app: FastAPI) -> None:
             "X-API-Key",
             "X-Correlation-ID",
             "Idempotency-Key",
+            "X-Client-Type",  # Sky Mobile app identifies itself (BE-05)
+            "X-Tenant-Slug",  # device tenant override (BE-01)
         ],
         expose_headers=[
             "X-RateLimit-Limit-Minute",

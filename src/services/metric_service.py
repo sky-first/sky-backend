@@ -143,7 +143,7 @@ class MetricService:
 
         if scope == "org":
             platform_role = (user.role or "").lower()
-            if platform_role == "owner":
+            if platform_role in ("owner", "super_admin"):
                 return
             if platform_role == "admin" and await self._has_live_grant(
                 user, PERMISSION_KNOWLEDGE_CERTIFY

@@ -37,9 +37,7 @@ async def get_space(session, name: str) -> Space:
 
 async def get_crew(session, space_id: UUID, name: str) -> Crew:
     return (
-        await session.execute(
-            select(Crew).where(Crew.space_id == space_id, Crew.name == name)
-        )
+        await session.execute(select(Crew).where(Crew.space_id == space_id, Crew.name == name))
     ).scalar_one()
 
 
@@ -56,9 +54,7 @@ async def assert_can(
     actual = await auth.can(user, permission, space_id=space_id, crew_id=crew_id)
     ok = actual is expected
     badge = PASS if ok else FAIL
-    print(
-        f"  {badge}  {label:<50}  can({permission!r}) = {actual}  (expected {expected})"
-    )
+    print(f"  {badge}  {label:<50}  can({permission!r}) = {actual}  (expected {expected})")
     return ok
 
 
@@ -200,9 +196,7 @@ async def main():
         for email, perm, expected in cases:
             u = await get_user(session, email)
             label = f"{email.split('@')[0]}: {perm}"
-            failures += not await assert_can(
-                auth, label, u, perm, expected, space_id=space.id
-            )
+            failures += not await assert_can(auth, label, u, perm, expected, space_id=space.id)
 
     print()
     if failures:

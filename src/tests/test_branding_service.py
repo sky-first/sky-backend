@@ -24,13 +24,13 @@ def _bearer(user: User) -> dict:
 
 @pytest_asyncio.fixture
 async def owner_user(db_session: AsyncSession) -> User:
-    """A user with the ``owner`` role — required for branding writes."""
+    """Tenant founder (``super_admin``) — required for branding writes."""
     repo = UserRepository(db_session)
     user = await repo.create(
         email="owner@acme.test",
         password_hash="x",
         name="Acme Owner",
-        role="owner",
+        role="super_admin",
     )
     await db_session.commit()
     await db_session.refresh(user)

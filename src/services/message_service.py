@@ -21,12 +21,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
+from src.core.permissions import is_tenant_admin
 from src.models.conversation import Conversation, Message
-from src.models.widget import Widget
 from src.models.user import User
+from src.models.widget import Widget
 from src.repositories.conversation import ConversationRepository
 from src.repositories.message import MessageRepository
-from src.schemas.message import ForkRequest, MessageCreate, PinRequest, MessageResponse
+from src.schemas.message import ForkRequest, MessageCreate, MessageResponse, PinRequest
 from src.services.conversation_service import ConversationService
 
 try:
@@ -36,6 +37,7 @@ try:
     # not-loaded-yet doesn't crash CLI / migration code paths.
     from src.api.v1.chat_ws import broadcast_event_nowait
 except Exception:  # pragma: no cover — relay is optional
+
     def broadcast_event_nowait(*args, **kwargs):
         return None
 
@@ -43,6 +45,17 @@ except Exception:  # pragma: no cover — relay is optional
 # Only the AI service / agent runtime should write these. Humans submit
 # user messages; everything else is produced server-side.
 _HUMAN_ROLE = "user"
+
+
+def _display_name(user: Optional[User]) -> Optional[str]:
+    """Human-friendly author label: full name, else the email local part."""
+    if user is None:
+        return None
+    name = (getattr(user, "name", None) or "").strip()
+    if name:
+        return name
+    email = getattr(user, "email", None)
+    return email.split("@")[0] if email else None
 
 
 class MessageService:
@@ -54,9 +67,7 @@ class MessageService:
 
     # ─── Helpers ─────────────────────────────────────────────────────────
 
-    async def _load_viewable_conversation(
-        self, conversation_id: UUID, user: User
-    ) -> Conversation:
+    async def _load_viewable_conversation(self, conversation_id: UUID, user: User) -> Conversation:
         conv = await self.conv_repo.get_by_id(conversation_id)
         if not conv:
             raise NotFoundError("Conversation not found")
@@ -65,20 +76,35 @@ class MessageService:
             raise NotFoundError("Conversation not found")
         return conv
 
+    async def _attach_author_names(self, messages: List[Message]) -> None:
+        """Resolve each message author's display name and attach it as the
+        transient ``author_name`` attribute so MessageResponse serialises it.
+
+        One batched query for the distinct authors in the list. AI/system
+        rows (user_id NULL) and legacy rows stay None.
+        """
+        user_ids = {m.user_id for m in messages if m.user_id is not None}
+        names: dict = {}
+        if user_ids:
+            rows = await self.db.execute(
+                select(User.id, User.name, User.email).where(User.id.in_(user_ids))
+            )
+            for uid, name, email in rows.all():
+                label = (name or "").strip() or (email.split("@")[0] if email else None)
+                names[uid] = label
+        for m in messages:
+            m.author_name = names.get(m.user_id) if m.user_id else None
+
     # ─── Create ──────────────────────────────────────────────────────────
 
-    async def create(
-        self, conversation_id: UUID, user: User, payload: MessageCreate
-    ) -> Message:
+    async def create(self, conversation_id: UUID, user: User, payload: MessageCreate) -> Message:
         conv = await self._load_viewable_conversation(conversation_id, user)
 
         if payload.role != _HUMAN_ROLE:
             # Non-human roles are produced by the backend itself on behalf
             # of the AI service or an agent run. An HTTP caller cannot
             # impersonate the assistant/system.
-            raise ForbiddenError(
-                "Only role='user' messages can be created via this endpoint"
-            )
+            raise ForbiddenError("Only role='user' messages can be created via this endpoint")
 
         # chat-threads-master-plan PR1: derive `kind` and enforce
         # owner-gating for questions.
@@ -89,7 +115,7 @@ class MessageService:
         #   - kind='comment' → any viewer may post; never fires AI.
         kind = payload.kind or "question"
         if kind == "question":
-            if conv.created_by != user.id and user.role != "admin":
+            if conv.created_by != user.id and not is_tenant_admin(user):
                 # Mirror "owner gates AI re-runs in that thread" from
                 # the chat-threads-master-plan. Non-owners must post
                 # comments instead, which the FE renders as the "Leave
@@ -103,8 +129,7 @@ class MessageService:
             # schema, but guard explicitly so the service is the canonical
             # policy gate.
             raise ForbiddenError(
-                "Invalid message kind; only 'question' and 'comment' are "
-                "accepted from clients"
+                "Invalid message kind; only 'question' and 'comment' are " "accepted from clients"
             )
 
         msg = await self.repo.create(
@@ -112,6 +137,7 @@ class MessageService:
             role=payload.role,
             kind=kind,
             content=payload.content,
+            user_id=user.id,
             query_id=payload.query_id,
             cost_tokens=payload.cost_tokens,
             cost_usd=payload.cost_usd,
@@ -122,6 +148,11 @@ class MessageService:
         conv.updated_at = datetime.utcnow()
         await self.db.commit()
         await self.db.refresh(msg)
+
+        # The writer is the caller — stamp their display name so the
+        # broadcast + HTTP response attribute the message to the real
+        # author for every collaborator (not the local viewer's name).
+        msg.author_name = _display_name(user)
 
         # PR4: broadcast to every WS subscriber on this page. Fire-and-forget
         # so the HTTP response doesn't wait on peer acks.
@@ -144,15 +175,15 @@ class MessageService:
         cursor: Optional[datetime] = None,
     ) -> List[Message]:
         await self._load_viewable_conversation(conversation_id, user)
-        return await self.repo.list_for_conversation(
+        messages = await self.repo.list_for_conversation(
             conversation_id=conversation_id, limit=limit, cursor=cursor
         )
+        await self._attach_author_names(messages)
+        return messages
 
     # ─── Ask-AI bundling (chat-threads-master-plan PR2) ─────────────────
 
-    async def list_pending_comments(
-        self, conversation_id: UUID, user: User
-    ) -> List[Message]:
+    async def list_pending_comments(self, conversation_id: UUID, user: User) -> List[Message]:
         """Comments since the last ai_response, not yet incorporated.
 
         Used by the FE to preview "X comments will be included" before the
@@ -160,9 +191,7 @@ class MessageService:
         assemble the prompt.
         """
         await self._load_viewable_conversation(conversation_id, user)
-        return await self.repo.list_pending_comments(
-            conversation_id=conversation_id
-        )
+        return await self.repo.list_pending_comments(conversation_id=conversation_id)
 
     async def ask_ai_with_bundle(
         self,
@@ -197,21 +226,18 @@ class MessageService:
         broadcast.
         """
         conv = await self._load_viewable_conversation(conversation_id, user)
-        if conv.created_by != user.id and user.role != "admin":
-            raise ForbiddenError(
-                "Only the conversation owner can fire an Ask-AI bundle"
-            )
+        if conv.created_by != user.id and not is_tenant_admin(user):
+            raise ForbiddenError("Only the conversation owner can fire an Ask-AI bundle")
 
-        pending = await self.repo.list_pending_comments(
-            conversation_id=conversation_id
-        )
+        pending = await self.repo.list_pending_comments(conversation_id=conversation_id)
 
-        # 2. Question
+        # 2. Question — authored by the owner firing the bundle.
         question = await self.repo.create(
             conversation_id=conv.id,
             role="user",
             kind="question",
             content=question_content,
+            user_id=user.id,
             query_id=query_id,
         )
 
@@ -241,6 +267,11 @@ class MessageService:
         await self.db.refresh(question)
         await self.db.refresh(ai_response)
 
+        # Attribute the question to its author; the AI response stays
+        # authorless (rendered as the assistant).
+        question.author_name = _display_name(user)
+        ai_response.author_name = None
+
         # PR4: broadcast the bundle so peers render the question/AI pair
         # immediately. We send both events (clients can render the AI
         # answer as it lands while keeping the question above it).
@@ -263,9 +294,7 @@ class MessageService:
         }
 
     @staticmethod
-    def build_bundled_prompt(
-        question_content: str, pending_comments: List[Message]
-    ) -> str:
+    def build_bundled_prompt(question_content: str, pending_comments: List[Message]) -> str:
         """Pure helper: stitches the question + pending comments into a
         single LLM-ready prompt.
 
@@ -278,9 +307,7 @@ class MessageService:
         if not pending_comments:
             return question_content
 
-        comments_block = "\n".join(
-            f"- {c.content}" for c in pending_comments
-        )
+        comments_block = "\n".join(f"- {c.content}" for c in pending_comments)
         return (
             "You are answering a follow-up question on a shared discussion. "
             "Below are the comments the team posted since your last answer. "
@@ -291,9 +318,7 @@ class MessageService:
 
     # ─── Pin ─────────────────────────────────────────────────────────────
 
-    async def pin_message(
-        self, message_id: UUID, user: User, payload: PinRequest
-    ) -> Widget:
+    async def pin_message(self, message_id: UUID, user: User, payload: PinRequest) -> Widget:
         """Materialise a widget anchored to this message.
 
         A11: concurrent pins of the same message resolve to a single widget.
@@ -323,10 +348,7 @@ class MessageService:
 
         # Create the widget. Title defaults to the first line of the
         # message content truncated to 255 chars.
-        title = (
-            payload.title
-            or msg.content.splitlines()[0][:255] if msg.content else "Insight"
-        )
+        title = payload.title or msg.content.splitlines()[0][:255] if msg.content else "Insight"
         widget = Widget(
             page_id=payload.page_id,
             type=payload.widget_type,
@@ -362,9 +384,7 @@ class MessageService:
 
     # ─── Fork ────────────────────────────────────────────────────────────
 
-    async def fork(
-        self, conversation_id: UUID, user: User, payload: ForkRequest
-    ) -> Conversation:
+    async def fork(self, conversation_id: UUID, user: User, payload: ForkRequest) -> Conversation:
         """Branch a conversation: create a new thread that contains every
         message up to and including `from_message_id`, owned by the caller.
 
@@ -395,6 +415,7 @@ class MessageService:
                 conversation_id=child.id,
                 role=src.role,
                 content=src.content,
+                user_id=src.user_id,
                 query_id=src.query_id,
                 cost_tokens=src.cost_tokens,
                 cost_usd=src.cost_usd,
@@ -405,3 +426,64 @@ class MessageService:
         await self.db.commit()
         await self.db.refresh(child)
         return child
+
+    async def toggle_reaction(
+        self,
+        conversation_id: UUID,
+        message_id: UUID,
+        emoji: str,
+        user: User,
+    ) -> Message:
+        """Toggle the caller's reaction with this emoji on the message.
+
+        Idempotent: if the user is already in the emoji's list, they
+        come out; otherwise they go in. Empty lists are pruned so the
+        JSONB stays compact.
+        """
+        # RBAC: caller must be able to see the parent conversation
+        # — same gate Message.create uses.
+        conv = await self.conv_repo.get_by_id(conversation_id)
+        if conv is None:
+            raise NotFoundError("conversation not found")
+        if not await self.conv_service._can_view(conv, user):
+            raise ForbiddenError("you cannot react in this conversation")
+
+        msg = await self.db.get(Message, message_id)
+        if msg is None or msg.conversation_id != conversation_id:
+            raise NotFoundError("message not found in this conversation")
+
+        # Copy-on-write so SQLAlchemy detects the change.
+        reactions: dict = dict(msg.reactions or {})
+        bucket = list(reactions.get(emoji, []))
+        uid = str(user.id)
+        if uid in bucket:
+            bucket.remove(uid)
+        else:
+            bucket.append(uid)
+        if bucket:
+            reactions[emoji] = bucket
+        else:
+            reactions.pop(emoji, None)
+        msg.reactions = reactions
+
+        await self.db.commit()
+        await self.db.refresh(msg)
+        await self._attach_author_names([msg])
+
+        # Best-effort WS broadcast so peers see the reaction update
+        # in real time. The relay signature is (page_id, event_type,
+        # payload) — match the existing "message.created" envelope.
+        try:
+            broadcast_event_nowait(
+                str(conv.page_id),
+                "message.reaction",
+                {
+                    "conversation_id": str(conv.id),
+                    "message_id": str(msg.id),
+                    "reactions": reactions,
+                },
+            )
+        except Exception:  # pragma: no cover — relay is optional
+            pass
+
+        return msg

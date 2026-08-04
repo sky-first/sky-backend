@@ -48,7 +48,11 @@ TEST_USERS: list[tuple[str, str, str]] = [
     ("Fabio Guest", "guest", "Read-only Crew member — internal stakeholder access"),
     ("Gina BillingAdmin", "billing_admin", "Billing-only admin — plan / usage / invoices"),
     ("Hugo Compliance", "compliance_auditor", "Read-only audit access + permission matrix export"),
-    ("Iris Service", "service_account", "Non-human integration — API-only, no chat / notifications"),
+    (
+        "Iris Service",
+        "service_account",
+        "Non-human integration — API-only, no chat / notifications",
+    ),
     ("Joana Member", "member", "Legacy member role — kept for backward compatibility tests"),
     ("Kai Viewer", "viewer", "Legacy read-only role — kept for backward compatibility tests"),
 ]

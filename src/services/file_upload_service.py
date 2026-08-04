@@ -1,5 +1,6 @@
 """File upload service."""
 
+import base64
 import csv
 import io
 import secrets
@@ -26,6 +27,13 @@ class FileUploadService:
     """File upload service."""
 
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+    # Inline (base64 data-URI) storage is meant for small assets like avatars.
+    # 500KB was too tight — a normal phone-camera shot lands around 2-4MB,
+    # and Lucas's first real-world upload on staging fell straight through
+    # this guard. Lift to 4MB so reasonable avatars work without forcing
+    # everyone through an FE downsampler we haven't built yet; the data
+    # URI is still bounded enough not to wreck /me responses.
+    MAX_INLINE_SIZE = 4 * 1024 * 1024  # 4MB
     ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
     ALLOWED_CSV_TYPES = ["text/csv", "application/csv", "text/plain"]
     ALLOWED_EXCEL_TYPES = [
@@ -77,6 +85,42 @@ class FileUploadService:
                 f"File type {mime_type} is not allowed. Allowed types: {', '.join(allowed_types)}"
             )
 
+    def _is_cloud_storage_configured(self) -> bool:
+        """Return True only when the cloud bucket for the configured backend is set."""
+        if self.storage_type == "s3":
+            return bool(settings.AWS_S3_BUCKET)
+        if self.storage_type == "gcs":
+            return bool(settings.GCS_BUCKET_NAME)
+        return False
+
+    async def _save_file_inline(
+        self, file: UploadFile, mime_type: Optional[str] = None
+    ) -> tuple[str, str]:
+        """
+        Encode the uploaded file as a base64 data URI and return it as the URL.
+
+        Suitable for small assets (avatars, logos) when no object storage is
+        wired up. Caller MUST have already validated the MIME type. Size is
+        re-validated here against ``MAX_INLINE_SIZE`` because oversize payloads
+        bloat DB rows / API responses.
+        """
+        file_extension = Path(file.filename).suffix if file.filename else ""
+        unique_filename = f"{secrets.token_urlsafe(16)}{file_extension}"
+
+        await file.seek(0)
+        content = await file.read()
+        if len(content) > self.MAX_INLINE_SIZE:
+            mb = self.MAX_INLINE_SIZE / (1024 * 1024)
+            raise BadRequestError(
+                f"Image is too large for inline upload "
+                f"(limit {mb:.1f}MB). Try a smaller picture or crop it first."
+            )
+
+        effective_mime = mime_type or file.content_type or "application/octet-stream"
+        encoded = base64.b64encode(content).decode("ascii")
+        url = f"data:{effective_mime};base64,{encoded}"
+        return unique_filename, url
+
     async def _save_file(self, file: UploadFile, user_id: UUID) -> tuple[str, str]:
         """
         Save file to storage.
@@ -92,6 +136,10 @@ class FileUploadService:
         file_extension = Path(file.filename).suffix if file.filename else ""
         unique_filename = f"{secrets.token_urlsafe(16)}{file_extension}"
 
+        # Explicit "inline" mode -> base64 data URI in the URL itself.
+        if self.storage_type == "inline":
+            return await self._save_file_inline(file)
+
         if self.storage_type == "local":
             # Create upload directory if it doesn't exist
             user_dir = self.upload_dir / str(user_id)
@@ -106,9 +154,14 @@ class FileUploadService:
 
             # Generate URL (in production, this would be a proper URL)
             url = f"/uploads/{user_id}/{unique_filename}"
-        else:
+        elif self.storage_type in ("s3", "gcs") and self._is_cloud_storage_configured():
             # TODO: Implement S3/GCS storage
             raise BadRequestError("S3/GCS storage not implemented yet")
+        else:
+            # Unknown storage backend or cloud bucket not configured: fall back
+            # to inline data URIs so small assets (avatars) still work in POC /
+            # demo environments instead of hard-failing with a 400.
+            return await self._save_file_inline(file)
 
         return unique_filename, url
 

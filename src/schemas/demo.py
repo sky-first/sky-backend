@@ -142,6 +142,20 @@ class DemoSignupRequest(BaseModel):
                 "your company uses a personal-email-style domain, "
                 "contact us at lucas@skyfirstlabs.com to whitelist it."
             )
+        # @skyfirstlabs.com is the engineering Workspace. The demo path
+        # creates a *local* user with no Google verification — accepting
+        # this domain would let anyone seed a fake "lucas@skyfirstlabs.com"
+        # in our DB and contaminate audit logs, even though the real
+        # Console guard (``is_sky_team_member``) still requires
+        # ``is_sky_operator=true`` to grant access. Defence in depth:
+        # refuse the demo signup outright so the impersonation never
+        # gets a row.
+        if domain == "skyfirstlabs.com":
+            raise ValueError(
+                "This domain is reserved for SkyFirst engineering accounts; "
+                "demo sign-ups must use a different work email. Sky team "
+                "members should sign in via the engineering SSO instead."
+            )
         return v
 
 

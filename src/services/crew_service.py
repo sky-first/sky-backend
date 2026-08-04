@@ -1,7 +1,7 @@
 """Crew service."""
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,10 @@ logger = logging.getLogger(__name__)
 from src.repositories.crew import CrewMemberRepository, CrewRepository
 from src.repositories.space import SpaceMemberRepository, SpaceRepository
 from src.schemas.crew import (
+    CrewConnectionResponse,
+    CrewConnectionTable,
     CrewCreate,
+    CrewDataAccessUpdate,
     CrewMemberCreate,
     CrewMemberResponse,
     CrewMemberUpdate,
@@ -45,7 +48,7 @@ class CrewService:
 
     async def _assert_crew_read_access(self, space_id: UUID, crew_id: UUID, user: User) -> None:
         """Allow admin/owner, space creator, space member, or crew member to read crew data."""
-        if user.role in ("admin", "owner"):
+        if user.role in ("admin", "owner", "super_admin"):
             return
         space = await self.space_repo.get_by_id(space_id)
         if space and space.created_by == user.id:
@@ -58,7 +61,7 @@ class CrewService:
 
     async def _assert_crew_write_access(self, space_id: UUID, user: User) -> None:
         """Allow only admin/owner or space creator to mutate crew data."""
-        if user.role in ("admin", "owner"):
+        if user.role in ("admin", "owner", "super_admin"):
             return
         space = await self.space_repo.get_by_id(space_id)
         if not space or space.created_by != user.id:
@@ -70,6 +73,7 @@ class CrewService:
         space_id: Optional[UUID] = None,
         skip: int = 0,
         limit: int = 100,
+        member_only: bool = False,
     ) -> List[CrewResponse]:
         """
         List crews.
@@ -79,6 +83,11 @@ class CrewService:
             space_id: Optional space ID to filter
             skip: Number of records to skip
             limit: Maximum number of records
+            member_only: When True (and ``space_id`` given), return only the
+                crews the user is a MEMBER of — even for org admins. Used by
+                the ANALYSIS context selector (Option B), where you can only
+                pick a crew you belong to. The admin/management views leave
+                this False to see every crew.
 
         Returns:
             List[CrewResponse]: List of crews
@@ -87,7 +96,16 @@ class CrewService:
             crews_data = await self.crew_repo.get_by_space_with_stats(
                 space_id, skip=skip, limit=limit
             )
-            return [CrewResponse.model_validate(c) for c in crews_data]
+            result = [CrewResponse.model_validate(c) for c in crews_data]
+            if member_only:
+                member_ids = {
+                    str(cid)
+                    for cid in await self.member_repo.get_crew_ids_by_user_and_space(
+                        user.id, space_id
+                    )
+                }
+                result = [c for c in result if str(c.id) in member_ids]
+            return result
         else:
             # SECURITY: previously this called get_all_with_stats which
             # returned every crew in the tenant — a regular member saw
@@ -95,7 +113,7 @@ class CrewService:
             # the user-scoped variant: org admins/owners still get the
             # full list; everyone else sees only crews they belong to
             # (directly) or whose parent Space they belong to.
-            is_org_admin = (user.role or "").lower() in ("owner", "admin")
+            is_org_admin = (user.role or "").lower() in ("owner", "admin", "super_admin")
             crews_data = await self.crew_repo.get_visible_with_stats(
                 user_id=user.id,
                 is_org_admin=is_org_admin,
@@ -147,7 +165,7 @@ class CrewService:
         if not space:
             raise NotFoundError("Space not found")
 
-        if user.role not in ("admin", "owner") and space.created_by != user.id:
+        if user.role not in ("admin", "owner", "super_admin") and space.created_by != user.id:
             # Check space membership for non-admin, non-creator users
             from sqlalchemy import select
 
@@ -189,26 +207,201 @@ class CrewService:
         )
         self.db.add(sp)
 
+        # Data access — grant the crew a subset of the parent space's
+        # connections (and, optionally, specific tables within them). Validated
+        # against the space so a crew can never see more than its space already
+        # exposes. Added to the same transaction as the crew itself.
+        await self._grant_crew_data_access(crew, space.id, crew_data)
+
         await self.db.commit()
         await self.db.refresh(crew)
 
         # Ingest the Crew so RAG knows about it — mirrors SpaceService's
         # create flow. Failures are logged + swallowed.
         try:
-            await self.ai_client.ingest_knowledge_graph({
-                "id": str(crew.id),
-                "entity_type": "crew",
-                "name": crew.name,
-                "description": crew.description,
-                "space_id": str(crew.space_id),
-                "crew_id": str(crew.id),
-                "owner_user_id": str(user.id),
-                "entity_details": {"created_by": str(user.id)},
-            })
+            await self.ai_client.ingest_knowledge_graph(
+                {
+                    "id": str(crew.id),
+                    "entity_type": "crew",
+                    "name": crew.name,
+                    "description": crew.description,
+                    "space_id": str(crew.space_id),
+                    "crew_id": str(crew.id),
+                    "owner_user_id": str(user.id),
+                    "entity_details": {"created_by": str(user.id)},
+                }
+            )
         except Exception as exc:
             logger.warning(f"AI ingest failed for crew {crew.id}: {exc}")
 
         return CrewResponse.model_validate(crew)
+
+    async def set_crew_data_access(
+        self, crew_id: UUID, user: User, data: CrewDataAccessUpdate
+    ) -> List[CrewConnectionResponse]:
+        """Replace an existing crew's data-access grant with the provided set.
+
+        Fully REPLACES the crew's ``CrewConnection``/``CrewTable`` rows (set
+        semantics), re-validated against the parent space (a crew can only be
+        granted what the space already exposes — see ``_grant_crew_data_access``).
+        Empty/omitted input revokes all access (fail-closed). This is the manual
+        rollout path: the admin liberates tables to crews that start with none.
+        """
+        crew = await self.crew_repo.get_by_id(crew_id)
+        if not crew:
+            raise NotFoundError("Crew not found")
+        await self._assert_crew_write_access(crew.space_id, user)
+
+        from sqlalchemy import delete
+
+        from src.models.crew import CrewConnection, CrewTable
+
+        # Wipe the current grant first (emitted immediately), then re-apply the
+        # subset-of-space rules; the new rows are INSERTed on commit.
+        await self.db.execute(delete(CrewTable).where(CrewTable.crew_id == crew_id))
+        await self.db.execute(delete(CrewConnection).where(CrewConnection.crew_id == crew_id))
+        await self._grant_crew_data_access(crew, crew.space_id, data)
+        await self.db.commit()
+
+        return await self.get_crew_connections(crew_id, user)
+
+    async def _grant_crew_data_access(
+        self, crew, space_id: UUID, crew_data: Union[CrewCreate, CrewDataAccessUpdate]
+    ) -> None:
+        """Persist the crew's connection/table grants, restricted to the space.
+
+        Rules (the "crew = subset of space" model):
+          - A crew connection must already belong to the parent space; requests
+            for connections the space doesn't have are silently dropped.
+          - Listing tables for a connection narrows the crew to exactly those.
+            If the space itself restricted that connection to specific tables,
+            the crew's tables must be among them; otherwise (space exposes all)
+            any table is accepted.
+          - A table grant implies its connection is granted too.
+
+        Rows are added to the current session; the caller commits.
+        """
+        from sqlalchemy import select
+
+        from src.models.crew import CrewConnection, CrewTable
+        from src.models.space import SpaceConnection, SpaceTable
+
+        requested_conn_ids = list(crew_data.connection_ids or [])
+        requested_tables = list(crew_data.tables or [])
+        for t in requested_tables:
+            if t.connection_id not in requested_conn_ids:
+                requested_conn_ids.append(t.connection_id)
+        if not requested_conn_ids:
+            return
+
+        # Connections the parent space actually has — the only ones a crew may pick.
+        space_conn_rows = await self.db.execute(
+            select(SpaceConnection.connection_id).where(SpaceConnection.space_id == space_id)
+        )
+        space_conn_ids = {row[0] for row in space_conn_rows.all()}
+
+        granted_conn_ids = [
+            cid for cid in dict.fromkeys(requested_conn_ids) if cid in space_conn_ids
+        ]
+        if not granted_conn_ids:
+            return
+
+        for cid in granted_conn_ids:
+            self.db.add(CrewConnection(crew_id=crew.id, connection_id=cid))
+
+        if not requested_tables:
+            return
+
+        # The space's explicit tables per connection. A connection absent here
+        # means the space exposes ALL of its tables, so any crew table is fine.
+        space_table_rows = await self.db.execute(
+            select(
+                SpaceTable.connection_id,
+                SpaceTable.table_name,
+                SpaceTable.schema_name,
+            ).where(SpaceTable.space_id == space_id)
+        )
+        space_tables_by_conn: dict = {}
+        for conn_id, table_name, schema_name in space_table_rows.all():
+            space_tables_by_conn.setdefault(conn_id, set()).add((table_name, schema_name))
+
+        granted_set = set(granted_conn_ids)
+        seen: set = set()
+        for t in requested_tables:
+            if t.connection_id not in granted_set:
+                continue
+            allowed = space_tables_by_conn.get(t.connection_id)
+            if allowed is not None and (t.table_name, t.schema_name) not in allowed:
+                # Space narrowed this connection and the table isn't in scope.
+                continue
+            key = (t.connection_id, t.table_name, t.schema_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            self.db.add(
+                CrewTable(
+                    crew_id=crew.id,
+                    connection_id=t.connection_id,
+                    table_name=t.table_name,
+                    schema_name=t.schema_name,
+                )
+            )
+
+    async def get_crew_connections(self, crew_id: UUID, user: User) -> List[CrewConnectionResponse]:
+        """Return the connections (and any specific tables) this crew was
+        granted — the crew's OWN data access, not the parent space's. Names are
+        resolved here so the UI never has to show a UUID."""
+        crew = await self.crew_repo.get_by_id(crew_id)
+        if not crew:
+            raise NotFoundError("Crew not found")
+        await self._assert_crew_read_access(crew.space_id, crew_id, user)
+
+        from sqlalchemy import select
+
+        from src.models.connection import DataConnection
+        from src.models.crew import CrewConnection, CrewTable
+
+        conn_rows = (
+            await self.db.execute(
+                select(
+                    CrewConnection.connection_id,
+                    DataConnection.name,
+                    DataConnection.connector_id,
+                )
+                .join(DataConnection, DataConnection.id == CrewConnection.connection_id)
+                .where(CrewConnection.crew_id == crew_id)
+            )
+        ).all()
+
+        table_rows = (
+            await self.db.execute(
+                select(
+                    CrewTable.connection_id,
+                    CrewTable.table_name,
+                    CrewTable.schema_name,
+                ).where(CrewTable.crew_id == crew_id)
+            )
+        ).all()
+
+        tables_by_conn: dict = {}
+        for cid, tname, sname in table_rows:
+            tables_by_conn.setdefault(cid, []).append(
+                CrewConnectionTable(table_name=tname, schema_name=sname)
+            )
+
+        out: List[CrewConnectionResponse] = []
+        for cid, name, connector in conn_rows:
+            tbls = tables_by_conn.get(cid, [])
+            out.append(
+                CrewConnectionResponse(
+                    connection_id=cid,
+                    name=name,
+                    connector_id=connector,
+                    all_tables=len(tbls) == 0,
+                    tables=tbls,
+                )
+            )
+        return out
 
     async def update_crew(self, crew_id: UUID, user: User, crew_data: CrewUpdate) -> CrewResponse:
         """
@@ -486,7 +679,7 @@ class CrewService:
                     description=f"{user.name or user.email} added you as {member_data.role}",
                     entity_type="crew",
                     entity_id=str(crew_id),
-                    deep_link=f"/dashboard?crew={crew_id}",
+                    deep_link=f"/page?crew={crew_id}",
                 )
             )
         except Exception:
@@ -534,18 +727,21 @@ class CrewService:
         # created scoped to this crew. Same rationale as
         # space_service.remove_space_member: HI-002 privilege persistence.
         try:
-            from src.services.agent_revocation_service import (
-                AgentRevocationService,
-            )
+            from src.services.agent_revocation_service import AgentRevocationService
+
             await AgentRevocationService(self.db).revoke_on_crew_removal(
-                user_id=user_id, crew_id=crew_id,
+                user_id=user_id,
+                crew_id=crew_id,
             )
         except Exception as exc:  # pragma: no cover - defensive
             import logging
+
             logging.getLogger(__name__).warning(
                 "Agent revocation on crew-member-removal failed "
                 "(user=%s crew=%s): %s. Periodic sweep will catch up.",
-                user_id, crew_id, exc,
+                user_id,
+                crew_id,
+                exc,
             )
 
         await self.db.commit()

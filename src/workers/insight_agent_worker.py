@@ -179,11 +179,28 @@ async def _call_ai_run_agent(
     ai_client = AIServiceHTTPClient()
     started = datetime.now(timezone.utc)
 
+    from src.core.locale import resolve_locale
+    from src.models.user import User as _User
+    _owner = None
+    if agent.created_by:
+        _owner = (
+            await db.execute(_select(_User).where(_User.id == agent.created_by))
+        ).scalar_one_or_none()
+
+    # Resolve the REAL owning space - sending the raw scope_id is wrong for crew
+    # (crew id) and personal (user id) and causes a false "No metadata found"
+    # 404. See resolve_metadata_space_id.
+    from src.services.agent_service import resolve_metadata_space_id
+
+    _effective_space_id = await resolve_metadata_space_id(
+        db, agent, str(widget.connection_id)
+    )
     response = await ai_client.query_connection(
         connection_id=str(widget.connection_id),
         question=question,
         user_id=str(agent.created_by) if agent.created_by else "system",
-        space_id=agent.scope_id or "default",
+        space_id=_effective_space_id or agent.scope_id or "default",
+        locale=resolve_locale(None, _owner),
     )
 
     elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)

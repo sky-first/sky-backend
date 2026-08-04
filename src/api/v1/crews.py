@@ -10,7 +10,9 @@ from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.crew import (
+    CrewConnectionResponse,
     CrewCreate,
+    CrewDataAccessUpdate,
     CrewMemberCreate,
     CrewMemberResponse,
     CrewMemberUpdate,
@@ -35,6 +37,10 @@ router = APIRouter()
 )
 async def list_crews(
     space_id: Optional[UUID] = Query(None, description="Filter by space ID"),
+    member_only: bool = Query(
+        False,
+        description="When true (with space_id), return only crews the caller is a member of",
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -45,6 +51,8 @@ async def list_crews(
 
     Args:
         space_id: Optional space ID to filter
+        member_only: When true (with space_id), return only the caller's
+            member crews — for the analysis context selector (Option B).
         skip: Number of records to skip
         limit: Maximum number of records to return
         current_user: Current authenticated user
@@ -55,7 +63,9 @@ async def list_crews(
     """
     await RBACService(db).assert_permission(current_user, "crews.view")
     crew_service = CrewService(db)
-    return await crew_service.list_crews(current_user, space_id=space_id, skip=skip, limit=limit)
+    return await crew_service.list_crews(
+        current_user, space_id=space_id, skip=skip, limit=limit, member_only=member_only
+    )
 
 
 @router.get(
@@ -384,3 +394,65 @@ async def get_crew_stats(
     """
     crew_service = CrewService(db)
     return await crew_service.get_crew_stats(crew_id, current_user)
+
+
+@router.get(
+    "/{crew_id}/connections",
+    response_model=List[CrewConnectionResponse],
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Get crew connections",
+    description="Get the connections (and any specific tables) granted to a crew",
+)
+async def get_crew_connections(
+    crew_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[CrewConnectionResponse]:
+    """
+    Get the data access granted to a crew — its own connections/tables, not the
+    parent space's.
+
+    Args:
+        crew_id: Crew ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        List[CrewConnectionResponse]: Crew connections with optional table narrowing
+    """
+    crew_service = CrewService(db)
+    return await crew_service.get_crew_connections(crew_id, current_user)
+
+
+@router.put(
+    "/{crew_id}/data-access",
+    response_model=List[CrewConnectionResponse],
+    status_code=status.HTTP_200_OK,
+    responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    summary="Set crew data access",
+    description="Replace the connections/tables a crew may query (a subset of its space)",
+)
+async def set_crew_data_access(
+    crew_id: UUID,
+    data: CrewDataAccessUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[CrewConnectionResponse]:
+    """
+    Replace the data access granted to a crew. Set semantics: the provided
+    connections/tables fully replace the crew's current grant (empty revokes
+    all). Grants are restricted to what the parent space already exposes.
+
+    Args:
+        crew_id: Crew ID
+        data: Connections/tables to grant (replaces the existing set)
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        List[CrewConnectionResponse]: The crew's resulting data access
+    """
+    await RBACService(db).assert_permission(current_user, "crews.edit", crew_id=crew_id)
+    crew_service = CrewService(db)
+    return await crew_service.set_crew_data_access(crew_id, current_user, data)

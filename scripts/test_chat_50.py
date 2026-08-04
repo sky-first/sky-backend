@@ -6,6 +6,7 @@ Rate-limit awareness: AI endpoint allows 10 req/min per user.
 We send one request every DELAY_BETWEEN_REQUESTS seconds and auto-retry
 on 429 with a back-off wait.
 """
+
 import json
 import time
 import httpx
@@ -36,7 +37,6 @@ QUESTIONS = [
     ("Finance", "What percentage of invoices are overdue?"),
     ("Finance", "What is the average subscription duration before cancellation?"),
     ("Finance", "Show me the top 5 accounts by total invoice amount"),
-
     # ── CRM / Sales ──────────────────────────────────────────────────────────
     ("Sales", "How many accounts are there by industry?"),
     ("Sales", "What is the total value of the sales pipeline by stage?"),
@@ -48,7 +48,6 @@ QUESTIONS = [
     ("Sales", "How many new accounts were acquired each month?"),
     ("Sales", "What is the average time to close a deal?"),
     ("Sales", "Which accounts have the highest number of contacts?"),
-
     # ── Marketing ────────────────────────────────────────────────────────────
     ("Marketing", "Which campaign generated the most leads?"),
     ("Marketing", "What is the lead conversion rate by source?"),
@@ -60,7 +59,6 @@ QUESTIONS = [
     ("Marketing", "Which lead source has the highest conversion rate?"),
     ("Marketing", "How many email events happened by type?"),
     ("Marketing", "What is the total number of leads by status?"),
-
     # ── Product Usage ────────────────────────────────────────────────────────
     ("Product", "Which accounts have the highest churn risk?"),
     ("Product", "What is the average health score across all accounts?"),
@@ -72,7 +70,6 @@ QUESTIONS = [
     ("Product", "Which accounts have seats_used below 50% of seats_paid?"),
     ("Product", "What is the average seats_used for each risk level?"),
     ("Product", "How many accounts improved their health score this quarter?"),
-
     # ── Cross-domain / Hard ───────────────────────────────────────────────────
     ("Cross", "Which accounts have active subscriptions but low health scores?"),
     ("Cross", "What is the revenue at risk from high-churn accounts?"),
@@ -98,6 +95,7 @@ print(f"{'='*70}\n")
 
 headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 
+
 def do_request(client, i, domain, question):
     payload = {"question": question, "is_personal": True}
     t0 = time.time()
@@ -106,7 +104,9 @@ def do_request(client, i, domain, question):
             r = client.post(f"{BASE}/ai/query", headers=headers, json=payload)
             elapsed = round(time.time() - t0, 1)
             if r.status_code == 429 and attempt < MAX_RETRIES:
-                print(f"[{i:02d}] [RATE_LIMIT   ] [{domain:<10}] attempt {attempt+1} — waiting {RETRY_WAIT}s...")
+                print(
+                    f"[{i:02d}] [RATE_LIMIT   ] [{domain:<10}] attempt {attempt+1} — waiting {RETRY_WAIT}s..."
+                )
                 time.sleep(RETRY_WAIT)
                 continue
             if r.status_code == 200:
@@ -132,29 +132,48 @@ def do_request(client, i, domain, question):
                     f"      SQL: {'yes' if sql else 'no'} | data: {'yes' if has_data else 'no'} | datasets: {chosen}\n"
                 )
                 return {
-                    "n": i, "domain": domain, "question": question,
-                    "outcome": outcome, "status": st,
-                    "has_sql": bool(sql), "has_data": has_data,
-                    "elapsed": elapsed, "chosen": chosen,
+                    "n": i,
+                    "domain": domain,
+                    "question": question,
+                    "outcome": outcome,
+                    "status": st,
+                    "has_sql": bool(sql),
+                    "has_data": has_data,
+                    "elapsed": elapsed,
+                    "chosen": chosen,
                 }
             else:
-                print(f"[{i:02d}] [HTTP_{r.status_code:<9}] [{domain:<10}] {elapsed}s\n"
-                      f"      Q: {question[:70]}\n"
-                      f"      Body: {r.text[:120]}\n")
+                print(
+                    f"[{i:02d}] [HTTP_{r.status_code:<9}] [{domain:<10}] {elapsed}s\n"
+                    f"      Q: {question[:70]}\n"
+                    f"      Body: {r.text[:120]}\n"
+                )
                 return {
-                    "n": i, "domain": domain, "question": question,
-                    "outcome": f"HTTP_{r.status_code}", "elapsed": elapsed,
-                    "has_sql": False, "has_data": False, "chosen": [],
+                    "n": i,
+                    "domain": domain,
+                    "question": question,
+                    "outcome": f"HTTP_{r.status_code}",
+                    "elapsed": elapsed,
+                    "has_sql": False,
+                    "has_data": False,
+                    "chosen": [],
                 }
         except Exception as e:
             elapsed = round(time.time() - t0, 1)
-            print(f"[{i:02d}] [EXCEPTION    ] [{domain:<10}] {elapsed}s\n"
-                  f"      Q: {question[:70]}\n"
-                  f"      E: {str(e)[:120]}\n")
+            print(
+                f"[{i:02d}] [EXCEPTION    ] [{domain:<10}] {elapsed}s\n"
+                f"      Q: {question[:70]}\n"
+                f"      E: {str(e)[:120]}\n"
+            )
             return {
-                "n": i, "domain": domain, "question": question,
-                "outcome": "EXCEPTION", "elapsed": elapsed,
-                "has_sql": False, "has_data": False, "chosen": [],
+                "n": i,
+                "domain": domain,
+                "question": question,
+                "outcome": "EXCEPTION",
+                "elapsed": elapsed,
+                "has_sql": False,
+                "has_data": False,
+                "chosen": [],
             }
 
 
@@ -170,18 +189,23 @@ print(f"\n{'='*70}")
 print("  SUMMARY")
 print(f"{'='*70}")
 from collections import Counter
+
 outcomes = Counter(r["outcome"] for r in results)
 for k, v in sorted(outcomes.items()):
     print(f"  {k:<20} {v:>3}")
 
 ok = sum(1 for r in results if r["outcome"] == "OK")
 partial = sum(1 for r in results if r["outcome"] == "PARTIAL")
-errors = sum(1 for r in results if r["outcome"] in ("ERROR", "EXCEPTION") or r["outcome"].startswith("HTTP_"))
+errors = sum(
+    1 for r in results if r["outcome"] in ("ERROR", "EXCEPTION") or r["outcome"].startswith("HTTP_")
+)
 expected_fail = sum(1 for r in results if r["outcome"] == "EXPECTED_FAIL")
 total = len(results)
 real_questions = total - 2  # exclude ShouldFail
 
-print(f"\n  Total: {total} | OK: {ok} | Partial: {partial} | Errors: {errors} | Expected-fail: {expected_fail}")
+print(
+    f"\n  Total: {total} | OK: {ok} | Partial: {partial} | Errors: {errors} | Expected-fail: {expected_fail}"
+)
 print(f"  Success rate (excl. expected fails): {round((ok+partial)/real_questions*100)}%")
 avg_time = round(sum(r["elapsed"] for r in results) / total, 1)
 print(f"  Avg response time: {avg_time}s")

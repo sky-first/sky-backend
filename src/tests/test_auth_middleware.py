@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient
 
@@ -205,3 +207,33 @@ class TestMiddlewareTokenExtraction:
         """Test that dashboard endpoints require authentication."""
         response = await async_client.get("/api/v1/dashboards")
         assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_revoked_token_returns_401(
+        self, async_client: AsyncClient, test_user_with_tokens: dict
+    ):
+        """Middleware must reject tokens flagged as revoked in the blocklist."""
+        access_token = test_user_with_tokens["access_token"]
+
+        with patch(
+            "src.core.token_blocklist.is_token_revoked",
+            AsyncMock(return_value=True),
+        ):
+            response = await async_client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+        assert response.status_code == 401
+        assert "revoked" in response.json().get("message", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_ws_path_without_auth_header_passes_through(
+        self, async_client: AsyncClient
+    ):
+        """HTTP requests to WS-prefixed paths bypass the auth header check.
+        The paths are websocket-only routes, so FastAPI returns 404 — but the
+        middleware must not return 401 first (which would hide the real status)."""
+        response = await async_client.get("/api/v1/cursor/some-context-id")
+        # 404 from the router (no HTTP route exists) is the correct outcome;
+        # 401 from the middleware would mean the bypass is broken.
+        assert response.status_code != 401

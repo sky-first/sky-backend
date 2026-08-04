@@ -51,8 +51,8 @@ from src.models.user import User  # noqa: E402
 # (the script also deletes by these IDs upfront, so this is belt-and-braces).
 _AGENT_IDS = {
     "revenue_sentinel": uuid.UUID("a0000000-0000-4000-8000-000000000001"),
-    "customer_health":  uuid.UUID("a0000000-0000-4000-8000-000000000002"),
-    "concentration":    uuid.UUID("a0000000-0000-4000-8000-000000000003"),
+    "customer_health": uuid.UUID("a0000000-0000-4000-8000-000000000002"),
+    "concentration": uuid.UUID("a0000000-0000-4000-8000-000000000003"),
 }
 
 # Owner candidates — try the SSO real user first, then the RBAC demo owner.

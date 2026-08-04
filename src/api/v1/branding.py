@@ -1,11 +1,12 @@
 """Tenant-wide branding endpoints.
 
-GET is open to every authenticated user — they need the config on app
-boot to render with the right primary color / logo / font.
+GET is OPEN (no auth) so the unauthenticated /login page can show
+the customer's logo + company name before the user signs in.
 PUT is owner-only.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
@@ -16,6 +17,71 @@ from src.schemas.common import ErrorResponse
 from src.services.branding_service import BrandingService
 
 router = APIRouter()
+
+
+class PublicBrandingConfig(BaseModel):
+    """Subset of ``BrandingConfig`` safe to expose without auth.
+
+    Only the bits the /login page needs to render the company's
+    identity: ``logo_url`` + ``company_name``. We deliberately do NOT
+    surface the operator-controlled visuals (primary_color, radius,
+    font_family) — those should not leak before authentication so an
+    attacker can't fingerprint a tenant's plan via the visual config.
+    """
+
+    logo_url: str | None = None
+    company_name: str = "SkyFirstLabs"
+    # Optional second logo for the in-app topbar (top-left). When a tenant
+    # wants a compact mark in the app distinct from the full /login logo,
+    # the operator stores it under ``feature_flags.nav_logo_url``. The FE
+    # topbar uses this and falls back to ``logo_url`` when it is unset.
+    nav_logo_url: str | None = None
+
+
+@router.get(
+    "/public",
+    response_model=PublicBrandingConfig,
+    status_code=status.HTTP_200_OK,
+    summary="Get tenant public branding (no auth)",
+    description=(
+        "Returns just the logo URL + company name for the currently-"
+        "resolved tenant. Used by /login (pre-auth) to render the "
+        "customer's identity before they sign in. Source of truth is "
+        "``tenant_registry`` on the platform DB — operators upload the "
+        "logo on the Console create / edit tenant form, the resolver "
+        "middleware copies it onto every request, and this endpoint "
+        "reads it back without a second round-trip. Falls back to the "
+        "SkyFirst default when no tenant is resolved."
+    ),
+)
+async def get_public_branding(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+) -> PublicBrandingConfig:
+    # 1. Operator-managed value on the platform tenant_registry (Model
+    #    B canonical path). When the resolver wired ``logo_url`` /
+    #    ``display_name`` onto the context, return them.
+    ctx = getattr(request.state, "tenant_context", None)
+    if ctx is not None and not getattr(ctx, "is_default", False):
+        logo = getattr(ctx, "logo_url", None) or None
+        company = getattr(ctx, "display_name", None) or "SkyFirstLabs"
+        # Topbar logo lives in feature_flags (no schema migration). The
+        # resolver already inflates feature_flags onto the context, so this
+        # is a dict read — no extra DB round-trip.
+        flags = getattr(ctx, "feature_flags", None) or {}
+        nav_logo = flags.get("nav_logo_url") or None
+        return PublicBrandingConfig(
+            logo_url=logo, company_name=company, nav_logo_url=nav_logo
+        )
+
+    # 2. Legacy fallback: ``platform_branding`` table inside the
+    #    tenant DB. Used by tenants that pre-date the Console-managed
+    #    logo flow (no Tenant.logo_url set yet).
+    full = await BrandingService(db).get()
+    return PublicBrandingConfig(
+        logo_url=full.logo_url,
+        company_name=full.company_name,
+    )
 
 
 @router.get(
@@ -58,10 +124,11 @@ async def update_branding(
 ) -> BrandingConfig:
     # Branding is a tenant-wide visual choice — admins might be a Sky
     # Labs operator (impersonating, auditing) so we deliberately keep
-    # this Owner-exclusive rather than admin-or-owner.
-    if current_user.role != "owner":
+    # this SuperAdmin-exclusive rather than admin-or-above. ``owner`` is
+    # accepted for back-compat during the 2026-06-03 role rename.
+    if current_user.role not in ("super_admin", "owner"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the tenant owner can change branding.",
+            detail="Only the tenant SuperAdmin can change branding.",
         )
     return await BrandingService(db).update(current_user, patch)

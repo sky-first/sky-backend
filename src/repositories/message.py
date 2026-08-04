@@ -25,6 +25,7 @@ class MessageRepository(BaseRepository[Message]):
         role: str,
         content: str,
         kind: Optional[str] = None,
+        user_id: Optional[UUID] = None,
         query_id: Optional[UUID] = None,
         cost_tokens: Optional[int] = None,
         cost_usd: Optional[Decimal] = None,
@@ -40,6 +41,7 @@ class MessageRepository(BaseRepository[Message]):
             role=role,
             kind=kind,
             content=content,
+            user_id=user_id,
             query_id=query_id,
             cost_tokens=cost_tokens,
             cost_usd=cost_usd,
@@ -75,9 +77,7 @@ class MessageRepository(BaseRepository[Message]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def set_pinned_widget(
-        self, message_id: UUID, widget_id: UUID
-    ) -> Optional[Message]:
+    async def set_pinned_widget(self, message_id: UUID, widget_id: UUID) -> Optional[Message]:
         msg = await self.get_by_id(message_id)
         if not msg:
             return None
@@ -86,9 +86,7 @@ class MessageRepository(BaseRepository[Message]):
         await self.db.refresh(msg)
         return msg
 
-    async def list_pending_comments(
-        self, *, conversation_id: UUID
-    ) -> List[Message]:
+    async def list_pending_comments(self, *, conversation_id: UUID) -> List[Message]:
         """Return comments posted after the last ai_response (or since the
         thread started, if no AI has replied yet), excluding comments that
         are already marked incorporated into a previous AI bundle.
@@ -128,9 +126,7 @@ class MessageRepository(BaseRepository[Message]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def mark_incorporated(
-        self, *, message_ids: List[UUID], ai_response_id: UUID
-    ) -> None:
+    async def mark_incorporated(self, *, message_ids: List[UUID], ai_response_id: UUID) -> None:
         """Stamp the given comments with the AI response that bundled them.
 
         Used by the Ask-AI flow after the AI replies. FE renders the
@@ -147,9 +143,7 @@ class MessageRepository(BaseRepository[Message]):
         )
         await self.db.flush()
 
-    async def list_up_to(
-        self, *, conversation_id: UUID, until_message_id: UUID
-    ) -> List[Message]:
+    async def list_up_to(self, *, conversation_id: UUID, until_message_id: UUID) -> List[Message]:
         """Return every message in the conversation up to and including the
         given message, in chronological order.
 

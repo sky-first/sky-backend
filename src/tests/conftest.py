@@ -1,9 +1,18 @@
 """Pytest configuration and fixtures."""
 
-# ⚠️ CRÍTICO: Sobrescrever DATABASE_URL ANTES de qualquer import que use database
+# ⚠️ CRÍTICO: Sobrescrever variáveis de ambiente ANTES de qualquer import.
+# Garante que o engine, Redis e qualquer pool criado no nível de módulo
+# usem configuração de teste isolada independente do .env local.
 import os
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["REDIS_HOST"] = ""   # força fallback localhost → fast-fail sem hang
+os.environ["REDIS_URL"] = ""    # idem — init_redis() nunca tenta host remoto
+# Celery: rota broker para memória so celery_app.send_task() retorna imediatamente
+# sem tentar TCP para Redis. Sem isso, create_tenant/suspend_tenant ficam aguardando
+# retry do broker por minutos, causando timeout nos testes do console.
+os.environ["CELERY_BROKER_URL"] = "memory://"
+os.environ["CELERY_RESULT_BACKEND"] = "cache+memory://"
 
 from datetime import datetime, timedelta, timezone  # noqa: E402
 
@@ -235,6 +244,27 @@ async def async_client(db_session, valid_token_payload):
     app.dependency_overrides[get_db_session] = override_get_db_session
 
     async with AsyncClient(app=app, base_url="http://test") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def console_async_client(db_session):
+    """AsyncClient that sends Host: localhost so the Console host-guard
+    lets requests through. The main async_client uses host=test which
+    is not in _allowed_console_hosts(), causing all /api/console/v1/*
+    requests to 404 before the auth logic even runs."""
+    async def override_get_db():
+        yield db_session
+
+    async def override_get_db_session():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    async with AsyncClient(app=app, base_url="http://localhost") as ac:
         yield ac
 
     app.dependency_overrides.clear()

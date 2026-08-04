@@ -6,6 +6,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
@@ -15,6 +16,77 @@ from src.repositories.agent import AgentFindingRepository, AgentRepository
 from src.schemas.agent import AgentCreate, AgentUpdate
 
 logger = logging.getLogger(__name__)
+
+
+async def resolve_metadata_space_id(
+    db: AsyncSession, agent: Agent, connection_id: Optional[str] = None
+) -> Optional[str]:
+    """Resolve the space_id that actually stamps this agent's connection metadata.
+
+    The AI service filters its metadata lookup by ``space_id`` (the
+    ``table_metadata`` query and the strict crew permission filter). Passing the
+    agent's raw ``scope_id`` is wrong for two scopes and produces a false
+    "No metadata found for this connection" 404:
+
+      - **crew**: ``scope_id`` is a *crew* id, but metadata is stamped with the
+        owning *space* id — they never match, so the lookup returns 0 rows.
+      - **personal**: ``scope_id`` is the creator's *user* id (normalised at
+        creation), which is never a space id either.
+
+    Resolution:
+      - ``space``            -> ``scope_id`` (already a space id)
+      - ``crew``             -> ``crews.space_id`` (the crew's parent space)
+      - ``personal`` / other -> the space that owns the target connection
+        (``connection_id`` when given, else the agent's first connection),
+        via ``space_connections``
+
+    Returns ``None`` when nothing resolves; callers fall back to the prior
+    "default" behaviour, and the AI still serves space-less metadata
+    (``space_id IS NULL``) or the connection_metadata catalog.
+    """
+    scope = (agent.scope or "").lower()
+
+    if scope == "space" and agent.scope_id:
+        return str(agent.scope_id)
+
+    if scope == "crew" and agent.scope_id:
+        try:
+            from src.models.crew import Crew
+
+            res = await db.execute(
+                select(Crew.space_id).where(Crew.id == UUID(str(agent.scope_id)))
+            )
+            crew_space_id = res.scalar_one_or_none()
+            if crew_space_id:
+                return str(crew_space_id)
+        except Exception as e:  # noqa: BLE001 - non-fatal; fall through to conn lookup
+            logger.warning(
+                "Could not resolve crew.space_id for agent %s: %s", agent.id, e
+            )
+
+    # personal (or a crew whose parent space could not be resolved):
+    # use the space that owns the target connection.
+    target_conn = connection_id or (
+        str(agent.connection_ids[0]) if agent.connection_ids else None
+    )
+    if target_conn:
+        try:
+            from src.models.space import SpaceConnection
+
+            res = await db.execute(
+                select(SpaceConnection.space_id)
+                .where(SpaceConnection.connection_id == UUID(str(target_conn)))
+                .limit(1)
+            )
+            owning_space_id = res.scalar_one_or_none()
+            if owning_space_id:
+                return str(owning_space_id)
+        except Exception as e:  # noqa: BLE001 - non-fatal
+            logger.warning(
+                "Could not resolve owning space for connection %s: %s", target_conn, e
+            )
+
+    return None
 
 # Coarse buckets — fine-grained cadence lives in schedule_jsonb.
 # `once` and `manual` deliberately map to "no next run" — the scheduler
@@ -80,11 +152,23 @@ class AgentService:
         )
         now = datetime.now(timezone.utc)  # noqa: F841 — kept for future audit fields
 
+        # Personal mode invariant: a personal agent is owned by its creator.
+        # Lucas's QA found that the FE wizard sometimes posts an empty /
+        # placeholder scope_id when the user hasn't picked a Space (modo
+        # PERSONAL), which then trips both the route-level RBAC check (which
+        # compares scope_id to user.id) AND breaks downstream queries that
+        # use scope_id as the personal owner identity. Normalising here
+        # makes the creation path tolerant: scope=personal ALWAYS sets
+        # scope_id to the creator's id so the resulting row is internally
+        # consistent regardless of what the client posted.
+        scope_lower = (data.scope.value if hasattr(data.scope, "value") else str(data.scope)).lower()
+        resolved_scope_id = str(user_id) if scope_lower == "personal" else data.scope_id
+
         agent = Agent(
             name=data.name,
             archetype=data.archetype,
             scope=data.scope,
-            scope_id=data.scope_id,
+            scope_id=resolved_scope_id,
             scope_name=data.scope_name,
             status="active",
             monitor_type=data.monitor_type or "question",
@@ -128,8 +212,11 @@ class AgentService:
         except Exception as exc:
             logger.warning(f"AI ingest failed or timed out for agent {agent.id}: {exc}")
 
-        # Re-fetch with findings so the response serialization (AgentListResponse)
-        # doesn't trigger a lazy-load MissingGreenlet error.
+        # Re-fetch with findings eagerly loaded. AgentListResponse no
+        # longer serializes findings (see schemas/agent.py), but other
+        # callers of the returned Agent (e.g. AI ingest hooks) may walk
+        # the relationship, and keeping it pre-loaded avoids surprise
+        # lazy-loads in the async session.
         return await self.repo.get_with_findings(agent.id)
 
     async def _require_can_mutate(self, agent: Agent, user: User, action: str = "agents.delete") -> None:
@@ -191,13 +278,11 @@ class AgentService:
         )
 
     async def update_agent(self, agent_id: UUID, data: AgentUpdate, user: User) -> Agent:
-        # Load with findings eager-loaded because the endpoint's
-        # response_model (AgentListResponse) now includes findings. Without
-        # eager load, response serialization triggers a lazy-load on the
-        # relationship inside FastAPI's async context, which blows up with
-        # MissingGreenlet after ~5s and surfaces as a generic 500
-        # "unexpected error" to the UI — exactly the bug the user hit on
-        # every Save.
+        # Load with findings eager-loaded. AgentListResponse no longer
+        # serializes findings (see schemas/agent.py), but keeping the
+        # relationship hydrated here is cheap for a single-agent fetch
+        # and shields any downstream code that might walk it inside the
+        # async session.
         agent = await self.repo.get_with_findings(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
@@ -256,3 +341,152 @@ class AgentService:
         if not finding:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
         return finding
+
+    # ─── Add finding to page ───
+
+    @staticmethod
+    def _viz_kind_to_widget_type(viz_kind: Optional[str]) -> str:
+        """Map a finding's viz_kind to the Widget.type the FE renders.
+
+        Widget.type allow-list (see schemas/widget.py): chart | kpi |
+        table | ai-box | text | insight | infographic | shape. The
+        Pulse FE chart picker emits a richer set of viz_kind tokens
+        (bar, line, donut, pie, kpi, big_number, delta, range,
+        heatmap, sparkline, text, list) — we collapse them into the
+        Widget allow-list here so the row passes the WidgetCreate
+        validator and the renderer picks the right component from
+        widget.data.viz_kind.
+        """
+        if not viz_kind:
+            return "insight"
+        kind = viz_kind.strip().lower()
+        chart_kinds = {
+            "bar", "line", "donut", "pie", "heatmap", "sparkline", "range", "area"
+        }
+        if kind in chart_kinds:
+            return "chart"
+        if kind in ("kpi", "big_number", "delta"):
+            return "kpi"
+        if kind in ("table", "list"):
+            return "table"
+        # Default: a rich card with title/description/rows — the FE
+        # already renders this for findings with tabular evidence.
+        return "insight"
+
+    async def add_finding_to_page(
+        self,
+        *,
+        agent_id: UUID,
+        finding_id: UUID,
+        page_id: UUID,
+        user: User,
+        position: Optional[dict] = None,
+        size: Optional[dict] = None,
+    ) -> dict:
+        """Materialise an AgentFinding as a Widget on the target page.
+
+        Previously the "Add to page" CTA in the FE finding card only sent
+        the description text to the page (it called the generic POST
+        /widgets endpoint with type='text'). Charts and KPIs were lost
+        because the AgentFinding's rows + viz_kind were never read on
+        this path.
+
+        The new flow reads ``finding.viz_kind`` and ``finding.rows`` and
+        constructs a fully-formed Widget so the page renders the same
+        visualisation the user saw in the Cockpit card. The agent's
+        connection_id is propagated so the widget can refresh data later.
+
+        Returns a dict that maps cleanly onto AddFindingToPageResponse.
+        """
+        from src.models.page import Page
+        from src.models.widget import Widget
+        from sqlalchemy import select as _select
+
+        # Load the finding and confirm it belongs to the agent named in
+        # the URL — otherwise a malicious caller could attach somebody
+        # else's finding to their own page.
+        finding_q = await self.db.execute(
+            _select(AgentFinding).where(AgentFinding.id == finding_id)
+        )
+        finding = finding_q.scalar_one_or_none()
+        if finding is None or finding.agent_id != agent_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found"
+            )
+
+        agent_q = await self.db.execute(
+            _select(Agent).where(Agent.id == agent_id)
+        )
+        agent = agent_q.scalar_one_or_none()
+        if agent is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found"
+            )
+
+        page_q = await self.db.execute(
+            _select(Page).where(Page.id == page_id)
+        )
+        page = page_q.scalar_one_or_none()
+        if page is None or page.deleted_at:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Page not found"
+            )
+
+        widget_type = self._viz_kind_to_widget_type(finding.viz_kind)
+
+        # Pull a refresh-capable connection — the agent's first
+        # connection_id when present, otherwise the finding's own
+        # connection_id (set by the SSE stream when it picked one).
+        refresh_connection_id: Optional[UUID] = None
+        if agent.connection_ids:
+            try:
+                refresh_connection_id = UUID(str(agent.connection_ids[0]))
+            except (ValueError, TypeError):
+                refresh_connection_id = None
+        if refresh_connection_id is None and finding.connection_id:
+            refresh_connection_id = finding.connection_id
+
+        # Build the widget payload. Frontend Cockpit picks columns/rows
+        # from data.rows and the chart kind from data.viz_kind. The
+        # description / reasoning surface as the card body.
+        widget_data = {
+            "title": finding.title,
+            "description": finding.description,
+            "viz_kind": finding.viz_kind,
+            "rows": finding.rows or None,
+            "source": "agent_finding",
+            "finding_id": str(finding.id),
+            "agent_id": str(agent.id),
+            "confidence": finding.confidence,
+            "reasoning": finding.reasoning,
+            "recommendation": finding.recommendation,
+        }
+
+        widget = Widget(
+            page_id=page_id,
+            type=widget_type,
+            title=(finding.title or "Agent finding")[:255],
+            position=position or {"x": 0, "y": 0},
+            size=size or {"width": 480, "height": 320},
+            data=widget_data,
+            config=None,
+            connection_id=refresh_connection_id,
+            created_by=user.id,
+            created_by_agent_id=agent.id,
+            source="agent",
+        )
+        self.db.add(widget)
+
+        # Stamp the finding so the UI can show "Added to page X" and
+        # the user does not re-add it accidentally.
+        finding.added_to_page_id = page_id
+
+        await self.db.commit()
+        await self.db.refresh(widget)
+
+        return {
+            "widget_id": widget.id,
+            "page_id": page_id,
+            "finding_id": finding_id,
+            "widget_type": widget_type,
+        }

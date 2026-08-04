@@ -93,7 +93,7 @@ async def test_chat_stream_emits_error_when_connection_missing(
     async with async_client.stream(
         "POST",
         "/api/v1/ai/chat/stream",
-        json={"message": "anything", "widget_id": str(uuid4())},
+        json={"message": "anything", "widget_id": str(uuid4()), "locale": "en"},
         headers=headers,
     ) as resp:
         assert resp.status_code == 200

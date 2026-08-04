@@ -1795,8 +1795,10 @@ class TestUsersEndpoints:
             "role": "user",
         }
         response = await async_client.post("/api/v1/users", json=user_data, headers=headers)
-        # Regular users may get 403
-        assert response.status_code in [201, 403]
+        # Regular users may get 403; password-disabled tenants get 400
+        # (PR #474 — invite refuses when tenant.auth_methods.password
+        # is false, the default for fresh test contexts).
+        assert response.status_code in [201, 400, 403]
 
     @pytest.mark.asyncio
     async def test_update_user_success(
@@ -1851,7 +1853,9 @@ class TestUsersEndpoints:
         """Test POST /api/v1/users/{id}/invite."""
         user = test_user_with_tokens["user"]
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        invite_data = {"role": "user"}
+        # Canonical post-rename role; ``user`` is the legacy alias
+        # rejected on writes by the tight UserInviteRequest pattern.
+        invite_data = {"role": "member"}
         # Endpoint is POST /users/{user_id}/invite, not /users/invite
         response = await async_client.post(
             f"/api/v1/users/{user.id}/invite", json=invite_data, headers=headers
@@ -2679,8 +2683,8 @@ class TestInviteEndpoints:
         user.role = "admin"
         await db_session.commit()
 
-        # Create a valid invite
-        token = await invite_service.create_invite(
+        # Create a valid invite (create_invite returns (token, email_sent))
+        token, _ = await invite_service.create_invite(
             invited_by=user,
             email="validinvite@example.com",
             expires_days=7,

@@ -70,6 +70,17 @@ class WidgetService:
         await self.db.commit()
         await self.db.refresh(widget)
 
+        from src.api.v1.chat_ws import broadcast_event_nowait
+        broadcast_event_nowait(str(widget.page_id), "widget.created", {
+            "id": str(widget.id),
+            "dashboard_id": str(widget.page_id),
+            "type": widget.type,
+            "title": widget.title,
+            "position": widget.position,
+            "size": widget.size,
+            "data": widget.data,
+        })
+
         # Ingest the widget into the RAG. Scope (space/crew/owner) inferred
         # from the parent page. Best effort — failures swallowed.
         try:
@@ -126,6 +137,18 @@ class WidgetService:
         widget = await self.widget_repo.update(widget_id, **update_data)
         await self.db.commit()
         await self.db.refresh(widget)
+
+        from src.api.v1.chat_ws import broadcast_event_nowait
+        broadcast_event_nowait(str(widget.page_id), "widget.updated", {
+            "id": str(widget.id),
+            "dashboard_id": str(widget.page_id),
+            "type": widget.type,
+            "title": widget.title,
+            "position": widget.position,
+            "size": widget.size,
+            "data": widget.data,
+        })
+
         return WidgetResponse.model_validate(widget)
 
     async def delete_widget(self, widget_id: UUID, user: User) -> None:
@@ -138,8 +161,12 @@ class WidgetService:
             widget, user=user, rbac_permission="widgets.delete", db=self.db
         )
 
+        page_id = str(widget.page_id)
         await self.widget_repo.delete(widget_id)
         await self.db.commit()
+
+        from src.api.v1.chat_ws import broadcast_event_nowait
+        broadcast_event_nowait(page_id, "widget.deleted", {"id": str(widget_id), "dashboard_id": page_id})
 
     async def duplicate_widget(self, widget_id: UUID, user: User) -> WidgetResponse:
         widget = await self.widget_repo.get_by_id(widget_id)

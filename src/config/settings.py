@@ -31,7 +31,13 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
     CORS_ORIGINS: str = Field(
-        default="http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001",
+        default=(
+            "http://localhost:3000,http://localhost:3001,"
+            "http://127.0.0.1:3000,http://127.0.0.1:3001,"
+            # Expo web dev server (Sky Mobile app) — harmless localhost origins.
+            "http://localhost:19006,http://127.0.0.1:19006,"
+            "http://localhost:8081,http://127.0.0.1:8081"
+        ),
         description="CORS allowed origins (comma-separated)",
     )
 
@@ -251,6 +257,11 @@ class Settings(BaseSettings):
     EMAIL_FROM_ADDRESS: str = Field(default="lucas.ventura@skyfirstlabs.com")
     EMAIL_FROM_NAME: str = Field(default="Lucas Ventura — SKY")
     EMAIL_DASHBOARD_URL: str = Field(default="https://demo.skyfirstlabs.com")
+    # Para onde vai o aviso de um contacto novo na demo pública.
+    # Sem isto o lead ficava só na base de dados, e ninguém dava por
+    # ele até alguém se lembrar de ir lá ver — que é o mesmo que não
+    # ter formulário nenhum.
+    DEMO_LEAD_NOTIFY_TO: str = Field(default="lucas.ventura@skyfirstlabs.com")
 
     # Redis
     REDIS_URL: str = Field(
@@ -307,10 +318,53 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # BE-05 (Sky Mobile) — device clients keep a much longer refresh so users
+    # aren't forced to re-auth on a phone every week; reuse-detection + family
+    # revocation (see auth_service) is what keeps a long-lived token safe.
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS_MOBILE: int = 45
 
     # Password
     PASSWORD_HASH_ALGORITHM: str = "bcrypt"
     BCRYPT_ROUNDS: int = 12
+
+    # Multi-Factor Authentication (Phase 3 — TOTP).
+    # ``CONSOLE_REQUIRE_MFA`` gates Console access on the Sky-team
+    # operator having MFA enabled. False by default so the rollout
+    # can happen gradually — once every operator has enrolled, flip
+    # this to true per-environment. When true and the operator has
+    # mfa_enabled=false, ``require_sky_team`` returns 403 with the
+    # body ``{"error": "mfa_required", "enroll_url": "/api/v1/mfa/enroll/start"}``
+    # so the FE can route them to the enrolment modal.
+    CONSOLE_REQUIRE_MFA: bool = False
+
+    # Console host isolation. The Internal Console must only serve on
+    # its own subdomain so a customer landing on the main app host
+    # cannot reach the operator surface even with a forged JWT. The
+    # ``require_sky_team`` dependency rejects 404 (not 403, to hide the
+    # surface entirely) when the request host is outside this set.
+    # Empty falls back to the safe defaults baked into
+    # ``_allowed_console_hosts()``.
+    CONSOLE_ALLOWED_HOSTS: str = ""
+
+    # ─── Tenant create defaults (Lucas decision 2026-05-31) ──────────────
+    # The Create Tenant form used to require the operator to type the
+    # shared-RDS / shared-Redis hosts and the would-be Secrets Manager
+    # ARNs by hand. The ``onboard-client.yml`` workflow already knows
+    # how to derive those from the slug — so when the form leaves them
+    # empty, the create handler fills them in from these defaults.
+    # Operators can still override per-tenant via the Advanced section
+    # if they ever need a dedicated DB instance for a customer.
+    #
+    # The ARN patterns include ``{slug}`` as a literal placeholder; the
+    # handler does the substitution. Empty (the safe default) preserves
+    # the legacy behaviour — required fields stay required.
+    DEFAULT_TENANT_DB_HOST: str = ""
+    DEFAULT_TENANT_DB_PORT: int = 5432
+    DEFAULT_TENANT_DB_NAME_PATTERN: str = "tenant_{slug_safe}"
+    DEFAULT_TENANT_DB_SECRET_ARN_PATTERN: str = ""
+    DEFAULT_TENANT_REDIS_HOST: str = ""
+    DEFAULT_TENANT_REDIS_SECRET_ARN: str = ""
+    DEFAULT_TENANT_SSO_PROVIDER: str = "google"
 
     # Encryption (for connection credentials)
     ENCRYPTION_KEY: str = Field(
@@ -318,13 +372,56 @@ class Settings(BaseSettings):
         description="Encryption key for sensitive data (must be 32 bytes)",
     )
 
+    # Multi-tenant platform (Projeto A — Model B). Default OFF: while
+    # the flag is off, the tenant resolver middleware (PR #2+) falls back
+    # to the platform's single-tenant defaults and the registry table
+    # exists but is not consulted on the request path. Turn this on per
+    # environment only after the full Phase 5 cutover.
+    MULTI_TENANT_ENABLED: bool = False
+
+    # Space→Crew model (2026-06): when ON, questions and agents may only be
+    # asked/created against a CREW, never a bare Space. A collaborative
+    # query (space_id present, is_personal=False) without a crew_id is
+    # rejected at the API. This is a SECURITY boundary, not just a FE
+    # nicety.
+    #
+    # OFF by default — this hard server-side enforcement must be rolled out
+    # in lock-step with the crew-forcing frontend, so it is enabled
+    # deliberately per environment (env var) only AFTER the FE that always
+    # sends a crew_id is deployed. With it off, the FE still resolves the
+    # space's default "General" crew at send time, so collaborative queries
+    # remain crew-scoped in practice; flipping this on just adds the
+    # belt-and-braces server-side rejection. Keeping the default off also
+    # preserves backward-compatible behaviour for existing space-scoped
+    # agents/queries (and the test suite).
+    CREW_REQUIRED_FOR_QUERY: bool = False
+
+    # Local-dev URL template used by ``TenantConnectionManager``. When
+    # set, a single docker-compose Postgres can host many tenant DBs:
+    # set this to e.g.
+    #   ``postgresql+asyncpg://postgres:postgres@localhost:5432/{db_name}``
+    # and create one Postgres DB per tenant.
+    # Empty string => the manager falls back to ``ctx.db_credentials_secret_arn``
+    # (production / AWS) and then to the platform's POSTGRES_* env vars
+    # using the registry row's ``db_host`` / ``db_name``.
+    TENANT_DB_URL_TEMPLATE: str = ""
+
+    # Hard-fail when business logic reaches the DB without a real
+    # tenant context (Projeto A PR #14). Off by default — flip to True
+    # only after every customer-facing route has been verified to
+    # populate the tenant context. Until then, ``tenant_guard`` logs
+    # ``tenant_scope_violation`` warnings instead.
+    STRICT_TENANT_REQUIRED: bool = False
+
     # Public demo (Cenário B) — visitor lands on demo.skyfirstlabs.com,
     # fills a short form, gets a per-visitor Space provisioned with a TTL.
     # All values overridable via env so staging/prod can clamp differently.
     DEMO_ENABLED: bool = False
     DEMO_TTL_DAYS: int = 7
     DEMO_RATE_LIMIT_PER_IP_PER_HOUR: int = 3
-    DEMO_MAX_AGENTS_PER_USER: int = 8  # 0 = unlimited
+    DEMO_MAX_AGENTS_PER_USER: int = (
+        10  # demo seeds 9 agents → 1 free slot so visitors can create one
+    )
     DEMO_DATASET_CONNECTION_ID: str = ""  # legacy single Connection UUID
     DEMO_DATASET_CONNECTION_IDS: str = ""  # CSV of Connection UUIDs (preferred — multi-schema demo)
     TURNSTILE_SECRET_KEY: str = ""  # Cloudflare Turnstile (free)
@@ -436,6 +533,132 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 300
     RATE_LIMIT_PER_HOUR: int = 10000
 
+    # Console rate-limit bucket (Gap #2 from the 2026-05-30 security
+    # posture audit). The Console is a low-volume operator surface with
+    # destructive actions; budgeting it separately keeps a runaway
+    # tenant burst from burning Console quota and a Console script gone
+    # wild from draining the customer-facing budget.
+    CONSOLE_RATE_LIMIT_PER_MINUTE: int = 60
+    CONSOLE_RATE_LIMIT_PER_HOUR: int = 1000
+
+    # ─── Console K8s telemetry (issue #39 / feat/console-telemetry-k8s-real) ──
+    # When True, the InfraProvider factory returns the live Kubernetes-backed
+    # provider (``KubernetesTelemetryProvider``) instead of the legacy mock or
+    # the kubeconfig-based ``KubernetesInfraProvider``. The new provider uses
+    # ``load_incluster_config()`` first (IRSA on EKS) and falls back to
+    # ``load_kube_config()`` for local development. Off by default so PRs that
+    # touch the Console do not require a live cluster in CI.
+    #
+    # NOTE: the K8s provider also requires CONSOLE_MOCK_INFRA=false to take
+    # effect — when the mock flag is on it always wins, so dev/CI is safe.
+    K8S_TELEMETRY_ENABLED: bool = False
+    # Optional namespace allow-list for ``platform_health``. Empty = scan
+    # all namespaces (requires cluster-wide list-pods RBAC). Comma-separated
+    # values, e.g. ``"staging,production"``.
+    K8S_TELEMETRY_NAMESPACES: str = ""
+    # In-memory cache TTL for K8s API responses, in seconds. Prevents the
+    # Console UI poll loop from rebooting the kube-apiserver. 30s matches the
+    # frontend's auto-refresh cadence.
+    K8S_TELEMETRY_CACHE_TTL_SECONDS: int = 30
+    # Namespace name template. The provider derives a tenant's namespace
+    # from its slug + the environment label. Two placeholders are supported:
+    # ``{slug}`` and ``{env}`` (env ∈ {stg, prd}). Default mirrors the infra
+    # convention ``<slug>-stg-aws`` / ``<slug>-prd-aws``.
+    K8S_TELEMETRY_NAMESPACE_TEMPLATE: str = "{slug}-{env}-aws"
+
+    # ─── Console AWS Cost Explorer telemetry (issue #40) ──────────────────────
+    # When True, the CostProvider factory returns the live AWS Cost Explorer
+    # provider (``AwsCostProvider``) instead of the mock. Off by default so
+    # PRs that touch the Console do not require real AWS credentials in CI
+    # (Cost Explorer API is paid: $0.01 per request).
+    #
+    # NOTE: the AWS provider also requires CONSOLE_MOCK_INFRA=false to take
+    # effect — when the mock flag is on it always wins, so dev/CI is safe.
+    AWS_COSTS_TELEMETRY_ENABLED: bool = False
+    # Optional linked-account filter for cost queries. When empty, the
+    # provider queries the master / payer account (sum across all linked
+    # sub-accounts). Set to a 12-digit account id to scope queries to one
+    # linked account (typical for tenant-isolated AWS sub-accounts).
+    AWS_COSTS_LINKED_ACCOUNT_ID: Optional[str] = None
+    # AWS region for the Cost Explorer endpoint. Cost Explorer is a global
+    # service but boto3 still requires a region — eu-west-1 matches the
+    # rest of SkyFirst's infra footprint.
+    AWS_COSTS_REGION: str = "eu-west-1"
+
+    # EUR→USD rate used to compare MRR (billed in EUR via Moloni) against
+    # AWS spend (reported in USD by Cost Explorer) when computing gross
+    # margin on the Console. Kept as a setting rather than a hardcoded
+    # literal so it can be nudged without a code change; a live FX feed
+    # can replace this later without touching the route.
+    EUR_USD_RATE: float = 1.08
+
+    # ─── Langfuse — LLM observability + cost tracking ─────────────────────
+    # Langfuse is already wired in sky-poc-ai (see
+    # ``core/agents/full_context_agent.py``) — every LLM call emits a
+    # trace tagged with ``user_id`` / ``space_id`` / ``agent_id``. The
+    # Console-side cost metrics endpoints in this repo read those
+    # traces back via the Langfuse API so we get real cost per tenant /
+    # per agent / per question without instrumenting every code path
+    # ourselves.
+    #
+    # When ``LLM_METRICS_ENABLED=false`` the metrics service returns
+    # empty payloads and the Console UI degrades to a "metrics off"
+    # state — this is the safe default so a missing key or self-hosted
+    # Langfuse outage doesn't break /api/console/v1/* endpoints.
+    LANGFUSE_HOST: str = Field(
+        default="https://cloud.langfuse.com",
+        description=(
+            "Langfuse base URL. Self-hosted deployments override to "
+            "their internal endpoint (e.g. https://langfuse.skyfirstlabs.com). "
+            "Empty disables both the SDK callback (in sky-poc-ai) and "
+            "the metrics provider (this repo)."
+        ),
+    )
+    LANGFUSE_PUBLIC_KEY: str = Field(
+        default="",
+        description=(
+            "Langfuse project public key (pk-lf-…). Required by the "
+            "API and the SDK callback. Empty = metrics disabled."
+        ),
+    )
+    LANGFUSE_SECRET_KEY: str = Field(
+        default="",
+        description=(
+            "Langfuse project secret key (sk-lf-…). Required by the "
+            "API. Empty = metrics disabled. Stored in AWS Secrets "
+            "Manager / Azure KV under `langfuse-secret-key`."
+        ),
+    )
+    LLM_METRICS_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Gate for the LLM cost metrics provider + Console "
+            "endpoints. Off by default — flip to True only after "
+            "LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY are wired in "
+            "the environment. When False, the provider short-circuits "
+            "to empty payloads (no outbound HTTP)."
+        ),
+    )
+    LLM_METRICS_CACHE_TTL_SECONDS: int = Field(
+        default=300,
+        description=(
+            "In-memory TTL for tenant / platform metric responses. "
+            "Langfuse Cloud rate-limits the API at ~100 req/min per "
+            "project; the Console UI polls every ~30s so a 5 minute "
+            "TTL keeps us well below ceiling even with several "
+            "concurrent operators."
+        ),
+    )
+    LLM_METRICS_EUR_PER_USD: float = Field(
+        default=0.92,
+        description=(
+            "Static FX rate used to convert the Langfuse USD figures "
+            "into the EUR shown on the CEO dashboard. Matches the "
+            "0.92 rate already hard-coded in services/ceo_dashboard.py "
+            "until we wire a live FX feed."
+        ),
+    )
+
     # Tenant/User rate limiting for AI cost control (Subtask 2/3)
     AI_RATE_LIMIT_ENABLED: bool = True
     AI_RATE_LIMIT_USER_PER_MINUTE: int = 10
@@ -480,6 +703,14 @@ class Settings(BaseSettings):
     # Prometheus
     PROMETHEUS_ENABLED: bool = True
     PROMETHEUS_PORT: int = 9090
+
+    # Console telemetry: real-provider feature flags
+    PROMETHEUS_ACTIVITY_ENABLED: bool = False
+    PROMETHEUS_URL: str | None = None
+    MOLONI_BILLING_ENABLED: bool = False
+    MOLONI_API_KEY: str | None = None
+    MOLONI_COMPANY_ID: str | None = None
+    MOLONI_BASE_URL: str = "https://api.moloni.pt/v1"
 
     @property
     def is_production(self) -> bool:

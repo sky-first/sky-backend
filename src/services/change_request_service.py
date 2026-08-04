@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
+from src.core.permissions import is_tenant_admin
 from src.models.change_request import ChangeRequest
 from src.models.conversation import Conversation, Message
 from src.models.user import User
@@ -53,9 +54,10 @@ class ChangeRequestService:
         return w
 
     async def _widget_owner_or_page_editor(self, widget: Widget, user: User) -> bool:
-        # Same approximation used elsewhere in chat — admin always passes,
-        # widget creator passes. Page-edit RBAC enrichment is a follow-up.
-        if user.role == "admin":
+        # Same approximation used elsewhere in chat — tenant-level admin
+        # always passes, widget creator passes. Page-edit RBAC enrichment
+        # is a follow-up.
+        if is_tenant_admin(user):
             return True
         return widget.created_by == user.id
 

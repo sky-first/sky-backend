@@ -10,6 +10,7 @@ produced an insight with full history.
 import uuid
 
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     Column,
     DateTime,
@@ -21,7 +22,7 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from src.config.database import Base
@@ -48,6 +49,17 @@ class Conversation(Base):
     crew_id = Column(
         UUID(as_uuid=True),
         ForeignKey("crews.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Chat session this thread belongs to ("Chat 1", "Chat 2", …). Nullable
+    # so legacy threads (and the SET NULL on a hard-deleted session) keep
+    # working; the backfill migration assigns every existing thread to a
+    # default "Chat 1" per page, and the create endpoint tags new threads
+    # with the active session.
+    session_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -108,6 +120,19 @@ class Message(Base):
         index=True,
     )
     role = Column(String(20), nullable=False)  # 'user' | 'assistant' | 'system'
+    # Author of the message — the user who actually wrote it. NULL for
+    # assistant ('ai_response') and system messages, and for legacy rows
+    # created before collaborative attribution landed (chat
+    # author-attribution, 2026-06-02). Shared (space/crew) chats render
+    # the real author to every collaborator from this instead of falling
+    # back to the local viewer's name. ON DELETE SET NULL keeps the
+    # message if the author's account is removed.
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     # ``kind`` further partitions the user/assistant axis along the
     # collaborative-thread semantics (chat-threads-master-plan PR1,
     # 2026-05-20):
@@ -127,6 +152,18 @@ class Message(Base):
     # Insights-Analytics — see src/services/insights_tier.py.
     tier = Column(String(2), nullable=True)
     duration_ms = Column(Integer, nullable=True)
+    # BE-04 (Sky Mobile) — how the message was created. A 'voice' message
+    # shows the mic glyph in the transcript and flips its conversation's
+    # voice/text icon in History. Default 'text' so every existing row and
+    # every typed message is unaffected; the voice pipeline (BE-07) sets
+    # 'voice' + duration_ms when it persists a spoken turn. The IN ('text',
+    # 'voice') CHECK is enforced server-side in the migration.
+    origin = Column(
+        String(10),
+        nullable=False,
+        default="text",
+        server_default=text("'text'"),
+    )
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -153,6 +190,24 @@ class Message(Base):
         ForeignKey("messages.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Slack-style emoji reactions. Shape: {"👍": ["uuid", …], "❤️": [...]}.
+    # Postgres → JSONB (indexable, efficient updates). SQLite (tests) →
+    # plain JSON. The variant keeps the ORM portable while the prod
+    # column stays JSONB via the migration. Default {} makes reads
+    # None-safe across both dialects.
+    reactions = Column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+        server_default=text("'{}'"),
+        default=dict,
+    )
+
+    # Transient (NON-mapped) author display name. Populated by the
+    # message service from ``user_id`` so MessageResponse can serialise
+    # the real author's name to collaborators. Defaults to None at the
+    # class level so ``MessageResponse.model_validate(msg)`` never hits a
+    # missing attribute for AI/system rows or paths that don't resolve it.
+    author_name = None
 
     # Relationships — the `foreign_keys` disambiguates against the
     # parent_message_id / incorporated_in_message_id self-FKs added in

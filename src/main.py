@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from src.api.middleware import auth, cors, idempotency, rate_limit
+from src.api.middleware import auth, cors, idempotency, rate_limit, tenant_resolver
 from src.api.v1.router import api_router
 from src.config import settings
 from src.config.database import (
@@ -35,6 +35,13 @@ async def lifespan(app: FastAPI):
     logger.info("application_startup")
     await init_db()
     await init_redis()
+
+    # Real-time relays — must run after init_redis so they can detect Redis
+    from src.api.v1.chat_ws import init_chat_relay
+    from src.api.v1.cursor import init_cursor_relay
+    await init_chat_relay()
+    await init_cursor_relay()
+
     # Context Layer — register domain-event listeners that publish to the
     # `context:ingest` Redis stream consumed by the AI service ingest
     # worker. Bound to the base `sqlalchemy.orm.Session` class
@@ -50,6 +57,15 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("application_shutdown")
+    # Cancel any orphaned cursor listen tasks before the event loop stops.
+    from src.api.v1.cursor import cursor_relay
+    if hasattr(cursor_relay, "shutdown"):
+        await cursor_relay.shutdown()
+    # Tenant engine pools (Model B) — dispose before the global pool so
+    # ``tenant_connection_manager`` can flush any remaining sessions.
+    from src.config.tenant_connection_manager import tenant_connection_manager
+
+    await tenant_connection_manager.dispose_all()
     await close_db()
     await close_redis()
     logger.info("application_stopped")
@@ -90,12 +106,15 @@ app.add_middleware(RequestSizeLimitMiddleware)
 # IMPORTANT: In FastAPI, middleware added with app.middleware("http")() executes in REVERSE order
 # Desired execution order:
 # 1. auth (FIRST - sets request.state.user_id)
-# 2. rate_limit (needs user_id from auth)
-# 3. idempotency (needs user_id from auth)
+# 2. tenant_resolver (needs auth so JWT fallback works; runs before rate_limit
+#    so rate_limit can scope per-tenant)
+# 3. rate_limit (needs user_id from auth + tenant from resolver)
+# 4. idempotency (needs user_id from auth)
 #
-# So we add them as: idempotency, rate_limit, auth (reverse order)
+# So we add them as: idempotency, rate_limit, tenant_resolver, auth (reverse order)
 app.middleware("http")(idempotency.idempotency_middleware)
 app.middleware("http")(rate_limit.rate_limit_middleware)
+app.middleware("http")(tenant_resolver.tenant_resolver_middleware)
 app.middleware("http")(auth.auth_middleware)
 
 # Register output-standardizing exception handlers
@@ -105,6 +124,27 @@ register_exception_handlers(app)
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 # Also include at /api for legacy frontend support (without /v1)
 app.include_router(api_router, prefix="/api")
+
+# Internal Console (Projeto B). Mounted at /api/console/v1 — separate
+# prefix from the customer-facing v1 surface so we can scope rate
+# limits, OpenAPI tags, and (eventually) a distinct ingress per
+# console.skyfirstlabs.com.
+from src.api.v1.console import router as console_router  # noqa: E402
+from src.api.v1.console_provisioning import (  # noqa: E402
+    router as console_provisioning_router,
+)
+
+app.include_router(
+    console_router, prefix="/api/console/v1", tags=["Internal Console"]
+)
+# Provisioning workflow engine — webhook + SSE under the same prefix.
+# Kept as a sibling router so the workflow code stays out of
+# console.py and has its own audit footprint.
+app.include_router(
+    console_provisioning_router,
+    prefix="/api/console/v1",
+    tags=["Internal Console / Provisioning"],
+)
 
 # Observability: Prometheus metrics (Golden Signals)
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
@@ -152,8 +192,15 @@ setattr(app, "openapi", custom_openapi)
 
 
 @app.get("/health", tags=["Health"])
+@app.get("/healthz", tags=["Health"], include_in_schema=False)
 async def health():
-    """Health check endpoint."""
+    """Health check endpoint.
+
+    Exposed under both /health (legacy) and /healthz (k8s convention).
+    The Dockerfile HEALTHCHECK uses /healthz; local dev agents
+    (k8s extensions, Datadog, etc.) also follow that name. Keeping
+    both stops dev-mode log floods of 404s while we migrate callers.
+    """
     from datetime import datetime, timezone
 
     return {
@@ -164,6 +211,7 @@ async def health():
 
 
 @app.get("/ready", tags=["Health"])
+@app.get("/healthz/ready", tags=["Health"], include_in_schema=False)
 async def ready():
     """Readiness check endpoint."""
     # TODO: Check database and Redis connections
@@ -171,6 +219,7 @@ async def ready():
 
 
 @app.get("/live", tags=["Health"])
+@app.get("/healthz/live", tags=["Health"], include_in_schema=False)
 async def live():
     """Liveness check endpoint."""
     return {"status": "alive"}

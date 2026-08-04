@@ -133,7 +133,7 @@ class ChatPipeline:
     #  Step 1 — Input
     # ------------------------------------------------------------------
 
-    def preflight(self, message: str) -> GuardedInput:
+    def preflight(self, message: str, *, locale: str | None = None) -> GuardedInput:
         """Run the input guard. Returns the sanitised text + flags.
 
         On hard fail (empty / too-long / policy block) raises a
@@ -141,7 +141,7 @@ class ChatPipeline:
         trace_id pre-populated.
         """
         try:
-            guarded = guard_user_input(message, user_id=self.user_id)
+            guarded = guard_user_input(message, user_id=self.user_id, locale=locale)
         except ChatInputError as exc:
             self._record_input_decision(decision="block", reason=type(exc).__name__)
             raise self._wrap(exc) from exc

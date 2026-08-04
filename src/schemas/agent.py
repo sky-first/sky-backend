@@ -39,7 +39,11 @@ class AgentCreate(BaseModel):
     name: str = Field(..., max_length=255)
     archetype: AgentArchetype = AgentArchetype.CUSTOM
     scope: AgentScope = AgentScope.SPACE
-    scope_id: str = Field(..., max_length=255)
+    # Optional because the personal-mode wizard does not always have a
+    # scope_id at submission time. The service layer normalises personal
+    # agents to scope_id == user.id, so accepting None here keeps the
+    # invariant without forcing the FE to fabricate a placeholder.
+    scope_id: Optional[str] = Field(default=None, max_length=255)
     scope_name: Optional[str] = Field(None, max_length=255)
     monitor_type: str = Field("question", max_length=20)
     focus: Optional[str] = None  # The question or instructions
@@ -117,6 +121,19 @@ class AgentFindingResponse(BaseModel):
     dismissed: bool = False
     created_at: datetime
 
+    # Origin metadata — populated by GET /agents/insights/all so the global
+    # Pulse feed (topbar chip + panel) can badge each finding with where it
+    # came from (space › crew › page) and deep-link the user to it. Left None
+    # on the per-agent findings endpoint, where the origin is already implicit.
+    agent_name: Optional[str] = None
+    scope: Optional[str] = None
+    scope_id: Optional[str] = None
+    scope_name: Optional[str] = None
+    space_id: Optional[str] = None
+    space_name: Optional[str] = None
+    page_id: Optional[UUID] = None
+    page_name: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -163,15 +180,52 @@ class AgentResponse(BaseModel):
 
     # Nested — only included when fetching single agent
     findings: Optional[List[AgentFindingResponse]] = None
+    # Option B: True when the caller may SEE the agent (management) but its
+    # findings/insights were withheld because they are not a crew/space member.
+    # Lets the UI render an "ask to be added" mask instead of "no insights".
+    findings_restricted: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
 
+class AddFindingToPageRequest(BaseModel):
+    """Payload for POST /agents/{agent_id}/findings/{finding_id}/add-to-page.
+
+    The finding is materialised as a Widget on the target page. The
+    server picks the widget ``type`` from ``finding.viz_kind`` (see
+    `_viz_kind_to_widget_type` in agent_service); the caller optionally
+    pins position/size, otherwise defaults are applied.
+    """
+
+    page_id: UUID
+    position: Optional[Dict[str, float]] = None
+    size: Optional[Dict[str, float]] = None
+
+
+class AddFindingToPageResponse(BaseModel):
+    """Response after materialising a finding on a page — returns the
+    new Widget id so the FE can navigate / scroll to it."""
+
+    widget_id: UUID
+    page_id: UUID
+    finding_id: UUID
+    widget_type: str
+
+
 class AgentListResponse(BaseModel):
-    """Lightweight response — includes findings so Insight Cockpit can
-    populate without a per-agent round-trip. Prior to this change the
-    list endpoint returned agents with no findings, making the halo
-    and cockpit appear empty even when findings existed."""
+    """Lightweight response for list/mutation endpoints — agent metadata only.
+
+    Findings are NOT included here. The list endpoint (``GET /api/v1/agents/``)
+    deliberately does not eager-load ``Agent.findings`` to keep DB connection
+    pool usage bounded (see commit 46623cf: 62 concurrent list calls each
+    doing ``selectinload(findings)`` were exhausting the pool). Because the
+    relationship is async-lazy, leaving ``findings`` on this response triggered
+    a Pydantic ``get_attribute_error`` (MissingGreenlet) during serialization
+    of the un-loaded relationship → 500 to the client.
+
+    Callers that need findings should use ``GET /api/v1/agents/{agent_id}``
+    (``AgentResponse``), which goes through ``get_with_findings``.
+    """
     id: UUID
     name: str
     archetype: str
@@ -196,6 +250,5 @@ class AgentListResponse(BaseModel):
     cycles_consumed: int = 0
     auditable_only: bool = False
     created_at: datetime
-    findings: Optional[List[AgentFindingResponse]] = None
 
     model_config = ConfigDict(from_attributes=True)

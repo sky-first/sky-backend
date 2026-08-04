@@ -19,12 +19,27 @@ class ConversationCreate(BaseModel):
 
     space_id: Optional[UUID] = None
     crew_id: Optional[UUID] = None
+    # Chat session ("Chat 1", "Chat 2", …) this thread belongs to. When
+    # omitted the service falls back to the page's default session so the
+    # thread always lands in a session the switcher can show.
+    session_id: Optional[UUID] = None
 
 
 class ConversationUpdate(BaseModel):
     """Partial update. Only the title is editable via this endpoint."""
 
     title: Optional[str] = Field(None, max_length=500)
+
+
+class TransferOwnershipRequest(BaseModel):
+    """Move thread ownership from the current owner to another member.
+
+    Authorised callers: the current thread owner, or a space admin/editor
+    (covers HR off-boarding flows). The BE writes an audit log entry
+    capturing the previous owner, the new owner and the actor.
+    """
+
+    new_owner_id: UUID
 
 
 class ConversationResponse(BaseModel):
@@ -34,6 +49,7 @@ class ConversationResponse(BaseModel):
     page_id: UUID
     space_id: Optional[UUID]
     crew_id: Optional[UUID]
+    session_id: Optional[UUID] = None
     title: Optional[str]
     created_by: Optional[UUID]
     created_at: datetime
@@ -42,6 +58,10 @@ class ConversationResponse(BaseModel):
     # chat-threads-master-plan PR1, 2026-05-20
     resolved_at: Optional[datetime] = None
     pinned_message_id: Optional[UUID] = None
+    # BE-04 (Sky Mobile) — derived voice/text icon for the History row: 'voice'
+    # when the thread contains any spoken message, else 'text'. Stamped by the
+    # list endpoint (not a stored column); defaults to 'text'.
+    origin: str = "text"
 
     model_config = ConfigDict(from_attributes=True)
 

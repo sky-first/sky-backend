@@ -58,6 +58,10 @@ class PageResponse(PageBase):
     is_locked: bool = False
     template_id: Optional[UUID] = None
     is_active: bool
+    # True for the crew/space canonical page — the shared room members
+    # converge on. The UI uses this to hide the delete action (it's
+    # undeletable server-side too).
+    is_canonical: bool = False
     last_accessed: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

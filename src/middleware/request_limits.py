@@ -43,9 +43,20 @@ MAX_JSON_DEPTH = _int_env("MAX_JSON_DEPTH", 32)
 # Routes that legitimately accept larger bodies (e.g. CSV upload).
 # Check by path prefix; keep short — any new large-body endpoint should
 # declare itself here AND justify the size in code review.
+#
+# Lucas (2026-05-30): avatar/image uploads under /files/ were silently
+# 413ing for anything over 1 MiB because the prefix list didn't cover
+# them. The legacy ``/api`` mount (without ``/v1``) is included so
+# clients that hit either URL get the same treatment.
 _LARGE_BODY_ALLOWLIST: tuple[str, ...] = (
     "/api/v1/file-upload",
+    "/api/v1/files/",
     "/api/v1/ingest",
+    # Legacy non-versioned mount — same routers re-mounted under /api
+    # in src/main.py so older clients keep working.
+    "/api/file-upload",
+    "/api/files/",
+    "/api/ingest",
 )
 
 

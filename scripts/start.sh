@@ -49,6 +49,8 @@ export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 export CELERY_BROKER_URL="${CELERY_BROKER_URL:-redis://localhost:6379/1}"
 export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-redis://localhost:6379/2}"
 export AI_SERVICE_URL="${AI_SERVICE_URL:-http://localhost:8001}"
+# Dev-only fallback — override via .env.local in production
+export JWT_SECRET_KEY="${JWT_SECRET_KEY:-dev-only-jwt-secret-change-in-production}"
 
 # Cache Warming settings
 export CACHE_WARMING_ENABLED="${CACHE_WARMING_ENABLED:-false}"
@@ -91,14 +93,82 @@ fi
 
 if ! $ALEMBIC_CMD upgrade head; then
     echo "⚠️  Falha nas migrações. Verificando se há revisões órfãs..."
-    # Se o erro for "Can't locate revision", tentamos sincronizar com stamp head
-    if $ALEMBIC_CMD current 2>&1 | grep -q "Can't locate revision"; then
-        echo "💡 Detectada revisão órfã (possivelmente de outra branch) na tabela alembic_version."
-        echo "🔧 Tentando sincronizar banco de dados com 'alembic stamp head'..."
-        if $ALEMBIC_CMD stamp head && $ALEMBIC_CMD upgrade head; then
-            echo "✅ Banco de dados sincronizado e atualizado com sucesso!"
-        else
-            echo "❌ Não foi possível recuperar automaticamente. Verifique as migrações manualmente."
+    # Se o erro for "Can't locate revision", a tabela alembic_version aponta
+    # para uma migration que não existe nesta checkout — tipicamente quando
+    # mudas de branch e a branch antiga tinha uma migration que esta não tem.
+    UPGRADE_ERR=$($ALEMBIC_CMD upgrade head 2>&1 || true)
+    if echo "$UPGRADE_ERR" | grep -q "Can't locate revision"; then
+        ORPHAN_REV=$(echo "$UPGRADE_ERR" | grep -oE "identified by '[^']+'" | head -1 | sed -E "s/identified by '(.+)'/\1/")
+        echo "💡 Detectada revisão órfã '$ORPHAN_REV' (provavelmente de outra branch)."
+        echo "🔧 Limpando alembic_version e re-stampando com a head válida..."
+        # 1. Apaga a row órfã via Python+SQLAlchemy (usa a mesma DATABASE_URL
+        #    que o resto do app, sem precisar de psql instalado).
+        # 2. Roda stamp <head> para gravar a head conhecida desta checkout.
+        # 3. Roda upgrade head para garantir que nada está em falta (no-op
+        #    se já estiver no head).
+        if [ -d "venv" ]; then PY="venv/bin/python"; elif [ -d ".venv" ]; then PY=".venv/bin/python"; else PY="python3"; fi
+        $PY - <<'PYEOF'
+import asyncio, os
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
+
+async def main():
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise SystemExit("DATABASE_URL not set")
+    if "asyncpg" not in url:
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    eng = create_async_engine(url)
+    async with eng.begin() as c:
+        # alembic env.py uses version_table="alembic_version_be"
+        for tbl in ("alembic_version_be", "alembic_version"):
+            try:
+                await c.execute(text(f"DELETE FROM {tbl}"))
+                print(f"   {tbl} cleared")
+            except Exception:
+                pass
+    await eng.dispose()
+
+asyncio.run(main())
+PYEOF
+        # Now we need to figure out where on the migration graph to
+        # land. `alembic stamp head` would mark everything as applied
+        # without actually applying — so any DDL that the orphan
+        # branch skipped stays missing and the API crashes at runtime
+        # (e.g. "column conversations.resolved_at does not exist").
+        #
+        # Strategy: stamp at the parent of the current head and run
+        # `upgrade head`. The migrations on this checkout's tip are
+        # written idempotently (`_has_column`, `IF EXISTS`,
+        # `inspector.has_table`), so re-applying any that were
+        # already partly run is a no-op. If multiple migrations
+        # were skipped, we walk further back until upgrade-head
+        # succeeds — each fall back stamps one revision earlier.
+        HEAD_REV=$($ALEMBIC_CMD heads 2>/dev/null | awk '{print $1}' | head -1)
+        if [ -z "$HEAD_REV" ]; then
+            echo "❌ Não foi possível identificar a head conhecida. Aborto."
+            exit 1
+        fi
+        # Walk up to N revisions back through the linear chain. N=10
+        # is generous enough to absorb several merged feature
+        # branches without unbounded looping.
+        ANCESTOR="$HEAD_REV"
+        APPLIED="no"
+        for _step in 1 2 3 4 5 6 7 8 9 10; do
+            PARENT=$($ALEMBIC_CMD show "$ANCESTOR" 2>/dev/null | grep -E "^Parent:" | awk '{print $2}')
+            if [ -z "$PARENT" ] || [ "$PARENT" = "<base>" ]; then
+                break
+            fi
+            ANCESTOR="$PARENT"
+            if $ALEMBIC_CMD stamp "$ANCESTOR" 2>/dev/null && $ALEMBIC_CMD upgrade head; then
+                APPLIED="yes"
+                echo "✅ Banco sincronizado (re-stampado em $ANCESTOR) e migrations aplicadas até $HEAD_REV."
+                break
+            fi
+        done
+        if [ "$APPLIED" != "yes" ]; then
+            echo "❌ Não foi possível recuperar automaticamente após 10 tentativas."
+            echo "   Cole o output acima ao DevOps para inspecionar a tabela alembic_version."
             exit 1
         fi
     else

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
-from src.core.permissions import check_permission, get_user_permissions
+from src.core.permissions import check_permission, get_user_permissions, is_tenant_admin
 from src.core.security import get_password_hash
 from src.models.user import User
 from src.repositories.user import UserRepository
@@ -81,6 +81,45 @@ class UserService:
 
         return UserResponse.model_validate(user_to_response_dict(user))
 
+    async def _assert_password_invite_allowed(self) -> None:
+        """Refuse the email+password invite flow when the tenant's
+        ``auth_methods`` config has ``password`` disabled.
+
+        Lucas surfaced the gap (2026-05-30): the invite endpoint sent the
+        accept-invite email regardless of tenant SSO config, so an
+        invitee on a Google-only workspace would set a password they
+        could never use to log in. We re-check the same shape the
+        ``/api/v1/auth/methods`` endpoint exposes — tenant row when
+        the resolver populated one, otherwise the ``DEFAULT_AUTH_METHODS``
+        floor (Google-only).
+        """
+        from sqlalchemy import select
+
+        from src.core.tenant_context import current_tenant
+        from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
+
+        password_enabled = bool(DEFAULT_AUTH_METHODS.get("password", False))
+        try:
+            ctx = current_tenant()
+        except Exception:
+            ctx = None
+        tenant_slug = getattr(ctx, "slug", None) if ctx else None
+        if tenant_slug:
+            row = (
+                await self.db.execute(
+                    select(Tenant.auth_methods).where(Tenant.slug == tenant_slug)
+                )
+            ).first()
+            if row and isinstance(row[0], dict):
+                password_enabled = bool(row[0].get("password", password_enabled))
+        if not password_enabled:
+            raise BadRequestError(
+                "This workspace is configured for SSO sign-in only. Email-and-password "
+                "invites are disabled — ask the new member to sign in with the same "
+                "identity provider the rest of the team uses, or change the workspace's "
+                "auth methods first."
+            )
+
     async def create_user(self, user_data: UserCreate, current_user: User) -> UserResponse:
         """
         Create a new user.
@@ -103,6 +142,16 @@ class UserService:
         existing_user = await self.user_repo.get_by_email(user_data.email)
         if existing_user:
             raise BadRequestError("User with this email already exists")
+
+        # Tenants that don't have ``password`` in their ``auth_methods``
+        # config cannot use the email+password invite flow: the invitee
+        # would set a password they could never actually log in with
+        # (login then rejects with ``method_disabled``). Refuse the invite
+        # up front so the admin sees the real reason. Single-tenant
+        # deployments without a tenant resolver default to the
+        # ``DEFAULT_AUTH_METHODS`` shape (Google-only); the explicit check
+        # keeps the silent breakage from surfacing post-merge.
+        await self._assert_password_invite_allowed()
 
         # Generate secure invite token
         import secrets
@@ -181,14 +230,14 @@ class UserService:
             raise NotFoundError("User not found")
 
         # Non-admin users can only update limited fields
-        if current_user.role != "admin" and user_id != current_user.id:
+        if not is_tenant_admin(current_user) and user_id != current_user.id:
             raise ForbiddenError("You can only update your own profile")
 
         # Update fields
         update_data = user_data.model_dump(exclude_unset=True)
 
         # Non-admin users cannot change role
-        if current_user.role != "admin" and "role" in update_data:
+        if not is_tenant_admin(current_user) and "role" in update_data:
             del update_data["role"]
 
         # Handle preferences specifically to merge instead of replace
@@ -301,7 +350,7 @@ class UserService:
         # at this same chokepoint closes the same hole for the actual
         # tenant founders without needing to abuse the is_sky_operator
         # flag (which is for SKY internal staff, not for customers).
-        if user and getattr(user, "role", None) == "owner":
+        if user and getattr(user, "role", None) in ("super_admin", "owner"):
             raise ForbiddenError(
                 "Cannot deactivate the tenant owner. Transfer ownership "
                 "first via the tenant settings."
@@ -442,7 +491,11 @@ class UserService:
         return get_user_permissions(user)
 
     async def invite_user(
-        self, user_id: UUID, invite_data: dict, current_user: User
+        self,
+        user_id: UUID,
+        invite_data: dict,
+        current_user: User,
+        base_url: Optional[str] = None,
     ) -> UserResponse:
         """
         Invite user (resend invitation or send welcome email).
@@ -461,6 +514,12 @@ class UserService:
         """
         if not check_permission(current_user, "user", "update"):
             raise ForbiddenError("You don't have permission to invite users")
+
+        # Mirror create_user: refuse if this tenant's auth_methods has
+        # password disabled (SSO-only). Re-inviting an existing user via
+        # password while the tenant is SSO-only would silently break the
+        # invitee's login.
+        await self._assert_password_invite_allowed()
 
         user = await self.user_repo.get_by_id(user_id)
         if not user:
@@ -492,13 +551,17 @@ class UserService:
         # Send invite email
         try:
             email_service = EmailService()
-            # Define frontend URL (should be in settings, fallback to localhost)
-            frontend_url = "http://localhost:3000"
-            if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
-                # Take first origin as frontend URL
+            # Prefer the tenant host the admin is actually on (``base_url``)
+            # so the invitee lands on the tenant front-end and the token
+            # validates against the tenant DB. Fall back to the platform
+            # CORS origin only for non-request callers.
+            frontend_url = base_url
+            if not frontend_url and hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
                 frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
+            if not frontend_url:
+                frontend_url = "http://localhost:3000"
 
-            invite_link = f"{frontend_url}/auth/accept-invite?token={user.invite_token}"
+            invite_link = f"{frontend_url.rstrip('/')}/auth/accept-invite?token={user.invite_token}"
 
             email_success = email_service.send_invite_email(
                 user.email, invite_link, current_user.name

@@ -47,7 +47,7 @@ JWT_ALGO = "HS256"
 # Test user emails (seeded by seed_test_users.py)
 EMAIL_COMMANDER = "clara@sky.local"
 EMAIL_NAVIGATOR = "diego@sky.local"
-EMAIL_EXPLORER  = "elena@sky.local"
+EMAIL_EXPLORER = "elena@sky.local"
 
 TEST_CONTENT = b"""KNOWLEDGE SMOKE TEST DOCUMENT
 
@@ -61,18 +61,30 @@ Revenue Summary (Q1 2025):
 Unique test phrase for citation validation: SMOKE_TEST_CITATION_ANCHOR_XK9
 """
 TEST_FILENAME = "smoke_test_knowledge.txt"
-MIME          = "text/plain"
+MIME = "text/plain"
 
-POLL_TIMEOUT  = 90   # seconds to wait for processing
+POLL_TIMEOUT = 90  # seconds to wait for processing
 POLL_INTERVAL = 3
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _green(msg: str) -> str:  return f"\033[92m{msg}\033[0m"
-def _red(msg: str) -> str:    return f"\033[91m{msg}\033[0m"
-def _yellow(msg: str) -> str: return f"\033[93m{msg}\033[0m"
-def _bold(msg: str) -> str:   return f"\033[1m{msg}\033[0m"
+
+def _green(msg: str) -> str:
+    return f"\033[92m{msg}\033[0m"
+
+
+def _red(msg: str) -> str:
+    return f"\033[91m{msg}\033[0m"
+
+
+def _yellow(msg: str) -> str:
+    return f"\033[93m{msg}\033[0m"
+
+
+def _bold(msg: str) -> str:
+    return f"\033[1m{msg}\033[0m"
+
 
 passed = 0
 failed = 0
@@ -108,11 +120,12 @@ def _summary() -> None:
         print(_green(f"All {total} checks passed ✓"))
     else:
         print(_red(f"{failed}/{total} checks FAILED"))
-    print("="*62)
+    print("=" * 62)
 
 
 def _make_jwt(user_id: str, role: str = "member") -> str:
     from jose import jwt as _jwt
+
     payload = {
         "sub": user_id,
         "role": role,
@@ -134,8 +147,10 @@ def _poll_ready(client: httpx.Client, file_id: str, token: str, label: str) -> d
         if r.status_code != 200:
             fail(f"{label} poll returned {r.status_code}: {r.text}")
         info = r.json()
-        st   = info.get("status")
-        print(f"   [{label}] status={st}  chunks={info.get('chunks_count', 0)}", end="\r", flush=True)
+        st = info.get("status")
+        print(
+            f"   [{label}] status={st}  chunks={info.get('chunks_count', 0)}", end="\r", flush=True
+        )
         if st == "ready":
             print()
             return info
@@ -144,22 +159,30 @@ def _poll_ready(client: httpx.Client, file_id: str, token: str, label: str) -> d
             fail(f"{label} processing error: {info.get('processing_error')}")
         time.sleep(POLL_INTERVAL)
     fail(f"{label} timed out waiting for status=ready after {POLL_TIMEOUT}s")
-    return {}   # unreachable
+    return {}  # unreachable
 
 
 # ── DB helpers (sync psycopg2) ─────────────────────────────────────────────────
 
+
 def _db_conn():
     import psycopg2
-    dsn = os.getenv(
-        "DATABASE_URL",
-        "postgresql://postgres@localhost/ai_saas_db",
-    ).replace("postgresql+asyncpg://", "postgresql://").replace("+asyncpg", "")
+
+    dsn = (
+        os.getenv(
+            "DATABASE_URL",
+            "postgresql://postgres@localhost/ai_saas_db",
+        )
+        .replace("postgresql+asyncpg://", "postgresql://")
+        .replace("+asyncpg", "")
+    )
     return psycopg2.connect(dsn)
 
 
 def _get_user(cur, email: str) -> dict | None:
-    cur.execute("SELECT id, email, name, role FROM users WHERE email=%s AND deleted_at IS NULL", (email,))
+    cur.execute(
+        "SELECT id, email, name, role FROM users WHERE email=%s AND deleted_at IS NULL", (email,)
+    )
     row = cur.fetchone()
     if row is None:
         return None
@@ -190,7 +213,7 @@ def _ensure_crew(cur, conn, commander_id: str, navigator_id: str, explorer_id: s
     for uid, role in [
         (commander_id, "commander"),
         (navigator_id, "navigator"),
-        (explorer_id,  "explorer"),
+        (explorer_id, "explorer"),
     ]:
         cur.execute(
             """
@@ -230,8 +253,8 @@ def _upload_flow(
     r = client.post(f"{BACKEND}/knowledge/upload-url", json=body, headers=_headers(token))
     if r.status_code != 200:
         fail(f"{label} upload-url returned {r.status_code}: {r.text}")
-    data      = r.json()
-    file_id   = data["file_id"]
+    data = r.json()
+    file_id = data["file_id"]
     upload_url = data["upload_url"]
 
     put_r = httpx.put(upload_url, content=TEST_CONTENT, headers={"Content-Type": MIME}, timeout=30)
@@ -251,32 +274,44 @@ def _upload_flow(
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     # ── 0. DB setup ───────────────────────────────────────────────────────────
     step("Setup — resolving test users from DB")
     try:
         conn = _db_conn()
-        cur  = conn.cursor()
+        cur = conn.cursor()
     except Exception as e:
         fail(f"Cannot connect to DB: {e}")
         return
 
     commander = _get_user(cur, EMAIL_COMMANDER)
     navigator = _get_user(cur, EMAIL_NAVIGATOR)
-    explorer  = _get_user(cur, EMAIL_EXPLORER)
+    explorer = _get_user(cur, EMAIL_EXPLORER)
 
     # For AI query test: we need an admin/owner user (data.query.run is only
     # allowed for admin+ — pre-existing permission gap, not related to Knowledge Library RBAC)
-    cur.execute("SELECT id, email, role FROM users WHERE role IN ('admin','owner') AND deleted_at IS NULL LIMIT 1")
+    cur.execute(
+        "SELECT id, email, role FROM users WHERE role IN ('admin','owner') AND deleted_at IS NULL LIMIT 1"
+    )
     admin_row = cur.fetchone()
-    admin_user = {"id": str(admin_row[0]), "email": admin_row[1], "role": admin_row[2]} if admin_row else None
+    admin_user = (
+        {"id": str(admin_row[0]), "email": admin_row[1], "role": admin_row[2]}
+        if admin_row
+        else None
+    )
 
-    missing = [e for e, u in [(EMAIL_COMMANDER, commander), (EMAIL_NAVIGATOR, navigator), (EMAIL_EXPLORER, explorer)] if u is None]
+    missing = [
+        e
+        for e, u in [
+            (EMAIL_COMMANDER, commander),
+            (EMAIL_NAVIGATOR, navigator),
+            (EMAIL_EXPLORER, explorer),
+        ]
+        if u is None
+    ]
     if missing:
-        fail(
-            f"Missing test users: {missing}\n"
-            "   Run:  python scripts/seed_test_users.py"
-        )
+        fail(f"Missing test users: {missing}\n" "   Run:  python scripts/seed_test_users.py")
         return
 
     ok(f"Commander: {commander['name']} ({commander['id'][:8]}…)")
@@ -289,10 +324,10 @@ def main() -> None:
     # Generate JWTs
     tok_commander = _make_jwt(commander["id"], commander["role"])
     tok_navigator = _make_jwt(navigator["id"], navigator["role"])
-    tok_explorer  = _make_jwt(explorer["id"],  explorer["role"])
+    tok_explorer = _make_jwt(explorer["id"], explorer["role"])
 
     client = httpx.Client(timeout=60.0)
-    files_to_cleanup: list[tuple[str, str]] = []   # (file_id, token)
+    files_to_cleanup: list[tuple[str, str]] = []  # (file_id, token)
 
     try:
         # ── 1. Backend health ─────────────────────────────────────────────────
@@ -305,9 +340,7 @@ def main() -> None:
 
         # ── 2. Commander → processing immediately ─────────────────────────────
         step("Check 2 — Commander upload goes straight to processing (crew scope)")
-        file_id, status_after = _upload_flow(
-            client, tok_commander, "crew", crew_id, "COMMANDER"
-        )
+        file_id, status_after = _upload_flow(client, tok_commander, "crew", crew_id, "COMMANDER")
         files_to_cleanup.append((file_id, tok_commander))
         if status_after == "processing":
             ok(f"Status after confirm = processing ✓ (file_id={file_id[:8]}…)")
@@ -323,9 +356,7 @@ def main() -> None:
 
         # ── 3. Navigator → pending_approval ───────────────────────────────────
         step("Check 3 — Navigator upload goes to pending_approval")
-        file_id_nav, status_nav = _upload_flow(
-            client, tok_navigator, "crew", crew_id, "NAVIGATOR"
-        )
+        file_id_nav, status_nav = _upload_flow(client, tok_navigator, "crew", crew_id, "NAVIGATOR")
         files_to_cleanup.append((file_id_nav, tok_commander))  # commander will delete
         if status_nav == "pending_approval":
             ok(f"Status after confirm = pending_approval ✓ (file_id={file_id_nav[:8]}…)")
@@ -336,7 +367,13 @@ def main() -> None:
         step("Check 4 — Explorer upload to crew scope is forbidden")
         r = client.post(
             f"{BACKEND}/knowledge/upload-url",
-            json={"filename": TEST_FILENAME, "mime_type": MIME, "size_bytes": len(TEST_CONTENT), "scope": "crew", "scope_id": crew_id},
+            json={
+                "filename": TEST_FILENAME,
+                "mime_type": MIME,
+                "size_bytes": len(TEST_CONTENT),
+                "scope": "crew",
+                "scope_id": crew_id,
+            },
             headers=_headers(tok_explorer),
         )
         if r.status_code == 403:
@@ -381,7 +418,9 @@ def main() -> None:
             else:
                 fail(f"Navigator approve returned {r.status_code} (expected 403)", abort=False)
         else:
-            warn(f"Skipping approve test — navigator file has status '{status_nav2}' (expected pending_approval)")
+            warn(
+                f"Skipping approve test — navigator file has status '{status_nav2}' (expected pending_approval)"
+            )
 
         # ── 7. Commander cannot approve non-pending file ──────────────────────
         step("Check 7 — Approving a 'ready' file returns 400")
@@ -434,10 +473,10 @@ def main() -> None:
                 timeout=90,
             )
             if r.status_code == 200:
-                result  = r.json()
-                answer  = result.get("answer", "")
-                meta    = result.get("meta") or {}
-                cites   = meta.get("citations") or []
+                result = r.json()
+                answer = result.get("answer", "")
+                meta = result.get("meta") or {}
+                cites = meta.get("citations") or []
 
                 if answer:
                     ok(f"AI answered ({len(answer)} chars)")
@@ -449,13 +488,21 @@ def main() -> None:
                 if cites:
                     ok(f"{len(cites)} citation(s) returned — AI used the knowledge document ✓")
                     for c in cites:
-                        print(f"        [{c.get('score', 0):.2f}] {c.get('file_name')} — {c.get('excerpt', '')[:60]}")
+                        print(
+                            f"        [{c.get('score', 0):.2f}] {c.get('file_name')} — {c.get('excerpt', '')[:60]}"
+                        )
                     anchor_in_answer = "SMOKE_TEST_CITATION_ANCHOR_XK9" in answer
-                    anchor_in_cites  = any("SMOKE_TEST_CITATION_ANCHOR_XK9" in (c.get("excerpt") or "") for c in cites)
+                    anchor_in_cites = any(
+                        "SMOKE_TEST_CITATION_ANCHOR_XK9" in (c.get("excerpt") or "") for c in cites
+                    )
                     if anchor_in_answer or anchor_in_cites:
-                        ok("Unique anchor phrase found in response — RAG correctly retrieved the document ✓")
+                        ok(
+                            "Unique anchor phrase found in response — RAG correctly retrieved the document ✓"
+                        )
                     else:
-                        warn("Anchor phrase not found in answer/citations (may still be correct if AI paraphrased)")
+                        warn(
+                            "Anchor phrase not found in answer/citations (may still be correct if AI paraphrased)"
+                        )
                 else:
                     warn(
                         "No citations returned.\n"
@@ -465,7 +512,9 @@ def main() -> None:
                         "        c) Cosine similarity below threshold"
                     )
             elif r.status_code in (404, 422):
-                warn(f"AI query returned {r.status_code} — endpoint may require a connection_id. Skipping citation check.")
+                warn(
+                    f"AI query returned {r.status_code} — endpoint may require a connection_id. Skipping citation check."
+                )
             else:
                 fail(f"AI query returned {r.status_code}: {r.text[:300]}", abort=False)
 

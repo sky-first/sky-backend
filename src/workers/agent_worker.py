@@ -195,7 +195,15 @@ def _normalize_rows(rows):
 
 
 def _infer_viz_kind(response, answer: str) -> str:
-    rows = (response or {}).get("data") if isinstance(response, dict) else None
+    # The AI service returns the SQL result rows under `data_sample`
+    # (a list of row dicts, capped at 15). Earlier code read `data`, a
+    # key the AI QueryResponse never sets — so `rows` was always None and
+    # every finding fell through to a text viz_kind ("callout"/"kpi")
+    # regardless of the underlying data. Prefer `data_sample`; keep `data`
+    # as a fallback for any caller that still uses the old shape.
+    rows = None
+    if isinstance(response, dict):
+        rows = response.get("data_sample") or response.get("data")
     cols, data = _normalize_rows(rows)
 
     title = ""
@@ -257,11 +265,19 @@ async def _execute_agent_async(agent_id: str):
     5. Update agent execution stats
     6. Schedule next execution
     """
-    from src.config.database import AsyncSessionLocal  # noqa: E402
+    from src.config.tenant_connection_manager import tenant_connection_manager  # noqa: E402
+    from src.core.tenant_context import current_tenant  # noqa: E402
     from src.models.agent import Agent, AgentExecution, AgentFinding
     from src.ai.http_client import AIServiceHTTPClient
 
-    async with AsyncSessionLocal() as db:
+    # Tenant-aware session: the Celery task_prerun signal (PR #8,
+    # tenant_context_propagation) has already restored current_tenant()
+    # from the x-tenant-slug header attached when the run endpoint called
+    # .delay(). Using the global AsyncSessionLocal here looked the agent
+    # up in the platform DB and logged "Agent not found" for every tenant
+    # agent. session_for(default) still routes to the global pool, so the
+    # single-tenant path is unchanged.
+    async with tenant_connection_manager.session_for(current_tenant()) as db:
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
 
@@ -515,15 +531,25 @@ async def _execute_agent_async(agent_id: str):
                             db, agent_user, kind="agent_l3", source_id=conn_id
                         )
 
+                    from src.core.locale import resolve_locale
+                    from src.services.agent_service import resolve_metadata_space_id
+
+                    # Resolve the REAL owning space - sending the raw scope_id is
+                    # wrong for crew (crew id) and personal (user id) and causes a
+                    # false "No metadata found" 404. See resolve_metadata_space_id.
+                    _effective_space_id = await resolve_metadata_space_id(
+                        db, agent, str(conn_id)
+                    )
                     response = await ai_client.query_connection(
                         connection_id=str(conn_id),
                         question=question,
                         user_id=str(agent.created_by) if agent.created_by else "system",
-                        space_id=agent.scope_id or "default",
+                        space_id=_effective_space_id or agent.scope_id or "default",
                         selected_datasets=effective_datasets,
                         instructions=agent_instructions,
                         agent_mode=monitor_type,
                         sql_instructions=sql_instructions,
+                        locale=resolve_locale(None, agent_user),
                     )
 
                     answer = response.get("answer", "") if isinstance(response, dict) else str(response)
@@ -540,6 +566,17 @@ async def _execute_agent_async(agent_id: str):
                             response=response if isinstance(response, dict) else None,
                             answer=answer,
                         )
+                        # Result rows live under `data_sample` on the AI
+                        # QueryResponse (not `data`) — see _infer_viz_kind.
+                        # Without this the finding shipped with rows=None and
+                        # the Pulse card rendered as text instead of a chart.
+                        raw_data = (
+                            (response.get("data_sample") or response.get("data"))
+                            if isinstance(response, dict)
+                            else None
+                        )
+                        cols, data = _normalize_rows(raw_data)
+                        rows_payload = {"columns": cols, "data": data} if cols and data else None
                         finding = AgentFinding(
                             agent_id=agent.id,
                             execution_id=execution.id,
@@ -552,6 +589,7 @@ async def _execute_agent_async(agent_id: str):
                             connection_id=conn_id,
                             data_sources=table_ids or [str(conn_id)],
                             viz_kind=viz_kind,
+                            rows=rows_payload,
                         )
                         db.add(finding)
                         findings_created += 1
@@ -695,38 +733,81 @@ def execute_agent(self, agent_id: str):
         raise self.retry(exc=exc, countdown=120)
 
 
+async def _schedule_agents_async():
+    """Inner async body of :func:`schedule_agents`.
+
+    Module-level (rather than nested) so tests can exercise it directly
+    with a patched session factory — same pattern as
+    ``agent_revocation_worker._sweep_async``.
+
+    Returns ``(enqueued, rescheduled)``.
+    """
+    from src.config.database import AsyncSessionLocal  # noqa: E402
+    from src.models.agent import Agent
+    from src.services.agent_service import FREQUENCY_HOURS
+    from sqlalchemy import or_, select
+
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        # Insight-mode agents are scheduled by insight_agent_worker
+        # via the new AgentRunService state machine; the legacy
+        # scheduler only handles question/datasource/sql modes here
+        # so the two flows don't double-enqueue.
+        #
+        # NULL next_execution_at has to be matched explicitly: in SQL
+        # `NULL <= now` evaluates to NULL, not TRUE, so an active agent
+        # whose schedule was lost is invisible to the plain comparison
+        # and stops for good — silently, while the UI still reports it
+        # as active. Production hit exactly that: 50 active agents, all
+        # with a NULL schedule, none executed for 54 days.
+        result = await db.execute(
+            select(Agent).where(
+                Agent.status == "active",
+                Agent.monitor_type != "insight",
+                or_(
+                    Agent.next_execution_at <= now,
+                    Agent.next_execution_at.is_(None),
+                ),
+            )
+        )
+        candidates = result.scalars().all()
+
+        due_agents = [a for a in candidates if a.next_execution_at is not None]
+        orphans = [a for a in candidates if a.next_execution_at is None]
+
+        # Heal the orphans instead of running them. Firing every
+        # recovered agent at once would stampede the AI service and
+        # spike LLM spend the moment this ships; spreading them
+        # deterministically across their own frequency window gets them
+        # back on cadence without a thundering herd.
+        for idx, agent in enumerate(orphans):
+            hours = FREQUENCY_HOURS.get(agent.frequency, 24)
+            share = (idx + 1) / (len(orphans) + 1)
+            agent.next_execution_at = now + timedelta(hours=hours * share)
+        if orphans:
+            await db.commit()
+            logger.warning(
+                "Agent scheduler: rescheduled %d active agent(s) that had no "
+                "next_execution_at (they were stalled and would never have "
+                "run); staggered across their frequency window",
+                len(orphans),
+            )
+
+        for agent in due_agents:
+            logger.info(f"Scheduling agent {agent.id} ({agent.name}) for execution")
+            execute_agent.delay(str(agent.id))
+
+        return len(due_agents), len(orphans)
+
+
 @celery_app.task
 def schedule_agents():
     """
     Periodic task — checks all active agents and enqueues those due for execution.
     Runs every 5 minutes via Celery Beat.
     """
-    async def _check():
-        from src.config.database import AsyncSessionLocal  # noqa: E402
-        from src.models.agent import Agent
-        from sqlalchemy import select
-
-        now = datetime.now(timezone.utc)
-        async with AsyncSessionLocal() as db:
-            # Insight-mode agents are scheduled by insight_agent_worker
-            # via the new AgentRunService state machine; the legacy
-            # scheduler only handles question/datasource/sql modes here
-            # so the two flows don't double-enqueue.
-            result = await db.execute(
-                select(Agent).where(
-                    Agent.status == "active",
-                    Agent.next_execution_at <= now,
-                    Agent.monitor_type != "insight",
-                )
-            )
-            due_agents = result.scalars().all()
-
-            for agent in due_agents:
-                logger.info(f"Scheduling agent {agent.id} ({agent.name}) for execution")
-                execute_agent.delay(str(agent.id))
-
-            return len(due_agents)
-
-    count = _run_async(_check())
-    logger.info(f"Agent scheduler: {count} agents enqueued for execution")
-    return {"agents_scheduled": count}
+    count, healed = _run_async(_schedule_agents_async())
+    logger.info(
+        f"Agent scheduler: {count} agents enqueued for execution, {healed} rescheduled"
+    )
+    return {"agents_scheduled": count, "agents_rescheduled": healed}
