@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,15 +11,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 from src.config.settings import settings
+from src.core.device_tenant import carry_tenant_claims, tenant_claims_for_context
 from src.core.exceptions import BadRequestError, UnauthorizedError
 from src.core.permissions import is_tenant_admin
 from src.core.security import (
     create_access_token,
     create_refresh_token,
     get_password_hash,
+    refresh_ttl_days,
     verify_password,
     verify_token,
 )
+from src.core.tenant_context import current_tenant, reset_current_tenant, set_current_tenant
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
 from src.schemas.user import (
@@ -149,20 +152,23 @@ class AuthenticationService:
         # they end up as a member of shared scopes.
         try:
             from src.ai.http_client import AIServiceHTTPClient
+
             ai_client = AIServiceHTTPClient()
-            await ai_client.ingest_knowledge_graph({
-                "id": str(user.id),
-                "entity_type": "user",
-                "name": user.name,
-                "description": f"Platform user — {user.role}" if user.role else "Platform user",
-                "space_id": None,
-                "crew_id": None,
-                "owner_user_id": str(user.id),
-                "entity_details": {
-                    "email": user.email,
-                    "role": user.role,
-                },
-            })
+            await ai_client.ingest_knowledge_graph(
+                {
+                    "id": str(user.id),
+                    "entity_type": "user",
+                    "name": user.name,
+                    "description": f"Platform user — {user.role}" if user.role else "Platform user",
+                    "space_id": None,
+                    "crew_id": None,
+                    "owner_user_id": str(user.id),
+                    "entity_details": {
+                        "email": user.email,
+                        "role": user.role,
+                    },
+                }
+            )
         except Exception as exc:
             logger.warning(f"AI ingest failed for user {user.id}: {exc}")
 
@@ -213,7 +219,14 @@ class AuthenticationService:
             raise BadRequestError("Failed to create user")
 
         # Create tokens (same logic as login)
-        token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+        token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            # BE-01: stamp the resolved tenant so device clients carry a
+            # signed, immutable tenant claim. No-op in single-tenant mode.
+            **tenant_claims_for_context(current_tenant()),
+        }
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data)
 
@@ -227,6 +240,8 @@ class AuthenticationService:
             expires_at=expires_at,
             user_agent=user_agent,
             ip_address=ip_address,
+            # BE-05 — a fresh login opens a new token family (login lineage).
+            family_id=uuid4(),
         )
         self.db.add(refresh_token_model)
         await self.db.commit()
@@ -342,6 +357,7 @@ class AuthenticationService:
         user_agent: Optional[str] = None,
         ip_address: Optional[str] = None,
         background_tasks: Optional[BackgroundTasks] = None,
+        client_type: Optional[str] = None,
     ) -> LoginResponse:
         """Mint access+refresh tokens for an authenticated user.
 
@@ -349,6 +365,9 @@ class AuthenticationService:
         so the post-auth side-effects (last_login_at, onboarding
         bootstrap, refresh-token row) are guaranteed to be identical
         regardless of whether a second factor was involved.
+
+        ``client_type='mobile'`` gives the refresh token the longer mobile
+        TTL (BE-05) and stamps a ``ctyp`` claim so rotations keep it.
         """
         # Update last login
         user.last_login_at = datetime.now(timezone.utc)
@@ -361,20 +380,49 @@ class AuthenticationService:
                 await ensure_default_page_and_space(self.db, user)
 
         # Create tokens
-        token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
-        access_token = create_access_token(token_data)
-        refresh_token = create_refresh_token(token_data)
+        tenant_claims = tenant_claims_for_context(current_tenant())
+        token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            # BE-01: stamp the resolved tenant so device clients carry a
+            # signed, immutable tenant claim. No-op in single-tenant mode.
+            **tenant_claims,
+        }
 
-        # Save refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(
-            days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
-        )
+        # Registar a pertença. `TenantMembershipService.grant` dizia na
+        # docstring "called on every successful login" mas ninguém o
+        # chamava — a tabela nunca era preenchida, portanto o portão de
+        # dispositivo (que verifica pertença a cada pedido) recusava
+        # todos os utilizadores móveis com 403. O portão falhava fechado,
+        # que é o lado certo para falhar, mas falhava.
+        #
+        # Aqui é o sítio certo: o login é o único momento em que sabemos
+        # ao mesmo tempo quem é a pessoa e a que cliente se autenticou
+        # com sucesso. Idempotente — não cria linhas repetidas.
+        if tenant_claims.get("tid"):
+            from src.services.tenant_membership_service import TenantMembershipService
+
+            await TenantMembershipService.upsert(
+                self.db,
+                user_id=user.id,
+                tenant_id=tenant_claims["tid"],
+                role=user.role or "member",
+            )
+
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token(token_data, client_type=client_type)
+
+        # BE-05 — refresh row TTL matches the JWT exp (mobile gets the long one).
+        expires_at = datetime.now(timezone.utc) + timedelta(days=refresh_ttl_days(client_type))
         refresh_token_model = RefreshToken(
             user_id=user.id,
             token=refresh_token,
             expires_at=expires_at,
             user_agent=user_agent,
             ip_address=ip_address,
+            # BE-05 — a fresh login opens a new token family (login lineage).
+            family_id=uuid4(),
         )
         self.db.add(refresh_token_model)
 
@@ -389,6 +437,31 @@ class AuthenticationService:
             user=UserResponse.model_validate(user_to_response_dict(user)),
         )
 
+    async def issue_session_for_tenant(
+        self,
+        user: User,
+        tenant_ctx,
+        *,
+        user_agent: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> LoginResponse:
+        """Re-issue a session scoped to ``tenant_ctx`` — the BE-01 workspace
+        switch (``POST /auth/select-workspace``).
+
+        Switching tenants is always an *explicit* re-issue, never a side
+        effect of refreshing. We set the tenant contextvar so
+        ``_issue_session`` stamps the correct ``tid``/``tslug`` into the new
+        tokens, then restore it — reusing every standard post-auth side
+        effect (refresh-token row, last_login_at) unchanged. The caller is
+        responsible for verifying the user's membership of ``tenant_ctx``
+        *before* calling this.
+        """
+        token = set_current_tenant(tenant_ctx)
+        try:
+            return await self._issue_session(user, user_agent=user_agent, ip_address=ip_address)
+        finally:
+            reset_current_tenant(token)
+
     async def complete_mfa_login(
         self,
         *,
@@ -398,6 +471,7 @@ class AuthenticationService:
         user_agent: Optional[str] = None,
         ip_address: Optional[str] = None,
         background_tasks: Optional[BackgroundTasks] = None,
+        client_type: Optional[str] = None,
     ) -> LoginResponse:
         """Redeem an MFA challenge token + second factor for real tokens.
 
@@ -442,6 +516,7 @@ class AuthenticationService:
             user_agent=user_agent,
             ip_address=ip_address,
             background_tasks=background_tasks,
+            client_type=client_type,
         )
 
     async def finalize_mfa_enrollment(
@@ -452,6 +527,7 @@ class AuthenticationService:
         user_agent: Optional[str] = None,
         ip_address: Optional[str] = None,
         background_tasks: Optional[BackgroundTasks] = None,
+        client_type: Optional[str] = None,
     ):
         """Close the forced first-login MFA enrolment + mint tokens.
 
@@ -466,16 +542,11 @@ class AuthenticationService:
         protects against an attacker replaying a stale enrolment token
         after the legitimate owner has finished onboarding.
         """
-        from fastapi import HTTPException, status as http_status
+        from fastapi import HTTPException
+        from fastapi import status as http_status
 
-        from src.schemas.user import (
-            MFAFinalizeEnrollmentResponse,
-            UserResponse,
-        )
-        from src.services.mfa_service import (
-            MFAService,
-            verify_mfa_enrollment_token,
-        )
+        from src.schemas.user import MFAFinalizeEnrollmentResponse, UserResponse
+        from src.services.mfa_service import MFAService, verify_mfa_enrollment_token
 
         try:
             user_id_str, secret = verify_mfa_enrollment_token(enrollment_token)
@@ -511,6 +582,7 @@ class AuthenticationService:
             user_agent=user_agent,
             ip_address=ip_address,
             background_tasks=background_tasks,
+            client_type=client_type,
         )
         return MFAFinalizeEnrollmentResponse(
             access_token=session.access_token,
@@ -562,23 +634,52 @@ class AuthenticationService:
         except Exception:
             raise UnauthorizedError("Invalid refresh token")
 
+        # BE-05 (T-05.8) — a refresh token is bound to its tenant. If the
+        # request resolves to a different tenant than the token's signed tid,
+        # reject: a tenant-A token must never refresh against tenant B. No-op
+        # in single-tenant mode (no tid on either side).
+        token_tid = payload.get("tid")
+        ctx_tid = tenant_claims_for_context(current_tenant()).get("tid")
+        if token_tid and ctx_tid and str(token_tid) != str(ctx_tid):
+            raise UnauthorizedError("Refresh token tenant mismatch")
+
         user_id = UUID(payload.get("sub"))
         if not user_id:
             raise UnauthorizedError("Invalid token payload")
 
-        # Check if refresh token exists and is valid
+        # BE-05 — look the token up WITHOUT the revoked/expired filter so we
+        # can tell three cases apart: unknown (forged), already-rotated (reuse
+        # = theft), or genuinely active. The old code collapsed all three into
+        # one 401, so a stolen token that had already been rotated could be
+        # replayed and nobody would notice.
+        #
+        # TODO(BE-09): TOCTOU on concurrent refresh. Two simultaneous refreshes
+        # with the same token can both read it as active before either revokes,
+        # so the loser trips the reuse detector and nukes a healthy family by
+        # mistake. Harden with a row lock (SELECT ... FOR UPDATE) + a short
+        # grace window, plus a concurrency test. Accepted for now (BE-05).
         from sqlalchemy import select
 
         result = await self.db.execute(
-            select(RefreshToken).where(
-                RefreshToken.token == refresh_token,
-                RefreshToken.expires_at > datetime.now(timezone.utc),
-                RefreshToken.revoked_at.is_(None),
-            )
+            select(RefreshToken).where(RefreshToken.token == refresh_token)
         )
         token_model = result.scalar_one_or_none()
 
-        if not token_model:
+        if token_model is None:
+            # A token we never issued (or already pruned) — nothing to nuke.
+            raise UnauthorizedError("Invalid refresh token")
+
+        if token_model.revoked_at is not None:
+            # 🚨 A revoked token is being reused. Treat it as compromise:
+            # revoke the whole family and blocklist the user's access tokens.
+            await self._revoke_token_family(token_model)
+            raise UnauthorizedError("Refresh token reuse detected")
+
+        # Normalise tz: SQLite hands back naive datetimes, Postgres aware ones.
+        expires_at = token_model.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
             raise UnauthorizedError("Invalid or expired refresh token")
 
         # Get user
@@ -586,22 +687,33 @@ class AuthenticationService:
         if not user:
             raise UnauthorizedError("User not found")
 
-        # Revoke old token
+        # Revoke old token (rotation)
         token_model.revoked_at = datetime.now(timezone.utc)
 
         # Create new tokens
-        token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+        # BE-01: a refresh must PRESERVE the tenant — switching workspace is
+        # an explicit /auth/select-workspace re-issue, never a side effect of
+        # refreshing. We carry the tid/tslug forward from the incoming token.
+        token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            **carry_tenant_claims(payload),
+        }
+        # BE-05 — carry the client type forward so a mobile session keeps its
+        # long refresh TTL across every rotation, not just the first one.
+        client_type = payload.get("ctyp")
         new_access_token = create_access_token(token_data)
-        new_refresh_token = create_refresh_token(token_data)
+        new_refresh_token = create_refresh_token(token_data, client_type=client_type)
 
-        # Save new refresh token (set to 100 years in the future - effectively infinite)
-        expires_at = datetime.now(timezone.utc) + timedelta(
-            days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
-        )
+        expires_at = datetime.now(timezone.utc) + timedelta(days=refresh_ttl_days(client_type))
         new_token_model = RefreshToken(
             user_id=user.id,
             token=new_refresh_token,
             expires_at=expires_at,
+            # BE-05 — the rotated token stays in the same family as its parent
+            # (``or id`` covers legacy rows backfilled to their own id).
+            family_id=token_model.family_id or token_model.id,
         )
         self.db.add(new_token_model)
         await self.db.commit()
@@ -611,6 +723,51 @@ class AuthenticationService:
             refresh_token=new_refresh_token,
             expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         )
+
+    async def _revoke_token_family(self, token_model: RefreshToken) -> None:
+        """BE-05 — a revoked refresh token was replayed: treat it as theft.
+
+        Revoke every still-live token in the same family (the login lineage)
+        so neither attacker nor victim can rotate it again, then bump the
+        user's access-token blocklist so any outstanding access token minted
+        from this login dies within seconds (Option A). Other devices keep
+        their own families and simply re-refresh silently.
+        """
+        from sqlalchemy import or_, update
+
+        family = token_model.family_id or token_model.id
+        now = datetime.now(timezone.utc)
+        await self.db.execute(
+            update(RefreshToken)
+            .where(
+                or_(
+                    RefreshToken.family_id == family,
+                    RefreshToken.id == family,  # legacy row: family == own id
+                ),
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+        )
+        await self.db.commit()
+        logger.warning(
+            "BE-05: refresh-token reuse detected — revoked family %s for user %s",
+            family,
+            token_model.user_id,
+        )
+        # Best-effort: kill outstanding access tokens for this user. A Redis
+        # hiccup must never swallow the reuse signal — the family is already dead.
+        try:
+            from src.core.token_blocklist import revoke_user_tokens
+
+            await revoke_user_tokens(
+                str(token_model.user_id), issued_before_epoch=int(now.timestamp())
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "BE-05 reuse: access-token blocklist bump failed for user %s: %s",
+                token_model.user_id,
+                exc,
+            )
 
     async def logout(self, refresh_token: str) -> None:
         """
@@ -653,6 +810,44 @@ class AuthenticationService:
             .values(revoked_at=datetime.now(timezone.utc))
         )
         await self.db.commit()
+
+    async def revoke_device_session(self, *, session_id: UUID, user_id: UUID) -> bool:
+        """BE-05 (T-05.7) — surgically revoke ONE device's session.
+
+        Revokes the whole family of the refresh token identified by
+        ``session_id`` (so that device's rotated tokens all die) but touches
+        no other family and does NOT bump the user-level access blocklist —
+        so the user's *other* devices keep working. This is the "sign out
+        this device" primitive behind ``DELETE /auth/sessions/{id}``, distinct
+        from ``logout`` (current device) and ``revoke_all_tokens`` (all).
+
+        Returns True if a matching, still-live session was found.
+        """
+        from sqlalchemy import or_, select, update
+
+        row = (
+            await self.db.execute(
+                select(RefreshToken).where(
+                    RefreshToken.id == session_id,
+                    RefreshToken.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return False
+
+        family = row.family_id or row.id
+        result = await self.db.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                or_(RefreshToken.family_id == family, RefreshToken.id == family),
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(timezone.utc))
+        )
+        await self.db.commit()
+        return result.rowcount > 0
 
     async def get_current_user(self, user_id: UUID) -> UserResponse:
         """

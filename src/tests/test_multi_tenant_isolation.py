@@ -186,6 +186,14 @@ _ALLOWED_REFS = {
     str((_SRC_ROOT / "workers" / "insight_agent_worker.py").resolve()),
     str((_SRC_ROOT / "workers" / "knowledge_worker.py").resolve()),
     str((_SRC_ROOT / "workers" / "sync_worker.py").resolve()),
+    # Login mobile por domínio de email (Sky Mobile T-01) — a descoberta
+    # do cliente corre contra a base de **registo** e não contra a de um
+    # cliente, porque acontece antes de sabermos qual é o cliente. Não
+    # há contexto de tenant para entrar: é isso que a consulta vai
+    # descobrir. Falha em silêncio para None, portanto uma indisponi-
+    # bilidade do registo degrada para o caminho normal de login em vez
+    # de rebentar.
+    str((_SRC_ROOT / "api" / "v1" / "auth.py").resolve()),
     # Projeto B Console — WebSocket log streamer cannot use the DI
     # dependency (FastAPI WS handlers don't go through the same DI),
     # one-shot lookup on the platform pool for tenant existence check.
@@ -290,7 +298,7 @@ def test_raw_async_session_local_instantiation_baseline():
     # checked-in code. Phase 3-4 PRs reduce this; the test fails
     # loudly if a new direct call lands. Bumping the number UP
     # requires touching this baseline deliberately.
-    BASELINE = 25  # bumped 2026-06-02 — provisioning_worker._reconcile_async
+    BASELINE = 26  # subido 2026-08-04 — auth.py, descoberta de cliente por domínio
     #               polls the GH Actions API as a fallback for lossy
     #               offboard webhooks (see PR #506). It's a top-level
     #               Celery task on the platform DB, no tenant context

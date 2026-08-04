@@ -175,6 +175,15 @@ async def _load_tenant_from_db(slug: str) -> Optional[TenantContext]:
         return None
     if not row.is_active:
         return None
+    return _row_to_context(row)
+
+
+def _row_to_context(row: Tenant) -> TenantContext:
+    """Inflate a ``tenant_registry`` row into a :class:`TenantContext`.
+
+    Shared by the slug loader (web path) and the id loader (device path) so
+    both produce byte-identical contexts.
+    """
     return TenantContext(
         slug=row.slug,
         id=row.id,
@@ -195,6 +204,55 @@ async def _load_tenant_from_db(slug: str) -> Optional[TenantContext]:
         sso_provider=row.sso_provider or "",
         logo_url=row.logo_url or "",
     )
+
+
+def _tid_from_jwt(auth_header: Optional[str]) -> Optional[str]:
+    """Read the signed ``tid`` (tenant UUID) claim from a Bearer token.
+
+    The device (mobile) path: a phone hits the bare ``api.`` host with no
+    sub-domain, so the tenant travels inside the JWT. The claim is signed —
+    a tampered token fails ``verify_token`` (401) long before this is called.
+    """
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+    try:
+        payload = verify_token(auth_header[len("Bearer ") :])
+    except JWTError:
+        return None
+    except Exception:  # noqa: BLE001 — verify_token wraps several errors
+        return None
+    if not isinstance(payload, dict):
+        return None
+    tid = payload.get("tid")
+    return tid if isinstance(tid, str) else None
+
+
+async def _load_tenant_by_id(tenant_id: str) -> Optional[TenantContext]:
+    """Registry lookup keyed on the tenant UUID (device path).
+
+    Mirrors :func:`_load_tenant_from_db` but resolves the ``tid`` a mobile
+    token carries instead of a slug. Returns ``None`` for an unknown,
+    suspended, or malformed id.
+    """
+    import uuid as _uuid
+
+    try:
+        tid = _uuid.UUID(str(tenant_id))
+    except (ValueError, TypeError):
+        return None
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(Tenant).where(Tenant.id == tid))
+            row: Optional[Tenant] = result.scalar_one_or_none()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "tenant_resolver_registry_query_by_id_failed",
+            extra={"tid": str(tenant_id), "error": str(exc)},
+        )
+        return None
+    if row is None or not row.is_active:
+        return None
+    return _row_to_context(row)
 
 
 async def _resolve_context(request: Request) -> Tuple[TenantContext, Optional[str]]:
@@ -219,8 +277,22 @@ async def _resolve_context(request: Request) -> Tuple[TenantContext, Optional[st
     )
 
     if not slug:
-        # No slug at all → fall back to default; rate-limiting still works
-        # because the default context has its own ceilings.
+        # Device (mobile) path: no sub-domain, so resolve from the signed
+        # ``tid`` claim in the JWT — this is what lets a phone hitting the
+        # bare ``api.`` host route to the right tenant. (BE-01)
+        tid = _tid_from_jwt(request.headers.get("authorization"))
+        if tid:
+            ctx = await _load_tenant_by_id(tid)
+            if ctx is not None:
+                _cache_put(ctx)
+                return ctx, None
+            # A signed tid that no longer maps to an active tenant → 404,
+            # never the default tenant.
+            return DEFAULT_TENANT_CONTEXT, f"tid:{tid}"
+        # No sub-domain and no tid → default context (rate-limiting still
+        # works via its own ceilings). Strict 400 rejection + membership 403
+        # for authenticated device requests is enforced at the auth layer via
+        # ``src.core.device_tenant.resolve_device_tenant``.
         return DEFAULT_TENANT_CONTEXT, None
 
     slug = slug.strip().lower()

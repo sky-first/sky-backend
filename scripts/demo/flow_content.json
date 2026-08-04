@@ -1,0 +1,157 @@
+{
+  "_readme": [
+    "Conteúdo dos passos 1 e 2 do fluxo da demo (FE-06), por idioma.",
+    "",
+    "A regra que governa este ficheiro: cada passo pede uma coisa pequena e",
+    "devolve **imediatamente** uma coisa concreta. Um passo que pede sem",
+    "devolver é um imposto, e o visitante sai.",
+    "",
+    "Por isso nada aqui pode ser genérico. 'Os dados são o novo petróleo' não",
+    "faz ninguém continuar; 'uma conta que paga 40 lugares e usa 18 não",
+    "cancela hoje, cancela daqui a cinco meses' faz. Teste antes de escrever:",
+    "consegues imaginar esta frase a sair da boca de um COO em reunião?",
+    "",
+    "Idiomas: pt (Portugal) e en. A estrutura aceita mais sem tocar em código —",
+    "acrescentar 'es' ou 'pt-BR' é acrescentar chaves. Ficam de fora por agora",
+    "porque cada idioma novo é conteúdo para manter alinhado a cada mudança de",
+    "copy, e sem tráfego que o justifique é dívida, não alcance."
+  ],
+
+  "_default_locale": "en",
+
+  "verticals": [
+    {
+      "id": "saas",
+      "label": {
+        "pt": "SaaS / Software",
+        "en": "SaaS / Software"
+      },
+      "hook_markdown": {
+        "pt": "**Em SaaS, o sinal que quase todos perdem é a utilização de licenças.**\n\nUma conta que paga 40 lugares e usa 18 não cancela hoje — cancela daqui a cinco meses. O aviso já está nos dados, mas está espalhado por três sistemas que não falam entre si: o CRM sabe quem ela é, a faturação sabe quanto paga, e o produto sabe que ela deixou de entrar.",
+        "en": "**In SaaS, the signal almost everyone misses is seat utilisation.**\n\nAn account paying for 40 seats and using 18 doesn't churn today — it churns in five months. The warning is already in the data, but it's split across three systems that don't talk: the CRM knows who they are, billing knows what they pay, and the product knows they stopped logging in."
+      }
+    },
+    {
+      "id": "distribution",
+      "label": {
+        "pt": "Distribuição / Retalho",
+        "en": "Distribution / Retail"
+      },
+      "hook_markdown": {
+        "pt": "**Na distribuição, a margem desaparece linha a linha, não de uma vez.**\n\nO desconto que se deu para fechar, o frete que subiu, a devolução que ninguém imputou ao cliente certo. Ao fim do trimestre a margem caiu dois pontos e a reunião gasta-se a discutir de quem foi a culpa — porque o número que responde a isso está em quatro ficheiros diferentes.",
+        "en": "**In distribution, margin disappears line by line, never all at once.**\n\nThe discount given to close the deal, the freight that crept up, the return nobody charged back to the right account. By quarter end margin is down two points and the meeting is spent arguing about whose fault it was — because the number that settles it lives in four different files."
+      }
+    },
+    {
+      "id": "services",
+      "label": {
+        "pt": "Serviços / Consultoria",
+        "en": "Services / Consulting"
+      },
+      "hook_markdown": {
+        "pt": "**Em serviços, o projeto que dá prejuízo parece igual ao que dá lucro até estar terminado.**\n\nAs horas não faturáveis entram devagar, o âmbito cresce sem contrato novo, e a ocupação real só se conhece quando já não há nada a fazer. Quem sabe é o gestor do projeto — e o que ele sabe não chega à conta de resultados a tempo.",
+        "en": "**In services, the project that loses money looks exactly like the one that makes money — until it's finished.**\n\nNon-billable hours creep in, scope grows without a new contract, and real utilisation is only knowable once nothing can be done about it. The project manager knows — and what they know doesn't reach the P&L in time."
+      }
+    },
+    {
+      "id": "industry",
+      "label": {
+        "pt": "Indústria",
+        "en": "Manufacturing"
+      },
+      "hook_markdown": {
+        "pt": "**Na indústria, o custo real por unidade raramente é o que está no sistema.**\n\nParagens não planeadas, refugo, energia e horas extra entram por sistemas separados e chegam ao custeio com semanas de atraso. Decide-se o preço com o custo do mês passado, o que funciona até o mês passado deixar de se parecer com este.",
+        "en": "**In manufacturing, true unit cost is rarely the one in the system.**\n\nUnplanned downtime, scrap, energy and overtime arrive through separate systems and reach costing weeks late. You price using last month's cost, which works right up until last month stops resembling this one."
+      }
+    }
+  ],
+
+  "sources": [
+    {"id": "postgres", "label": {"pt": "PostgreSQL", "en": "PostgreSQL"}, "supported": true},
+    {"id": "bigquery", "label": {"pt": "BigQuery", "en": "BigQuery"}, "supported": true},
+    {"id": "snowflake", "label": {"pt": "Snowflake", "en": "Snowflake"}, "supported": true},
+    {"id": "databricks", "label": {"pt": "Databricks", "en": "Databricks"}, "supported": true},
+    {"id": "redshift", "label": {"pt": "Redshift", "en": "Redshift"}, "supported": true},
+    {"id": "mysql", "label": {"pt": "MySQL", "en": "MySQL"}, "supported": true},
+    {"id": "mongodb", "label": {"pt": "MongoDB", "en": "MongoDB"}, "supported": true},
+    {"id": "sheets", "label": {"pt": "Excel / Google Sheets", "en": "Excel / Google Sheets"}, "supported": true},
+    {"id": "crm", "label": {"pt": "CRM (Salesforce, HubSpot…)", "en": "CRM (Salesforce, HubSpot…)"}, "supported": true},
+    {"id": "erp", "label": {"pt": "ERP (SAP, Primavera…)", "en": "ERP (SAP, NetSuite…)"}, "supported": true},
+    {
+      "id": "unknown",
+      "label": {"pt": "Não sei bem", "en": "Not sure"},
+      "supported": true,
+      "_nota": "Opção de primeira classe, não caso de erro. Muitos decisores não sabem onde vivem os dados da empresa, e obrigá-los a fingir que sabem é a forma mais rápida de os perder."
+    }
+  ],
+
+  "source_reply": {
+    "_nota": "O texto de abertura é o mesmo para qualquer combinação — 'lemos isso, sem mover nada' é a objecção número um e tem de aparecer sempre. O que muda são as perguntas.",
+    "intro_markdown": {
+      "pt": "**Lemos isso.** Ligação em leitura, sem mover nada e sem construir pipeline novo.",
+      "en": "**We read that.** Read-only connection, nothing moved, no new pipeline to build."
+    },
+    "intro_unknown_markdown": {
+      "pt": "**Sem problema — é mais comum do que parece.**\n\nDescobrimos isso contigo em 20 minutos. Costuma estar tudo em menos sítios do que se receia.",
+      "en": "**No problem — it's more common than you'd think.**\n\nWe work it out with you in 20 minutes. It's usually in fewer places than people fear."
+    },
+    "unlocked_intro": {
+      "pt": "Com isto ligado, estas passam a ter resposta:",
+      "en": "With this connected, these get answered:"
+    },
+    "questions_by_source": {
+      "postgres": {
+        "pt": ["Que clientes reduziram o consumo nos últimos 90 dias?", "Que faturas estão vencidas e quem as deve?"],
+        "en": ["Which customers cut usage in the last 90 days?", "Which invoices are overdue, and who owes them?"]
+      },
+      "mysql": {
+        "pt": ["Que encomendas ficaram por faturar este mês?", "Que clientes compram menos do que há um ano?"],
+        "en": ["Which orders went unbilled this month?", "Which customers buy less than a year ago?"]
+      },
+      "bigquery": {
+        "pt": ["Que campanha trouxe receita a sério, e não só cliques?", "Onde é que o funil perde mais gente, por origem?"],
+        "en": ["Which campaign brought real revenue, not just clicks?", "Where does the funnel leak most, by source?"]
+      },
+      "snowflake": {
+        "pt": ["Onde é que a margem caiu sem ninguém reparar?", "Que segmento cresce sem estarmos a investir nele?"],
+        "en": ["Where did margin slip without anyone noticing?", "Which segment grows without us investing in it?"]
+      },
+      "databricks": {
+        "pt": ["Que padrão antecede um cancelamento, e com quantas semanas?", "Que contas se parecem com as que já perdemos?"],
+        "en": ["What pattern precedes a cancellation, and how many weeks out?", "Which accounts look like the ones we already lost?"]
+      },
+      "redshift": {
+        "pt": ["Que produtos dão volume mas não dão margem?", "Como evoluiu o custo de servir cada cliente?"],
+        "en": ["Which products bring volume but no margin?", "How has cost-to-serve moved per customer?"]
+      },
+      "mongodb": {
+        "pt": ["Que funcionalidades os clientes saudáveis usam e os em risco nunca tocaram?", "Onde é que o uso caiu antes de alguém se queixar?"],
+        "en": ["Which features do healthy customers use that at-risk ones never touched?", "Where did usage drop before anyone complained?"]
+      },
+      "sheets": {
+        "pt": ["Os números do ficheiro batem certo com o sistema?", "Que linhas mudaram desde a última versão que enviaste?"],
+        "en": ["Do the numbers in the file match the system?", "Which rows changed since the last version you sent?"]
+      },
+      "crm": {
+        "pt": ["Que negócios estão parados há mais tempo do que o costume?", "Que vendedor perde sempre na mesma fase?"],
+        "en": ["Which deals have been stuck longer than usual?", "Which rep always loses at the same stage?"]
+      },
+      "erp": {
+        "pt": ["Onde é que o custo real se afasta do orçamentado?", "Que fornecedor atrasa mais e quanto custa isso?"],
+        "en": ["Where does actual cost diverge from budget?", "Which supplier delays most, and what does it cost?"]
+      }
+    },
+    "questions_default": {
+      "pt": [
+        "Que clientes estão em risco e quanta receita está em jogo?",
+        "Onde é que a margem caiu sem ninguém reparar?",
+        "Quanta receita está parada em faturas vencidas?"
+      ],
+      "en": [
+        "Which customers are at risk, and how much revenue is at stake?",
+        "Where did margin slip without anyone noticing?",
+        "How much revenue is sitting in overdue invoices?"
+      ]
+    }
+  }
+}

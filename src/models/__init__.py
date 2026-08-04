@@ -28,6 +28,7 @@ from src.models.context_document import (
 )
 from src.models.conversation import Conversation, Message
 from src.models.crew import Crew, CrewConnection, CrewMember, CrewTable
+from src.models.demo_content import DemoDataset, DemoInsight, DemoLead, DemoQA
 from src.models.enterprise_api import EnterpriseAPI
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.file import FileUpload
@@ -63,6 +64,7 @@ from src.models.starred import StarredItem
 # in the Pulse halo. See sky-security/docs/KNOWLEDGE_REFACTOR.md.
 from src.models.template import Template
 from src.models.tenant import DEFAULT_CAPACITY_SHAPE, Tenant, TenantTier
+from src.models.tenant_domain import TenantDomain
 from src.models.tenant_llm_daily_snapshot import TenantLlmDailySnapshot
 from src.models.tenant_plan_limits import TIER_LIMITS, UPGRADE_HINT, PricingTier, TenantPlanLimits
 from src.models.ticket import Ticket, TicketEvent
@@ -102,6 +104,10 @@ __all__ = [
     "CrewMember",
     "CrewConnection",
     "CrewTable",
+    "DemoDataset",
+    "DemoInsight",
+    "DemoLead",
+    "DemoQA",
     "ConnectionPermission",
     "AIQuery",
     "AIHistory",
@@ -131,6 +137,7 @@ __all__ = [
     "UserPermissionGrant",
     "Tenant",
     "TenantTier",
+    "TenantDomain",
     "TenantPlanLimits",
     "TenantLlmDailySnapshot",
     "PricingTier",

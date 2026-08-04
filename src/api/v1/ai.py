@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
-from src.api.deps import get_current_user, get_db_session
+from src.api.deps import get_current_user, get_db_session, require_service_principal
 from src.config.settings import settings
 from src.core.locale import DEFAULT_LOCALE, get_message
 from src.middleware.request_limits import depth_guard_dependency
@@ -47,11 +47,22 @@ from src.schemas.ai import (
     ValidateSQLRequest,
     ValidateSQLResponse,
 )
+from src.schemas.chat_stream import (
+    done_event,
+    error_event,
+    normalize_event,
+    parse_sse_data_line,
+    progress_event,
+    sse,
+    with_heartbeat,
+)
 from src.schemas.common import ErrorResponse, SuccessResponse
+from src.schemas.scan_insight import ScanInsightNotifyRequest, ScanInsightNotifyResponse
 from src.services import pricing_service
 from src.services.ai_service import AIService
 from src.services.beats_service import BeatsService
 from src.services.rbac_service import RBACService
+from src.services.scan_insight_service import record_scan_finding
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -231,6 +242,39 @@ async def process_query(
     except Exception:  # pragma: no cover — accounting failure is non-fatal
         logger.exception("pricing_record_query_usage_failed")
     return response
+
+
+@router.post(
+    "/scan-insights/notify",
+    response_model=ScanInsightNotifyResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={401: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    summary="Record a structured scan finding (engine → backend)",
+    description=(
+        "The autonomous scan agent posts a structured finding here so it lands "
+        "in the mobile Insights feed. Validated strictly — a missing or "
+        "out-of-enum field is rejected 422 with no partial row (BE-03)."
+    ),
+)
+async def scan_insights_notify(
+    body: ScanInsightNotifyRequest,
+    # Serviço, não pessoa. Com `get_current_user` qualquer funcionário
+    # autenticado podia forjar um insight em qualquer espaço do seu
+    # cliente — o `space_id` vem no corpo e não era confrontado com nada.
+    _service: User = Depends(require_service_principal),
+    db: AsyncSession = Depends(get_db_session),
+) -> ScanInsightNotifyResponse:
+    finding = await record_scan_finding(db, body)
+    await db.commit()
+    # ``is_live`` is derived at read time (BE-02); a freshly-recorded scan
+    # finding is, by definition, live.
+    return ScanInsightNotifyResponse(
+        id=str(finding.id),
+        source=finding.source,
+        type=finding.type,
+        severity=finding.severity,
+        is_live=True,
+    )
 
 
 @router.get(
@@ -543,9 +587,11 @@ async def send_chat_message(
     description=(
         "Same contract as POST /chat but streams the AI response back as "
         "Server-Sent Events. Each event is a `data: {...}` line with a "
-        "`type` field: 'progress', 'chunk', 'rows', 'meta', 'done', or "
-        "'error'. Lets the UI render tokens as they arrive instead of "
-        "waiting for the full response — first-visible-content typically "
+        "`type` field, locked to: 'progress', 'chunk', 'meta', 'error', "
+        "'done' (see src/schemas/chat_stream.py — the single source of "
+        "truth). Any other engine-internal event is dropped, and idle "
+        "connections get a periodic ': keepalive' comment. Lets the UI "
+        "render tokens as they arrive — first-visible-content typically "
         "2-3 seconds vs. ~8-30s end-to-end."
     ),
 )
@@ -661,16 +707,44 @@ async def send_chat_message_stream(
     except Exception as _kc_err:
         logger.debug("[chat/stream] knowledge_context_loader skipped: %s", _kc_err)
 
+    # BE-08 (T-08.3) — "Ask Sky about this": when the client passes
+    # context.insight_id, load that finding (scoped to the caller — out-of-scope
+    # ids are ignored) and prepend it so the answer is grounded in the insight.
+    _ctx = getattr(message_data, "context", None) or {}
+    _insight_id = _ctx.get("insight_id") if isinstance(_ctx, dict) else None
+    if _insight_id:
+        try:
+            from src.services.insight_feed_service import InsightFeedService
+
+            _insight = await InsightFeedService(db).detail(current_user.id, str(_insight_id))
+            if _insight is not None:
+                _lead = (
+                    f"The user is asking about this insight — "
+                    f'"{_insight.title}": {_insight.summary}'
+                )
+                stream_instructions = (
+                    f"{_lead}\n\n{stream_instructions}" if stream_instructions else _lead
+                )
+        except Exception as _ins_err:
+            logger.debug("[chat/stream] insight context skipped: %s", _ins_err)
+
     async def event_stream():
-        """Forward AI service SSE lines to the client. Adds a final
-        'done' event when the upstream stream completes."""
+        """Normalize AI-engine SSE events onto the locked mobile contract
+        (src/schemas/chat_stream.py) and forward only those. The backend owns
+        the single terminal 'done'; engine debug/unknown events are dropped so
+        mobile never sees an event outside the documented contract."""
         started = False
         try:
             if not resolved_connection_id:
-                yield f"data: {_json.dumps({'type': 'error', 'message': get_message('no_data_source', message_data.locale)})}\n\n"
+                yield sse(
+                    error_event(
+                        get_message("no_data_source", message_data.locale),
+                        code="no_data_source",
+                    )
+                )
                 return
 
-            yield f"data: {_json.dumps({'type': 'progress', 'stage': 'starting', 'message': get_message('thinking', message_data.locale)})}\n\n"
+            yield sse(progress_event("starting", get_message("thinking", message_data.locale)))
             started = True
 
             async for line in ai_client.stream_query_connection(
@@ -686,26 +760,25 @@ async def send_chat_message_stream(
                 ),
                 locale=message_data.locale,
             ):
-                if line.startswith("data: "):
-                    try:
-                        _ev = _json.loads(line[6:])
-                        if _ev.get("type") == "done":
-                            continue  # Suppress AI service's done — backend emits its own below
-                    except _json.JSONDecodeError:
-                        pass
-                    yield line + "\n\n"
-                elif line.strip():
-                    yield f"data: {line.strip()}\n\n"
+                event = normalize_event(parse_sse_data_line(line))
+                if event is not None:
+                    yield sse(event)
 
-            yield f"data: {_json.dumps({'type': 'done'})}\n\n"
+            yield sse(done_event())
         except Exception as exc:
             logger.error(f"Chat stream failed: {exc}", exc_info=True)
             if started:
-                yield f"data: {_json.dumps({'type': 'error', 'message': str(exc)[:200]})}\n\n"
+                yield sse(error_event(str(exc)[:200], code="stream_failed"))
             else:
-                yield f"data: {_json.dumps({'type': 'error', 'message': get_message('unable_to_start_stream', message_data.locale)})}\n\n"
+                yield sse(
+                    error_event(
+                        get_message("unable_to_start_stream", message_data.locale),
+                        code="unable_to_start",
+                    )
+                )
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    # Wrap with a heartbeat so idle mobile SSE connections aren't reaped.
+    return StreamingResponse(with_heartbeat(event_stream()), media_type="text/event-stream")
 
 
 @router.get(

@@ -138,18 +138,24 @@ class TestAuthenticationServiceRefreshToken:
     async def test_refresh_token_revoked(
         self, db_session: AsyncSession, test_user_with_tokens: dict
     ):
-        """Test refresh with revoked token."""
+        """Replaying a revoked token is treated as reuse (BE-05).
+
+        Rotation/logout revokes a refresh token; presenting a revoked token
+        again is the classic stolen-token replay, so the service now flags it
+        as reuse rather than a generic 'invalid or expired' — and revokes the
+        whole family as a side effect.
+        """
         auth_service = AuthenticationService(db_session)
         refresh_token = test_user_with_tokens["refresh_token"]
 
         # Revoke the token
         await auth_service.logout(refresh_token)
 
-        # Try to refresh with revoked token
+        # Replaying it now trips the reuse detector.
         with pytest.raises(UnauthorizedError) as exc_info:
             await auth_service.refresh_access_token(refresh_token)
 
-        assert "Invalid or expired refresh token" in str(exc_info.value)
+        assert "reuse" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio

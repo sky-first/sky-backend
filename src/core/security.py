@@ -56,9 +56,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
         expire = now + expires_delta
     else:
         # Use default expiration from settings
-        expire = now + timedelta(
-            minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
-        )
+        expire = now + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     # `iat` (issued-at) is required by the revocation blocklist: on
     # logout we write a `revoke_before` marker per user and any access
     # token with `iat` older than it is rejected. See
@@ -68,12 +66,27 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     return encoded_jwt
 
 
-def create_refresh_token(data: Dict[str, Any]) -> str:
+def refresh_ttl_days(client_type: Optional[str] = None) -> int:
+    """BE-05 — refresh-token lifetime in days for a given client type.
+
+    Mobile devices get a longer TTL (``JWT_REFRESH_TOKEN_EXPIRE_DAYS_MOBILE``)
+    so users aren't logged out weekly; everything else keeps the web default.
+    Single source of truth so the JWT ``exp`` and the RefreshToken row's
+    ``expires_at`` never drift apart.
+    """
+    if client_type == "mobile":
+        return settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS_MOBILE
+    return settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
+
+
+def create_refresh_token(data: Dict[str, Any], client_type: Optional[str] = None) -> str:
     """
     Create JWT refresh token.
 
     Args:
         data: Data to encode in token
+        client_type: 'mobile' → longer TTL + a signed ``ctyp`` claim so the
+            lifetime survives rotation; anything else uses the web default.
 
     Returns:
         str: Encoded JWT refresh token
@@ -81,12 +94,13 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
     from uuid import uuid4
 
     to_encode = data.copy()
-    # Use default expiration from settings
-    expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
-    # Add jti (JWT ID) to ensure uniqueness even when created at the same time
-    to_encode.update(
-        {"exp": expire, "type": "refresh", "jti": str(uuid4())}  # JWT ID for uniqueness
-    )
+    expire = datetime.now(timezone.utc) + timedelta(days=refresh_ttl_days(client_type))
+    claims = {"exp": expire, "type": "refresh", "jti": str(uuid4())}
+    # Stamp the client type so /auth/refresh can carry the mobile TTL forward
+    # across rotations without re-reading it from the request.
+    if client_type:
+        claims["ctyp"] = client_type
+    to_encode.update(claims)
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 

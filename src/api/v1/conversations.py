@@ -31,7 +31,6 @@ from src.schemas.conversation import (
 from src.services.conversation_service import ConversationService
 from src.services.page_service import PageService
 
-
 # ─── Page-scoped collection (/pages/{page_id}/conversations) ──────────────
 
 page_router = APIRouter()
@@ -90,6 +89,10 @@ async def list_conversations(
         limit=limit,
         cursor=cursor,
     )
+    # BE-04 — stamp the derived voice/text origin so History can pick the icon.
+    voice_ids = await service.voice_conversation_ids([i.id for i in items])
+    for conv in items:
+        conv.origin = "voice" if conv.id in voice_ids else "text"
     next_cursor = items[-1].updated_at if len(items) == limit else None
     return ConversationListResponse(
         items=[ConversationResponse.model_validate(i) for i in items],
@@ -226,9 +229,7 @@ async def pin_conversation_message(
 ) -> ConversationResponse:
     service = ConversationService(db)
     try:
-        conv = await service.pin_message(
-            conversation_id, payload.message_id, current_user
-        )
+        conv = await service.pin_message(conversation_id, payload.message_id, current_user)
     except NotFoundError as err:
         raise HTTPException(status_code=404, detail=str(err))
     except ForbiddenError as err:
@@ -318,9 +319,7 @@ async def transfer_ownership(
     page members see the new owner in real time."""
     service = ConversationService(db)
     try:
-        conv = await service.transfer_ownership(
-            conversation_id, payload.new_owner_id, current_user
-        )
+        conv = await service.transfer_ownership(conversation_id, payload.new_owner_id, current_user)
     except NotFoundError as err:
         raise HTTPException(status_code=404, detail=str(err))
     except ForbiddenError as err:

@@ -31,7 +31,13 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
     CORS_ORIGINS: str = Field(
-        default="http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001",
+        default=(
+            "http://localhost:3000,http://localhost:3001,"
+            "http://127.0.0.1:3000,http://127.0.0.1:3001,"
+            # Expo web dev server (Sky Mobile app) — harmless localhost origins.
+            "http://localhost:19006,http://127.0.0.1:19006,"
+            "http://localhost:8081,http://127.0.0.1:8081"
+        ),
         description="CORS allowed origins (comma-separated)",
     )
 
@@ -251,6 +257,11 @@ class Settings(BaseSettings):
     EMAIL_FROM_ADDRESS: str = Field(default="lucas.ventura@skyfirstlabs.com")
     EMAIL_FROM_NAME: str = Field(default="Lucas Ventura — SKY")
     EMAIL_DASHBOARD_URL: str = Field(default="https://demo.skyfirstlabs.com")
+    # Para onde vai o aviso de um contacto novo na demo pública.
+    # Sem isto o lead ficava só na base de dados, e ninguém dava por
+    # ele até alguém se lembrar de ir lá ver — que é o mesmo que não
+    # ter formulário nenhum.
+    DEMO_LEAD_NOTIFY_TO: str = Field(default="lucas.ventura@skyfirstlabs.com")
 
     # Redis
     REDIS_URL: str = Field(
@@ -307,6 +318,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # BE-05 (Sky Mobile) — device clients keep a much longer refresh so users
+    # aren't forced to re-auth on a phone every week; reuse-detection + family
+    # revocation (see auth_service) is what keeps a long-lived token safe.
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS_MOBILE: int = 45
 
     # Password
     PASSWORD_HASH_ALGORITHM: str = "bcrypt"

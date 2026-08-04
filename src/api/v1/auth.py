@@ -12,9 +12,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import (  # get_current_user usado em outros endpoints
+    enforce_device_tenant,
     get_current_user,
     get_db_session,
 )
+from src.api.middleware.tenant_resolver import _load_tenant_by_id
 from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError, ForbiddenError
 from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
@@ -47,6 +49,7 @@ from src.services.auth_service import AuthenticationService, user_to_response_di
 from src.services.invite_service import InviteService, request_base_url
 from src.services.password_reset_service import PasswordResetService
 from src.services.rbac_service import RBACService
+from src.services.tenant_membership_service import TenantMembershipService
 
 router = APIRouter()
 
@@ -100,14 +103,77 @@ class AuthMethodsResponse(BaseModel):
 
 def _slug_from_request(request: Request) -> Optional[str]:
     host_header = request.headers.get("host")
-    if not host_header:
+    if host_header:
+        host = host_header.split(":", 1)[0].lower()
+        m = _AUTH_SUBDOMAIN_RE.match(host)
+        if m:
+            # Group 1 = prefixed (workspace-/api-), group 2 = bare -stg form.
+            return m.group(1) or m.group(2)
+    # Device clients have no sub-domain — honour the explicit X-Tenant-Slug
+    # override (same header the tenant resolver already accepts), so mobile can
+    # reach a workspace's auth methods (e.g. password-enabled) on a bare host.
+    header_slug = request.headers.get("x-tenant-slug")
+    return header_slug.strip().lower() if header_slug else None
+
+
+def _methods_from_tenant(tenant: Tenant) -> AuthMethodsResponse:
+    """Métodos de autenticação de um cliente já resolvido.
+
+    Existe porque o caminho por domínio resolve o cliente a partir do
+    email, sem passar pelo middleware — portanto não há
+    ``request.state.tenant_context`` nem slug no host para
+    ``_auth_methods_for_request`` seguir.
+    """
+    methods = dict(tenant.auth_methods or {}) or dict(DEFAULT_AUTH_METHODS)
+    flags = dict(tenant.feature_flags or {})
+    return AuthMethodsResponse(
+        password=bool(methods.get("password", False)),
+        google=bool(methods.get("google", False)),
+        azure=bool(methods.get("azure", False)),
+        okta=bool(methods.get("okta", False)),
+        show_demo=bool(flags.get("demo_enabled", False)),
+        tenant_slug=tenant.slug,
+    )
+
+
+async def _tenant_from_email_domain(request: Request, email: str):
+    """Descobre o cliente pelo domínio do email — o caminho do mobile.
+
+    Na web o cliente vem do sub-domínio. Uma app móvel fala com um host
+    só, portanto sem isto o backend não sabe em que base de dados
+    procurar quem está a tentar entrar: os utilizadores vivem em bases
+    separadas por cliente.
+
+    É o mesmo mecanismo do Microsoft Entra ID (*home realm discovery*):
+    o domínio identifica a organização, e cada organização pode ter
+    vários domínios registados.
+
+    Devolve ``None`` quando já há sub-domínio ou header — nesse caso o
+    caminho normal já resolveu o cliente e não há nada a descobrir — e
+    também quando o domínio não está registado. Quem chama trata os dois
+    silêncios da mesma maneira.
+
+    A consulta corre contra a base de **registo**, não contra a do
+    cliente: tem de responder antes de sabermos qual é o cliente.
+    """
+    if _slug_from_request(request):
+        return None  # web ou console — o cliente já está resolvido
+
+    from src.config.database import AsyncSessionLocal
+    from src.services.tenant_domain_service import TenantDomainService
+
+    # A lookup failure (registry unreachable, schema missing) is treated the
+    # same as "domain not registered": return None so login falls through to
+    # the normal path instead of 500-ing. Matches the service's silent-None
+    # design — the caller never distinguishes the reasons anyway.
+    try:
+        async with AsyncSessionLocal() as registry:
+            return await TenantDomainService.resolve_by_email(registry, email)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("tenant_domain_lookup_failed", exc_info=True)
         return None
-    host = host_header.split(":", 1)[0].lower()
-    m = _AUTH_SUBDOMAIN_RE.match(host)
-    if not m:
-        return None
-    # Group 1 = prefixed form (workspace-/api-), group 2 = bare -stg form.
-    return m.group(1) or m.group(2)
 
 
 async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthMethodsResponse:
@@ -225,6 +291,52 @@ async def login(
     flip the flag in the Internal Console; the handler then runs the
     standard credential check.
     """
+    user_agent = request.headers.get("user-agent")
+    ip_address = request.client.host if request.client else None
+
+    # Caminho móvel: sem sub-domínio, o cliente sai do domínio do email.
+    # Sem isto o `db` injectado aponta para a base por omissão, onde o
+    # utilizador da GBT simplesmente não existe.
+    domain_tenant = await _tenant_from_email_domain(request, login_data.email)
+
+    if domain_tenant is not None:
+        from src.api.middleware.tenant_resolver import _row_to_context
+        from src.config.tenant_connection_manager import tenant_connection_manager
+        from src.core.tenant_context import reset_current_tenant, set_current_tenant
+
+        ctx = _row_to_context(domain_tenant)
+        request.state.tenant_context = ctx
+        # O contextvar, não só o request.state: é de `current_tenant()`
+        # que `tenant_claims_for_context` tira o `tid` que vai assinado
+        # no token. Sem isto o login por domínio devolvia um token sem
+        # claim de cliente — e o portão de dispositivo recusava-o a
+        # seguir com 400, um bug que só aparece no segundo pedido.
+        token_ctx = set_current_tenant(ctx)
+
+        session = tenant_connection_manager.session_for(ctx)
+        try:
+            methods = _methods_from_tenant(domain_tenant)
+            if not methods.password:
+                raise ForbiddenError(
+                    "Password login is disabled for this workspace. "
+                    "Please sign in with your company SSO."
+                )
+            result = await AuthenticationService(session).login(
+                email=login_data.email,
+                password=login_data.password,
+                user_agent=user_agent,
+                ip_address=ip_address,
+                background_tasks=background_tasks,
+            )
+            await session.commit()
+            return result
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            reset_current_tenant(token_ctx)
+            await session.close()
+
     methods = await _auth_methods_for_request(request, db)
     if not methods.password:
         raise ForbiddenError(
@@ -233,8 +345,6 @@ async def login(
         )
 
     auth_service = AuthenticationService(db)
-    user_agent = request.headers.get("user-agent")
-    ip_address = request.client.host if request.client else None
     return await auth_service.login(
         email=login_data.email,
         password=login_data.password,
@@ -266,6 +376,9 @@ async def login_mfa(
     auth_service = AuthenticationService(db)
     user_agent = request.headers.get("user-agent")
     ip_address = request.client.host if request.client else None
+    # BE-05 — a device that sends `X-Client-Type: mobile` gets the long
+    # refresh TTL; anything else keeps the web default.
+    client_type = request.headers.get("x-client-type")
     return await auth_service.complete_mfa_login(
         challenge_token=body.challenge_token,
         code=body.code,
@@ -273,6 +386,7 @@ async def login_mfa(
         user_agent=user_agent,
         ip_address=ip_address,
         background_tasks=background_tasks,
+        client_type=client_type,
     )
 
 
@@ -301,12 +415,14 @@ async def login_mfa_finalize(
     auth_service = AuthenticationService(db)
     user_agent = request.headers.get("user-agent")
     ip_address = request.client.host if request.client else None
+    client_type = request.headers.get("x-client-type")  # BE-05 — mobile TTL
     return await auth_service.finalize_mfa_enrollment(
         enrollment_token=body.enrollment_token,
         code=body.code,
         user_agent=user_agent,
         ip_address=ip_address,
         background_tasks=background_tasks,
+        client_type=client_type,
     )
 
 
@@ -401,6 +517,108 @@ async def refresh_token(
     return await auth_service.refresh_access_token(refresh_token_data.refresh_token)
 
 
+# ── BE-01 · Mobile workspace switcher ──────────────────────────────────────
+# Device clients carry no sub-domain, so the tenant travels as a signed
+# ``tid`` claim. These endpoints let a user who belongs to more than one
+# tenant list them and switch — always via an explicit token re-issue.
+
+
+class WorkspaceSummary(BaseModel):
+    tenant_id: str
+    slug: str
+    name: str
+    role: str
+
+
+class WorkspacesResponse(BaseModel):
+    workspaces: List[WorkspaceSummary]
+
+
+class SelectWorkspaceRequest(BaseModel):
+    tenant_id: str
+
+
+@router.get(
+    "/me/workspaces",
+    response_model=WorkspacesResponse,
+    status_code=status.HTTP_200_OK,
+    responses={401: {"model": ErrorResponse}},
+    summary="List the workspaces the current user may act as",
+    description=(
+        "Every tenant the authenticated user is a member of, with their "
+        "role — the source for the mobile workspace switcher."
+    ),
+)
+async def list_my_workspaces(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> WorkspacesResponse:
+    memberships = await TenantMembershipService.list_for_user(db, current_user.id)
+    if not memberships:
+        return WorkspacesResponse(workspaces=[])
+
+    rows = (
+        (await db.execute(select(Tenant).where(Tenant.id.in_([m.tenant_id for m in memberships]))))
+        .scalars()
+        .all()
+    )
+    tenants_by_id = {str(t.id): t for t in rows}
+
+    workspaces: List[WorkspaceSummary] = []
+    for membership in memberships:
+        tenant = tenants_by_id.get(str(membership.tenant_id))
+        if tenant is None:
+            continue  # membership to a tenant that no longer exists — skip
+        workspaces.append(
+            WorkspaceSummary(
+                tenant_id=str(membership.tenant_id),
+                slug=tenant.slug,
+                name=tenant.display_name,
+                role=membership.role,
+            )
+        )
+    return WorkspacesResponse(workspaces=workspaces)
+
+
+@router.post(
+    "/select-workspace",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
+    summary="Switch the active workspace and re-issue tokens",
+    description=(
+        "Explicitly re-issues an access+refresh pair scoped to another tenant "
+        "the user belongs to. Switching is never a side effect of refreshing."
+    ),
+)
+async def select_workspace(
+    body: SelectWorkspaceRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> LoginResponse:
+    # Authorization: a valid session is not enough — the user must be a
+    # current member of the target tenant (re-checked live).
+    if not await TenantMembershipService.is_member(db, current_user.id, body.tenant_id):
+        raise ForbiddenError("You are not a member of that workspace.")
+
+    ctx = await _load_tenant_by_id(body.tenant_id)
+    if ctx is None:
+        raise BadRequestError("Workspace not found or suspended.")
+
+    auth_service = AuthenticationService(db)
+    return await auth_service.issue_session_for_tenant(
+        current_user,
+        ctx,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=request.client.host if request.client else None,
+    )
+
+
 @router.get(
     "/me",
     response_model=UserResponse,
@@ -411,6 +629,7 @@ async def refresh_token(
 )
 async def get_me(
     current_user: User = Depends(get_current_user),
+    _tenant: None = Depends(enforce_device_tenant),  # BE-01 device-tenant gate
 ) -> UserResponse:
     """
     Get current user endpoint.
@@ -686,26 +905,16 @@ async def revoke_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
-    """Revoke a specific session."""
-    from datetime import datetime, timezone
+    """Revoke a specific session (this device only) — BE-05 T-05.7.
 
-    from sqlalchemy import update
-
-    from src.models.user import RefreshToken
-
-    now = datetime.now(timezone.utc)
-    result = await db.execute(
-        update(RefreshToken)
-        .where(
-            RefreshToken.id == session_id,
-            RefreshToken.user_id == current_user.id,
-            RefreshToken.revoked_at.is_(None),
-        )
-        .values(revoked_at=now)
+    Kills the whole family of that session's refresh token, so the device's
+    rotated tokens all die, while other devices keep working (no user-level
+    access blocklist bump).
+    """
+    revoked = await AuthenticationService(db).revoke_device_session(
+        session_id=session_id, user_id=UUID(str(current_user.id))
     )
-    await db.commit()
-
-    if result.rowcount == 0:  # type: ignore[attr-defined]
+    if not revoked:
         from src.core.exceptions import NotFoundError
 
         raise NotFoundError("Session not found or already revoked")

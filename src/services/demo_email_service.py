@@ -302,3 +302,61 @@ async def send_demo_welcome_email(
         html=html,
         text=text,
     )
+
+
+async def send_demo_lead_notification(
+    *,
+    email: str,
+    company: Optional[str],
+    role: Optional[str],
+    vertical: Optional[str],
+    locale: Optional[str],
+    questions_asked: Optional[list] = None,
+) -> None:
+    """Avisa a equipa de que alguém deixou o contacto na demo pública.
+
+    Sem isto o contacto ficava só na base de dados — e um lead que
+    ninguém vê a tempo é indistinguível de um formulário que não
+    funciona. Foi exactamente essa a queixa: "preenchi e não recebi
+    nada".
+
+    **Fire-and-forget e nunca levanta.** O visitante já viu o ecrã de
+    confirmação; falhar aqui não pode transformar-se em erro para ele.
+    As perguntas que ele clicou vão no corpo porque são o que diz, antes
+    da chamada, o que lhe interessou.
+    """
+    to = (settings.DEMO_LEAD_NOTIFY_TO or "").strip()
+    if not to:
+        logger.info("demo_lead_notify_skipped: DEMO_LEAD_NOTIFY_TO vazio")
+        return
+
+    perguntas = [q for q in (questions_asked or []) if q]
+    linhas = [
+        f"Email:    {email}",
+        f"Empresa:  {company or '—'}",
+        f"Cargo:    {role or '—'}",
+        f"Sector:   {vertical or '—'}",
+        f"Idioma:   {locale or '—'}",
+    ]
+    if perguntas:
+        linhas.append("")
+        linhas.append("Perguntou:")
+        linhas += [f"  • {q}" for q in perguntas[:10]]
+
+    text = "\n".join(["Contacto novo na demo pública.", "", *linhas])
+    html = (
+        "<p>Contacto novo na demo pública.</p>"
+        f"<pre style=\"font:14px/1.5 ui-monospace,monospace\">{_escape(chr(10).join(linhas))}</pre>"
+    )
+
+    subject = f"Demo: {company or email}"
+    try:
+        await _post_resend(to=to, subject=subject, html=html, text=text)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("demo_lead_notify_failed: %s", exc)
+
+
+def _escape(value: str) -> str:
+    return (
+        value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    )

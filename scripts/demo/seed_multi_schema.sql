@@ -223,7 +223,12 @@ FROM generate_series(1, 200) g;
 INSERT INTO crm.opportunities (account_id, stage, amount, close_date, owner_email)
 SELECT
     1 + (g % 50),
-    (ARRAY['prospect','qualified','negotiation','closed_won','closed_lost'])[1 + g % 5],
+    -- `1 + g % 5` dava exactamente 20 oportunidades em cada estado — um
+    -- funil perfeitamente rectangular, que nenhuma empresa tem. A
+    -- distribuição abaixo estreita à medida que avança e dá uma taxa de
+    -- ganho na casa dos 40%, que é onde uma equipa B2B decente vive.
+    (ARRAY['prospect','prospect','prospect','qualified','qualified',
+           'negotiation','closed_won','closed_won','closed_lost'])[1 + g % 9],
     (5000 + (g * 137) % 95000)::NUMERIC(12,2),
     (CURRENT_DATE - INTERVAL '18 months' + ((g * 5) % 550) * INTERVAL '1 day')::DATE,
     'rep' || (1 + g % 8) || '@skyfirstlabs.com'
@@ -283,28 +288,75 @@ FROM crm.accounts a;
 
 -- 12 monthly invoices per active subscription (last 12 months)
 -- issued_at uses NOW()-based offsets so "last 12 months" queries always return data
+-- A versão anterior emitia 12 facturas idênticas por subscrição, todas
+-- pagas. Consequências que só apareceram ao usar os dados a sério: a
+-- receita mensal era exactamente igual ao cêntimo em todos os meses (uma
+-- sparkline perfeitamente horizontal, que parece dados inventados) e
+-- **não existia uma única factura vencida** — a pergunta da demo sobre
+-- contas por cobrar devolvia um quadro vazio.
+--
+-- Agora tem três coisas que dados reais têm: crescimento, ruído por
+-- conta, e uma minoria que corre mal. Tudo determinista (derivado do id
+-- e do mês, sem `random()`), para que os números do conteúdo curado não
+-- mudem a cada seed.
 INSERT INTO finance.invoices (subscription_id, issued_at, amount, status)
 SELECT
     s.id,
-    DATE_TRUNC('month', NOW()) - ((12 - i) * INTERVAL '1 month'),
-    s.monthly_amount,
-    CASE i WHEN 12 THEN 'sent' WHEN 11 THEN 'paid' ELSE 'paid' END
+    (DATE_TRUNC('month', NOW()) - ((12 - i) * INTERVAL '1 month'))::DATE,
+    -- O cast para NUMERIC é obrigatório: SIN() devolve double precision
+    -- e o Postgres não tem ROUND(double, int).
+    ROUND(
+        (
+            s.monthly_amount
+            * (0.84 + 0.026 * i)                       -- ~2,6%/mês de crescimento
+            * (1 + 0.07 * SIN(s.id * 1.7 + i * 0.9))   -- variação por conta
+        )::NUMERIC
+    , 2),
+    CASE
+        -- Mês corrente: emitida, ainda dentro do prazo.
+        WHEN i = 12 THEN 'sent'
+        -- Uma minoria que não pagou. É o que dá substância à pergunta
+        -- sobre receita por cobrar — e é realista: ~14% das contas têm
+        -- pelo menos uma factura em atraso.
+        WHEN i >= 10 AND (s.id % 7) = 0 THEN 'overdue'
+        WHEN i = 11 AND (s.id % 13) = 0 THEN 'overdue'
+        -- Correcções e notas de crédito acontecem.
+        WHEN (s.id * i) % 47 = 0 THEN 'void'
+        ELSE 'paid'
+    END
 FROM finance.subscriptions s
 CROSS JOIN generate_series(1, 12) AS i
-WHERE s.cancelled_at IS NULL;
+-- Quem cancelou deixa de ser facturado a partir do mês do cancelamento.
+-- Antes, as canceladas eram simplesmente excluídas e o histórico ficava
+-- sem rasto nenhum do churn que aconteceu.
+WHERE s.cancelled_at IS NULL
+   OR (DATE_TRUNC('month', NOW()) - ((12 - i) * INTERVAL '1 month'))::DATE <= s.cancelled_at;
 
 -- 1000 sessions (mix of authenticated + anon)
+-- `g * 37 minutos` sobre 1000 linhas cobria 25 dias, não um ano: uma
+-- pergunta sobre tendência de tráfego via dois meses de dados e mais
+-- nada. O expoente 1.7 distribui as sessões ao longo de 12 meses com
+-- mais densidade perto de hoje — o que desenha crescimento em vez de
+-- uma linha plana.
 INSERT INTO web_analytics.sessions (account_id, visitor_uuid, started_at, ended_at, referrer, utm_source, utm_campaign, pages_viewed)
 SELECT
     CASE WHEN g % 3 = 0 THEN NULL ELSE 1 + (g % 50) END,
     gen_random_uuid(),
-    NOW() - (g * INTERVAL '37 minutes'),
-    NOW() - (g * INTERVAL '37 minutes') + (5 + (g % 30)) * INTERVAL '1 minute',
+    started,
+    started + (3 + (g % 27)) * INTERVAL '1 minute',
     (ARRAY['google.com','linkedin.com','twitter.com','direct','newsletter'])[1 + g % 5],
     (ARRAY['google','linkedin','twitter','direct','email'])[1 + g % 5],
     (ARRAY['Q1 Awareness','Q2 Demand Gen','Q3 ABM','Q4 Renewal','Spring Promo','direct'])[1 + g % 6],
-    1 + (g % 12)
-FROM generate_series(1, 1000) g;
+    -- Sessões mais curtas ao fim-de-semana, como em qualquer produto B2B.
+    CASE WHEN EXTRACT(DOW FROM started) IN (0, 6) THEN 1 + (g % 4) ELSE 2 + (g % 12) END
+FROM (
+    SELECT
+        g,
+        NOW() - (POWER(g / 1000.0, 1.7) * 365)::INT * INTERVAL '1 day'
+              - ((g * 13) % 24) * INTERVAL '1 hour'
+        AS started
+    FROM generate_series(1, 1000) g
+) s;
 
 -- 3000 events (~3 per session)
 INSERT INTO web_analytics.events (session_id, event_name, page_path, occurred_at)
