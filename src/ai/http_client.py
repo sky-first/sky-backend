@@ -636,19 +636,3 @@ class AIServiceHTTPClient:
             response = await client.post(url, json=payload)
             response.raise_for_status()
             return response.json()  # type: ignore
-
-    async def answer_document(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Pergunta sobre um ficheiro largado na demo pública.
-
-        Não passa por ``query_connection`` porque não há connection: o
-        visitante largou um ficheiro, não configurou uma ligação. O
-        motor recebe a pergunta e uma amostra, e devolve texto.
-
-        Tempo limite curto e próprio. O de 90s dos outros caminhos é
-        para consultas sobre armazéns reais; aqui do outro lado está
-        alguém a olhar para um ecrã, e passado meio minuto já desistiu.
-        """
-        async with httpx.AsyncClient(timeout=45.0, headers=self._tenant_headers()) as client:
-            response = await client.post(f"{self.base_url}/demo/answer-document", json=payload)
-            response.raise_for_status()
-            return response.json()

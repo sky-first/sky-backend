@@ -151,39 +151,3 @@ class DemoUnlockedResponse(BaseModel):
     intro_markdown: str = ""
     unlocked_intro: str = ""
     questions: List[str] = Field(default_factory=list)
-
-
-class DemoFileQuestion(BaseModel):
-    """Uma pergunta sobre o ficheiro que o visitante acabou de largar.
-
-    Vai uma **amostra**, não o ficheiro. Não é só custo: um contexto
-    gigante dilui a pergunta e piora a resposta. E o que sobe é
-    transitório — usado para responder e nunca escrito em lado nenhum,
-    o mesmo modelo do iLovePDF, cumprido por não existir código que
-    escreva em vez de por uma limpeza que alguém tem de manter.
-    """
-
-    question: str = Field(min_length=2, max_length=500)
-    locale: Optional[str] = None
-    columns: List[str] = Field(default_factory=list, max_length=80)
-    rows: List[List[str]] = Field(default_factory=list, max_length=200)
-    total_rows: Optional[int] = None
-    text: Optional[str] = Field(default=None, max_length=40_000)
-
-    @field_validator("rows")
-    @classmethod
-    def _trim_rows(cls, rows: List[List[str]]) -> List[List[str]]:
-        """Corta células absurdas antes de o conteúdo chegar ao modelo.
-
-        O limite global de 1 MiB por pedido já impede o pior, e o motor
-        corta a 120 linhas do seu lado. Isto é a terceira camada, e
-        existe porque as outras duas estão noutro sítio: quem lê este
-        endpoint tem de conseguir ver o que ele aceita sem ir procurar
-        um middleware e um serviço noutro repositório.
-        """
-        return [[str(cell)[:400] for cell in row[:80]] for row in rows]
-
-
-class DemoFileAnswer(BaseModel):
-    answer: str = ""
-    insufficient: bool = False
