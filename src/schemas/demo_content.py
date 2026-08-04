@@ -78,6 +78,12 @@ class DemoAnswerResponse(BaseModel):
     # dizemo-lo. O texto vive no frontend, que sabe o idioma do
     # visitante — o backend diz o que aconteceu, não em que língua.
     out_of_domain: bool = False
+    # A pergunta é de negócio, mas o conjunto curado não a cobre.
+    # Distinto de `is_fallback` sozinho: ali servimos conteúdo próximo,
+    # aqui não servimos nada e dizemo-lo. Servir uma resposta
+    # desencontrada como "a mais próxima" é a forma mais rápida de a
+    # demo parecer estúpida.
+    no_match: bool = False
 
 
 class DemoAskRequest(BaseModel):
@@ -90,6 +96,10 @@ class DemoLeadRequest(BaseModel):
     # bloqueados: o filtro de "throwaway providers" da demo antiga barrava
     # clientes reais que usam gmail como email de empresa.
     email: EmailStr
+    # Opcionais: servem para preparar a conversa, não para qualificar
+    # ninguém à entrada.
+    company: Optional[str] = Field(default=None, max_length=160)
+    role: Optional[str] = Field(default=None, max_length=120)
     dataset_id: Optional[str] = None
     questions_asked: List[str] = Field(default_factory=list)
     vertical: Optional[str] = None

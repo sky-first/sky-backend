@@ -368,16 +368,19 @@ async def demo_ask(
         )
 
     if qa is None:
-        # Sem conteúdo curado para cair. Devolve uma resposta honesta em
-        # vez de 500 — o visitante não pode ver um ecrã de erro.
+        # A pergunta é de negócio, mas nenhuma resposta curada se
+        # aproxima. Dizê-lo é melhor do que servir outra: um prospect
+        # que faz três perguntas e recebe três vezes o mesmo relatório
+        # de churn conclui — com razão — que aquilo não percebeu nada.
+        #
+        # Texto vazio de propósito. Quem sabe o idioma é o frontend, e
+        # esta rota é pública e cacheável.
         return DemoAnswerResponse(
             id="",
             question=payload.question,
-            answer_markdown=(
-                "This demo dataset doesn't cover that question yet. "
-                "Try one of the suggested questions, or bring your own data."
-            ),
+            answer_markdown="",
             is_fallback=True,
+            no_match=True,
         )
 
     return _qa_to_model(qa, is_fallback=is_fallback, question=payload.question)
@@ -407,6 +410,8 @@ async def demo_lead(
     await demo_content_service.record_lead(
         db,
         email=str(payload.email),
+        company=payload.company,
+        role=payload.role,
         dataset_id=dataset_id,
         questions_asked=payload.questions_asked,
         vertical=payload.vertical,

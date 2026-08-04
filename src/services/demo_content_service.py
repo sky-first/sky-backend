@@ -154,21 +154,47 @@ async def get_qa(db: AsyncSession, qa_id) -> Optional[DemoQA]:
     return (await db.execute(select(DemoQA).where(DemoQA.id == qa_id))).scalar_one_or_none()
 
 
+# Quanto da pergunta do visitante tem de estar na pergunta curada para
+# a resposta ser servida.
+#
+# 0,34 vem de medir: com as 7 perguntas curadas, "quanto está por
+# cobrar?" bate a de faturas vencidas acima disto, e "qual é o meu CAC
+# por coorte?" não bate nenhuma. Baixá-lo faz voltar as respostas
+# desencontradas; subi-lo recusa perguntas que a demo sabe responder.
+MIN_MATCH_SCORE = 0.34
+
+
+def _overlap(question: str, candidate: str) -> float:
+    """Fracção das palavras com conteúdo da pergunta que a curada cobre.
+
+    Reutiliza o normalizador e a lista de palavras vazias do portão de
+    domínio — o mesmo problema, do outro lado: ali decide-se se é sobre
+    negócio, aqui se é sobre *este* assunto.
+    """
+    from src.services.demo_domain_gate import _STOPWORDS, _words
+
+    asked = {w for w in _words(question) if len(w) > 2 and w not in _STOPWORDS}
+    if not asked:
+        return 0.0
+    known = {w for w in _words(candidate) if len(w) > 2 and w not in _STOPWORDS}
+    return len(asked & known) / len(asked)
+
+
 async def _nearest_qa(db: AsyncSession, dataset_id, question: str) -> Optional[DemoQA]:
     """QA mais próxima da pergunta livre, para o fallback.
 
-    Tenta pesquisa vectorial; se o provider de embeddings não estiver
-    disponível — ou se as QA não tiverem embedding — cai para a primeira
-    sugerida. Um fallback que também pode falhar não é fallback.
+    Devolve ``None`` quando nenhuma pergunta curada se aproxima o
+    suficiente — e é essa a parte importante desta função.
+
+    Tenta pesquisa vectorial primeiro; se o provider de embeddings não
+    estiver disponível, ordena por palavras em comum.
 
     **Hoje o ramo vectorial nunca corre.** ``src.ai.embeddings`` ainda
     não existe neste repo e o comando de curadoria deixa ``embedding``
-    a NULL, portanto o ``ImportError`` é apanhado abaixo e serve-se
-    sempre a primeira sugerida. Está escrito assim de propósito — o
-    ramo fica pronto para quando o módulo existir (BE-15) sem que a
-    demo dependa dele para funcionar — mas não confundir "código
-    presente" com "comportamento activo": qualquer medição de qualidade
-    do fallback hoje está a medir a primeira sugerida.
+    a NULL, portanto o ``ImportError`` é apanhado abaixo. Está escrito
+    assim de propósito — o ramo fica pronto para quando o módulo existir
+    (BE-15), e é aí que este contador de palavras deve desaparecer, que
+    é o sítio certo para resolver isto.
     """
     try:
         from src.ai.embeddings import embed_query  # type: ignore
@@ -191,8 +217,31 @@ async def _nearest_qa(db: AsyncSession, dataset_id, question: str) -> Optional[D
     except Exception as exc:  # noqa: BLE001
         logger.info("demo_fallback_semantic_unavailable: %s", exc)
 
-    rows = await get_suggested(db, dataset_id, limit=1)
-    return rows[0] if rows else None
+    # Sem embeddings, ordena por palavras em comum com as perguntas
+    # curadas.
+    #
+    # Antes devolvia a **primeira** sugerida, sempre. Quem perguntasse
+    # "qual é o meu CAC por coorte?" recebia o relatório de churn com o
+    # rótulo "a mais próxima que temos" — e essa é a forma mais rápida
+    # de um prospect concluir que o produto não presta. Não é o portão
+    # de domínio que o expõe; é isto.
+    #
+    # Contar palavras em comum não é semântica, e não finge ser. É o
+    # suficiente para não trocar overdue por churn, e para saber quando
+    # **não há** correspondência nenhuma — que é a parte que interessa.
+    best, best_score = None, 0.0
+    for qa in await list_qas(db, dataset_id):
+        score = _overlap(question, qa.question or "")
+        if score > best_score:
+            best, best_score = qa, score
+
+    if best is None or best_score < MIN_MATCH_SCORE:
+        # Melhor não responder do que responder outra coisa. O ecrã
+        # mostra as perguntas que a demo sabe responder, em vez de
+        # apresentar uma resposta desencontrada como se fosse a certa.
+        logger.info("demo_no_match score=%.2f q=%r", best_score, question[:80])
+        return None
+    return best
 
 
 async def ask(
@@ -231,6 +280,8 @@ async def record_lead(
     db: AsyncSession,
     *,
     email: str,
+    company: Optional[str] = None,
+    role: Optional[str] = None,
     dataset_id=None,
     questions_asked: Optional[List[str]] = None,
     vertical: Optional[str] = None,
@@ -259,11 +310,19 @@ async def record_lead(
             existing.vertical = vertical
         if locale:
             existing.locale = locale
+        # Só sobrescreve com o que ele escreveu de facto: voltar e
+        # submeter só o email não pode apagar a empresa da primeira vez.
+        if company:
+            existing.company = company.strip()
+        if role:
+            existing.role = role.strip()
         await db.commit()
         return existing
 
     lead = DemoLead(
         email=email,
+        company=(company or "").strip() or None,
+        role=(role or "").strip() or None,
         dataset_id=dataset_id,
         questions_asked=questions_asked or [],
         vertical=vertical,

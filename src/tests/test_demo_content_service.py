@@ -51,7 +51,9 @@ async def _seed(db, *, vertical="saas", locale="en", is_default=False, n_qa=4):
             DemoQA(
                 id=uuid.uuid4(),
                 dataset_id=ds.id,
-                question=f"Pergunta {i}",
+                # Perguntas com palavras a sério: o fallback ordena por
+                # palavras em comum, e "Pergunta 0" não tem nenhuma.
+                question=f"Que clientes gastaram menos no trimestre {i}?",
                 answer_markdown=f"Resposta {i}",
                 citations=[{"table": "crm.deals"}],
                 position=i,
@@ -164,14 +166,14 @@ async def test_ask_com_timeout_cai_em_fallback_sem_erro(db_session):
     qa, live, is_fallback = await svc.ask(
         db_session,
         dataset_id=ds.id,
-        question="e a margem?",
+        question="que clientes gastaram menos?",
         live_answer=lento,
         timeout_s=0.05,
     )
 
     assert is_fallback is True
     assert live is None
-    assert qa is not None, "tem de haver conteúdo curado para onde cair"
+    assert qa is not None, "há conteúdo curado próximo — tem de cair nele"
 
 
 @pytest.mark.asyncio
@@ -183,7 +185,7 @@ async def test_ask_com_motor_a_rebentar_cai_em_fallback(db_session):
         raise RuntimeError("motor em baixo")
 
     qa, live, is_fallback = await svc.ask(
-        db_session, dataset_id=ds.id, question="e a margem?", live_answer=rebenta
+        db_session, dataset_id=ds.id, question="que clientes gastaram menos?", live_answer=rebenta
     )
 
     assert is_fallback is True
@@ -197,7 +199,7 @@ async def test_ask_sem_motor_nenhum_ainda_responde(db_session):
     ds = await _seed(db_session, vertical="saas")
 
     qa, live, is_fallback = await svc.ask(
-        db_session, dataset_id=ds.id, question="e a margem?", live_answer=None
+        db_session, dataset_id=ds.id, question="que clientes gastaram menos?", live_answer=None
     )
 
     assert is_fallback is True
@@ -313,3 +315,44 @@ async def test_get_insights_nao_estoura_o_ecra(db_session):
     await db_session.commit()
 
     assert len(await svc.get_insights(db_session, ds.id)) == svc.INSIGHTS_LIMIT
+
+
+# ─── quando não há resposta próxima ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pergunta_de_negocio_sem_correspondencia_nao_inventa(db_session):
+    """O risco maior da demo não é a recusa — é a resposta trocada.
+
+    Antes, qualquer pergunta que não fosse uma das curadas devolvia a
+    **primeira** da lista com o rótulo "a mais próxima que temos".
+    Perguntar pelo CAC e receber um relatório de churn é a forma mais
+    rápida de um prospect concluir que o produto não percebeu nada — e
+    ele só precisa de fazer três perguntas para lá chegar.
+    """
+    ds = await _seed(db_session, vertical="saas")
+
+    qa, live, is_fallback = await svc.ask(
+        db_session,
+        dataset_id=ds.id,
+        question="qual e o custo de aquisicao por coorte trimestral?",
+    )
+
+    assert live is None
+    assert is_fallback is True
+    assert qa is None, "melhor não responder do que responder outra coisa"
+
+
+def test_o_limiar_de_correspondencia_distingue_assuntos():
+    """Sem embeddings, a ordenação é por palavras em comum.
+
+    Não é semântica e não finge ser. Tem de chegar para não trocar
+    faturas por churn, e para saber quando não há nada próximo.
+    """
+    curada = "How much revenue is sitting in overdue invoices, and who owes it?"
+
+    perto = svc._overlap("how much revenue is overdue?", curada)
+    longe = svc._overlap("what is my CAC by cohort?", curada)
+
+    assert perto >= svc.MIN_MATCH_SCORE
+    assert longe < svc.MIN_MATCH_SCORE

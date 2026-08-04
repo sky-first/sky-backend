@@ -236,8 +236,8 @@ class DemoQA(Base):
 class DemoLead(Base):
     """Contacto deixado depois de o visitante ver valor.
 
-    Deliberadamente **sem verificação**: um campo, sem empresa, sem cargo
-    e sem bloqueio de domínios. O filtro de "throwaway providers" da demo
+    Deliberadamente **sem verificação**: sem bloqueio de domínios e sem
+    nada obrigatório além do email. O filtro de "throwaway providers" da demo
     antiga barrava clientes reais que usam gmail como email de empresa —
     um falso positivo caro num formulário de captura.
 
@@ -262,6 +262,12 @@ class DemoLead(Base):
     # As perguntas que ele clicou antes de deixar o contacto. É o sinal
     # comercial mais valioso da sessão: diz o que lhe interessou.
     questions_asked = Column(_JSONB_OR_JSON, nullable=False, default=list)
+    # Empresa e cargo: o que permite preparar a reunião em vez de a
+    # gastar a perguntar o básico. Opcionais de propósito — este é o
+    # último ecrã de um fluxo em que ele já deu tempo, e cada campo
+    # obrigatório a mais é uma razão a mais para fechar o separador.
+    company = Column(String(160), nullable=True)
+    role = Column(String(120), nullable=True)
     vertical = Column(String(32), nullable=True)
     locale = Column(String(10), nullable=True)
     source = Column(String(64), nullable=True)
