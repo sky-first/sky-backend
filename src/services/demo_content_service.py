@@ -131,6 +131,25 @@ async def get_suggested(
     )
 
 
+async def list_qas(db: AsyncSession, dataset_id, limit: int = 50) -> Sequence[DemoQA]:
+    """Todas as perguntas curadas do dataset, sugeridas ou não.
+
+    Serve o portão de domínio, que precisa de saber de que assuntos o
+    dataset fala. Usar só as três sugeridas encolhia esse vocabulário ao
+    que está no ecrã e recusava perguntas legítimas — "what is our win
+    rate?" era recusada apesar de existir uma resposta curada para ela.
+    """
+    return (
+        (
+            await db.execute(
+                select(DemoQA).where(DemoQA.dataset_id == dataset_id).order_by(DemoQA.position).limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 async def get_qa(db: AsyncSession, qa_id) -> Optional[DemoQA]:
     return (await db.execute(select(DemoQA).where(DemoQA.id == qa_id))).scalar_one_or_none()
 
@@ -263,6 +282,7 @@ __all__ = [
     "get_dataset",
     "get_insight",
     "get_insights",
+    "list_qas",
     "get_qa",
     "get_suggested",
     "record_lead",

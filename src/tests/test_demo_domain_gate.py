@@ -125,3 +125,53 @@ def test_vocabulario_do_dataset_nao_abre_a_porta_a_tudo():
 def test_vocabulario_aguenta_dataset_vazio():
     assert dataset_vocabulary(None, None) == set()
     assert dataset_vocabulary(None, []) == set()
+
+
+# ── o vocabulário do dataset não pode furar o portão ────────────────
+
+
+class _FakeQA:
+    def __init__(self, question: str):
+        self.question = question
+
+
+def test_stopwords_of_the_curated_questions_do_not_open_the_gate():
+    """O bug que isto fecha: *what* estava no vocabulário do dataset.
+
+    As perguntas curadas são frases inteiras — "What is the win rate…",
+    "How much revenue…" — e o vocabulário do dataset engolia as palavras
+    de ligação delas. A partir daí qualquer frase em inglês partilhava
+    uma palavra com o dataset e era tratada como pergunta de negócio.
+
+    O Lucas perguntou "What's my name?" e recebeu um relatório de churn.
+    """
+    vocab = dataset_vocabulary(
+        None,
+        [
+            _FakeQA("Which customers are most likely to churn, and what revenue is at stake?"),
+            _FakeQA("What is the win rate, and how long does a deal take to close?"),
+        ],
+    )
+    assert "what" not in vocab
+    assert "how" not in vocab
+    assert "is" not in vocab
+    # …e as palavras que interessam continuam lá.
+    assert "customers" in vocab
+    assert "churn" in vocab
+
+
+def test_identity_questions_are_refused():
+    """Não sabemos o nome dele, e não há nada curado que se pareça."""
+    for question in ("What's my name?", "Qual é o meu nome?", "who am i?"):
+        assert not is_in_domain(question, {"customers", "churn", "revenue"})
+
+
+def test_at_stake_does_not_make_football_a_business_question():
+    """'jogo' entra no vocabulário por "que receita está em jogo".
+
+    Um saco de palavras não distingue as duas acepções; o padrão sim. E
+    a pergunta legítima continua a passar.
+    """
+    vocab = dataset_vocabulary(None, [_FakeQA("Que clientes vão sair, e que receita está em jogo?")])
+    assert not is_in_domain("quem ganhou o jogo ontem?", vocab)
+    assert is_in_domain("que receita está em jogo?", vocab)

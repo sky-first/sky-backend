@@ -278,7 +278,8 @@
               "table": "crm.accounts"
             }
           ],
-          "executed_sql": "SELECT i.id, a.name, i.amount, i.issued_at, CURRENT_DATE - i.issued_at AS days_open\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at"
+          "executed_sql": "SELECT i.id, a.name, i.amount, i.issued_at, CURRENT_DATE - i.issued_at AS days_open\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at",
+          "series_sql": "SELECT b.bucket AS t, COALESCE(ROUND(SUM(i.amount)),0) AS v FROM (VALUES (1,'0-15'),(2,'16-30'),(3,'31-45'),(4,'46-60'),(5,'60+')) AS b(ord,bucket) LEFT JOIN finance.invoices i ON i.status='overdue' AND width_bucket(CURRENT_DATE - i.issued_at, ARRAY[16,31,46,61]) + 1 = b.ord GROUP BY b.ord, b.bucket ORDER BY b.ord"
         },
         {
           "severity": "channel_mix",
@@ -312,7 +313,8 @@
               "table": "crm.opportunities"
             }
           ],
-          "executed_sql": "SELECT c.channel,\n       SUM(c.spend) AS spend,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY won DESC"
+          "executed_sql": "SELECT c.channel,\n       SUM(c.spend) AS spend,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY won DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', o.close_date)::date AS t, ROUND(SUM(o.amount)) AS v FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' GROUP BY 1 ORDER BY 1"
         }
       ]
     },
@@ -575,7 +577,8 @@
               "table": "crm.accounts"
             }
           ],
-          "executed_sql": "SELECT i.id, a.name, i.amount, i.issued_at, CURRENT_DATE - i.issued_at AS days_open\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at"
+          "executed_sql": "SELECT i.id, a.name, i.amount, i.issued_at, CURRENT_DATE - i.issued_at AS days_open\nFROM finance.invoices i\nJOIN finance.subscriptions s ON s.id = i.subscription_id\nJOIN crm.accounts a ON a.id = s.account_id\nWHERE i.status = 'overdue'\nORDER BY i.issued_at",
+          "series_sql": "SELECT b.bucket AS t, COALESCE(ROUND(SUM(i.amount)),0) AS v FROM (VALUES (1,'0-15'),(2,'16-30'),(3,'31-45'),(4,'46-60'),(5,'60+')) AS b(ord,bucket) LEFT JOIN finance.invoices i ON i.status='overdue' AND width_bucket(CURRENT_DATE - i.issued_at, ARRAY[16,31,46,61]) + 1 = b.ord GROUP BY b.ord, b.bucket ORDER BY b.ord"
         },
         {
           "severity": "channel_mix",
@@ -609,7 +612,8 @@
               "table": "crm.opportunities"
             }
           ],
-          "executed_sql": "SELECT c.channel,\n       SUM(c.spend) AS spend,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY won DESC"
+          "executed_sql": "SELECT c.channel,\n       SUM(c.spend) AS spend,\n       COALESCE(SUM(o.amount) FILTER (WHERE o.stage = 'closed_won'), 0) AS won\nFROM marketing.campaigns c\nLEFT JOIN marketing.leads l ON l.campaign_id = c.id\nLEFT JOIN crm.opportunities o ON o.id = l.converted_to_opportunity_id\nGROUP BY c.channel\nORDER BY won DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', o.close_date)::date AS t, ROUND(SUM(o.amount)) AS v FROM marketing.campaigns c JOIN marketing.leads l ON l.campaign_id=c.id JOIN crm.opportunities o ON o.id=l.converted_to_opportunity_id AND o.stage='closed_won' GROUP BY 1 ORDER BY 1"
         }
       ]
     }

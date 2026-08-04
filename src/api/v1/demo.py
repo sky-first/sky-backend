@@ -342,7 +342,7 @@ async def demo_ask(
     # negócio), portanto na dúvida recusa. Quem for recusado por engano
     # recebe um convite a reformular; o inverso é ridículo.
     insight_for_vocab = await demo_content_service.get_insight(db, dataset_id)
-    qas_for_vocab = await demo_content_service.get_suggested(db, dataset_id, limit=10)
+    qas_for_vocab = await demo_content_service.list_qas(db, dataset_id)
     if not is_in_domain(payload.question, dataset_vocabulary(insight_for_vocab, qas_for_vocab)):
         return DemoAnswerResponse(
             id="",
