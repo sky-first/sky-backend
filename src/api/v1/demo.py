@@ -10,6 +10,8 @@ issues the JWT itself.
 
 from __future__ import annotations
 
+import asyncio
+
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
@@ -38,7 +40,7 @@ from src.schemas.demo_content import (
     DemoLeadResponse,
     SuggestedQuestion,
 )
-from src.services import demo_content_service, demo_flow_service
+from src.services import demo_content_service, demo_email_service, demo_flow_service
 from src.services.demo_domain_gate import dataset_vocabulary, is_in_domain
 from src.services.demo_service import DemoService
 
@@ -417,6 +419,21 @@ async def demo_lead(
         vertical=payload.vertical,
         locale=payload.locale,
         source=payload.source,
+    )
+    # Aviso à equipa, em segundo plano.
+    #
+    # Sem `await`: o visitante já viu o ecrã de confirmação e não pode
+    # esperar por um POST a um serviço de email — nem apanhar um erro
+    # se esse serviço estiver em baixo.
+    asyncio.create_task(
+        demo_email_service.send_demo_lead_notification(
+            email=str(payload.email),
+            company=payload.company,
+            role=payload.role,
+            vertical=payload.vertical,
+            locale=payload.locale,
+            questions_asked=payload.questions_asked,
+        )
     )
     return DemoLeadResponse(accepted=True)
 

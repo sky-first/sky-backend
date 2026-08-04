@@ -257,6 +257,11 @@ class Settings(BaseSettings):
     EMAIL_FROM_ADDRESS: str = Field(default="lucas.ventura@skyfirstlabs.com")
     EMAIL_FROM_NAME: str = Field(default="Lucas Ventura — SKY")
     EMAIL_DASHBOARD_URL: str = Field(default="https://demo.skyfirstlabs.com")
+    # Para onde vai o aviso de um contacto novo na demo pública.
+    # Sem isto o lead ficava só na base de dados, e ninguém dava por
+    # ele até alguém se lembrar de ir lá ver — que é o mesmo que não
+    # ter formulário nenhum.
+    DEMO_LEAD_NOTIFY_TO: str = Field(default="lucas.ventura@skyfirstlabs.com")
 
     # Redis
     REDIS_URL: str = Field(
