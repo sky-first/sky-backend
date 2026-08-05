@@ -30,6 +30,7 @@ router = APIRouter()
 # access logs (BE-07 T-07.3).
 VOICE_SUBPROTOCOL = "sky.voice.v1"
 
+
 async def _voice_answer(user, page_id, text: str) -> str:
     """The grounded answer for one voice turn — the same Bedrock engine as chat.
 
@@ -37,6 +38,8 @@ async def _voice_answer(user, page_id, text: str) -> str:
     question gets the same data-grounded answer the typed chat gives. Returns
     "" on any failure (the turn simply yields no TTS instead of erroring).
     """
+    import json as _json
+
     from src.ai.http_client import AIServiceHTTPClient
     from src.config.database import AsyncSessionLocal
     from src.services.ai_service import AIService
@@ -46,13 +49,27 @@ async def _voice_answer(user, page_id, text: str) -> str:
             conn_id = await AIService(db)._get_first_active_connection(user.id)  # noqa: SLF001
         if not conn_id:
             return ""
-        result = await AIServiceHTTPClient().query_connection(
+        # Use the same streaming path as /ai/chat/stream — the non-streaming
+        # /query rejects space_id="default" (UserContext UUID validation).
+        answer = ""
+        async for line in AIServiceHTTPClient().stream_query_connection(
             connection_id=conn_id,
             question=text,
             user_id=str(user.id),
             space_id="default",
-        )
-        return (result.get("answer") or "").strip()
+        ):
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            try:
+                ev = _json.loads(line[5:].strip())
+            except Exception:
+                continue
+            if ev.get("type") == "chunk":
+                answer += ev.get("content", "")
+            elif ev.get("type") == "answer":
+                answer = ev.get("text", answer)
+        return answer.strip()
     except Exception:
         return ""
 
@@ -143,6 +160,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     muted = False
     persisted = False
     turn_active = False
+    barge = _asyncio.Event()
 
     async def finalize(send_final: bool) -> None:
         nonlocal persisted
@@ -175,15 +193,30 @@ async def voice_session_ws(websocket: WebSocket) -> None:
         if not user_text or turn_active:
             return
         turn_active = True
+        barge.clear()
         try:
             turns.append(VoiceTurn(role="user", text=user_text))
             await state("thinking")
             answer = (await _voice_answer(user, page_id, user_text)).strip()
-            if answer:
+            if answer and not barge.is_set():
                 turns.append(VoiceTurn(role="sky", text=answer))
+                await send({"type": "sky_text", "text": answer})  # show it on screen
                 await state("speaking")
+                samples = 0
                 async for audio in provider.synthesize(answer, "Joanna"):
+                    if barge.is_set():
+                        break
                     await websocket.send_bytes(audio)
+                    samples += len(audio) // 2  # int16 PCM @ 16 kHz
+                # Hold "speaking" for the audio's real playback length. The
+                # client plays it over that time, so flipping to listening when
+                # the bytes finish SENDING (near-instant) would cut it off.
+                secs = samples / 16000.0
+                if secs > 0 and not barge.is_set():
+                    try:
+                        await _asyncio.wait_for(barge.wait(), timeout=secs + 0.2)
+                    except _asyncio.TimeoutError:
+                        pass
             await state("user_speaking")
         finally:
             turn_active = False
