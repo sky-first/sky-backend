@@ -28,6 +28,7 @@ from src.api.v1 import (
     datasets,
     db_health,
     demo,
+    devices,
     enterprise_apis,
     enterprise_relationships,
     files,
@@ -142,6 +143,7 @@ api_router.include_router(support.router, prefix="/support", tags=["Support"])
 
 # Notification endpoints
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+api_router.include_router(devices.router, prefix="/devices", tags=["Devices"])
 
 # Space endpoints
 api_router.include_router(spaces.router, prefix="/spaces", tags=["Spaces"])

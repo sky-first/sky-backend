@@ -1,5 +1,6 @@
 """Notification service — create, read, delete, with preference-aware gating."""
 
+import logging
 from typing import List, Optional
 from uuid import UUID
 
@@ -9,11 +10,14 @@ from src.repositories.notification_preference_repository import NotificationPref
 from src.repositories.notification_repository import NotificationRepository
 from src.schemas.notification import NotificationCreate, NotificationResponse
 
+logger = logging.getLogger(__name__)
+
 
 class NotificationService:
     """Service for Notification business logic."""
 
     def __init__(self, db: AsyncSession):
+        self.db = db
         self.repository = NotificationRepository(db)
         self.pref_repo = NotificationPreferenceRepository(db)
 
@@ -22,7 +26,12 @@ class NotificationService:
     async def create_notification(
         self, notification_in: NotificationCreate
     ) -> Optional[NotificationResponse]:
-        """Create a notification — unless the user has muted it."""
+        """Create a notification — unless the user has muted it.
+
+        On a successful write, hand it to the push dispatcher (BE-06). A
+        muted notification returns ``None`` here and never reaches the
+        dispatcher, so focus/mute rules gate push for free (T-06.5).
+        """
         muted = await self.pref_repo.is_muted(
             user_id=notification_in.user_id,
             notification_type=notification_in.type,
@@ -31,7 +40,20 @@ class NotificationService:
         )
         if muted:
             return None
-        return await self.repository.create(notification_in)
+        created = await self.repository.create(notification_in)
+        if created is not None:
+            await self._dispatch_push(created)
+        return created
+
+    async def _dispatch_push(self, notif: NotificationResponse) -> None:
+        """Best-effort push fan-out. A transport failure must never break
+        notification creation, so any error is swallowed and logged."""
+        try:
+            from src.services.push_dispatcher import PushDispatcher
+
+            await PushDispatcher(self.db).dispatch(notif)
+        except Exception as exc:
+            logger.warning("push dispatch failed for %s: %s", notif.id, exc)
 
     async def create(self, notification_in: NotificationCreate) -> Optional[NotificationResponse]:
         """Alias for create_notification to match tests."""

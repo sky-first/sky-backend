@@ -29,6 +29,7 @@ from src.models.context_document import (
 from src.models.conversation import Conversation, Message
 from src.models.crew import Crew, CrewConnection, CrewMember, CrewTable
 from src.models.demo_content import DemoDataset, DemoInsight, DemoLead, DemoQA
+from src.models.device import Device
 from src.models.enterprise_api import EnterpriseAPI
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.file import FileUpload
@@ -108,6 +109,7 @@ __all__ = [
     "DemoInsight",
     "DemoLead",
     "DemoQA",
+    "Device",
     "ConnectionPermission",
     "AIQuery",
     "AIHistory",
