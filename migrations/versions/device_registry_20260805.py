@@ -17,7 +17,10 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "device_registry_20260805"
-down_revision = "tenant_domains_20260804"
+# Chains after the demo-content migrations (which also branched off
+# tenant_domains) so the history stays a single linear head. The devices
+# table is independent of the demo tables, so the order is purely bookkeeping.
+down_revision = "demo_vertical_industry_20260804"
 branch_labels = None
 depends_on = None
 
