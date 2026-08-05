@@ -113,6 +113,27 @@ def run_migrations_online() -> None:
     connectable = create_engine(sync_url, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
+        # Alembic creates ``version_num`` as VARCHAR(32). This project's
+        # revision ids are long and descriptive — eight of them already
+        # exceed 32 characters, the longest at 40 — so the very first one
+        # that overflows aborts the whole upgrade with
+        # StringDataRightTruncation and, because the migrate Job is a
+        # PreSync hook, the deployment never rolls out at all. That is
+        # exactly what blocked production on agent_finding_structured_
+        # 20260730 (33 chars).
+        #
+        # Widen it here rather than in a migration: a migration cannot fix
+        # the table it needs in order to record that it ran.
+        from sqlalchemy import text as _sa_text
+
+        connection.execute(
+            _sa_text(
+                "ALTER TABLE IF EXISTS alembic_version_be "
+                "ALTER COLUMN version_num TYPE VARCHAR(64)"
+            )
+        )
+        connection.commit()
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
