@@ -68,7 +68,7 @@ def test_t07_4_happy_turn(client, monkeypatch):
     """
     _mock_auth(monkeypatch)
 
-    async def _fake_answer(user, page_id, text):
+    async def _fake_answer(user, page_id, text, ctx):
         return "There are 374 clients."
 
     monkeypatch.setattr("src.api.v1.voice._voice_answer", _fake_answer)

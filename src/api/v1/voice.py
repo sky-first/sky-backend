@@ -31,21 +31,60 @@ router = APIRouter()
 VOICE_SUBPROTOCOL = "sky.voice.v1"
 
 
-async def _voice_answer(user, page_id, text: str) -> str:
+async def _resolve_voice_tenant(claims: dict):
+    """Resolve (and authorize) the tenant for a voice WS from its token claims.
+
+    Mirrors the device-tenant gate wired into the REST path
+    (``deps.enforce_device_tenant``, BE-01): a mobile token carries a signed
+    ``tid`` and membership is re-checked live, so an off-boarded user is
+    refused even with a still-valid token. Returns the caller's
+    ``TenantContext``, or ``None`` when a device token is unresolved/forbidden
+    (the handshake is then closed 4401). Web/console tokens (no ``tid``) and
+    single-tenant mode both resolve to the default context.
+    """
+    from src.config.settings import settings
+    from src.core.tenant_context import DEFAULT_TENANT_CONTEXT
+
+    if not settings.MULTI_TENANT_ENABLED:
+        return DEFAULT_TENANT_CONTEXT
+
+    from src.core.device_tenant import TENANT_CLAIM
+
+    if not claims.get(TENANT_CLAIM):
+        return DEFAULT_TENANT_CONTEXT  # web/console token — no device tenant
+
+    from src.api.middleware.tenant_resolver import _load_tenant_by_id
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.device_tenant import DeviceResolution, resolve_device_tenant
+    from src.services.tenant_membership_service import TenantMembershipService
+
+    async def _is_member(user_id: str, tid: str) -> bool:
+        # Membership rows live in the platform DB (default context).
+        async with tenant_connection_manager.session_for(DEFAULT_TENANT_CONTEXT) as db:
+            return await TenantMembershipService.is_member(db, user_id, tid)
+
+    result = await resolve_device_tenant(
+        claims, load_tenant_by_id=_load_tenant_by_id, is_member=_is_member
+    )
+    return result.context if result.resolution is DeviceResolution.RESOLVED else None
+
+
+async def _voice_answer(user, page_id, text: str, ctx) -> str:
     """The grounded answer for one voice turn — the same Bedrock engine as chat.
 
     Resolves the caller's connection and asks the AI engine, so a spoken
     question gets the same data-grounded answer the typed chat gives. Returns
     "" on any failure (the turn simply yields no TTS instead of erroring).
+    Runs against ``ctx``'s tenant database, never the platform default.
     """
     import json as _json
 
     from src.ai.http_client import AIServiceHTTPClient
-    from src.config.database import AsyncSessionLocal
+    from src.config.tenant_connection_manager import tenant_connection_manager
     from src.services.ai_service import AIService
 
     try:
-        async with AsyncSessionLocal() as db:
+        async with tenant_connection_manager.session_for(ctx) as db:
             conn_id = await AIService(db)._get_first_active_connection(user.id)  # noqa: SLF001
         if not conn_id:
             return ""
@@ -114,8 +153,13 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     import json as _json
     import time as _time
 
-    from src.config.database import AsyncSessionLocal
+    from src.config.tenant_connection_manager import tenant_connection_manager
     from src.core.security import verify_token
+    from src.core.tenant_context import (
+        DEFAULT_TENANT_CONTEXT,
+        reset_current_tenant,
+        set_current_tenant,
+    )
     from src.repositories.user import UserRepository
     from src.services.voice_pipeline import build_voice_provider
 
@@ -131,19 +175,27 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     ]
     token = protos[1] if len(protos) >= 2 and protos[0] == VOICE_SUBPROTOCOL else None
     user = None
+    ctx = DEFAULT_TENANT_CONTEXT
     if token:
         try:
             payload = verify_token(token, token_type="access")
             uid = payload.get("sub")
-            if uid:
-                async with AsyncSessionLocal() as db:
+            # Route to the caller's tenant DB, not the platform default: a
+            # mobile token carries the tenant in a signed ``tid`` claim and
+            # membership is re-checked live, so an off-boarded user is refused
+            # even with a valid token (BE-01). ``None`` → reject the handshake.
+            ctx = await _resolve_voice_tenant(payload)
+            if uid and ctx is not None:
+                async with tenant_connection_manager.session_for(ctx) as db:
                     user = await UserRepository(db).get_by_id(uid)
         except Exception:
             user = None
-    if user is None:
+            ctx = None
+    if user is None or ctx is None:
         await websocket.close(code=4401)  # handshake rejected, no session
         return
 
+    tenant_reset = set_current_tenant(ctx)  # downstream services route to ctx
     await websocket.accept(subprotocol=VOICE_SUBPROTOCOL)
 
     async def send(obj: dict) -> None:
@@ -170,7 +222,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
         message_id = None
         if page_id and turns:
             try:
-                async with AsyncSessionLocal() as db:
+                async with tenant_connection_manager.session_for(ctx) as db:
                     u = await UserRepository(db).get_by_id(str(user.id))
                     dur = int((_time.monotonic() - started) * 1000)
                     conv_id, _title, _n = await VoiceSessionService(db).persist(
@@ -197,7 +249,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
         try:
             turns.append(VoiceTurn(role="user", text=user_text))
             await state("thinking")
-            answer = (await _voice_answer(user, page_id, user_text)).strip()
+            answer = (await _voice_answer(user, page_id, user_text, ctx)).strip()
             if answer and not barge.is_set():
                 turns.append(VoiceTurn(role="sky", text=answer))
                 await send({"type": "sky_text", "text": answer})  # show it on screen
@@ -281,6 +333,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
         stt_task.cancel()
         await provider.close()
         await finalize(send_final=False)  # best-effort persist on an abrupt close
+        reset_current_tenant(tenant_reset)  # clear the tenant contextvar
     try:
         await websocket.close()
     except Exception:
