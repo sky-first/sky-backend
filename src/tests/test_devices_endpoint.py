@@ -64,9 +64,7 @@ async def test_reregister_same_token_upserts(
 
 # ─── T-06.10 ────────────────────────────────────────────────────────────────
 @pytest.mark.asyncio
-async def test_register_bad_platform_422(
-    async_client: AsyncClient, test_user_with_tokens: dict
-):
+async def test_register_bad_platform_422(async_client: AsyncClient, test_user_with_tokens: dict):
     resp = await async_client.post(
         "/api/v1/devices",
         json={"platform": "windows", "push_token": "tok"},
@@ -76,9 +74,7 @@ async def test_register_bad_platform_422(
 
 
 @pytest.mark.asyncio
-async def test_register_missing_token_422(
-    async_client: AsyncClient, test_user_with_tokens: dict
-):
+async def test_register_missing_token_422(async_client: AsyncClient, test_user_with_tokens: dict):
     resp = await async_client.post(
         "/api/v1/devices",
         json={"platform": "ios"},

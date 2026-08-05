@@ -55,9 +55,7 @@ class DeviceRepository:
         return device
 
     async def get_by_token(self, user_id: UUID, push_token: str) -> Optional[Device]:
-        stmt = select(Device).where(
-            Device.user_id == user_id, Device.push_token == push_token
-        )
+        stmt = select(Device).where(Device.user_id == user_id, Device.push_token == push_token)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -69,9 +67,7 @@ class DeviceRepository:
     async def delete_by_token(self, user_id: UUID, push_token: str) -> bool:
         """Unregister one token (logout). Returns whether a row was removed."""
         result = await self.db.execute(
-            sa_delete(Device).where(
-                Device.user_id == user_id, Device.push_token == push_token
-            )
+            sa_delete(Device).where(Device.user_id == user_id, Device.push_token == push_token)
         )
         await self.db.commit()
         return (result.rowcount or 0) > 0
@@ -80,8 +76,6 @@ class DeviceRepository:
         """Drop rows whose tokens the provider reported invalid (T-06.6)."""
         if not tokens:
             return 0
-        result = await self.db.execute(
-            sa_delete(Device).where(Device.push_token.in_(tokens))
-        )
+        result = await self.db.execute(sa_delete(Device).where(Device.push_token.in_(tokens)))
         await self.db.commit()
         return result.rowcount or 0

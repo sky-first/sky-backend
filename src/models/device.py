@@ -47,12 +47,8 @@ class Device(Base):
     # How to reach the token: 'expo' (ExponentPushToken), 'apns', or 'fcm'.
     provider = Column(String(10), nullable=False, default="expo")
 
-    last_seen_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     user = relationship("User", backref="devices")
 

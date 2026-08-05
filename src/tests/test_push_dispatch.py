@@ -34,9 +34,7 @@ class FakeProvider:
 
     async def send(self, messages: List[PushMessage]) -> PushResult:
         self.sent.extend(messages)
-        return PushResult(
-            sent=len(messages) - len(self.invalid), invalid_tokens=list(self.invalid)
-        )
+        return PushResult(sent=len(messages) - len(self.invalid), invalid_tokens=list(self.invalid))
 
 
 async def _register(db: AsyncSession, user_id, token: str, platform: str = "ios"):
@@ -45,7 +43,9 @@ async def _register(db: AsyncSession, user_id, token: str, platform: str = "ios"
     )
 
 
-def _notif(user_id, type_: str, deep_link: str | None = "/dashboard?insight=w1") -> NotificationResponse:
+def _notif(
+    user_id, type_: str, deep_link: str | None = "/dashboard?insight=w1"
+) -> NotificationResponse:
     return NotificationResponse(
         id=uuid.uuid4(),
         user_id=user_id,
@@ -103,16 +103,17 @@ async def test_muted_user_no_push(
     # Global focus mode — pause everything.
     db_session.add(
         NotificationPreference(
-            user_id=user.id, scope_type="global", scope_value=None,
-            channel="all", enabled=False,
+            user_id=user.id,
+            scope_type="global",
+            scope_value=None,
+            channel="all",
+            enabled=False,
         )
     )
     await db_session.commit()
 
     fake = FakeProvider()
-    monkeypatch.setattr(
-        "src.services.push_dispatcher.build_push_provider", lambda: fake
-    )
+    monkeypatch.setattr("src.services.push_dispatcher.build_push_provider", lambda: fake)
 
     created = await NotificationService(db_session).create_notification(
         NotificationCreate(
@@ -135,9 +136,7 @@ async def test_service_dispatches_material_when_not_muted(
     user = test_user_with_tokens["user"]
     await _register(db_session, user.id, "tok-1")
     fake = FakeProvider()
-    monkeypatch.setattr(
-        "src.services.push_dispatcher.build_push_provider", lambda: fake
-    )
+    monkeypatch.setattr("src.services.push_dispatcher.build_push_provider", lambda: fake)
 
     created = await NotificationService(db_session).create_notification(
         NotificationCreate(
@@ -213,7 +212,11 @@ async def test_push_carries_deep_link(test_user_with_tokens: dict, db_session: A
     fake = FakeProvider()
 
     await PushDispatcher(db_session, provider=fake).dispatch(
-        _notif(user.id, NotificationType.INSIGHT_AGENT_MATERIAL.value, deep_link="/dashboard?insight=w9")
+        _notif(
+            user.id,
+            NotificationType.INSIGHT_AGENT_MATERIAL.value,
+            deep_link="/dashboard?insight=w9",
+        )
     )
     assert fake.sent[0].data["deep_link"] == "/dashboard?insight=w9"
     assert fake.sent[0].data["entity_type"] == "agent_execution"
