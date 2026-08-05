@@ -29,7 +29,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError
-from src.core.security import create_access_token, create_refresh_token, get_password_hash
+from src.core.security import (
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+    refresh_ttl_days,
+)
 from src.models.agent import Agent, AgentFinding
 from src.models.connection import DataConnection
 from src.models.enterprise_relationship import EnterpriseRelationship
@@ -37,7 +42,7 @@ from src.models.glossary import GlossaryTerm
 from src.models.metric import Metric
 from src.models.page import Page, PageMember
 from src.models.space import Space, SpaceConnection, SpaceMember
-from src.models.user import User
+from src.models.user import RefreshToken, User
 from src.schemas.demo import DemoSignupRequest, DemoSignupResponse
 from src.schemas.user import UserResponse
 from src.services.demo_seed_data import GLOSSARY_TERMS, METRICS_DATA, RELATIONSHIPS_DATA
@@ -369,7 +374,7 @@ class DemoService:
             expires_at=expires_at,
         )
 
-        return self._issue_response(
+        return await self._issue_response(
             user,
             sibling_space,
             expires_at,
@@ -1461,7 +1466,7 @@ class DemoService:
             expires_at=expires_at,
         )
 
-        return self._issue_response(user, space, expires_at, is_returning=False)
+        return await self._issue_response(user, space, expires_at, is_returning=False)
 
     async def _issue_returning(
         self,
@@ -1533,14 +1538,14 @@ class DemoService:
         # join still fire (that's lead-gen signal); a returning
         # visitor is just a re-login and would otherwise spam
         # #sky-demo-signups every time the prospect comes back.
-        return self._issue_response(
+        return await self._issue_response(
             user,
             space,
             user.demo_expires_at or datetime.now(timezone.utc),
             is_returning=True,
         )
 
-    def _issue_response(
+    async def _issue_response(
         self,
         user: User,
         space: Space,
@@ -1557,6 +1562,27 @@ class DemoService:
         }
         access_token = create_access_token(token_payload)
         refresh_token = create_refresh_token(token_payload)
+
+        # The refresh token MUST have a row in refresh_tokens: /auth/refresh
+        # looks the token up there and rejects anything it cannot find. This
+        # used to hand out a signed JWT with no row, so every demo session
+        # died silently at the first silent refresh — 30 minutes in, the
+        # prospect was thrown back to the sign-up form. Mirrors the login
+        # path in AuthService so the row TTL matches the JWT exp.
+        self.db.add(
+            RefreshToken(
+                user_id=user.id,
+                token=refresh_token,
+                expires_at=datetime.now(timezone.utc)
+                + timedelta(days=refresh_ttl_days()),
+                # A fresh demo session opens its own token family, exactly as
+                # a fresh login does; rotations stay inside it.
+                family_id=uuid4(),
+            )
+        )
+        # Callers commit before reaching here, so this row needs its own
+        # commit or it is discarded when the session closes.
+        await self.db.commit()
 
         return DemoSignupResponse(
             access_token=access_token,
