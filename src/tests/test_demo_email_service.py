@@ -114,6 +114,99 @@ async def test_post_resend_posts_with_correct_payload_and_auth(monkeypatch):
     assert "lucas.ventura@skyfirstlabs.com" in captured["json"]["from"]
 
 
+def test_from_address_lives_on_a_resend_verified_domain():
+    """O remetente por omissão tem de estar no subdomínio verificado.
+
+    O que está verificado na Resend é `updates.skyfirstlabs.com` — o
+    DKIM está em `resend._domainkey.updates`, na zona do Route53. O
+    domínio raiz nunca foi verificado, e enviar de lá devolve 403
+    `domain is not verified`. Como o serviço engole os erros por design,
+    o sintoma era "o formulário não envia nada" sem um único erro à
+    vista. Este teste existe para que voltar a pôr o raiz por omissão
+    falhe aqui, e não em silêncio em produção.
+    """
+    from src.config.settings import Settings
+
+    assert Settings().EMAIL_FROM_ADDRESS.endswith("@updates.skyfirstlabs.com")
+
+
+@pytest.mark.asyncio
+async def test_post_resend_sets_reply_to_so_answers_reach_a_real_inbox(monkeypatch):
+    """O subdomínio de envio não recebe (`receiving: disabled`).
+
+    Sem `reply_to`, responder ao email de boas-vindas — que é o único
+    pedido que ele faz — escrevia para uma caixa que não existe.
+    """
+    from src.config.settings import settings as runtime_settings
+
+    monkeypatch.setattr(runtime_settings, "RESEND_API_KEY", "re_test_key_xxx")
+    monkeypatch.setattr(
+        runtime_settings,
+        "EMAIL_FROM_ADDRESS",
+        "lucas.ventura@updates.skyfirstlabs.com",
+    )
+    monkeypatch.setattr(
+        runtime_settings,
+        "EMAIL_REPLY_TO_ADDRESS",
+        "lucas.ventura@skyfirstlabs.com",
+    )
+
+    captured: dict = {}
+
+    class _MockClient:
+        def __init__(self, **_):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def post(self, url, json=None, headers=None, **_):
+            captured["json"] = json
+            return _Resp(200)
+
+    with patch("httpx.AsyncClient", _MockClient):
+        await _post_resend(
+            to="bob@acme.com", subject="welcome", html="<p>hi</p>", text="hi",
+        )
+
+    assert captured["json"]["reply_to"] == ["lucas.ventura@skyfirstlabs.com"]
+
+
+@pytest.mark.asyncio
+async def test_post_resend_omits_reply_to_when_unset(monkeypatch):
+    """Vazio = campo ausente, não um `null` que a Resend rejeitaria."""
+    from src.config.settings import settings as runtime_settings
+
+    monkeypatch.setattr(runtime_settings, "RESEND_API_KEY", "re_test_key_xxx")
+    monkeypatch.setattr(runtime_settings, "EMAIL_REPLY_TO_ADDRESS", "")
+
+    captured: dict = {}
+
+    class _MockClient:
+        def __init__(self, **_):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def post(self, url, json=None, headers=None, **_):
+            captured["json"] = json
+            return _Resp(200)
+
+    with patch("httpx.AsyncClient", _MockClient):
+        await _post_resend(
+            to="bob@acme.com", subject="welcome", html="<p>hi</p>", text="hi",
+        )
+
+    assert "reply_to" not in captured["json"]
+
+
 @pytest.mark.asyncio
 async def test_post_resend_swallows_4xx(monkeypatch, caplog):
     from src.config.settings import settings as runtime_settings
