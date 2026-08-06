@@ -4,7 +4,7 @@ import logging
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -579,6 +579,57 @@ async def send_chat_message(
 
 
 @router.post(
+    "/chat/upload",
+    status_code=status.HTTP_201_CREATED,
+    responses={401: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+    summary="Upload a document to attach to a chat message",
+)
+async def upload_chat_file(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Accept a document, extract its text, and return a ``file_id``.
+
+    The client passes that id back on the next chat message as
+    ``context.file_id`` (see ``/chat/stream``), and the extracted text is
+    injected as grounding so Sky can answer about the document. Only the
+    text is kept — we don't persist the raw bytes.
+    """
+    import uuid as _uuid
+
+    from src.models.file import FileUpload
+    from src.services.file_extract import extract_text
+
+    data = await file.read()
+    max_bytes = 10 * 1024 * 1024  # 10 MB
+    if len(data) > max_bytes:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB).")
+
+    text = extract_text(file.filename, file.content_type, data)
+    fid = _uuid.uuid4()
+    row = FileUpload(
+        id=fid,
+        user_id=current_user.id,
+        filename=file.filename or "upload",
+        original_name=file.filename or "upload",
+        mime_type=file.content_type or "application/octet-stream",
+        size=len(data),
+        url=f"inline://chat/{fid}",  # text-only; no blob stored
+        storage="inline",
+        parsed_data={"text": text, "chars": len(text)},
+    )
+    db.add(row)
+    await db.commit()
+    return {
+        "file_id": str(fid),
+        "filename": row.original_name,
+        "chars": len(text),
+        "extracted": bool(text),
+    }
+
+
+@router.post(
     "/chat/stream",
     status_code=status.HTTP_200_OK,
     responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
@@ -727,6 +778,30 @@ async def send_chat_message_stream(
                 )
         except Exception as _ins_err:
             logger.debug("[chat/stream] insight context skipped: %s", _ins_err)
+
+    # Attachment ("+") — when the client passes context.file_id, load the
+    # extracted text (scoped to the caller so one user can't read another's
+    # upload) and prepend it so the answer is grounded in the document.
+    _file_id = _ctx.get("file_id") if isinstance(_ctx, dict) else None
+    if _file_id:
+        try:
+            import uuid as _uuid
+
+            from src.models.file import FileUpload
+
+            _fu = await db.get(FileUpload, _uuid.UUID(str(_file_id)))
+            if _fu is not None and _fu.user_id == current_user.id:
+                _ftext = ((_fu.parsed_data or {}).get("text") or "").strip()
+                if _ftext:
+                    _flead = (
+                        f'The user attached a document named "{_fu.original_name}". '
+                        f'Use its contents to answer:\n"""\n{_ftext[:100000]}\n"""'
+                    )
+                    stream_instructions = (
+                        f"{_flead}\n\n{stream_instructions}" if stream_instructions else _flead
+                    )
+        except Exception as _file_err:
+            logger.debug("[chat/stream] file context skipped: %s", _file_err)
 
     async def event_stream():
         """Normalize AI-engine SSE events onto the locked mobile contract
