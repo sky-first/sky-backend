@@ -52,6 +52,10 @@ class VoiceProvider(Protocol):
         """Force an end-of-utterance (manual stop control)."""
         ...
 
+    async def restart_stt(self) -> None:
+        """Start a fresh STT stream for the next turn (see AwsVoiceProvider)."""
+        ...
+
     def transcripts(self) -> AsyncIterator[Dict]:
         """Yield ``{"text": str, "final": bool}`` — final marks end-of-turn."""
         ...
@@ -102,6 +106,11 @@ class StubVoiceProvider:
 
     async def flush(self) -> None:
         await self._endpoint()
+
+    async def restart_stt(self) -> None:
+        # Nothing to restart — the stub has no network stream. Just reset the
+        # VAD counters so the next turn starts clean.
+        self._speech = self._silence = self._emitted = 0
 
     async def transcripts(self) -> AsyncIterator[Dict]:
         while not self._closed:

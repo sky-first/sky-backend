@@ -41,13 +41,16 @@ class AwsVoiceProvider:
         self._polly = None
 
     async def start(self, lang: str) -> None:
+        self._lang = lang
+        await self._open()
+
+    async def _open(self) -> None:
         from amazon_transcribe.client import TranscribeStreamingClient
         from amazon_transcribe.handlers import TranscriptResultStreamHandler
 
-        self._lang = lang
         client = TranscribeStreamingClient(region=self._region)
         self._stream = await client.start_stream_transcription(
-            language_code=_transcribe_lang(lang),
+            language_code=_transcribe_lang(self._lang),
             media_sample_rate_hz=16000,
             media_encoding="pcm",
         )
@@ -71,9 +74,28 @@ class AwsVoiceProvider:
             await self._stream.input_stream.send_audio_event(audio_chunk=chunk)
 
     async def flush(self) -> None:
-        # Transcribe endpoints on silence by itself; a manual stop is a no-op so
-        # the streaming session survives across turns.
+        # Transcribe endpoints on silence by itself; a manual stop is a no-op.
         return None
+
+    async def restart_stt(self) -> None:
+        """Open a fresh Transcribe stream for the next turn.
+
+        A single long-lived stream goes several seconds without audio while
+        Sky speaks (the mic is gated during her turn), and the awscrt HTTP/2
+        session can wedge — after that, the *next* turn silently produces no
+        transcripts. Restarting per turn keeps each turn on a healthy stream.
+        The queue is shared, so ``transcripts()`` keeps yielding across the swap.
+        """
+        old_stream, old_pump = self._stream, self._pump
+        self._stream, self._pump = None, None
+        try:
+            if old_stream is not None:
+                await old_stream.input_stream.end_stream()
+        except Exception:
+            pass
+        if old_pump is not None:
+            old_pump.cancel()
+        await self._open()
 
     async def transcripts(self) -> AsyncIterator[Dict]:
         while True:

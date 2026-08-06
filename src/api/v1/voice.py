@@ -205,7 +205,18 @@ async def voice_session_ws(websocket: WebSocket) -> None:
         await send({"type": "state", "value": value})
 
     provider = build_voice_provider()
-    await provider.start("en-US")
+    try:
+        await provider.start("en-US")
+    except Exception:
+        # STT couldn't start (e.g. expired AWS creds) — tell the client instead
+        # of leaving it stuck in "listening" forever, then close.
+        try:
+            await send({"type": "error", "code": "voice_unavailable",
+                        "message": "Voice is temporarily unavailable."})
+        except Exception:
+            pass
+        await websocket.close(code=1011)
+        return
     started = _time.monotonic()
     turns: list[VoiceTurn] = []
     page_id = None
@@ -213,6 +224,8 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     persisted = False
     turn_active = False
     barge = _asyncio.Event()
+    ptt = False       # push-to-talk: the user's release ends the turn, not VAD
+    last_partial = ""  # latest transcript, committed on a push-to-talk release
 
     async def finalize(send_final: bool) -> None:
         nonlocal persisted
@@ -269,6 +282,12 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                         await _asyncio.wait_for(barge.wait(), timeout=secs + 0.2)
                     except _asyncio.TimeoutError:
                         pass
+            # Fresh STT stream for the next turn — the current one sat idle
+            # while Sky spoke and can wedge, which silently kills turn 2+.
+            try:
+                await provider.restart_stt()
+            except Exception:
+                pass
             await state("user_speaking")
         finally:
             turn_active = False
@@ -278,14 +297,21 @@ async def voice_session_ws(websocket: WebSocket) -> None:
 
         The provider owns endpointing (Transcribe for real, energy VAD in the
         stub), so a final result is the end of the user's turn."""
+        nonlocal last_partial
         try:
             async for ev in provider.transcripts():
                 if turn_active:
                     continue  # ignore stray STT while Sky is answering
-                if ev.get("final"):
-                    await do_turn(ev.get("text", ""))
-                elif ev.get("text"):
-                    await send({"type": "partial_transcript", "text": ev["text"]})
+                text = ev.get("text", "")
+                # Hands-free ends the turn on Transcribe's own endpointing; in
+                # push-to-talk the release ("stop") ends it, so a final is just
+                # another partial to be committed on release.
+                if ev.get("final") and not ptt:
+                    await do_turn(text)
+                    last_partial = ""
+                elif text:
+                    last_partial = text
+                    await send({"type": "partial_transcript", "text": text})
         except Exception:
             pass
 
@@ -314,6 +340,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             action = ctrl.get("action")
             if action == "start":
                 page_id = ctrl.get("page_id") or page_id
+                ptt = ctrl.get("mode") == "push-to-talk"
                 await state("user_speaking")
             elif action == "mute":
                 muted = True
@@ -322,7 +349,13 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             elif action == "barge_in":
                 await state("user_speaking")
             elif action in ("stop", "end_turn"):
-                await provider.flush()  # force end-of-utterance; consume runs the turn
+                # Push-to-talk release: commit what was transcribed as the turn.
+                # (Hands-free rarely sends this; flush is a no-op for AWS.)
+                if not turn_active and last_partial.strip():
+                    _text, last_partial = last_partial, ""
+                    await do_turn(_text)
+                else:
+                    await provider.flush()
             elif action == "end":
                 await state("ended")
                 await finalize(send_final=True)
