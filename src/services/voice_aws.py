@@ -22,11 +22,26 @@ def _transcribe_lang(lang: str) -> str:
     return {"English": "en-US", "Portuguese": "pt-BR", "Español": "es-ES"}.get(lang, "en-US")
 
 
+# Natural neural voices per language. Our two mobile palettes — "Clara"
+# (brighter) and "Suave" (softer) — map to distinct neural voices so each has
+# its own character. Ruth/Danielle are among Polly's most natural neural voices
+# (verified available in eu-west-1). A "default" backs every unknown request so
+# an invalid VoiceId (e.g. a raw palette name) never reaches Polly.
+_NEURAL_VOICES: Dict[str, Dict[str, str]] = {
+    "English": {"default": "Ruth", "Clara": "Ruth", "Suave": "Danielle"},
+    "Portuguese": {"default": "Camila", "Clara": "Camila", "Suave": "Camila"},
+    "Español": {"default": "Lucia", "Clara": "Lucia", "Suave": "Lucia"},
+}
+
+
 def _polly_voice(lang: str, requested: str) -> str:
-    # A sensible neural default per language; the caller may override.
-    if requested and requested not in ("Clara", "Joanna"):
-        return requested
-    return {"English": "Joanna", "Portuguese": "Camila", "Español": "Lucia"}.get(lang, "Joanna")
+    table = _NEURAL_VOICES.get(lang, _NEURAL_VOICES["English"])
+    if requested in table:
+        return table[requested]
+    # Allow a caller to pass a real Polly VoiceId straight through; otherwise
+    # fall back to the language default rather than risk an invalid VoiceId.
+    known = {v for t in _NEURAL_VOICES.values() for v in t.values()}
+    return requested if requested in known else table["default"]
 
 
 class AwsVoiceProvider:
