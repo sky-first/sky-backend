@@ -72,3 +72,62 @@ async def test_voice_session_auth_matrix(async_client, expired_token, invalid_to
         invalid_token=invalid_token,
         json={"page_id": str(uuid.uuid4()), "turns": [{"role": "user", "text": "hi"}]},
     )
+
+
+@pytest.mark.asyncio
+async def test_voice_session_appends_to_existing_conversation(
+    async_client, test_user, valid_access_token, db_session
+):
+    """Voice asked inside an open chat threads into it, not a new conversation."""
+    page_id = await _make_page(db_session, test_user["user"].id)
+    hdr = bearer(valid_access_token)
+
+    r1 = await async_client.post(
+        "/api/v1/voice/sessions",
+        json={
+            "page_id": str(page_id),
+            "duration_ms": 1000,
+            "turns": [
+                {"role": "user", "text": "how many clients?"},
+                {"role": "sky", "text": "374 clients."},
+            ],
+        },
+        headers=hdr,
+    )
+    assert r1.status_code == 201
+    conv_id = r1.json()["conversation_id"]
+
+    # A follow-up spoken turn threaded into the SAME conversation.
+    r2 = await async_client.post(
+        "/api/v1/voice/sessions",
+        json={
+            "page_id": str(page_id),
+            "duration_ms": 1000,
+            "conversation_id": conv_id,
+            "turns": [
+                {"role": "user", "text": "and invoices?"},
+                {"role": "sky", "text": "128 invoices."},
+            ],
+        },
+        headers=hdr,
+    )
+    assert r2.status_code == 201
+    assert r2.json()["conversation_id"] == conv_id  # appended, not a new thread
+
+    # The thread now holds all four turns, in order.
+    rmsg = await async_client.get(
+        f"/api/v1/conversations/{conv_id}/messages", headers=hdr
+    )
+    contents = [m["content"] for m in rmsg.json()["items"]]
+    assert contents == [
+        "how many clients?",
+        "374 clients.",
+        "and invoices?",
+        "128 invoices.",
+    ]
+
+    # And only ONE conversation exists on the page.
+    rconv = await async_client.get(
+        f"/api/v1/pages/{page_id}/conversations", headers=hdr
+    )
+    assert len(rconv.json()["items"]) == 1

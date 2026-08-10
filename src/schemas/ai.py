@@ -151,6 +151,17 @@ class ChatMessageRequest(BaseModel):
     widget_id: UUID
     page_id: Optional[UUID] = Field(None, description="Page ID for tenant isolation")
     context: Optional[Dict[str, Any]] = None
+    # Multi-turn threading for clients that own a persistent chat surface (the
+    # mobile app). Opt-in: when persist is set, the turn (question + answer) is
+    # saved as a Conversation/Message thread and the conversation id is echoed
+    # back in a meta event. conversation_id appends to an existing thread; its
+    # absence starts a new one. Web callers omit both and stay stateless.
+    conversation_id: Optional[UUID] = Field(
+        None, description="Append this turn to an existing conversation thread."
+    )
+    persist: Optional[bool] = Field(
+        False, description="Persist the turn as a Conversation/Message thread (mobile)."
+    )
     # Explicit collaborative context fields (preferred over context dict)
     space_id: Optional[str] = Field(None, description="Space ID for context")
     crew_id: Optional[str] = Field(None, description="Active crew ID (collaborative mode)")

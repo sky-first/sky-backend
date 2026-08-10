@@ -20,6 +20,8 @@ from src.rate_limit.core import (
     default_buckets_for_request,
     resolve_tenant_key,
 )
+from src.repositories.conversation import ConversationRepository
+from src.repositories.message import MessageRepository
 from src.repositories.page import PageRepository
 from src.repositories.space import SpaceRepository
 from src.schemas.ai import (
@@ -50,6 +52,7 @@ from src.schemas.ai import (
 from src.schemas.chat_stream import (
     done_event,
     error_event,
+    meta_event,
     normalize_event,
     parse_sse_data_line,
     progress_event,
@@ -803,6 +806,28 @@ async def send_chat_message_stream(
         except Exception as _file_err:
             logger.debug("[chat/stream] file context skipped: %s", _file_err)
 
+    # Multi-turn threading (mobile, opt-in). Resolve or create the conversation
+    # up front so its id is stable; the turn's messages are saved once the
+    # answer has fully streamed. Web callers set neither flag and skip all this.
+    from datetime import datetime as _dt
+
+    persist_turn = bool(message_data.persist or message_data.conversation_id)
+    conv_repo = ConversationRepository(db)
+    conv_id = None
+    if persist_turn:
+        if message_data.conversation_id:
+            existing = await conv_repo.get_by_id(message_data.conversation_id)
+            # Only append to a thread the caller owns; otherwise start fresh.
+            if existing is not None and existing.created_by == current_user.id:
+                conv_id = existing.id
+        if conv_id is None:
+            title = (message_data.message or "").strip()[:60] or "New chat"
+            conv = await conv_repo.create(
+                page_id=message_data.page_id, created_by=current_user.id, title=title
+            )
+            conv_id = conv.id
+            await db.commit()
+
     async def event_stream():
         """Normalize AI-engine SSE events onto the locked mobile contract
         (src/schemas/chat_stream.py) and forward only those. The backend owns
@@ -822,6 +847,7 @@ async def send_chat_message_stream(
             yield sse(progress_event("starting", get_message("thinking", message_data.locale)))
             started = True
 
+            answer_parts: List[str] = []
             async for line in ai_client.stream_query_connection(
                 connection_id=str(resolved_connection_id),
                 question=message_data.message,
@@ -837,7 +863,33 @@ async def send_chat_message_stream(
             ):
                 event = normalize_event(parse_sse_data_line(line))
                 if event is not None:
+                    if persist_turn and event.get("type") == "chunk":
+                        answer_parts.append(event.get("content") or "")
                     yield sse(event)
+
+            # Save the completed turn and hand the conversation id back so the
+            # client threads its next message into the same conversation.
+            if persist_turn and conv_id is not None:
+                try:
+                    msg_repo = MessageRepository(db)
+                    await msg_repo.create(
+                        conversation_id=conv_id,
+                        role="user",
+                        kind="question",
+                        content=message_data.message,
+                        user_id=current_user.id,
+                    )
+                    await msg_repo.create(
+                        conversation_id=conv_id,
+                        role="assistant",
+                        kind="ai_response",
+                        content="".join(answer_parts),
+                    )
+                    await conv_repo.update(conv_id, updated_at=_dt.utcnow())
+                    await db.commit()
+                except Exception as _perr:  # persistence must never break the stream
+                    logger.warning("[chat/stream] persist failed: %s", _perr)
+                yield sse(meta_event({"conversation_id": str(conv_id)}))
 
             yield sse(done_event())
         except Exception as exc:

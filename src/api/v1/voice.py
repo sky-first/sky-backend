@@ -220,6 +220,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     started = _time.monotonic()
     turns: list[VoiceTurn] = []
     page_id = None
+    conversation_id = None  # set from `start` → thread voice into an open chat
     muted = False
     persisted = False
     turn_active = False
@@ -240,7 +241,12 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                     dur = int((_time.monotonic() - started) * 1000)
                     conv_id, _title, _n = await VoiceSessionService(db).persist(
                         u,
-                        VoiceSessionCreate(page_id=page_id, turns=turns, duration_ms=dur),
+                        VoiceSessionCreate(
+                            page_id=page_id,
+                            turns=turns,
+                            duration_ms=dur,
+                            conversation_id=conversation_id,
+                        ),
                     )
                     message_id = str(conv_id)
             except Exception:
@@ -340,6 +346,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             action = ctrl.get("action")
             if action == "start":
                 page_id = ctrl.get("page_id") or page_id
+                conversation_id = ctrl.get("conversation_id") or conversation_id
                 ptt = ctrl.get("mode") == "push-to-talk"
                 await state("user_speaking")
             elif action == "mute":
