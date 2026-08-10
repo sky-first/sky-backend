@@ -69,7 +69,7 @@ async def _resolve_voice_tenant(claims: dict):
     return result.context if result.resolution is DeviceResolution.RESOLVED else None
 
 
-async def _voice_answer(user, page_id, text: str, ctx) -> str:
+async def _voice_answer(user, page_id, text: str, ctx, locale: str = "en") -> str:
     """The grounded answer for one voice turn — the same Bedrock engine as chat.
 
     Resolves the caller's connection and asks the AI engine, so a spoken
@@ -96,6 +96,7 @@ async def _voice_answer(user, page_id, text: str, ctx) -> str:
             question=text,
             user_id=str(user.id),
             space_id="default",
+            locale=locale,
         ):
             line = line.strip()
             if not line.startswith("data:"):
@@ -221,6 +222,10 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     turns: list[VoiceTurn] = []
     page_id = None
     conversation_id = None  # set from `start` → thread voice into an open chat
+    # The app language ('en'|'pt'|'es') drives STT language, the answer language,
+    # and the Polly voice, so a PT app gets a PT-spoken answer. Set from `start`.
+    locale = "en"
+    voice_lang = "English"
     muted = False
     persisted = False
     turn_active = False
@@ -268,13 +273,14 @@ async def voice_session_ws(websocket: WebSocket) -> None:
         try:
             turns.append(VoiceTurn(role="user", text=user_text))
             await state("thinking")
-            answer = (await _voice_answer(user, page_id, user_text, ctx)).strip()
+            answer = (await _voice_answer(user, page_id, user_text, ctx, locale)).strip()
             if answer and not barge.is_set():
                 turns.append(VoiceTurn(role="sky", text=answer))
                 await send({"type": "sky_text", "text": answer})  # show it on screen
                 await state("speaking")
                 samples = 0
-                async for audio in provider.synthesize(answer, "Joanna"):
+                tts_voice = {"Portuguese": "Camila", "Español": "Lucia"}.get(voice_lang, "Ruth")
+                async for audio in provider.synthesize(answer, tts_voice):
                     if barge.is_set():
                         break
                     await websocket.send_bytes(audio)
@@ -348,6 +354,15 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                 page_id = ctrl.get("page_id") or page_id
                 conversation_id = ctrl.get("conversation_id") or conversation_id
                 ptt = ctrl.get("mode") == "push-to-talk"
+                locale = (ctrl.get("locale") or locale)[:2]
+                voice_lang = {"pt": "Portuguese", "es": "Español"}.get(locale, "English")
+                # STT booted in English at accept; re-open it in the app language
+                # so a PT question transcribes as PT.
+                if voice_lang != "English":
+                    try:
+                        await provider.start(voice_lang)
+                    except Exception:
+                        pass
                 await state("user_speaking")
             elif action == "mute":
                 muted = True
