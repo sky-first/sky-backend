@@ -337,6 +337,13 @@ class Settings(BaseSettings):
     # so the FE can route them to the enrolment modal.
     CONSOLE_REQUIRE_MFA: bool = False
 
+    # App Store / Play review access. A comma-separated allowlist of emails
+    # that sign in with email + password only (no MFA prompt) so a store
+    # reviewer can enter — a TOTP challenge would block the review. Empty by
+    # default (no exemption); set only in review/staging to a demo account on
+    # demo data. NEVER add a real customer account here.
+    MFA_EXEMPT_EMAILS: str = ""
+
     # Console host isolation. The Internal Console must only serve on
     # its own subdomain so a customer landing on the main app host
     # cannot reach the operator surface even with a forged JWT. The
