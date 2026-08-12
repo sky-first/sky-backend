@@ -164,3 +164,75 @@ async def test_t08_4_abort_closes_upstream():
     assert await gen.__anext__() == "data: a\n\n"
     await gen.aclose()  # client disconnects mid-stream
     assert closed["v"] is True  # upstream was released — nothing leaks
+
+
+# ─── Threading (mobile, opt-in) · persist saves the turn as a conversation ──
+@pytest.mark.asyncio
+async def test_persist_threads_and_saves_messages(
+    async_client, test_user_with_tokens, db_session
+):
+    from sqlalchemy import select
+
+    from src.models.conversation import Message
+
+    engine = [
+        'data: {"type": "chunk", "content": "You have "}',
+        'data: {"type": "chunk", "content": "374 clients."}',
+        'data: {"type": "done"}',
+    ]
+    body = await _drain(
+        async_client,
+        bearer(test_user_with_tokens["access_token"]),
+        {"message": "how many clients?", "widget_id": str(uuid4()), "persist": True},
+        lambda *a, **k: _aiter(engine),
+    )
+    # the server echoes the conversation id in a meta event
+    meta = [
+        e for e in _events(body)
+        if e["type"] == "meta" and e.get("meta", {}).get("conversation_id")
+    ]
+    assert meta, "expected a meta event carrying conversation_id"
+    from uuid import UUID
+
+    conv_id = UUID(meta[-1]["meta"]["conversation_id"])
+
+    # the turn is saved — user question then assistant answer, origin 'text'
+    db_session.expire_all()
+    rows = (
+        (
+            await db_session.execute(
+                select(Message)
+                .where(Message.conversation_id == conv_id)
+                .order_by(Message.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [m.role for m in rows] == ["user", "assistant"]
+    assert rows[0].content == "how many clients?"
+    assert rows[1].content == "You have 374 clients."
+    assert rows[0].origin == "text"
+
+
+# ─── Web behaviour unchanged · no persist flag → nothing is saved ───────────
+@pytest.mark.asyncio
+async def test_no_persist_stays_stateless(async_client, test_user_with_tokens, db_session):
+    from sqlalchemy import func, select
+
+    from src.models.conversation import Conversation
+
+    before = (await db_session.execute(select(func.count(Conversation.id)))).scalar()
+    body = await _drain(
+        async_client,
+        bearer(test_user_with_tokens["access_token"]),
+        {"message": "hi", "widget_id": str(uuid4())},  # no persist → stateless
+        lambda *a, **k: _aiter(
+            ['data: {"type": "chunk", "content": "hi"}', 'data: {"type": "done"}']
+        ),
+    )
+    metas = [e for e in _events(body) if e["type"] == "meta"]
+    assert all(not e.get("meta", {}).get("conversation_id") for e in metas)
+    db_session.expire_all()
+    after = (await db_session.execute(select(func.count(Conversation.id)))).scalar()
+    assert after == before

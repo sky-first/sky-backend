@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
-from src.core.exceptions import ForbiddenError
+from src.core.exceptions import BadRequestError, ForbiddenError
 from src.core.permissions import is_tenant_admin
 from src.models.user import User
 from src.services.dsar_service import DSARService
@@ -21,6 +21,10 @@ class DSARExportRequest(BaseModel):
 
 class DSARDeleteRequest(BaseModel):
     user_email: EmailStr
+    confirm: bool = False
+
+
+class SelfDeleteRequest(BaseModel):
     confirm: bool = False
 
 
@@ -64,3 +68,26 @@ async def dsar_delete(
 
     dsar = DSARService(db)
     return await dsar.erase_user(request.user_email)
+
+
+@router.post(
+    "/account/delete",
+    status_code=status.HTTP_200_OK,
+    summary="Delete my own account (GDPR Art. 17)",
+    description=(
+        "Self-service account deletion: the authenticated user erases their own "
+        "account and data — no admin, no support ticket. Required by App Store "
+        "review guideline 5.1.1(v) for any app that offers account creation."
+    ),
+)
+async def delete_my_account(
+    request: SelfDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Erase the caller's own account (soft-delete + anonymize mentions)."""
+    if not request.confirm:
+        raise BadRequestError("Account deletion requires confirm=true")
+
+    dsar = DSARService(db)
+    return await dsar.erase_user(current_user.email)

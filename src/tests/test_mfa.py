@@ -115,6 +115,41 @@ class TestMFALoginFlow:
         assert response.refresh_token is None
         assert response.mfa_expires_in == MFA_CHALLENGE_TTL_MINUTES * 60
 
+    async def test_mfa_exempt_email_signs_in_without_mfa(
+        self, db_session: AsyncSession, test_user: dict, monkeypatch
+    ):
+        """A store-review account on the exempt allowlist skips the MFA gate."""
+        user = test_user["user"]
+        await self._enrol(db_session, user)  # MFA on — would normally challenge
+
+        from src.services import auth_service as _svc
+
+        monkeypatch.setattr(_svc.settings, "MFA_EXEMPT_EMAILS", test_user["email"])
+
+        auth = AuthenticationService(db_session)
+        response = await auth.login(test_user["email"], test_user["password"])
+
+        assert not response.require_mfa
+        assert not response.force_enrollment
+        assert response.access_token is not None
+        assert response.refresh_token is not None
+
+    async def test_mfa_exemption_is_scoped_to_the_allowlist(
+        self, db_session: AsyncSession, test_user: dict, monkeypatch
+    ):
+        """A different email still hits the MFA gate — no accidental bypass."""
+        user = test_user["user"]
+        await self._enrol(db_session, user)
+
+        from src.services import auth_service as _svc
+
+        monkeypatch.setattr(_svc.settings, "MFA_EXEMPT_EMAILS", "other@example.com")
+
+        auth = AuthenticationService(db_session)
+        response = await auth.login(test_user["email"], test_user["password"])
+        assert response.require_mfa is True
+        assert response.access_token is None
+
     async def test_complete_mfa_login_issues_tokens(
         self, db_session: AsyncSession, test_user: dict
     ):
