@@ -81,14 +81,38 @@ de demonstração, nunca de um cliente real.
 
 ## Seed da conta de revisão
 
-O `seed_demo.py` já vai na imagem do backend e é idempotente: cria o tenant de
-demonstração, a conta `demo@skyfirstlabs.com` e o conteúdo de demonstração.
-Corre-se uma vez, **depois das migrações**, como Job pontual com a mesma imagem
-e os mesmos segredos do Deployment:
+⚠️ **Não usar o `seed_demo.py` para isto.** Uma versão anterior deste README
+mandava fazê-lo, e estava errado — o erro veio de eu ter repetido a instrução
+sem ler o script.
+
+Aquele script existe para desenvolvimento local e tem uma guarda que o impede
+de correr contra uma base não local. A guarda está certa: ele criava um
+utilizador `role="admin"` com password em código e um **segredo TOTP fixo**,
+também em código. Um segredo TOTP no repositório não é MFA — quem tem o
+ficheiro gera códigos válidos para sempre. Em produção seria uma porta de
+administrador com a chave publicada. Contorná-la com
+`ALLOW_REMOTE_DEMO_SEED=1` seria desligar de propósito a proteção.
+
+Usar `scripts/seed_review_account.py`, escrito para produção:
 
 ```
-command: ["python", "seed_demo.py"]
+command: ["python", "scripts/seed_review_account.py"]
+env:
+  - name: REVIEW_ACCOUNT_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: sky-be-prd-aws-common-app-secrets
+        key: review_account_password
 ```
 
-Existe já um `gitops/bootstrap/production-aws/demo-seed.yaml` no `sky-infra` —
-confirmar se cobre este caso antes de criar um Job novo à mão.
+Diferenças que interessam:
+
+* password **pelo ambiente**, vinda do Secrets Manager — recusa arrancar sem ela
+* **não inscreve MFA nenhum**; o revisor entra só com email + password porque o
+  endereço está em `MFA_EXEMPT_EMAILS`, que é para isso que essa lista serve
+* papel **`member`**, não `admin`
+* idempotente, e avisa se o tenant de demonstração ainda não existir
+
+Corre **depois das migrações** e depois dos Jobs que semeiam o conteúdo de
+demonstração (`gitops/manifests/demo-seed` no `sky-infra`, aplicados pela
+Application `sky-demo-seed`) — sem conteúdo, o revisor entra e não vê nada.
