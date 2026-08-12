@@ -17,10 +17,18 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "device_registry_20260805"
-# Chains after the demo-content migrations (which also branched off
-# tenant_domains) so the history stays a single linear head. The devices
-# table is independent of the demo tables, so the order is purely bookkeeping.
-down_revision = "demo_vertical_industry_20260804"
+# Chains after the demo-content migrations so the history stays a single
+# linear head. The devices table is independent of the demo tables, so the
+# order is purely bookkeeping.
+#
+# Re-pointed on merge: this branch was cut when the head was
+# ``demo_vertical_industry_20260804``, but staging moved on to
+# ``demo_lead_progress_20260804`` in the meantime. Merging while still
+# pointing at the older revision would have left **two heads**, and the
+# ArgoCD migrate hook runs ``alembic upgrade head`` (singular) — which
+# aborts with "Multiple head revisions are present" and takes the whole
+# sync down with it. Chaining onto the current head keeps it linear.
+down_revision = "demo_lead_progress_20260804"
 branch_labels = None
 depends_on = None
 
