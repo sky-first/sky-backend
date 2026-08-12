@@ -145,6 +145,7 @@ class TestAuthMethodsEndpoint:
         self,
         async_client: AsyncClient,
         db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """O caminho da app: sem sub-domínio, o domínio do email decide.
 
@@ -178,6 +179,22 @@ class TestAuthMethodsEndpoint:
         await db_session.refresh(tenant)
         db_session.add(TenantDomain(domain=domain, tenant_id=tenant.id, is_active=True))
         await db_session.commit()
+
+        # O endpoint consulta o **registo** numa sessão própria
+        # (``AsyncSessionLocal``), porque tem de responder antes de se saber
+        # qual é o cliente — e essa sessão não vê o que este teste escreveu.
+        # Mesmo padrão dos testes dos workers: substitui-se a fábrica de
+        # sessões pela do teste. Sem fechar a sessão no fim, que é do fixture.
+        class _TestSessionCM:
+            async def __aenter__(self):
+                return db_session
+
+            async def __aexit__(self, *exc):
+                return False
+
+        import src.config.database as database_module
+
+        monkeypatch.setattr(database_module, "AsyncSessionLocal", lambda: _TestSessionCM())
 
         resp = await async_client.get(
             "/api/v1/auth/methods", params={"email": f"alguem@{domain}"}
