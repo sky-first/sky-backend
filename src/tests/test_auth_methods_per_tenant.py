@@ -21,6 +21,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
+from src.models.tenant_domain import TenantDomain
 from src.schemas.tenant import AuthMethods
 
 
@@ -138,6 +139,83 @@ class TestAuthMethodsEndpoint:
         assert body["password"] is True
         assert body["google"] is False
         assert body["tenant_slug"] == slug
+
+    @pytest.mark.asyncio
+    async def test_email_domain_resolves_workspace(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """O caminho da app: sem sub-domínio, o domínio do email decide.
+
+        É isto que permite activar o SSO de um cliente novo e ele entrar
+        pela app da loja no mesmo dia — a app pergunta por email, não por
+        host.
+        """
+        slug = f"emaildisc{uuid.uuid4().hex[:6]}"
+        domain = f"{slug}.example.com"
+        tenant = Tenant(
+            slug=slug,
+            display_name="Email Discovery",
+            tier="starter",
+            db_host="db.example.com",
+            db_name="ai_saas_db",
+            db_credentials_secret_arn="local-dev:t",
+            redis_host="redis.example.com",
+            redis_credentials_secret_arn="local-dev:t:redis",
+            sso_provider="local",
+            sso_config={},
+            feature_flags={},
+            auth_methods={
+                "password": False,
+                "google": True,
+                "azure": False,
+                "okta": False,
+            },
+        )
+        db_session.add(tenant)
+        await db_session.commit()
+        await db_session.refresh(tenant)
+        db_session.add(TenantDomain(domain=domain, tenant_id=tenant.id, is_active=True))
+        await db_session.commit()
+
+        resp = await async_client.get(
+            "/api/v1/auth/methods", params={"email": f"alguem@{domain}"}
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["tenant_slug"] == slug
+        assert body["google"] is True
+        assert body["password"] is False
+        assert body["domain_known"] is True
+
+    @pytest.mark.asyncio
+    async def test_unknown_email_domain_is_flagged(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Domínio que não pertence a cliente nenhum: `domain_known` falso.
+
+        A app precisa de o distinguir dos métodos por omissão. Sem isto
+        mostrava "Continuar com Google" a quem escreveu um email de que
+        ninguém é dono, e o botão levava a um SSO que nunca deixaria entrar.
+        """
+        resp = await async_client.get(
+            "/api/v1/auth/methods",
+            params={"email": f"ninguem@nao-registado-{uuid.uuid4().hex[:8]}.com"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["domain_known"] is False
+        assert body["tenant_slug"] is None
+
+    @pytest.mark.asyncio
+    async def test_host_path_keeps_domain_known_true(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Sem `email`, a resposta é a que o frontend web já recebia."""
+        resp = await async_client.get("/api/v1/auth/methods")
+        assert resp.status_code == 200
+        assert resp.json()["domain_known"] is True
         # A tenant without ``feature_flags.demo_enabled`` set hides the
         # demo link — the operator must opt back in explicitly.
         assert body["show_demo"] is False
