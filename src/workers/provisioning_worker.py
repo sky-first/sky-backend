@@ -97,27 +97,40 @@ def _build_dispatch_payload(
     webhook_url_internal: str,
     webhook_secret: str,
     dispatch_token: str,
+    include_admin_email: bool = True,
 ) -> dict[str, Any]:
-    """Build the body for ``POST workflows/{wf}/dispatches``."""
-    # Pull admin_email out of the original request payload — the
-    # workflow's migrate Job uses it to seed the first human who can
-    # log in. Missing is fine (workflow defaults to admin@<slug>.local).
-    payload = job.request_payload or {}
-    admin_email = ""
-    if isinstance(payload, dict):
-        admin_email = str(payload.get("admin_email") or "").strip()
-    return {
-        "ref": ref,
-        "inputs": {
-            "job_id": str(job.id),
-            "tenant_slug": job.tenant_slug,
-            "webhook_url": webhook_url,
-            "webhook_url_internal": webhook_url_internal,
-            "webhook_secret": webhook_secret,
-            "dispatch_token": dispatch_token,
-            "admin_email": admin_email,
-        },
+    """Build the body for ``POST workflows/{wf}/dispatches``.
+
+    ``include_admin_email`` existe porque os dois workflows não aceitam os
+    mesmos inputs. O ``onboard-client.yml`` declara ``admin_email`` — usa-o
+    para semear o primeiro humano que consegue entrar. O
+    ``offboard-client.yml`` não o declara, e nem faria sentido: não há
+    admin a semear em quem se destrói.
+
+    O GitHub recusa **qualquer** input não declarado, com 422:
+
+        Unexpected inputs provided: ["admin_email"]
+
+    Enviar sempre o campo fazia com que nenhum destroy chegasse a correr.
+    """
+    inputs: dict[str, Any] = {
+        "job_id": str(job.id),
+        "tenant_slug": job.tenant_slug,
+        "webhook_url": webhook_url,
+        "webhook_url_internal": webhook_url_internal,
+        "webhook_secret": webhook_secret,
+        "dispatch_token": dispatch_token,
     }
+    if include_admin_email:
+        # Vem do pedido original — o Job de migração usa-o para semear o
+        # primeiro utilizador. Ausente é aceitável: o workflow assume
+        # admin@<slug>.local.
+        payload = job.request_payload or {}
+        admin_email = ""
+        if isinstance(payload, dict):
+            admin_email = str(payload.get("admin_email") or "").strip()
+        inputs["admin_email"] = admin_email
+    return {"ref": ref, "inputs": inputs}
 
 
 async def _dispatch_workflow(
@@ -345,6 +358,9 @@ async def _destroy_async(job_id: str) -> dict[str, Any]:
                     webhook_url_internal=webhook_url_internal,
                     webhook_secret=webhook_secret,
                     dispatch_token=dispatch_token,
+                    # O offboard-client.yml não declara admin_email, e o
+                    # GitHub recusa inputs não declarados com 422.
+                    include_admin_email=False,
                 )
                 await _dispatch_workflow(
                     client, token, owner, repo, workflow, payload
