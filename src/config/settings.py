@@ -254,8 +254,20 @@ class Settings(BaseSettings):
     )
     RESEND_API_URL: str = Field(default="https://api.resend.com/emails")
     RESEND_TIMEOUT: float = 10.0
-    EMAIL_FROM_ADDRESS: str = Field(default="lucas.ventura@skyfirstlabs.com")
+    # O remetente tem de estar num domínio **verificado na Resend**, e o
+    # que está verificado é o subdomínio `updates.` (DKIM em
+    # `resend._domainkey.updates`, na zona do Route53). O domínio raiz
+    # não está: enviar de `@skyfirstlabs.com` devolvia 403
+    # `domain is not verified` — e como o serviço engole os erros por
+    # design, isso lia-se como "o email deixou de funcionar".
+    EMAIL_FROM_ADDRESS: str = Field(default="lucas.ventura@updates.skyfirstlabs.com")
     EMAIL_FROM_NAME: str = Field(default="Lucas Ventura — SKY")
+    # Mas as respostas têm de cair na caixa real.
+    #
+    # O `updates.` só tem envio (`receiving: disabled` na Resend), por
+    # isso sem isto uma resposta ao email de boas-vindas ia para um sítio
+    # onde ninguém a lê — e o email inteiro existe para pedir resposta.
+    EMAIL_REPLY_TO_ADDRESS: str = Field(default="lucas.ventura@skyfirstlabs.com")
     EMAIL_DASHBOARD_URL: str = Field(default="https://demo.skyfirstlabs.com")
     # Para onde vai o aviso de um contacto novo na demo pública.
     # Sem isto o lead ficava só na base de dados, e ninguém dava por
