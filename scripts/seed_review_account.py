@@ -99,12 +99,15 @@ async def seed() -> None:
                 # `member`, não `admin`. O revisor tem de ver a app a
                 # trabalhar; não tem de poder administrar nada.
                 role="member",
-                is_active=True,
+                # Sem `is_active`: o User não tem esse campo. O que existe
+                # é `status`, e é presença (active/away/offline), não
+                # habilitação da conta — pôr "active" aqui diria que o
+                # revisor está online, que é outra coisa. O seed_demo.py
+                # cria a conta dele exactamente assim, sem nada disto.
             )
             created = True
         else:
             user.password_hash = get_password_hash(password)
-            user.is_active = True
             created = False
         await db.commit()
         await db.refresh(user)
