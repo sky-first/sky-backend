@@ -1,80 +1,94 @@
-# AWS IRSA for the voice pipeline + demo seed
+# Permissões AWS para a pipeline de voz
 
-These manifests let the backend pod get **short-lived AWS credentials** for the
-voice pipeline (Amazon Transcribe STT + Amazon Polly TTS) via **IRSA** (IAM
-Roles for Service Accounts) — replacing the temporary 4-hour SSO credentials we
-currently export by hand. Plus a one-shot Job to seed the demo/review account.
+A pipeline de voz chama **Amazon Transcribe** (STT) e **Amazon Polly** (TTS) em
+`eu-west-1`. Este ficheiro é a política de permissões que o backend precisa
+para o fazer sem as credenciais SSO temporárias de 4 horas que hoje se exportam
+à mão.
 
-## ⚠️ Read first — cloud mismatch to reconcile
+## A cloud é AWS — sem ambiguidade
 
-The existing manifests in `k8s/` target **Azure** (`*.azurecr.io` image,
-`azure-keyvault` ClusterSecretStore, `serviceAccountName: default` for Azure
-Workload Identity). But the CI (`.github/workflows/build-and-push-aws.yml`)
-pushes to **AWS ECR** (`741375879811.dkr.ecr.eu-west-1`) and the voice pipeline
-calls **AWS** Transcribe/Polly. "IRSA" is an **AWS/EKS** concept.
+A versão anterior deste README perguntava se a produção corria em Azure ou AWS,
+por causa dos manifestos Azure na pasta `k8s/`. A dúvida era legítima e a
+resposta é: **AWS EKS, eu-west-1**.
 
-So before applying: confirm which cloud production actually runs on.
-- **AWS EKS** → use these files as-is (IRSA).
-- **Azure AKS** → IRSA does not apply; instead bind an Azure Workload Identity
-  to a federated principal (or an IAM role via web-identity) that AWS trusts,
-  or provision a scoped IAM user and store its keys in the secret. Tell me the
-  target and I'll produce that variant.
+A pasta `k8s/` deste repositório **está morta** — não é por aí que a produção
+faz deploy. O deploy real é GitOps via ArgoCD a partir do repositório
+`sky-infra`, branch `main`, em `gitops/bootstrap/production-aws/backend.yaml`.
+Os manifestos Azure são resto de outra era; existe inclusive um repositório
+`sky-first-sky-infra-azure-archive` marcado *"no longer active — do not apply"*.
 
-These files assume the **AWS EKS** target implied by ECR + the voice services.
+## Não é preciso ServiceAccount nova
 
-## What's here
+Esta pasta chegou a ter um `serviceaccount.yaml` e um `iam-trust-policy.json`.
+**Foram removidos**, e é importante perceber porquê antes de alguém os
+reintroduzir:
 
-| File | What it is |
-|---|---|
-| `iam-voice-permissions.json` | IAM **permissions** policy — Transcribe streaming + Polly. Attach to the role. |
-| `iam-trust-policy.json` | IAM **trust** policy — lets the EKS OIDC provider assume the role for this ServiceAccount. |
-| `serviceaccount.yaml` | The `sky-poc-backend` ServiceAccount annotated with the role ARN. |
-| `../seed-demo-job.yaml` | Manual one-shot Job that runs `seed_demo.py` to bootstrap the demo/review account. |
+O backend de produção **já tem** uma ServiceAccount com IRSA, criada pelo chart
+via GitOps, a assumir a role:
 
-## Setup (infra owner, one time per environment)
+```
+arn:aws:iam::032080729567:role/sky-be-prd-platform-tenants-access
+```
 
-1. **Get the cluster OIDC provider host** (no `https://`):
-   ```
-   aws eks describe-cluster --name <CLUSTER> \
-     --query "cluster.identity.oidc.issuer" --output text | sed 's#https://##'
-   ```
-   Put it into `iam-trust-policy.json` in place of `OIDC_PROVIDER_HOST`, and set
-   `NAMESPACE` (e.g. `staging` / `production`).
+Aplicar uma segunda ServiceAccount com `kubectl` criava um recurso fora do
+GitOps. O ArgoCD tem `selfHeal` e `prune` ligados: ou a desfazia, ou ficavam
+duas identidades a competir pelo mesmo pod. A relação de confiança com o
+provedor OIDC do EKS também já está estabelecida — não há nada a recriar.
 
-2. **Create the role + attach the policy:**
-   ```
-   aws iam create-role --role-name SKY_BACKEND_VOICE_ROLE \
-     --assume-role-policy-document file://iam-trust-policy.json
-   aws iam put-role-policy --role-name SKY_BACKEND_VOICE_ROLE \
-     --policy-name sky-voice --policy-document file://iam-voice-permissions.json
-   ```
+## O que falta, então
 
-3. **Annotate + use the ServiceAccount:** apply `serviceaccount.yaml` (with the
-   role ARN filled in), and change `serviceAccountName: default` →
-   `sky-poc-backend` on the **Deployment**, the **migrate Job**, and the
-   **worker** (anything that touches voice).
+Uma única coisa: **acrescentar as permissões de voz à role que já existe.**
 
-4. **Verify** inside a pod:
-   ```
-   aws sts get-caller-identity      # should show .../SKY_BACKEND_VOICE_ROLE
-   ```
-   Then a voice session works with **no** exported SSO creds and no
-   `VOICE_STT_PROVIDER` juggling.
+```
+aws iam put-role-policy \
+  --role-name sky-be-prd-platform-tenants-access \
+  --policy-name sky-voice \
+  --policy-document file://iam-voice-permissions.json \
+  --profile sky-production
+```
 
-## Also required for store review (config, not IRSA)
+Verificar dentro de um pod:
 
-Add `MFA_EXEMPT_EMAILS` to this environment's secret store (the value the code
-reads via `settings.MFA_EXEMPT_EMAILS`), so the reviewer signs in without MFA:
+```
+aws sts get-caller-identity   # deve mostrar .../sky-be-prd-platform-tenants-access
+```
+
+A partir daí uma sessão de voz funciona **sem** credenciais SSO exportadas e sem
+andar a mexer no `VOICE_STT_PROVIDER`.
+
+`Resource: "*"` é o esperado: estas ações do Transcribe e do Polly não aceitam
+ARNs de recurso.
+
+## `MFA_EXEMPT_EMAILS` — atenção ao ambiente
+
+Também é preciso, para o revisor da loja entrar só com email + password (um
+pedido de TOTP bloqueia a revisão, e é a causa nº1 de rejeição):
 
 ```
 MFA_EXEMPT_EMAILS = demo@skyfirstlabs.com
 ```
 
-Wire it in `external-secret.yaml` the same way as the other keys, and keep it
-**only** in review/staging — never point it at a real customer account.
+⚠️ **Vai em produção, não em staging.** O cluster de staging está desligado
+para não duplicar custos enquanto não há clientes — a produção é o único
+backend de pé, é lá que vive a demo pública, e é contra produção que o revisor
+da Apple e da Google vai autenticar-se. Pôr isto só em staging não tinha
+qualquer efeito na revisão.
 
-## Demo seed
+O risco fica contido pelo desenho: a isenção é avaliada **depois** de a password
+ser verificada, salta apenas o segundo fator, e só para uma lista explícita que
+está vazia por omissão. A regra a respeitar é uma — essa conta só pode ver dados
+de demonstração, nunca de um cliente real.
 
-After migrations, run the seed once (see the header of `../seed-demo-job.yaml`).
-It creates the demo tenant, `demo@skyfirstlabs.com` / `SkyDemo!2026`, and demo
-content. Idempotent, so safe to re-run.
+## Seed da conta de revisão
+
+O `seed_demo.py` já vai na imagem do backend e é idempotente: cria o tenant de
+demonstração, a conta `demo@skyfirstlabs.com` e o conteúdo de demonstração.
+Corre-se uma vez, **depois das migrações**, como Job pontual com a mesma imagem
+e os mesmos segredos do Deployment:
+
+```
+command: ["python", "seed_demo.py"]
+```
+
+Existe já um `gitops/bootstrap/production-aws/demo-seed.yaml` no `sky-infra` —
+confirmar se cobre este caso antes de criar um Job novo à mão.
