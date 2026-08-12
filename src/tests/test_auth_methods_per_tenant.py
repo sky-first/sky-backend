@@ -139,6 +139,9 @@ class TestAuthMethodsEndpoint:
         assert body["password"] is True
         assert body["google"] is False
         assert body["tenant_slug"] == slug
+        # A tenant without ``feature_flags.demo_enabled`` set hides the
+        # demo link — the operator must opt back in explicitly.
+        assert body["show_demo"] is False
 
     @pytest.mark.asyncio
     async def test_email_domain_resolves_workspace(
@@ -233,9 +236,6 @@ class TestAuthMethodsEndpoint:
         resp = await async_client.get("/api/v1/auth/methods")
         assert resp.status_code == 200
         assert resp.json()["domain_known"] is True
-        # A tenant without ``feature_flags.demo_enabled`` set hides the
-        # demo link — the operator must opt back in explicitly.
-        assert body["show_demo"] is False
 
     @pytest.mark.asyncio
     async def test_resolved_tenant_with_demo_opt_in(
