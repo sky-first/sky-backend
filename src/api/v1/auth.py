@@ -99,6 +99,13 @@ class AuthMethodsResponse(BaseModel):
     okta: bool = False
     show_demo: bool = True
     tenant_slug: Optional[str] = None
+    # Só o caminho por email o põe a ``False``: quer dizer "este domínio não
+    # está registado em nenhum workspace". A app precisa de distinguir isso
+    # dos métodos por omissão, senão mostrava "Continuar com Google" a quem
+    # escreveu um email que não pertence a cliente nenhum — e o botão levava
+    # a um SSO que nunca ia deixar entrar. No caminho por host mantém-se
+    # ``True``, que preserva a resposta que o frontend web já recebia.
+    domain_known: bool = True
 
 
 def _slug_from_request(request: Request) -> Optional[str]:
@@ -431,15 +438,43 @@ async def login_mfa_finalize(
     response_model=AuthMethodsResponse,
     summary="Authentication methods enabled for this workspace",
     description=(
-        "Returns the auth methods enabled for the tenant resolved from "
-        "the Host header. The login page mounts this and renders only "
-        "the methods set to true."
+        "Returns the auth methods enabled for a workspace. Without "
+        "``email``, resolves the workspace from the Host header — the web "
+        "login page mounts it that way. With ``email``, resolves from the "
+        "domain of the address (home-realm discovery), which is how the "
+        "mobile app finds the workspace: it talks to a single host and has "
+        "no sub-domain to go by."
     ),
 )
 async def get_auth_methods(
     request: Request,
+    email: Optional[str] = Query(
+        None,
+        description="Work email. The domain identifies the workspace.",
+    ),
     db: AsyncSession = Depends(get_db_session),
 ) -> AuthMethodsResponse:
+    # O caminho por email existe para o login em dois passos da app: primeiro
+    # o email, e só depois o que esse workspace aceita — password, SSO, ou
+    # ambos. É o que permite activar o SSO de um cliente novo e ele entrar na
+    # app da loja no mesmo dia, sem publicar versão nenhuma.
+    #
+    # Isto expõe publicamente que um domínio está registado. É o mesmo que a
+    # Microsoft e a Google fazem no home-realm discovery, e é inevitável: sem
+    # o dizer, não há como oferecer o botão certo. Não revela utilizadores,
+    # só a existência do workspace.
+    if email:
+        tenant = await _tenant_from_email_domain(request, email)
+        if tenant is not None:
+            return _methods_from_tenant(tenant)
+        # Domínio desconhecido. Devolve os métodos por omissão mas assinala
+        # que ninguém o reclama, para a app poder dizê-lo em vez de mostrar
+        # um botão que não leva a lado nenhum.
+        fallback = await _auth_methods_for_request(request, db)
+        fallback.domain_known = False
+        fallback.tenant_slug = None
+        return fallback
+
     return await _auth_methods_for_request(request, db)
 
 
