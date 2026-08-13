@@ -17,8 +17,16 @@ class TestLoginEndpoint:
     """
 
     @pytest.mark.asyncio
-    async def test_login_password_auth_disabled(self, async_client: AsyncClient, test_user: dict):
-        """Password login is disabled — endpoint returns 403 regardless of credentials."""
+    async def test_login_com_credenciais_validas(self, async_client: AsyncClient, test_user: dict):
+        """A password passou a ser o metodo por omissao.
+
+        Este teste afirmava 403 ("password login is disabled"), o que so
+        era verdade porque o defeito global era Google-only. O defeito
+        passou a password — a base que funciona sempre e para a qual a
+        pipeline gera uma credencial em cada cliente novo. O caminho
+        desligado continua coberto em
+        test_login_recusado_quando_o_cliente_desliga_a_password.
+        """
         response = await async_client.post(
             "/api/v1/auth/login",
             json={
@@ -26,14 +34,16 @@ class TestLoginEndpoint:
                 "password": test_user["password"],
             },
         )
-        assert response.status_code == 403
-        data = response.json()
-        assert "error" in data
-        assert "SSO" in data["error"]["message"]
+        assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_login_invalid_email_still_403(self, async_client: AsyncClient, faker):
-        """Even non-existent emails get 403, not 401 — password auth is off the table."""
+    async def test_login_email_inexistente_da_401(self, async_client: AsyncClient, faker):
+        """Email desconhecido: 401, e a mesma resposta que uma password errada.
+
+        Nao se distingue "esse email nao existe" de "a password esta
+        errada" — dizer a diferenca deixa qualquer pessoa descobrir quem
+        tem conta.
+        """
         response = await async_client.post(
             "/api/v1/auth/login",
             json={
@@ -41,11 +51,11 @@ class TestLoginEndpoint:
                 "password": "some_password",
             },
         )
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_login_invalid_password_still_403(self, async_client: AsyncClient, test_user: dict):
-        """Wrong password gets the same 403 — the endpoint never validates credentials anymore."""
+    async def test_login_password_errada_da_401(self, async_client: AsyncClient, test_user: dict):
+        """Password errada: 401, indistinguivel de um email que nao existe."""
         response = await async_client.post(
             "/api/v1/auth/login",
             json={
@@ -53,7 +63,7 @@ class TestLoginEndpoint:
                 "password": "wrong_password",
             },
         )
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_login_invalid_email_format(self, async_client: AsyncClient):
@@ -322,23 +332,23 @@ class TestForgotPasswordEndpoint:
     """Tests for POST /api/v1/auth/forgot-password."""
 
     @pytest.mark.asyncio
-    async def test_forgot_password_disabled(self, async_client: AsyncClient, test_user: dict):
-        """Password reset is disabled alongside password login — returns 403."""
+    async def test_forgot_password_aceite(self, async_client: AsyncClient, test_user: dict):
+        """Com a password ligada por omissao, ha password para repor."""
         response = await async_client.post(
             "/api/v1/auth/forgot-password",
             json={"email": test_user["email"]},
         )
-        assert response.status_code == 403
-        assert "SSO" in response.json()["error"]["message"]
+        assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_forgot_password_nonexistent_email_also_disabled(self, async_client: AsyncClient, faker):
-        """Unknown emails get the same 403 — the endpoint doesn't look anyone up."""
+    async def test_forgot_password_email_desconhecido_responde_igual(self, async_client: AsyncClient, faker):
+        """Emails desconhecidos recebem a MESMA resposta que os conhecidos —
+        senao este endpoint torna-se um verificador de quem tem conta."""
         response = await async_client.post(
             "/api/v1/auth/forgot-password",
             json={"email": faker.email()},
         )
-        assert response.status_code == 403
+        assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_forgot_password_invalid_email_format(self, async_client: AsyncClient):
@@ -355,8 +365,10 @@ class TestResetPasswordEndpoint:
     """Tests for POST /api/v1/auth/reset-password."""
 
     @pytest.mark.asyncio
-    async def test_reset_password_disabled(self, async_client: AsyncClient):
-        """Reset-password is disabled — returns 403, not 400."""
+    async def test_reset_password_token_invalido(self, async_client: AsyncClient):
+        """Com a password ligada, o endpoint avalia mesmo o token — e um
+        token inventado e' recusado por ser invalido, nao por o metodo
+        estar desligado."""
         response = await async_client.post(
             "/api/v1/auth/reset-password",
             json={
@@ -364,8 +376,7 @@ class TestResetPasswordEndpoint:
                 "new_password": "new_password123",
             },
         )
-        assert response.status_code == 403
-        assert "SSO" in response.json()["error"]["message"]
+        assert response.status_code == 400
 
 
 class TestVerifyEmailEndpoint:
