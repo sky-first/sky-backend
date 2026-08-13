@@ -5,6 +5,8 @@ from typing import List, Optional
 from urllib.parse import urlencode
 from uuid import UUID
 
+import logging
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -106,6 +108,9 @@ class AuthMethodsResponse(BaseModel):
     # a um SSO que nunca ia deixar entrar. No caminho por host mantém-se
     # ``True``, que preserva a resposta que o frontend web já recebia.
     domain_known: bool = True
+
+
+from src.core.sso_state import SSOStateError, issue_state, verify_state
 
 
 def _slug_from_request(request: Request) -> Optional[str]:
@@ -1227,7 +1232,11 @@ async def sso_login(
     if provider == "google":
         if not auth0_settings.is_google_enabled:
             raise BadRequestError("Google SSO is not configured")
-        state = auth0_service._generate_state()
+        # State assinado e preso ao cliente que inicia o login. Era
+        # `_generate_state()`, aleatorio e nunca verificado no retorno —
+        # sem CSRF e sem ligacao ao cliente. Ver docs/SEGURANCA-SSO-E-
+        # ISOLAMENTO-TENANT.md, achado A3.
+        state = issue_state(_slug_from_request(request))
         params = {
             "client_id": auth0_settings.GOOGLE_CLIENT_ID,
             "redirect_uri": redirect_uri,
@@ -1239,7 +1248,11 @@ async def sso_login(
     elif provider == "azure":
         if not auth0_settings.is_azure_enabled:
             raise BadRequestError("Azure AD SSO is not configured")
-        state = auth0_service._generate_state()
+        # State assinado e preso ao cliente que inicia o login. Era
+        # `_generate_state()`, aleatorio e nunca verificado no retorno —
+        # sem CSRF e sem ligacao ao cliente. Ver docs/SEGURANCA-SSO-E-
+        # ISOLAMENTO-TENANT.md, achado A3.
+        state = issue_state(_slug_from_request(request))
         params = {
             "client_id": auth0_settings.AZURE_CLIENT_ID,
             "redirect_uri": redirect_uri,
@@ -1251,7 +1264,11 @@ async def sso_login(
     elif provider == "okta":
         if not auth0_settings.is_okta_enabled:
             raise BadRequestError("Okta SSO is not configured")
-        state = auth0_service._generate_state()
+        # State assinado e preso ao cliente que inicia o login. Era
+        # `_generate_state()`, aleatorio e nunca verificado no retorno —
+        # sem CSRF e sem ligacao ao cliente. Ver docs/SEGURANCA-SSO-E-
+        # ISOLAMENTO-TENANT.md, achado A3.
+        state = issue_state(_slug_from_request(request))
         params = {
             "client_id": auth0_settings.OKTA_CLIENT_ID,
             "redirect_uri": redirect_uri,
@@ -1304,6 +1321,26 @@ async def sso_callback(
     """
     if provider not in ["google", "azure", "okta"]:
         raise BadRequestError(f"Unsupported SSO provider: {provider}")
+
+    # O retorno tem de pertencer ao cliente que iniciou o login. Sem esta
+    # verificacao, um `state` obtido em qualquer lado servia para entrar em
+    # qualquer cliente, e o utilizador acabava criado na base em que a
+    # ligacao calhasse cair. Ver docs/SEGURANCA-SSO-E-ISOLAMENTO-TENANT.md,
+    # achados A1 e A3.
+    #
+    # Feito ANTES de instanciar o servico ou tocar na base: um retorno que
+    # nao valide nao deve produzir escrita nenhuma.
+    callback_tenant = _slug_from_request(request)
+    try:
+        verify_state(state, callback_tenant)
+    except SSOStateError as exc:
+        logging.getLogger(__name__).warning(
+            "SSO callback recusado (provider=%s, tenant=%s): %s",
+            provider,
+            callback_tenant or "<plataforma>",
+            exc,
+        )
+        raise BadRequestError("Invalid or expired SSO state")
 
     auth0_service = Auth0Service(db)
 

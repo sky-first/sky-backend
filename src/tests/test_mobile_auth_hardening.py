@@ -238,9 +238,39 @@ class TestAuthFlows:
             "src.services.auth0_service.Auth0Service.handle_google_callback",
             AsyncMock(return_value=test_user["user"]),
         )
+        # O retorno passou a exigir um `state` assinado e preso ao cliente
+        # que iniciou o login — antes era aceite qualquer coisa, o que
+        # deixava criar utilizadores dentro de um cliente a partir de
+        # qualquer conta do fornecedor. Ver
+        # docs/SEGURANCA-SSO-E-ISOLAMENTO-TENANT.md, achados A1 e A3, e
+        # test_sso_tenant_isolation.py para o caso adversarial.
+        #
+        # O ambiente de teste não tem sub-domínio, logo o cliente
+        # resolvido é None — a plataforma.
+        from src.core.sso_state import issue_state
+
         r = await async_client.get(
-            "/api/v1/auth/sso/google/callback", params={"code": "fake-auth-code"}
+            "/api/v1/auth/sso/google/callback",
+            params={"code": "fake-auth-code", "state": issue_state(None)},
         )
         assert r.status_code == 200
         body = r.json()
         assert body["access_token"] and body["refresh_token"]
+
+    # ─── O mesmo retorno, sem state válido, tem de ser recusado ──────────────
+    async def test_t05_5b_sso_callback_sem_state_e_recusado(
+        self, async_client, test_user, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        troca = AsyncMock(return_value=test_user["user"])
+        monkeypatch.setattr(
+            "src.services.auth0_service.Auth0Service.handle_google_callback", troca
+        )
+        r = await async_client.get(
+            "/api/v1/auth/sso/google/callback", params={"code": "fake-auth-code"}
+        )
+        assert r.status_code == 400
+        # E, sobretudo: recusado ANTES de falar com o fornecedor ou de
+        # tocar na base — nenhuma escrita a partir de um retorno forjado.
+        troca.assert_not_awaited()
