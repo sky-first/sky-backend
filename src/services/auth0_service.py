@@ -210,6 +210,58 @@ class Auth0Service:
             getattr(user, "sky_role", None),
         )
 
+    async def _assert_sso_domain_allowed(self, email: str) -> None:
+        """Recusa quem não pertence ao domínio que o cliente declarou.
+
+        `sso_domain_restriction` na linha do cliente. Vazio = sem restrição,
+        que é o estado de quase toda a gente e tem de continuar a funcionar.
+
+        Aceita uma lista separada por vírgulas: uma empresa com
+        ``empresa.com`` e ``empresa.pt`` é o caso normal, não a excepção, e
+        obrigá-la a escolher um só transformava o controlo em algo que ninguém
+        liga.
+
+        A comparação é feita com o "@" à frente. Sem ele, ``empresa.com``
+        deixaria passar ``naoempresa.com`` — o mesmo erro de sufixo que o
+        ``_is_sky_team_email`` já evita do outro lado.
+        """
+        from sqlalchemy import select
+
+        from src.core.tenant_context import current_tenant
+        from src.models.tenant import Tenant
+
+        try:
+            ctx = current_tenant()
+        except Exception:
+            ctx = None
+        slug = getattr(ctx, "slug", None) if ctx else None
+        if not slug:
+            return  # sem cliente resolvido não há domínio de cliente a impor
+
+        row = (
+            await self.db.execute(
+                select(Tenant.sso_domain_restriction).where(Tenant.slug == slug)
+            )
+        ).first()
+        raw = (row[0] if row else None) or ""
+        domains = [d.strip().lower().lstrip("@") for d in raw.split(",") if d.strip()]
+        if not domains:
+            return
+
+        addr = (email or "").lower()
+        if any(addr.endswith("@" + d) for d in domains):
+            return
+
+        logger.warning(
+            "SSO recusado: %s nao pertence a %s (cliente %s)", email, domains, slug
+        )
+        # A mesma mensagem que se dá a quem não está provisionado: não se
+        # confirma a estranhos que domínios é que um cliente aceita.
+        raise ForbiddenError(
+            "This account is not provisioned for this workspace. "
+            "Ask an administrator for an invite."
+        )
+
     async def authorise_sso_identity(
         self,
         *,
@@ -237,6 +289,18 @@ class Auth0Service:
            metadados e nunca lido. Um fornecedor que afirme um email nao
            verificado tomava a conta de quem usa password (achado A4).
         """
+        # 0. O domínio, antes de tudo o resto.
+        #
+        # O `sso_domain_restriction` era gravado pelo Console e **nunca lido** —
+        # um controlo que não controlava nada, e pior do que não existir: quem o
+        # preenchia ficava a acreditar que tinha fechado o cliente a um domínio.
+        #
+        # Vai à frente da regra do "já existe" de propósito. Se alguém foi
+        # provisionado por engano com um endereço de fora (um @gmail.com numa
+        # lista colada à pressa), a existência da conta não deve ser suficiente:
+        # o domínio é a regra da CASA, não uma propriedade do utilizador.
+        await self._assert_sso_domain_allowed(email)
+
         existing = await self.user_repo.get_by_email(email)
 
         if existing is not None:

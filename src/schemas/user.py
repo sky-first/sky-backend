@@ -117,6 +117,15 @@ class UserResponse(UserBase):
     id: UUID
     email_verified: bool
     email_verified_at: Optional[datetime] = None
+    # Se o email de acesso chegou a sair.
+    #
+    # `None` quando a resposta não vem de um convite (a maioria das leituras).
+    # `False` quer dizer: a pessoa TEM acesso, mas não foi avisada — quem
+    # convidou tem de lho dizer por outro meio. Até aqui a falha de envio era
+    # escrita no log e a API respondia sucesso na mesma, o que dava o pior dos
+    # cenários: o administrador via "convidado", o convidado nunca recebia
+    # nada, e ninguém percebia porquê.
+    access_email_sent: Optional[bool] = None
     onboarding_step: Optional[int] = 0
     onboarding_version: int = 0
     needs_onboarding: bool = False
