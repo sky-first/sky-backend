@@ -898,6 +898,37 @@ async def send_chat_message_stream(
             yield sse(progress_event("starting", get_message("thinking", message_data.locale)))
             started = True
 
+            # Uma pergunta escrita na conversa de um agente é uma pergunta AO
+            # AGENTE.
+            #
+            # "E agora o Norte?" só quer dizer alguma coisa se o modelo souber
+            # que o fio nasceu de "que clientes caíram mais de 20%?". Sem isto
+            # a mesma frase é uma pergunta solta, respondida sobre o que
+            # calhar — e era exactamente por isso que iterar com um agente não
+            # funcionava: não havia com quem iterar.
+            if conv_id is not None:
+                try:
+                    from src.services.agent_conversation_service import (
+                        agent_context_instructions,
+                        agent_for_conversation,
+                        recent_discussion,
+                        render_discussion,
+                    )
+
+                    _agent = await agent_for_conversation(db, conv_id)
+                    if _agent is not None:
+                        _lead = agent_context_instructions(
+                            _agent,
+                            render_discussion(await recent_discussion(db, conv_id)),
+                        )
+                        stream_instructions = (
+                            f"{_lead}\n\n{stream_instructions}"
+                            if stream_instructions
+                            else _lead
+                        )
+                except Exception as _agent_err:  # noqa: BLE001
+                    logger.debug("[chat/stream] agent context skipped: %s", _agent_err)
+
             # Bring the team's unanswered comments into the question.
             #
             # In a shared thread, most of what gets written between two AI
