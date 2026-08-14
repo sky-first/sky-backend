@@ -22,6 +22,7 @@ from src.rate_limit.core import (
 )
 from src.repositories.conversation import ConversationRepository
 from src.repositories.message import MessageRepository
+from src.services.message_service import MessageService
 from src.repositories.page import PageRepository
 from src.repositories.space import SpaceRepository
 from src.schemas.ai import (
@@ -857,9 +858,19 @@ async def send_chat_message_stream(
     if persist_turn:
         if message_data.conversation_id:
             existing = await conv_repo.get_by_id(message_data.conversation_id)
-            # Only append to a thread the caller owns; otherwise start fresh.
-            if existing is not None and existing.created_by == current_user.id:
-                conv_id = existing.id
+            # Append to any thread the caller can SEE, not only one they own.
+            #
+            # The ownership test that was here made shared chat impossible: a
+            # crew-mate asking inside a thread someone else opened silently got
+            # a brand-new conversation, so their question and its answer
+            # vanished from the thread everyone else was reading. Visibility is
+            # the right bar — it's crew/space membership (ConversationService
+            # ._can_view), which is exactly who is entitled to the content.
+            if existing is not None:
+                from src.services.conversation_service import ConversationService
+
+                if await ConversationService(db)._can_view(existing, current_user):
+                    conv_id = existing.id
         if conv_id is None:
             title = (message_data.message or "").strip()[:60] or "New chat"
             conv = await conv_repo.create(
@@ -887,10 +898,35 @@ async def send_chat_message_stream(
             yield sse(progress_event("starting", get_message("thinking", message_data.locale)))
             started = True
 
+            # Bring the team's unanswered comments into the question.
+            #
+            # In a shared thread, most of what gets written between two AI
+            # answers is the team arguing about the last one ("this is last
+            # quarter", "split it by region"). Asking the next question
+            # without that discussion throws away the only context that
+            # explains why it's being asked — and it's the whole point of
+            # separating comments from questions in the first place. The
+            # non-streaming /ask-ai endpoint already did this; streaming
+            # didn't, so mobile got the bare question.
+            question_for_ai = message_data.message
+            bundled_comment_ids: List = []
+            if persist_turn and conv_id is not None:
+                try:
+                    pending = await MessageService(db).list_pending_comments(
+                        conv_id, current_user
+                    )
+                    if pending:
+                        question_for_ai = MessageService.build_bundled_prompt(
+                            message_data.message, pending
+                        )
+                        bundled_comment_ids = [m.id for m in pending]
+                except Exception as _bundle_err:  # never block the answer
+                    logger.debug("[chat/stream] comment bundle skipped: %s", _bundle_err)
+
             answer_parts: List[str] = []
             async for line in ai_client.stream_query_connection(
                 connection_id=str(resolved_connection_id),
-                question=message_data.message,
+                question=question_for_ai,
                 user_id=str(current_user.id),
                 space_id=str(scope_space_id),
                 instructions=stream_instructions or None,
@@ -912,19 +948,32 @@ async def send_chat_message_stream(
             if persist_turn and conv_id is not None:
                 try:
                     msg_repo = MessageRepository(db)
-                    await msg_repo.create(
+                    # The question is stored as the user TYPED it, not as the
+                    # bundled prompt. The bundle is machinery for the model;
+                    # showing it in the thread would repeat back at the team
+                    # the comments they can already read above.
+                    question_msg = await msg_repo.create(
                         conversation_id=conv_id,
                         role="user",
                         kind="question",
                         content=message_data.message,
                         user_id=current_user.id,
                     )
-                    await msg_repo.create(
+                    answer_msg = await msg_repo.create(
                         conversation_id=conv_id,
                         role="assistant",
                         kind="ai_response",
                         content="".join(answer_parts),
+                        parent_message_id=question_msg.id,
                     )
+                    # Mark the comments this answer took in, so the next
+                    # question doesn't carry them again — otherwise the same
+                    # discussion is re-sent on every turn, growing the prompt
+                    # and paying for it each time.
+                    if bundled_comment_ids:
+                        await msg_repo.mark_incorporated(
+                            message_ids=bundled_comment_ids, ai_response_id=answer_msg.id
+                        )
                     await conv_repo.update(conv_id, updated_at=_dt.utcnow())
                     await db.commit()
                 except Exception as _perr:  # persistence must never break the stream
