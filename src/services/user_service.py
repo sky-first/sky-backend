@@ -81,24 +81,19 @@ class UserService:
 
         return UserResponse.model_validate(user_to_response_dict(user))
 
-    async def _assert_password_invite_allowed(self) -> None:
-        """Refuse the email+password invite flow when the tenant's
-        ``auth_methods`` config has ``password`` disabled.
+    async def _tenant_auth_methods(self) -> dict:
+        """Como é que se entra NESTE cliente.
 
-        Lucas surfaced the gap (2026-05-30): the invite endpoint sent the
-        accept-invite email regardless of tenant SSO config, so an
-        invitee on a Google-only workspace would set a password they
-        could never use to log in. We re-check the same shape the
-        ``/api/v1/auth/methods`` endpoint exposes — tenant row when
-        the resolver populated one, otherwise the ``DEFAULT_AUTH_METHODS``
-        floor (Google-only).
+        A mesma forma que o ``/api/v1/auth/methods`` expõe: a linha do cliente
+        quando o resolvedor a preencheu, senão o chão do
+        ``DEFAULT_AUTH_METHODS`` (só Google).
         """
         from sqlalchemy import select
 
         from src.core.tenant_context import current_tenant
         from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
 
-        password_enabled = bool(DEFAULT_AUTH_METHODS.get("password", False))
+        methods = dict(DEFAULT_AUTH_METHODS)
         try:
             ctx = current_tenant()
         except Exception:
@@ -111,13 +106,29 @@ class UserService:
                 )
             ).first()
             if row and isinstance(row[0], dict):
-                password_enabled = bool(row[0].get("password", password_enabled))
-        if not password_enabled:
+                methods.update(row[0])
+        return methods
+
+    @staticmethod
+    def _sso_provider_label(methods: dict) -> str:
+        """O nome que o convidado vai reconhecer no botão de entrar."""
+        for key, label in (("google", "Google"), ("azure", "Microsoft"), ("okta", "Okta")):
+            if methods.get(key):
+                return label
+        return "single sign-on"
+
+    async def _assert_password_invite_allowed(self) -> None:
+        """Refuse the email+password invite flow when the tenant's
+        ``auth_methods`` config has ``password`` disabled.
+
+        Mantido para quem precise MESMO de uma palavra-passe. O convite normal
+        já não passa por aqui — ver ``create_user``.
+        """
+        methods = await self._tenant_auth_methods()
+        if not methods.get("password"):
             raise BadRequestError(
-                "This workspace is configured for SSO sign-in only. Email-and-password "
-                "invites are disabled — ask the new member to sign in with the same "
-                "identity provider the rest of the team uses, or change the workspace's "
-                "auth methods first."
+                "This workspace is configured for SSO sign-in only, so there is no "
+                "password to set."
             )
 
     async def create_user(self, user_data: UserCreate, current_user: User) -> UserResponse:
@@ -143,28 +154,34 @@ class UserService:
         if existing_user:
             raise BadRequestError("User with this email already exists")
 
-        # Tenants that don't have ``password`` in their ``auth_methods``
-        # config cannot use the email+password invite flow: the invitee
-        # would set a password they could never actually log in with
-        # (login then rejects with ``method_disabled``). Refuse the invite
-        # up front so the admin sees the real reason. Single-tenant
-        # deployments without a tenant resolver default to the
-        # ``DEFAULT_AUTH_METHODS`` shape (Google-only); the explicit check
-        # keeps the silent breakage from surfacing post-merge.
-        await self._assert_password_invite_allowed()
-
-        # Generate secure invite token
+        # Duas maneiras de dar acesso, conforme o cliente entra.
+        #
+        # Um cliente só-SSO não tem palavra-passe para o convidado definir —
+        # e, ATÉ AQUI, isso recusava a criação. O efeito era um cliente
+        # fechado sobre si próprio: ninguém podia ser criado, e o retorno do
+        # SSO (desde o #611) só deixa entrar quem já existe. Resultado: um
+        # workspace só-SSO nunca mais podia acrescentar um colega, e a
+        # mensagem de erro mandava-o "entrar com o fornecedor de identidade",
+        # coisa que o gate do SSO recusa.
+        #
+        # Convidar não é mandar definir uma palavra-passe: é DAR ACESSO. Num
+        # cliente só-SSO isso significa provisionar a pessoa e dizer-lhe por
+        # que porta entra. A palavra-passe é um meio, não o fim.
         import secrets
         from datetime import datetime, timedelta, timezone
 
-        invite_token = secrets.token_urlsafe(32)
-        invite_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        methods = await self._tenant_auth_methods()
+        password_login = bool(methods.get("password"))
 
-        # Override password with a random secure one (user must set it via invite)
-        # This prevents the fixed "TempPassword123!" from being usable
+        # Em qualquer dos casos a palavra-passe fica aleatória e inutilizável:
+        # no caminho de password é substituída pelo convidado; no de SSO nunca
+        # chega a servir para nada.
         secure_random_password = secrets.token_urlsafe(16)
+        invite_token = secrets.token_urlsafe(32) if password_login else None
+        invite_expires_at = (
+            datetime.now(timezone.utc) + timedelta(days=7) if password_login else None
+        )
 
-        # Create user with invite data
         user = await self.user_repo.create(
             email=user_data.email,
             password_hash=get_password_hash(secure_random_password),
@@ -182,26 +199,52 @@ class UserService:
         # Ensure default page/space for new users created by admins
         await ensure_default_page_and_space(self.db, user)
 
-        # Send invite email
-        try:
-            email_service = EmailService()
-            # Define frontend URL (should be in settings, fallback to localhost)
-            frontend_url = "http://localhost:3000"
-            if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
-                # Take first origin as frontend URL
-                frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
-
-            invite_link = f"{frontend_url}/auth/accept-invite?token={invite_token}"
-
-            email_success = email_service.send_invite_email(
-                user.email, invite_link, current_user.name
-            )
-            if not email_success:
-                logger.warning(f"Failed to send invite email to {user.email}")
-        except Exception as e:
-            logger.error(f"Error sending invite email: {e}")
+        await self._send_access_email(
+            user=user,
+            inviter_name=current_user.name,
+            invite_token=invite_token,
+            methods=methods,
+        )
 
         return UserResponse.model_validate(user_to_response_dict(user))
+
+    async def _send_access_email(
+        self,
+        *,
+        user,
+        inviter_name: str,
+        invite_token: Optional[str],
+        methods: dict,
+    ) -> bool:
+        """Diz à pessoa que tem acesso, e por que porta entra.
+
+        Devolve se o envio foi aceite. O chamador decide o que fazer com isso —
+        até aqui a falha era engolida e a API respondia sucesso na mesma, o que
+        dava o pior dos cenários: o administrador via "convidado", o convidado
+        nunca recebia nada, e ninguém percebia porquê.
+        """
+        frontend_url = "http://localhost:3000"
+        if getattr(settings, "CORS_ORIGINS", None):
+            frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
+
+        try:
+            email_service = EmailService()
+            if invite_token:
+                link = f"{frontend_url}/auth/accept-invite?token={invite_token}"
+                ok = email_service.send_invite_email(user.email, link, inviter_name)
+            else:
+                ok = email_service.send_sso_access_email(
+                    user.email,
+                    login_link=f"{frontend_url}/login",
+                    inviter_name=inviter_name,
+                    provider_label=self._sso_provider_label(methods),
+                )
+        except Exception:
+            logger.exception("Failed to send access email to %s", user.email)
+            return False
+        if not ok:
+            logger.warning("Access email not accepted for %s", user.email)
+        return bool(ok)
 
     async def update_user(
         self, user_id: UUID, user_data: UserUpdate, current_user: User
@@ -515,11 +558,12 @@ class UserService:
         if not check_permission(current_user, "user", "update"):
             raise ForbiddenError("You don't have permission to invite users")
 
-        # Mirror create_user: refuse if this tenant's auth_methods has
-        # password disabled (SSO-only). Re-inviting an existing user via
-        # password while the tenant is SSO-only would silently break the
-        # invitee's login.
-        await self._assert_password_invite_allowed()
+        # A mesma bifurcação do ``create_user``: num cliente só-SSO não há
+        # palavra-passe para reenviar, mas continua a fazer sentido relembrar a
+        # pessoa de que tem acesso e por que porta entra. Recusar era deixar o
+        # administrador sem forma nenhuma de insistir.
+        methods = await self._tenant_auth_methods()
+        password_login = bool(methods.get("password"))
 
         user = await self.user_repo.get_by_id(user_id)
         if not user:
@@ -541,36 +585,41 @@ class UserService:
             if expires_at < datetime.now(timezone.utc):
                 should_generate_token = True
 
-        if should_generate_token:
+        if should_generate_token and password_login:
             user.invite_token = secrets.token_urlsafe(32)
             user.invite_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
             user.invited_by = current_user.id
             await self.db.commit()
             await self.db.refresh(user)
 
-        # Send invite email
+        # Prefer the tenant host the admin is actually on (``base_url``) so the
+        # invitee lands on the tenant front-end and the token validates against
+        # the tenant DB. Fall back to the platform CORS origin only for
+        # non-request callers.
+        frontend_url = base_url
+        if not frontend_url and getattr(settings, "CORS_ORIGINS", None):
+            frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
+        if not frontend_url:
+            frontend_url = "http://localhost:3000"
+        frontend_url = frontend_url.rstrip("/")
+
         try:
             email_service = EmailService()
-            # Prefer the tenant host the admin is actually on (``base_url``)
-            # so the invitee lands on the tenant front-end and the token
-            # validates against the tenant DB. Fall back to the platform
-            # CORS origin only for non-request callers.
-            frontend_url = base_url
-            if not frontend_url and hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
-                frontend_url = settings.CORS_ORIGINS.split(",")[0].strip()
-            if not frontend_url:
-                frontend_url = "http://localhost:3000"
-
-            invite_link = f"{frontend_url.rstrip('/')}/auth/accept-invite?token={user.invite_token}"
-
-            email_success = email_service.send_invite_email(
-                user.email, invite_link, current_user.name
-            )
-            if not email_success:
-                logger.warning(f"Failed to send invite email to {user.email}")
+            if password_login:
+                link = f"{frontend_url}/auth/accept-invite?token={user.invite_token}"
+                email_success = email_service.send_invite_email(
+                    user.email, link, current_user.name
+                )
             else:
-                logger.info(f"✅ Invite email sent to {user.email}")
-        except Exception as e:
-            logger.error(f"Error sending invite email: {e}")
+                email_success = email_service.send_sso_access_email(
+                    user.email,
+                    login_link=f"{frontend_url}/login",
+                    inviter_name=current_user.name,
+                    provider_label=self._sso_provider_label(methods),
+                )
+            if not email_success:
+                logger.warning("Access email not accepted for %s", user.email)
+        except Exception:
+            logger.exception("Error sending access email to %s", user.email)
 
         return UserResponse.model_validate(user_to_response_dict(user))
