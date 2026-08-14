@@ -141,6 +141,11 @@ async def post_agent_answer(
         role="assistant",
         kind="ai_response",
         content=text,
+        # O achado desta corrida viaja com a mensagem: e o que permite ao
+        # cliente desenhar o cartao (grafico + indicadores) em vez de um
+        # paragrafo de texto. Sem ele, a resposta diaria no fio ficava mais
+        # pobre do que a mesma resposta no feed.
+        finding_id=finding_id,
     )
     # Marca a conversa como mexida, para subir na lista da sala — senão a
     # resposta de hoje ficava enterrada por baixo de conversas antigas.

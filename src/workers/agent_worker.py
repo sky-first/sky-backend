@@ -357,6 +357,10 @@ async def _execute_agent_async(agent_id: str):
         depth = agent.depth or "standard"
         cycles = DEPTH_CYCLES.get(depth, 3)
         findings_created = 0
+        # O achado desta corrida que a mensagem do fio vai apresentar como
+        # cartao. Uma corrida com varios achados mostra o mais recente; os
+        # outros continuam a aparecer no feed.
+        last_finding_id = None
         ai_client = AIServiceHTTPClient()
 
         try:
@@ -692,6 +696,8 @@ async def _execute_agent_async(agent_id: str):
                             rows=rows_payload,
                         )
                         db.add(finding)
+                        await db.flush()  # precisa do id para o ligar a mensagem
+                        last_finding_id = finding.id
                         findings_created += 1
 
                 except Exception as e:
@@ -712,7 +718,12 @@ async def _execute_agent_async(agent_id: str):
                         post_agent_answer,
                     )
 
-                    await post_agent_answer(db, agent=agent, answer=answer)
+                    await post_agent_answer(
+                        db,
+                        agent=agent,
+                        answer=answer,
+                        finding_id=last_finding_id,
+                    )
                 except Exception as _post_err:  # noqa: BLE001
                     logger.warning(
                         "Agent %s: could not post to its conversation: %s",
