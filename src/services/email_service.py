@@ -270,6 +270,103 @@ class EmailService:
         )
         return self.send_email(to_email, subject, html_content, text_content)
 
+    def send_sso_access_email(
+        self,
+        to_email: str,
+        login_link: str,
+        inviter_name: str = "Administrator",
+        provider_label: str = "single sign-on",
+        workspace_name: Optional[str] = None,
+    ) -> bool:
+        """Diz a alguém que tem acesso a um workspace que entra por SSO.
+
+        O convite normal manda definir uma palavra-passe. Num workspace só-SSO
+        não há palavra-passe nenhuma para definir — mas a pessoa continua a
+        precisar de saber duas coisas que não adivinha: que **já** tem acesso
+        (foi provisionada; sem isso o SSO recusa-a) e por que **botão** entra.
+        Um email a dizer "define a tua palavra-passe" num workspace destes
+        manda-a a uma parede.
+
+        Sem prazo de validade, ao contrário do convite: não há token para
+        expirar — o acesso é a existência da conta.
+        """
+        if not workspace_name:
+            try:
+                from src.core.tenant_context import current_tenant
+
+                ctx = current_tenant()
+                if ctx is not None and not ctx.is_default:
+                    workspace_name = ctx.display_name or None
+            except Exception:  # pragma: no cover — defensive, never block send
+                workspace_name = None
+        app_name = workspace_name or getattr(settings, "APP_NAME", "Sky")
+
+        subject = f"{inviter_name} added you to {app_name}"
+        preheader = (
+            f"{inviter_name} gave you access to {app_name}. "
+            f"Sign in with {provider_label} — no password needed."
+        )
+        html_content = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f4f4f5;">
+    <div style="display:none;max-height:0;overflow:hidden;">{preheader}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:12px;overflow:hidden;">
+            <tr>
+              <td style="background:#1b1b1b;padding:20px 28px;">
+                <span style="color:#fbbf24;font-family:Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;letter-spacing:0.5px;">SKY</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:32px 28px 8px 28px;font-family:Helvetica,Arial,sans-serif;color:#1b1b1b;">
+                <h1 style="margin:0 0 12px 0;font-size:22px;line-height:28px;">You have access to {app_name}</h1>
+                <p style="margin:0 0 8px 0;font-size:15px;line-height:22px;color:#3f3f46;">
+                  {inviter_name} added you to the workspace.
+                </p>
+                <p style="margin:0 0 24px 0;font-size:15px;line-height:22px;color:#3f3f46;">
+                  There is no password to set — this workspace signs in with
+                  <strong>{provider_label}</strong>. Use the same account you use at work.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td align="left" style="padding:0 28px 32px 28px;">
+                <a href="{login_link}" style="display:inline-block;background:#fbbf24;color:#1b1b1b;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;text-decoration:none;padding:12px 22px;border-radius:8px;">
+                  Sign in with {provider_label}
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 28px 28px 28px;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:18px;color:#71717a;">
+                If you weren't expecting this, you can ignore this email — you
+                simply won't sign in.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
+        text_content = (
+            f"You have access to {app_name}\n"
+            f"\n"
+            f"{inviter_name} added you to the workspace.\n"
+            f"\n"
+            f"There is no password to set — this workspace signs in with\n"
+            f"{provider_label}. Use the same account you use at work:\n"
+            f"{login_link}\n"
+            f"\n"
+            f"If you weren't expecting this, you can ignore this email.\n"
+            f"\n"
+            f"— Sky First Labs\n"
+        )
+        return self.send_email(to_email, subject, html_content, text_content)
+
     def send_password_reset_email(
         self,
         to_email: str,

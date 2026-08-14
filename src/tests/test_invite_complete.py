@@ -12,22 +12,24 @@ from src.services.user_service import UserService
 
 
 @pytest.fixture(autouse=True)
-def _allow_password_invite(monkeypatch):
-    """Bypass the auth_methods gate (PR #474) for these end-to-end tests.
+def _tenant_allows_password(monkeypatch):
+    """Estes testes cobrem o convite POR PALAVRA-PASSE — logo, um cliente que a
+    aceite.
 
-    The integration suite exercises the full create/invite flow against an
-    in-memory SQLite DB without spinning up a tenant resolver. The new
-    ``_assert_password_invite_allowed`` guard otherwise falls back to
-    ``DEFAULT_AUTH_METHODS`` (Google-only) and refuses the invite, which is
-    the *correct* behaviour in production but unrelated to what these tests
-    are pinning. Replace the guard with a no-op so each case can focus on
-    the flow it actually covers; the gate itself is tested separately in
-    ``test_invite_respects_auth_methods.py``.
+    Antes bastava desarmar a guarda ``_assert_password_invite_allowed``, porque
+    o único efeito do ``auth_methods`` era recusar. Deixou de ser: desde
+    14/08/2026 um cliente só-SSO já não recusa — provisiona a pessoa e manda-lhe
+    "entra com o Google" (ver ``test_invite_sso_only_workspace.py``). Ou seja, o
+    ``auth_methods`` passou a ESCOLHER o caminho em vez de o bloquear, e um teste
+    do caminho da palavra-passe tem de dizer que está num cliente com
+    palavra-passe — senão está a testar o outro ramo sem dar por isso.
+
+    Sem resolvedor de cliente, o chão é ``DEFAULT_AUTH_METHODS`` (só Google).
     """
     monkeypatch.setattr(
         UserService,
-        "_assert_password_invite_allowed",
-        AsyncMock(return_value=None),
+        "_tenant_auth_methods",
+        AsyncMock(return_value={"password": True, "google": True}),
     )
     yield
 
