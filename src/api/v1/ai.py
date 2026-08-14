@@ -1,7 +1,7 @@
 """AI endpoints."""
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
@@ -581,6 +581,37 @@ async def send_chat_message(
     return response
 
 
+# How many attachments one chat message may carry. Mirrors MAX_ATTACHMENTS in
+# the mobile composer; enforced here too so the cap doesn't depend on the
+# client behaving. Each one is re-read on every question of the conversation,
+# so this is a context-budget decision, not a UI one.
+MAX_CHAT_ATTACHMENTS = 3
+
+
+def attachment_ids(ctx: Any) -> list[str]:
+    """The attachment ids in a chat ``context``, newest shape first.
+
+    ``file_ids`` is what mobile sends since it can attach several documents.
+    ``file_id`` is the older single-attachment shape and is still honoured —
+    an older client must keep working, and mobile sends both so an older
+    backend still grounds on one document instead of none.
+    """
+    if not isinstance(ctx, dict):
+        return []
+    raw = ctx.get("file_ids")
+    if isinstance(raw, list):
+        ids = [str(f) for f in raw if f]
+    elif ctx.get("file_id"):
+        ids = [str(ctx["file_id"])]
+    else:
+        ids = []
+    # Duplicates would feed the model the same document twice and eat an
+    # attachment slot doing it.
+    seen: set[str] = set()
+    unique = [i for i in ids if not (i in seen or seen.add(i))]
+    return unique[:MAX_CHAT_ATTACHMENTS]
+
+
 @router.post(
     "/chat/upload",
     status_code=status.HTTP_201_CREATED,
@@ -782,11 +813,16 @@ async def send_chat_message_stream(
         except Exception as _ins_err:
             logger.debug("[chat/stream] insight context skipped: %s", _ins_err)
 
-    # Attachment ("+") — when the client passes context.file_id, load the
-    # extracted text (scoped to the caller so one user can't read another's
-    # upload) and prepend it so the answer is grounded in the document.
-    _file_id = _ctx.get("file_id") if isinstance(_ctx, dict) else None
-    if _file_id:
+    # Attachments ("+") — the client passes context.file_ids (mobile sends up
+    # to MAX_CHAT_ATTACHMENTS). Load each one's extracted text, scoped to the
+    # caller so one user can't read another's upload, and prepend it so the
+    # answer is grounded in the documents.
+    #
+    # context.file_id (singular) is the older shape and still accepted: a
+    # client that predates file_ids must keep working, and mobile sends both
+    # so an older backend still gets one document instead of none.
+    _file_leads: list[str] = []
+    for _file_id in attachment_ids(_ctx):
         try:
             import uuid as _uuid
 
@@ -796,15 +832,19 @@ async def send_chat_message_stream(
             if _fu is not None and _fu.user_id == current_user.id:
                 _ftext = ((_fu.parsed_data or {}).get("text") or "").strip()
                 if _ftext:
-                    _flead = (
+                    _file_leads.append(
                         f'The user attached a document named "{_fu.original_name}". '
                         f'Use its contents to answer:\n"""\n{_ftext[:100000]}\n"""'
                     )
-                    stream_instructions = (
-                        f"{_flead}\n\n{stream_instructions}" if stream_instructions else _flead
-                    )
         except Exception as _file_err:
             logger.debug("[chat/stream] file context skipped: %s", _file_err)
+    if _file_leads:
+        # Joined once, in the order the user attached them — prepending inside
+        # the loop would hand the model the documents back to front.
+        _flead = "\n\n".join(_file_leads)
+        stream_instructions = (
+            f"{_flead}\n\n{stream_instructions}" if stream_instructions else _flead
+        )
 
     # Multi-turn threading (mobile, opt-in). Resolve or create the conversation
     # up front so its id is stable; the turn's messages are saved once the
