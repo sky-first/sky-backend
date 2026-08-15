@@ -144,3 +144,33 @@ async def test_email_falhado_nao_impede_o_acesso(monkeypatch):
         await svc.create_user(data, _Caller())
 
     svc.user_repo.create.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_resposta_diz_se_o_email_saiu(monkeypatch):
+    """O acesso é a conta existir; o email é o aviso.
+
+    Até aqui a falha de envio era escrita no log e a API respondia sucesso na
+    mesma — o pior dos cenários: o administrador via "convidado", o convidado
+    nunca recebia nada, e ninguém percebia porquê. Agora a resposta separa as
+    duas coisas, para quem convida saber que tem de avisar à mão.
+    """
+    svc = _service({"password": False, "google": True})
+    _tenant(monkeypatch)
+    data = MagicMock(email="nova@cliente.com", name="Nova", avatar=None, role="member")
+
+    captured = {}
+    with (
+        patch("src.services.user_service.check_permission", return_value=True),
+        patch("src.services.user_service.ensure_default_page_and_space", AsyncMock()),
+        patch("src.services.user_service.EmailService") as email_cls,
+        patch("src.services.user_service.user_to_response_dict", lambda u: {}),
+        patch(
+            "src.schemas.user.UserResponse.model_validate",
+            lambda d: captured.update(d) or d,
+        ),
+    ):
+        email_cls.return_value.send_sso_access_email.return_value = False
+        await svc.create_user(data, _Caller())
+
+    assert captured["access_email_sent"] is False

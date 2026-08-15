@@ -199,14 +199,18 @@ class UserService:
         # Ensure default page/space for new users created by admins
         await ensure_default_page_and_space(self.db, user)
 
-        await self._send_access_email(
+        sent = await self._send_access_email(
             user=user,
             inviter_name=current_user.name,
             invite_token=invite_token,
             methods=methods,
         )
 
-        return UserResponse.model_validate(user_to_response_dict(user))
+        # O acesso é a conta existir; o email é o aviso. Separá-los na resposta
+        # deixa quem convida saber que tem de avisar à mão, em vez de assumir.
+        return UserResponse.model_validate(
+            {**user_to_response_dict(user), "access_email_sent": sent}
+        )
 
     async def _send_access_email(
         self,
@@ -603,6 +607,7 @@ class UserService:
             frontend_url = "http://localhost:3000"
         frontend_url = frontend_url.rstrip("/")
 
+        email_success = False
         try:
             email_service = EmailService()
             if password_login:
@@ -622,4 +627,6 @@ class UserService:
         except Exception:
             logger.exception("Error sending access email to %s", user.email)
 
-        return UserResponse.model_validate(user_to_response_dict(user))
+        return UserResponse.model_validate(
+            {**user_to_response_dict(user), "access_email_sent": bool(email_success)}
+        )
