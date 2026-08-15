@@ -78,14 +78,14 @@ class TestAuthMethodsEndpoint:
     @pytest.mark.asyncio
     async def test_default_when_no_host(self, async_client: AsyncClient) -> None:
         """Bare hostname with no tenant resolvable: e' a plataforma a
-        responder, nao um cliente por configurar — password E Google, que
-        e' por onde a equipa da Sky entra. Demo link on (Sky landing
-        pitches prospects)."""
+        responder, nao um cliente por configurar — **so Google**, que e' por
+        onde a equipa da Sky entra (decisao do Lucas, 15/08/2026). Demo link
+        on (Sky landing pitches prospects)."""
         resp = await async_client.get("/api/v1/auth/methods")
         assert resp.status_code == 200
         body = resp.json()
         assert body["google"] is True
-        assert body["password"] is True
+        assert body["password"] is False
         assert body["azure"] is False
         assert body["okta"] is False
         assert body["show_demo"] is True
@@ -110,7 +110,9 @@ class TestAuthMethodsEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["google"] is True
-        assert body["password"] is True
+        # Sem cliente resolvido quem responde e' a plataforma, e a plataforma
+        # e' so SSO. Um host inexistente nao pode oferecer mais do que ela.
+        assert body["password"] is False
 
     @pytest.mark.asyncio
     async def test_resolved_tenant_returns_its_methods(

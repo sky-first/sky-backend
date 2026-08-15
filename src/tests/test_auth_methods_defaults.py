@@ -39,16 +39,20 @@ def test_cliente_novo_nao_nasce_com_sso_ligado():
     assert DEFAULT_AUTH_METHODS["okta"] is False
 
 
-def test_a_plataforma_continua_a_oferecer_o_google():
-    """O login da equipa não pode regredir.
+def test_a_plataforma_e_so_sso():
+    """O login da equipa é só Google — decisão do Lucas, 15/08/2026.
 
     A equipa entra com contas @skyfirstlabs.com do Google Workspace e,
     como esse domínio ainda não está registado, cai no caminho de
     "nenhum cliente resolvido". Se este valor seguisse o defeito dos
-    clientes novos, o botão do Google desaparecia.
+    clientes novos, o botão do Google desaparecia — daí serem duas
+    constantes.
+
+    E a palavra-passe fica FORA: seria uma segunda porta para a própria
+    plataforma, a superfície mais sensível que há, e ninguém a usa.
     """
     assert PLATFORM_FALLBACK_AUTH_METHODS["google"] is True
-    assert PLATFORM_FALLBACK_AUTH_METHODS["password"] is True
+    assert PLATFORM_FALLBACK_AUTH_METHODS["password"] is False
 
 
 def test_os_dois_defeitos_sao_mesmo_diferentes():
