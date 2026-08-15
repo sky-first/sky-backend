@@ -21,7 +21,11 @@ from src.api.deps import (  # get_current_user usado em outros endpoints
 from src.api.middleware.tenant_resolver import _load_tenant_by_id
 from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError, ForbiddenError
-from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
+from src.models.tenant import (
+    DEFAULT_AUTH_METHODS,
+    PLATFORM_FALLBACK_AUTH_METHODS,
+    Tenant,
+)
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.permission import EffectivePermissionsResponse
@@ -203,8 +207,9 @@ async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthM
     3. Slug parsed from the ``Host`` header → DB lookup. Used by
        requests that escape the middleware (some health probes /
        internal paths skip it on purpose).
-    4. Nothing resolvable → fall back to ``DEFAULT_AUTH_METHODS``
-       (Google-only) so the platform's bare hostname keeps working.
+    4. Nothing resolvable → fall back to ``PLATFORM_FALLBACK_AUTH_METHODS``
+       (só Google): sem cliente resolvido quem está a responder é a
+       plataforma, e a equipa da Sky entra por SSO e mais nada.
     """
     methods: Optional[dict] = None
     feature_flags: Optional[dict] = None
@@ -239,7 +244,9 @@ async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthM
                 feature_flags = dict(row[1]) if row[1] else None
 
     if not methods:
-        methods = dict(DEFAULT_AUTH_METHODS)
+        # Sem cliente resolvido é a plataforma que está a responder, não
+        # um cliente por configurar. Ver o comentário na constante.
+        methods = dict(PLATFORM_FALLBACK_AUTH_METHODS)
 
     # Demo link policy:
     # * No tenant resolved (bare Sky landing) → demo on by default.

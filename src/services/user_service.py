@@ -82,31 +82,47 @@ class UserService:
         return UserResponse.model_validate(user_to_response_dict(user))
 
     async def _tenant_auth_methods(self) -> dict:
-        """Como é que se entra NESTE cliente.
+        """Como é que se entra AQUI — no cliente, ou na plataforma.
 
-        A mesma forma que o ``/api/v1/auth/methods`` expõe: a linha do cliente
-        quando o resolvedor a preencheu, senão o chão do
-        ``DEFAULT_AUTH_METHODS`` (só Google).
+        Espelha a ordem do ``/api/v1/auth/methods``, e a distinção importa:
+
+        * **Há cliente resolvido** → a linha dele, assente no
+          ``DEFAULT_AUTH_METHODS``. O defeito serve de chão para uma linha com
+          chaves em falta, não de resposta.
+        * **Não há cliente** → quem está a responder é a **plataforma**, e a
+          plataforma é só SSO (``PLATFORM_FALLBACK_AUTH_METHODS``).
+
+        Usar o defeito dos clientes também para este caso seria dizer que
+        acrescentar alguém à equipa da Sky é um convite por palavra-passe — e a
+        pessoa recebia um link para definir uma palavra-passe que o login da
+        plataforma já não aceita. O convite tem de seguir a porta que existe.
         """
         from sqlalchemy import select
 
         from src.core.tenant_context import current_tenant
-        from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
+        from src.models.tenant import (
+            DEFAULT_AUTH_METHODS,
+            PLATFORM_FALLBACK_AUTH_METHODS,
+            Tenant,
+        )
 
-        methods = dict(DEFAULT_AUTH_METHODS)
         try:
             ctx = current_tenant()
         except Exception:
             ctx = None
         tenant_slug = getattr(ctx, "slug", None) if ctx else None
-        if tenant_slug:
-            row = (
-                await self.db.execute(
-                    select(Tenant.auth_methods).where(Tenant.slug == tenant_slug)
-                )
-            ).first()
-            if row and isinstance(row[0], dict):
-                methods.update(row[0])
+
+        if not tenant_slug:
+            return dict(PLATFORM_FALLBACK_AUTH_METHODS)
+
+        methods = dict(DEFAULT_AUTH_METHODS)
+        row = (
+            await self.db.execute(
+                select(Tenant.auth_methods).where(Tenant.slug == tenant_slug)
+            )
+        ).first()
+        if row and isinstance(row[0], dict):
+            methods.update(row[0])
         return methods
 
     @staticmethod
