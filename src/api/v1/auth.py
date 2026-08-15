@@ -208,8 +208,8 @@ async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthM
        requests that escape the middleware (some health probes /
        internal paths skip it on purpose).
     4. Nothing resolvable → fall back to ``PLATFORM_FALLBACK_AUTH_METHODS``
-       (password + Google) so o login da equipa na plataforma continua a
-       oferecer os dois métodos.
+       (só Google): sem cliente resolvido quem está a responder é a
+       plataforma, e a equipa da Sky entra por SSO e mais nada.
     """
     methods: Optional[dict] = None
     feature_flags: Optional[dict] = None

@@ -1,23 +1,46 @@
+"""Tests for authentication endpoints."""
+
 import pytest
 from httpx import AsyncClient
 
-"""Tests for authentication endpoints."""
+
+@pytest.fixture
+def cliente_aceita_password(monkeypatch):
+    """Põe o pedido num cliente que aceita palavra-passe.
+
+    Estes testes exercitam o caminho DA PALAVRA-PASSE, e esse é uma escolha
+    de cada cliente (`tenant.auth_methods.password`). Sem Host que resolva um
+    cliente, o servidor cai no valor da plataforma — que a 15/08/2026 passou a
+    ser **só Google**, porque a equipa da Sky entra por SSO e mais nada.
+
+    Antes disto os testes viviam do valor global e passavam por acidente: era
+    o mesmo para toda a gente. Deixou de ser, e um teste do caminho da
+    palavra-passe que não declare o cliente está a testar o outro ramo sem dar
+    por isso — exactamente o que aconteceu ao `test_invite_complete`.
+
+    O caminho desligado tem o seu teste próprio, que NÃO usa este fixture.
+    """
+    import src.api.v1.auth as auth_module
+
+    monkeypatch.setattr(
+        auth_module,
+        "PLATFORM_FALLBACK_AUTH_METHODS",
+        {"password": True, "google": True, "azure": False, "okta": False},
+    )
 
 
 class TestLoginEndpoint:
     """Tests for POST /api/v1/auth/login.
 
-    Password login is now per-tenant (controlled by
-    ``tenant.auth_methods.password``). When the request does not carry
-    a Host header that resolves to a tenant, the helper falls back to
-    ``DEFAULT_AUTH_METHODS`` (Google-only) so the endpoint still
-    rejects with 403. These tests pin that default path. The
-    tenant-enabled path is covered in ``TestLoginPerTenantAuthMethods``
-    below.
+    A palavra-passe é uma escolha de cada cliente
+    (``tenant.auth_methods.password``). Sem Host que resolva um cliente, o
+    servidor cai no valor da PLATAFORMA, que é só Google — a equipa da Sky
+    entra por SSO. Por isso estes testes declaram o cliente pelo fixture
+    ``cliente_aceita_password``; sem ele estariam a testar o outro ramo.
     """
 
     @pytest.mark.asyncio
-    async def test_login_com_credenciais_validas(self, async_client: AsyncClient, test_user: dict):
+    async def test_login_com_credenciais_validas(self, async_client: AsyncClient, test_user: dict, cliente_aceita_password):
         """A password passou a ser o metodo por omissao.
 
         Este teste afirmava 403 ("password login is disabled"), o que so
@@ -37,7 +60,7 @@ class TestLoginEndpoint:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_login_email_inexistente_da_401(self, async_client: AsyncClient, faker):
+    async def test_login_email_inexistente_da_401(self, async_client: AsyncClient, faker, cliente_aceita_password):
         """Email desconhecido: 401, e a mesma resposta que uma password errada.
 
         Nao se distingue "esse email nao existe" de "a password esta
@@ -54,7 +77,7 @@ class TestLoginEndpoint:
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_login_password_errada_da_401(self, async_client: AsyncClient, test_user: dict):
+    async def test_login_password_errada_da_401(self, async_client: AsyncClient, test_user: dict, cliente_aceita_password):
         """Password errada: 401, indistinguivel de um email que nao existe."""
         response = await async_client.post(
             "/api/v1/auth/login",
@@ -332,7 +355,7 @@ class TestForgotPasswordEndpoint:
     """Tests for POST /api/v1/auth/forgot-password."""
 
     @pytest.mark.asyncio
-    async def test_forgot_password_aceite(self, async_client: AsyncClient, test_user: dict):
+    async def test_forgot_password_aceite(self, async_client: AsyncClient, test_user: dict, cliente_aceita_password):
         """Com a password ligada por omissao, ha password para repor."""
         response = await async_client.post(
             "/api/v1/auth/forgot-password",
@@ -341,7 +364,7 @@ class TestForgotPasswordEndpoint:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_forgot_password_email_desconhecido_responde_igual(self, async_client: AsyncClient, faker):
+    async def test_forgot_password_email_desconhecido_responde_igual(self, async_client: AsyncClient, faker, cliente_aceita_password):
         """Emails desconhecidos recebem a MESMA resposta que os conhecidos —
         senao este endpoint torna-se um verificador de quem tem conta."""
         response = await async_client.post(
@@ -351,7 +374,7 @@ class TestForgotPasswordEndpoint:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_forgot_password_invalid_email_format(self, async_client: AsyncClient):
+    async def test_forgot_password_invalid_email_format(self, async_client: AsyncClient, cliente_aceita_password):
         """Test forgot password with invalid email format."""
         response = await async_client.post(
             "/api/v1/auth/forgot-password",
@@ -365,7 +388,7 @@ class TestResetPasswordEndpoint:
     """Tests for POST /api/v1/auth/reset-password."""
 
     @pytest.mark.asyncio
-    async def test_reset_password_token_invalido(self, async_client: AsyncClient):
+    async def test_reset_password_token_invalido(self, async_client: AsyncClient, cliente_aceita_password):
         """Com a password ligada, o endpoint avalia mesmo o token — e um
         token inventado e' recusado por ser invalido, nao por o metodo
         estar desligado."""

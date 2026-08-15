@@ -91,8 +91,21 @@ DEFAULT_AUTH_METHODS = {
 # desaparecer o botão do Google no login da equipa — que hoje cai
 # exactamente por aqui, porque `skyfirstlabs.com` ainda não está
 # registado como domínio.
+#
+# **Só Google, sem password** (decisão do Lucas, 15/08/2026): a equipa da Sky
+# entra por SSO e mais nada. A password aqui seria uma segunda porta para a
+# própria plataforma — a superfície mais sensível que há — e ninguém a usa: a
+# 15/08 a empresa são duas pessoas, ambas com Google no domínio.
+#
+# Isto NÃO é o defeito dos clientes: um cliente novo nasce com password (ver
+# `DEFAULT_AUTH_METHODS` acima), porque é a base que funciona antes de haver
+# IdP configurado. São coisas diferentes e é por isso que são duas constantes.
+#
+# ⚠️ Consequência a saber antes de mexer: quem não tenha Google num domínio
+# registado deixa de ter QUALQUER forma de entrar por aqui — a recuperação de
+# palavra-passe também é recusada, porque não há palavra-passe para recuperar.
 PLATFORM_FALLBACK_AUTH_METHODS = {
-    "password": True,
+    "password": False,
     "google": True,
     "azure": False,
     "okta": False,
