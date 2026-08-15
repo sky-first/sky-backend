@@ -127,7 +127,37 @@ class TenantConnectionManager:
     # ── Internals ──────────────────────────────────────────────
 
     def _build_pool_sync(self, ctx: TenantContext) -> _TenantPool:
-        url = self._build_url(ctx)
+        # Um cliente registado cujo plano de dados não se consegue abrir não
+        # deve dar 500.
+        #
+        # Encontrado a 15/08/2026: o cliente semente `sky` aponta para a base
+        # da plataforma e o seu segredo não é legível pelo papel do `sky-be`
+        # (`AccessDeniedException` no `GetSecretValue`) — de propósito, porque
+        # ninguém devia resolvê-lo. Mas bastava mandar `X-Tenant-Slug: sky`,
+        # sem autenticação nenhuma, para a API responder 500 com "an
+        # unexpected error occurred", que não diz nada a quem o apanha. O
+        # `Test connection` do Console dava uma mensagem muito melhor do que a
+        # própria API.
+        #
+        # Passa a ser `TenantUnavailableError`, que o middleware converte na
+        # MESMA resposta de "cliente não existe". Deliberado: o código já trata
+        # domínio desconhecido, domínio desactivado e cliente suspenso como
+        # indistinguíveis para quem sonda de fora — um cliente avariado não tem
+        # de ser a excepção que confirma que ele existe. A razão a sério vai
+        # para o log, e o operador tem-na no Console.
+        try:
+            url = self._build_url(ctx)
+        except Exception as exc:  # noqa: BLE001 — qualquer falha aqui é a mesma coisa
+            logger.error(
+                "tenant_engine_unavailable",
+                extra={
+                    "slug": ctx.slug,
+                    "db_name": ctx.db_name,
+                    "secret_arn": ctx.db_credentials_secret_arn,
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            )
+            raise TenantUnavailableError(ctx.slug) from exc
         pool_size, max_overflow = TIER_POOL_SIZES.get(ctx.tier, (5, 10))
 
         engine_kwargs: dict = {
@@ -249,6 +279,20 @@ def _fetch_secret(arn: str) -> tuple[str, str]:
         f"tenant DB secret {arn!r} has neither "
         f"username/password nor a parseable url field"
     )
+
+
+class TenantUnavailableError(RuntimeError):
+    """O cliente existe, mas a sua base de dados não se consegue abrir.
+
+    Distinto de "não existe": aquilo é uma linha que falta, isto é uma linha
+    que está lá e cujo plano de dados não responde — segredo ilegível, host
+    errado, base por criar. Para quem sonda de fora as duas dão a mesma
+    resposta; para quem lê os logs, não.
+    """
+
+    def __init__(self, slug: str) -> None:
+        super().__init__(f"tenant {slug!r} data plane unavailable")
+        self.slug = slug
 
 
 # Module-level singleton — same lifetime as the FastAPI app.

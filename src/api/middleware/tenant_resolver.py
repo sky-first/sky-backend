@@ -44,6 +44,7 @@ from sqlalchemy import select
 from src.config.database import AsyncSessionLocal
 from src.config.settings import settings
 from src.core.security import verify_token
+from src.config.tenant_connection_manager import TenantUnavailableError
 from src.core.tenant_context import (
     DEFAULT_TENANT_CONTEXT,
     TenantContext,
@@ -369,6 +370,19 @@ async def tenant_resolver_middleware(request: Request, call_next: Callable) -> R
     token = set_current_tenant(ctx)
     try:
         response = await call_next(request)
+    except TenantUnavailableError:
+        # O cliente existe; a base dele não abre. A razão já foi registada em
+        # `tenant_engine_unavailable` com o segredo e o host — aqui devolve-se
+        # a MESMA resposta de "não existe", de propósito: quem sonda de fora
+        # não deve conseguir distinguir um cliente avariado de um inexistente,
+        # que é a regra que o resto do ficheiro já segue.
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "error": "tenant_not_found",
+                "detail": ("The requested tenant does not exist or is suspended."),
+            },
+        )
     finally:
         reset_current_tenant(token)
     return response
