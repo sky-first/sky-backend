@@ -91,6 +91,16 @@ def _servico(*, utilizador_existente, jit_ligado: bool) -> Auth0Service:
     servico.user_repo = MagicMock()
     servico.user_repo.get_by_email = AsyncMock(return_value=utilizador_existente)
     servico.db = MagicMock()
+    # Sessão assíncrona a sério: o `authorise_sso_identity` passou a ler a
+    # restrição de domínio do cliente antes de tudo o resto (14/08/2026), e um
+    # `MagicMock` simples não se pode esperar com `await`. Devolve linha vazia —
+    # estes testes são sobre o gate do JIT, não sobre o domínio, que tem os seus
+    # em `test_sso_domain_restriction.py`.
+    class _SemRestricao:
+        def first(self):
+            return (None,)
+
+    servico.db.execute = AsyncMock(return_value=_SemRestricao())
     servico._jit_provisioning_enabled = staticmethod(lambda: jit_ligado)
     return servico
 

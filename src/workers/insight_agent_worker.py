@@ -42,6 +42,26 @@ from src.workers.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
+async def _latest_finding_id(db: AsyncSession, run_id: UUID) -> Optional[str]:
+    """O achado mais recente desta execução, ou None se ela não produziu nenhum.
+
+    É o que o cliente móvel precisa para abrir o insight: o feed é indexado por
+    ``AgentFinding.id``. Uma execução sem achados (nada mudou) devolve None, e
+    aí a notificação fica a apontar à própria execução, que é o mais honesto —
+    não há insight nenhum para abrir.
+    """
+    from src.models.agent import AgentFinding
+
+    result = await db.execute(
+        select(AgentFinding.id)
+        .where(AgentFinding.execution_id == run_id)
+        .order_by(AgentFinding.created_at.desc())
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+    return str(row) if row else None
+
+
 async def _emit_insight_notifications(
     db: AsyncSession,
     *,
@@ -71,6 +91,16 @@ async def _emit_insight_notifications(
 
     service = NotificationService(db)
     widget_id = str(agent.widget_id) if agent.widget_id else ""
+
+    # O destino do alerta.
+    #
+    # `/dashboard?insight=<widget_id>` foi escrito para o dashboard web, onde o
+    # que se abre é o widget. Na app móvel o feed de insights é indexado pelo id
+    # do ACHADO (AgentFinding.id), não pelo do widget — tocar no alerta dava
+    # "não foi possível carregar o insight" e o utilizador ficava sem perceber
+    # porquê. Manda-se o achado desta execução no `entity_id`, e o deep_link do
+    # widget fica como está para não partir a web.
+    finding_id = await _latest_finding_id(db, run_id)
     deep_link = f"/dashboard?insight={widget_id}" if widget_id else None
 
     result_title = f"{agent.name or 'Insight agent'} — run completed"
@@ -83,8 +113,8 @@ async def _emit_insight_notifications(
             type=NotificationType.INSIGHT_AGENT_RESULT.value,
             title=result_title,
             description=description,
-            entity_type="agent_execution",
-            entity_id=str(run_id),
+            entity_type="agent_finding" if finding_id else "agent_execution",
+            entity_id=finding_id or str(run_id),
             deep_link=deep_link,
         )
     )
@@ -97,8 +127,8 @@ async def _emit_insight_notifications(
                 type=NotificationType.INSIGHT_AGENT_MATERIAL.value,
                 title=material_title,
                 description=description,
-                entity_type="agent_execution",
-                entity_id=str(run_id),
+                entity_type="agent_finding" if finding_id else "agent_execution",
+                entity_id=finding_id or str(run_id),
                 deep_link=deep_link,
             )
         )

@@ -249,6 +249,28 @@ async def create_tenant(
             raise ValueError("slug_taken") from exc
         raise
 
+    # Domínios de email da empresa. É por aqui que o login encaminha o
+    # utilizador para o cliente certo — joao@teamblue.com → TeamBlue —
+    # porque cada cliente tem a sua própria base de dados e é preciso
+    # saber em qual procurar antes de validar a password.
+    #
+    # Sem isto o cliente nascia inacessível: a tabela ficava vazia,
+    # ninguém do cliente resolvia, e o login caía na base da plataforma.
+    # Estava a ser preenchida à mão, uma linha de SQL por venda.
+    if payload.email_domains:
+        from src.services.tenant_domain_service import TenantDomainService
+
+        for dominio in payload.email_domains:
+            if not (dominio or "").strip():
+                continue
+            # `add_domain` recusa mover um domínio que já pertença a outro
+            # cliente. Deixamos o erro subir: registar o domínio da empresa
+            # errada manda os funcionários dela para a base de dados de
+            # outra, e isso não é coisa para se resolver em silêncio.
+            await TenantDomainService.add_domain(
+                db, tenant_id=tenant.id, domain=dominio
+            )
+
     job_payload: Dict[str, Any] = {
         "tenant_slug": tenant.slug,
         "tier": tenant.tier,

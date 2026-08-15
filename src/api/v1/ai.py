@@ -1,7 +1,7 @@
 """AI endpoints."""
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
@@ -22,6 +22,7 @@ from src.rate_limit.core import (
 )
 from src.repositories.conversation import ConversationRepository
 from src.repositories.message import MessageRepository
+from src.services.message_service import MessageService
 from src.repositories.page import PageRepository
 from src.repositories.space import SpaceRepository
 from src.schemas.ai import (
@@ -581,6 +582,37 @@ async def send_chat_message(
     return response
 
 
+# How many attachments one chat message may carry. Mirrors MAX_ATTACHMENTS in
+# the mobile composer; enforced here too so the cap doesn't depend on the
+# client behaving. Each one is re-read on every question of the conversation,
+# so this is a context-budget decision, not a UI one.
+MAX_CHAT_ATTACHMENTS = 3
+
+
+def attachment_ids(ctx: Any) -> list[str]:
+    """The attachment ids in a chat ``context``, newest shape first.
+
+    ``file_ids`` is what mobile sends since it can attach several documents.
+    ``file_id`` is the older single-attachment shape and is still honoured —
+    an older client must keep working, and mobile sends both so an older
+    backend still grounds on one document instead of none.
+    """
+    if not isinstance(ctx, dict):
+        return []
+    raw = ctx.get("file_ids")
+    if isinstance(raw, list):
+        ids = [str(f) for f in raw if f]
+    elif ctx.get("file_id"):
+        ids = [str(ctx["file_id"])]
+    else:
+        ids = []
+    # Duplicates would feed the model the same document twice and eat an
+    # attachment slot doing it.
+    seen: set[str] = set()
+    unique = [i for i in ids if not (i in seen or seen.add(i))]
+    return unique[:MAX_CHAT_ATTACHMENTS]
+
+
 @router.post(
     "/chat/upload",
     status_code=status.HTTP_201_CREATED,
@@ -782,11 +814,16 @@ async def send_chat_message_stream(
         except Exception as _ins_err:
             logger.debug("[chat/stream] insight context skipped: %s", _ins_err)
 
-    # Attachment ("+") — when the client passes context.file_id, load the
-    # extracted text (scoped to the caller so one user can't read another's
-    # upload) and prepend it so the answer is grounded in the document.
-    _file_id = _ctx.get("file_id") if isinstance(_ctx, dict) else None
-    if _file_id:
+    # Attachments ("+") — the client passes context.file_ids (mobile sends up
+    # to MAX_CHAT_ATTACHMENTS). Load each one's extracted text, scoped to the
+    # caller so one user can't read another's upload, and prepend it so the
+    # answer is grounded in the documents.
+    #
+    # context.file_id (singular) is the older shape and still accepted: a
+    # client that predates file_ids must keep working, and mobile sends both
+    # so an older backend still gets one document instead of none.
+    _file_leads: list[str] = []
+    for _file_id in attachment_ids(_ctx):
         try:
             import uuid as _uuid
 
@@ -796,15 +833,19 @@ async def send_chat_message_stream(
             if _fu is not None and _fu.user_id == current_user.id:
                 _ftext = ((_fu.parsed_data or {}).get("text") or "").strip()
                 if _ftext:
-                    _flead = (
+                    _file_leads.append(
                         f'The user attached a document named "{_fu.original_name}". '
                         f'Use its contents to answer:\n"""\n{_ftext[:100000]}\n"""'
                     )
-                    stream_instructions = (
-                        f"{_flead}\n\n{stream_instructions}" if stream_instructions else _flead
-                    )
         except Exception as _file_err:
             logger.debug("[chat/stream] file context skipped: %s", _file_err)
+    if _file_leads:
+        # Joined once, in the order the user attached them — prepending inside
+        # the loop would hand the model the documents back to front.
+        _flead = "\n\n".join(_file_leads)
+        stream_instructions = (
+            f"{_flead}\n\n{stream_instructions}" if stream_instructions else _flead
+        )
 
     # Multi-turn threading (mobile, opt-in). Resolve or create the conversation
     # up front so its id is stable; the turn's messages are saved once the
@@ -817,9 +858,19 @@ async def send_chat_message_stream(
     if persist_turn:
         if message_data.conversation_id:
             existing = await conv_repo.get_by_id(message_data.conversation_id)
-            # Only append to a thread the caller owns; otherwise start fresh.
-            if existing is not None and existing.created_by == current_user.id:
-                conv_id = existing.id
+            # Append to any thread the caller can SEE, not only one they own.
+            #
+            # The ownership test that was here made shared chat impossible: a
+            # crew-mate asking inside a thread someone else opened silently got
+            # a brand-new conversation, so their question and its answer
+            # vanished from the thread everyone else was reading. Visibility is
+            # the right bar — it's crew/space membership (ConversationService
+            # ._can_view), which is exactly who is entitled to the content.
+            if existing is not None:
+                from src.services.conversation_service import ConversationService
+
+                if await ConversationService(db)._can_view(existing, current_user):
+                    conv_id = existing.id
         if conv_id is None:
             title = (message_data.message or "").strip()[:60] or "New chat"
             conv = await conv_repo.create(
@@ -827,6 +878,39 @@ async def send_chat_message_stream(
             )
             conv_id = conv.id
             await db.commit()
+
+    # Uma pergunta escrita na conversa de um agente é uma pergunta AO AGENTE.
+    #
+    # "E agora o Norte?" só quer dizer alguma coisa se o modelo souber que o fio
+    # nasceu de "que clientes caíram mais de 20%?". Sem isto a mesma frase é uma
+    # pergunta solta, respondida sobre o que calhar — e era exactamente por isso
+    # que iterar com um agente não funcionava: não havia com quem iterar.
+    #
+    # Fica AQUI e não dentro de `event_stream`. Escrever em
+    # `stream_instructions` de dentro do gerador torna-a uma variável local
+    # desse gerador, e a leitura seguinte rebenta com UnboundLocalError — o
+    # streaming inteiro deixava de responder. Foi assim que ficou à primeira, e
+    # foi um teste que o apanhou.
+    if conv_id is not None:
+        try:
+            from src.services.agent_conversation_service import (
+                agent_context_instructions,
+                agent_for_conversation,
+                recent_discussion,
+                render_discussion,
+            )
+
+            _agent = await agent_for_conversation(db, conv_id)
+            if _agent is not None:
+                _lead = agent_context_instructions(
+                    _agent,
+                    render_discussion(await recent_discussion(db, conv_id)),
+                )
+                stream_instructions = (
+                    f"{_lead}\n\n{stream_instructions}" if stream_instructions else _lead
+                )
+        except Exception as _agent_err:  # noqa: BLE001
+            logger.debug("[chat/stream] agent context skipped: %s", _agent_err)
 
     async def event_stream():
         """Normalize AI-engine SSE events onto the locked mobile contract
@@ -847,10 +931,35 @@ async def send_chat_message_stream(
             yield sse(progress_event("starting", get_message("thinking", message_data.locale)))
             started = True
 
+            # Bring the team's unanswered comments into the question.
+            #
+            # In a shared thread, most of what gets written between two AI
+            # answers is the team arguing about the last one ("this is last
+            # quarter", "split it by region"). Asking the next question
+            # without that discussion throws away the only context that
+            # explains why it's being asked — and it's the whole point of
+            # separating comments from questions in the first place. The
+            # non-streaming /ask-ai endpoint already did this; streaming
+            # didn't, so mobile got the bare question.
+            question_for_ai = message_data.message
+            bundled_comment_ids: List = []
+            if persist_turn and conv_id is not None:
+                try:
+                    pending = await MessageService(db).list_pending_comments(
+                        conv_id, current_user
+                    )
+                    if pending:
+                        question_for_ai = MessageService.build_bundled_prompt(
+                            message_data.message, pending
+                        )
+                        bundled_comment_ids = [m.id for m in pending]
+                except Exception as _bundle_err:  # never block the answer
+                    logger.debug("[chat/stream] comment bundle skipped: %s", _bundle_err)
+
             answer_parts: List[str] = []
             async for line in ai_client.stream_query_connection(
                 connection_id=str(resolved_connection_id),
-                question=message_data.message,
+                question=question_for_ai,
                 user_id=str(current_user.id),
                 space_id=str(scope_space_id),
                 instructions=stream_instructions or None,
@@ -872,19 +981,32 @@ async def send_chat_message_stream(
             if persist_turn and conv_id is not None:
                 try:
                     msg_repo = MessageRepository(db)
-                    await msg_repo.create(
+                    # The question is stored as the user TYPED it, not as the
+                    # bundled prompt. The bundle is machinery for the model;
+                    # showing it in the thread would repeat back at the team
+                    # the comments they can already read above.
+                    question_msg = await msg_repo.create(
                         conversation_id=conv_id,
                         role="user",
                         kind="question",
                         content=message_data.message,
                         user_id=current_user.id,
                     )
-                    await msg_repo.create(
+                    answer_msg = await msg_repo.create(
                         conversation_id=conv_id,
                         role="assistant",
                         kind="ai_response",
                         content="".join(answer_parts),
+                        parent_message_id=question_msg.id,
                     )
+                    # Mark the comments this answer took in, so the next
+                    # question doesn't carry them again — otherwise the same
+                    # discussion is re-sent on every turn, growing the prompt
+                    # and paying for it each time.
+                    if bundled_comment_ids:
+                        await msg_repo.mark_incorporated(
+                            message_ids=bundled_comment_ids, ai_response_id=answer_msg.id
+                        )
                     await conv_repo.update(conv_id, updated_at=_dt.utcnow())
                     await db.commit()
                 except Exception as _perr:  # persistence must never break the stream

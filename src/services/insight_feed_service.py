@@ -269,6 +269,13 @@ class InsightFeedService:
             reviewed=bool(state is not None and state.reviewed_at is not None),
             pinned=bool(state is not None and state.pinned_at is not None),
             deep_link=f"sky://insights/{f.id}",
+            # O fio onde este achado foi publicado. Tocar no insight abre a
+            # conversa do agente, e nao uma pagina sem saida.
+            conversation_id=(
+                str(agent.conversation_id)
+                if agent is not None and agent.conversation_id
+                else None
+            ),
         )
 
     @staticmethod

@@ -323,7 +323,20 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                     last_partial = ""
                 elif text:
                     last_partial = text
-                    await send({"type": "partial_transcript", "text": text})
+                    # ``final`` marks where the STT closed a segment. Voice
+                    # ignores it (it only renders the latest text), but
+                    # dictation needs it: the next segment starts from
+                    # scratch, so without knowing where one ends the client
+                    # can't tell a rewrite of the current sentence from the
+                    # start of the next one — and drops everything said
+                    # before the first pause.
+                    await send(
+                        {
+                            "type": "partial_transcript",
+                            "text": text,
+                            "final": bool(ev.get("final")),
+                        }
+                    )
         except Exception:
             pass
 

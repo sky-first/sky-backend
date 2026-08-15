@@ -56,6 +56,9 @@ class MessageResponse(BaseModel):
     pinned_widget_id: Optional[UUID]
     parent_message_id: Optional[UUID] = None
     incorporated_in_message_id: Optional[UUID] = None
+    # O achado que esta mensagem apresenta (respostas de agente). O cliente usa
+    # isto para desenhar o cartao com grafico em vez de um paragrafo de texto.
+    finding_id: Optional[UUID] = None
     # Slack-style reactions: {"emoji": ["user_id", …]}. Empty dict
     # when no one reacted. FE derives counts and "did I react?" from
     # this shape.
