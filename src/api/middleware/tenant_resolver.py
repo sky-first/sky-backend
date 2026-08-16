@@ -39,7 +39,7 @@ from typing import Callable, Dict, Optional, Tuple, cast
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from src.config.database import AsyncSessionLocal
 from src.config.settings import settings
@@ -78,6 +78,29 @@ def _cache_put(ctx: TenantContext) -> None:
     _REGISTRY_CACHE[ctx.slug] = (ctx, time.monotonic() + _CACHE_TTL_SECONDS)
 
 
+# Map host → (context | None, expires_at). Guarda também as respostas
+# negativas: a plataforma serve os seus próprios hosts (``app.``,
+# ``console.``, ``grafana-prd.``) em cada pedido, e sem cachear o "não é
+# de ninguém" cada um deles pagava uma ida à base de dados.
+_HOST_CACHE: Dict[str, Tuple[Optional[TenantContext], float]] = {}
+_MISS = object()
+
+
+def _host_cache_get(host: str) -> object:
+    entry = _HOST_CACHE.get(host)
+    if entry is None:
+        return _MISS
+    ctx, expires_at = entry
+    if expires_at < time.monotonic():
+        _HOST_CACHE.pop(host, None)
+        return _MISS
+    return ctx
+
+
+def _host_cache_put(host: str, ctx: Optional[TenantContext]) -> None:
+    _HOST_CACHE[host] = (ctx, time.monotonic() + _CACHE_TTL_SECONDS)
+
+
 def clear_tenant_cache() -> None:
     """Reset the resolver cache.
 
@@ -87,6 +110,7 @@ def clear_tenant_cache() -> None:
     60s TTL. The console calls this on every mutation.
     """
     _REGISTRY_CACHE.clear()
+    _HOST_CACHE.clear()
 
 
 # ─── Subdomain parsing ─────────────────────────────────────────────
@@ -133,6 +157,100 @@ def _slug_from_host(host_header: Optional[str]) -> Optional[str]:
     if slug in _RESERVED_SLUGS:
         return None
     return slug
+
+
+def _normalise_host(host_header: Optional[str]) -> Optional[str]:
+    """``Example.COM:8443`` → ``example.com``. ``None`` quando não há host."""
+    if not host_header:
+        return None
+    host = host_header.split(":", 1)[0].strip().lower().rstrip(".")
+    return host or None
+
+
+def rotulo_candidato_a_slug(host: str) -> Optional[str]:
+    """O primeiro rótulo de ``host``, se puder representar um cliente.
+
+    Duas condições, e as duas existem por um motivo concreto:
+
+    * **Não pode ser um nome reservado.** ``sky`` tem linha no registo e
+      aponta para a base da plataforma; ``console``, ``api``, ``demo`` são
+      hosts nossos. Nenhum deles pode ser lido como cliente.
+    * **O resto do host tem de ser um domínio nosso.** Sem isto, bastava
+      apontar ``gbt.dominio-qualquer.com`` ao nosso balanceador para ser
+      servido como a GBT — o host é escolhido por quem faz o pedido.
+
+    Público de propósito: é a regra que decide se o slug entra sequer na
+    consulta, e um teste que a contorne não está a testar nada.
+    """
+    rotulo, _, resto = host.partition(".")
+    if not rotulo or rotulo in _RESERVED_SLUGS or not resto:
+        return None
+    for base in settings.tenant_base_domains():
+        if resto == base or resto.endswith("." + base):
+            return rotulo
+    return None
+
+
+async def _tenant_from_host_registry(host_header: Optional[str]) -> Optional[TenantContext]:
+    """Resolve um host **perguntando ao registo**, em vez de o adivinhar.
+
+    Cobre as duas formas que o regex de sub-domínio nunca soube ler:
+
+    * ``<slug>.skyfirstlabs.com`` — o endereço que o pipeline de
+      provisionamento cria para cada cliente e que a aplicação ignorava.
+      Estava a emitir DNS e certificados para portas que não abriam.
+    * ``custom_domain`` — a coluna existe desde o início, a Console grava-a,
+      e ninguém alguma vez a leu. Um cliente que peça ``sky.empresa.com``
+      passa a ser servido.
+
+    **Porque é uma consulta e não uma expressão regular.** Alargar o regex
+    para aceitar ``<label>.<base>`` era a mudança óbvia — e partia produção.
+    Um host sem linha no registo passaria a produzir um slug, e um slug que
+    não resolve é um 404: ``grafana-prd``, ``auth-prd``, ``app`` deixariam
+    de responder a quem ainda não entrou. Confirmando contra o registo, um
+    host desconhecido devolve ``None`` e o pedido segue para o contexto da
+    plataforma, que é exactamente o que esses hosts precisam.
+
+    O rótulo só é aceite quando o resto do host é um domínio nosso. Sem
+    isso, ``gbt.dominio-de-terceiros.com`` apontado ao nosso ingress
+    escolhia o cliente que quisesse.
+    """
+    host = _normalise_host(host_header)
+    if not host or "." not in host:
+        return None
+
+    cached = _host_cache_get(host)
+    if cached is not _MISS:
+        return cast(Optional[TenantContext], cached)
+
+    condicoes = [Tenant.custom_domain == host]
+    rotulo = rotulo_candidato_a_slug(host)
+    if rotulo:
+        condicoes.append(Tenant.slug == rotulo)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(Tenant).where(or_(*condicoes)))
+            linhas = list(result.scalars().all())
+    except Exception as exc:  # noqa: BLE001
+        # Uma falha de leitura não pode transformar-se em 404. Não se
+        # cacheia o erro: o próximo pedido tenta outra vez.
+        logger.warning(
+            "tenant_resolver_host_lookup_failed",
+            extra={"host": host, "error": str(exc)},
+        )
+        return None
+
+    # Um domínio próprio é mais explícito do que um rótulo que calha bater
+    # certo com um slug — se ambos existirem, ganha o domínio próprio.
+    linhas.sort(key=lambda r: 0 if (r.custom_domain or "").lower() == host else 1)
+    escolhida = next((r for r in linhas if r.is_active), None)
+
+    ctx = _row_to_context(escolhida) if escolhida is not None else None
+    _host_cache_put(host, ctx)
+    if ctx is not None:
+        _cache_put(ctx)
+    return ctx
 
 
 def _slug_from_jwt(auth_header: Optional[str]) -> Optional[str]:
@@ -269,7 +387,21 @@ async def _resolve_context(request: Request) -> Tuple[TenantContext, Optional[st
     if not settings.MULTI_TENANT_ENABLED:
         return DEFAULT_TENANT_CONTEXT, None
 
-    # 2. Pick the slug from the request, in priority order.
+    # 2. O host, confirmado contra o registo, ganha a tudo o resto.
+    #
+    # Quem escreve `gbt.skyfirstlabs.com` na barra de endereço está a dizer
+    # a que cliente quer ir, e isso é mais explícito do que um token que
+    # calhou ficar no browser de outra sessão. Vem à frente do `or` abaixo
+    # de propósito: um token do cliente A não deve continuar a servir
+    # páginas quando o endereço é o do cliente B.
+    #
+    # Um host que não seja de ninguém devolve `None` e não interrompe nada
+    # — a cadeia normal corre a seguir, como sempre correu.
+    ctx_por_host = await _tenant_from_host_registry(request.headers.get("host"))
+    if ctx_por_host is not None:
+        return ctx_por_host, None
+
+    # 3. Pick the slug from the request, in priority order.
     slug = (
         _slug_from_host(request.headers.get("host"))
         or request.headers.get("x-tenant-slug")
