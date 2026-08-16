@@ -70,7 +70,20 @@ async def list_tenants(
     stale ``capacity_used`` JSONB on tenant_registry, which has never
     been backed by a sync task.
     """
-    stmt = select(Tenant)
+    # Fora da lista: as linhas que pertencem à plataforma, não a clientes.
+    #
+    # O `sky` é a linha-semente — existe para haver um contexto por omissão,
+    # aponta para a base CENTRAL (não tem base própria) e o IAM nem consegue
+    # ler o segredo dela. Aparecia aqui como um cliente activo, com pontuação
+    # de saúde, e quem lhe clicasse recebia `AccessDenied` sem perceber
+    # porquê. Mostrar uma linha operável que não é operável é pior do que não
+    # a mostrar.
+    #
+    # A mesma lista que o resolvedor usa: os nomes reservados nunca podem ser
+    # clientes, portanto uma linha com um destes slugs nunca é um cliente.
+    from src.api.middleware.tenant_resolver import _RESERVED_SLUGS
+
+    stmt = select(Tenant).where(func.lower(Tenant.slug).notin_(sorted(_RESERVED_SLUGS)))
     if tier is not None:
         stmt = stmt.where(Tenant.tier == tier)
     if is_active is not None:
