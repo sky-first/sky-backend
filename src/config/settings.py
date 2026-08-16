@@ -731,6 +731,20 @@ class Settings(BaseSettings):
     MOLONI_COMPANY_ID: str | None = None
     MOLONI_BASE_URL: str = "https://api.moloni.pt/v1"
 
+    # Base de demonstração — alimenta o interruptor "Dados de demonstração"
+    # nas Definições. Vazias = a funcionalidade não aparece, que é o correcto
+    # num ambiente onde ela não existe.
+    #
+    # São as MESMAS credenciais que o `seed_demo_connections.py` usa; vêm do
+    # segredo `sky/production/demo-pg`. As ligações criadas apontam todas para
+    # aqui — nenhum dado é copiado para a base do cliente.
+    DEMO_PG_HOST: str = Field(default="")
+    DEMO_PG_PORT: int = Field(default=5432)
+    DEMO_PG_DB: str = Field(default="skydemo")
+    DEMO_PG_USER: str = Field(default="")
+    DEMO_PG_PASSWORD: str = Field(default="")
+    DEMO_PG_SSL_MODE: str = Field(default="require")
+
     TENANT_BASE_DOMAINS: str = Field(
         default="skyfirstlabs.com",
         description=(
