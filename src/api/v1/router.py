@@ -59,7 +59,6 @@ from src.api.v1 import (
     users,
     voice,
     widgets,
-    workspaces,
 )
 
 api_router = APIRouter()
@@ -227,8 +226,26 @@ api_router.include_router(datasets.router, prefix="/datasets", tags=["Datasets"]
 # Connector registry endpoints
 api_router.include_router(connectors.router, prefix="/connectors", tags=["Connectors"])
 
-# Workspace endpoints
-api_router.include_router(workspaces.router, prefix="/workspaces", tags=["Workspaces"])
+# /workspaces DESMONTADO em 16/08/2026.
+#
+# Onze endpoints servidos em produção que ninguém chamava. Verificado em
+# todos os repositórios — frontend, app, sky-ai e os workers deste backend:
+# zero referências. Numa API interna isso é decisivo, porque os únicos
+# consumidores possíveis são os nossos próprios clientes.
+#
+# É vocabulário de uma versão anterior, do tempo em que "workspace" era o
+# contentor. Hoje esse papel é do Projeto (a tabela ainda se chama `spaces`)
+# e do Tenant. O `/spaces`, o `/crews` e o `/planets` do frontend contam a
+# mesma história de nomes que se sobrepuseram sem ninguém limpar os
+# anteriores.
+#
+# O que fica de PROPÓSITO: o modelo, as tabelas `workspaces` /
+# `workspace_members`, o `workspace_service` e os seus testes. Desmontar uma
+# rota é reversível numa linha; apagar tabelas não é, e não há pressa
+# nenhuma para o fazer sem confirmar que estão vazias.
+#
+# Se algum dia isto fizer falta, é descomentar:
+# api_router.include_router(workspaces.router, prefix="/workspaces", tags=["Workspaces"])
 
 # Starred items endpoints
 api_router.include_router(starred.router, prefix="/starred", tags=["Starred"])
