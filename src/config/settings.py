@@ -731,6 +731,25 @@ class Settings(BaseSettings):
     MOLONI_COMPANY_ID: str | None = None
     MOLONI_BASE_URL: str = "https://api.moloni.pt/v1"
 
+    TENANT_BASE_DOMAINS: str = Field(
+        default="skyfirstlabs.com",
+        description=(
+            "Domínios sob os quais um sub-domínio simples identifica um "
+            "cliente (``gbt.skyfirstlabs.com`` → cliente ``gbt``). Lista "
+            "separada por vírgulas. Fora destes, só um ``custom_domain`` "
+            "declarado no registo é aceite — caso contrário bastava apontar "
+            "um domínio qualquer ao nosso ingress para escolher o cliente."
+        ),
+    )
+
+    def tenant_base_domains(self) -> List[str]:
+        """A lista acima, limpa. Vazia = nenhum sub-domínio simples resolve."""
+        return [
+            d.strip().lower().lstrip(".")
+            for d in (self.TENANT_BASE_DOMAINS or "").split(",")
+            if d.strip()
+        ]
+
     @property
     def is_production(self) -> bool:
         """Check if running in production."""
