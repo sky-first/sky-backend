@@ -61,20 +61,55 @@ def _sign(payload_b64: str) -> str:
     return hmac.new(_secret(), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
 
 
-def issue_state(tenant_slug: Optional[str]) -> str:
+def issue_state(tenant_slug: Optional[str], app_redirect: Optional[str] = None) -> str:
     """Emite um state assinado para o cliente indicado.
 
     ``tenant_slug`` a None representa a própria plataforma — continua a
     ser assinado, para que um state de cliente não sirva na plataforma
     nem o contrário.
+
+    ``app_redirect`` é o endereço de esquema próprio de uma app nativa
+    (``sky://auth``). Viaja aqui dentro porque a Google recusa esses
+    esquemas em clientes do tipo Web: o fornecedor recebe sempre um
+    endereço ``https`` nosso, e é no retorno que se sabe para onde
+    devolver a sessão. Vai assinado com o resto — sem isso, quem
+    interceptasse o retorno podia trocá-lo pelo endereço de outra app e
+    receber a sessão no lugar do utilizador.
     """
     payload = {
         "t": tenant_slug or "",
         "n": secrets.token_urlsafe(16),
         "i": int(time.time()),
     }
+    if app_redirect:
+        payload["r"] = app_redirect
     payload_b64 = _b64e(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
     return f"{payload_b64}.{_sign(payload_b64)}"
+
+
+def app_redirect_from_state(state: Optional[str]) -> Optional[str]:
+    """O endereço da app guardado no state, se o state for válido.
+
+    **Só chamar depois de ``verify_state``.** Esta função repete a
+    verificação da assinatura por segurança — ler um campo de um state
+    não verificado seria confiar em texto que qualquer pessoa pode
+    escrever — mas não substitui a verificação do cliente, que é o que
+    impede um state de outro workspace de servir aqui.
+    """
+    if not state:
+        return None
+    try:
+        payload_b64, signature = state.split(".", 1)
+    except ValueError:
+        return None
+    if not hmac.compare_digest(_sign(payload_b64), signature):
+        return None
+    try:
+        payload = json.loads(_b64d(payload_b64))
+    except Exception:  # noqa: BLE001
+        return None
+    valor = payload.get("r")
+    return valor if isinstance(valor, str) and valor else None
 
 
 def verify_state(state: Optional[str], expected_tenant: Optional[str]) -> None:
