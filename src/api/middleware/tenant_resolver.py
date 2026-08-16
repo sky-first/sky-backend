@@ -133,14 +133,27 @@ _SUBDOMAIN_RE = re.compile(
     r"^(?:(?:workspace|api)-([a-z0-9-]{2,50}?)(?:-stg)?|([a-z0-9-]{2,50}?)-stg)\."
 )
 
-# Slugs that look like a tenant name but actually belong to platform-owned
-# hosts. The onboard-client workflow refuses these as tenant slugs at
-# create-time; the resolver mirrors the same rule so the platform host
-# (``sky-stg.<base>``) does not get parsed as ``slug=sky`` and 404 every
-# unauthenticated request. Kept short and explicit — the platform's own
-# hostnames are the only false-positives we have today.
+# Nomes que parecem de cliente mas são hosts NOSSOS.
+#
+# Duas funções, e a segunda só passou a existir com a resolução por host:
+#
+#  1. o resolvedor não lê `sky-stg.<base>` como `slug=sky`, o que daria 404
+#     a todos os pedidos de quem ainda não entrou;
+#  2. `console_service.create_tenant` RECUSA estes slugs. Sem isso, criar um
+#     cliente chamado `app` faria `app.skyfirstlabs.com` — o endereço
+#     principal do produto — passar a servir esse cliente.
+#
+# O comentário anterior dizia que "o workflow onboard-client recusa estes
+# slugs ao criar". Não recusa: a lista dele são nomes de namespaces do
+# Kubernetes (`argocd`, `kube-system`, `default`, `staging`, `production`,
+# …) e não inclui nenhum destes. A regra é imposta aqui e no serviço.
+#
+# `app` entrou em 16/08 com `app.skyfirstlabs.com`. Regra para quem
+# acrescentar hosts: **um host novo em `<nome>.skyfirstlabs.com` tem de
+# entrar nesta lista no mesmo PR**, senão fica à mercê do próximo cliente
+# com esse nome.
 _RESERVED_SLUGS: frozenset[str] = frozenset(
-    {"sky", "platform", "console", "demo", "api", "www", "admin"}
+    {"sky", "app", "platform", "console", "demo", "api", "www", "admin", "auth"}
 )
 
 
