@@ -114,7 +114,13 @@ class AuthMethodsResponse(BaseModel):
     domain_known: bool = True
 
 
-from src.core.sso_state import SSOStateError, issue_state, verify_state
+from src.core import sso_handoff
+from src.core.sso_state import (
+    SSOStateError,
+    app_redirect_from_state,
+    issue_state,
+    verify_state,
+)
 
 
 def _slug_from_request(request: Request) -> Optional[str]:
@@ -506,6 +512,47 @@ async def get_auth_methods(
         return fallback
 
     return await _auth_methods_for_request(request, db)
+
+
+class SSOHandoffRequest(BaseModel):
+    """O código de uso único que o retorno do SSO entregou à app."""
+
+    code: str
+
+
+@router.post(
+    "/sso/handoff",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}},
+    summary="Trocar o código de entrega do SSO pela sessão",
+    description=(
+        "Fecha o SSO numa app nativa. O retorno do fornecedor acontece no "
+        "browser do sistema; o backend guarda a sessão sob um código de uso "
+        "único e salta para o esquema da app com ele. A app troca-o aqui."
+    ),
+)
+async def sso_handoff_exchange(body: SSOHandoffRequest) -> LoginResponse:
+    """Troca o código pela sessão. Uma vez só.
+
+    Porque a sessão não viaja no próprio salto: num esquema próprio
+    (``sky://``), qualquer app instalada que o declare pode receber o
+    intent. Um código que morre à primeira utilização e ao fim de 60
+    segundos limita o estrago de uma intercepção a uma corrida que o
+    atacante tem de ganhar — em vez de lhe entregar os tokens.
+
+    Não leva sessão nem cliente: o código É a prova, e o que ele guarda
+    já foi decidido no retorno, com o ``state`` verificado.
+    """
+    try:
+        guardado = await sso_handoff.consume(body.code)
+    except sso_handoff.HandoffError as exc:
+        raise BadRequestError(str(exc))
+
+    login = guardado.get("login")
+    if not isinstance(login, dict):
+        raise BadRequestError("código de entrega sem sessão associada")
+    return LoginResponse(**login)
 
 
 @router.post(
@@ -1223,6 +1270,26 @@ async def sso_login(
 
     auth0_service = Auth0Service(db)
 
+    # Endereço de uma app nativa (`sky://auth`)?
+    #
+    # A Google RECUSA esquemas próprios em clientes OAuth do tipo Web —
+    # só os aceita em clientes de Android/iOS, e nós temos um cliente Web.
+    # Passar `sky://auth` ao fornecedor devolvia:
+    #
+    #     Erro 400: invalid_request
+    #     doesn't comply with Google's OAuth 2.0 policy
+    #
+    # O SSO no telemóvel nunca funcionou por causa disto. Só apareceu
+    # quando alguém entrou por SSO no telefone pela primeira vez — o
+    # revisor do sandbox usa password.
+    #
+    # A partir daqui: o fornecedor recebe sempre um `https` nosso, e o
+    # endereço da app viaja assinado dentro do `state`. O caminho da web
+    # não muda — um `redirect_uri` http(s) segue como sempre seguiu.
+    app_redirect = redirect_uri if sso_handoff.is_app_scheme(redirect_uri) else None
+    if app_redirect:
+        redirect_uri = None  # forçar a construção do nosso https, abaixo
+
     # Get redirect URI
     if not redirect_uri:
         # Belt-and-suspenders: the Dockerfile launches uvicorn with
@@ -1261,7 +1328,7 @@ async def sso_login(
         # `_generate_state()`, aleatorio e nunca verificado no retorno —
         # sem CSRF e sem ligacao ao cliente. Ver docs/SEGURANCA-SSO-E-
         # ISOLAMENTO-TENANT.md, achado A3.
-        state = issue_state(_slug_from_request(request))
+        state = issue_state(_slug_from_request(request), app_redirect)
         params = {
             "client_id": auth0_settings.GOOGLE_CLIENT_ID,
             "redirect_uri": redirect_uri,
@@ -1277,7 +1344,7 @@ async def sso_login(
         # `_generate_state()`, aleatorio e nunca verificado no retorno —
         # sem CSRF e sem ligacao ao cliente. Ver docs/SEGURANCA-SSO-E-
         # ISOLAMENTO-TENANT.md, achado A3.
-        state = issue_state(_slug_from_request(request))
+        state = issue_state(_slug_from_request(request), app_redirect)
         params = {
             "client_id": auth0_settings.AZURE_CLIENT_ID,
             "redirect_uri": redirect_uri,
@@ -1293,7 +1360,7 @@ async def sso_login(
         # `_generate_state()`, aleatorio e nunca verificado no retorno —
         # sem CSRF e sem ligacao ao cliente. Ver docs/SEGURANCA-SSO-E-
         # ISOLAMENTO-TENANT.md, achado A3.
-        state = issue_state(_slug_from_request(request))
+        state = issue_state(_slug_from_request(request), app_redirect)
         params = {
             "client_id": auth0_settings.OKTA_CLIENT_ID,
             "redirect_uri": redirect_uri,
@@ -1327,9 +1394,14 @@ async def sso_callback(
     state: Optional[str] = Query(None, description="State parameter from OAuth flow"),
     redirect_uri: Optional[str] = Query(None, description="Redirect URI used in authorization"),
     db: AsyncSession = Depends(get_db_session),
-) -> LoginResponse:
+):
     """
     SSO callback endpoint - processes OAuth callback and returns tokens.
+
+    Devolve ``LoginResponse`` no fluxo da web. No fluxo de uma app nativa
+    devolve um **302** para o esquema da app com um código de uso único —
+    ver o fim da função. Daí não haver anotação de retorno: são duas
+    formas legítimas, e fingir que só há uma escondia a segunda.
 
     Args:
         provider: SSO provider (google, azure, okta)
@@ -1403,4 +1475,30 @@ async def sso_callback(
 
     # Create login response
     login_response = await auth0_service.create_login_response(user)
+
+    # Fluxo da app nativa: devolver a sessão ao telemóvel.
+    #
+    # Aqui estamos dentro do browser do sistema, não da app. O que a app
+    # espera é um salto para o esquema dela. O que NÃO vai neste salto são
+    # os tokens: num esquema próprio, qualquer app instalada que declare
+    # `sky://` pode receber o intent. Vai um código de uso único, com 60
+    # segundos de vida, que a app troca em `/auth/sso/handoff`.
+    #
+    # O parâmetro chama-se `sky_code` e não `code` de propósito: é assim
+    # que a app distingue um código nosso de um código do fornecedor, sem
+    # ter de adivinhar pelo formato.
+    destino_da_app = app_redirect_from_state(state)
+    if destino_da_app:
+        codigo = await sso_handoff.issue(
+            {
+                "login": login_response,
+                "tenant": callback_tenant or "",
+            }
+        )
+        separador = "&" if "?" in destino_da_app else "?"
+        return RedirectResponse(
+            url=f"{destino_da_app}{separador}sky_code={codigo}",
+            status_code=302,
+        )
+
     return LoginResponse(**login_response)
