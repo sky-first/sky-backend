@@ -128,8 +128,26 @@ def _slug_from_request(request: Request) -> Optional[str]:
     # Device clients have no sub-domain — honour the explicit X-Tenant-Slug
     # override (same header the tenant resolver already accepts), so mobile can
     # reach a workspace's auth methods (e.g. password-enabled) on a bare host.
-    header_slug = request.headers.get("x-tenant-slug")
-    return header_slug.strip().lower() if header_slug else None
+    header_slug = (request.headers.get("x-tenant-slug") or "").strip().lower()
+    if header_slug:
+        return header_slug
+    # Último recurso: o cliente em parâmetro de query.
+    #
+    # Existe por uma razão que não é preguiça: o arranque do SSO
+    # (``/auth/sso/{provider}/login``) é aberto no **browser do sistema**,
+    # e uma navegação do browser não leva cabeçalhos nossos. Sem isto, a
+    # app não tinha como dizer a que cliente pertence quem está a entrar —
+    # o ``state`` ficava presa à plataforma, e quem se autenticasse por
+    # Google acabava na base da plataforma em vez da do seu cliente.
+    #
+    # Não é uma porta: o valor não dá acesso a nada por si só. O ``state``
+    # devolvido fica assinado e preso a este cliente, o retorno é
+    # verificado contra ele, e o ``sso_domain_restriction`` continua a
+    # exigir que o email pertença ao domínio que o cliente declarou.
+    # Em branco não é o mesmo que declarar um cliente: um slug vazio seguia
+    # para o `issue_state` e prendia o `state` a "" em vez de a ninguém.
+    query_slug = (request.query_params.get("tenant") or "").strip().lower()
+    return query_slug or None
 
 
 def _methods_from_tenant(tenant: Tenant) -> AuthMethodsResponse:
