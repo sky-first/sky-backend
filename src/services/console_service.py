@@ -218,8 +218,28 @@ async def create_tenant(
     that actually runs the script.
 
     Raises ``ValueError("slug_taken")`` on uniqueness violations so the
-    route can map it to a clean 409.
+    route can map it to a clean 409, e ``ValueError("slug_reserved")``
+    quando o slug é um nome da plataforma.
     """
+    # Um slug que seja um host nosso SEQUESTRA esse host.
+    #
+    # Desde que o resolvedor passou a aceitar `<slug>.skyfirstlabs.com`
+    # (#619), criar um cliente chamado `app` faria `app.skyfirstlabs.com`
+    # — o endereço principal do produto — passar a servir esse cliente.
+    # O mesmo para `console`, `api`, `demo`.
+    #
+    # Antes do #619 isto era inofensivo, porque um host simples nunca
+    # resolvia cliente nenhum. Foi essa mudança que transformou a lista de
+    # reservados de detalhe do resolvedor em regra de criação, e este é o
+    # sítio onde ela tem de ser imposta: a Console não validava nada, e a
+    # lista do workflow de provisionamento é outra (só nomes de namespaces
+    # do Kubernetes) — o comentário no resolvedor que dizia o contrário
+    # estava errado.
+    from src.api.middleware.tenant_resolver import _RESERVED_SLUGS
+
+    if (payload.slug or "").strip().lower() in _RESERVED_SLUGS:
+        raise ValueError("slug_reserved")
+
     # Strip the admin_email out of the registry payload; it travels with
     # the provisioning job instead so the bootstrap step can pick it up.
     body = payload.model_dump(exclude={"admin_email"})

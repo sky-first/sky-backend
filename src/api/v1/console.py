@@ -304,6 +304,26 @@ async def create_tenant(
                 actor_ip=_ip(request),
             )
             raise HTTPException(status_code=409, detail="Tenant slug already taken")
+        if str(exc) == "slug_reserved":
+            # 409 e não 400: o slug é válido, está é ocupado — pela
+            # plataforma. É a mesma resposta do `slug_taken` porque, para
+            # quem está a criar, o caso é o mesmo: escolha outro nome.
+            await audit_action(
+                db,
+                actor=user,
+                action=AuditAction.CREATE_TENANT,
+                tenant_slug=payload.slug,
+                result=AuditResult.FAILURE,
+                result_details={"reason": "slug_reserved"},
+                actor_ip=_ip(request),
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"'{payload.slug}' is a platform hostname and cannot be a "
+                    "tenant slug — it would take over that address."
+                ),
+            )
         raise
     await audit_action(
         db,
