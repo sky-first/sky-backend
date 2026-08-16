@@ -30,6 +30,17 @@ class MessageCreate(BaseModel):
     cost_tokens: Optional[int] = Field(None, ge=0)
     cost_usd: Optional[Decimal] = Field(None, ge=0)
     parent_message_id: Optional[UUID] = None
+    #: Quem foi mencionado com `@`, por id.
+    #
+    #: Vem do selector da app — que sabe quem está na equipa — e não de
+    #: adivinhar nomes no texto. `@paulo` podia ser o Paulo Richau ou o Paulo
+    #: Bomfim, e uma notificação enviada à pessoa errada é pior do que
+    #: nenhuma.
+    #
+    #: Não é guardado: a menção fica no texto, que é onde quem lê a vê. Isto
+    #: serve só para NOTIFICAR — que era a parte que faltava. O analisador da
+    #: app já extraía as menções e ninguém as usava.
+    mentions: List[UUID] = []
 
 
 class MessageResponse(BaseModel):
