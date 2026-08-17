@@ -888,6 +888,34 @@ class Auth0Service:
             # depois de entrar é o token que carrega o cliente.
             **tenant_claims_for_context(current_tenant()),
         }
+
+        # Registar a pertença ao cliente. Também isto faltava só no SSO.
+        #
+        # O portão de dispositivo verifica, a **cada** pedido, que existe uma
+        # linha em `tenant_memberships` para (utilizador, cliente) — é o que
+        # garante que quem sai da empresa perde o acesso mesmo com um token
+        # ainda válido. O login por password cria essa linha desde sempre
+        # (`auth_service.py`); o do SSO nunca a criou.
+        #
+        # O resultado apanhou-me o Lucas hoje, e é traiçoeiro: entra-se, a
+        # sessão é boa, e depois **algumas** rotas dão 403 — as que têm o
+        # portão. O `/auth/me` tem-no, o `/auth/me/effective-permissions` não.
+        # Na app, o nome e o email desapareciam do menu sem nenhum erro à
+        # vista, porque o ecrã cai para o tratamento por omissão quando o
+        # `getMe` falha. Na web nem se nota: a web manda `X-Tenant-Slug` e o
+        # portão deixa passar sem olhar para a pertença.
+        #
+        # Idempotente — não cria linhas repetidas.
+        if token_data.get("tid"):
+            from src.services.tenant_membership_service import TenantMembershipService
+
+            await TenantMembershipService.upsert(
+                self.db,
+                user_id=user.id,
+                tenant_id=token_data["tid"],
+                role=user.role or "member",
+            )
+
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data)
 
