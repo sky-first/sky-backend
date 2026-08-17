@@ -20,6 +20,7 @@ from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.user import User
 from src.schemas.common import ErrorResponse
 from src.schemas.voice import VoiceSessionCreate, VoiceSessionResponse, VoiceTurn
+from src.services.speech_text import speech_text
 from src.services.voice_session_service import VoiceSessionService
 
 router = APIRouter()
@@ -280,7 +281,16 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                 await state("speaking")
                 samples = 0
                 tts_voice = {"Portuguese": "Camila", "Español": "Lucia"}.get(voice_lang, "Ruth")
-                async for audio in provider.synthesize(answer, tts_voice):
+                # Sem marcação.
+                #
+                # A resposta vem em markdown e ia crua para a síntese: ouvia-se
+                # a Sky a ler os asteriscos e os hífenes das listas. Num
+                # telemóvel é ESTE o caminho — o cliente não sintetiza nada —
+                # por isso a correcção feita na app não chegava aqui.
+                #
+                # O texto do ecrã continua a ir em markdown (acima): quem lê
+                # quer a formatação, quem ouve não.
+                async for audio in provider.synthesize(speech_text(answer), tts_voice):
                     if barge.is_set():
                         break
                     await websocket.send_bytes(audio)
