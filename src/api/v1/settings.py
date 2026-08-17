@@ -23,6 +23,8 @@ from src.schemas.settings import (
     SpacesSettingsResponse,
     UsersSettingsResponse,
 )
+from src.core.exceptions import BadRequestError
+from src.services import demo_data_service
 from src.services.settings_service import SettingsService
 
 router = APIRouter()
@@ -406,3 +408,69 @@ async def delete_integration(
     settings_service = SettingsService(db)
     await settings_service.delete_integration(integration_id, current_user)
     return SuccessResponse(message="Integration deleted successfully")
+
+
+# ── Dados de demonstração ──────────────────────────────────────────────
+#
+# Substitui o que era um Job de Kubernetes corrido à mão. Ver
+# `src/services/demo_data_service.py` para o porquê.
+#
+# A regra que importa: QUEM LIGA FICA DONO. Antes, as ligações ficavam de
+# `rbac.owner@example.com` — um utilizador de semente que ninguém usa e que,
+# ao ser apagado, levava as ligações atrás (`created_by` é ON DELETE CASCADE).
+
+
+@router.get(
+    "/demo-data",
+    status_code=status.HTTP_200_OK,
+    summary="Estado dos dados de demonstração",
+    description=(
+        "Diz se o utilizador tem as ligações de demonstração ligadas, e se a "
+        "funcionalidade está sequer disponível neste ambiente."
+    ),
+)
+async def get_demo_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    return await demo_data_service.estado(db, current_user)
+
+
+@router.post(
+    "/demo-data",
+    status_code=status.HTTP_200_OK,
+    responses={409: {"model": ErrorResponse}},
+    summary="Ligar os dados de demonstração",
+    description=(
+        "Cria um espaço com cinco ligações de demonstração, das quais o "
+        "utilizador fica dono. Idempotente. Não copia dados: as ligações "
+        "apontam para a base de demonstração partilhada."
+    ),
+)
+async def enable_demo_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    try:
+        return await demo_data_service.ligar(db, current_user)
+    except demo_data_service.DemoDataIndisponivel as exc:
+        # 409 e não 500: não é uma avaria, é uma funcionalidade que este
+        # ambiente não tem configurada.
+        raise BadRequestError(str(exc))
+
+
+@router.delete(
+    "/demo-data",
+    status_code=status.HTTP_200_OK,
+    summary="Desligar os dados de demonstração",
+    description=(
+        "Apaga o espaço e as ligações que o utilizador ligou — e nada mais. "
+        "Uma ligação criada pelo cliente com o mesmo nome não é tocada, "
+        "porque o dono não bate certo."
+    ),
+)
+async def disable_demo_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    return await demo_data_service.desligar(db, current_user)
