@@ -198,6 +198,13 @@ _ALLOWED_REFS = {
     # dependency (FastAPI WS handlers don't go through the same DI),
     # one-shot lookup on the platform pool for tenant existence check.
     str((_SRC_ROOT / "api" / "v1" / "console.py").resolve()),
+    # Portão do consentimento JIT — a pergunta "este cliente é a casa deste
+    # operador?" resolve-se contra o **registo** (`tenant_domains`), que vive na
+    # base da plataforma. Tem de ser assim: a sessão do pedido é a do cliente em
+    # que estamos, e é precisamente essa que não pode responder a esta pergunta
+    # — seria o cliente a certificar-se a si próprio. Consulta única, só corre
+    # para operadores da Sky, e falha fechada (qualquer erro mantém o portão).
+    str((_SRC_ROOT / "services" / "rbac_service.py").resolve()),
     # Pricing Fase 1 — platform-wide aggregator: rolls query counters
     # for every tenant and recomputes storage totals once per day. Has
     # to iterate across tenants, so it operates on the platform pool
@@ -298,7 +305,7 @@ def test_raw_async_session_local_instantiation_baseline():
     # checked-in code. Phase 3-4 PRs reduce this; the test fails
     # loudly if a new direct call lands. Bumping the number UP
     # requires touching this baseline deliberately.
-    BASELINE = 27  # subido 2026-08-16 — tenant_resolver.py, resolução por host
+    BASELINE = 28  # subido 2026-08-17 — rbac_service.py, portão do consentimento JIT
     #               O resolvedor corre ANTES de haver cliente: é ele que
     #               descobre qual é. Não pode usar `session_for()` porque
     #               isso exige o contexto que esta consulta ainda vai
