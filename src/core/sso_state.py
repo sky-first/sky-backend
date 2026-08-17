@@ -112,6 +112,38 @@ def app_redirect_from_state(state: Optional[str]) -> Optional[str]:
     return valor if isinstance(valor, str) and valor else None
 
 
+def tenant_from_state(state: Optional[str]) -> Optional[str]:
+    """O cliente guardado no state, **e só se a assinatura bater**.
+
+    Existe para o caminho da app nativa. A app fala com um host neutro
+    (``api.<base>``, um só para todos os clientes) e, no retorno da Google,
+    não há subdomínio, nem cabeçalho, nem JWT, nem ``?tenant=`` — a Google
+    devolve apenas o que ela própria põe na query. Nesse caminho o ``state``
+    assinado é a única fonte que resta, e é uma fonte legítima: HMAC com o
+    nosso segredo, TTL de 5 minutos, nonce. É o mesmo grau de confiança de um
+    claim de JWT, que o resolvedor de clientes já aceita.
+
+    **Não usar num host que resolve cliente.** Aí quem manda é o host, e a
+    verificação do ``verify_state`` contra ele é o que impede um state de
+    outro workspace de servir. Ver docs/SEGURANCA-SSO-E-ISOLAMENTO-TENANT.md,
+    secção 8.
+    """
+    if not state:
+        return None
+    try:
+        payload_b64, signature = state.split(".", 1)
+    except ValueError:
+        return None
+    if not hmac.compare_digest(_sign(payload_b64), signature):
+        return None
+    try:
+        payload = json.loads(_b64d(payload_b64))
+    except Exception:  # noqa: BLE001
+        return None
+    valor = payload.get("t")
+    return valor if isinstance(valor, str) and valor else None
+
+
 def verify_state(state: Optional[str], expected_tenant: Optional[str]) -> None:
     """Valida o state do retorno. Levanta ``SSOStateError`` se algo não bate.
 

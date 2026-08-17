@@ -18,7 +18,7 @@ from src.api.deps import (  # get_current_user usado em outros endpoints
     get_current_user,
     get_db_session,
 )
-from src.api.middleware.tenant_resolver import _load_tenant_by_id
+from src.api.middleware.tenant_resolver import _load_tenant_by_id, _load_tenant_from_db
 from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError, ForbiddenError
 from src.models.tenant import (
@@ -119,6 +119,7 @@ from src.core.sso_state import (
     SSOStateError,
     app_redirect_from_state,
     issue_state,
+    tenant_from_state,
     verify_state,
 )
 
@@ -1427,7 +1428,22 @@ async def sso_callback(
     #
     # Feito ANTES de instanciar o servico ou tocar na base: um retorno que
     # nao valide nao deve produzir escrita nenhuma.
+    # Num host que resolve cliente, é o host que manda — é isso que impede um
+    # state de outro workspace de servir aqui (achado A3).
+    #
+    # Num host **neutro** não há host nenhum para mandar: a app nativa fala com
+    # `api.<base>`, um só para todos os clientes, e no retorno da Google não há
+    # subdomínio, nem cabeçalho, nem JWT, nem `?tenant=` — a Google devolve
+    # apenas o que ela própria põe na query. Aí a autoridade passa a ser o
+    # `state` assinado, que é a mesma confiança de um claim de JWT.
+    #
+    # Sem isto o callback da app era recusado em 100% das tentativas.
+    # Ver docs/SEGURANCA-SSO-E-ISOLAMENTO-TENANT.md, secção 8.
     callback_tenant = _slug_from_request(request)
+    cliente_veio_do_state = False
+    if not callback_tenant:
+        callback_tenant = tenant_from_state(state)
+        cliente_veio_do_state = bool(callback_tenant)
     try:
         verify_state(state, callback_tenant)
     except SSOStateError as exc:
@@ -1439,6 +1455,78 @@ async def sso_callback(
         )
         raise BadRequestError("Invalid or expired SSO state")
 
+    # A sessão que o middleware abriu é a da **plataforma** quando o host é
+    # neutro — e é na base do cliente que o utilizador vive. Sem isto, o
+    # `handle_google_callback` procurava-o no sítio errado, que é o achado A1
+    # por outro caminho: a verificação passava e a entrada falhava (ou pior,
+    # criava a pessoa na base da plataforma).
+    if cliente_veio_do_state:
+        ctx = await _load_tenant_from_db(callback_tenant)
+        if ctx is None:
+            # Cliente inexistente ou suspenso. A mensagem é a mesma de propósito:
+            # um retorno recusado não deve dizer que clientes existem.
+            logging.getLogger(__name__).warning(
+                "SSO callback recusado (provider=%s, tenant=%s): cliente do state não resolve",
+                provider,
+                callback_tenant,
+            )
+            raise BadRequestError("Invalid or expired SSO state")
+        from src.config.tenant_connection_manager import tenant_connection_manager
+        from src.core.tenant_context import reset_current_tenant, set_current_tenant
+
+        request.state.tenant_context = ctx
+        # O contextvar além do request.state: é de `current_tenant()` que sai o
+        # `tid` assinado no token. Sem isto a sessão devolvida à app vinha sem
+        # claim de cliente e o portão de dispositivo recusava-a no pedido
+        # seguinte — o mesmo defeito que já mordeu no login por domínio.
+        token_do_contexto = set_current_tenant(ctx)
+        sessao_do_cliente = tenant_connection_manager.session_for(ctx)
+        try:
+            resposta = await _completar_sso_callback(
+                provider=provider,
+                request=request,
+                code=code,
+                state=state,
+                redirect_uri=redirect_uri,
+                db=sessao_do_cliente,
+                callback_tenant=callback_tenant,
+            )
+            await sessao_do_cliente.commit()
+            return resposta
+        except Exception:
+            await sessao_do_cliente.rollback()
+            raise
+        finally:
+            reset_current_tenant(token_do_contexto)
+            await sessao_do_cliente.close()
+
+    return await _completar_sso_callback(
+        provider=provider,
+        request=request,
+        code=code,
+        state=state,
+        redirect_uri=redirect_uri,
+        db=db,
+        callback_tenant=callback_tenant,
+    )
+
+
+async def _completar_sso_callback(
+    *,
+    provider: str,
+    request: Request,
+    code: str,
+    state: Optional[str],
+    redirect_uri: Optional[str],
+    db: AsyncSession,
+    callback_tenant: Optional[str],
+):
+    """A troca do código e a emissão da sessão, já com a base certa escolhida.
+
+    Separado do handler só por causa disso: o caminho da app nativa precisa de
+    correr isto dentro de uma sessão aberta na base do cliente, e o da web
+    continua a usar a sessão que o middleware injectou. O corpo é o mesmo.
+    """
     auth0_service = Auth0Service(db)
 
     # Build redirect URI from request base URL if not explicitly provided.

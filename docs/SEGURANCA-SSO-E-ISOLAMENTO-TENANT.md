@@ -237,3 +237,95 @@ expiração das chaves antigas.
 4. R7 — janela de baixo tráfego
 
 Cada passo com os testes da secção 5 a passar antes de seguir.
+
+---
+
+# 8. A app nativa e o host neutro (17/08/2026)
+
+## O que se partiu, e porquê
+
+Com o A3 fechado, o `state` passou a ser **assinado e preso ao cliente**, e o
+retorno passou a ser verificado contra o cliente do *callback*:
+
+```python
+callback_tenant = _slug_from_request(request)
+verify_state(state, callback_tenant)
+```
+
+Isso fecha o A3 para a **web**, onde o callback cai numa página do Next.js e o
+frontend consegue mandar `X-Tenant-Slug` no pedido seguinte.
+
+Para a **app nativa** não fecha nada: fecha a porta.
+
+A app fala com um host neutro por desenho — `api.skyfirstlabs.com`, um só para
+todos os clientes, porque o cliente é descoberto pelo domínio do email. No
+arranque do SSO a app declara o cliente em `?tenant=`, e o `_slug_from_request`
+lê-o. **Mas a Google não devolve esse parâmetro no retorno.** No callback:
+
+| fonte de cliente | no callback da app |
+|---|---|
+| subdomínio `workspace-`/`api-` | não — o host é neutro |
+| cabeçalho `X-Tenant-Slug` | não — é uma navegação do browser |
+| claim do JWT | não — ainda não há sessão |
+| `?tenant=` na query | não — a Google só devolve o que ela própria põe |
+
+Logo `callback_tenant` é sempre `None`, o `state` diz `skyfirstlabs`, e o
+retorno é recusado **em 100% das tentativas**. Nos registos de produção:
+
+```
+SSO callback recusado (provider=google, tenant=<plataforma>):
+    state pertence a outro cliente
+```
+
+Há um segundo defeito por baixo do primeiro, e é o mais perigoso: mesmo que a
+verificação passasse, a sessão de base de dados aberta pelo middleware num host
+neutro é a da **plataforma**. O `handle_google_callback` procuraria o utilizador
+na base errada — que é exactamente o achado A1 outra vez, por outro caminho.
+
+## A correção
+
+**Num host que não resolve cliente nenhum, a autoridade sobre o cliente passa a
+ser o `state` assinado.** Não é uma excepção à regra do A3: é a mesma regra, com
+a fonte que existe naquele caminho.
+
+```python
+callback_tenant = _slug_from_request(request) or tenant_from_state(state)
+verify_state(state, callback_tenant)
+```
+
+E, quando o cliente veio do `state`, o handler **abre uma sessão na base desse
+cliente** em vez de usar a da plataforma.
+
+O `state` é HMAC com o nosso segredo, tem TTL de 5 minutos e nonce. Confiar nele
+é o mesmo que confiar num claim de JWT — que é, de resto, a fonte nº 4 que o
+resolvedor já aceita para clientes sem subdomínio.
+
+## Porque é que isto não reabre o A1/A3
+
+O que o A3 impede é **um `state` obtido num sítio servir para entrar noutro
+cliente**. Isso mantém-se:
+
+- Num host **de cliente** (`workspace-x.`, `api-x.`), o host continua a mandar.
+  Um `state` de outro cliente continua a ser recusado — a nova fonte só entra
+  quando não há host que resolva.
+- Um `state` **forjado** morre na assinatura, antes de qualquer leitura.
+- Um `state` **expirado** morre no TTL.
+- Um `state` **legítimo de outro cliente** leva quem se autentica à base desse
+  cliente — que é o comportamento correcto e desejado: é o cliente que ele
+  próprio declarou no arranque. Para entrar, continua a ter de existir lá **e**
+  passar o `sso_domain_restriction`.
+
+O que muda em risco: quem consiga arrancar um login declarando o slug de outro
+cliente obtém um `state` para esse cliente. Já era assim antes desta alteração —
+o `?tenant=` no arranque é público. O que o impede de entrar não é o `state`, é
+não existir conta nesse cliente e a restrição de domínio.
+
+## Casos que os testes têm de cobrir
+
+1. Host neutro + `state` válido → resolve o cliente do `state` e usa a base dele.
+2. Host neutro + `state` forjado → recusa (assinatura).
+3. Host neutro + `state` expirado → recusa (TTL).
+4. Host neutro + **sem** `state` → recusa.
+5. Host **de cliente** + `state` de outro cliente → recusa (o host manda).
+6. Host de cliente + `state` do mesmo cliente → aceita, como hoje.
+7. O `sky_code` do retorno leva o cliente certo, não `""`.
