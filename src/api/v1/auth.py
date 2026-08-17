@@ -8,6 +8,7 @@ from uuid import UUID
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -1577,11 +1578,20 @@ async def _completar_sso_callback(
     # ter de adivinhar pelo formato.
     destino_da_app = app_redirect_from_state(state)
     if destino_da_app:
+        # `jsonable_encoder` porque o `login_response` traz um `UserResponse`
+        # (modelo Pydantic) dentro, e o handoff guarda isto como JSON no Redis.
+        # Sem isto: `TypeError: Object of type UserResponse is not JSON
+        # serializable`, apanhado pelo `except` largo do `issue` e devolvido à
+        # app como INTERNAL_ERROR — depois de a pessoa já se ter autenticado
+        # com sucesso na Google. O outro lado faz `LoginResponse(**login)`, que
+        # revalida o dicionário sem se importar de onde veio.
         codigo = await sso_handoff.issue(
-            {
-                "login": login_response,
-                "tenant": callback_tenant or "",
-            }
+            jsonable_encoder(
+                {
+                    "login": login_response,
+                    "tenant": callback_tenant or "",
+                }
+            )
         )
         separador = "&" if "?" in destino_da_app else "?"
         return RedirectResponse(
