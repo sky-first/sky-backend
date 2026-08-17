@@ -101,7 +101,11 @@ async def test_o_token_do_sso_leva_o_cliente():
             last_login_at=None,
         )
 
+        upsert = AsyncMock()
         with patch(
+            "src.services.tenant_membership_service.TenantMembershipService.upsert",
+            upsert,
+        ), patch(
             "src.services.auth_service.user_to_response_dict",
             return_value={
                 "id": utilizador.id,
@@ -126,5 +130,14 @@ async def test_o_token_do_sso_leva_o_cliente():
             "X-Tenant-Slug e sem o `tid` o pedido seguinte é recusado"
         )
         assert claims["sub"] == str(utilizador.id)
+
+        # E a pertença ao cliente fica registada. Sem esta linha o portão de
+        # dispositivo recusa o pedido seguinte com 403 "You are not a member of
+        # the requested workspace" — o login por password já a criava, o do SSO
+        # não. Na app isso via-se como o nome e o email a desaparecerem do menu,
+        # sem erro nenhum à vista.
+        upsert.assert_awaited_once()
+        assert upsert.await_args.kwargs["user_id"] == utilizador.id
+        assert upsert.await_args.kwargs["tenant_id"] == claims["tid"]
     finally:
         reset_current_tenant(token_ctx)
