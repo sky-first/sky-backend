@@ -37,14 +37,23 @@ class VoiceSessionService:
         now = datetime.now(timezone.utc)
         title = _title_from(payload.turns)
 
-        conv = Conversation(
-            page_id=payload.page_id,
-            created_by=user.id,
-            title=title,
-            created_at=now,
-            updated_at=now,
-        )
-        self.db.add(conv)
+        # Append to an existing thread when the client asked voice inside an open
+        # chat (and owns it); otherwise start a fresh conversation.
+        conv = None
+        if payload.conversation_id is not None:
+            existing = await self.db.get(Conversation, payload.conversation_id)
+            if existing is not None and existing.created_by == user.id:
+                conv = existing
+                conv.updated_at = now  # bump recency so it surfaces in "Today"
+        if conv is None:
+            conv = Conversation(
+                page_id=payload.page_id,
+                created_by=user.id,
+                title=title,
+                created_at=now,
+                updated_at=now,
+            )
+            self.db.add(conv)
         await self.db.flush()  # get conv.id
 
         count = 0

@@ -190,6 +190,18 @@ class Message(Base):
         ForeignKey("messages.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # O achado que esta mensagem apresenta.
+    #
+    # A resposta diaria de um agente e uma mensagem do fio, mas no ecra tem de
+    # ser o mesmo cartao do feed de Insights — grafico, indicadores, explicacao.
+    # Esse conteudo vive em `agent_findings`; isto e o que diz ao cliente qual
+    # achado corresponde a qual mensagem. NULL em tudo o resto.
+    finding_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_findings.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     # Slack-style emoji reactions. Shape: {"👍": ["uuid", …], "❤️": [...]}.
     # Postgres → JSONB (indexable, efficient updates). SQLite (tests) →
     # plain JSON. The variant keeps the ORM portable while the prod

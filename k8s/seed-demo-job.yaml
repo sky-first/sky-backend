@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Manual, one-shot: bootstrap the demo tenant + review account on a fresh
+  # environment. NOT an ArgoCD auto-sync hook — running it on every deploy
+  # would reset content a reviewer may have touched. Apply it by hand once
+  # (after the migrate Job has run):
+  #
+  #   kubectl -n staging delete job sky-poc-backend-seed-demo --ignore-not-found
+  #   kubectl -n staging apply -f k8s/seed-demo-job.yaml
+  #   kubectl -n staging logs -f job/sky-poc-backend-seed-demo
+  #
+  # seed_demo.py is idempotent (it upserts), so re-running is safe. It creates
+  # the demo tenant (password login on), demo@skyfirstlabs.com / SkyDemo!2026
+  # (admin, with MFA), registers the demo email domain, and seeds demo content.
+  # The review login skips MFA because MFA_EXEMPT_EMAILS lists that address
+  # (set it in this env's secret store — see the auth change).
+  name: sky-poc-backend-seed-demo
+  namespace: staging # change per environment
+  labels:
+    app: sky-poc-backend
+    role: seed-demo
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: sky-poc-backend
+        role: seed-demo
+    spec:
+      # Uses the same ServiceAccount as the Deployment. If IRSA is wired
+      # (k8s/aws-irsa/serviceaccount.yaml) point this at `sky-poc-backend`.
+      serviceAccountName: default
+      restartPolicy: Never
+      containers:
+        - name: seed-demo
+          # MUST be the same image the Deployment runs (so the models/schema
+          # match the migrated DB). Match whatever the Deployment uses.
+          image: <same-image-as-Deployment> # e.g. 741375879811.dkr.ecr.eu-west-1.amazonaws.com/sky-poc-backend:staging
+          imagePullPolicy: Always
+          workingDir: /app
+          command:
+            - "python"
+            - "seed_demo.py"
+          env:
+            - name: ENVIRONMENT
+              value: "staging"
+          envFrom:
+            # Same secret as the runtime Deployment → same DATABASE_URL, so the
+            # seed lands in the right tenant DB.
+            - secretRef:
+                name: sky-poc-backend-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

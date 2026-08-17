@@ -211,8 +211,16 @@ async def _post_resend(
     """
     api_key = (settings.RESEND_API_KEY or "").strip()
     if not api_key:
-        logger.info(
-            "[email-dryrun] would send %r to %s (RESEND_API_KEY empty)",
+        # `warning`, não `info`.
+        #
+        # Esta linha esteve em `info` e o resultado foi ninguém dar por
+        # ela: a chave nunca chegou a ser configurada em AWS, todos os
+        # emails da demo caíram aqui, e como a função devolve sucesso
+        # não havia erro nenhum a olhar. Do lado de fora lia-se
+        # "a Resend deixou de funcionar". Em produção, não enviar um
+        # email que era suposto enviar é um aviso, não uma nota.
+        logger.warning(
+            "[email-dryrun] NOT sent %r to %s — RESEND_API_KEY empty",
             subject, to,
         )
         return True  # dry-run = success from the caller's POV
@@ -226,6 +234,13 @@ async def _post_resend(
         "html": html,
         "text": text,
     }
+    # O remetente vive no subdomínio verificado, que só sabe enviar.
+    # Sem `reply_to` a resposta ia para lá e morria — e este email pede
+    # explicitamente uma resposta ("just reply"). Omitido quando vazio,
+    # para a Resend não receber um campo nulo.
+    reply_to = (settings.EMAIL_REPLY_TO_ADDRESS or "").strip()
+    if reply_to:
+        body["reply_to"] = [reply_to]
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",

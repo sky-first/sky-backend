@@ -12,6 +12,19 @@ Run after `seed-rbac-demo-users.py`. Creates:
   * one space_connection row per connection so the Space sees them.
 
 Idempotent — re-running upserts.
+
+Contra a base de um CLIENTE (Model B)
+------------------------------------
+Serve para dar a um cliente os dados de demonstração sem lhe copiar nada:
+as 5 ligações apontam para a mesma base de demonstração, e o que fica na
+base do cliente são só as linhas que dizem "esta ligação existe".
+
+    DATABASE_URL=<base do cliente>       # tenant_<slug>
+    DEMO_OWNER_EMAIL=<email que existe lá>
+    DEMO_SPACE_NAME="Dados de demonstração"
+
+Sem `DEMO_OWNER_EMAIL` o script procura `rbac.owner@example.com`, que só
+existe na base da demo, e morre com "user not found".
 """
 from __future__ import annotations
 
@@ -41,9 +54,21 @@ from src.models.space import Space, SpaceConnection, SpaceMember  # noqa: E402
 from src.models.connection import DataConnection  # noqa: E402
 from src.utils.encryption import encrypt_dict  # noqa: E402
 
-OWNER_EMAIL = "rbac.owner@example.com"
+# O dono das ligações e do espaço.
+#
+# Era fixo em `rbac.owner@example.com`, que só existe na base da demo. Passou
+# a ser parametrizável quando a equipa SkyFirst virou cliente (Model B): o
+# `tenant_skyfirstlabs` tem uma base própria, e lá o utilizador que existe é
+# o da pessoa, não o da demo. Sem isto, o script morria com "user not found"
+# em qualquer base que não fosse a da demo — que passou a ser toda a gente.
+#
+# O valor por omissão é o de antes, para os semeadores existentes não
+# mudarem de comportamento.
+OWNER_EMAIL = os.environ.get("DEMO_OWNER_EMAIL", "rbac.owner@example.com")
 OWNER_NAME = "RBAC Owner"
-SPACE_NAME = "Demo — Sky"
+# Idem: um cliente que peça os dados de demonstração não quer um espaço
+# chamado "Demo — Sky" no meio do trabalho dele.
+SPACE_NAME = os.environ.get("DEMO_SPACE_NAME", "Demo — Sky")
 
 DEMO_HOST = os.environ.get("DEMO_PG_HOST", "")
 DEMO_PORT = int(os.environ.get("DEMO_PG_PORT", "5432"))
@@ -80,7 +105,10 @@ async def upsert_owner(db: AsyncSession) -> User:
     user = res.scalar_one_or_none()
     if not user:
         print(
-            f"  ✗ user {OWNER_EMAIL} not found — run scripts/seed-rbac-demo-users.py first.",
+            f"  ✗ user {OWNER_EMAIL} not found in this database.\n"
+            "    Na base da demo: correr scripts/seed-rbac-demo-users.py primeiro.\n"
+            "    Na base de um cliente: passar DEMO_OWNER_EMAIL com um email que\n"
+            "    exista lá — o admin semeado no provisionamento serve.",
             file=sys.stderr,
         )
         sys.exit(2)

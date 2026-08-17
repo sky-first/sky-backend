@@ -1,7 +1,7 @@
 # FastAPI and server
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
-python-multipart==0.0.9
+python-multipart==0.0.30
 
 # Database
 # 2.0.25 breaks on Python 3.13 (typing AssertionError); bump to 2.0.31+
@@ -11,7 +11,7 @@ asyncpg>=0.30.0
 psycopg2-binary==2.9.11  # pinned per red-team supply-chain audit (WC-001)
 aiosqlite==0.19.0
 pgvector==0.3.6
-sqlparse==0.5.3  # W8 — AST-level readonly SQL check for LLM tool-use
+sqlparse==0.5.4  # W8 — AST-level readonly SQL check for LLM tool-use
 
 
 # Redis
@@ -23,13 +23,13 @@ celery==5.3.4
 flower==2.0.1
 
 # Authentication & Security
-python-jose[cryptography]==3.3.0
+python-jose[cryptography]==3.4.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1  # Must stay <4.1 - passlib 1.7.4 is incompatible with bcrypt>=4.1 (causes login timeout)
-python-multipart==0.0.9
-cryptography==42.0.2
-authlib[starlette]==1.3.2
-pyjwt[crypto]==2.9.0
+python-multipart==0.0.30
+cryptography==48.0.1
+authlib==1.6.10
+pyjwt[crypto]==2.13.0
 # ↑ Pinned: with `authlib>=1.3.0` open-ended, pip's resolver
 # bisects versions of authlib's transitive `pyjwt` and trips over
 # the legacy `pyjwt==1.1.0` published with no `crypto` extra. The
@@ -57,6 +57,7 @@ aiohttp>=3.10.11
 
 # Storage
 boto3==1.34.28
+amazon-transcribe>=0.6.1,<0.7  # streaming STT for the BE-07 voice pipeline (§8)
 google-cloud-storage>=2.14.0
 azure-storage-blob==12.24.0  # P1 connector — Azure Blob Storage
 azure-identity==1.19.0       # Required for Workload Identity / DefaultAzureCredential
@@ -68,9 +69,9 @@ azure-identity==1.19.0       # Required for Workload Identity / DefaultAzureCred
 # later is fine; just don't reopen the upper bound.
 
 # Database Connectors
-pymongo==4.6.1
-mysql-connector-python==8.3.0
-pymysql==1.1.0
+pymongo==4.6.3
+mysql-connector-python==9.1.0
+pymysql==1.1.1
 gspread==5.12.4
 google-auth==2.27.0
 google-auth-oauthlib==1.2.0
@@ -79,17 +80,27 @@ google-auth-httplib2==0.2.0
 # Monitoring & Observability
 prometheus-client==0.19.0
 prometheus-fastapi-instrumentator>=6.1.0
-sentry-sdk==1.40.0
+sentry-sdk==1.45.1
 structlog==24.1.0
 python-json-logger>=2.0.7
 
 # Utilities
 python-dateutil==2.8.2
 pytz==2024.1
-python-dotenv==1.0.0
+python-dotenv==1.2.2
 
 # Testing
 pytest==7.4.4
+# ↑ NÃO subir para 9.x sem trabalho a sério. O aviso do Dependabot
+# ("vulnerable tmpdir handling", média) só se corrige no 9.0.3, e o 9
+# parte a recolha de testes neste repositório:
+#     AttributeError: 'Package' object has no attribute 'obj'
+#
+# Fica como está por três razões: o pytest não entra na imagem de
+# produção, a falha é local e exige acesso à máquina de quem corre os
+# testes, e trocar uma suíte que funciona por um aviso de ferramenta de
+# desenvolvimento é mau negócio. Subir quando alguém tiver tempo para
+# arrumar a recolha.
 pytest-asyncio==0.23.3
 pytest-cov==4.1.0
 pytest-xdist==3.5.0
@@ -97,7 +108,7 @@ httpx==0.26.0
 faker==22.0.0
 
 # Development
-black==24.1.1
+black==24.3.0
 isort==5.13.2
 flake8==7.0.0
 mypy==1.8.0

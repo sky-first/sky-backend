@@ -178,6 +178,16 @@ class CreateTenantRequest(TenantCreate):
         max_length=255,
     )
 
+    email_domains: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Domínios de email da empresa, ex. ['teamblue.com']. É por "
+            "aqui que o utilizador é encaminhado para o cliente certo no "
+            "login: joao@teamblue.com → TeamBlue. Sem pelo menos um "
+            "domínio, ninguém do cliente consegue entrar."
+        ),
+    )
+
     # ── Data-plane fields, now optional ──────────────────────────────
     # Pydantic v2: re-declaring an inherited field switches its
     # required-ness. Defaults are None so the validator below can tell

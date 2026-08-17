@@ -131,7 +131,32 @@ jobs:
           # ~30-second suite when the diff is small (rebases / docs /
           # config tweaks). Industry-standard approach used by Doist,
           # Sentry, and most large Python projects.
-          pip install pytest pytest-cov pytest-timeout pytest-xdist pytest-testmon
+          # ⚠️ COM VERSÃO. Sem ela, este `pip install` corre DEPOIS do
+          # requirements.txt e ACTUALIZA o pytest que lá está fixado.
+          #
+          # Foi o que aconteceu a 16/08/2026: o pytest 8 saiu, esta linha
+          # trouxe-o, e a recolha rebentou em todos os PRs com
+          #
+          #   pytest_asyncio/plugin.py:626: pyobject = collector.obj
+          #   AttributeError: 'Package' object has no attribute 'obj'
+          #
+          # (no pytest 8 o `Package` deixou de ter `.obj`; o
+          # pytest-asyncio 0.23.3, fixado no requirements, não o
+          # acompanha). O staging estava verde às 03:53 e vermelho às
+          # 18:54 sem ninguém ter tocado no código — a alteração veio de
+          # fora, que é o que uma dependência sem versão permite.
+          #
+          # As versões repetem as do requirements.txt de propósito. O
+          # xdist e o testmon ficam livres: não estão no requirements, e
+          # inventar-lhes uma versão que não consigo validar seria trocar
+          # este risco por outro. Com o pytest fixo, o pip resolve-os para
+          # uma versão compatível — ou falha a dizer que não há, o que
+          # também é uma resposta.
+          pip install \
+            "pytest==7.4.4" \
+            "pytest-cov==4.1.0" \
+            "pytest-timeout==2.3.1" \
+            pytest-xdist pytest-testmon
 
       # Persist pytest's per-run + testmon impact-analysis databases so
       # consecutive runs of the same PR (after Update branch / rebase /

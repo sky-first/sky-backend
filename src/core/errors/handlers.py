@@ -24,6 +24,9 @@ from src.core.exceptions import (
 logger = structlog.get_logger(__name__)
 
 
+from src.config.tenant_connection_manager import TenantUnavailableError
+
+
 def register_exception_handlers(app: FastAPI):
     """Register all global exception handlers."""
 
@@ -35,6 +38,32 @@ def register_exception_handlers(app: FastAPI):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="INTERNAL_ERROR",
             message="An unexpected error occurred.",
+            correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
+        )
+
+    @app.exception_handler(TenantUnavailableError)
+    async def tenant_unavailable_handler(request: Request, exc: TenantUnavailableError):
+        """Um cliente que existe mas cuja base não abre.
+
+        Tem de estar AQUI e não no middleware do resolvedor. Foi a lição de
+        15/08/2026: pusemos lá um `except` e ele nunca chegou a correr, porque
+        em Starlette os handlers registados na app correm DENTRO da pilha de
+        middleware — o `@app.exception_handler(Exception)` acima apanhava isto
+        primeiro e devolvia o mesmo 500 de sempre. A correcção parecia feita e
+        não estava; só se viu ao sondar a produção depois do deploy.
+
+        A resposta é a MESMA de "cliente não existe", de propósito: domínio
+        desconhecido, domínio desactivado e cliente suspenso já são
+        indistinguíveis para quem sonda de fora, e um cliente avariado não tem
+        de ser a excepção que confirma que ele existe. A razão verdadeira ficou
+        no log, em `tenant_engine_unavailable`.
+        """
+        logger.error("tenant_unavailable", slug=getattr(exc, "slug", None), exc_info=True)
+        return _json_response(
+            request=request,
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="tenant_not_found",
+            message="The requested tenant does not exist or is suspended.",
             correlation_id=structlog.contextvars.get_contextvars().get("correlation_id"),
         )
 

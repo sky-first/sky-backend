@@ -254,8 +254,20 @@ class Settings(BaseSettings):
     )
     RESEND_API_URL: str = Field(default="https://api.resend.com/emails")
     RESEND_TIMEOUT: float = 10.0
-    EMAIL_FROM_ADDRESS: str = Field(default="lucas.ventura@skyfirstlabs.com")
+    # O remetente tem de estar num domínio **verificado na Resend**, e o
+    # que está verificado é o subdomínio `updates.` (DKIM em
+    # `resend._domainkey.updates`, na zona do Route53). O domínio raiz
+    # não está: enviar de `@skyfirstlabs.com` devolvia 403
+    # `domain is not verified` — e como o serviço engole os erros por
+    # design, isso lia-se como "o email deixou de funcionar".
+    EMAIL_FROM_ADDRESS: str = Field(default="lucas.ventura@updates.skyfirstlabs.com")
     EMAIL_FROM_NAME: str = Field(default="Lucas Ventura — SKY")
+    # Mas as respostas têm de cair na caixa real.
+    #
+    # O `updates.` só tem envio (`receiving: disabled` na Resend), por
+    # isso sem isto uma resposta ao email de boas-vindas ia para um sítio
+    # onde ninguém a lê — e o email inteiro existe para pedir resposta.
+    EMAIL_REPLY_TO_ADDRESS: str = Field(default="lucas.ventura@skyfirstlabs.com")
     EMAIL_DASHBOARD_URL: str = Field(default="https://demo.skyfirstlabs.com")
     # Para onde vai o aviso de um contacto novo na demo pública.
     # Sem isto o lead ficava só na base de dados, e ninguém dava por
@@ -336,6 +348,13 @@ class Settings(BaseSettings):
     # body ``{"error": "mfa_required", "enroll_url": "/api/v1/mfa/enroll/start"}``
     # so the FE can route them to the enrolment modal.
     CONSOLE_REQUIRE_MFA: bool = False
+
+    # App Store / Play review access. A comma-separated allowlist of emails
+    # that sign in with email + password only (no MFA prompt) so a store
+    # reviewer can enter — a TOTP challenge would block the review. Empty by
+    # default (no exemption); set only in review/staging to a demo account on
+    # demo data. NEVER add a real customer account here.
+    MFA_EXEMPT_EMAILS: str = ""
 
     # Console host isolation. The Internal Console must only serve on
     # its own subdomain so a customer landing on the main app host
@@ -711,6 +730,25 @@ class Settings(BaseSettings):
     MOLONI_API_KEY: str | None = None
     MOLONI_COMPANY_ID: str | None = None
     MOLONI_BASE_URL: str = "https://api.moloni.pt/v1"
+
+    TENANT_BASE_DOMAINS: str = Field(
+        default="skyfirstlabs.com",
+        description=(
+            "Domínios sob os quais um sub-domínio simples identifica um "
+            "cliente (``gbt.skyfirstlabs.com`` → cliente ``gbt``). Lista "
+            "separada por vírgulas. Fora destes, só um ``custom_domain`` "
+            "declarado no registo é aceite — caso contrário bastava apontar "
+            "um domínio qualquer ao nosso ingress para escolher o cliente."
+        ),
+    )
+
+    def tenant_base_domains(self) -> List[str]:
+        """A lista acima, limpa. Vazia = nenhum sub-domínio simples resolve."""
+        return [
+            d.strip().lower().lstrip(".")
+            for d in (self.TENANT_BASE_DOMAINS or "").split(",")
+            if d.strip()
+        ]
 
     @property
     def is_production(self) -> bool:

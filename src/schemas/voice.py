@@ -25,6 +25,9 @@ class VoiceSessionCreate(BaseModel):
     page_id: UUID
     turns: List[VoiceTurn]
     duration_ms: Optional[int] = Field(None, ge=0)
+    # When set, append the spoken turns to this existing conversation (voice
+    # asked inside an open chat) instead of starting a new one.
+    conversation_id: Optional[UUID] = None
 
 
 class VoiceSessionResponse(BaseModel):

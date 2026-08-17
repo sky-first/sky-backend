@@ -21,6 +21,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
+from src.models.tenant_domain import TenantDomain
 from src.schemas.tenant import AuthMethods
 
 
@@ -29,10 +30,16 @@ from src.schemas.tenant import AuthMethods
 
 class TestAuthMethodsSchema:
     def test_default_factory_kwargs(self) -> None:
-        """``DEFAULT_AUTH_METHODS`` is a valid AuthMethods payload."""
+        """``DEFAULT_AUTH_METHODS`` is a valid AuthMethods payload.
+
+        O defeito passou a ser password-only: a password e' a base que
+        funciona sempre e a pipeline gera uma password de admin a cada
+        cliente novo. O SSO acrescenta-se por cliente. Ver
+        test_auth_methods_defaults.py.
+        """
         m = AuthMethods(**DEFAULT_AUTH_METHODS)
-        assert m.google is True
-        assert m.password is False
+        assert m.password is True
+        assert m.google is False
 
     def test_password_only_passes(self) -> None:
         m = AuthMethods(password=True)
@@ -70,8 +77,10 @@ class TestAuthMethodsEndpoint:
 
     @pytest.mark.asyncio
     async def test_default_when_no_host(self, async_client: AsyncClient) -> None:
-        """Bare hostname with no tenant resolvable: Google-only fallback,
-        demo link on (Sky landing pitches prospects)."""
+        """Bare hostname with no tenant resolvable: e' a plataforma a
+        responder, nao um cliente por configurar — **so Google**, que e' por
+        onde a equipa da Sky entra (decisao do Lucas, 15/08/2026). Demo link
+        on (Sky landing pitches prospects)."""
         resp = await async_client.get("/api/v1/auth/methods")
         assert resp.status_code == 200
         body = resp.json()
@@ -87,8 +96,13 @@ class TestAuthMethodsEndpoint:
         self, async_client: AsyncClient
     ) -> None:
         """A workspace-foo host that does not exist in the registry
-        falls back to default (Google-only) so the login page still
-        renders something usable instead of a 404."""
+        falls back to the platform methods so the login page still
+        renders something usable instead of a 404.
+
+        Nao se distingue de propriedade um host inexistente de um host
+        que nunca sera cliente: dizer "esse workspace nao existe" e'
+        confirmar a terceiros quais os slugs que existem.
+        """
         resp = await async_client.get(
             "/api/v1/auth/methods",
             headers={"Host": "workspace-doesnotexist.skyfirstlabs.com"},
@@ -96,6 +110,8 @@ class TestAuthMethodsEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["google"] is True
+        # Sem cliente resolvido quem responde e' a plataforma, e a plataforma
+        # e' so SSO. Um host inexistente nao pode oferecer mais do que ela.
         assert body["password"] is False
 
     @pytest.mark.asyncio
@@ -141,6 +157,100 @@ class TestAuthMethodsEndpoint:
         # A tenant without ``feature_flags.demo_enabled`` set hides the
         # demo link — the operator must opt back in explicitly.
         assert body["show_demo"] is False
+
+    @pytest.mark.asyncio
+    async def test_email_domain_resolves_workspace(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """O caminho da app: sem sub-domínio, o domínio do email decide.
+
+        É isto que permite activar o SSO de um cliente novo e ele entrar
+        pela app da loja no mesmo dia — a app pergunta por email, não por
+        host.
+        """
+        slug = f"emaildisc{uuid.uuid4().hex[:6]}"
+        domain = f"{slug}.example.com"
+        tenant = Tenant(
+            slug=slug,
+            display_name="Email Discovery",
+            tier="starter",
+            db_host="db.example.com",
+            db_name="ai_saas_db",
+            db_credentials_secret_arn="local-dev:t",
+            redis_host="redis.example.com",
+            redis_credentials_secret_arn="local-dev:t:redis",
+            sso_provider="local",
+            sso_config={},
+            feature_flags={},
+            auth_methods={
+                "password": False,
+                "google": True,
+                "azure": False,
+                "okta": False,
+            },
+        )
+        db_session.add(tenant)
+        await db_session.commit()
+        await db_session.refresh(tenant)
+        db_session.add(TenantDomain(domain=domain, tenant_id=tenant.id, is_active=True))
+        await db_session.commit()
+
+        # O endpoint consulta o **registo** numa sessão própria
+        # (``AsyncSessionLocal``), porque tem de responder antes de se saber
+        # qual é o cliente — e essa sessão não vê o que este teste escreveu.
+        # Mesmo padrão dos testes dos workers: substitui-se a fábrica de
+        # sessões pela do teste. Sem fechar a sessão no fim, que é do fixture.
+        class _TestSessionCM:
+            async def __aenter__(self):
+                return db_session
+
+            async def __aexit__(self, *exc):
+                return False
+
+        import src.config.database as database_module
+
+        monkeypatch.setattr(database_module, "AsyncSessionLocal", lambda: _TestSessionCM())
+
+        resp = await async_client.get(
+            "/api/v1/auth/methods", params={"email": f"alguem@{domain}"}
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["tenant_slug"] == slug
+        assert body["google"] is True
+        assert body["password"] is False
+        assert body["domain_known"] is True
+
+    @pytest.mark.asyncio
+    async def test_unknown_email_domain_is_flagged(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Domínio que não pertence a cliente nenhum: `domain_known` falso.
+
+        A app precisa de o distinguir dos métodos por omissão. Sem isto
+        mostrava "Continuar com Google" a quem escreveu um email de que
+        ninguém é dono, e o botão levava a um SSO que nunca deixaria entrar.
+        """
+        resp = await async_client.get(
+            "/api/v1/auth/methods",
+            params={"email": f"ninguem@nao-registado-{uuid.uuid4().hex[:8]}.com"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["domain_known"] is False
+        assert body["tenant_slug"] is None
+
+    @pytest.mark.asyncio
+    async def test_host_path_keeps_domain_known_true(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Sem `email`, a resposta é a que o frontend web já recebia."""
+        resp = await async_client.get("/api/v1/auth/methods")
+        assert resp.status_code == 200
+        assert resp.json()["domain_known"] is True
 
     @pytest.mark.asyncio
     async def test_resolved_tenant_with_demo_opt_in(
@@ -314,3 +424,91 @@ class TestLoginPerTenantAuthMethods:
         # With the gate open the credential layer reports 401, never
         # 403. A 403 here would mean the gate did not honour the row.
         assert resp.status_code == 401
+
+
+class TestPasswordDesligadaPorCliente:
+    """O interruptor continua a existir — só deixou de ser o defeito.
+
+    Um cliente que adote SSO desliga a password e, a partir daí, nem o
+    /login nem o /forgot-password lhe respondem. Estes testes guardam
+    esse caminho, que antes era coberto por acidente (era o defeito
+    global) e passaria despercebido se alguém o partisse.
+    """
+
+    @pytest.mark.asyncio
+    async def test_login_recusado_quando_o_cliente_desliga_a_password(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        slug = f"ssoonly{uuid.uuid4().hex[:6]}"
+        db_session.add(
+            Tenant(
+                slug=slug,
+                display_name="Só SSO",
+                tier="starter",
+                db_host="db.example.com",
+                db_name="ai_saas_db",
+                db_credentials_secret_arn="local-dev:t",
+                redis_host="redis.example.com",
+                redis_credentials_secret_arn="local-dev:t:redis",
+                sso_provider="google",
+                sso_config={},
+                feature_flags={},
+                auth_methods={
+                    "password": False,
+                    "google": True,
+                    "azure": False,
+                    "okta": False,
+                },
+            )
+        )
+        await db_session.commit()
+
+        resp = await async_client.post(
+            "/api/v1/auth/login",
+            headers={"Host": f"workspace-{slug}.skyfirstlabs.com"},
+            json={"email": "alguem@exemplo.com", "password": "seja-o-que-for"},
+        )
+        # 403 e não 401: a recusa é do método, não das credenciais — e
+        # acontece sem sequer as avaliar.
+        assert resp.status_code == 403
+        assert "SSO" in resp.json()["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_forgot_password_recusado_no_mesmo_cliente(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """Não há password para repor num workspace que não usa password."""
+        slug = f"ssoonly{uuid.uuid4().hex[:6]}"
+        db_session.add(
+            Tenant(
+                slug=slug,
+                display_name="Só SSO",
+                tier="starter",
+                db_host="db.example.com",
+                db_name="ai_saas_db",
+                db_credentials_secret_arn="local-dev:t",
+                redis_host="redis.example.com",
+                redis_credentials_secret_arn="local-dev:t:redis",
+                sso_provider="google",
+                sso_config={},
+                feature_flags={},
+                auth_methods={
+                    "password": False,
+                    "google": True,
+                    "azure": False,
+                    "okta": False,
+                },
+            )
+        )
+        await db_session.commit()
+
+        resp = await async_client.post(
+            "/api/v1/auth/forgot-password",
+            headers={"Host": f"workspace-{slug}.skyfirstlabs.com"},
+            json={"email": "alguem@exemplo.com"},
+        )
+        assert resp.status_code == 403

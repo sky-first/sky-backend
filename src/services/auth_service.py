@@ -299,6 +299,24 @@ class AuthenticationService:
         if not user.password_hash or not verify_password(password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")
 
+        # App Store / Play review access: an env-gated allowlist of demo
+        # accounts skips the MFA gate so a store reviewer can sign in with only
+        # email + password (a TOTP prompt would block the review — the #1
+        # rejection reason). Off unless MFA_EXEMPT_EMAILS is set, and meant only
+        # for a demo account on demo data — never a real customer.
+        exempt = {
+            e.strip().lower()
+            for e in (settings.MFA_EXEMPT_EMAILS or "").split(",")
+            if e.strip()
+        }
+        if user.email and user.email.lower() in exempt:
+            return await self._issue_session(
+                user,
+                user_agent=user_agent,
+                ip_address=ip_address,
+                background_tasks=background_tasks,
+            )
+
         # Phase 3 — MFA gate. When the user has TOTP enabled we stop
         # short of issuing real tokens and hand back a short-lived
         # challenge token instead. The caller redeems it at

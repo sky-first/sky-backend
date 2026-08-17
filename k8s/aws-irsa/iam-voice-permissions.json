@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TranscribeStreamingSTT",
+      "Effect": "Allow",
+      "Action": [
+        "transcribe:StartStreamTranscription",
+        "transcribe:StartStreamTranscriptionWebSocket"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PollyTTS",
+      "Effect": "Allow",
+      "Action": [
+        "polly:SynthesizeSpeech",
+        "polly:DescribeVoices"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

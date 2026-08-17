@@ -30,6 +30,10 @@ from src.repositories.message import MessageRepository
 from src.schemas.message import ForkRequest, MessageCreate, MessageResponse, PinRequest
 from src.services.conversation_service import ConversationService
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 try:
     # chat-threads PR4: broadcast new messages on the page WebSocket so
     # every connected peer renders the new comment/question/ai_response
@@ -148,6 +152,18 @@ class MessageService:
         conv.updated_at = datetime.utcnow()
         await self.db.commit()
         await self.db.refresh(msg)
+
+        # Avisar quem foi mencionado.
+        #
+        # A app já extraía `@nome` do texto há muito — e deitava fora o
+        # resultado. O `@` parecia funcionar e não notificava ninguém: a
+        # pessoa mencionada nunca sabia. É o tipo de falha que só se descobre
+        # quando alguém pergunta "então não viste o que te escrevi?".
+        #
+        # Vem por id, do selector da app. Adivinhar a partir do texto era
+        # arriscar mandar a notificação à pessoa errada — pior do que não
+        # mandar nenhuma.
+        await self._notificar_mencionados(payload.mentions, user, conv, payload.content)
 
         # The writer is the caller — stamp their display name so the
         # broadcast + HTTP response attribute the message to the real
@@ -487,3 +503,55 @@ class MessageService:
             pass
 
         return msg
+
+    async def _notificar_mencionados(self, mentions, autor, conv, conteudo: str) -> None:
+        """Uma notificação por pessoa mencionada, na língua dela.
+
+        Nunca notifica o próprio: mencionar-se a si mesmo acontece ao
+        escrever depressa, e uma notificação sobre o que acabámos de
+        escrever é ruído.
+
+        Falhar aqui não pode derrubar a mensagem — ela já está gravada, e
+        perder o texto por causa de um aviso seria trocar o essencial pelo
+        acessório.
+        """
+        destinatarios = [m for m in (mentions or []) if m != autor.id]
+        if not destinatarios:
+            return
+        try:
+            from src.core.locale import normalize_locale
+            from src.i18n.messages import get_message
+            from src.models.notification import NotificationType
+            from src.schemas.notification import NotificationCreate
+            from src.services.notification_service import NotificationService
+
+            rows = await self.db.execute(
+                select(User.id, User.preferences).where(User.id.in_(destinatarios))
+            )
+            prefs_por_id = {rid: prefs for rid, prefs in rows.all()}
+            servico = NotificationService(self.db)
+            excerto = (conteudo or "")[:50]
+            for uid in destinatarios:
+                prefs = prefs_por_id.get(uid) or {}
+                locale = normalize_locale(
+                    prefs.get("language") if isinstance(prefs, dict) else None
+                )
+                await servico.create(
+                    NotificationCreate(
+                        user_id=uid,
+                        type=NotificationType.COMMENT_MENTION,
+                        title=get_message("notif_comment_mention_title", locale),
+                        description=get_message(
+                            "notif_comment_mention_desc", locale
+                        ).format(snippet=excerto),
+                        entity_type="conversation",
+                        entity_id=str(conv.id),
+                        deep_link=f"/page?id={conv.page_id}&conversation={conv.id}",
+                        title_key="notif_comment_mention_title",
+                        description_key="notif_comment_mention_desc",
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "mencao_nao_notificada", extra={"conversa": str(conv.id), "erro": str(exc)}
+            )

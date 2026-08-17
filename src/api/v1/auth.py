@@ -5,6 +5,8 @@ from typing import List, Optional
 from urllib.parse import urlencode
 from uuid import UUID
 
+import logging
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -19,7 +21,11 @@ from src.api.deps import (  # get_current_user usado em outros endpoints
 from src.api.middleware.tenant_resolver import _load_tenant_by_id
 from src.config.auth0 import auth0_settings
 from src.core.exceptions import BadRequestError, ForbiddenError
-from src.models.tenant import DEFAULT_AUTH_METHODS, Tenant
+from src.models.tenant import (
+    DEFAULT_AUTH_METHODS,
+    PLATFORM_FALLBACK_AUTH_METHODS,
+    Tenant,
+)
 from src.models.user import User
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.permission import EffectivePermissionsResponse
@@ -99,6 +105,22 @@ class AuthMethodsResponse(BaseModel):
     okta: bool = False
     show_demo: bool = True
     tenant_slug: Optional[str] = None
+    # Só o caminho por email o põe a ``False``: quer dizer "este domínio não
+    # está registado em nenhum workspace". A app precisa de distinguir isso
+    # dos métodos por omissão, senão mostrava "Continuar com Google" a quem
+    # escreveu um email que não pertence a cliente nenhum — e o botão levava
+    # a um SSO que nunca ia deixar entrar. No caminho por host mantém-se
+    # ``True``, que preserva a resposta que o frontend web já recebia.
+    domain_known: bool = True
+
+
+from src.core import sso_handoff
+from src.core.sso_state import (
+    SSOStateError,
+    app_redirect_from_state,
+    issue_state,
+    verify_state,
+)
 
 
 def _slug_from_request(request: Request) -> Optional[str]:
@@ -112,8 +134,26 @@ def _slug_from_request(request: Request) -> Optional[str]:
     # Device clients have no sub-domain — honour the explicit X-Tenant-Slug
     # override (same header the tenant resolver already accepts), so mobile can
     # reach a workspace's auth methods (e.g. password-enabled) on a bare host.
-    header_slug = request.headers.get("x-tenant-slug")
-    return header_slug.strip().lower() if header_slug else None
+    header_slug = (request.headers.get("x-tenant-slug") or "").strip().lower()
+    if header_slug:
+        return header_slug
+    # Último recurso: o cliente em parâmetro de query.
+    #
+    # Existe por uma razão que não é preguiça: o arranque do SSO
+    # (``/auth/sso/{provider}/login``) é aberto no **browser do sistema**,
+    # e uma navegação do browser não leva cabeçalhos nossos. Sem isto, a
+    # app não tinha como dizer a que cliente pertence quem está a entrar —
+    # o ``state`` ficava presa à plataforma, e quem se autenticasse por
+    # Google acabava na base da plataforma em vez da do seu cliente.
+    #
+    # Não é uma porta: o valor não dá acesso a nada por si só. O ``state``
+    # devolvido fica assinado e preso a este cliente, o retorno é
+    # verificado contra ele, e o ``sso_domain_restriction`` continua a
+    # exigir que o email pertença ao domínio que o cliente declarou.
+    # Em branco não é o mesmo que declarar um cliente: um slug vazio seguia
+    # para o `issue_state` e prendia o `state` a "" em vez de a ninguém.
+    query_slug = (request.query_params.get("tenant") or "").strip().lower()
+    return query_slug or None
 
 
 def _methods_from_tenant(tenant: Tenant) -> AuthMethodsResponse:
@@ -191,8 +231,9 @@ async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthM
     3. Slug parsed from the ``Host`` header → DB lookup. Used by
        requests that escape the middleware (some health probes /
        internal paths skip it on purpose).
-    4. Nothing resolvable → fall back to ``DEFAULT_AUTH_METHODS``
-       (Google-only) so the platform's bare hostname keeps working.
+    4. Nothing resolvable → fall back to ``PLATFORM_FALLBACK_AUTH_METHODS``
+       (só Google): sem cliente resolvido quem está a responder é a
+       plataforma, e a equipa da Sky entra por SSO e mais nada.
     """
     methods: Optional[dict] = None
     feature_flags: Optional[dict] = None
@@ -227,7 +268,9 @@ async def _auth_methods_for_request(request: Request, db: AsyncSession) -> AuthM
                 feature_flags = dict(row[1]) if row[1] else None
 
     if not methods:
-        methods = dict(DEFAULT_AUTH_METHODS)
+        # Sem cliente resolvido é a plataforma que está a responder, não
+        # um cliente por configurar. Ver o comentário na constante.
+        methods = dict(PLATFORM_FALLBACK_AUTH_METHODS)
 
     # Demo link policy:
     # * No tenant resolved (bare Sky landing) → demo on by default.
@@ -431,16 +474,85 @@ async def login_mfa_finalize(
     response_model=AuthMethodsResponse,
     summary="Authentication methods enabled for this workspace",
     description=(
-        "Returns the auth methods enabled for the tenant resolved from "
-        "the Host header. The login page mounts this and renders only "
-        "the methods set to true."
+        "Returns the auth methods enabled for a workspace. Without "
+        "``email``, resolves the workspace from the Host header — the web "
+        "login page mounts it that way. With ``email``, resolves from the "
+        "domain of the address (home-realm discovery), which is how the "
+        "mobile app finds the workspace: it talks to a single host and has "
+        "no sub-domain to go by."
     ),
 )
 async def get_auth_methods(
     request: Request,
+    email: Optional[str] = Query(
+        None,
+        description="Work email. The domain identifies the workspace.",
+    ),
     db: AsyncSession = Depends(get_db_session),
 ) -> AuthMethodsResponse:
+    # O caminho por email existe para o login em dois passos da app: primeiro
+    # o email, e só depois o que esse workspace aceita — password, SSO, ou
+    # ambos. É o que permite activar o SSO de um cliente novo e ele entrar na
+    # app da loja no mesmo dia, sem publicar versão nenhuma.
+    #
+    # Isto expõe publicamente que um domínio está registado. É o mesmo que a
+    # Microsoft e a Google fazem no home-realm discovery, e é inevitável: sem
+    # o dizer, não há como oferecer o botão certo. Não revela utilizadores,
+    # só a existência do workspace.
+    if email:
+        tenant = await _tenant_from_email_domain(request, email)
+        if tenant is not None:
+            return _methods_from_tenant(tenant)
+        # Domínio desconhecido. Devolve os métodos por omissão mas assinala
+        # que ninguém o reclama, para a app poder dizê-lo em vez de mostrar
+        # um botão que não leva a lado nenhum.
+        fallback = await _auth_methods_for_request(request, db)
+        fallback.domain_known = False
+        fallback.tenant_slug = None
+        return fallback
+
     return await _auth_methods_for_request(request, db)
+
+
+class SSOHandoffRequest(BaseModel):
+    """O código de uso único que o retorno do SSO entregou à app."""
+
+    code: str
+
+
+@router.post(
+    "/sso/handoff",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    responses={400: {"model": ErrorResponse}},
+    summary="Trocar o código de entrega do SSO pela sessão",
+    description=(
+        "Fecha o SSO numa app nativa. O retorno do fornecedor acontece no "
+        "browser do sistema; o backend guarda a sessão sob um código de uso "
+        "único e salta para o esquema da app com ele. A app troca-o aqui."
+    ),
+)
+async def sso_handoff_exchange(body: SSOHandoffRequest) -> LoginResponse:
+    """Troca o código pela sessão. Uma vez só.
+
+    Porque a sessão não viaja no próprio salto: num esquema próprio
+    (``sky://``), qualquer app instalada que o declare pode receber o
+    intent. Um código que morre à primeira utilização e ao fim de 60
+    segundos limita o estrago de uma intercepção a uma corrida que o
+    atacante tem de ganhar — em vez de lhe entregar os tokens.
+
+    Não leva sessão nem cliente: o código É a prova, e o que ele guarda
+    já foi decidido no retorno, com o ``state`` verificado.
+    """
+    try:
+        guardado = await sso_handoff.consume(body.code)
+    except sso_handoff.HandoffError as exc:
+        raise BadRequestError(str(exc))
+
+    login = guardado.get("login")
+    if not isinstance(login, dict):
+        raise BadRequestError("código de entrega sem sessão associada")
+    return LoginResponse(**login)
 
 
 @router.post(
@@ -1158,6 +1270,26 @@ async def sso_login(
 
     auth0_service = Auth0Service(db)
 
+    # Endereço de uma app nativa (`sky://auth`)?
+    #
+    # A Google RECUSA esquemas próprios em clientes OAuth do tipo Web —
+    # só os aceita em clientes de Android/iOS, e nós temos um cliente Web.
+    # Passar `sky://auth` ao fornecedor devolvia:
+    #
+    #     Erro 400: invalid_request
+    #     doesn't comply with Google's OAuth 2.0 policy
+    #
+    # O SSO no telemóvel nunca funcionou por causa disto. Só apareceu
+    # quando alguém entrou por SSO no telefone pela primeira vez — o
+    # revisor do sandbox usa password.
+    #
+    # A partir daqui: o fornecedor recebe sempre um `https` nosso, e o
+    # endereço da app viaja assinado dentro do `state`. O caminho da web
+    # não muda — um `redirect_uri` http(s) segue como sempre seguiu.
+    app_redirect = redirect_uri if sso_handoff.is_app_scheme(redirect_uri) else None
+    if app_redirect:
+        redirect_uri = None  # forçar a construção do nosso https, abaixo
+
     # Get redirect URI
     if not redirect_uri:
         # Belt-and-suspenders: the Dockerfile launches uvicorn with
@@ -1192,7 +1324,11 @@ async def sso_login(
     if provider == "google":
         if not auth0_settings.is_google_enabled:
             raise BadRequestError("Google SSO is not configured")
-        state = auth0_service._generate_state()
+        # State assinado e preso ao cliente que inicia o login. Era
+        # `_generate_state()`, aleatorio e nunca verificado no retorno —
+        # sem CSRF e sem ligacao ao cliente. Ver docs/SEGURANCA-SSO-E-
+        # ISOLAMENTO-TENANT.md, achado A3.
+        state = issue_state(_slug_from_request(request), app_redirect)
         params = {
             "client_id": auth0_settings.GOOGLE_CLIENT_ID,
             "redirect_uri": redirect_uri,
@@ -1204,7 +1340,11 @@ async def sso_login(
     elif provider == "azure":
         if not auth0_settings.is_azure_enabled:
             raise BadRequestError("Azure AD SSO is not configured")
-        state = auth0_service._generate_state()
+        # State assinado e preso ao cliente que inicia o login. Era
+        # `_generate_state()`, aleatorio e nunca verificado no retorno —
+        # sem CSRF e sem ligacao ao cliente. Ver docs/SEGURANCA-SSO-E-
+        # ISOLAMENTO-TENANT.md, achado A3.
+        state = issue_state(_slug_from_request(request), app_redirect)
         params = {
             "client_id": auth0_settings.AZURE_CLIENT_ID,
             "redirect_uri": redirect_uri,
@@ -1216,7 +1356,11 @@ async def sso_login(
     elif provider == "okta":
         if not auth0_settings.is_okta_enabled:
             raise BadRequestError("Okta SSO is not configured")
-        state = auth0_service._generate_state()
+        # State assinado e preso ao cliente que inicia o login. Era
+        # `_generate_state()`, aleatorio e nunca verificado no retorno —
+        # sem CSRF e sem ligacao ao cliente. Ver docs/SEGURANCA-SSO-E-
+        # ISOLAMENTO-TENANT.md, achado A3.
+        state = issue_state(_slug_from_request(request), app_redirect)
         params = {
             "client_id": auth0_settings.OKTA_CLIENT_ID,
             "redirect_uri": redirect_uri,
@@ -1250,9 +1394,14 @@ async def sso_callback(
     state: Optional[str] = Query(None, description="State parameter from OAuth flow"),
     redirect_uri: Optional[str] = Query(None, description="Redirect URI used in authorization"),
     db: AsyncSession = Depends(get_db_session),
-) -> LoginResponse:
+):
     """
     SSO callback endpoint - processes OAuth callback and returns tokens.
+
+    Devolve ``LoginResponse`` no fluxo da web. No fluxo de uma app nativa
+    devolve um **302** para o esquema da app com um código de uso único —
+    ver o fim da função. Daí não haver anotação de retorno: são duas
+    formas legítimas, e fingir que só há uma escondia a segunda.
 
     Args:
         provider: SSO provider (google, azure, okta)
@@ -1269,6 +1418,26 @@ async def sso_callback(
     """
     if provider not in ["google", "azure", "okta"]:
         raise BadRequestError(f"Unsupported SSO provider: {provider}")
+
+    # O retorno tem de pertencer ao cliente que iniciou o login. Sem esta
+    # verificacao, um `state` obtido em qualquer lado servia para entrar em
+    # qualquer cliente, e o utilizador acabava criado na base em que a
+    # ligacao calhasse cair. Ver docs/SEGURANCA-SSO-E-ISOLAMENTO-TENANT.md,
+    # achados A1 e A3.
+    #
+    # Feito ANTES de instanciar o servico ou tocar na base: um retorno que
+    # nao valide nao deve produzir escrita nenhuma.
+    callback_tenant = _slug_from_request(request)
+    try:
+        verify_state(state, callback_tenant)
+    except SSOStateError as exc:
+        logging.getLogger(__name__).warning(
+            "SSO callback recusado (provider=%s, tenant=%s): %s",
+            provider,
+            callback_tenant or "<plataforma>",
+            exc,
+        )
+        raise BadRequestError("Invalid or expired SSO state")
 
     auth0_service = Auth0Service(db)
 
@@ -1306,4 +1475,30 @@ async def sso_callback(
 
     # Create login response
     login_response = await auth0_service.create_login_response(user)
+
+    # Fluxo da app nativa: devolver a sessão ao telemóvel.
+    #
+    # Aqui estamos dentro do browser do sistema, não da app. O que a app
+    # espera é um salto para o esquema dela. O que NÃO vai neste salto são
+    # os tokens: num esquema próprio, qualquer app instalada que declare
+    # `sky://` pode receber o intent. Vai um código de uso único, com 60
+    # segundos de vida, que a app troca em `/auth/sso/handoff`.
+    #
+    # O parâmetro chama-se `sky_code` e não `code` de propósito: é assim
+    # que a app distingue um código nosso de um código do fornecedor, sem
+    # ter de adivinhar pelo formato.
+    destino_da_app = app_redirect_from_state(state)
+    if destino_da_app:
+        codigo = await sso_handoff.issue(
+            {
+                "login": login_response,
+                "tenant": callback_tenant or "",
+            }
+        )
+        separador = "&" if "?" in destino_da_app else "?"
+        return RedirectResponse(
+            url=f"{destino_da_app}{separador}sky_code={codigo}",
+            status_code=302,
+        )
+
     return LoginResponse(**login_response)

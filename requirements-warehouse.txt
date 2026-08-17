@@ -17,7 +17,7 @@
 #      builds are avoided when a wheel exists for the platform.
 #
 # Tracking issue: BE staging deploy red since PR #302 (2026-04-26).
-snowflake-connector-python==3.7.1
+snowflake-connector-python==3.13.1
 pymssql==2.2.11
 oracledb==2.0.1
 clickhouse-driver==0.2.7

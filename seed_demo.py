@@ -96,7 +96,15 @@ def _refuse_unless_local() -> None:
 
 
 EMAIL = "demo@skyfirstlabs.com"
-PASSWORD = "SkyDemo!2026"
+# Password local, sobreponível pelo ambiente.
+#
+# Continua a ter um valor por omissão porque isto **só corre contra uma
+# base local** (ver a guarda abaixo) e o propósito é arrancar sem
+# cerimónia. Mas deixou de ser a única opção: para a conta que o revisor
+# das lojas usa em produção há um script próprio,
+# ``scripts/seed_review_account.py``, que exige a password pelo ambiente
+# e não inscreve MFA nenhum.
+PASSWORD = os.getenv("DEMO_PASSWORD", "SkyDemo!2026")
 DEMO_SPACE = uuid.UUID("11111111-1111-1111-1111-111111111111")
 DEMO_PAGE = uuid.UUID("22222222-2222-2222-2222-222222222222")
 # Local data-source the demo space is linked to, so /ai/chat/stream resolves a
@@ -233,9 +241,20 @@ async def main() -> None:
 
         # Enrol MFA with a secret we control, so we can print a working code.
         mfa = MFAService(db)
-        # Fixed secret so you add it to an authenticator ONCE and it survives
-        # re-seeds (generate_enrollment would rotate it every run).
-        secret = "SKYMOBILEDEMO234"
+        # O segredo vem do ambiente, com um valor por omissão gerado a
+        # cada corrida.
+        #
+        # Esteve aqui fixo (``SKYMOBILEDEMO234``) para sobreviver a
+        # re-seeds sem voltar a registar no autenticador. A conveniência
+        # não compensa: um segredo TOTP escrito no repositório não é MFA
+        # — quem tem o ficheiro gera códigos válidos para sempre — e é o
+        # tipo de coisa que um scanner de segredos apanha e que numa
+        # auditoria de cliente não tem defesa.
+        #
+        # Para o manter estável entre corridas, define
+        # ``DEMO_TOTP_SECRET`` no teu ambiente local. Sem isso roda, e o
+        # script imprime o segredo e um código válido no fim.
+        secret = os.getenv("DEMO_TOTP_SECRET") or pyotp.random_base32()
         await mfa.verify_enrollment(user, secret=secret, code=pyotp.TOTP(secret).now())
         await db.commit()
 

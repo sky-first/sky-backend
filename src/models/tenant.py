@@ -56,10 +56,55 @@ class TenantTier(str, Enum):
 # downstream code never has to ``.get("agents", 0)`` defensively.
 DEFAULT_CAPACITY_SHAPE = {"agents": 0, "sources": 0, "indexed_gb": 0}
 
-# Per-tenant authentication methods. Default mirrors the production
-# status quo (Google-only) so existing tenants keep working when the
-# column is added by the migration.
+# Métodos de autenticação por cliente.
+#
+# A password é a base que funciona sempre; o SSO acrescenta-se por cima,
+# por cliente, e só depois de estar a funcionar é que a password se pode
+# desligar. É o que fazem o Slack, o Google Workspace e a Microsoft.
+#
+# Estava ao contrário — Google ligado, password desligada — com duas
+# consequências más:
+#
+#   1. Um cliente novo nascia inacessível. A pipeline de provisionamento
+#      gera-lhe uma password de admin e guarda-a no Secrets Manager, mas
+#      esse admin não a podia usar até alguém ir mudar isto à mão.
+#   2. Todo o cliente nascia com um método de autenticação que ninguém
+#      escolheu. O Google ligado por omissão é superfície aberta de
+#      graça — e foi por aí que entrou a falha do SSO (ver
+#      docs/SEGURANCA-SSO-E-ISOLAMENTO-TENANT.md).
+#
+# Isto é o defeito para clientes NOVOS. Os que já existem têm o valor
+# gravado na sua própria linha e não são tocados.
 DEFAULT_AUTH_METHODS = {
+    "password": True,
+    "google": False,
+    "azure": False,
+    "okta": False,
+}
+
+# O que se oferece quando NÃO há cliente resolvido — a página de entrada
+# da própria plataforma, onde a equipa da Sky entra com as contas
+# @skyfirstlabs.com do Google Workspace.
+#
+# Constante à parte de propósito. As duas coisas partilhavam o mesmo
+# valor, e mudar o defeito dos clientes novos para password teria feito
+# desaparecer o botão do Google no login da equipa — que hoje cai
+# exactamente por aqui, porque `skyfirstlabs.com` ainda não está
+# registado como domínio.
+#
+# **Só Google, sem password** (decisão do Lucas, 15/08/2026): a equipa da Sky
+# entra por SSO e mais nada. A password aqui seria uma segunda porta para a
+# própria plataforma — a superfície mais sensível que há — e ninguém a usa: a
+# 15/08 a empresa são duas pessoas, ambas com Google no domínio.
+#
+# Isto NÃO é o defeito dos clientes: um cliente novo nasce com password (ver
+# `DEFAULT_AUTH_METHODS` acima), porque é a base que funciona antes de haver
+# IdP configurado. São coisas diferentes e é por isso que são duas constantes.
+#
+# ⚠️ Consequência a saber antes de mexer: quem não tenha Google num domínio
+# registado deixa de ter QUALQUER forma de entrar por aqui — a recuperação de
+# palavra-passe também é recusada, porque não há palavra-passe para recuperar.
+PLATFORM_FALLBACK_AUTH_METHODS = {
     "password": False,
     "google": True,
     "azure": False,

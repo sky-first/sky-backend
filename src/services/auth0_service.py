@@ -9,7 +9,7 @@ from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.auth0 import auth0_settings
-from src.core.exceptions import BadRequestError, UnauthorizedError
+from src.core.exceptions import BadRequestError, ForbiddenError, UnauthorizedError
 from src.core.security import create_access_token, create_refresh_token
 from src.models.user import RefreshToken, User
 from src.repositories.user import UserRepository
@@ -209,6 +209,144 @@ class Auth0Service:
             getattr(user, "is_sky_operator", False),
             getattr(user, "sky_role", None),
         )
+
+    async def _assert_sso_domain_allowed(self, email: str) -> None:
+        """Recusa quem não pertence ao domínio que o cliente declarou.
+
+        `sso_domain_restriction` na linha do cliente. Vazio = sem restrição,
+        que é o estado de quase toda a gente e tem de continuar a funcionar.
+
+        Aceita uma lista separada por vírgulas: uma empresa com
+        ``empresa.com`` e ``empresa.pt`` é o caso normal, não a excepção, e
+        obrigá-la a escolher um só transformava o controlo em algo que ninguém
+        liga.
+
+        A comparação é feita com o "@" à frente. Sem ele, ``empresa.com``
+        deixaria passar ``naoempresa.com`` — o mesmo erro de sufixo que o
+        ``_is_sky_team_email`` já evita do outro lado.
+        """
+        from sqlalchemy import select
+
+        from src.core.tenant_context import current_tenant
+        from src.models.tenant import Tenant
+
+        try:
+            ctx = current_tenant()
+        except Exception:
+            ctx = None
+        slug = getattr(ctx, "slug", None) if ctx else None
+        if not slug:
+            return  # sem cliente resolvido não há domínio de cliente a impor
+
+        row = (
+            await self.db.execute(
+                select(Tenant.sso_domain_restriction).where(Tenant.slug == slug)
+            )
+        ).first()
+        raw = (row[0] if row else None) or ""
+        domains = [d.strip().lower().lstrip("@") for d in raw.split(",") if d.strip()]
+        if not domains:
+            return
+
+        addr = (email or "").lower()
+        if any(addr.endswith("@" + d) for d in domains):
+            return
+
+        logger.warning(
+            "SSO recusado: %s nao pertence a %s (cliente %s)", email, domains, slug
+        )
+        # A mesma mensagem que se dá a quem não está provisionado: não se
+        # confirma a estranhos que domínios é que um cliente aceita.
+        raise ForbiddenError(
+            "This account is not provisioned for this workspace. "
+            "Ask an administrator for an invite."
+        )
+
+    async def authorise_sso_identity(
+        self,
+        *,
+        email: str,
+        email_verified: Optional[bool],
+        provider: str,
+    ) -> None:
+        """Decide se esta identidade do SSO pode entrar NESTE cliente.
+
+        Chamado por todos os retornos de SSO antes de criar ou ligar
+        seja o que for. Levanta ``ForbiddenError`` quando nao pode.
+
+        Duas regras, das quais a primeira era a falha critica A1 (ver
+        docs/SEGURANCA-SSO-E-ISOLAMENTO-TENANT.md):
+
+        1. **Nao criar utilizadores.** Antes, qualquer conta Google —
+           incluindo @gmail.com — que chegasse ao retorno ficava com
+           utilizador criado e espaco de trabalho dentro do cliente em
+           que o pedido caisse. Agora so entra quem ja existe. O
+           provisionamento automatico e opcional por cliente, desligado
+           por omissao (``feature_flags.sso_jit_provisioning``).
+
+        2. **Nao colar identidades nao verificadas a contas existentes.**
+           O fornecedor devolve ``verified_email``; era guardado nos
+           metadados e nunca lido. Um fornecedor que afirme um email nao
+           verificado tomava a conta de quem usa password (achado A4).
+        """
+        # 0. O domínio, antes de tudo o resto.
+        #
+        # O `sso_domain_restriction` era gravado pelo Console e **nunca lido** —
+        # um controlo que não controlava nada, e pior do que não existir: quem o
+        # preenchia ficava a acreditar que tinha fechado o cliente a um domínio.
+        #
+        # Vai à frente da regra do "já existe" de propósito. Se alguém foi
+        # provisionado por engano com um endereço de fora (um @gmail.com numa
+        # lista colada à pressa), a existência da conta não deve ser suficiente:
+        # o domínio é a regra da CASA, não uma propriedade do utilizador.
+        await self._assert_sso_domain_allowed(email)
+
+        existing = await self.user_repo.get_by_email(email)
+
+        if existing is not None:
+            if email_verified is not True:
+                logger.warning(
+                    "SSO recusado: %s afirma %s sem email verificado — "
+                    "nao se cola a uma conta existente",
+                    provider,
+                    email,
+                )
+                raise ForbiddenError(
+                    "The identity provider did not confirm this email address."
+                )
+            return
+
+        if not self._jit_provisioning_enabled():
+            # Mensagem deliberadamente igual para email inexistente e
+            # para email existente noutro cliente: nao confirmar a
+            # terceiros quem tem conta onde.
+            logger.warning(
+                "SSO recusado: %s sem conta neste cliente e provisionamento "
+                "automatico desligado",
+                email,
+            )
+            raise ForbiddenError(
+                "This account is not provisioned for this workspace. "
+                "Ask an administrator for an invite."
+            )
+
+    @staticmethod
+    def _jit_provisioning_enabled() -> bool:
+        """``feature_flags.sso_jit_provisioning`` do cliente em contexto.
+
+        Desligado por omissao e desligado quando nao ha cliente
+        resolvido — na duvida, nao criar.
+        """
+        try:
+            from src.core.tenant_context import current_tenant
+
+            ctx = current_tenant()
+        except Exception:
+            return False
+        if ctx is None:
+            return False
+        flags = getattr(ctx, "feature_flags", None) or {}
+        return bool(flags.get("sso_jit_provisioning", False))
 
     async def create_user_from_auth0(
         self,
@@ -471,6 +609,14 @@ class Auth0Service:
                     raise BadRequestError("Email not provided by Google")
 
                 # Get or create user
+                # Porta de entrada: nao criar, e nao colar identidades nao
+                # verificadas. O Google devolve `verified_email`; ausente ou
+                # falso conta como NAO verificado.
+                await self.authorise_sso_identity(
+                    email=email,
+                    email_verified=user_info.get("verified_email") is True,
+                    provider="google",
+                )
                 user = await self.get_user_from_auth0(google_id, provider="google")
                 if not user:
                     user = await self.create_user_from_auth0(
@@ -570,6 +716,14 @@ class Auth0Service:
                     raise BadRequestError("Email not provided by Azure AD")
 
                 # Get or create user
+                # O Microsoft Graph nao devolve um campo de verificacao: a
+                # identidade e afirmada pelo directorio da propria organizacao,
+                # que e' a fonte de verdade para aquele email. Documentado em
+                # docs/SEGURANCA-SSO-E-ISOLAMENTO-TENANT.md (seccao 6) como
+                # ponto a confirmar com um retorno real.
+                await self.authorise_sso_identity(
+                    email=email, email_verified=True, provider="azure"
+                )
                 user = await self.get_user_from_auth0(azure_id, provider="azure")
                 if not user:
                     user = await self.create_user_from_auth0(
@@ -663,6 +817,11 @@ class Auth0Service:
                     raise BadRequestError("Email not provided by Okta")
 
                 # Get or create user
+                # Mesma leitura que o Azure: o directorio Okta do cliente e' a
+                # fonte de verdade do email.
+                await self.authorise_sso_identity(
+                    email=email, email_verified=True, provider="okta"
+                )
                 user = await self.get_user_from_auth0(okta_id, provider="okta")
                 if not user:
                     user = await self.create_user_from_auth0(

@@ -70,7 +70,20 @@ async def list_tenants(
     stale ``capacity_used`` JSONB on tenant_registry, which has never
     been backed by a sync task.
     """
-    stmt = select(Tenant)
+    # Fora da lista: as linhas que pertencem à plataforma, não a clientes.
+    #
+    # O `sky` é a linha-semente — existe para haver um contexto por omissão,
+    # aponta para a base CENTRAL (não tem base própria) e o IAM nem consegue
+    # ler o segredo dela. Aparecia aqui como um cliente activo, com pontuação
+    # de saúde, e quem lhe clicasse recebia `AccessDenied` sem perceber
+    # porquê. Mostrar uma linha operável que não é operável é pior do que não
+    # a mostrar.
+    #
+    # A mesma lista que o resolvedor usa: os nomes reservados nunca podem ser
+    # clientes, portanto uma linha com um destes slugs nunca é um cliente.
+    from src.api.middleware.tenant_resolver import _RESERVED_SLUGS
+
+    stmt = select(Tenant).where(func.lower(Tenant.slug).notin_(sorted(_RESERVED_SLUGS)))
     if tier is not None:
         stmt = stmt.where(Tenant.tier == tier)
     if is_active is not None:
@@ -205,8 +218,28 @@ async def create_tenant(
     that actually runs the script.
 
     Raises ``ValueError("slug_taken")`` on uniqueness violations so the
-    route can map it to a clean 409.
+    route can map it to a clean 409, e ``ValueError("slug_reserved")``
+    quando o slug é um nome da plataforma.
     """
+    # Um slug que seja um host nosso SEQUESTRA esse host.
+    #
+    # Desde que o resolvedor passou a aceitar `<slug>.skyfirstlabs.com`
+    # (#619), criar um cliente chamado `app` faria `app.skyfirstlabs.com`
+    # — o endereço principal do produto — passar a servir esse cliente.
+    # O mesmo para `console`, `api`, `demo`.
+    #
+    # Antes do #619 isto era inofensivo, porque um host simples nunca
+    # resolvia cliente nenhum. Foi essa mudança que transformou a lista de
+    # reservados de detalhe do resolvedor em regra de criação, e este é o
+    # sítio onde ela tem de ser imposta: a Console não validava nada, e a
+    # lista do workflow de provisionamento é outra (só nomes de namespaces
+    # do Kubernetes) — o comentário no resolvedor que dizia o contrário
+    # estava errado.
+    from src.api.middleware.tenant_resolver import _RESERVED_SLUGS
+
+    if (payload.slug or "").strip().lower() in _RESERVED_SLUGS:
+        raise ValueError("slug_reserved")
+
     # Strip the admin_email out of the registry payload; it travels with
     # the provisioning job instead so the bootstrap step can pick it up.
     body = payload.model_dump(exclude={"admin_email"})
@@ -248,6 +281,28 @@ async def create_tenant(
         ):
             raise ValueError("slug_taken") from exc
         raise
+
+    # Domínios de email da empresa. É por aqui que o login encaminha o
+    # utilizador para o cliente certo — joao@teamblue.com → TeamBlue —
+    # porque cada cliente tem a sua própria base de dados e é preciso
+    # saber em qual procurar antes de validar a password.
+    #
+    # Sem isto o cliente nascia inacessível: a tabela ficava vazia,
+    # ninguém do cliente resolvia, e o login caía na base da plataforma.
+    # Estava a ser preenchida à mão, uma linha de SQL por venda.
+    if payload.email_domains:
+        from src.services.tenant_domain_service import TenantDomainService
+
+        for dominio in payload.email_domains:
+            if not (dominio or "").strip():
+                continue
+            # `add_domain` recusa mover um domínio que já pertença a outro
+            # cliente. Deixamos o erro subir: registar o domínio da empresa
+            # errada manda os funcionários dela para a base de dados de
+            # outra, e isso não é coisa para se resolver em silêncio.
+            await TenantDomainService.add_domain(
+                db, tenant_id=tenant.id, domain=dominio
+            )
 
     job_payload: Dict[str, Any] = {
         "tenant_slug": tenant.slug,

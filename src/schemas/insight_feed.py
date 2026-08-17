@@ -30,6 +30,13 @@ class InsightItem(BaseModel):
     reviewed: bool = False
     pinned: bool = False
     deep_link: str
+    # A conversa do agente que produziu este achado.
+    #
+    # E o que permite ao cliente abrir o FIO ao tocar no insight, em vez de uma
+    # pagina estatica: o insight e uma mensagem de uma conversa, e a conversa e
+    # onde se pergunta "explica melhor" ou "e agora o Norte?". None quando o
+    # achado nao veio de um agente com conversa (achados antigos, varreduras).
+    conversation_id: Optional[str] = None
 
 
 class InsightFeedResponse(BaseModel):

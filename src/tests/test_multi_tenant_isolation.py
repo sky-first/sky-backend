@@ -298,7 +298,15 @@ def test_raw_async_session_local_instantiation_baseline():
     # checked-in code. Phase 3-4 PRs reduce this; the test fails
     # loudly if a new direct call lands. Bumping the number UP
     # requires touching this baseline deliberately.
-    BASELINE = 26  # subido 2026-08-04 — auth.py, descoberta de cliente por domínio
+    BASELINE = 27  # subido 2026-08-16 — tenant_resolver.py, resolução por host
+    #               O resolvedor corre ANTES de haver cliente: é ele que
+    #               descobre qual é. Não pode usar `session_for()` porque
+    #               isso exige o contexto que esta consulta ainda vai
+    #               produzir. É a mesma razão das outras consultas do
+    #               resolvedor que já contam para esta marca.
+    #
+    # (marca anterior: 26, subida 2026-08-04 — auth.py, descoberta de
+    #  cliente por domínio)
     #               polls the GH Actions API as a fallback for lossy
     #               offboard webhooks (see PR #506). It's a top-level
     #               Celery task on the platform DB, no tenant context

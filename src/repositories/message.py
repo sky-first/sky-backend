@@ -33,6 +33,7 @@ class MessageRepository(BaseRepository[Message]):
         duration_ms: Optional[int] = None,
         parent_message_id: Optional[UUID] = None,
         incorporated_in_message_id: Optional[UUID] = None,
+        finding_id: Optional[UUID] = None,
     ) -> Message:
         # Explicit microsecond timestamp — see conversation repo for the
         # SQLite precision rationale.
@@ -50,6 +51,7 @@ class MessageRepository(BaseRepository[Message]):
             created_at=datetime.utcnow(),
             parent_message_id=parent_message_id,
             incorporated_in_message_id=incorporated_in_message_id,
+            finding_id=finding_id,
         )
         self.db.add(msg)
         await self.db.flush()
