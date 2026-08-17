@@ -871,11 +871,23 @@ class Auth0Service:
         """
         from datetime import datetime, timedelta, timezone
 
+        from src.core.device_tenant import tenant_claims_for_context
+        from src.core.tenant_context import current_tenant
         from src.schemas.user import UserResponse
         from src.services.auth_service import user_to_response_dict
 
         # Create tokens
-        token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+        token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            # O cliente vai assinado no token, como no login por password
+            # (auth_service.py). Faltava aqui, e faltava em silêncio: a entrada
+            # por SSO corria até ao fim e o **pedido seguinte** é que morria com
+            # "Tenant unresolved", porque a app não manda `X-Tenant-Slug` —
+            # depois de entrar é o token que carrega o cliente.
+            **tenant_claims_for_context(current_tenant()),
+        }
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data)
 
