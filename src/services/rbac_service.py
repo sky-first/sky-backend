@@ -40,6 +40,32 @@ from src.repositories.permission import PermissionRepository, RolePermissionRepo
 logger = logging.getLogger(__name__)
 
 
+async def _e_o_cliente_de_casa(user: User, ctx) -> bool:
+    """O cliente actual é o dono do domínio do email deste operador?
+
+    Falha fechada: qualquer dúvida — email sem domínio, domínio não
+    registado, registo indisponível — devolve ``False``, e o portão do
+    consentimento JIT mantém-se. Deixar entrar por engano é pior do que
+    recusar por engano.
+    """
+    email = (getattr(user, "email", "") or "").strip().lower()
+    dominio = email.rpartition("@")[2]
+    if not dominio:
+        return False
+    try:
+        from src.config.database import AsyncSessionLocal
+        from src.services.tenant_domain_service import TenantDomainService
+
+        async with AsyncSessionLocal() as sessao_da_plataforma:
+            dono = await TenantDomainService.resolve_by_domain(sessao_da_plataforma, dominio)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "rbac.home_tenant_lookup_failed user_id=%s", getattr(user, "id", None)
+        )
+        return False
+    return dono is not None and str(getattr(dono, "id", "")) == str(getattr(ctx, "id", ""))
+
+
 async def _is_sky_operator_without_jit(user: User, db: AsyncSession) -> bool:
     """Reject Sky operators that lack an active JIT consent session.
 
@@ -77,7 +103,26 @@ async def _is_sky_operator_without_jit(user: User, db: AsyncSession) -> bool:
     # implemented — operators were being denied even on the platform.
     from src.core.tenant_context import current_tenant
 
-    if current_tenant().is_default:
+    ctx = current_tenant()
+    if ctx.is_default:
+        return False
+
+    # Casa deixou de ser só o contexto por omissão.
+    #
+    # Quando isto foi escrito, a Sky não era cliente de si própria: qualquer
+    # cliente resolvido era, por definição, de outra gente. A 16/08/2026 a
+    # equipa passou a ter o seu próprio workspace — e a partir daí **toda a
+    # equipa ficou trancada fora dele**. Entravam, e o primeiro pedido morria
+    # com "Sky support access requires an active JIT consent session": são
+    # operadores, o cliente não é o por omissão, e não há sessão de suporte
+    # nenhuma — nem faria sentido haver, é a casa deles.
+    #
+    # A regra certa é a que o docstring já descrevia: o consentimento JIT é
+    # para acesso **a outro cliente**. O cliente dono do domínio do email do
+    # operador é a casa dele. Um operador da Sky dentro do workspace de um
+    # cliente continua a precisar de sessão de suporte, que é o que isto
+    # protege.
+    if await _e_o_cliente_de_casa(user, ctx):
         return False
 
     # Check for active JIT session in the database
