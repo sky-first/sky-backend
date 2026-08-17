@@ -60,8 +60,22 @@ async def _resolve_voice_tenant(claims: dict):
     from src.services.tenant_membership_service import TenantMembershipService
 
     async def _is_member(user_id: str, tid: str) -> bool:
-        # Membership rows live in the platform DB (default context).
-        async with tenant_connection_manager.session_for(DEFAULT_TENANT_CONTEXT) as db:
+        # Na base do **cliente**, que é onde as linhas de pertença de facto
+        # vivem — e não na da plataforma, como aqui se dizia.
+        #
+        # O comentário estava errado e ninguém reparou porque a voz nunca
+        # chegou tão longe: o caminho REST (`deps.enforce_device_tenant`) lê
+        # com a sessão do pedido, que é a do cliente, e o login escreve com a
+        # mesma. Só este sítio procurava noutro lado — e não encontrava nunca.
+        #
+        # O sintoma foi "Servidor de voz indisponível" no microfone e no live
+        # talk, no mesmo dia em que o `/auth/me` passou a responder 200: as
+        # duas verificações são a mesma, mas uma delas olhava para a gaveta
+        # errada.
+        ctx_do_cliente = await _load_tenant_by_id(tid)
+        if ctx_do_cliente is None:
+            return False
+        async with tenant_connection_manager.session_for(ctx_do_cliente) as db:
             return await TenantMembershipService.is_member(db, user_id, tid)
 
     result = await resolve_device_tenant(
