@@ -42,10 +42,17 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import List, Tuple
 from urllib.parse import quote_plus, unquote, urlparse
 
-from sqlalchemy import select
+# Corrido como `python scripts/migrate_tenants.py`, o Python põe `scripts/` no
+# caminho e não a raiz — e `import src...` falha com ModuleNotFoundError. Os
+# outros scripts do hook (`seed_tenant_registry`, `migrate_alembic_version_table`)
+# fazem exactamente isto pela mesma razão.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from sqlalchemy import select  # noqa: E402
 
 
 async def _clientes(slug: str | None) -> List[Tuple[str, str]]:
