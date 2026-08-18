@@ -41,14 +41,28 @@ def sync_connection_metadata(connection_id: str):
     import asyncio
     from uuid import UUID
 
-    from src.config.database import AsyncSessionLocal
     from src.config.settings import settings
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.tenant_context import current_tenant
     from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
     from src.services.connector_service import ConnectorService
     from src.utils.encryption import decrypt_dict
 
     async def _sync():
-        async with AsyncSessionLocal() as db:
+        # A ligação vive na base DO CLIENTE, não na da plataforma.
+        #
+        # Isto abria `AsyncSessionLocal` — a base da plataforma — e ia lá
+        # procurar uma ligação que está na do cliente. Nunca encontrava, e o
+        # "Connection not found" ficava só no log: quem carregava em
+        # sincronizar via a interface dizer que sim e nada acontecia. Foi por
+        # isto que as cinco ligações de demonstração do tenant `skyfirstlabs`
+        # estiveram desde sempre sem metadados nenhuns — e sem metadados o
+        # projeto não tem tabelas para responder a nada.
+        #
+        # O `task_prerun` já repõe o `current_tenant()` a partir do cabeçalho
+        # que o `.delay()` anexou; `session_for(default)` continua a cair no
+        # pool global, portanto o caminho de cliente único não muda.
+        async with tenant_connection_manager.session_for(current_tenant()) as db:
             connection_repo = ConnectionRepository(db)
             metadata_repo = ConnectionMetadataRepository(db)
             ConnectorService(db)

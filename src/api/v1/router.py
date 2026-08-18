@@ -25,6 +25,7 @@ from src.api.v1 import (
     cost_metrics,
     crews,
     cursor,
+    data_access_requests,
     datasets,
     db_health,
     demo,
@@ -76,6 +77,11 @@ api_router.include_router(mfa.router, prefix="/mfa", tags=["MFA"])
 # /auth so it lives outside any middleware that assumes the user is
 # already authenticated.
 api_router.include_router(demo.router, prefix="/demo", tags=["Demo"])
+api_router.include_router(
+    data_access_requests.router,
+    prefix="/access-requests",
+    tags=["Access requests"],
+)
 
 # User endpoints
 api_router.include_router(users.router, prefix="/users", tags=["Users"])
