@@ -174,3 +174,42 @@ def test_o_url_com_credenciais_nunca_vai_para_o_ecra(monkeypatch, capsys):
     saida = capsys.readouterr()
     assert "segredo" not in saida.out
     assert "segredo" not in saida.err
+
+
+def test_corre_como_o_hook_o_corre():
+    """O modo em que ele corre de verdade: `python scripts/migrate_tenants.py`.
+
+    Os testes acima carregam o módulo pelo caminho, a partir do pytest, onde o
+    `src` já é importável. Isso escondeu o defeito que apareceu **em produção**
+    ao primeiro arranque: corrido como script, o Python põe `scripts/` no
+    caminho e não a raiz, e o `from src.config.database import ...` rebenta com
+    `ModuleNotFoundError: No module named 'src'`.
+
+    E como o script falha alto de propósito, isso travou o deploy — a política
+    certa a apanhar o erro errado.
+
+    Não se testa a migração em si: aponta-se a uma base que não existe e
+    verifica-se que a queixa é de ligação, nunca de importação.
+    """
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parents[2]
+    ambiente = dict(
+        os.environ,
+        DATABASE_URL="postgresql+asyncpg://u:p@127.0.0.1:1/nao_existe",
+    )
+    r = subprocess.run(
+        [sys.executable, "scripts/migrate_tenants.py", "--dry-run"],
+        cwd=raiz,
+        env=ambiente,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    tudo = r.stdout + r.stderr
+    assert "ModuleNotFoundError" not in tudo, tudo[-2000:]
+    assert "No module named 'src'" not in tudo
