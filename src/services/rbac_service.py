@@ -1375,12 +1375,19 @@ class RBACService:
         responde "que papel tem", e para quem não tem lado nenhum inventa
         "owner" — que é o comportamento certo para o mundo pessoal e errado
         para tudo o resto. Esta responde só à pergunta que interessa ao portão.
+
+        Duas consultas com ``LIMIT 1`` em vez do repositório de equipas: aqui
+        basta saber **se** existe alguma, e o repositório carrega a lista toda.
         """
-        crew_ids = await self.crew_members.get_crew_ids_by_user(user_id)
-        if crew_ids:
-            return True
+        from src.models.crew import CrewMember
+
         res = await self.db.execute(
             select(SpaceMember.id).where(SpaceMember.user_id == user_id).limit(1)
+        )
+        if res.first() is not None:
+            return True
+        res = await self.db.execute(
+            select(CrewMember.id).where(CrewMember.user_id == user_id).limit(1)
         )
         return res.first() is not None
 
