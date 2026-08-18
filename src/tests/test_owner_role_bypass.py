@@ -14,6 +14,7 @@ existing row; this suite locks in the post-rename behaviour:
 The file name is kept for git history continuity; the *role* under test
 is ``super_admin`` now.
 """
+
 from types import SimpleNamespace
 from uuid import uuid4
 from unittest.mock import AsyncMock, MagicMock
@@ -47,6 +48,7 @@ def mock_db():
 # ---------------------------------------------------------------------------
 # super_admin passes every permission
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_super_admin_passes_founder_exclusive_perms(mock_db):
@@ -82,6 +84,7 @@ async def test_super_admin_passes_crew_content_perms(mock_db):
 # ---------------------------------------------------------------------------
 # Admin is denied super-admin-exclusive perms
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_admin_cannot_delete_tenant(mock_db):
@@ -119,13 +122,29 @@ async def test_admin_still_passes_everything_else(mock_db):
     # Admin bypass still works for non-founder perms.
     await svc.assert_permission(admin, "users.view")
     await svc.assert_permission(admin, "audit.view")
-    await svc.assert_permission(admin, "permissions.edit")
     await svc.assert_permission(admin, "pages.create")
+
+    # `permissions.edit` saiu daqui a 18/08/2026.
+    #
+    # Esta linha classificava-a como "perm não-fundador", mas a tabela de regras
+    # marca-a `("tenant", "owner_only")` desde a reescrita. Os dois desenhos
+    # discordavam, e a lista de exclusivas dentro do RBACService — escrita à
+    # mão — seguia esta, deixando o admin editar a matriz de permissões.
+    #
+    # O que decide é isto: se um admin edita a matriz, o conjunto de exclusivas
+    # do fundador deixa de valer nada. Ele edita a matriz e dá-se
+    # `billing.manage`, `tenant.delete`, o que quiser. Os três testes acima
+    # ficariam a proteger uma porta com a parede ao lado por abrir.
+    #
+    # Ver `test_exclusivas_do_fundador.py`.
+    with pytest.raises(ForbiddenError):
+        await svc.assert_permission(admin, "permissions.edit")
 
 
 # ---------------------------------------------------------------------------
 # Effective permissions
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_super_admin_effective_permissions_include_exclusives(mock_db):
@@ -155,6 +174,7 @@ async def test_admin_effective_permissions_omit_founder_exclusives(mock_db):
 # Member is still denied (regression guard)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_member_denied_founder_exclusive_regardless_of_role(mock_db):
     """A plain member must not get anywhere near tenant.delete."""
@@ -170,6 +190,7 @@ async def test_member_denied_founder_exclusive_regardless_of_role(mock_db):
 # admin?" check that should be used anywhere the codebase would
 # otherwise write ``user.role == "admin"``.
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "role,expected",
