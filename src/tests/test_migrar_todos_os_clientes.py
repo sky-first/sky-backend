@@ -213,3 +213,75 @@ def test_corre_como_o_hook_o_corre():
     tudo = r.stdout + r.stderr
     assert "ModuleNotFoundError" not in tudo, tudo[-2000:]
     assert "No module named 'src'" not in tudo
+
+
+def test_avisa_quando_uma_tabela_tem_o_dono_errado(monkeypatch):
+    """O aviso que teria poupado um 500 em produção.
+
+    A 18/08/2026 migrei duas bases de clientes à mão com as credenciais da
+    plataforma em vez das do cliente. O alembic correu e disse que estava tudo
+    bem; a tabela nova ficou com o dono errado, a aplicação não tinha permissão
+    nela, e o ecrã que a usa passou a dar 500 — num sítio que eu tinha dado por
+    entregue.
+
+    O alembic não repara nisto: para ele a migração correu. Este aviso põe-no à
+    frente de quem faz o deploy, em vez de esperar que um cliente se queixe.
+    """
+    import io as _io
+    import sys as _sys
+
+    m = _carregar()
+
+    class _Cursor:
+        def __init__(self):
+            self.q = ""
+
+        def execute(self, q, *a):
+            self.q = q
+
+        def fetchone(self):
+            return ("tenant_x_user",)
+
+        def fetchall(self):
+            return [("data_access_requests",)] if "pg_tables" in self.q else []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    class _Conn:
+        def cursor(self):
+            return _Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    fake = type("psycopg2", (), {"connect": staticmethod(lambda *_a, **_k: _Conn())})
+    monkeypatch.setitem(_sys.modules, "psycopg2", fake)
+
+    erradas = m._tabelas_com_dono_errado("x", "postgresql+asyncpg://u:p@h/tenant_x")
+    assert erradas == ["data_access_requests"]
+
+
+def test_o_aviso_nunca_trava_a_migracao(monkeypatch):
+    """Se a verificação falhar, a migração segue.
+
+    Um aviso que rebenta e trava o deploy é pior do que não haver aviso — passa
+    a ser ele o problema.
+    """
+    import sys as _sys
+
+    m = _carregar()
+
+    def _explode(*_a, **_k):
+        raise RuntimeError("sem rede")
+
+    fake = type("psycopg2", (), {"connect": staticmethod(_explode)})
+    monkeypatch.setitem(_sys.modules, "psycopg2", fake)
+
+    assert m._tabelas_com_dono_errado("x", "postgresql://u:p@h/x") == []

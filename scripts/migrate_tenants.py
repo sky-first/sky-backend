@@ -101,6 +101,39 @@ def _url(row) -> str:
     return f"postgresql+asyncpg://{quote_plus(user)}:{quote_plus(pw)}@{host}:{port}/{row.db_name}"
 
 
+def _tabelas_com_dono_errado(slug: str, url: str) -> list[str]:
+    """Tabelas cujo dono não é o utilizador que a aplicação usa.
+
+    Existe por causa de um erro meu, a 18/08/2026. Migrei duas bases de clientes
+    à mão com as credenciais da **plataforma** (`skyadmin`) em vez das do
+    cliente. O alembic correu, disse que estava tudo bem, e a tabela nova ficou
+    com o dono errado. A aplicação liga-se como `tenant_<slug>_user`, não tinha
+    permissão nela, e o ecrã que a usa passou a devolver 500 — em produção,
+    silenciosamente, num sítio que eu tinha dado por entregue.
+
+    O `alembic` não repara nisto: para ele a migração correu. Só se vê quando
+    alguém abre o ecrã. Este aviso põe-no à frente de quem faz o deploy.
+    """
+    import psycopg2  # type: ignore[import-untyped]
+
+    directo = url.replace("postgresql+asyncpg://", "postgresql://")
+    try:
+        with psycopg2.connect(directo) as conn, conn.cursor() as cur:
+            cur.execute("select current_user")
+            (utilizador,) = cur.fetchone()
+            cur.execute(
+                """
+                select tablename from pg_tables
+                 where schemaname = 'public' and tableowner <> %s
+                 order by tablename
+                """,
+                (utilizador,),
+            )
+            return [r[0] for r in cur.fetchall()]
+    except Exception:  # noqa: BLE001 — o aviso nunca pode travar a migração
+        return []
+
+
 def _migrar(slug: str, url: str) -> bool:
     """Corre o alembic contra a base deste cliente.
 
@@ -122,6 +155,14 @@ def _migrar(slug: str, url: str) -> bool:
         return False
     ultimas = [l for l in r.stdout.splitlines() if "Running upgrade" in l]
     print(f"  {slug}: ok ({len(ultimas)} migrações aplicadas)")
+
+    erradas = _tabelas_com_dono_errado(slug, url)
+    if erradas:
+        print(
+            f"  {slug}: ⚠ {len(erradas)} tabela(s) com dono diferente do utilizador "
+            f"da aplicação — a app vai levar 'permission denied' nelas: {erradas}",
+            file=sys.stderr,
+        )
     for l in ultimas:
         print(f"      {l.split('Running upgrade ')[-1]}")
     return True
