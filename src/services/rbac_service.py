@@ -1056,14 +1056,26 @@ class RBACService:
             )
             raise ForbiddenError("Sky support access requires an active JIT consent session")
 
-        # SuperAdmin-exclusive permissions — only the tenant SuperAdmin can
-        # run these, regardless of their crew role or the admin bypass.
-        # Historical name: ``OWNER_EXCLUSIVE_PERMS``. Kept the alias so any
-        # external import still resolves.
+        # SuperAdmin-exclusive permissions — só o fundador do cliente as corre,
+        # independentemente do papel no projeto ou do desvio do admin.
+        #
+        # **Derivada, não escrita à mão.** Esta lista tinha três chaves; a
+        # tabela de regras tem quatro com `owner_only`. A que ficou de fora era
+        # `permissions.edit` — ou seja, **um admin do cliente podia editar a
+        # matriz de permissões e dar-se a si próprio o que quisesse**, quando o
+        # desenho diz que isso é do fundador.
+        #
+        # Apanhado a 18/08/2026 comparando `Authorization.can()` com
+        # `assert_permission()` nas contas de teste do sandbox: para
+        # `permissions.edit` o admin dava `can()=False` e `rota=True`. Duas
+        # listas com a mesma verdade divergem sempre — mais cedo ou mais tarde
+        # alguém acrescenta a uma e esquece a outra, que é exactamente o que
+        # aconteceu. Passa a sair de `PERMISSION_RULES`, que é onde a decisão
+        # vive.
+        from src.services.authorization import PERMISSION_RULES as _REGRAS
+
         SUPER_ADMIN_EXCLUSIVE_PERMS = {
-            "tenant.delete",
-            "tenant.transfer_ownership",
-            "billing.manage",
+            chave for chave, (_escopo, exigido) in _REGRAS.items() if exigido == "owner_only"
         }
         OWNER_EXCLUSIVE_PERMS = SUPER_ADMIN_EXCLUSIVE_PERMS  # back-compat alias
 
