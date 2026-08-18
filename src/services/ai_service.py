@@ -12,10 +12,9 @@ from src.ai.chat_pipeline import ChatPipeline
 from src.ai.evidence_extractor import extract_evidence
 from src.ai.mock import MockAIService
 from src.ai.real_service import RealAIService
-from src.core.errors.chat_errors import ChatError
-from src.schemas.ai_transparency import EvidenceChunkOut, ReasoningStepOut
 from src.config.redis import get_redis
 from src.config.settings import settings
+from src.core.errors.chat_errors import ChatError
 from src.core.exceptions import NotFoundError
 from src.core.locale import get_message
 from src.models.ai import AIFeedback, AIHistory, AIQuery, ChatMessage, Pipeline
@@ -42,6 +41,7 @@ from src.schemas.ai import (
     ValidateSQLRequest,
     ValidateSQLResponse,
 )
+from src.schemas.ai_transparency import EvidenceChunkOut, ReasoningStepOut
 from src.services.permission_service import PermissionService
 from src.utils.cache import CacheService, ai_response_cache_key
 
@@ -128,9 +128,7 @@ async def _enrich_citations_with_provenance(
 
         # Resolve approver email → user.name in one round-trip.
         approver_emails = [
-            v["approved_by_email"]
-            for v in approver_by_file.values()
-            if v.get("approved_by_email")
+            v["approved_by_email"] for v in approver_by_file.values() if v.get("approved_by_email")
         ]
         name_by_email: Dict[str, str] = {}
         if approver_emails:
@@ -152,13 +150,9 @@ async def _enrich_citations_with_provenance(
                 c.setdefault("approved_at", ap.get("approved_at"))
                 email = ap.get("approved_by_email")
                 if email:
-                    c.setdefault(
-                        "approved_by_name", name_by_email.get(email, email)
-                    )
+                    c.setdefault("approved_by_name", name_by_email.get(email, email))
     except Exception as exc:  # noqa: BLE001 — never block chat on audit lookup
-        logger.warning(
-            "citation_provenance_enrich_failed err=%s file_ids=%s", exc, file_ids
-        )
+        logger.warning("citation_provenance_enrich_failed err=%s file_ids=%s", exc, file_ids)
 
     return citations
 
@@ -235,6 +229,7 @@ class AIService:
         if demo_conn_ids:
             try:
                 from sqlalchemy import select as sa_select
+
                 user_result = await self.db.execute(
                     sa_select(User.is_demo).where(User.id == user_id)
                 )
@@ -251,7 +246,9 @@ class AIService:
 
         try:
             from sqlalchemy import select as sa_select
+
             from src.models.dataset import UserDataset
+
             result = await self.db.execute(
                 sa_select(UserDataset.dataset_id).where(
                     UserDataset.user_id == user_id,
@@ -278,18 +275,57 @@ class AIService:
         try:
             import re
             import uuid as _uuid_mod
+
             from sqlalchemy import select as sa_select
-            from src.models.connection import ConnectionMetadata
-            from src.models.connection import DataConnection
+
+            from src.models.connection import ConnectionMetadata, DataConnection
 
             # Strip punctuation, lowercase, split
             clean = re.sub(r"[^\w\s]", " ", question.lower())
             question_words = set(clean.split())
-            stop = {"what", "is", "the", "a", "an", "how", "many", "show", "me", "our",
-                    "by", "for", "in", "of", "and", "or", "are", "do", "does", "did",
-                    "give", "list", "get", "find", "which", "all", "each", "per",
-                    "top", "total", "average", "count", "number", "last", "first",
-                    "current", "latest", "recent", "between", "with", "without"}
+            stop = {
+                "what",
+                "is",
+                "the",
+                "a",
+                "an",
+                "how",
+                "many",
+                "show",
+                "me",
+                "our",
+                "by",
+                "for",
+                "in",
+                "of",
+                "and",
+                "or",
+                "are",
+                "do",
+                "does",
+                "did",
+                "give",
+                "list",
+                "get",
+                "find",
+                "which",
+                "all",
+                "each",
+                "per",
+                "top",
+                "total",
+                "average",
+                "count",
+                "number",
+                "last",
+                "first",
+                "current",
+                "latest",
+                "recent",
+                "between",
+                "with",
+                "without",
+            }
             question_words -= stop
 
             if not question_words:
@@ -301,9 +337,7 @@ class AIService:
             conn_names: dict[str, str] = {}
             conn_result = await self.db.execute(
                 sa_select(DataConnection.id, DataConnection.name).where(
-                    DataConnection.id.in_(
-                        [_uuid_mod.UUID(cid) for cid in allowed_ids]
-                    )
+                    DataConnection.id.in_([_uuid_mod.UUID(cid) for cid in allowed_ids])
                 )
             )
             for row in conn_result:
@@ -350,7 +384,9 @@ class AIService:
 
             logger.info(
                 "Keyword routing: best connection for question in space %s: %s (score=%d)",
-                space_id, best_id, best_score,
+                space_id,
+                best_id,
+                best_score,
             )
             if best_id and best_score > 0:
                 return best_id
@@ -417,9 +453,7 @@ class AIService:
                 pass
             return await self._get_first_active_connection(user_id)
 
-    async def _get_all_connections_for_space(
-        self, user_id: UUID, space_id: str
-    ) -> List[str]:
+    async def _get_all_connections_for_space(self, user_id: UUID, space_id: str) -> List[str]:
         """Return IDs of all active connections of the space the user can reach.
 
         Access is granted via EITHER a direct SpaceMember/owner relationship OR
@@ -435,7 +469,9 @@ class AIService:
         """
         try:
             from uuid import UUID as UUIDType
+
             from sqlalchemy import select as sa_select
+
             from src.models.connection import DataConnection
             from src.repositories.space import SpaceRepository
 
@@ -454,7 +490,8 @@ class AIService:
             if not is_member and not crew_ids:
                 logger.warning(
                     "space_scope: user=%s has no space/crew access to space=%s — empty scope",
-                    user_id, space_id,
+                    user_id,
+                    space_id,
                 )
                 return []
 
@@ -495,12 +532,15 @@ class AIService:
             )
             ids.update(str(c.id) for c in active)
         except Exception as e:
-            logger.error(f"Error getting space-member connections for user {user_id}: {e}", exc_info=True)
+            logger.error(
+                f"Error getting space-member connections for user {user_id}: {e}", exc_info=True
+            )
 
         try:
             from sqlalchemy import select as sa_select
-            from src.models.crew import Crew, CrewMember
+
             from src.models.connection import DataConnection
+            from src.models.crew import Crew, CrewMember
             from src.models.space import SpaceConnection
 
             crew_space_ids = (
@@ -520,7 +560,9 @@ class AIService:
             crew_res = await self.db.execute(crew_conn_q)
             ids.update(str(row[0]) for row in crew_res)
         except Exception as e:
-            logger.error(f"Error getting crew-path connections for user {user_id}: {e}", exc_info=True)
+            logger.error(
+                f"Error getting crew-path connections for user {user_id}: {e}", exc_info=True
+            )
 
         if ids:
             return list(ids)
@@ -661,9 +703,7 @@ class AIService:
             rows = (await self.db.execute(stmt)).all()
             return [str(r[0]) for r in rows]
         except Exception as e:
-            logger.error(
-                "Error resolving user space_ids for %s: %s", user_id, e, exc_info=True
-            )
+            logger.error("Error resolving user space_ids for %s: %s", user_id, e, exc_info=True)
             return []
 
     async def _resolve_space_id_for_connection(
@@ -687,8 +727,8 @@ class AIService:
 
             from sqlalchemy import or_, select
 
-            from src.models.space import Space, SpaceConnection, SpaceMember
             from src.models.crew import Crew, CrewMember
+            from src.models.space import Space, SpaceConnection, SpaceMember
 
             conn_uuid = UUIDType(connection_id)
 
@@ -734,7 +774,9 @@ class AIService:
             return False
         try:
             from uuid import UUID as UUIDType
+
             from sqlalchemy import or_, select
+
             from src.models.space import Space, SpaceMember
 
             sid = UUIDType(space_id) if isinstance(space_id, str) else space_id
@@ -769,7 +811,9 @@ class AIService:
         # sanitised text feeds the rest of the flow; transparency
         # bundle (trace_id + flags) is attached to the response.
         pipeline = ChatPipeline(user_id=user_id, endpoint="/ai/query")
-        guarded_input = pipeline.preflight(query_data.question, locale=getattr(query_data, "locale", None))
+        guarded_input = pipeline.preflight(
+            query_data.question, locale=getattr(query_data, "locale", None)
+        )
         sanitised_question = guarded_input.text
         # Evidence chunks extracted from the AI engine response (when
         # present). Flows through to the W7 transparency bundle.
@@ -788,18 +832,18 @@ class AIService:
         # refactor §7). Failures are logged but never blow the chat
         # path — the loader is best-effort context, not a hard dep.
         try:
+            from sqlalchemy import select as _select
+
+            from src.models.user import User as _User
             from src.services.knowledge_context_loader import (
                 load_knowledge_context_for_user,
                 render_knowledge_for_prompt,
             )
-            from sqlalchemy import select as _select
-            from src.models.user import User as _User
+
             user_row = await self.db.execute(_select(_User).where(_User.id == user_id))
             user_obj = user_row.scalar_one_or_none()
             if user_obj is not None:
-                knowledge_ctx = await load_knowledge_context_for_user(
-                    self.db, user_obj
-                )
+                knowledge_ctx = await load_knowledge_context_for_user(self.db, user_obj)
                 rendered = render_knowledge_for_prompt(knowledge_ctx)
                 if rendered:
                     # Stash on configure_data so the engine can splice it
@@ -807,9 +851,9 @@ class AIService:
                     # ``knowledge_context`` from configure_data when set).
                     cd_dict = configure_data.model_dump()
                     cd_dict["knowledge_context"] = rendered
-                    configure_data = ConfigureData(**{
-                        k: v for k, v in cd_dict.items() if k in ConfigureData.model_fields
-                    })
+                    configure_data = ConfigureData(
+                        **{k: v for k, v in cd_dict.items() if k in ConfigureData.model_fields}
+                    )
         except Exception as exc:  # noqa: BLE001 — knowledge is best-effort context
             logger.debug("knowledge_context_loader skipped: %s", exc)
 
@@ -876,7 +920,8 @@ class AIService:
                     _personal_ud_ids = await self._get_all_connections_for_user(user_id)
                     logger.info(
                         "personal_mode_multi_source: user=%s accessible_ids=%s",
-                        user_id, _personal_ud_ids,
+                        user_id,
+                        _personal_ud_ids,
                     )
 
                 # Collaborative (Space) mode — apply the SAME treatment proved in
@@ -894,7 +939,9 @@ class AIService:
                     )
                     logger.info(
                         "space_mode_scope: user=%s space=%s scope=%s",
-                        user_id, _space_id_req, _space_scope_ids,
+                        user_id,
+                        _space_id_req,
+                        _space_scope_ids,
                     )
 
                 # If still no connection_id, try to get first active connection
@@ -912,7 +959,9 @@ class AIService:
                             logger.info(
                                 "space_mode_primary: user=%s space=%s primary=%s "
                                 "(semantic routing delegated to AI orchestrator)",
-                                user_id, space_id, connection_id,
+                                user_id,
+                                space_id,
+                                connection_id,
                             )
                         else:
                             # No crew/space scope resolved — safety net (no question,
@@ -934,7 +983,9 @@ class AIService:
                             logger.info(
                                 "personal_mode_scope: user=%s scope=%s primary=%s "
                                 "(semantic routing delegated to AI orchestrator)",
-                                user_id, _personal_ud_ids, connection_id,
+                                user_id,
+                                _personal_ud_ids,
+                                connection_id,
                             )
                         if not connection_id:
                             connection_id = await self._get_first_active_connection(user_id)
@@ -1013,9 +1064,7 @@ class AIService:
                     # table the user owns on this connection.
                     space_id_is_personal_fallback = False
                     if not space_id:
-                        is_personal_flag = bool(
-                            getattr(query_data, "is_personal", False)
-                        )
+                        is_personal_flag = bool(getattr(query_data, "is_personal", False))
                         if is_personal_flag:
                             space_id = str(user_id)
                             space_id_is_personal_fallback = True
@@ -1085,9 +1134,7 @@ class AIService:
                             and await self._is_space_member(user_id, space_id)
                         )
                         perm_space_id = UUID(space_id) if _primary_is_member else None
-                        perm_crew_ids = (
-                            [UUID(cid) for cid in crew_ids] if crew_ids else None
-                        )
+                        perm_crew_ids = [UUID(cid) for cid in crew_ids] if crew_ids else None
                         try:
                             authorized_tables = await self.permission_service.get_authorized_tables(
                                 user_id=user_id,
@@ -1129,7 +1176,8 @@ class AIService:
                             ]
                             logger.info(
                                 "multi_source: primary=%s extras=%s",
-                                connection_id, extra_connection_ids,
+                                connection_id,
+                                extra_connection_ids,
                             )
 
                         # Extend authorized_tables with table names from extra connections.
@@ -1164,20 +1212,22 @@ class AIService:
                                     extra_is_member = await self._is_space_member(
                                         user_id, extra_space
                                     )
-                                    extra_authorized = await self.permission_service.get_authorized_tables(
-                                        user_id=user_id,
-                                        connection_id=UUID(extra_cid),
-                                        space_id=(
-                                            UUID(extra_space)
-                                            if (extra_space and extra_is_member)
-                                            else None
-                                        ),
-                                        crew_ids=(
-                                            [UUID(c) for c in extra_crew_ids]
-                                            if extra_crew_ids
-                                            else None
-                                        ),
-                                        is_personal=is_personal,
+                                    extra_authorized = (
+                                        await self.permission_service.get_authorized_tables(
+                                            user_id=user_id,
+                                            connection_id=UUID(extra_cid),
+                                            space_id=(
+                                                UUID(extra_space)
+                                                if (extra_space and extra_is_member)
+                                                else None
+                                            ),
+                                            crew_ids=(
+                                                [UUID(c) for c in extra_crew_ids]
+                                                if extra_crew_ids
+                                                else None
+                                            ),
+                                            is_personal=is_personal,
+                                        )
                                     )
                                     for tname in extra_authorized:
                                         tname = (tname or "").strip()
@@ -1186,7 +1236,8 @@ class AIService:
                                 except Exception as extra_perm_err:
                                     logger.warning(
                                         "multi_source_perm: failed to authorize tables for extra connection %s: %s",
-                                        extra_cid, extra_perm_err,
+                                        extra_cid,
+                                        extra_perm_err,
                                     )
                             logger.info(
                                 "multi_source_perm: authorized_tables (crew-filtered) extended to %s",
@@ -1244,15 +1295,10 @@ class AIService:
                         # the answer actually reason over governed
                         # definitions instead of inventing them.
                         merged_instructions = configure_data.instructions or ""
-                        knowledge_block = (
-                            getattr(configure_data, "knowledge_context", None)
-                            or (
-                                configure_data.model_dump().get(
-                                    "knowledge_context"
-                                )
-                                if hasattr(configure_data, "model_dump")
-                                else None
-                            )
+                        knowledge_block = getattr(configure_data, "knowledge_context", None) or (
+                            configure_data.model_dump().get("knowledge_context")
+                            if hasattr(configure_data, "model_dump")
+                            else None
                         )
                         if knowledge_block:
                             merged_instructions = (
@@ -1309,6 +1355,7 @@ class AIService:
                             engine_evidence = result.get("evidence") or []
                             if engine_evidence:
                                 from src.schemas.ai_transparency import EvidenceChunkOut as _EC
+
                                 extracted_evidence = []
                                 for raw in engine_evidence:
                                     if not isinstance(raw, dict):
@@ -1318,7 +1365,9 @@ class AIService:
                                             _EC(
                                                 id=str(raw.get("id") or ""),
                                                 kind=str(raw.get("kind") or "unknown"),
-                                                source_label=str(raw.get("source_label") or "(unlabelled)"),
+                                                source_label=str(
+                                                    raw.get("source_label") or "(unlabelled)"
+                                                ),
                                                 snippet=str(raw.get("snippet") or "")[:400],
                                                 href=raw.get("href"),
                                             )
@@ -1366,7 +1415,13 @@ class AIService:
                             f"result_keys={list(result.keys())}"
                         )
 
-                        if chosen_table or chosen_datasets or dynamic_title or detected_language or knowledge_citations:
+                        if (
+                            chosen_table
+                            or chosen_datasets
+                            or dynamic_title
+                            or detected_language
+                            or knowledge_citations
+                        ):
                             # Get current config and ensure it's a dict
                             current_config = (
                                 dict(query.configure_data) if query.configure_data else {}
@@ -1511,7 +1566,9 @@ class AIService:
                     )
                 elif code == 400:
                     error_key = "chat.server"
-                    friendly = get_message("couldnt_understand", getattr(query_data, "locale", None))
+                    friendly = get_message(
+                        "couldnt_understand", getattr(query_data, "locale", None)
+                    )
                 else:
                     error_key = "chat.server"
                     friendly = "The AI service rejected the request. Please retry or open a ticket."
@@ -1720,14 +1777,13 @@ class AIService:
                             connection_id = _chat_ud_ids[0]
                             logger.info(
                                 "[send_chat_message] personal_mode_multi_source: user=%s ud_ids=%s",
-                                user_id, _chat_ud_ids,
+                                user_id,
+                                _chat_ud_ids,
                             )
                     else:
                         connection_id = await self._get_first_active_connection(user_id)
                     if connection_id:
-                        logger.info(
-                            "[send_chat_message] resolved connection_id=%s", connection_id
-                        )
+                        logger.info("[send_chat_message] resolved connection_id=%s", connection_id)
 
                 if connection_id:
                     # Get space_id from context or resolve from connection
@@ -1842,38 +1898,48 @@ class AIService:
                             meta_repo = ConnectionMetadataRepository(self.db)
                             for extra_cid in extra_connection_ids:
                                 try:
-                                    extra_meta = await meta_repo.get_by_connection_id(UUID(extra_cid))
+                                    extra_meta = await meta_repo.get_by_connection_id(
+                                        UUID(extra_cid)
+                                    )
                                     if extra_meta and isinstance(extra_meta.tables, list):
                                         for t in extra_meta.tables:
                                             if not isinstance(t, dict):
                                                 continue
-                                            tname = (t.get("logical_name") or t.get("name") or "").strip()
+                                            tname = (
+                                                t.get("logical_name") or t.get("name") or ""
+                                            ).strip()
                                             if tname and tname not in authorized_tables:
                                                 authorized_tables.append(tname)
                                 except Exception as extra_err:
                                     logger.warning(
                                         "[send_chat_message] multi_source_hint failed for %s: %s",
-                                        extra_cid, extra_err,
+                                        extra_cid,
+                                        extra_err,
                                     )
                             logger.info(
-                                "[send_chat_message] authorized_tables extended to %s", authorized_tables
+                                "[send_chat_message] authorized_tables extended to %s",
+                                authorized_tables,
                             )
 
                         logger.info(
                             "[send_chat_message] calling AI connection_id=%s extra=%s question='%s...'",
-                            connection_id, extra_connection_ids, str(message_data.message)[:50],
+                            connection_id,
+                            extra_connection_ids,
+                            str(message_data.message)[:50],
                         )
 
                         # Load knowledge context (OKRs, strategies, table relationships)
                         # and merge into instructions — same as process_query does.
                         merged_instructions = getattr(message_data, "instructions", None) or ""
                         try:
+                            from sqlalchemy import select as _kc_select
+
+                            from src.models.user import User as _KCUser
                             from src.services.knowledge_context_loader import (
                                 load_knowledge_context_for_user,
                                 render_knowledge_for_prompt,
                             )
-                            from sqlalchemy import select as _kc_select
-                            from src.models.user import User as _KCUser
+
                             _user_row = await self.db.execute(
                                 _kc_select(_KCUser).where(_KCUser.id == user_id)
                             )
@@ -2115,9 +2181,7 @@ class AIService:
 
         return [AIHistoryItem.model_validate(item) for item in history_items]
 
-    async def generate_sql(
-        self, user_id: UUID, request: GenerateSQLRequest
-    ) -> GenerateSQLResponse:
+    async def generate_sql(self, user_id: UUID, request: GenerateSQLRequest) -> GenerateSQLResponse:
         """
         Generate SQL from natural language using the real AI service.
 
@@ -2129,12 +2193,13 @@ class AIService:
         """
         if not self.real_ai:
             from src.core.exceptions import ServiceUnavailableError
+
             raise ServiceUnavailableError("Real AI service not configured.")
 
         # Resolve connection_id: prefer explicit UUID in knowledge field
         connection_id: Optional[str] = None
         ud_ids: List[str] = []
-        for item in (request.knowledge or []):
+        for item in request.knowledge or []:
             if isinstance(item, str) and len(item) == 36 and item.count("-") == 4:
                 connection_id = item
                 break
@@ -2146,42 +2211,66 @@ class AIService:
 
         if not connection_id:
             from src.core.exceptions import ServiceUnavailableError
+
             raise ServiceUnavailableError("No data connection available to generate SQL.")
 
         extra_ids = [c for c in ud_ids if c != connection_id]
 
-        # Extend authorized_tables hint with tables from all connections
+        # As tabelas saem do portão das permissões, não dos metadados.
+        #
+        # Isto lia a metadata de cada ligação e mandava **todas** as tabelas
+        # para o motor, sem passar pelo `PermissionService`. E o `connection_id`
+        # vem do pedido: bastava a qualquer utilizador autenticado do cliente
+        # mandar um UUID de ligação alheia para receber de volta o esquema
+        # inteiro dela — nomes de tabelas e colunas — mais um SQL escrito à
+        # medida. Não devolve linhas, mas o mapa do que existe já é o que a
+        # permissão devia estar a esconder.
+        #
+        # Modo pessoal porque é assim que esta rota resolve a ligação (ver o
+        # docstring): aditivo, soma o que a pessoa alcança por ser dona, por
+        # `user_datasets` e pelas equipas dela. Quem não alcança, leva vazio.
+        crew_ids_do_utilizador = await self._get_user_crew_ids(user_id, None, all_spaces=True)
         authorized_tables: List[str] = []
         all_ids = [connection_id] + extra_ids
-        meta_repo = ConnectionMetadataRepository(self.db)
         for cid in all_ids:
             try:
-                meta = await meta_repo.get_by_connection_id(UUID(cid))
-                if meta and isinstance(meta.tables, list):
-                    for t in meta.tables:
-                        tname = (t.get("logical_name") or t.get("name") or "").strip()
-                        if tname and tname not in authorized_tables:
-                            authorized_tables.append(tname)
+                permitidas = await self.permission_service.get_authorized_tables(
+                    user_id=user_id,
+                    connection_id=UUID(cid),
+                    crew_ids=[UUID(c) for c in crew_ids_do_utilizador] or None,
+                    is_personal=True,
+                )
             except Exception:
-                pass
+                permitidas = []  # Fail-closed: erro a resolver não abre a porta.
+            for tname in permitidas:
+                if tname and tname not in authorized_tables:
+                    authorized_tables.append(tname)
+
+        if not authorized_tables:
+            from src.core.exceptions import ForbiddenError
+
+            # Mensagem igual para "não existe" e "não é tua" — uma recusa que
+            # distingue os dois casos é um oráculo para descobrir ligações.
+            raise ForbiddenError("No data connection available to generate SQL.")
 
         # Table names in knowledge (non-UUID strings) act as a dataset hint
         requested = [
-            t for t in (request.knowledge or [])
-            if not (len(t) == 36 and t.count("-") == 4)
+            t for t in (request.knowledge or []) if not (len(t) == 36 and t.count("-") == 4)
         ]
         selected = [t for t in requested if t in authorized_tables] or authorized_tables
 
         logger.info(
             "[generate_sql] connection=%s extra=%s question='%s...'",
-            connection_id, extra_ids, request.question[:60],
+            connection_id,
+            extra_ids,
+            request.question[:60],
         )
 
         result = await self.real_ai.process_query(
             connection_id=connection_id,
             question=request.question,
             user_id=str(user_id),
-            space_id=str(user_id),   # personal mode: use user_id as space
+            space_id=str(user_id),  # personal mode: use user_id as space
             is_personal=True,
             selected_datasets=selected,
             authorized_tables=authorized_tables,
@@ -2192,9 +2281,12 @@ class AIService:
         sql = (result.get("sql") or "").strip()
         if not sql:
             from src.core.exceptions import ServiceUnavailableError
+
             raise ServiceUnavailableError("AI service did not return SQL for this question.")
 
-        return GenerateSQLResponse(sql=sql, explanation=result.get("answer") or "Generated SQL query")
+        return GenerateSQLResponse(
+            sql=sql, explanation=result.get("answer") or "Generated SQL query"
+        )
 
     async def execute_pipeline(
         self, user_id: UUID, request: PipelineExecuteRequest

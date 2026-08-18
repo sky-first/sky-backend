@@ -15,6 +15,7 @@ levava as ligações atrás. Foi assim que este problema apareceu.
 E **desligar apaga só o que ligar criou**. Uma ligação que o cliente tenha
 criado com o mesmo nome fica, porque o dono não bate certo.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -32,6 +33,9 @@ class _Def:
         self.DEMO_PG_PORT = kw.get("port", 5432)
         self.DEMO_PG_DB = kw.get("db", "skydemo")
         self.DEMO_PG_SSL_MODE = kw.get("ssl", "require")
+        # Precisa de existir porque  passou a decifrar a configuração
+        # para ir buscar o esquema de cada ligação.
+        self.ENCRYPTION_KEY = kw.get("key", "x" * 32)
 
 
 def test_sem_credenciais_a_funcionalidade_nao_esta_disponivel(monkeypatch):
@@ -45,9 +49,7 @@ def test_sem_credenciais_a_funcionalidade_nao_esta_disponivel(monkeypatch):
 
 
 def test_com_credenciais_fica_disponivel(monkeypatch):
-    monkeypatch.setattr(
-        demo, "settings", _Def(host="db.exemplo", user="leitor", password="x")
-    )
+    monkeypatch.setattr(demo, "settings", _Def(host="db.exemplo", user="leitor", password="x"))
     assert demo.configurada() is True
 
 
@@ -73,9 +75,7 @@ def test_a_configuracao_da_ligacao_leva_o_esquema(monkeypatch):
 
     Todas para a MESMA base: nada é copiado para a base do cliente.
     """
-    monkeypatch.setattr(
-        demo, "settings", _Def(host="db.exemplo", user="leitor", password="x")
-    )
+    monkeypatch.setattr(demo, "settings", _Def(host="db.exemplo", user="leitor", password="x"))
     cfg = demo._config("crm")
     assert cfg["schema"] == "crm"
     assert cfg["host"] == "db.exemplo"
@@ -114,3 +114,167 @@ def test_desligar_filtra_por_dono():
     fonte = inspect.getsource(demo._ligacoes_existentes)
     assert "created_by" in fonte
     assert "deleted_at" in fonte  # nem toca no que já foi removido
+
+
+# ── O esquema: sem ele, a demonstração não responde a nada ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_ligar_descobre_as_tabelas_e_liga_as_ao_projeto(db_session, monkeypatch):
+    """O buraco encontrado a 18/08/2026 no nosso próprio tenant.
+
+    `ligar()` criava as cinco ligações e o `SpaceConnection`, e ficava por aí.
+    Sem metadados e sem `space_tables`, a demonstração aparecia montada — cinco
+    ligações, estado "activo" — e não tinha uma única tabela por trás. Em
+    produção, no `skyfirstlabs`, esteve assim desde sempre: zero
+    `connection_metadata`, zero `space_tables`.
+
+    E como a fronteira de dados passa a ser o projeto, esta é a mesma linha que
+    dá dados ao projeto: ligar a demonstração e escolher os dados passam a ser
+    o mesmo gesto.
+    """
+    import uuid as _uuid
+
+    from sqlalchemy import select
+
+    from src.models.connection import ConnectionMetadata
+    from src.models.space import SpaceTable
+    from src.models.user import User
+
+    monkeypatch.setattr(demo, "settings", _Def(host="db.exemplo", user="leitor", password="x"))
+
+    class _ConnectorFalso:
+        async def get_metadata(self, config):
+            esquema = config["schema"]
+            return {
+                "tables": [
+                    {"name": f"{esquema}_clientes", "schema": esquema},
+                    {"name": f"{esquema}_vendas", "schema": esquema},
+                ],
+                "schemas": [{"name": esquema}],
+            }
+
+    monkeypatch.setattr("src.connectors.registry.get_connector", lambda _cid: _ConnectorFalso())
+    monkeypatch.setattr(
+        "src.utils.encryption.decrypt_dict",
+        lambda cfg, _k: {"schema": cfg.get("schema", "crm")},
+    )
+
+    dono = User(
+        id=_uuid.uuid4(),
+        email="dono@empresa-de-mentira.pt",
+        role="member",
+        password_hash="x",
+        name="Dono",
+    )
+    db_session.add(dono)
+    await db_session.flush()
+
+    resultado = await demo.ligar(db_session, dono)
+
+    # Duas tabelas por ligação, cinco ligações.
+    assert resultado["tabelas"] == 10
+
+    metadados = (await db_session.execute(select(ConnectionMetadata))).scalars().all()
+    assert len(metadados) == 5
+    assert all(m.tables for m in metadados), "uma ligação ficou sem esquema"
+
+    tabelas = (await db_session.execute(select(SpaceTable))).scalars().all()
+    assert len(tabelas) == 10
+    assert {t.schema_name for t in tabelas} == {
+        "crm",
+        "marketing",
+        "finance",
+        "web_analytics",
+        "product_usage",
+    }
+
+
+@pytest.mark.asyncio
+async def test_ligar_duas_vezes_nao_duplica_tabelas(db_session, monkeypatch):
+    """`ligar()` é idempotente e isso tem de continuar verdade depois de passar
+    a mexer em `space_tables` — senão cada visita às Definições multiplica as
+    linhas do projeto."""
+    import uuid as _uuid
+
+    from sqlalchemy import select
+
+    from src.models.space import SpaceTable
+    from src.models.user import User
+
+    monkeypatch.setattr(demo, "settings", _Def(host="db.exemplo", user="leitor", password="x"))
+
+    class _ConnectorFalso:
+        async def get_metadata(self, config):
+            return {"tables": [{"name": "t", "schema": config["schema"]}], "schemas": []}
+
+    monkeypatch.setattr("src.connectors.registry.get_connector", lambda _cid: _ConnectorFalso())
+    monkeypatch.setattr(
+        "src.utils.encryption.decrypt_dict",
+        lambda cfg, _k: {"schema": cfg.get("schema", "crm")},
+    )
+
+    dono = User(
+        id=_uuid.uuid4(),
+        email="dono2@empresa-de-mentira.pt",
+        role="member",
+        password_hash="x",
+        name="Dono",
+    )
+    db_session.add(dono)
+    await db_session.flush()
+
+    await demo.ligar(db_session, dono)
+    segunda = await demo.ligar(db_session, dono)
+
+    assert segunda["tabelas"] == 0  # nada de novo para acrescentar
+    tabelas = (await db_session.execute(select(SpaceTable))).scalars().all()
+    assert len(tabelas) == 5
+
+
+@pytest.mark.asyncio
+async def test_uma_ligacao_sem_esquema_nao_derruba_as_outras(db_session, monkeypatch):
+    """Se o esquema de uma falhar, as outras quatro continuam.
+
+    A alternativa — rebentar tudo — deixava o cliente sem demonstração nenhuma
+    por causa de um esquema. Mas fica registado, porque uma demonstração com
+    quatro dos cinco responde torto e isso é pior de diagnosticar.
+    """
+    import uuid as _uuid
+
+    from sqlalchemy import select
+
+    from src.models.space import SpaceTable
+    from src.models.user import User
+
+    monkeypatch.setattr(demo, "settings", _Def(host="db.exemplo", user="leitor", password="x"))
+
+    class _ConnectorRabugento:
+        async def get_metadata(self, config):
+            if config["schema"] == "finance":
+                raise RuntimeError("sem rede")
+            return {"tables": [{"name": "t", "schema": config["schema"]}], "schemas": []}
+
+    monkeypatch.setattr("src.connectors.registry.get_connector", lambda _cid: _ConnectorRabugento())
+    monkeypatch.setattr(
+        "src.utils.encryption.decrypt_dict",
+        lambda cfg, _k: {"schema": cfg.get("schema", "crm")},
+    )
+
+    dono = User(
+        id=_uuid.uuid4(),
+        email="dono3@empresa-de-mentira.pt",
+        role="member",
+        password_hash="x",
+        name="Dono",
+    )
+    db_session.add(dono)
+    await db_session.flush()
+
+    resultado = await demo.ligar(db_session, dono)
+
+    assert resultado["tabelas"] == 4
+    esquemas = {
+        t.schema_name for t in (await db_session.execute(select(SpaceTable))).scalars().all()
+    }
+    assert "finance" not in esquemas

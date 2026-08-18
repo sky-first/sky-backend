@@ -120,9 +120,7 @@ async def ligar(db: AsyncSession, dono: User) -> Dict[str, object]:
     Idempotente: chamar duas vezes não duplica. Quem já tem, fica na mesma.
     """
     if not configurada():
-        raise DemoDataIndisponivel(
-            "Demo data is not configured for this environment."
-        )
+        raise DemoDataIndisponivel("Demo data is not configured for this environment.")
 
     espaco = await _espaco_existente(db, dono)
     if espaco is None:
@@ -174,11 +172,106 @@ async def ligar(db: AsyncSession, dono: User) -> Dict[str, object]:
             db.add(SpaceConnection(space_id=espaco.id, connection_id=conn.id))
             await db.flush()
 
+    # Sem esquema, o projeto não responde a nada.
+    #
+    # Isto criava as ligações e o `SpaceConnection` e ficava-se por aí: sem
+    # metadados e sem `space_tables`. A demonstração aparecia montada — cinco
+    # ligações, estado "activo" — e não tinha uma única tabela por trás. No
+    # tenant `skyfirstlabs` esteve assim desde sempre.
+    #
+    # E como a fronteira de dados passa a ser o PROJETO (`space_tables`), esta
+    # é também a linha que dá dados ao projeto. Ligar a demonstração e escolher
+    # os dados do projeto passam a ser o mesmo gesto.
+    tabelas = await _descobrir_tabelas(db, espaco)
+
     await db.commit()
     logger.info(
-        "demo_data_ligado", extra={"user": str(dono.id), "novas": len(criadas)}
+        "demo_data_ligado",
+        extra={"user": str(dono.id), "novas": len(criadas), "tabelas": tabelas},
     )
-    return {"ligado": True, "ligacoes": len(LIGACOES), "novas": len(criadas)}
+    return {
+        "ligado": True,
+        "ligacoes": len(LIGACOES),
+        "novas": len(criadas),
+        "tabelas": tabelas,
+    }
+
+
+async def _descobrir_tabelas(db: AsyncSession, espaco: Space) -> int:
+    """Lê o esquema de cada ligação do espaço e liga as tabelas ao projeto.
+
+    Idempotente: não duplica `SpaceTable`, e voltar a correr refresca os
+    metadados. Uma ligação que falhe não derruba as outras — mas fica no log,
+    porque uma demonstração com quatro dos cinco esquemas responde torto e é
+    pior de diagnosticar do que uma que não responde de todo.
+    """
+    from src.connectors.registry import get_connector
+    from src.models.connection import ConnectionMetadata
+    from src.models.space import SpaceTable
+    from src.utils.encryption import decrypt_dict
+
+    ligadas = await db.execute(
+        select(DataConnection)
+        .join(SpaceConnection, SpaceConnection.connection_id == DataConnection.id)
+        .where(SpaceConnection.space_id == espaco.id)
+    )
+
+    total = 0
+    for conn in ligadas.scalars().all():
+        try:
+            connector = get_connector(conn.connector_id)
+            meta = await connector.get_metadata(decrypt_dict(conn.config, settings.ENCRYPTION_KEY))
+        except Exception:
+            logger.exception("demo_data_sem_esquema", extra={"ligacao": str(conn.id)})
+            continue
+
+        tabelas = [t for t in (meta.get("tables") or []) if t.get("name")]
+
+        linha = (
+            await db.execute(
+                select(ConnectionMetadata).where(ConnectionMetadata.connection_id == conn.id)
+            )
+        ).scalar_one_or_none()
+        if linha is None:
+            db.add(
+                ConnectionMetadata(
+                    connection_id=conn.id, tables=tabelas, schemas=meta.get("schemas") or []
+                )
+            )
+        else:
+            linha.tables = tabelas
+            linha.schemas = meta.get("schemas") or []
+        await db.flush()
+
+        ja = {
+            (r.table_name, r.schema_name)
+            for r in (
+                await db.execute(
+                    select(SpaceTable).where(
+                        SpaceTable.space_id == espaco.id,
+                        SpaceTable.connection_id == conn.id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        }
+        for t in tabelas:
+            chave = (t["name"], t.get("schema"))
+            if chave in ja:
+                continue
+            db.add(
+                SpaceTable(
+                    space_id=espaco.id,
+                    connection_id=conn.id,
+                    table_name=t["name"],
+                    schema_name=t.get("schema"),
+                )
+            )
+            total += 1
+        await db.flush()
+
+    return total
 
 
 async def desligar(db: AsyncSession, dono: User) -> Dict[str, object]:
@@ -191,21 +284,15 @@ async def desligar(db: AsyncSession, dono: User) -> Dict[str, object]:
     ligacoes = await _ligacoes_existentes(db, dono)
     for conn in ligacoes:
         await db.execute(
-            SpaceConnection.__table__.delete().where(
-                SpaceConnection.connection_id == conn.id
-            )
+            SpaceConnection.__table__.delete().where(SpaceConnection.connection_id == conn.id)
         )
         await db.delete(conn)
 
     espaco = await _espaco_existente(db, dono)
     if espaco is not None:
-        await db.execute(
-            SpaceMember.__table__.delete().where(SpaceMember.space_id == espaco.id)
-        )
+        await db.execute(SpaceMember.__table__.delete().where(SpaceMember.space_id == espaco.id))
         await db.delete(espaco)
 
     await db.commit()
-    logger.info(
-        "demo_data_desligado", extra={"user": str(dono.id), "removidas": len(ligacoes)}
-    )
+    logger.info("demo_data_desligado", extra={"user": str(dono.id), "removidas": len(ligacoes)})
     return {"ligado": False, "removidas": len(ligacoes)}
