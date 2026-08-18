@@ -121,12 +121,33 @@ async def _assert_can_act_on_agent_scope(
         return
 
     s_id: Optional[UUID] = None
+    c_id: Optional[UUID] = None
     if scope_lower == "space" and scope_id:
         try:
             s_id = UUID(scope_id)
         except ValueError:
             pass
-    await RBACService(db).assert_permission(user, permission, space_id=s_id)
+    elif scope_lower == "crew" and scope_id:
+        # O âmbito de equipa não estava a ser passado ao RBAC.
+        #
+        # Ficava `space_id=None` e `crew_id=None`, e a verificação caía no papel
+        # genérico da pessoa no cliente — que qualquer membro tem. Quem não
+        # pertencesse à equipa passava na mesma.
+        #
+        # Isso importava porque, a seguir, o `resolved_crew_ids` é
+        # `[agent.scope_id]`: a equipa DO AGENTE, não as de quem o corre. As
+        # tabelas autorizadas saíam dessa equipa, e a resposta vinha com dados
+        # que a pessoa não devia ver. O `get_agent` também não filtra
+        # visibilidade — devolve qualquer agente por id —, portanto o único
+        # obstáculo era saber o UUID, e um UUID não é um controlo de acesso.
+        #
+        # Com o `crew_id` passado, o RBAC resolve o papel na equipa e devolve
+        # `no_access` a quem não é membro.
+        try:
+            c_id = UUID(scope_id)
+        except ValueError:
+            pass
+    await RBACService(db).assert_permission(user, permission, space_id=s_id, crew_id=c_id)
 
 
 async def _is_content_member(db: AsyncSession, user: User, scope, scope_id) -> bool:
