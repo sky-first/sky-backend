@@ -682,12 +682,29 @@ class PermissionService:
         # crew_ids means "all the user's crews", so it expands access, never
         # restricts it. Mirrors what the personal-mode chat returns.
         if is_personal:
+            # Fontes marcadas ficam fora do cruzamento — e ficam fora **aqui**,
+            # ao construir a união, não no ecrã. Esconder o resultado depois de
+            # ele ter sido lido não é segurança. Tipicamente RH: cruzar salários
+            # com desempenho pode reidentificar pessoas, e quem concedeu esse
+            # acesso concedeu-o para o projeto de RH, não para todos de uma vez.
+            if getattr(connection, "nao_cruzavel", False):
+                return []
+
             personal_tables: Set[str] = set()
             if connection.created_by == user_id or await self._user_has_connection_dataset(
                 user_id, connection_id
             ):
                 personal_tables.update(get_all_tables())
-            if crew_ids:
+
+            if settings.DATA_BOUNDARY == "project":
+                # A união é sobre os PROJETOS onde a pessoa está, porque é aí
+                # que os dados vivem agora. Calculada a cada pergunta e nunca em
+                # cache: quem sai de um projeto deixa de o cruzar na pergunta
+                # seguinte, não na sessão seguinte.
+                personal_tables.update(
+                    await self._tabelas_dos_meus_projetos(user_id, connection_id)
+                )
+            elif crew_ids:
                 personal_tables.update(await self._get_crew_table_names(connection_id, crew_ids))
             return sorted(t for t in personal_tables if t)
 
@@ -849,6 +866,38 @@ class PermissionService:
         dele.update(row[0] for row in result.all())
 
         return [c for c in crew_ids if c in dele]
+
+    async def _tabelas_dos_meus_projetos(self, user_id: UUID, connection_id: UUID) -> List[str]:
+        """A união do que esta pessoa alcança, nesta ligação, em TODOS os seus
+        projetos — o modo cross-project.
+
+        Não pede nada a ninguém: cada peça já lhe pertence. O travão não está
+        aqui, está na saída (a resposta não se fixa nem se publica), porque o
+        risco do cruzamento não é a leitura — é a redistribuição e a agregação.
+        """
+        from src.models.crew import Crew
+        from src.models.space import Space, SpaceMember, SpaceTable
+
+        meus = set()
+        for consulta in (
+            select(SpaceMember.space_id).where(SpaceMember.user_id == user_id),
+            select(Crew.space_id)
+            .join(CrewMember, CrewMember.crew_id == Crew.id)
+            .where(CrewMember.user_id == user_id),
+            select(Space.id).where(Space.created_by == user_id, Space.deleted_at.is_(None)),
+        ):
+            meus.update(r[0] for r in (await self.db.execute(consulta)).all() if r[0])
+
+        if not meus:
+            return []
+
+        linhas = await self.db.execute(
+            select(SpaceTable.table_name).where(
+                SpaceTable.connection_id == connection_id,
+                SpaceTable.space_id.in_(meus),
+            )
+        )
+        return sorted({r[0] for r in linhas.all() if r[0]})
 
     async def _projeto_das_equipas(self, crew_ids: List[UUID]) -> Optional[UUID]:
         """O projeto onde estas equipas vivem — se for um só.
