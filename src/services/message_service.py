@@ -51,6 +51,40 @@ except Exception:  # pragma: no cover — relay is optional
 _HUMAN_ROLE = "user"
 
 
+#: Quanto do texto cabe num título antes de deixar de ajudar a distinguir uma
+#: conversa da seguinte. Sessenta caracteres é o que a lista mostra sem cortar
+#: em quase todos os telemóveis.
+_MAX_TITULO = 60
+
+
+def _titulo_a_partir_de(texto: str) -> str:
+    """A primeira frase, encurtada — o nome que a conversa passa a ter.
+
+    Não chama modelo nenhum. Um título é para distinguir uma linha na lista, e
+    para isso a pergunta que a originou serve tão bem como um resumo — sem
+    latência, sem custo, e sem o risco de a lista mudar de nome sozinha porque
+    o modelo respondeu diferente à segunda.
+
+    Corta na fronteira de uma palavra: "Como fechou Julho contra o orç…" lê-se,
+    "Como fechou Julho contra o o…" tropeça.
+    """
+    limpo = " ".join((texto or "").split())
+    if not limpo:
+        return ""
+    # A primeira frase, quando é curta o suficiente para chegar.
+    for marca in (". ", "? ", "! ", "\n"):
+        corte = limpo.find(marca)
+        if 0 < corte <= _MAX_TITULO:
+            return limpo[: corte + 1].strip()
+    if len(limpo) <= _MAX_TITULO:
+        return limpo
+    cortado = limpo[:_MAX_TITULO]
+    espaco = cortado.rfind(" ")
+    if espaco > _MAX_TITULO // 2:
+        cortado = cortado[:espaco]
+    return cortado.rstrip(" ,;:") + "…"
+
+
 def _display_name(user: Optional[User]) -> Optional[str]:
     """Human-friendly author label: full name, else the email local part."""
     if user is None:
@@ -147,6 +181,19 @@ class MessageService:
             cost_usd=payload.cost_usd,
             parent_message_id=payload.parent_message_id,
         )
+
+        # A conversa ganha nome na primeira coisa que lá se escreve.
+        #
+        # Nascia sem título e ficava sem título para sempre: a lista de
+        # conversas era uma coluna de "Sem título", e o cabeçalho da conversa
+        # aberta dizia o mesmo. Quem tem cinco conversas não distingue nenhuma.
+        #
+        # O nome sai da primeira mensagem, como no ChatGPT e no Claude. Aqui e
+        # não no cliente, por duas razões: a web e a app passam pelo mesmo
+        # sítio, e quem renomeia à mão manda um título explícito que isto não
+        # pode pisar — daí só acontecer quando ainda não há nenhum.
+        if not (conv.title or "").strip():
+            conv.title = _titulo_a_partir_de(payload.content)
 
         # Touch the conversation so list ordering surfaces it as recent.
         conv.updated_at = datetime.utcnow()
