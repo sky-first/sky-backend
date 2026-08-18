@@ -115,3 +115,45 @@ async def test_duplicate_term_in_same_scope_rejected(db_session: AsyncSession):
     with pytest.raises(IntegrityError):
         await db_session.commit()
     await db_session.rollback()
+
+
+# ── O desvio do admin deixa de ser automático (S12) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_o_admin_so_ve_tudo_se_pedir(db_session):
+    """Um termo carrega a fórmula, e a fórmula nomeia tabelas.
+
+    *"Margem = (receita − custo salarial) / receita, sobre `salarios`"* revela a
+    existência de uma tabela de salários a quem não tem acesso nenhum a RH. Ver
+    que uma coisa existe é uma permissão diferente de ver o conteúdo — foi por
+    isso que o Unity Catalog teve de inventar um privilégio `BROWSE` à parte.
+
+    A visão de todo o cliente fica, mas só quando é pedida: a Console pede
+    `?global=true`. No caminho da IA, que é onde o vazamento tem consequência,
+    vale a pertença como para toda a gente.
+    """
+    import inspect
+
+    from src.api.v1 import glossary as rota
+
+    fonte = inspect.getsource(rota.list_glossary)
+    # O papel sozinho já não chega para abrir a porta.
+    assert "vista_global and" in fonte, "o desvio voltou a ser automático"
+    # E o parâmetro existe com o nome que a Console usa.
+    assert 'alias="global"' in fonte
+
+
+@pytest.mark.asyncio
+async def test_o_servico_continua_a_saber_dar_a_vista_global(db_session):
+    """A capacidade não desaparece — muda de dono.
+
+    Se um dia o serviço deixar de aceitar `is_platform_admin`, a Console fica
+    sem a vista de administração e ninguém percebe porquê.
+    """
+    import inspect
+
+    from src.services.glossary_service import GlossaryService
+
+    assinatura = inspect.signature(GlossaryService.list_terms)
+    assert "is_platform_admin" in assinatura.parameters
