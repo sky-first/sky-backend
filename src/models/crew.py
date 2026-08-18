@@ -123,11 +123,19 @@ class CrewConnection(Base):
 class CrewTable(Base):
     """Crew specific table association.
 
-    Mirrors ``SpaceTable`` one level down: a crew may be restricted to specific
-    tables of a connection it has access to. A crew that has a ``CrewConnection``
-    but no ``CrewTable`` rows for that connection inherits ALL tables the parent
-    space exposes for it; once any ``CrewTable`` row exists for a connection, the
-    crew is narrowed to exactly those tables.
+    Mirrors ``SpaceTable`` one level down: a crew is restricted to specific
+    tables of a connection it has access to.
+
+    Este texto dizia, até 18/08/2026, que uma equipa com ``CrewConnection`` e
+    **sem** linhas aqui herdava todas as tabelas do projeto. Era falso desde a
+    reescrita fail-closed: ``PermissionService._get_crew_table_names`` devolve
+    lista vazia, e sem concessão não há acesso. O comentário é que estava
+    velho — mas um comentário destes lê-se como especificação e mais tarde
+    alguém "corrige" o código para o cumprir.
+
+    Nota de rumo: com ``settings.DATA_BOUNDARY == "project"`` esta tabela deixa
+    de ser a fronteira de dados (passa a ser ``space_tables``) e a equipa fica a
+    ser só gente. Ver ``docs/fronteira-de-dados-projeto.md``.
     """
 
     __tablename__ = "crew_tables"

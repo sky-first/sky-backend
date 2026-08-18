@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.crew import CrewMember, CrewTable
 from src.models.user import User
@@ -690,6 +691,40 @@ class PermissionService:
                 personal_tables.update(await self._get_crew_table_names(connection_id, crew_ids))
             return sorted(t for t in personal_tables if t)
 
+        # As equipas que vêm de fora são acreditadas — e não podem ser.
+        #
+        # Este método recebia `crew_ids` de quem o chamava e nunca confirmava
+        # que o utilizador lá pertencia. Estava seguro por acidente: os dois
+        # chamadores validavam por fora. Foi assim que nasceu o #634, em que um
+        # agente de equipa corria para quem não era da equipa. A confirmação
+        # desce para aqui, onde não depende de quem chama.
+        if crew_ids:
+            crew_ids = await self._crews_a_que_pertence(user_id, crew_ids)
+            if not crew_ids:
+                return []
+
+        # A fronteira de dados é do PROJETO (decisão de 18/08/2026): quem está
+        # no projeto vê o que o projeto vê, e a equipa é só gente. Atrás de um
+        # interruptor porque alarga o acesso de quem hoje tem recorte estreito.
+        if settings.DATA_BOUNDARY == "project":
+            # Nem todos os chamadores trazem o projeto — o dos agentes às vezes
+            # só tem a equipa. Como toda a equipa vive dentro de um projeto,
+            # tira-se dela, para a resposta não depender de quem chamou trazer
+            # ou não o campo.
+            if not space_id and crew_ids:
+                space_id = await self._projeto_das_equipas(crew_ids)
+        if settings.DATA_BOUNDARY == "project" and space_id:
+            if not await self._pertence_ao_projeto(user_id, space_id):
+                return []
+            space_tables = await self.space_table_repo.get_space_tables(space_id)
+            return sorted(
+                {
+                    t.table_name
+                    for t in space_tables
+                    if t.connection_id == connection_id and t.table_name
+                }
+            )
+
         # 2. Collaborative crew context is FAIL-CLOSED: a crew sees ONLY the
         # tables explicitly granted to it via CrewTable — never inherits "all
         # tables" from the space. The space still bounds it: CrewTable rows are
@@ -786,6 +821,81 @@ class PermissionService:
         # Final safety filter: ensure everything in authorized_tables is a non-None string
         final_list = [t for t in authorized_tables if t and isinstance(t, str)]
         return sorted(list(set(final_list)))
+
+    async def _crews_a_que_pertence(self, user_id: UUID, crew_ids: List[UUID]) -> List[UUID]:
+        """Das equipas pedidas, as que são mesmo dele.
+
+        Devolve a intersecção — nunca mais do que veio. Se não pertencer a
+        nenhuma, devolve vazio, e quem chama fecha a porta.
+        """
+        if not crew_ids:
+            return []
+        from src.models.crew import Crew
+
+        result = await self.db.execute(
+            select(CrewMember.crew_id).where(
+                CrewMember.user_id == user_id,
+                CrewMember.crew_id.in_(crew_ids),
+            )
+        )
+        dele = {row[0] for row in result.all()}
+
+        # Quem criou a equipa conta, mesmo sem linha em `crew_members`. Foi essa
+        # pessoa que escolheu o recorte de dados dela — recusá-la não fecha
+        # brecha nenhuma e tirava o acesso a quem montou a coisa.
+        result = await self.db.execute(
+            select(Crew.id).where(Crew.id.in_(crew_ids), Crew.created_by == user_id)
+        )
+        dele.update(row[0] for row in result.all())
+
+        return [c for c in crew_ids if c in dele]
+
+    async def _projeto_das_equipas(self, crew_ids: List[UUID]) -> Optional[UUID]:
+        """O projeto onde estas equipas vivem — se for um só.
+
+        Equipas de projetos diferentes na mesma pergunta não têm resposta boa:
+        devolve ``None`` e o caminho do projeto não se aplica, em vez de eleger
+        um dos dois e alargar o acesso ao outro.
+        """
+        from src.models.crew import Crew
+
+        result = await self.db.execute(select(Crew.space_id).where(Crew.id.in_(crew_ids)))
+        projetos = {row[0] for row in result.all() if row[0]}
+        return projetos.pop() if len(projetos) == 1 else None
+
+    async def _pertence_ao_projeto(self, user_id: UUID, space_id: UUID) -> bool:
+        """Está neste projeto — como membro do projeto ou de uma equipa dele.
+
+        As duas contam porque o modelo diz que ninguém existe fora de uma
+        equipa, mas a base ainda tem gente ligada só ao projeto. Aceitar
+        apenas `space_members` deixaria essas pessoas sem dados nenhuns no dia
+        em que o interruptor virasse.
+        """
+        from src.models.crew import Crew
+        from src.models.space import Space, SpaceMember
+
+        result = await self.db.execute(
+            select(SpaceMember.id).where(
+                SpaceMember.space_id == space_id,
+                SpaceMember.user_id == user_id,
+            )
+        )
+        if result.first():
+            return True
+
+        result = await self.db.execute(
+            select(CrewMember.id)
+            .join(Crew, Crew.id == CrewMember.crew_id)
+            .where(Crew.space_id == space_id, CrewMember.user_id == user_id)
+        )
+        if result.first():
+            return True
+
+        # Quem criou o projeto não fica de fora do que criou.
+        result = await self.db.execute(
+            select(Space.id).where(Space.id == space_id, Space.created_by == user_id)
+        )
+        return result.first() is not None
 
     async def _get_crew_table_names(self, connection_id: UUID, crew_ids: List[UUID]) -> List[str]:
         """Tables explicitly granted to any of these crews for this connection.
