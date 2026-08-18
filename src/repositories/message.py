@@ -34,6 +34,7 @@ class MessageRepository(BaseRepository[Message]):
         parent_message_id: Optional[UUID] = None,
         incorporated_in_message_id: Optional[UUID] = None,
         finding_id: Optional[UUID] = None,
+        cruzou_projetos: bool = False,
     ) -> Message:
         # Explicit microsecond timestamp — see conversation repo for the
         # SQLite precision rationale.
@@ -52,6 +53,10 @@ class MessageRepository(BaseRepository[Message]):
             parent_message_id=parent_message_id,
             incorporated_in_message_id=incorporated_in_message_id,
             finding_id=finding_id,
+            # Marca a resposta que nasceu de mais do que um projeto. É o que o
+            # `pin_message` lê para recusar publicá-la — ver a opção C em
+            # docs/modelo-projeto-equipa-e-pedidos-de-acesso.md §4.
+            cruzou_projetos=cruzou_projetos,
         )
         self.db.add(msg)
         await self.db.flush()

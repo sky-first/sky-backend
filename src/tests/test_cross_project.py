@@ -228,3 +228,61 @@ async def test_uma_resposta_cruzada_nao_se_fixa(db_session):
     # A mensagem diz o caminho de saída, não só "não".
     assert "cruzou" in str(caiu.value).lower()
     assert "projeto" in str(caiu.value).lower()
+
+
+# ── A marca chega mesmo à mensagem ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_o_repositorio_grava_a_marca(db_session):
+    """O elo que faltava, e que quase me escapou.
+
+    Criei a coluna `cruzou_projetos` e o travão que a lê no `pin_message`, mas
+    **nada a punha a verdadeira**: nem o repositório aceitava o campo, nem o
+    caminho do chat o passava. A coluna existia, ficava sempre falsa, e a opção
+    C era a B com outro nome — o travão nunca dispararia em produção.
+
+    Este teste exercita o repositório, que é onde a cadeia se partia.
+    """
+    from src.models.conversation import Conversation, Message
+    from src.models.page import Page
+    from src.repositories.message import MessageRepository
+
+    dono = _pessoa("Dono")
+    db_session.add(dono)
+    await db_session.flush()
+
+    pagina = Page(id=uuid.uuid4(), name="p", type="personal", color="#3b82f6", owner_id=dono.id)
+    db_session.add(pagina)
+    await db_session.flush()
+
+    conversa = Conversation(id=uuid.uuid4(), page_id=pagina.id, created_by=dono.id)
+    db_session.add(conversa)
+    await db_session.flush()
+
+    repo = MessageRepository(db_session)
+    cruzada = await repo.create(
+        conversation_id=conversa.id,
+        role="assistant",
+        kind="ai_response",
+        content="resposta que juntou dois projetos",
+        cruzou_projetos=True,
+    )
+    normal = await repo.create(
+        conversation_id=conversa.id,
+        role="assistant",
+        kind="ai_response",
+        content="resposta de dentro de um projeto",
+    )
+
+    assert cruzada.cruzou_projetos is True
+    # E a omissão continua a ser falsa: uma resposta de dentro de um projeto
+    # publica-se à vontade.
+    assert normal.cruzou_projetos is False
+
+    lidas = (
+        (await db_session.execute(select(Message).where(Message.conversation_id == conversa.id)))
+        .scalars()
+        .all()
+    )
+    assert {m.cruzou_projetos for m in lidas} == {True, False}
