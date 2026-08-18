@@ -400,6 +400,23 @@ class MessageService:
         if msg.role != "assistant":
             raise BadRequestError("Only assistant messages can be pinned")
 
+        # Uma resposta que cruzou projetos não se publica.
+        #
+        # É o travão da opção C, e está aqui — na saída — de propósito. Quem
+        # cruzou já tinha acesso a cada peça; o que ninguém aprovou foi a
+        # **combinação**. Quem deu acesso aos salários deu-o no contexto do
+        # projeto de RH, não para o gráfico de salários por vendedor aparecer no
+        # projeto Comercial.
+        #
+        # Não é uma prisão: copiar e colar continua a existir e não conseguimos
+        # impedi-lo. É dissuasão com registo, e está escrito para ninguém vender
+        # isto como garantia.
+        if getattr(msg, "cruzou_projetos", False):
+            raise BadRequestError(
+                "Esta resposta cruzou vários projetos e não pode ser fixada. "
+                "Cria um projeto com estes dados para a poderes partilhar."
+            )
+
         # Fast-path: message already pinned → return its widget.
         if msg.pinned_widget_id:
             existing = await self.db.execute(
@@ -588,9 +605,9 @@ class MessageService:
                         user_id=uid,
                         type=NotificationType.COMMENT_MENTION,
                         title=get_message("notif_comment_mention_title", locale),
-                        description=get_message(
-                            "notif_comment_mention_desc", locale
-                        ).format(snippet=excerto),
+                        description=get_message("notif_comment_mention_desc", locale).format(
+                            snippet=excerto
+                        ),
                         entity_type="conversation",
                         entity_id=str(conv.id),
                         deep_link=f"/page?id={conv.page_id}&conversation={conv.id}",

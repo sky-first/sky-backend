@@ -11,6 +11,7 @@ import uuid
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -113,6 +114,11 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    #: A resposta nasceu de mais do que um projeto (modo cross-project).
+    #: Serve para recusar fixá-la numa página: o risco do cruzamento não é
+    #: a leitura — é a redistribuição.
+    cruzou_projetos = Column(Boolean, nullable=False, default=False, server_default="false")
     conversation_id = Column(
         UUID(as_uuid=True),
         ForeignKey("conversations.id", ondelete="CASCADE"),

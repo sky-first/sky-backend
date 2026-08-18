@@ -6,7 +6,7 @@ from datetime import datetime
 # Forward reference for SyncLog
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,9 +32,7 @@ class DataConnection(Base):
     )  # active, inactive, error
     # Phase 6 — sensitivity tier. internal (default) is free to use,
     # confidential restricts agent access, restricted is human-only.
-    tier = Column(
-        String(20), nullable=False, default="internal", server_default="internal"
-    )
+    tier = Column(String(20), nullable=False, default="internal", server_default="internal")
     config = Column(JSON, nullable=False)  # Encrypted credentials
     sync_frequency = Column(String(100), nullable=True)  # Cron expression
     last_sync = Column(DateTime(timezone=True), nullable=True)
@@ -55,6 +53,10 @@ class DataConnection(Base):
         onupdate=datetime.utcnow,
     )
     metrics = Column(JSON, nullable=True)  # Aggregated usage metrics
+    #: Fica de fora do modo cross-project. Tipicamente RH: cruzar salários
+    #: com desempenho pode reidentificar pessoas, e quem concedeu o acesso
+    #: concedeu-o para o projeto de RH, não para todos ao mesmo tempo.
+    nao_cruzavel = Column(Boolean, nullable=False, default=False, server_default="false")
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
