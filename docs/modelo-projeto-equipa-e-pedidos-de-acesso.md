@@ -302,6 +302,31 @@ Camada semântica (novos):
 
 ---
 
+## 7b. Uma decisão que falta ao Lucas (S12, glossário)
+
+`GET /glossary/` **já** limita os termos aos projetos de que a pessoa é membro —
+menos para quem tem papel de plataforma `owner` / `admin` / `super_admin`, que
+continua a ver tudo (está no código como *"legacy global view"*).
+
+Isso é exactamente o S12: o termo *"Margem = (receita − custo salarial) /
+receita, sobre `salarios`"* revela a existência de uma tabela de salários a quem
+não tem acesso nenhum a RH. E colide com a decisão de plano de gestão vs plano
+de dados — o admin gere a estrutura, mas não vê o conteúdo sem pertença.
+
+**Não mexi**, de propósito: tirar o desvio muda a experiência de quem hoje cura
+o glossário do cliente inteiro a partir de um único ecrã, e isso é uma escolha
+de produto, não uma correcção. As opções:
+
+1. **Tirar o desvio.** Coerente com a decisão do plano de gestão. O admin passa
+   a ter de estar nos projetos que quer curar.
+2. **Manter, e marcar.** O admin vê tudo, mas os termos de projetos onde não
+   está aparecem assinalados, e a IA nunca os usa no contexto dele.
+3. **Manter só na Console**, e nunca no caminho da IA — que é onde o vazamento
+   tem consequência.
+
+A minha recomendação é a **3**: resolve o vazamento onde ele importa sem tirar
+a ferramenta a quem cura.
+
 ## 8. O que fica de fora da v1, e é escrito para não passar por esquecido
 
 - **Recorte por coluna.** A v1 recorta por tabela. Máscaras de coluna e filtros
