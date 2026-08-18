@@ -415,6 +415,19 @@ class Settings(BaseSettings):
     # agents/queries (and the test suite).
     CREW_REQUIRED_FOR_QUERY: bool = False
 
+    # Onde vive a fronteira de dados (decisão do Lucas, 18/08/2026):
+    #
+    #   "crew"    — como sempre foi: a equipa é o recorte, via ``crew_tables``.
+    #   "project" — o modelo novo: o recorte é do PROJETO (``space_tables``) e
+    #               a equipa passa a ser só gente.
+    #
+    # Fica em "crew" por omissão de propósito. Virar para "project" **alarga**
+    # o acesso de quem hoje está numa equipa com recorte estreito — é exposição
+    # nova de dados reais num cliente vivo, não uma mudança cosmética. O
+    # ``docs/fronteira-de-dados-projeto.md`` traz a consulta que diz, por
+    # cliente, quem passa a ver mais antes de se virar o interruptor.
+    DATA_BOUNDARY: str = "crew"
+
     # Local-dev URL template used by ``TenantConnectionManager``. When
     # set, a single docker-compose Postgres can host many tenant DBs:
     # set this to e.g.
