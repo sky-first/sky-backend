@@ -48,16 +48,39 @@ async def list_glossary(
     space_id: Optional[UUID] = Query(None),
     crew_id: Optional[UUID] = Query(None),
     mine: bool = Query(False, description="Only list terms owned by the caller (personal scope)."),
+    vista_global: bool = Query(
+        False,
+        alias="global",
+        description=(
+            "Só para os ecrãs de administração da Console: mostra os termos de "
+            "todo o cliente a quem tem papel de plataforma. Fora daí, e sempre "
+            "no caminho da IA, vale a pertença."
+        ),
+    ),
     current_user: User = Depends(get_current_user),
     service: GlossaryService = Depends(get_glossary_service),
     db: AsyncSession = Depends(get_db_session),
 ):
     await RBACService(db).assert_permission(current_user, "connections.view")
-    # Pass the caller identity + platform role so the service can fall
-    # back to a tenant-safe default scope ("only terms in spaces I am a
-    # member of, plus my own") when the FE doesn't pin space_id/crew_id.
-    # Platform Owner / Admin bypass the filter (legacy global view).
-    is_platform_admin = (current_user.role or "").lower() in ("owner", "admin", "super_admin")
+    # O desvio do admin passa a ser pedido, não automático.
+    #
+    # Um termo carrega a fórmula: *"Margem = (receita − custo salarial) /
+    # receita, sobre `salarios`"* revela a existência de uma tabela de salários
+    # a quem não tem acesso nenhum a RH. Isso é metadados a vazar o que a
+    # permissão protege — foi por isto que o Unity Catalog teve de inventar um
+    # privilégio `BROWSE` à parte: ver que uma coisa existe é uma permissão
+    # diferente de ver o conteúdo.
+    #
+    # Decisão do Lucas (18/08): a visão de todo o cliente **fica**, mas só onde
+    # é um acto administrativo explícito — a Console, que passa a pedir
+    # `?global=true`. No caminho da IA vale a pertença, como para toda a gente,
+    # porque é aí que o vazamento tem consequência: o termo entra no contexto do
+    # modelo e volta a sair dentro de uma resposta.
+    is_platform_admin = vista_global and (current_user.role or "").lower() in (
+        "owner",
+        "admin",
+        "super_admin",
+    )
     return await service.list_terms(
         space_id=space_id,
         crew_id=crew_id,
