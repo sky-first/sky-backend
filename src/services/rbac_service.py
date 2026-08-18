@@ -59,9 +59,7 @@ async def _e_o_cliente_de_casa(user: User, ctx) -> bool:
         async with AsyncSessionLocal() as sessao_da_plataforma:
             dono = await TenantDomainService.resolve_by_domain(sessao_da_plataforma, dominio)
     except Exception:  # noqa: BLE001
-        logger.warning(
-            "rbac.home_tenant_lookup_failed user_id=%s", getattr(user, "id", None)
-        )
+        logger.warning("rbac.home_tenant_lookup_failed user_id=%s", getattr(user, "id", None))
         return False
     return dono is not None and str(getattr(dono, "id", "")) == str(getattr(ctx, "id", ""))
 
@@ -480,7 +478,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "notifications.read": True,
         "starred.view": True,
         "starred.manage": True,
-        "files.upload": True,    # editor pode fazer upload (fica pending_approval até owner aprovar)
+        "files.upload": True,  # editor pode fazer upload (fica pending_approval até owner aprovar)
         "files.view": True,
         "files.delete": False,
         "files.approve": False,  # só owner pode aprovar uploads de editor (Knowledge)
@@ -644,7 +642,7 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
         "notifications.read": True,
         "starred.view": True,
         "starred.manage": True,
-        "files.upload": False,   # viewer só visualiza
+        "files.upload": False,  # viewer só visualiza
         "files.view": True,
         "files.delete": False,
         "files.approve": False,
@@ -691,7 +689,6 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
     # but loses creation/edit. Legacy DB rows with role="guest" are
     # mapped via _canonicalize_role() so no migration is required.
     # ═══════════════════════════════════════════════════════════════
-
     # Tenancy gate. Returned by _best_role_for_user_in_space when the
     # caller has no membership in the requested Space. Empty dict =
     # eff.permissions.get(key, False) returns False for every key →
@@ -730,86 +727,150 @@ DEFAULT_ROLE_PERMISSIONS["viewer"] = DEFAULT_ROLE_PERMISSIONS["viewer"]
 # is still productive in their personal scope.
 MEMBER_PLATFORM_PERMISSIONS: Dict[str, bool] = {
     # Pages & Dashboards
-    "pages.view": True, "pages.create": True, "pages.edit": True,
-    "pages.edit.others": False, "pages.delete": True, "pages.share": True,
-    "pages.duplicate": True, "pages.star": True,
-    "pages.members.view": True, "pages.members.manage": False,
+    "pages.view": True,
+    "pages.create": True,
+    "pages.edit": True,
+    "pages.edit.others": False,
+    "pages.delete": True,
+    "pages.share": True,
+    "pages.duplicate": True,
+    "pages.star": True,
+    "pages.members.view": True,
+    "pages.members.manage": False,
     # Widgets
-    "widgets.view": True, "widgets.create": True, "widgets.edit": True,
-    "widgets.delete": True, "widgets.duplicate": True,
-    "widgets.export": True, "widgets.refresh": True, "widgets.feedback": True,
+    "widgets.view": True,
+    "widgets.create": True,
+    "widgets.edit": True,
+    "widgets.delete": True,
+    "widgets.duplicate": True,
+    "widgets.export": True,
+    "widgets.refresh": True,
+    "widgets.feedback": True,
     # Connections — VIEW only. The big one Lucas flagged: Member can
     # see and query connections that Owner/Admin assigned to a Space
     # the Member belongs to, but cannot create / edit / delete the
     # connection itself. Approval / mint stays platform-admin only.
-    "connections.view": True, "connections.metadata.view": True,
-    "connections.tables.view": True, "connections.schemas.view": True,
-    "connections.status.view": True, "connections.metrics.view": True,
-    "connections.create": False, "connections.edit": False,
-    "connections.delete": False, "connections.test": False,
-    "connections.sync": False, "connections.validate": False,
+    "connections.view": True,
+    "connections.metadata.view": True,
+    "connections.tables.view": True,
+    "connections.schemas.view": True,
+    "connections.status.view": True,
+    "connections.metrics.view": True,
+    "connections.create": False,
+    "connections.edit": False,
+    "connections.delete": False,
+    "connections.test": False,
+    "connections.sync": False,
+    "connections.validate": False,
     # AI — full chat + query so a Member is productive on day one.
-    "ai.chat": True, "ai.query": True,
-    "ai.history.view": True, "ai.history.delete": True,
-    "ai.history.pin": True, "ai.history.export": True,
-    "ai.generate": True, "ai.feedback": True,
-    "ai.pipeline": True, "ai.davinci": True,
+    "ai.chat": True,
+    "ai.query": True,
+    "ai.history.view": True,
+    "ai.history.delete": True,
+    "ai.history.pin": True,
+    "ai.history.export": True,
+    "ai.generate": True,
+    "ai.feedback": True,
+    "ai.pipeline": True,
+    "ai.davinci": True,
     # Agents — Member can author and run their own agents on data
     # they're allowed to query.
-    "agents.view": True, "agents.create": True, "agents.edit": True,
-    "agents.delete": True, "agents.run": True,
-    "agents.pause": True, "agents.resume": True, "agents.manage": False,
-    "agents.findings.view": True, "agents.findings.dismiss": True,
+    "agents.view": True,
+    "agents.create": True,
+    "agents.edit": True,
+    "agents.delete": True,
+    "agents.run": True,
+    "agents.pause": True,
+    "agents.resume": True,
+    "agents.manage": False,
+    "agents.findings.view": True,
+    "agents.findings.dismiss": True,
     # Events / Intelligence
-    "events.view": True, "events.create": False,
-    "intelligence.view": True, "intelligence.create": True,
+    "events.view": True,
+    "events.create": False,
+    "intelligence.view": True,
+    "intelligence.create": True,
     "intelligence.dismiss": True,
     # Strategy (write within a Space they belong to; no destructive)
     "strategy.view": True,
-    "strategy.pillars.create": True, "strategy.pillars.edit": True,
-    "strategy.objectives.create": True, "strategy.objectives.edit": True,
-    "strategy.okrs.create": True, "strategy.okrs.edit": True,
-    "strategy.keyresults.create": True, "strategy.keyresults.edit": True,
-    "strategy.initiatives.create": True, "strategy.initiatives.edit": True,
-    "strategy.assumptions.create": True, "strategy.assumptions.edit": True,
+    "strategy.pillars.create": True,
+    "strategy.pillars.edit": True,
+    "strategy.objectives.create": True,
+    "strategy.objectives.edit": True,
+    "strategy.okrs.create": True,
+    "strategy.okrs.edit": True,
+    "strategy.keyresults.create": True,
+    "strategy.keyresults.edit": True,
+    "strategy.initiatives.create": True,
+    "strategy.initiatives.edit": True,
+    "strategy.assumptions.create": True,
+    "strategy.assumptions.edit": True,
     # Spaces / Crews — view only. Member doesn't manage org structure.
-    "spaces.view": True, "spaces.create": False,
-    "spaces.edit": False, "spaces.delete": False,
-    "spaces.members.view": True, "spaces.members.manage": False,
-    "spaces.connections.view": True, "spaces.connections.manage": False,
-    "spaces.crews.view": True, "spaces.tables.view": True,
+    "spaces.view": True,
+    "spaces.create": False,
+    "spaces.edit": False,
+    "spaces.delete": False,
+    "spaces.members.view": True,
+    "spaces.members.manage": False,
+    "spaces.connections.view": True,
+    "spaces.connections.manage": False,
+    "spaces.crews.view": True,
+    "spaces.tables.view": True,
     "spaces.stats.view": True,
-    "crews.view": True, "crews.create": False, "crews.edit": False,
+    "crews.view": True,
+    "crews.create": False,
+    "crews.edit": False,
     "crews.delete": False,
-    "crews.members.view": True, "crews.members.manage": False,
+    "crews.members.view": True,
+    "crews.members.manage": False,
     "crews.stats.view": True,
     # Self
-    "users.self.edit": True, "users.self.permissions": True,
+    "users.self.edit": True,
+    "users.self.permissions": True,
     # Templates / Enterprise
-    "templates.view": True, "templates.apply": True,
-    "templates.create": False, "templates.edit": False, "templates.delete": False,
-    "enterprise.view": True, "enterprise.apis.view": True,
-    "connectors.view": True, "datasets.view": True,
+    "templates.view": True,
+    "templates.apply": True,
+    "templates.create": False,
+    "templates.edit": False,
+    "templates.delete": False,
+    "enterprise.view": True,
+    "enterprise.apis.view": True,
+    "connectors.view": True,
+    "datasets.view": True,
     # Collaboration
-    "comments.view": True, "comments.create": True,
-    "notifications.view": True, "notifications.read": True,
-    "starred.view": True, "starred.manage": True,
+    "comments.view": True,
+    "comments.create": True,
+    "notifications.view": True,
+    "notifications.read": True,
+    "starred.view": True,
+    "starred.manage": True,
     # Files (Knowledge Library) — Member CAN upload but uploads wait
     # in pending_approval; cannot approve, cannot delete other
     # people's files.
-    "files.upload": True, "files.view": True,
-    "files.delete": False, "files.approve": False,
+    "files.upload": True,
+    "files.view": True,
+    "files.delete": False,
+    "files.approve": False,
     # Settings — read-only config lens.
     "settings.view": True,
     # Admin-only knobs explicitly denied so the matrix is honest.
     "admin.users.manage": False,
-    "users.invite": False, "users.edit": False, "users.delete": False,
-    "users.permissions.edit": False, "permissions.view": False,
-    "permissions.edit": False, "settings.edit": False,
-    "apikeys.manage": False, "integrations.manage": False,
-    "metrics.view": False, "audit.view": False, "audit.verify": False,
-    "privacy.export": False, "privacy.delete": False,
-    "support.settings": False, "support.revoke": False,
+    "users.invite": False,
+    "users.edit": False,
+    "users.delete": False,
+    "users.permissions.edit": False,
+    "permissions.view": False,
+    "permissions.edit": False,
+    "settings.edit": False,
+    "apikeys.manage": False,
+    "integrations.manage": False,
+    "metrics.view": False,
+    "audit.view": False,
+    "audit.verify": False,
+    "privacy.export": False,
+    "privacy.delete": False,
+    "support.settings": False,
+    "support.revoke": False,
     "users.impersonate": False,
 }
 
@@ -1093,9 +1154,7 @@ class RBACService:
                 # walker plus an "anywhere" fallback to preserve the
                 # current allow/deny matrix; Phase 2 will tighten this
                 # via the new resource_acl table (per-resource grants).
-                legacy_role = await self._best_role_for_user_for_connection(
-                    user.id, connection_id
-                )
+                legacy_role = await self._best_role_for_user_for_connection(user.id, connection_id)
                 if legacy_role in (None, "no_access"):
                     legacy_role = await self._best_role_for_user_anywhere(user.id)
 
@@ -1139,6 +1198,42 @@ class RBACService:
         # to the user's best role anywhere (matches old behavior). The
         # tight per-resource isolation lands in Phase 2 with resource_acl.
         if scope_kind == "space" and effective_space_id is None:
+            # Quem não está em projeto nenhum é dono do SEU mundo, não de tudo.
+            #
+            # `_best_role_for_user_anywhere` devolve "owner" a quem não tem
+            # espaços nem equipas, e a intenção está escrita lá: alguém acabado
+            # de entrar tem de conseguir criar a primeira página. O problema é
+            # que esse "dono do mundo pessoal" escorregava para permissões que
+            # não são do mundo pessoal — cunhar uma ligação de dados e
+            # administrar membros de projetos.
+            #
+            # Confirmado em produção a 18/08/2026 com contas reais no sandbox:
+            # um `member` sem um único projeto passava em `connections.create`,
+            # `connections.sync`, `spaces.members.manage` e `agents.create`. E
+            # a rota `POST /connections` chama exactamente este caminho sem
+            # `space_id`, portanto era alcançável do browser. Criar uma ligação
+            # é apontar a Sky a uma base de dados à escolha de quem a cria.
+            #
+            # O `Authorization.can()` já negava tudo isto — as duas vias de
+            # autorização discordavam, e a usada nas rotas era a permissiva.
+            #
+            # `MEMBER_PLATFORM_PERMISSIONS` já diz exactamente o que um member
+            # pode fazer sem projeto (páginas sim, ligações não), e é o mapa que
+            # escreve a decisão do Lucas de 30/04. Passa a ser ele a mandar.
+            if not is_tenant_admin(user) and not await self._tem_projetos(user.id):
+                permitido = MEMBER_PLATFORM_PERMISSIONS.get(permission_key, False)
+                await self._audit_decision(
+                    user,
+                    permission_key,
+                    "allow" if permitido else "deny",
+                    "sem_projetos_grants_de_member",
+                    resource_kind=resource_kind,
+                    resource_id=resource_id,
+                )
+                if permitido:
+                    return
+                raise ForbiddenError(f"Permission denied: {permission_key}")
+
             legacy_role = await self._best_role_for_user_anywhere(user.id)
             from src.services.authorization import (
                 LEGACY_TO_NEW_SPACE_ROLE,
@@ -1273,14 +1368,35 @@ class RBACService:
                 best_role = role
         return best_role
 
+    async def _tem_projetos(self, user_id: UUID) -> bool:
+        """Está em algum projeto ou equipa?
+
+        Separado de `_best_role_for_user_anywhere` de propósito: aquela função
+        responde "que papel tem", e para quem não tem lado nenhum inventa
+        "owner" — que é o comportamento certo para o mundo pessoal e errado
+        para tudo o resto. Esta responde só à pergunta que interessa ao portão.
+
+        Duas consultas com ``LIMIT 1`` em vez do repositório de equipas: aqui
+        basta saber **se** existe alguma, e o repositório carrega a lista toda.
+        """
+        from src.models.crew import CrewMember
+
+        res = await self.db.execute(
+            select(SpaceMember.id).where(SpaceMember.user_id == user_id).limit(1)
+        )
+        if res.first() is not None:
+            return True
+        res = await self.db.execute(
+            select(CrewMember.id).where(CrewMember.user_id == user_id).limit(1)
+        )
+        return res.first() is not None
+
     async def _best_role_for_user_anywhere(self, user_id: UUID) -> CrewRole:
         crew_ids = await self.crew_members.get_crew_ids_by_user(user_id)
 
-        res = await self.db.execute(
-            select(SpaceMember.role).where(SpaceMember.user_id == user_id)
-        )
+        res = await self.db.execute(select(SpaceMember.role).where(SpaceMember.user_id == user_id))
         space_roles = res.scalars().all()
-        
+
         if not crew_ids and not space_roles:
             # User has no crew/space memberships — they're operating in their own
             # personal workspace (no shared/team context). Treat them as

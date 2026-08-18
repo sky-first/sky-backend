@@ -998,6 +998,21 @@ async def send_chat_message_stream(
                         kind="ai_response",
                         content="".join(answer_parts),
                         parent_message_id=question_msg.id,
+                        # A marca que trava a publicação de uma resposta cruzada.
+                        #
+                        # O modo pessoal com a fronteira no projeto soma os dados
+                        # de TODOS os projetos onde a pessoa está — é o
+                        # cross-project (opção C do modelo). Quem cruzou tinha
+                        # acesso a cada peça; o que ninguém aprovou foi a
+                        # combinação, e por isso a resposta não se fixa numa
+                        # página.
+                        #
+                        # Sem esta linha a coluna existia e ficava sempre falsa:
+                        # o travão do `pin_message` nunca dispararia, e a opção C
+                        # era a B com outro nome.
+                        cruzou_projetos=bool(
+                            scope_is_personal and settings.DATA_BOUNDARY == "project"
+                        ),
                     )
                     # Mark the comments this answer took in, so the next
                     # question doesn't carry them again — otherwise the same
