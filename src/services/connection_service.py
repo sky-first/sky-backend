@@ -310,6 +310,30 @@ class ConnectionService:
 
         return ConnectionResponse.model_validate(connection)
 
+    async def _apagar_se_a_tabela_existir(
+        self, tabela: str, sql: str, params: dict
+    ) -> None:
+        """Corre ``sql`` só se ``tabela`` existir nesta base de dados.
+
+        As bases dos clientes (Modelo B) recebem apenas as migrações do
+        sky-be. As tabelas do sky-ai — ``embeddings``, ``table_metadata`` —
+        existem na base da plataforma e não nas dos clientes, e uma limpeza
+        cega rebentava o `DELETE` inteiro com `UndefinedTableError`.
+
+        ``to_regclass`` devolve NULL em vez de levantar, que é exactamente a
+        pergunta que queremos fazer.
+        """
+        existe = (
+            await self.db.execute(text("SELECT to_regclass(:t)"), {"t": tabela})
+        ).scalar()
+        if existe is None:
+            logger.info(
+                "[DELETE SERVICE] tabela '%s' não existe nesta base — nada a limpar",
+                tabela,
+            )
+            return
+        await self.db.execute(text(sql), params)
+
     async def delete_connection(self, connection_id: UUID, user: User) -> None:
         """
         Delete connection.
@@ -364,17 +388,28 @@ class ConnectionService:
             # table_metadata below with a ForeignKeyViolation. Clear the
             # children first — same order the AI service uses in
             # core/ingestion/db_metadata.py.
-            await self.db.execute(
-                text(
-                    "DELETE FROM embeddings WHERE table_metadata_id IN "
-                    "(SELECT id FROM table_metadata WHERE data_connection_id = :conn_id)"
-                ),
+            # ...quando essa tabela existe. Ela é criada pelas migrações do
+            # sky-ai, e as bases dos clientes só recebem as do sky-be — por
+            # isso `embeddings` e `table_metadata` existem na base da
+            # plataforma e **não** nas dos clientes. O resultado era um 500 em
+            # qualquer tentativa de apagar uma ligação, para todos os clientes:
+            #
+            #   UndefinedTableError: relation "embeddings" does not exist
+            #
+            # Apanhado em produção a limpar ligações de teste no `sandbox`.
+            # Não há embeddings órfãos a deixar para trás: se a tabela não
+            # existe naquela base, também nunca houve lá linhas nenhumas.
+            await self._apagar_se_a_tabela_existir(
+                "embeddings",
+                "DELETE FROM embeddings WHERE table_metadata_id IN "
+                "(SELECT id FROM table_metadata WHERE data_connection_id = :conn_id)",
                 {"conn_id": connection_id},
             )
 
             # 1.1. table_metadata (AI table without SQLAlchemy model in Backend)
-            await self.db.execute(
-                text("DELETE FROM table_metadata WHERE data_connection_id = :conn_id"),
+            await self._apagar_se_a_tabela_existir(
+                "table_metadata",
+                "DELETE FROM table_metadata WHERE data_connection_id = :conn_id",
                 {"conn_id": connection_id},
             )
 
