@@ -58,7 +58,17 @@ async def test_process_query_returns_empty_state_when_no_connection_available(db
     response = await service.process_query(user.id, query_data)
     assert response.status == "completed"
     assert response.answer is not None
-    assert "no data connections" in response.answer.lower()
+    # A frase deixou de ser uma só em inglês: depende de quem pergunta e da
+    # língua dele. O que este teste garante continua a ser o mesmo — que há
+    # uma resposta útil em vez de silêncio ou de um erro.
+    from src.core.locale import get_message
+
+    assert response.answer in (
+        get_message("space_has_no_data_can_connect", "pt"),
+        get_message("space_has_no_data_ask_access", "pt"),
+        get_message("space_has_no_data_can_connect", "en"),
+        get_message("space_has_no_data_ask_access", "en"),
+    )
 
 
 @pytest.mark.asyncio
@@ -146,4 +156,12 @@ async def test_process_query_returns_empty_state_when_no_connection(db_session, 
 
     assert response.status == "completed"
     assert response.answer is not None
-    assert "no data connections" in response.answer.lower()
+    # Mesma razão do teste acima: a frase deixou de ser uma só em inglês.
+    from src.core.locale import get_message as _msg
+
+    assert response.answer in (
+        _msg("space_has_no_data_can_connect", "pt"),
+        _msg("space_has_no_data_ask_access", "pt"),
+        _msg("space_has_no_data_can_connect", "en"),
+        _msg("space_has_no_data_ask_access", "en"),
+    )

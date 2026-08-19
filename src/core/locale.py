@@ -60,6 +60,27 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "pt": "Pensando...",
         "en": "Thinking...",
     },
+    # Sem dados no projeto — a frase depende de **quem** pergunta.
+    #
+    # Havia uma só, em inglês, dentro do `ai_service`: "Connect a data source
+    # from the toolbar". Dita a um member, manda-o fazer uma coisa que a
+    # plataforma lhe recusa (cunhar ligações é decisão do cliente), e a pessoa
+    # fica num beco: a única instrução no ecrã é o que não pode fazer.
+    #
+    # O mesmo defeito estava no frontend e foi corrigido a 19/08; o backend
+    # tinha a sua própria cópia.
+    "space_has_no_data_can_connect": {
+        "pt": "Este projeto ainda não tem dados. Ligue uma fonte na barra de "
+        "ferramentas (Fontes → Ligar) e eu respondo com base nela.",
+        "en": "This project has no data yet. Connect a source from the "
+        "toolbar (Sources → Connect) and I'll answer from it.",
+    },
+    "space_has_no_data_ask_access": {
+        "pt": "Este projeto ainda não tem dados. Peça acesso em "
+        "Definições › Pedir dados e um administrador trata do resto.",
+        "en": "This project has no data yet. Ask for access in "
+        "Settings › Request data and an admin takes it from there.",
+    },
     "no_data_source": {
         "pt": "Nenhuma fonte de dados disponível para este chat.",
         "en": "No data source available for this chat.",

@@ -1008,11 +1008,23 @@ class AIService:
                         user_id,
                         getattr(query_data, "space_id", None),
                     )
-                    query.answer = (
-                        "This space has no data connections yet. "
-                        "Connect a data source from the toolbar (Sources → Connect) "
-                        "so I can answer questions grounded in your data."
+                    # A frase depende de quem pergunta e da língua dele.
+                    #
+                    # Era uma só, em inglês, a mandar "Connect a data source".
+                    # Dita a um member, manda-o fazer uma coisa que a
+                    # plataforma lhe recusa — cunhar ligações é decisão do
+                    # cliente — e a pessoa fica sem saída nenhuma no ecrã.
+                    from src.core.locale import resolve_locale
+                    from src.core.permissions import is_tenant_admin
+
+                    quem = await self.db.get(User, user_id)
+                    lingua = resolve_locale(getattr(query_data, "locale", None), quem)
+                    chave = (
+                        "space_has_no_data_can_connect"
+                        if (quem is not None and is_tenant_admin(quem))
+                        else "space_has_no_data_ask_access"
                     )
+                    query.answer = get_message(chave, lingua)
                     query.status = "completed"
                     await self.db.commit()
                     await self.db.refresh(query)
