@@ -309,3 +309,71 @@ async def test_um_pedido_ja_decidido_nao_se_decide_outra_vez(db_session):
         await pedidos.aprovar(db_session, p, aprovador_id=uuid.uuid4(), prazo_dias=10)
     with pytest.raises(pedidos.PedidoInvalido):
         await pedidos.recusar(db_session, p, aprovador_id=uuid.uuid4())
+
+
+# ── "Já lá está" não é "não existe" ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_o_que_o_projeto_ja_tem_aparece_separado(db_session):
+    """Duas coisas que o ecrã mostrava iguais.
+
+    Apanhado a correr o fluxo em produção, no sandbox: o member pediu "vendas de
+    2025" num projeto que **já tinha** essas tabelas. A proposta veio vazia — e
+    o aprovador leu *"não encontrámos correspondência"*, que é falso e leva-o a
+    recusar um pedido que afinal só precisava de "já tens acesso a isso".
+
+    O que corresponde e já lá está sai da proposta (não se conceder duas vezes)
+    mas passa a ser contado à parte.
+    """
+    from src.models.space import SpaceTable
+
+    _ana, bruno, erp, contas = await _cenario(db_session)
+
+    # O projeto já tem a tabela das vendas.
+    db_session.add(
+        SpaceTable(
+            space_id=contas.id,
+            connection_id=erp.id,
+            table_name="vendas_2025",
+            schema_name="comercial",
+        )
+    )
+    await db_session.flush()
+
+    await pedidos.criar(
+        db_session, requester_id=bruno.id, space_id=contas.id, texto="vendas 2025"
+    )
+    from sqlalchemy import select
+
+    p = (await db_session.execute(select(DataAccessRequest))).scalars().one()
+    proposta = await pedidos.propor(db_session, p)
+
+    nomes = {t["table_name"] for t in proposta}
+    assert "vendas_2025" not in nomes, "não se concede o que já lá está"
+
+    ja = pedidos.ja_no_projeto_da_ultima_proposta(str(p.id))
+    assert "comercial.vendas_2025" in ja, "mas tem de aparecer, senão parece que não existe"
+
+
+@pytest.mark.asyncio
+async def test_sem_correspondencia_nenhuma_a_lista_fica_vazia(db_session):
+    """O caso genuíno de "não há nada" continua a dizer o mesmo.
+
+    Sem este, o teste acima passava com uma implementação que metesse tudo na
+    lista de "já lá está".
+    """
+    _ana, bruno, _erp, contas = await _cenario(db_session)
+    await pedidos.criar(
+        db_session,
+        requester_id=bruno.id,
+        space_id=contas.id,
+        texto="unicórnios cor de laranja",
+    )
+    from sqlalchemy import select
+
+    p = (await db_session.execute(select(DataAccessRequest))).scalars().one()
+    proposta = await pedidos.propor(db_session, p)
+
+    assert proposta == []
+    assert pedidos.ja_no_projeto_da_ultima_proposta(str(p.id)) == []

@@ -166,8 +166,17 @@ async def propor(
     _so_admin(current_user)
     p = await _carregar(db, pedido_id)
     proposta = await pedidos.propor(db, p)
+    ja_tem = pedidos.ja_no_projeto_da_ultima_proposta(str(p.id))
     await db.commit()
-    return {"id": str(p.id), "status": p.status, "proposta": proposta}
+    # `ja_no_projeto` separa duas coisas que o ecrã mostrava iguais: "não há
+    # nada que corresponda" e "corresponde, mas este projeto já tem". A segunda
+    # não é uma recusa — é um "já tens acesso a isso".
+    return {
+        "id": str(p.id),
+        "status": p.status,
+        "proposta": proposta,
+        "ja_no_projeto": ja_tem,
+    }
 
 
 @router.post("/{pedido_id}/aprovar", summary="Aprovar, com prazo (admin)")
