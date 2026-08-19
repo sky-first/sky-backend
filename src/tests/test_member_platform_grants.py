@@ -94,8 +94,15 @@ ADMIN_ONLY_PERMS = [
     # Files — approval is platform-admin only.
     "files.approve",
     "files.delete",
-    # Spaces / Crews — Member doesn't manage org structure.
-    "spaces.create",
+    # Spaces / Crews — Member doesn't manage org structure...
+    #
+    # ...com uma excepção decidida a 19/08: **criar** um projeto é de
+    # qualquer pessoa. Um projeto acabado de nascer não tem dados, e ligar-lhe
+    # dados exige ser dono dele ou um pedido aprovado por um admin do cliente.
+    # O que era preciso governar passou a estar governado na fronteira dos
+    # dados, em vez de na criação. Editar e apagar continuam de fora porque
+    # dizem respeito aos projetos **dos outros** — sobre o seu, o member passa
+    # pela pertença (SpaceMember owner), não por esta tabela.
     "spaces.edit",
     "spaces.delete",
     "spaces.members.manage",

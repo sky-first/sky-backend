@@ -116,7 +116,13 @@ async def test_explicit_grant_overrides_space_viewer_with_editor(db_session):
     assert (
         await Authorization(db_session).can(
             user,
-            "connections.create",
+            # `connections.sync` e não `.create`: este teste é sobre a
+            # concessão explícita sobrepor-se ao papel de espaço, e a chave
+            # era o veículo. `.create` passou a exigir dono do projeto —
+            # ligar dados novos é a fronteira que o pedido de acesso guarda —
+            # enquanto sincronizar uma ligação que já existe continua a ser
+            # de editor, que é o nível desta concessão.
+            "connections.sync",
             space_id=space.id,
             resource_type="connection",
             resource_id=conn_id,

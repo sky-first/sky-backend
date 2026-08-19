@@ -86,18 +86,39 @@ async def test_sem_projetos_nao_administra_membros(db_session):
 
 
 @pytest.mark.asyncio
-async def test_sem_projetos_nao_cria_projetos(db_session):
-    """`spaces.create` é `("tenant", "admin_or_above")` — não é para members.
+async def test_sem_projetos_cria_o_seu_primeiro_projeto(db_session):
+    """Invertido a 19/08, por decisão do Lucas.
 
-    `crews.create` fica de fora deste teste de propósito: a regra é
-    `("tenant", "any_member")`, ou seja qualquer membro do cliente cria uma
-    equipa. É intencional e não passa por este caminho.
+    Este teste exigia o contrário, e escrevi-o eu ontem ao fechar o buraco do
+    "sem projetos era dono de tudo". Estava certo para o modelo de então;
+    deixou de estar.
+
+    Quem chega hoje ao produto e não pertence a projeto nenhum tem de poder
+    criar o primeiro — senão fica à espera de que alguém o convide, e o
+    produto não arranca. O que continua fechado é o que interessa: **ligar
+    dados** a esse projeto (ver o teste a seguir). Um projeto vazio não dá
+    acesso a nada.
     """
     e = await _recem_chegado(db_session)
     svc = RBACService(db_session)
 
-    with pytest.raises(ForbiddenError):
-        await svc.assert_permission(e, "spaces.create")
+    await svc.assert_permission(e, "spaces.create")  # não levanta
+
+
+@pytest.mark.asyncio
+async def test_mas_continua_sem_poder_ligar_dados(db_session):
+    """A metade que segura a inversão acima.
+
+    Se esta cair, "qualquer um cria um projeto" passa a significar "qualquer
+    um liga a base de dados que quiser", e o pedido de acesso deixa de ter
+    razão de existir.
+    """
+    e = await _recem_chegado(db_session)
+    svc = RBACService(db_session)
+
+    for chave in ("connections.create", "connections.edit", "connections.delete"):
+        with pytest.raises(ForbiddenError):
+            await svc.assert_permission(e, chave)
 
 
 # ── A metade que tem de continuar a funcionar ────────────────────────────────

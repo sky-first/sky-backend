@@ -3,6 +3,9 @@
 import asyncio
 import logging
 import uuid
+
+# Mesmo defeito do `space_service`: usado e nunca importado.
+from sqlalchemy import select
 from datetime import datetime, timezone
 from typing import List
 from uuid import UUID

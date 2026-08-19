@@ -13,6 +13,15 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
     avatar: Optional[str] = None
+    # Este padrão fica **solto** de propósito: o `UserBase` alimenta o
+    # `UserResponse`, e apertar a leitura não fecha porta nenhuma — só faz a
+    # API rebentar a serializar linhas que existem. Foi o que aconteceu:
+    # apertei aqui e o `PageMemberResponse`, que embute um `UserResponse`,
+    # deixou de conseguir devolver membros de página.
+    #
+    # Quem escreve é que é apertado: `UserCreate`, `UserUpdate`,
+    # `UserPermissionsUpdate` e `UserInviteRequest` abaixo, e sobretudo o
+    # `validar_atribuicao_de_papel` no serviço, que é o portão a sério.
     role: str = Field(default="member", pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
 
 
@@ -20,6 +29,8 @@ class UserCreate(UserBase):
     """User creation schema."""
 
     password: str = Field(..., min_length=8, max_length=100)
+    # Criar é escrever: aqui os nomes legados não entram.
+    role: str = Field(default="member", pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
 
 
 class RegisterRequest(BaseModel):
@@ -36,7 +47,7 @@ class UserUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     avatar: Optional[str] = None
-    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
+    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
     email_verified: Optional[bool] = None
     onboarding_step: Optional[int] = None
     onboarding_version: Optional[int] = None
@@ -358,14 +369,14 @@ class UserPermissionsResponse(BaseModel):
 class UserPermissionsUpdate(BaseModel):
     """User permissions update schema."""
 
-    role: str = Field(..., pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
+    role: str = Field(..., pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
 
 
 class UserInviteRequest(BaseModel):
     """User invite request schema."""
 
     workspace_id: Optional[UUID] = None
-    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|user|owner|billing_admin|compliance_auditor|service_account)$")
+    role: Optional[str] = Field(None, pattern="^(super_admin|admin|member|billing_admin|compliance_auditor|service_account)$")
 
 
 # Invite System Schemas

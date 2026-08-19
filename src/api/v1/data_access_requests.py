@@ -110,7 +110,7 @@ async def criar_pedido(
 
 def _so_admin(user: User) -> None:
     if not is_tenant_admin(user):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Não podes decidir pedidos de acesso.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Não pode decidir pedidos de acesso.")
 
 
 @router.get("", summary="Pedidos por decidir (admin do cliente)")

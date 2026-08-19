@@ -180,7 +180,10 @@ async def test_register_user_ingests_user_profile(db_session):
             email=f"ingest-{uuid4()}@example.com",
             password="password-123-456",
             name="Ada Ingest",
-            role="owner",
+            # `super_admin` e não `owner`: o papel é incidental para este
+            # teste (é sobre a ingestão do perfil), e `owner` deixou de ser
+            # aceite na escrita — a migração de 03/06 já o tinha convertido.
+            role="super_admin",
         ))
     assert user_resp.name == "Ada Ingest"
     payloads = _get_ingest_payloads(mock_ingest)

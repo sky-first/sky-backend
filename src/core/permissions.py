@@ -28,6 +28,51 @@ from src.models.user import User
 # so this bypass list does NOT need to include ``owner`` for production
 # data; it would only mask bugs elsewhere if it did.
 TENANT_ADMIN_ROLES = ("super_admin", "admin")
+
+#: Os únicos papéis de cliente que se podem **escrever**. Repara que `owner` e
+#: `user` não estão aqui: são nomes legados que a migração
+#: ``rename_role_20260603`` já converteu, e mantê-los aceitáveis na escrita só
+#: fabrica contas meio privilegiadas — o frontend trata `owner` como fundador
+#: (`lib/rbac/can.ts`) e o `is_tenant_admin` não, por isso a pessoa vê o menu e
+#: leva 403. Ler continua tolerante; escrever não.
+PAPEIS_DE_CLIENTE_VALIDOS = ("super_admin", "admin", "member")
+
+#: Papéis que só o fundador pode atribuir. Um admin que possa nomear outro
+#: `super_admin` — ou nomear-se a si próprio — torna inútil tudo o que seja
+#: exclusivo do fundador, porque o caminho para lá está aberto a quem já é
+#: admin. Foi exactamente isso que aconteceu: `PUT /users/{id}` com
+#: ``{"role": "super_admin"}`` passava para qualquer admin.
+PAPEIS_QUE_SO_O_FUNDADOR_ATRIBUI = ("super_admin",)
+
+
+def e_o_fundador(user: "User") -> bool:
+    """True só para o fundador do cliente (`super_admin`)."""
+    return user.role == "super_admin"
+
+
+def validar_atribuicao_de_papel(quem_atribui: "User", novo_papel: str) -> None:
+    """Levanta se ``quem_atribui`` não pode dar ``novo_papel`` a ninguém.
+
+    Duas regras, ambas encontradas em falta em produção:
+
+    1. O papel tem de existir (`super_admin`/`admin`/`member`). Os nomes
+       legados `owner` e `user` deixam de ser aceites na escrita.
+    2. Só o fundador nomeia fundadores. Sem isto, `permissions.edit` ser
+       exclusivo do fundador não vale nada — o admin promovia-se primeiro.
+    """
+    from src.core.exceptions import ForbiddenError
+
+    if novo_papel not in PAPEIS_DE_CLIENTE_VALIDOS:
+        raise ForbiddenError(
+            f"Papel inválido: {novo_papel!r}. "
+            f"Válidos: {', '.join(PAPEIS_DE_CLIENTE_VALIDOS)}."
+        )
+    if novo_papel in PAPEIS_QUE_SO_O_FUNDADOR_ATRIBUI and not e_o_fundador(
+        quem_atribui
+    ):
+        raise ForbiddenError(
+            "Só o fundador do cliente pode nomear outro fundador."
+        )
 # Legacy bypass list — used by the deprecated ``check_permission()``
 # helper below. Accepts the legacy ``owner`` string as a defensive
 # alias for ``super_admin`` so a stale session token / legacy DB row

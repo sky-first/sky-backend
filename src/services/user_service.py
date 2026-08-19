@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
-from src.core.permissions import check_permission, get_user_permissions, is_tenant_admin
+from src.core.permissions import validar_atribuicao_de_papel, check_permission, get_user_permissions, is_tenant_admin
 from src.core.security import get_password_hash
 from src.models.user import User
 from src.repositories.user import UserRepository
@@ -303,6 +303,16 @@ class UserService:
         if not is_tenant_admin(current_user) and "role" in update_data:
             del update_data["role"]
 
+        # ...e um admin não pode nomear fundadores, nem a si próprio.
+        #
+        # Sem esta linha, `PUT /users/{meu_id}` com {"role": "super_admin"}
+        # devolvia 200 e o admin passava a fundador — o que torna inútil
+        # `permissions.edit`, `billing.manage` e `tenant.delete` serem
+        # exclusivos do fundador, porque o caminho para lá estava aberto.
+        # Confirmado em produção no cliente `sandbox` antes de corrigir.
+        if "role" in update_data:
+            validar_atribuicao_de_papel(current_user, update_data["role"])
+
         # Handle preferences specifically to merge instead of replace
         ai_fields = ["ai_tone", "ai_style", "ai_context"]
         has_ai_updates = any(field in update_data for field in ai_fields)
@@ -545,8 +555,12 @@ class UserService:
         # Update role if provided
         if "role" in permissions:
             new_role = permissions["role"]
-            if new_role not in ["admin", "user", "viewer"]:
-                raise BadRequestError("Invalid role")
+            # A lista à mão dizia ["admin", "user", "viewer"]: recusava
+            # `member` — o papel normal de toda a gente — e aceitava `viewer`,
+            # que nem sequer é um papel de cliente (é de espaço/equipa). Passa
+            # a usar a mesma validação do outro caminho, que é a única forma
+            # de as duas não voltarem a divergir.
+            validar_atribuicao_de_papel(current_user, new_role)
             user.role = new_role
             await self.db.commit()
             await self.db.refresh(user)
