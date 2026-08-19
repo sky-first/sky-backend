@@ -1792,7 +1792,12 @@ class TestUsersEndpoints:
             "email": "newuser@example.com",
             "password": "password123",
             "name": "New User",
-            "role": "user",
+            # `member` e não `user`: este teste é sobre o portão (quem pode
+            # criar utilizadores), não sobre o vocabulário de papéis. `user`
+            # era o nome legado e deixou de ser aceite na escrita, por isso
+            # passava a devolver 422 antes de chegar ao portão — o teste
+            # deixava de testar o que queria.
+            "role": "member",
         }
         response = await async_client.post("/api/v1/users", json=user_data, headers=headers)
         # Regular users may get 403; password-disabled tenants get 400
@@ -1840,7 +1845,10 @@ class TestUsersEndpoints:
         """Test PUT /api/v1/users/{id}/permissions."""
         user = test_user_with_tokens["user"]
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        permissions_data = {"role": "user"}  # Fixed: schema expects role, not permissions
+        # `member`: mesmo motivo do teste acima — o papel é o veículo, o
+        # portão é o assunto. E a lista à mão que este caminho usava recusava
+        # `member` e aceitava `viewer`, que nem é papel de cliente.
+        permissions_data = {"role": "member"}
         response = await async_client.put(
             f"/api/v1/users/{user.id}/permissions",
             json=permissions_data,
