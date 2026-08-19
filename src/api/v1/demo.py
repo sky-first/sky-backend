@@ -47,6 +47,7 @@ from src.schemas.demo_content import (
 from src.services import demo_content_service, demo_email_service, demo_flow_service
 from src.services.demo_domain_gate import dataset_vocabulary, is_in_domain
 from src.services.demo_service import DemoService
+from src.core.permissions import TENANT_ADMIN_ROLES
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ async def extend_demo_user(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    if current_user.role not in ("owner", "admin", "super_admin"):
+    if current_user.role not in TENANT_ADMIN_ROLES:
         raise ForbiddenError("Only the tenant Owner or an Admin can extend a demo TTL.")
     if days <= 0 or days > 90:
         raise BadRequestError("`days` must be between 1 and 90.")
@@ -210,7 +211,7 @@ async def reseed_space(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    if current_user.role not in ("owner", "admin", "super_admin"):
+    if current_user.role not in TENANT_ADMIN_ROLES:
         raise ForbiddenError("Only the tenant Owner or an Admin can reseed a demo Space.")
     return await DemoService(db).reseed_space(space_id, current_user)
 

@@ -13,6 +13,7 @@ from src.api.deps import get_current_user, get_db_session
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.models.user import User
 from src.schemas.common import SuccessResponse
+from src.core.permissions import TENANT_ADMIN_ROLES
 
 router = APIRouter()
 
@@ -58,7 +59,7 @@ async def get_support_settings(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Get current Sky Support settings. Admin only."""
-    if current_user.role not in ("admin", "owner", "super_admin"):
+    if current_user.role not in TENANT_ADMIN_ROLES:
         raise ForbiddenError("Support settings require admin role")
 
     from sqlalchemy import text
@@ -85,7 +86,7 @@ async def update_support_settings(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Update Sky Support settings. Admin only. Sky operators cannot change this."""
-    if current_user.role not in ("admin", "owner", "super_admin"):
+    if current_user.role not in TENANT_ADMIN_ROLES:
         raise ForbiddenError("Support settings require admin role")
 
     # Sky operators cannot disable support toggle (they can't lock customers out)
@@ -171,7 +172,7 @@ async def revoke_support_session(
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """Customer admin can revoke a support session immediately."""
-    if current_user.role not in ("admin", "owner", "super_admin"):
+    if current_user.role not in TENANT_ADMIN_ROLES:
         raise ForbiddenError("Only admin can revoke support sessions")
 
     from sqlalchemy import text

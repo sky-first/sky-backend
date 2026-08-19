@@ -38,7 +38,25 @@ async def test_space_service_lifecycle(db_session):
     
     # 5. Members Management
     # Add member
-    other_user_id = uuid.uuid4()
+    # A pessoa convidada tem de existir mesmo.
+    #
+    # Isto fabricava um uuid e nunca criava o utilizador. Passava porque os
+    # testes correm em SQLite, onde a chave estrangeira não é imposta — e em
+    # Postgres, em produção, o mesmo caminho dava 500. O serviço passou a
+    # recusar com 404 antes de chegar à base; o teste passa a montar o caso
+    # real, que é o que ele dizia estar a testar.
+    from src.models.user import User as _Utilizador
+
+    outro = _Utilizador(
+        id=uuid.uuid4(),
+        email=f"outro-{uuid.uuid4().hex[:6]}@exemplo.pt",
+        role="member",
+        password_hash="x",
+        name="Outro",
+    )
+    db_session.add(outro)
+    await db_session.commit()
+    other_user_id = outro.id
     # Correct order: (space_id, user, member_data)
     member = await service.add_space_member(space.id, user, SpaceMemberCreate(user_id=other_user_id, role="editor"))
     assert member.role == "editor"
