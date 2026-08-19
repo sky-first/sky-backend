@@ -805,9 +805,18 @@ MEMBER_PLATFORM_PERMISSIONS: Dict[str, bool] = {
     "strategy.initiatives.edit": True,
     "strategy.assumptions.create": True,
     "strategy.assumptions.edit": True,
-    # Spaces / Crews — view only. Member doesn't manage org structure.
+    # Projetos (Spaces): **qualquer pessoa cria**. É o modelo decidido a
+    # 18/08 — criar um projeto não é privilégio nenhum, o que precisa de
+    # autorização é **ligar dados** ao projeto. Quem cria fica dono do seu
+    # projeto (SpaceMember role=owner) e a partir daí gere-o; para lhe pôr
+    # dados, pede acesso e um admin do cliente aprova.
+    #
+    # Isto estava a `False` e contradizia o modelo: o member levava 403 em
+    # `POST /spaces`. Reparar que `spaces.edit`/`delete` ficam a `False` de
+    # propósito — dizem respeito a projetos dos **outros**; sobre o seu, o
+    # member passa pela pertença (SpaceMember owner), não por esta tabela.
     "spaces.view": True,
-    "spaces.create": False,
+    "spaces.create": True,
     "spaces.edit": False,
     "spaces.delete": False,
     "spaces.members.view": True,

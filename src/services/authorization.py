@@ -160,7 +160,10 @@ PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
     # `users.view` / `audit.view`. Demo signup bypasses this rule by
     # going through DemoService → repository directly (system action,
     # not the API gate); see src/services/demo_service.py.
-    "spaces.create":             ("tenant", "admin_or_above"),
+    # Criar projeto é de qualquer pessoa — o que precisa de autorização é
+    # ligar-lhe dados. Note-se que `crews.create` já era `any_member` logo
+    # acima: as duas tabelas discordavam entre si sobre o mesmo modelo.
+    "spaces.create":             ("tenant", "any_member"),
 
     # Space — read (≥ viewer)
     "ai.query":                  ("space", "viewer"),
@@ -173,8 +176,15 @@ PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
     "crews.view":                ("space", "viewer"),
 
     # Space — write (≥ editor)
-    "connections.create":        ("space", "editor"),
-    "connections.edit":          ("space", "editor"),
+    # Cunhar e editar ligações é do **dono do projeto**. Esta tabela dizia
+    # `editor` enquanto o `DEFAULT_ROLE_PERMISSIONS` do `rbac_service` dizia
+    # `False` para editor — as duas vias de autorização do próprio backend a
+    # discordarem sobre a fronteira que mais importa, que é ligar dados. As
+    # rotas usam o `assert_permission` (a restritiva), por isso na prática
+    # ninguém passou; mas basta uma rota nova chamar `Authorization.can()`
+    # para um editor cunhar uma ligação.
+    "connections.create":        ("space", "owner"),
+    "connections.edit":          ("space", "owner"),
     "connections.sync":          ("space", "editor"),
     "connections.validate":      ("space", "editor"),
     "connections.test":          ("space", "editor"),

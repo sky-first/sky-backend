@@ -1,8 +1,9 @@
 """AI endpoints."""
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session, require_service_principal
 from src.config.settings import settings
+from src.core.exceptions import BaseAPIException
 from src.core.locale import DEFAULT_LOCALE, get_message
 from src.middleware.request_limits import depth_guard_dependency
 from src.models.user import User
@@ -237,7 +239,39 @@ async def process_query(
         source_id=None,
     )
 
-    response = await ai_service.process_query(current_user.id, query_data)
+    try:
+        response = await ai_service.process_query(current_user.id, query_data)
+    except (BaseAPIException, RateLimitExceeded):
+        # Erros de negócio já têm tratamento próprio e a sua mensagem — não
+        # os transformar em "indisponível".
+        raise
+    except Exception:
+        # Falha de infraestrutura do motor de IA (fora, a arrancar, a rejeitar
+        # ligação, timeout). Isto subia ao handler genérico e chegava ao
+        # utilizador como `500 {"error":"Internal Server Error","message":
+        # "Request failed"}` — que na app parece a plataforma partida e não
+        # diz nada a quem está à espera de uma resposta.
+        #
+        # Devolve 200 com `status="error"` e uma frase honesta, que é o
+        # formato que o resto do sistema já sabe mostrar. Deliberadamente
+        # **diferente** da frase de "não encontrei dados": aqui houve uma
+        # avaria, não uma ausência, e dizer "não há dados" mandava a pessoa
+        # procurar um problema que não existe.
+        logger.exception("ai_query_service_unavailable")
+        agora = datetime.now(timezone.utc)
+        return AIQueryResponse(
+            id=uuid4(),
+            question=query_data.question,
+            answer=(
+                "Não consegui responder agora — o motor de análise está "
+                "indisponível. A pergunta não se perdeu: tente novamente "
+                "dentro de instantes."
+            ),
+            status="error",
+            page_id=query_data.page_id,
+            created_at=agora,
+            updated_at=agora,
+        )
     # Pricing Fase 1 — bump the monthly query counter at the end of
     # the request so failed queries (LLM error, etc.) don't get
     # charged against the tenant's quota.
