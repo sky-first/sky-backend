@@ -100,13 +100,21 @@ async def test_member_cannot_audit_view(db_session):
 
 
 @pytest.mark.asyncio
-async def test_member_cannot_create_space(db_session):
-    # spaces.create was tightened from any_member → admin_or_above
-    # because Member-spawned Spaces became ungoverned silos. Demo
-    # signup creates a Space directly via the repository (system
-    # action), so this restriction does not break the public demo.
+async def test_member_pode_criar_projeto(db_session):
+    """Invertido a 19/08, por decisão do Lucas.
+
+    Este teste garantia o contrário, e a razão escrita era boa: *"Member-spawned
+    Spaces became ungoverned silos"*. O que mudou não foi a opinião sobre
+    silos — foi o que um projeto **é**.
+
+    No modelo fechado a 18/08, um projeto acabado de criar não tem dados
+    nenhuns. Ligar-lhe dados exige ser dono do projeto ou um pedido que um
+    admin do cliente aprova. Um silo sem dados lá dentro não é um silo; é uma
+    pasta vazia. O que era preciso governar passou a estar governado no sítio
+    certo — a fronteira dos dados — em vez de na criação.
+    """
     user = await _user(db_session, role="member", name="M")
-    assert await Authorization(db_session).can(user, "spaces.create") is False
+    assert await Authorization(db_session).can(user, "spaces.create") is True
 
 
 @pytest.mark.asyncio
@@ -169,15 +177,26 @@ async def test_viewer_cannot_create_connection(db_session):
 
 
 @pytest.mark.asyncio
-async def test_editor_can_create_connection(db_session):
+async def test_editor_nao_cria_ligacao_mas_o_dono_do_projeto_cria(db_session):
+    """As duas vias do backend discordavam sobre isto.
+
+    `PERMISSION_RULES` dizia `editor`; o `DEFAULT_ROLE_PERMISSIONS` do
+    `RBACService` — que é o que as **rotas** usam — dizia `False` para editor
+    e `True` para owner. Na prática mandava o restritivo, portanto este teste
+    afirmava uma permissão que nunca chegava a existir numa chamada real; e o
+    frontend seguia o permissivo e mostrava o botão a quem levava 403.
+
+    Alinhado pelo restritivo, que é também o que o modelo diz: ligar dados é
+    a fronteira que o pedido de acesso existe para guardar.
+    """
     owner = await _user(db_session, role="admin", name="Owner")
-    user = await _user(db_session, role="member", name="E")
-    space = await _space_with_member(db_session, owner, user, "editor")
+    editor = await _user(db_session, role="member", name="E")
+    space = await _space_with_member(db_session, owner, editor, "editor")
     assert (
         await Authorization(db_session).can(
-            user, "connections.create", space_id=space.id
+            editor, "connections.create", space_id=space.id
         )
-        is True
+        is False
     )
 
 

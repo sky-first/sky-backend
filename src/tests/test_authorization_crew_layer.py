@@ -110,7 +110,12 @@ async def test_crew_editor_can_write_when_crew_id_passed(db_session):
     await db_session.commit()
     assert (
         await Authorization(db_session).can(
-            user, "connections.create", space_id=space.id, crew_id=crew.id
+            # `agents.create` e não `connections.create`: estes testes são
+            # sobre a **resolução do papel de crew**, e a chave era só o
+            # veículo. `connections.create` passou a exigir dono do projeto —
+            # ligar dados é a fronteira que o pedido de acesso guarda — por
+            # isso deixou de servir para testar o nível de editor.
+            user, "agents.create", space_id=space.id, crew_id=crew.id
         )
         is True
     )
@@ -248,7 +253,7 @@ async def test_crew_id_alone_resolves_when_space_id_omitted(db_session):
     await db_session.commit()
     assert (
         await Authorization(db_session).can(
-            user, "connections.create", crew_id=crew.id
+            user, "agents.create", crew_id=crew.id
         )
         is True
     )

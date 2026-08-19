@@ -301,13 +301,20 @@ async def test_section_iii_64_create_crew(seeded, async_client, role):
 async def test_section_iv_91_create_space(seeded, async_client, role):
     payload = {"name": f"space-{role}", "description": "rbac test"}
     r = await async_client.post("/api/v1/spaces", json=payload, headers=_auth_headers(seeded["tokens"][role]))
-    # spaces.create is now ("tenant", "admin_or_above"). Platform
-    # Members can no longer spin up new Spaces because each one
-    # carries its own RBAC scope, service principal and knowledge
-    # footprint — uncontrolled fan-out becomes ungoverned silos.
-    # Demo signup bypasses this rule via DemoService (system action),
-    # not the API gate.
-    _assert_outcome(r, _expect_for_role("platform_admin", role), "IV-91")
+    # Invertido a 19/08, por decisão do Lucas: criar um projeto é de
+    # **qualquer pessoa**.
+    #
+    # A razão anterior — *"uncontrolled fan-out becomes ungoverned silos"* —
+    # continua a ser boa preocupação; o que mudou foi o que um projeto é. No
+    # modelo de 18/08, um projeto acabado de nascer não tem dados nenhuns:
+    # ligar-lhe dados exige ser dono dele ou um pedido aprovado por um admin
+    # do cliente. O RBAC de cada projeto, o service principal e a pegada de
+    # conhecimento continuam a existir — mas vazios, e sem alcance a dados,
+    # não são um silo.
+    #
+    # Governar na criação era governar cedo de mais; a fronteira que importa
+    # é a dos dados, e é lá que ela está.
+    _assert_outcome(r, _expect_for_role("viewer", role), "IV-91")
 
 
 @pytest.mark.asyncio
