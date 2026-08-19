@@ -388,7 +388,15 @@ class ConnectionService:
             # table_metadata below with a ForeignKeyViolation. Clear the
             # children first — same order the AI service uses in
             # core/ingestion/db_metadata.py.
-            # ...quando essa tabela existe. Ela é criada pelas migrações do
+            # ...quando essa tabela existe. **Todas** as limpezas cruas
+            # abaixo passam pelo mesmo guarda, e isso é deliberado: protegi
+            # primeiro só as duas que apareceram no erro, promovi, e o
+            # `DELETE` voltou a dar 500 — na seguinte, `pipeline_jobs`. Tratar
+            # tabela a tabela é perseguir sintomas; o que é verdade é que
+            # nenhuma destas tabelas existe garantidamente na base de um
+            # cliente.
+            #
+            # Ela é criada pelas migrações do
             # sky-ai, e as bases dos clientes só recebem as do sky-be — por
             # isso `embeddings` e `table_metadata` existem na base da
             # plataforma e **não** nas dos clientes. O resultado era um 500 em
@@ -414,14 +422,16 @@ class ConnectionService:
             )
 
             # 1.2. space_tables (association)
-            await self.db.execute(
-                text("DELETE FROM space_tables WHERE connection_id = :conn_id"),
+            await self._apagar_se_a_tabela_existir(
+                "space_tables",
+                "DELETE FROM space_tables WHERE connection_id = :conn_id",
                 {"conn_id": connection_id},
             )
 
             # 1.3. connection_metadata (children)
-            await self.db.execute(
-                text("DELETE FROM connection_metadata WHERE connection_id = :conn_id"),
+            await self._apagar_se_a_tabela_existir(
+                "connection_metadata",
+                "DELETE FROM connection_metadata WHERE connection_id = :conn_id",
                 {"conn_id": connection_id},
             )
 
@@ -430,8 +440,9 @@ class ConnectionService:
             # deleted until these rows are cleared first. This was the cause of
             # the 500 on connections with query history (e.g. BigQuery sources
             # used in chat). Cleared best-effort like the rows above.
-            await self.db.execute(
-                text("DELETE FROM pipeline_jobs WHERE connection_id = :conn_id"),
+            await self._apagar_se_a_tabela_existir(
+                "pipeline_jobs",
+                "DELETE FROM pipeline_jobs WHERE connection_id = :conn_id",
                 {"conn_id": connection_id},
             )
 
