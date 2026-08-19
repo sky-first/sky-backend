@@ -655,6 +655,26 @@ class SpaceService:
 
         await self._require_space_role(space_id, user, min_role="owner")
 
+        # A pessoa que se está a acrescentar tem de existir.
+        #
+        # Não havia verificação nenhuma: o `create` metia a linha e a chave
+        # estrangeira `space_members.user_id -> users.id` rebentava, o que
+        # saía como 500. Quem está a convidar alguém vê "erro do servidor" em
+        # vez de "essa pessoa não existe", e fica sem saber se o problema é o
+        # convite, a permissão ou a plataforma.
+        from src.models.user import User as _Utilizador
+
+        alvo = (
+            await self.db.execute(
+                select(_Utilizador.id).where(
+                    _Utilizador.id == member_data.user_id,
+                    _Utilizador.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if alvo is None:
+            raise NotFoundError("User not found")
+
         # Check if member already exists
         existing = await self.member_repo.get_by_space_and_user(space_id, member_data.user_id)
         if existing:
