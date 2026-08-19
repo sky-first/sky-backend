@@ -355,6 +355,26 @@ async def add_space_connection(
     Returns:
         dict: Success message and linked IDs
     """
+    # Ligar dados a um projeto é **a** fronteira do modelo, e é preciso
+    # autorizar a origem, não só o destino.
+    #
+    # Esta rota só verificava `spaces.members.manage` no projeto de destino.
+    # Como quem cria um projeto fica dono dele, e criar projetos é de toda a
+    # gente, isso queria dizer: qualquer pessoa cria um projeto e anexa-lhe
+    # uma ligação a que não tem acesso nenhum. Confirmado em produção a
+    # 19/08 no cliente `sandbox`:
+    #
+    #     GET  /connections/{id}                  (member) -> 403
+    #     POST /spaces/{meu}/connections/{id}     (member) -> 201
+    #     GET  /connections/{id}                  (member) -> 200   ← subiu
+    #
+    # A pessoa passava de "proibido" a "acesso total" numa chamada, e o
+    # pedido de acesso deixava de servir para nada.
+    #
+    # Quem tem de anexar dados a um projeto sem ser admin usa o pedido de
+    # acesso — o `aprovar()` cria o `SpaceConnection` do lado de dentro,
+    # depois de um admin ter visto o que está a conceder.
+    await RBACService(db).assert_permission(current_user, "connections.edit")
     await RBACService(db).assert_permission(
         current_user, "spaces.members.manage", space_id=space_id
     )
@@ -588,6 +608,9 @@ async def add_space_table(
     """
     Link a specific table to a space.
     """
+    # Mesma fronteira que o `add_space_connection` acima: anexar uma tabela a
+    # um projeto é conceder dados, e a origem tem de ser autorizada.
+    await RBACService(db).assert_permission(current_user, "connections.edit")
     await RBACService(db).assert_permission(
         current_user, "spaces.members.manage", space_id=space_id
     )
