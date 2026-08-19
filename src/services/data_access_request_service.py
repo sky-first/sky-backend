@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 #: A frase que quem pede recebe **sempre**. Se variasse entre "encontrei" e
 #: "não encontrei", quem sonda aprendia o catálogo por tentativa e erro sem
 #: nunca ter acesso a nada. (S1)
-RESPOSTA = "O teu pedido foi enviado."
+RESPOSTA = "O seu pedido foi enviado."
 
 #: Quantos pedidos uma pessoa pode fazer por dia. Quinhentos pedidos com
 #: palavras diferentes mapeiam o negócio pelas aprovações recebidas; o travão
@@ -42,6 +42,17 @@ LIMITE_DIARIO = 20
 #: Prazo por omissão de uma permissão concedida. Acesso sem fim acumula-se para
 #: sempre e ninguém volta a olhar. (S5)
 PRAZO_OMISSAO_DIAS = 90
+
+
+#: O que correspondeu mas o projeto **já tem**, da última tradução de cada
+#: pedido. Fica em memória de propósito: é informação de ecrã, não de registo —
+#: o que interessa guardar é a proposta e a decisão.
+_ULTIMAS_JA_NO_PROJETO: Dict[str, List[str]] = {}
+
+
+def ja_no_projeto_da_ultima_proposta(pedido_id: str) -> List[str]:
+    """Tabelas que correspondiam ao pedido e que o projeto já tinha."""
+    return _ULTIMAS_JA_NO_PROJETO.get(str(pedido_id), [])
 
 
 class LimiteDePedidos(Exception):
@@ -190,14 +201,28 @@ async def propor(db, pedido: DataAccessRequest) -> List[Dict[str, Any]]:
     }
 
     candidatas: List[Dict[str, Any]] = []
+    ja_correspondem: List[str] = []
     for conn, meta in linhas:
         for t in meta.tables or []:
             nome = (t.get("name") or "").strip()
             if not nome:
                 continue
             esquema = t.get("schema")
+            pontos_ja = (
+                _pontuar(palavras, nome) * 3
+                + _pontuar(palavras, esquema or "") * 2
+                + _pontuar(palavras, conn.name or "")
+            )
             if (conn.id, nome, esquema) in ja_no_projeto:
-                continue  # o projeto já tem esta
+                # O projeto já tem esta. Não entra na proposta — mas contamos,
+                # porque "já lá está" e "não existe" são coisas muito
+                # diferentes para quem aprova, e o ecrã mostrava a mesma frase
+                # nos dois casos: *"não encontrámos correspondência"*. Um
+                # aprovador que leia isso recusa um pedido que afinal só
+                # precisava de alguém dizer "já tens acesso a isso".
+                if pontos_ja > 0:
+                    ja_correspondem.append(f"{esquema}.{nome}" if esquema else nome)
+                continue
             pontos = (
                 _pontuar(palavras, nome) * 3
                 + _pontuar(palavras, esquema or "") * 2
@@ -222,6 +247,7 @@ async def propor(db, pedido: DataAccessRequest) -> List[Dict[str, Any]]:
     pedido.proposta = proposta
     pedido.status = "proposed"
     await db.flush()
+    _ULTIMAS_JA_NO_PROJETO[str(pedido.id)] = sorted(set(ja_correspondem))
     return proposta
 
 
