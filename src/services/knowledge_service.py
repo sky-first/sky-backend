@@ -25,6 +25,7 @@ from src.schemas.knowledge import (
     UploadUrlResponse,
 )
 from src.services.quota_service import QuotaService
+from src.core.permissions import TENANT_ADMIN_ROLES
 
 # Allowed MIME types (server-side whitelist)
 ALLOWED_MIMES = {
@@ -251,7 +252,7 @@ class KnowledgeService:
         # owner's "personal" knowledge ends up reviewed before any AI
         # ever cites it. The audit trail in audit_events plus the
         # KnowledgeSourceFlag popover then carry the proveniência forward.
-        is_platform_approver = (getattr(user, "role", None) in ("owner", "admin", "super_admin"))
+        is_platform_approver = (getattr(user, "role", None) in TENANT_ADMIN_ROLES)
         new_status = "processing" if is_platform_approver else "pending_approval"
 
         await self.file_repo.update(file_id, status=new_status, sha256_hash=sha256_hash)
@@ -287,7 +288,7 @@ class KnowledgeService:
         if not file or file.deleted_at:
             raise NotFoundError("File not found.")
 
-        if getattr(user, "role", None) not in ("owner", "admin", "super_admin"):
+        if getattr(user, "role", None) not in TENANT_ADMIN_ROLES:
             raise ForbiddenError(
                 "Only platform SuperAdmin or Admin can approve Knowledge Library uploads."
             )

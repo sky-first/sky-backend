@@ -150,7 +150,7 @@ async def test_no_grant_no_membership_denies(db_session):
 
 @pytest.mark.asyncio
 async def test_owner_can_share_resource(async_client, db_session):
-    owner = await _user(db_session, role="owner", name="O")
+    owner = await _user(db_session, role="super_admin", name="O")
     target = await _user(db_session, role="member", name="T")
     conn_id = uuid4()
     headers = {"Authorization": f"Bearer {_token(owner)}"}
@@ -173,7 +173,7 @@ async def test_owner_can_share_resource(async_client, db_session):
 
 @pytest.mark.asyncio
 async def test_share_is_idempotent_upsert(async_client, db_session):
-    owner = await _user(db_session, role="owner", name="O")
+    owner = await _user(db_session, role="super_admin", name="O")
     target = await _user(db_session, role="member", name="T")
     conn_id = uuid4()
     headers = {"Authorization": f"Bearer {_token(owner)}"}
@@ -205,7 +205,7 @@ async def test_share_is_idempotent_upsert(async_client, db_session):
 
 @pytest.mark.asyncio
 async def test_list_acl_returns_all_grants(async_client, db_session):
-    owner = await _user(db_session, role="owner", name="O")
+    owner = await _user(db_session, role="super_admin", name="O")
     headers = {"Authorization": f"Bearer {_token(owner)}"}
     conn_id = uuid4()
     db_session.add(
@@ -247,7 +247,7 @@ async def test_member_without_grant_cannot_share(async_client, db_session):
 
 @pytest.mark.asyncio
 async def test_revoke_grant_deletes_row(async_client, db_session):
-    owner = await _user(db_session, role="owner", name="O")
+    owner = await _user(db_session, role="super_admin", name="O")
     headers = {"Authorization": f"Bearer {_token(owner)}"}
     conn_id = uuid4()
     grant = ResourceAcl(

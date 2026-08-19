@@ -21,6 +21,7 @@ from src.api.deps import get_current_user, get_db_session
 from src.config.database import get_connection_pool_stats
 from src.config.settings import settings
 from src.models.user import User
+from src.core.permissions import TENANT_ADMIN_ROLES
 
 router = APIRouter()
 
@@ -57,7 +58,7 @@ async def db_health(
     db: AsyncSession = Depends(get_db_session),
 ) -> DbHealthResponse:
     """Admin-only — return pool counters + a SELECT 1 ping."""
-    if current_user.role not in ("owner", "admin", "super_admin"):
+    if current_user.role not in TENANT_ADMIN_ROLES:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="db health is admin-only",

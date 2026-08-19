@@ -183,8 +183,14 @@ PERMISSION_RULES: dict[str, Tuple[Scope, RequiredLevel]] = {
     # rotas usam o `assert_permission` (a restritiva), por isso na prática
     # ninguém passou; mas basta uma rota nova chamar `Authorization.can()`
     # para um editor cunhar uma ligação.
-    "connections.create":        ("space", "owner"),
-    "connections.edit":          ("space", "owner"),
+    # Decisão do **cliente**, não do projeto. Era `("space", "owner")`, e
+    # desde que qualquer pessoa pode criar um projeto — ficando dona dele —
+    # isso equivalia a dar `connections.create` a toda a gente. Quem conduz um
+    # projeto e precisa de dados pede acesso; um admin aprova. É a razão de o
+    # pedido em linguagem natural existir.
+    "connections.create":        ("tenant", "admin_or_above"),
+    "connections.edit":          ("tenant", "admin_or_above"),
+    "connections.delete":        ("tenant", "admin_or_above"),
     "connections.sync":          ("space", "editor"),
     "connections.validate":      ("space", "editor"),
     "connections.test":          ("space", "editor"),

@@ -10,6 +10,7 @@ from src.api.deps import get_current_user, get_db_session
 from src.models.user import User
 from src.services.audit_service import AuditService
 from src.services.rbac_service import RBACService
+from src.core.permissions import TENANT_ADMIN_ROLES
 
 router = APIRouter()
 
@@ -31,7 +32,7 @@ async def list_audit_events(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """List audit events with optional filters."""
-    if current_user.role not in ("admin", "owner", "super_admin"):
+    if current_user.role not in TENANT_ADMIN_ROLES:
         from src.core.exceptions import ForbiddenError
 
         raise ForbiddenError("Audit log access requires admin role")
@@ -69,7 +70,7 @@ async def verify_audit_chain(
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Verify audit log hash chain integrity."""
-    if current_user.role not in ("admin", "owner", "super_admin"):
+    if current_user.role not in TENANT_ADMIN_ROLES:
         from src.core.exceptions import ForbiddenError
 
         raise ForbiddenError("Audit chain verification requires admin role")

@@ -53,11 +53,14 @@ def test_o_backend_nao_discorda_de_si_proprio_sobre_ligacoes():
     de acesso. As duas vias têm de dar a mesma resposta, senão basta uma rota
     nova escolher a errada.
     """
+    # Escrevi isto de manhã a exigir "dono do projeto" — e nesse mesmo dia
+    # percebi, a testar em produção, que "dono do projeto" deixou de filtrar
+    # seja quem for: qualquer pessoa cria um projeto e fica dona dele. Cunhar
+    # uma ligação é decisão do **cliente**.
     for chave in ("connections.create", "connections.edit"):
-        _escopo, exigido = PERMISSION_RULES[chave]
-        assert exigido == "owner", f"{chave} devia exigir dono do projeto"
+        escopo, exigido = PERMISSION_RULES[chave]
+        assert (escopo, exigido) == ("tenant", "admin_or_above"), chave
         assert DEFAULT_ROLE_PERMISSIONS["editor"][chave] is False
-        assert DEFAULT_ROLE_PERMISSIONS["owner"][chave] is True
 
 
 def test_o_frontend_diz_o_mesmo_que_o_backend():

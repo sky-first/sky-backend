@@ -18,6 +18,7 @@ from src.repositories.permission import (
     TableMemberPermissionRepository,
 )
 from src.repositories.space import SpaceRepository
+from src.core.permissions import TENANT_ADMIN_ROLES
 from src.schemas.permission import (
     ConnectionPermissionCreate,
     PermissionResponse,
@@ -576,7 +577,7 @@ class PermissionService:
         # Owner is the platform's super-admin (Wave 1 of platform-roles)
         # and bypasses every check on the FE; the BE was checking only
         # 'admin' which locked owners out. Both must pass.
-        if user.role not in ("admin", "owner", "super_admin"):
+        if user.role not in TENANT_ADMIN_ROLES:
             raise ForbiddenError("Only admins or the workspace owner can view role permissions")
 
         role_permissions = await self.role_permission_repo.get_all()
@@ -602,7 +603,7 @@ class PermissionService:
         """
         # Only admins or owner can update role permissions (owner is
         # the platform super-admin per Wave 1 of platform-roles).
-        if user.role not in ("admin", "owner", "super_admin"):
+        if user.role not in TENANT_ADMIN_ROLES:
             raise ForbiddenError("Only admins or the workspace owner can update role permissions")
 
         # Lucas's 2026-04-30 review: Member is the platform-level role

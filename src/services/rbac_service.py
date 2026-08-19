@@ -725,6 +725,24 @@ DEFAULT_ROLE_PERMISSIONS["viewer"] = DEFAULT_ROLE_PERMISSIONS["viewer"]
 # This mirrors the Owner grant set with members.manage and the
 # admin-only knobs flipped off so a Member with no Space membership
 # is still productive in their personal scope.
+#: Chaves que **nenhum papel de projeto concede**. São decisão do cliente:
+#: ou se tem a permissão, ou se pede acesso e um admin aprova.
+#:
+#: Sem isto, "qualquer pessoa cria um projeto" transformava-se em "qualquer
+#: pessoa cunha ligações de dados": quem cria um projeto fica dono dele, e o
+#: papel de dono era empilhado por cima do de member, trazendo consigo o
+#: `connections.create`. Confirmado em produção a 19/08 — o member criou um
+#: projeto e a seguir uma ligação, com 201 nas duas.
+#:
+#: `connections.sync/test/validate` ficam de fora de propósito: operam uma
+#: ligação que **já** foi autorizada, e isso é trabalho de quem conduz o
+#: projeto.
+CHAVES_QUE_O_PROJETO_NAO_CONCEDE = (
+    "connections.create",
+    "connections.edit",
+    "connections.delete",
+)
+
 MEMBER_PLATFORM_PERMISSIONS: Dict[str, bool] = {
     # Pages & Dashboards
     "pages.view": True,
@@ -986,6 +1004,11 @@ class RBACService:
                 base.update(scope_defaults)
                 if db_role and db_role.permissions:
                     base.update(db_role.permissions)
+                # O papel de projeto não pode conceder o que é decisão do
+                # cliente. Repor essas chaves ao que o member tem por
+                # omissão, depois de todo o empilhamento.
+                for chave in CHAVES_QUE_O_PROJETO_NAO_CONCEDE:
+                    base[chave] = MEMBER_PLATFORM_PERMISSIONS.get(chave, False)
             return EffectivePermissions(
                 platform_role=user.role, crew_role=scope_role, permissions=base
             )
