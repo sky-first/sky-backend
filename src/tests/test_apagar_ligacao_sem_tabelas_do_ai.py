@@ -72,3 +72,34 @@ async def test_apaga_normalmente_quando_a_tabela_existe():
 
     apagou = [s for s in svc.db.executados if s.startswith("DELETE FROM embeddings")]
     assert len(apagou) == 1, "onde a tabela existe, a limpeza tem de continuar a correr"
+
+
+@pytest.mark.asyncio
+async def test_nenhuma_limpeza_crua_escapa_ao_guarda():
+    """Numa base sem *nenhuma* das tabelas, o delete tem de chegar ao fim.
+
+    A primeira correcção protegeu só `embeddings` e `table_metadata` — as duas
+    que apareceram no traceback. Foi promovida, e o `DELETE` voltou a dar 500
+    em produção na tabela seguinte:
+
+        UndefinedTableError: relation "pipeline_jobs" does not exist
+
+    Perseguir tabela a tabela é perseguir sintomas. Este teste lê o ficheiro e
+    exige que nenhuma limpeza crua fique fora do guarda, para que a próxima
+    que alguém acrescentar não repita o mesmo caminho.
+    """
+    from pathlib import Path
+
+    fonte = Path("src/services/connection_service.py").read_text(encoding="utf-8")
+    corpo = fonte[fonte.index("HARD Deleting connection") :]
+    corpo = corpo[: corpo.index("async def test_connection")]
+
+    cruas = [
+        linha.strip()
+        for linha in corpo.splitlines()
+        if 'text("DELETE FROM' in linha
+    ]
+    assert cruas == [], (
+        "estas limpezas não passam pelo `_apagar_se_a_tabela_existir` e vão "
+        f"rebentar numa base de cliente: {cruas}"
+    )
