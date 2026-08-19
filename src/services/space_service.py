@@ -5,6 +5,13 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import BackgroundTasks
+# `select` era usado em cinco sítios deste ficheiro e nunca importado ao
+# nível do módulo. Cada um deles rebentava com `NameError: name 'select' is
+# not defined` — e os cinco são exactamente o bloco que dá acesso a quem
+# pertence a uma **equipa** dentro do projeto sem ser membro directo dele.
+# Alguém já tinha tropeçado nisto e contornou com um `import select as
+# _select` local (linha ~663) em vez de corrigir aqui.
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
