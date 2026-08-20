@@ -73,6 +73,24 @@ class TestAsMensagensExistem:
         assert NotificationType.CONVERSATION_REPLY.value == "conversation_reply"
         assert NotificationType.CONVERSATION_REPLY != NotificationType.COMMENT_MENTION
 
+    def test_a_categoria_tambem_e_distinta(self) -> None:
+        """E não basta o tipo ser diferente — a CATEGORIA também tem de ser.
+
+        A categoria é o que a pessoa silencia nas preferências. Se a resposta de
+        conversa caísse em `mentions`, calar o burburinho de uma conversa
+        movimentada calava também o ser chamado pelo nome.
+
+        (O CI apanhou-me a esquecer esta entrada por completo — há um teste que
+        exige categoria para cada tipo. É desse género que se quer mais.)
+        """
+        from src.models.notification import NOTIFICATION_CATEGORY
+
+        assert NOTIFICATION_CATEGORY["conversation_reply"] == "conversations"
+        assert (
+            NOTIFICATION_CATEGORY["conversation_reply"]
+            != NOTIFICATION_CATEGORY["comment_mention"]
+        )
+
 
 class TestQuemEAvisado:
     """A regra de quem recebe — a parte que decide se isto é útil ou ruído."""

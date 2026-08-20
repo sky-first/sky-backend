@@ -763,6 +763,10 @@ class TestNotificationCatalog:
             )
 
     def test_category_values_are_known(self):
-        known = {"agents", "dashboards", "pages", "mentions", "collaboration", "connections", "events", "strategy", "system"}
+        # "conversations" entrou a 21/08/2026 com o aviso de resposta numa
+        # conversa. Categoria própria e NÃO "mentions": a menção é dirigida a
+        # mim, isto é "a conversa mexeu-se". Juntá-las tirava a possibilidade de
+        # calar o burburinho sem deixar de saber quando me chamam pelo nome.
+        known = {"agents", "dashboards", "pages", "mentions", "conversations", "collaboration", "connections", "events", "strategy", "system"}
         for ntype, category in NOTIFICATION_CATEGORY.items():
             assert category in known, f"Unknown category '{category}' for type '{ntype}'"

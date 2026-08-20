@@ -110,6 +110,15 @@ NOTIFICATION_CATEGORY: dict[str, str] = {
     # Mentions
     "comment_mention": "mentions",
 
+    # Conversas
+    #
+    # Categoria propria, e NAO "mentions", de proposito. Sao coisas diferentes:
+    # a mencao e dirigida a mim, isto e "a conversa mexeu-se". Junta-las tirava
+    # a possibilidade de silenciar uma e manter a outra — e quem trabalha numa
+    # conversa movimentada quer poder calar o burburinho sem deixar de saber
+    # quando o chamam pelo nome.
+    "conversation_reply": "conversations",
+
     # Collaboration
     "space_member_added": "collaboration",
     "space_member_removed": "collaboration",
