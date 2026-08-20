@@ -14,21 +14,33 @@ três dava erro: falhavam em silêncio, no ecrã.
 
 from __future__ import annotations
 
+import pytest
+
 from src.models.agent import Agent
-from src.schemas.agent import AgentResponse
+from src.schemas.agent import AgentListResponse, AgentResponse
+
+#: Os **dois** schemas que devolvem um agente.
+#:
+#: Corrigi só o `AgentResponse`, promovi, e o botão continuou a não aparecer:
+#: o ecrã dos agentes lê a lista, e a lista usa o `AgentListResponse`. Só se
+#: viu ao verificar em produção com uma conta a sério. Este teste passa a
+#: percorrer os dois — se amanhã nascer um terceiro, tem de entrar aqui.
+SCHEMAS = [AgentResponse, AgentListResponse]
 
 
-def test_o_campo_existe_na_resposta():
-    assert "conversation_id" in AgentResponse.model_fields
+@pytest.mark.parametrize("schema", SCHEMAS, ids=lambda s: s.__name__)
+def test_o_campo_existe_na_resposta(schema):
+    assert "conversation_id" in schema.model_fields
 
 
-def test_e_opcional_porque_um_agente_novo_ainda_nao_falou():
+@pytest.mark.parametrize("schema", SCHEMAS, ids=lambda s: s.__name__)
+def test_e_opcional_porque_um_agente_novo_ainda_nao_falou(schema):
     """Um agente acabado de criar não tem conversa — e isso não é um erro.
 
     Se o campo fosse obrigatório, criar um agente passava a rebentar na
     serialização.
     """
-    campo = AgentResponse.model_fields["conversation_id"]
+    campo = schema.model_fields["conversation_id"]
     assert not campo.is_required()
     assert campo.default is None
 

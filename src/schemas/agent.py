@@ -261,6 +261,13 @@ class AgentListResponse(BaseModel):
     executions_this_month: int = 0
     cycles_consumed: int = 0
     auditable_only: bool = False
+    # A conversa onde o agente escreve — **também aqui**.
+    #
+    # Pus isto no `AgentResponse` e promovi, e o botão continuou a não
+    # aparecer: o ecrã dos agentes lê a LISTA, e a lista usa este outro
+    # schema. Metade da correcção foi para o sítio errado, e só se viu ao
+    # verificar em produção com uma conta a sério em vez de dar por feito.
+    conversation_id: Optional[UUID] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
