@@ -212,6 +212,19 @@ class MessageService:
         # mandar nenhuma.
         await self._notificar_mencionados(payload.mentions, user, conv, payload.content)
 
+        # E avisar quem já participou na conversa.
+        #
+        # Sem isto a colaboração morria em silêncio: só a menção explícita
+        # notificava, portanto comentar a resposta de alguém não avisava
+        # ninguém. Se essa pessoa tinha fechado a app, a observação ficava ali
+        # para sempre — e ela nunca soube que lhe tinham respondido.
+        #
+        # Depois dos mencionados e a saber quem eles são, para ninguém receber
+        # dois avisos da mesma mensagem.
+        await self._notificar_participantes(
+            user, conv, payload.content, ja_avisados=set(payload.mentions or [])
+        )
+
         # The writer is the caller — stamp their display name so the
         # broadcast + HTTP response attribute the message to the real
         # author for every collaborator (not the local viewer's name).
@@ -583,8 +596,7 @@ class MessageService:
         if not destinatarios:
             return
         try:
-            from src.core.locale import normalize_locale
-            from src.i18n.messages import get_message
+            from src.core.locale import get_message, normalize_locale
             from src.models.notification import NotificationType
             from src.schemas.notification import NotificationCreate
             from src.services.notification_service import NotificationService
@@ -619,3 +631,81 @@ class MessageService:
             logger.warning(
                 "mencao_nao_notificada", extra={"conversa": str(conv.id), "erro": str(exc)}
             )
+
+    async def _notificar_participantes(
+        self, autor, conv, conteudo: str, *, ja_avisados: set
+    ) -> None:
+        """Avisa quem já escreveu nesta conversa, mais quem a começou.
+
+        A regra é a do Slack e do Teams: quem entrou numa discussão quer saber
+        quando ela continua. Não se avisa o projeto inteiro — só quem já
+        demonstrou interesse ao escrever lá — senão passava a ser ruído e as
+        pessoas desligavam os avisos todos.
+
+        Nunca notifica:
+          - o próprio autor;
+          - quem já foi notificado pela menção (`ja_avisados`), para a mesma
+            mensagem não chegar duas vezes.
+
+        Falhar aqui não pode derrubar a mensagem: ela já está gravada, e perder
+        o texto por causa de um aviso seria trocar o essencial pelo acessório.
+        """
+        try:
+            from sqlalchemy import select as _select
+
+            from src.core.locale import get_message, normalize_locale
+            from src.models.conversation import Message as _Message
+            from src.models.notification import NotificationType
+            from src.models.user import User as _User
+            from src.schemas.notification import NotificationCreate
+            from src.services.notification_service import NotificationService
+
+            rows = await self.db.execute(
+                _select(_Message.user_id)
+                .where(_Message.conversation_id == conv.id, _Message.user_id.isnot(None))
+                .distinct()
+            )
+            destinatarios = {uid for (uid,) in rows.all()}
+            if conv.created_by:
+                destinatarios.add(conv.created_by)
+            destinatarios -= {autor.id}
+            destinatarios -= ja_avisados
+            if not destinatarios:
+                return
+
+            prefs_rows = await self.db.execute(
+                _select(_User.id, _User.preferences).where(_User.id.in_(destinatarios))
+            )
+            prefs_por_id = {rid: prefs for rid, prefs in prefs_rows.all()}
+
+            servico = NotificationService(self.db)
+            excerto = (conteudo or "")[:50]
+            nome_autor = _display_name(autor)
+            titulo_conversa = (conv.title or "").strip() or excerto
+            for uid in destinatarios:
+                prefs = prefs_por_id.get(uid) or {}
+                locale = normalize_locale(
+                    prefs.get("language") if isinstance(prefs, dict) else None
+                )
+                params_titulo = {"autor": nome_autor, "conversa": titulo_conversa}
+                await servico.create(
+                    NotificationCreate(
+                        user_id=uid,
+                        type=NotificationType.CONVERSATION_REPLY,
+                        title=get_message("notif_conversation_reply_title", locale).format(
+                            **params_titulo
+                        ),
+                        description=get_message(
+                            "notif_conversation_reply_desc", locale
+                        ).format(snippet=excerto),
+                        entity_type="conversation",
+                        entity_id=str(conv.id),
+                        deep_link=f"/page?id={conv.page_id}&conversation={conv.id}",
+                        title_key="notif_conversation_reply_title",
+                        title_params=params_titulo,
+                        description_key="notif_conversation_reply_desc",
+                        description_params={"snippet": excerto},
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("aviso de participantes falhou: %s", exc)

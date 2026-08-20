@@ -120,6 +120,19 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "pt": "Mencionaram você: {snippet}...",
         "en": "Someone mentioned you: {snippet}...",
     },
+    # Alguem escreveu numa conversa em que participo.
+    #
+    # Nao e a mesma coisa que uma mencao: a mencao e dirigida a mim, isto e "a
+    # conversa mexeu-se". O texto tem de dizer QUEM escreveu, porque numa
+    # conversa de tres pessoas saber o autor decide se vale a pena abrir agora.
+    "notif_conversation_reply_title": {
+        "pt": "{autor} escreveu em '{conversa}'",
+        "en": "{autor} wrote in '{conversa}'",
+    },
+    "notif_conversation_reply_desc": {
+        "pt": "{snippet}...",
+        "en": "{snippet}...",
+    },
     "notif_space_added_title": {
         "pt": "Você foi adicionado ao espaço '{space}'",
         "en": "You were added to space '{space}'",
@@ -134,6 +147,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
 NOTIFICATION_KEYS: frozenset[str] = frozenset({
     "notif_comment_mention_title",
     "notif_comment_mention_desc",
+    "notif_conversation_reply_title",
+    "notif_conversation_reply_desc",
     "notif_space_added_title",
     "notif_space_added_desc",
 })

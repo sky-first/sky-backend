@@ -37,6 +37,9 @@ class NotificationType(str, Enum):
     NEW_INSIGHT_AVAILABLE = "new_insight_available"
     DASHBOARD_EDITED_BY_OTHER = "dashboard_edited_by_other"
     COMMENT_MENTION = "comment_mention"
+    # Alguem escreveu numa conversa em que eu ja tinha participado. Distinto da
+    # mencao: aquela e dirigida a mim, esta e "isto mexeu-se".
+    CONVERSATION_REPLY = "conversation_reply"
     DASHBOARD_UPDATED = "dashboard_updated"
 
     # --- Agents ---
