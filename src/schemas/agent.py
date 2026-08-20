@@ -174,6 +174,18 @@ class AgentResponse(BaseModel):
     executions_this_month: int = 0
     cycles_consumed: int = 0
     auditable_only: bool = False
+    # A conversa onde este agente escreve.
+    #
+    # A coluna existe no modelo desde sempre; o que faltava era devolvê-la. A
+    # app usa-a para mostrar "Abrir conversa" — que o comentário dela descreve
+    # como *"a mais usada de todas"* — e, sem o campo, **todos** os agentes
+    # apareciam como "Ainda não falou", mesmo os que já tinham corrido e
+    # produzido achados. O botão nunca chegava a existir.
+    #
+    # Apanhado a 20/08 comparando o que cada rota devolve com o tipo que a app
+    # declara — o mesmo método que destapou o `connection_id` e o `user`
+    # aninhado dos membros nesse dia.
+    conversation_id: Optional[UUID] = None
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
