@@ -1,14 +1,26 @@
 """Conversation repository — SQL-level access for the chat thread tables."""
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.conversation import Conversation
+from src.models.conversation import Conversation, Message
 from src.repositories.base import BaseRepository
+
+
+# Folga entre criar a conversa e escrever a primeira mensagem.
+#
+# Os dois clientes fazem a mesma coisa: criam a conversa e SÓ DEPOIS mandam a
+# mensagem. Se algo falhar no meio (rede, a pessoa fecha a app), fica uma
+# conversa sem mensagens e sem título — o título só é posto quando a primeira
+# mensagem chega. Era daí que vinham as "sem título" que se acumulavam na lista.
+#
+# Cinco minutos chega para o intervalo entre os dois pedidos e é curto que
+# baste para o lixo desaparecer no mesmo dia.
+CARENCIA_SEM_MENSAGENS = timedelta(minutes=5)
 
 
 class ConversationRepository(BaseRepository[Conversation]):
@@ -71,6 +83,11 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         When ``session_id`` is given, the list is further narrowed to that
         chat session so the timeline shows only the active chat.
+
+        Conversas **sem mensagem nenhuma** e passada a carência não são
+        devolvidas: uma conversa é o assunto que alguém levantou, e um assunto
+        sem uma única frase não existe. As linhas ficam na base — isto é um
+        filtro de leitura, não um apagar — mas deixam de sujar a lista.
         """
         conditions = [Conversation.page_id == page_id]
         if session_id is not None:
@@ -94,6 +111,14 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         if cursor is not None:
             conditions.append(Conversation.updated_at < cursor)
+
+        # Ou é recente (ainda pode estar a caminho a primeira mensagem), ou tem
+        # de ter pelo menos uma.
+        agora = datetime.now(timezone.utc)
+        tem_mensagem = exists().where(Message.conversation_id == Conversation.id)
+        conditions.append(
+            or_(Conversation.created_at >= agora - CARENCIA_SEM_MENSAGENS, tem_mensagem)
+        )
 
         # Stable order: updated_at desc, id desc as tiebreaker when many
         # conversations share the same second-level timestamp (SQLite).
