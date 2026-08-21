@@ -37,6 +37,9 @@ class NotificationType(str, Enum):
     NEW_INSIGHT_AVAILABLE = "new_insight_available"
     DASHBOARD_EDITED_BY_OTHER = "dashboard_edited_by_other"
     COMMENT_MENTION = "comment_mention"
+    # Alguem escreveu numa conversa em que eu ja tinha participado. Distinto da
+    # mencao: aquela e dirigida a mim, esta e "isto mexeu-se".
+    CONVERSATION_REPLY = "conversation_reply"
     DASHBOARD_UPDATED = "dashboard_updated"
 
     # --- Agents ---
@@ -106,6 +109,15 @@ NOTIFICATION_CATEGORY: dict[str, str] = {
 
     # Mentions
     "comment_mention": "mentions",
+
+    # Conversas
+    #
+    # Categoria propria, e NAO "mentions", de proposito. Sao coisas diferentes:
+    # a mencao e dirigida a mim, isto e "a conversa mexeu-se". Junta-las tirava
+    # a possibilidade de silenciar uma e manter a outra — e quem trabalha numa
+    # conversa movimentada quer poder calar o burburinho sem deixar de saber
+    # quando o chamam pelo nome.
+    "conversation_reply": "conversations",
 
     # Collaboration
     "space_member_added": "collaboration",
