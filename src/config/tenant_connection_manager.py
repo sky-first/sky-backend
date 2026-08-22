@@ -248,6 +248,22 @@ class TenantConnectionManager:
         )
 
 
+def _regiao_do_arn(arn: str) -> str | None:
+    """A região de um ARN, ou `None` se aquilo não for um ARN.
+
+    ``arn:aws:secretsmanager:eu-west-1:123456789012:secret:nome-AbCdEf``
+                             ^^^^^^^^^
+
+    Devolve `None` em vez de rebentar: o `SecretId` também aceita o NOME do
+    segredo, e nesse caso não há região nenhuma para ler — quem chama cai no
+    `settings.AWS_REGION`.
+    """
+    partes = (arn or "").split(":")
+    if len(partes) > 3 and partes[0] == "arn" and partes[3]:
+        return partes[3]
+    return None
+
+
 def _fetch_secret(arn: str) -> tuple[str, str]:
     """Look up an AWS Secrets Manager secret and return (user, password).
 
@@ -265,7 +281,26 @@ def _fetch_secret(arn: str) -> tuple[str, str]:
 
     import boto3  # type: ignore[import-untyped]
 
-    client = boto3.client("secretsmanager")
+    # A região SAI DO ARN.
+    #
+    # Isto era `boto3.client("secretsmanager")`, sem região — e o boto3, sem
+    # região no ambiente, não sabe a que endpoint falar e rebenta com
+    # `NoRegionError` ANTES de fazer o pedido. Nos pods da API a região vem do
+    # ambiente e ninguém deu por nada; no worker do Celery não vem.
+    #
+    # O efeito foi grande e silencioso: o worker não conseguia ler o segredo
+    # da base de NENHUM cliente, portanto não construía a ligação, portanto
+    # **todas** as execuções de agentes falhavam com "data plane unavailable",
+    # tentavam outra vez, e desistiam. Um agente nunca chegou a correr em
+    # produção — e a app dizia à pessoa "corre em segundo plano, o que
+    # encontrar aparece nos Insights".
+    #
+    # Tirar a região do ARN em vez do ambiente é o que a torna certa por
+    # construção: o segredo VIVE na região que o próprio ARN nomeia, e isso
+    # não depende de o pod ter sido configurado como deve ser. Todos os outros
+    # `boto3.client` deste código já passam `region_name`; só este não passava.
+    regiao = _regiao_do_arn(arn) or settings.AWS_REGION
+    client = boto3.client("secretsmanager", region_name=regiao)
     response = client.get_secret_value(SecretId=arn)
     blob = json.loads(response["SecretString"])
     if "username" in blob and "password" in blob:
