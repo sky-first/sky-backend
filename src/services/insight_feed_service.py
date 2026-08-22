@@ -293,6 +293,54 @@ class InsightFeedService:
             )
         ).scalar() or 0
 
+        # O ESTADO, por pessoa. Faltava: as pastilhas Novo / Vistos /
+        # Fixados existiam e não tinham número, e uma pastilha sem número ao
+        # lado de outras com número lê-se como «zero».
+        #
+        # Uma consulta só, agrupada por «tem data de revisão ou não» — três
+        # consultas separadas para responder à mesma pergunta seriam três
+        # viagens para o mesmo sítio.
+        por_estado = (
+            await self.db.execute(
+                select(
+                    InsightState.reviewed_at.isnot(None).label("visto"),
+                    func.count(),
+                )
+                .select_from(AgentFinding)
+                .outerjoin(Agent, AgentFinding.agent_id == Agent.id)
+                .outerjoin(
+                    InsightState,
+                    and_(
+                        InsightState.finding_id == AgentFinding.id,
+                        InsightState.user_id == user_id,
+                    ),
+                )
+                .where(scope)
+                .where(AgentFinding.dismissed.is_(False))
+                .group_by(InsightState.reviewed_at.isnot(None))
+            )
+        ).all()
+        vistos = sum(c for (visto, c) in por_estado if visto)
+        novos = sum(c for (visto, c) in por_estado if not visto)
+
+        fixados = (
+            await self.db.execute(
+                select(func.count())
+                .select_from(AgentFinding)
+                .outerjoin(Agent, AgentFinding.agent_id == Agent.id)
+                .outerjoin(
+                    InsightState,
+                    and_(
+                        InsightState.finding_id == AgentFinding.id,
+                        InsightState.user_id == user_id,
+                    ),
+                )
+                .where(scope)
+                .where(AgentFinding.dismissed.is_(False))
+                .where(InsightState.pinned_at.isnot(None))
+            )
+        ).scalar() or 0
+
         total = sum(by_type.values())
         return {
             "all": total,
@@ -301,6 +349,9 @@ class InsightFeedService:
             "opportunity": by_type.get("opportunity", 0),
             "insight": by_type.get("insight", 0),
             "featured": int(featured),
+            "new": int(novos),
+            "reviewed": int(vistos),
+            "pinned": int(fixados),
         }
 
     # ─── Detail ──────────────────────────────────────────────────────────

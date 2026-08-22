@@ -594,3 +594,60 @@ async def test_o_filtro_insight_existe(db_session):
 
     res = await InsightFeedService(db_session).list(user, "insight", None, 20)
     assert [i.title for i in res.items] == ["i"]
+
+
+# ─── Os números das pastilhas ───────────────────────────────────────────────
+#
+# «Vejo Todos 10, mas quando clico em novo aparece o 0 de quantidade no
+# Todos.» O número de «Todos» era o tamanho da LISTA A SER MOSTRADA, não o
+# total: filtrava-se por Novo, ficavam zero na lista, e a pastilha «Todos»
+# passava a dizer zero.
+#
+# As contagens do servidor são sobre o âmbito INTEIRO, e não mudam com o
+# filtro escolhido — é essa a razão de existirem.
+
+
+@pytest.mark.asyncio
+async def test_as_contagens_nao_mudam_com_o_filtro(db_session):
+    user, space = uuid4(), uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space)
+    await db_session.flush()
+    for i in range(7):
+        _achado_completo(db_session, ag, type="insight", title=f"i{i}")
+    for i in range(3):
+        _achado_completo(db_session, ag, type="risk", title=f"r{i}")
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+    tudo = await svc.list(user, "all", None, 20)
+    so_riscos = await svc.list(user, "risk", None, 20)
+
+    assert len(so_riscos.items) == 3
+    # A lista encolheu; o total NÃO.
+    assert so_riscos.counts["all"] == tudo.counts["all"] == 10
+
+
+@pytest.mark.asyncio
+async def test_as_pastilhas_de_estado_tem_numero(db_session):
+    """Novo / Vistos / Fixados existiam sem número, ao lado de outras com
+    número — e uma pastilha sem número lê-se como zero."""
+    user, space = uuid4(), uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space)
+    await db_session.flush()
+    f1 = _achado_completo(db_session, ag, title="um")
+    _achado_completo(db_session, ag, title="dois")
+    _achado_completo(db_session, ag, title="tres")
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+    await svc.set_reviewed(user, str(f1.id), True)
+    await svc.set_pinned(user, str(f1.id), True)
+    await db_session.commit()
+
+    c = (await svc.list(user, "all", None, 20)).counts
+    assert c["all"] == 3
+    assert c["reviewed"] == 1
+    assert c["new"] == 2
+    assert c["pinned"] == 1
