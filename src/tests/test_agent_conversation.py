@@ -309,3 +309,56 @@ def test_falhar_a_classificar_nao_perde_o_achado():
     assert "except Exception" in fonte
     # E com prazo curto: uma etiqueta não pode atrasar a corrida de um agente.
     assert "timeout=20.0" in fonte
+
+
+# ─── O achado diz o NOME da ligação, não o id ───────────────────────────────
+#
+# Quando um agente varre mais do que uma ligação, a resposta junta o que cada
+# uma disse com um cabeçalho por cima. Esse cabeçalho era o id quando a IA não
+# devolvia título — e o que se via em produção era isto:
+#
+#     **aa0f521d-a0ac-4edf-9aec-9bde9acc2aaa**
+#     Ontem não houve vendas…
+#
+# Um UUID não diz a ninguém de onde veio o número. «Demo — Sales» diz.
+
+
+def test_o_cabecalho_usa_o_nome_da_ligacao():
+    from src.workers.agent_worker import _juntar_respostas
+
+    out = _juntar_respostas(
+        [
+            {"conn_id": "c1", "conn_nome": "Demo — Sales", "answer": "Subiu.", "title": ""},
+            {"conn_id": "c2", "conn_nome": "Demo — Finance", "answer": "Desceu.", "title": ""},
+        ]
+    )
+    assert "**Demo — Sales**" in out["answer"]
+    assert "**Demo — Finance**" in out["answer"]
+    assert "c1" not in out["answer"]
+
+
+def test_o_titulo_da_IA_ganha_ao_nome_da_ligacao():
+    """Quando ela dá um título, é melhor do que o nome da fonte: diz o que
+    encontrou, não onde procurou."""
+    from src.workers.agent_worker import _juntar_respostas
+
+    out = _juntar_respostas(
+        [
+            {"conn_id": "c1", "conn_nome": "Demo — Sales", "answer": "a", "title": "Margem em queda"},
+            {"conn_id": "c2", "conn_nome": "Demo — Finance", "answer": "b", "title": ""},
+        ]
+    )
+    assert "**Margem em queda**" in out["answer"]
+
+
+def test_sem_nome_e_sem_titulo_sobra_o_id():
+    """Último recurso — melhor um id do que um cabeçalho vazio."""
+    from src.workers.agent_worker import _juntar_respostas
+
+    out = _juntar_respostas(
+        [
+            {"conn_id": "c1", "answer": "a", "title": ""},
+            {"conn_id": "c2", "answer": "b", "title": ""},
+        ]
+    )
+    assert "**c1**" in out["answer"]
