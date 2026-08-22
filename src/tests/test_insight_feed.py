@@ -651,3 +651,105 @@ async def test_as_pastilhas_de_estado_tem_numero(db_session):
     assert c["reviewed"] == 1
     assert c["new"] == 2
     assert c["pinned"] == 1
+
+
+# ─── Corrigir a classificação ───────────────────────────────────────────────
+#
+# A Sky classifica ao gravar; isto é a correcção de quem discorda, e vale mais
+# do que a adivinhação inicial — quem está a ver o achado sabe se aquilo é
+# mesmo um risco.
+#
+# É a «opção B» que o Lucas pediu por cima da A: a Sky decide, e nós podemos
+# discordar. A ordem importa — B em vez de A obrigava a classificar tudo à
+# mão; B por cima de A é só corrigir o que saiu errado.
+
+
+@pytest.mark.asyncio
+async def test_corrigir_o_tipo_e_a_gravidade(db_session):
+    user, space = uuid4(), uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space)
+    await db_session.flush()
+    f = _achado_completo(db_session, ag, type="insight", severity="med")
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+    assert await svc.reclassificar(user, str(f.id), "risk", "high") is True
+    await db_session.commit()
+
+    res = await svc.list(user, "risk", None, 20)
+    assert [i.id for i in res.items] == [str(f.id)]
+
+
+@pytest.mark.asyncio
+async def test_corrigir_so_um_dos_dois(db_session):
+    """Mudar a gravidade sem mexer no tipo é um pedido normal — «é mesmo um
+    risco, mas não é urgente»."""
+    user, space = uuid4(), uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space)
+    await db_session.flush()
+    f = _achado_completo(db_session, ag, type="risk", severity="high")
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+    assert await svc.reclassificar(user, str(f.id), None, "low") is True
+    await db_session.commit()
+    await db_session.refresh(f)
+    assert (f.type, f.severity) == ("risk", "low")
+
+
+@pytest.mark.asyncio
+async def test_um_valor_inventado_nao_se_grava(db_session):
+    """Um `type` fora da lista deixa o achado fora de TODOS os filtros —
+    invisível sem estar apagado, que é a pior maneira de perder uma coisa."""
+    user, space = uuid4(), uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space)
+    await db_session.flush()
+    f = _achado_completo(db_session, ag, type="insight", severity="med")
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+    assert await svc.reclassificar(user, str(f.id), "catastrofe", None) is False
+    assert await svc.reclassificar(user, str(f.id), None, "critical") is False
+    await db_session.refresh(f)
+    assert (f.type, f.severity) == ("insight", "med")
+
+
+@pytest.mark.asyncio
+async def test_nao_se_corrige_o_que_nao_se_pode_ver(db_session):
+    """Passa pelo mesmo âmbito de sempre. E devolve o mesmo `False` de «não
+    existe», de propósito: distinguir os dois confirmaria a existência de um
+    achado a quem não lhe chega."""
+    dono, estranho, space = uuid4(), uuid4(), uuid4()
+    _member_of_space(db_session, dono, space)
+    ag = _agente_do_projeto(db_session, dono, space)
+    await db_session.flush()
+    f = _achado_completo(db_session, ag)
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+    assert await svc.reclassificar(estranho, str(f.id), "risk", None) is False
+    assert await svc.reclassificar(dono, str(uuid4()), "risk", None) is False
+
+
+@pytest.mark.asyncio
+async def test_a_correcao_vale_para_toda_a_gente(db_session):
+    """Ao contrário do «visto» e do «fixado», que são por pessoa. Um risco não
+    é risco só para quem o marcou."""
+    eu, tu, space = uuid4(), uuid4(), uuid4()
+    _member_of_space(db_session, eu, space)
+    _member_of_space(db_session, tu, space)
+    ag = _agente_do_projeto(db_session, eu, space)
+    await db_session.flush()
+    f = _achado_completo(db_session, ag, type="insight")
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+    await svc.reclassificar(eu, str(f.id), "risk", None)
+    await db_session.commit()
+
+    # Para o outro, também é risco.
+    res = await svc.list(tu, "risk", None, 20)
+    assert [i.id for i in res.items] == [str(f.id)]
