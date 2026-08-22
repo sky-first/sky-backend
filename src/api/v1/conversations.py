@@ -121,7 +121,16 @@ async def get_conversation(
         conv = await service.get(conversation_id, current_user)
     except NotFoundError as err:
         raise HTTPException(status_code=404, detail=str(err))
-    return ConversationResponse.model_validate(conv)
+
+    # Se este fio for de um agente, dizê-lo — ver a nota no schema.
+    from src.services.agent_conversation_service import agent_for_conversation
+
+    resposta = ConversationResponse.model_validate(conv)
+    agente = await agent_for_conversation(db, conversation_id)
+    if agente is not None:
+        resposta.agent_id = agente.id
+        resposta.agent_name = agente.name
+    return resposta
 
 
 @router.patch(

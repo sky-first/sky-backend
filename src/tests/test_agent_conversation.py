@@ -104,3 +104,208 @@ def test_the_agent_context_works_without_a_discussion_yet():
     out = agent_context_instructions(agent)
     assert "Como vão as vendas?" in out
     assert "so far" not in out
+
+
+# ─── Uma pergunta, uma resposta ──────────────────────────────────────────────
+#
+# O worker gravava um `AgentFinding` POR LIGAÇÃO de dados. Um agente é uma
+# pergunta só: varrer três ligações para lhe responder é o caminho até à
+# resposta, não três descobertas. No feed saíam três cartões para uma pergunta.
+#
+# Pior: a mensagem escrita no fio era UMA — a da última ligação, porque tanto o
+# texto como o id do achado eram reatribuídos a cada volta do ciclo. As outras
+# ficavam gravadas e sem conversa nenhuma, impossíveis de abrir num produto
+# onde uma descoberta É uma conversa.
+
+from src.workers.agent_worker import _juntar_respostas
+
+
+def _r(**kw):
+    base = {
+        "conn_id": "c1",
+        "answer": "As vendas subiram 12%.",
+        "title": "Vendas",
+        "viz_kind": "line",
+        "rows": None,
+        "table_ids": None,
+    }
+    base.update(kw)
+    return base
+
+
+def test_uma_ligacao_passa_intacta():
+    """O caso normal — e é por isto que a mudança não mexe na maioria dos
+    agentes: com uma ligação, sai exactamente o que ela disse."""
+    out = _juntar_respostas([_r(rows={"columns": ["a"], "data": [[1]]})])
+    assert out["answer"] == "As vendas subiram 12%."
+    assert out["title"] == "Vendas"
+    assert out["rows"] == {"columns": ["a"], "data": [[1]]}
+
+
+def test_varias_ligacoes_dao_UMA_resposta():
+    out = _juntar_respostas(
+        [
+            _r(conn_id="c1", title="Norte", answer="Subiu 12%."),
+            _r(conn_id="c2", title="Sul", answer="Desceu 3%."),
+        ]
+    )
+    assert "Subiu 12%." in out["answer"]
+    assert "Desceu 3%." in out["answer"]
+
+
+def test_cada_parte_diz_de_onde_veio():
+    """Sem isto, as duas metades lêem-se como um parágrafo só que se
+    contradiz a meio — «subiu 12%» seguido de «desceu 3%»."""
+    out = _juntar_respostas(
+        [
+            _r(conn_id="c1", title="Norte", answer="Subiu 12%."),
+            _r(conn_id="c2", title="Sul", answer="Desceu 3%."),
+        ]
+    )
+    assert "**Norte**" in out["answer"]
+    assert "**Sul**" in out["answer"]
+
+
+def test_o_grafico_vem_de_UMA_ligacao_e_nao_de_todas():
+    """Um gráfico feito de linhas de três bases diferentes não quer dizer
+    nada. Vem da primeira que traga linhas."""
+    linhas = {"columns": ["mes"], "data": [["jan"]]}
+    out = _juntar_respostas(
+        [
+            _r(conn_id="c1", title="Sem dados", rows=None, viz_kind="text"),
+            _r(conn_id="c2", title="Com dados", rows=linhas, viz_kind="bar"),
+        ]
+    )
+    assert out["rows"] == linhas
+    assert out["viz_kind"] == "bar"
+    assert out["conn_id"] == "c2"
+
+
+def test_ligacoes_caladas_nao_contam():
+    """Uma ligação que não respondeu não pode ocupar espaço na resposta com
+    um cabeçalho vazio por baixo."""
+    out = _juntar_respostas([_r(answer=""), _r(conn_id="c2", answer="   ")])
+    assert out is None
+
+
+def test_uma_calada_no_meio_nao_estraga_as_outras():
+    out = _juntar_respostas(
+        [_r(conn_id="c1", answer=""), _r(conn_id="c2", title="Sul", answer="Desceu 3%.")]
+    )
+    # Sobrou uma só — portanto passa intacta, sem cabeçalho a mais.
+    assert out["answer"] == "Desceu 3%."
+
+
+def test_a_mesma_tabela_por_duas_ligacoes_conta_uma_vez():
+    """Listá-la duas vezes só faz a origem parecer maior do que é."""
+    out = _juntar_respostas(
+        [
+            _r(conn_id="c1", table_ids=["vendas", "clientes"]),
+            _r(conn_id="c2", table_ids=["clientes", "stock"]),
+        ]
+    )
+    assert out["data_sources"] == ["vendas", "clientes", "stock"]
+
+
+def test_sem_ligacao_nenhuma_nao_ha_achado():
+    assert _juntar_respostas([]) is None
+
+
+def _linhas_do_worker() -> str:
+    """A fonte do worker sem comentários.
+
+    Sem eles porque os comentários que explicam estas avarias citam os nomes
+    das variáveis e as condições — e o guarda apanhava-se a si próprio.
+    """
+    import inspect
+
+    from src.workers import agent_worker
+
+    return "\n".join(
+        l
+        for l in inspect.getsource(agent_worker).splitlines()
+        if not l.lstrip().startswith("#")
+    )
+
+
+# ─── Uma corrida sem nenhuma resposta não é uma corrida bem sucedida ─────────
+#
+# Visto em produção a 22/08/2026: o serviço de IA devolvia 404 a todas as
+# ligações do agente — não tinha metadados — e a execução ficava `completed`,
+# sem `error_message` e com zero achados. Do lado da app isso lê-se como
+# «correu e não encontrou nada», que é uma frase tranquilizadora para dizer
+# que nem uma consulta chegou a ser feita.
+#
+# É o mesmo silêncio que fez ninguém reparar, durante meses, que nenhum agente
+# corria: o `/run` respondia 200 e a app dizia que aquilo corria em segundo
+# plano.
+
+
+def test_todas_as_ligacoes_falhadas_marcam_a_corrida_como_falhada():
+    fonte = _linhas_do_worker()
+    assert 'if ligacoes_falhadas and not respostas_por_ligacao:' in fonte
+    assert 'execution.status = "failed"' in fonte
+
+
+def test_uma_ligacao_que_respondeu_salva_a_corrida():
+    """Só quando falham TODAS.
+
+    Se uma respondeu, houve resposta — marcar a corrida como falhada por causa
+    de outra seria enganar ao contrário, e um agente com uma fonte partida de
+    três passaria a parecer avariado.
+    """
+    fonte = _linhas_do_worker()
+    i = fonte.index("if ligacoes_falhadas and not respostas_por_ligacao:")
+    # A condição exige as duas coisas na mesma linha: falhas E nenhuma
+    # resposta. Um `if ligacoes_falhadas:` sozinho seria o outro extremo.
+    assert "and not respostas_por_ligacao" in fonte[i : i + 120]
+
+
+def test_a_razao_da_falha_fica_gravada():
+    """Sem a razão, o ecrã diz «falhou» e mais nada — que é melhor do que
+    mentir, mas não chega para alguém agir."""
+    fonte = _linhas_do_worker()
+    assert "execution.error_message" in fonte
+    assert "ligacoes_falhadas.append((conn_id" in fonte
+
+
+# ─── A Sky classifica o que encontra ────────────────────────────────────────
+#
+# Todos os achados nasciam iguais: `type="insight"` e `severity="medium"`
+# cravados no worker. Nenhum agente produziu alguma vez um risco ou uma
+# oportunidade — e por isso os filtros «Risco» e «Oportunidade», que existem
+# nas duas interfaces, estavam sempre a zero para achados a sério.
+#
+# Podia-se filtrar, mas não havia por onde.
+
+
+def test_o_tipo_e_a_gravidade_deixam_de_estar_cravados():
+    fonte = _linhas_do_worker()
+    assert 'type="insight",' not in fonte
+    assert 'severity="medium",' not in fonte
+    assert 'type=classe.get("type") or "insight"' in fonte
+    assert 'severity=classe.get("severity") or "med"' in fonte
+
+
+def test_a_classificacao_vem_da_resposta_e_nao_do_agente():
+    """Um agente que vigia margens encontra às vezes um risco e às vezes uma
+    boa notícia. Classificar o AGENTE faria o filtro mentir."""
+    fonte = _linhas_do_worker()
+    i = fonte.index("classe = await ai_client.classificar_achado(")
+    chamada = fonte[i : i + 260]
+    assert 'answer=resposta_da_corrida["answer"]' in chamada
+    assert "agent.name" not in chamada
+
+
+def test_falhar_a_classificar_nao_perde_o_achado():
+    """O achado vale mais do que a etiqueta. Em qualquer falha, o cliente
+    devolve o que se gravava antes — o pior caso é ficar como estava."""
+    import inspect
+
+    from src.ai.http_client import AIServiceHTTPClient
+
+    fonte = inspect.getsource(AIServiceHTTPClient.classificar_achado)
+    assert '{"type": "insight", "severity": "med", "classified": False}' in fonte
+    assert "except Exception" in fonte
+    # E com prazo curto: uma etiqueta não pode atrasar a corrida de um agente.
+    assert "timeout=20.0" in fonte
