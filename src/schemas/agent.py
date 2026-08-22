@@ -190,6 +190,25 @@ class AgentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # ── O que este agente ANDOU A FAZER ──────────────────────────────────
+    #
+    # A lista de agentes devolvia o que cada um É — nome, pergunta, cadência —
+    # e nada sobre o que ele TEM FEITO. No ecrã isso lê-se como uma tabela de
+    # tarefas agendadas: nomes e horários, sem sinal de vida.
+    #
+    # Estes três campos são o que transforma a lista numa equipa a trabalhar:
+    # o que encontrou da última vez, quando, e se a última corrida correu bem.
+    #
+    # Saem de duas consultas agregadas na listagem — uma pelo último achado,
+    # outra pela última execução — e não de um `N+1` por agente.
+    last_finding_title: Optional[str] = None
+    last_finding_at: Optional[datetime] = None
+    #: `completed`, `failed`, `running` — ou `None` se nunca correu.
+    #:
+    #: Um agente ACTIVO que falha em silêncio é pior do que um parado: o
+    #: parado diz que está parado. Sem isto, os dois liam-se igual.
+    last_run_status: Optional[str] = None
+
     # Nested — only included when fetching single agent
     findings: Optional[List[AgentFindingResponse]] = None
     # Option B: True when the caller may SEE the agent (management) but its
