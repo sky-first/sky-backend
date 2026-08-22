@@ -454,3 +454,143 @@ async def test_abrir_UM_achado_nao_depende_do_projeto(db_session):
     achado = await InsightFeedService(db_session).detail(user, str(f.id))
     assert achado is not None
     assert achado.title == "por ligação directa"
+
+
+# ─── A busca procura onde deve, e no servidor ───────────────────────────────
+#
+# A app procurava só no `title`, e só no que já estava carregado — 20 achados
+# de cada vez. Escrever uma palavra que está no achado 25 não dava nada, e
+# lia-se como «não existe». Uma caixa que promete procurar em tudo e procura
+# no título de vinte.
+#
+# A web procurava em cinco campos, do lado dela. Passar isto para o servidor
+# resolve as duas coisas: procura em tudo o que existe, e os dois clientes
+# encontram o mesmo com a mesma palavra.
+
+
+def _achado_completo(session, agente, **kw):
+    campos = dict(
+        agent_id=agente.id, source="agent", type="insight", severity="med",
+        title="titulo", description="descricao", recommendation="recomendacao",
+    )
+    criado = kw.pop("created_at", None)
+    campos.update(kw)
+    f = AgentFinding(**campos)
+    if criado is not None:
+        f.created_at = criado
+    session.add(f)
+    return f
+
+
+@pytest.mark.asyncio
+async def test_a_busca_olha_para_os_cinco_campos(db_session):
+    user, space = uuid4(), uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space, nome="Vigia do Norte")
+    await db_session.flush()
+    _achado_completo(db_session, ag, title="alfa", description="x", recommendation="y")
+    _achado_completo(db_session, ag, title="x", description="beta", recommendation="y")
+    _achado_completo(db_session, ag, title="x", description="y", recommendation="gama")
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+    for palavra in ("alfa", "beta", "gama"):
+        res = await svc.list(user, "all", None, 20, None, palavra)
+        assert len(res.items) == 1, palavra
+
+    # E pelo NOME DO AGENTE — «o que é que o Vigia do Norte encontrou?» é uma
+    # pergunta que se faz, e a app não sabia responder.
+    res = await svc.list(user, "all", None, 20, None, "Vigia do Norte")
+    assert len(res.items) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_busca_nao_se_importa_com_maiusculas(db_session):
+    user, space = uuid4(), uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space)
+    await db_session.flush()
+    _achado_completo(db_session, ag, title="Margem por Categoria")
+    await db_session.commit()
+
+    res = await InsightFeedService(db_session).list(user, "all", None, 20, None, "margem")
+    assert len(res.items) == 1
+
+
+@pytest.mark.asyncio
+async def test_uma_busca_vazia_nao_filtra_nada(db_session):
+    """Espaços não são uma busca. Sem isto, tocar na caixa e apagar deixava a
+    lista vazia sem razão nenhuma à vista."""
+    user, space = uuid4(), uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space)
+    await db_session.flush()
+    _achado_completo(db_session, ag)
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+    for vazio in ("", "   ", None):
+        assert len((await svc.list(user, "all", None, 20, None, vazio)).items) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_busca_procura_para_ALEM_da_primeira_pagina(db_session):
+    """O defeito que se está a corrigir.
+
+    Com a busca no cliente, o achado mais antigo era invisível — o servidor só
+    tinha mandado os 20 mais recentes.
+    """
+    user, space = uuid4(), uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space)
+    await db_session.flush()
+    for i in range(30):
+        _achado_completo(db_session, ag, title=f"achado {i}",
+                         created_at=_BASE + timedelta(minutes=i))
+    _achado_completo(db_session, ag, title="agulha no palheiro",
+                     created_at=_BASE - timedelta(days=1))
+    await db_session.commit()
+
+    res = await InsightFeedService(db_session).list(user, "all", None, 20, None, "agulha")
+    assert [i.title for i in res.items] == ["agulha no palheiro"]
+
+
+@pytest.mark.asyncio
+async def test_os_filtros_de_estado_sao_por_pessoa(db_session):
+    """«Novo» quer dizer novo para QUEM ESTÁ A VER.
+
+    São os mesmos cortes que a web tem — New / Reviewed / Pinned — e é o que
+    os torna úteis: um achado que eu já vi continua novo para ti.
+    """
+    eu, tu, space = uuid4(), uuid4(), uuid4()
+    _member_of_space(db_session, eu, space)
+    _member_of_space(db_session, tu, space)
+    ag = _agente_do_projeto(db_session, eu, space)
+    await db_session.flush()
+    f = _achado_completo(db_session, ag, title="visto por mim")
+    _achado_completo(db_session, ag, title="por ver")
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+    await svc.set_reviewed(eu, str(f.id), True)
+    await db_session.commit()
+
+    assert [i.title for i in (await svc.list(eu, "new", None, 20)).items] == ["por ver"]
+    assert [i.title for i in (await svc.list(eu, "reviewed", None, 20)).items] == ["visto por mim"]
+    # Para o outro, os dois continuam novos.
+    assert len((await svc.list(tu, "new", None, 20)).items) == 2
+
+
+@pytest.mark.asyncio
+async def test_o_filtro_insight_existe(db_session):
+    """A web tem três tipos; a app só oferecia dois."""
+    user, space = uuid4(), uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space)
+    await db_session.flush()
+    _achado_completo(db_session, ag, type="insight", title="i")
+    _achado_completo(db_session, ag, type="risk", title="r")
+    await db_session.commit()
+
+    res = await InsightFeedService(db_session).list(user, "insight", None, 20)
+    assert [i.title for i in res.items] == ["i"]

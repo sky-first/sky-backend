@@ -14,7 +14,25 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 # The five filter chips the design ships.
-INSIGHT_FILTERS = ("all", "latest", "featured", "risk", "opportunity")
+# Os mesmos cortes que a web oferece no seu painel, para os dois clientes
+# mostrarem as mesmas listas com os mesmos nomes.
+#
+# `new` e `reviewed` são POR PESSOA (vivem no `InsightState`), e é isso que os
+# torna úteis: «novo» quer dizer novo para quem está a ver, não novo no mundo.
+#
+# `latest` e `featured` ficam por compatibilidade — `latest` é, e sempre foi,
+# idêntico a `all`. Ver a nota no `_apply_filter`.
+INSIGHT_FILTERS = (
+    "all",
+    "new",
+    "reviewed",
+    "pinned",
+    "risk",
+    "opportunity",
+    "insight",
+    "latest",
+    "featured",
+)
 
 
 class InsightItem(BaseModel):

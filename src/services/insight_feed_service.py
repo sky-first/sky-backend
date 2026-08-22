@@ -133,6 +133,40 @@ class InsightFeedService:
         clauses.append(and_(AgentFinding.agent_id.isnot(None), or_(*agent_clauses)))
         return or_(*clauses)
 
+    @staticmethod
+    def _aplicar_busca(query, q: Optional[str]):
+        """Procurar nos MESMOS campos em que a web procura.
+
+        A app procurava só no `title`, e só no que já estava carregado — 20
+        achados de cada vez. Escrever uma palavra que está no achado 25 não
+        dava nada, e lia-se como «não existe».
+
+        A web procura em cinco campos, do lado dela, sobre tudo o que tinha
+        carregado. Passar isto para o servidor resolve as duas coisas ao mesmo
+        tempo: procura em tudo o que existe, e os dois clientes passam a
+        encontrar o mesmo com a mesma palavra.
+
+        `agent_name` está na tabela dos achados só para os de varredura; o
+        nome do agente a sério vem do `Agent`, e os dois entram.
+        """
+        alvo = (q or "").strip()
+        if not alvo:
+            return query
+        # `ilike` e não `to_tsvector`: isto é uma caixa de busca sobre umas
+        # centenas de linhas por cliente, não um motor de pesquisa. Sem
+        # acentuação e sem radicais é o que a web já faz, e por isso é o que
+        # devolve os mesmos resultados.
+        padrao = f"%{alvo}%"
+        return query.where(
+            or_(
+                AgentFinding.title.ilike(padrao),
+                AgentFinding.description.ilike(padrao),
+                AgentFinding.recommendation.ilike(padrao),
+                AgentFinding.agent_name.ilike(padrao),
+                Agent.name.ilike(padrao),
+            )
+        )
+
     def _base_query(self, user_id: UUID):
         return (
             select(AgentFinding, Agent, InsightState)
@@ -149,15 +183,28 @@ class InsightFeedService:
 
     @staticmethod
     def _apply_filter(query, filter_: str):
-        if filter_ == "risk":
-            return query.where(AgentFinding.type == "risk")
-        if filter_ == "opportunity":
-            return query.where(AgentFinding.type == "opportunity")
+        # Os TIPOS de achado — os mesmos três que a web oferece.
+        if filter_ in ("risk", "opportunity", "insight"):
+            return query.where(AgentFinding.type == filter_)
+
+        # O ESTADO, por pessoa. «Novo» quer dizer novo para quem está a ver, e
+        # é isso que o torna útil — o `InsightState` é por utilizador.
+        if filter_ == "new":
+            return query.where(InsightState.reviewed_at.is_(None))
+        if filter_ == "reviewed":
+            return query.where(InsightState.reviewed_at.isnot(None))
+        if filter_ == "pinned":
+            return query.where(InsightState.pinned_at.isnot(None))
+
         if filter_ == "featured":
             return query.where(
                 or_(InsightState.pinned_at.isnot(None), AgentFinding.severity == "high")
             )
-        return query  # "all" / "latest"
+
+        # `latest` cai aqui com `all` — e sempre caiu. É a mesma consulta e a
+        # mesma contagem; a app tinha uma pastilha «Recentes» que não fazia
+        # rigorosamente nada, e já saiu de lá.
+        return query
 
     # ─── Feed ────────────────────────────────────────────────────────────
 
@@ -168,12 +215,14 @@ class InsightFeedService:
         cursor: Optional[str],
         limit: int,
         space_id: Optional[UUID] = None,
+        q: Optional[str] = None,
     ) -> InsightFeedResponse:
         space_ids, crew_ids = await self._member_scope(user_id)
         scope = self._scope_where(user_id, space_ids, crew_ids, space_id)
 
         query = self._base_query(user_id).where(scope).where(AgentFinding.dismissed.is_(False))
         query = self._apply_filter(query, filter_)
+        query = self._aplicar_busca(query, q)
 
         if cursor:
             c_created, c_id = self._decode_cursor(cursor)
