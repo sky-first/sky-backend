@@ -63,6 +63,22 @@ class ConversationResponse(BaseModel):
     # list endpoint (not a stored column); defaults to 'text'.
     origin: str = "text"
 
+    # De que agente é este fio, quando é de algum.
+    #
+    # Um insight é uma conversa, e a conversa de um agente é a MESMA em todas
+    # as corridas — é ali que ele responde todos os dias. Quem abre esse fio
+    # tem de conseguir chegar ao agente para o configurar: mudar a
+    # periodicidade, pausá-lo, ver o que ele vê.
+    #
+    # Sem isto o cliente não tinha como saber que aquele fio tem dono: a
+    # ligação existe só no sentido contrário (`agents.conversation_id`), e o
+    # que se desenha é a conversa.
+    #
+    # Só no detalhe, não na lista: a lista mostra dezenas de fios e isto
+    # custava-lhe uma consulta por linha.
+    agent_id: Optional[UUID] = None
+    agent_name: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 

@@ -236,6 +236,62 @@ _PERCENT_DELTA_RE = _re_viz.compile(r"[+\-]?\s?\d+(?:\.\d+)?\s?%")
 _NUMERIC_RE = _re_viz.compile(r"\d+(?:\.\d+)?")
 
 
+def _juntar_respostas(por_ligacao: list[dict]) -> dict | None:
+    """O que a corrida encontrou, numa resposta só.
+
+    Um agente é uma pergunta. Se para lhe responder foi preciso ir a três
+    ligações, isso é o caminho — não são três descobertas. Antes gravava-se um
+    achado por ligação e o feed mostrava três cartões para uma pergunta; a
+    mensagem no fio era uma só, a da última ligação, e as outras ficavam
+    gravadas sem conversa nenhuma.
+
+    Com UMA ligação — o caso normal — devolve exactamente o que ela disse, sem
+    lhe tocar. É por isso que a mudança não altera nada para a maioria dos
+    agentes.
+
+    Com várias, o texto vem junto e cada parte diz de onde veio, senão lê-se
+    como um parágrafo só que se contradiz a meio.
+
+    O gráfico e o título vêm da PRIMEIRA ligação que os tenha: um gráfico feito
+    de linhas de três bases diferentes não quer dizer nada, e inventar um
+    título novo seria escrever por cima do que a IA respondeu.
+
+    Devolve ``None`` quando nenhuma ligação respondeu — nesse caso não há
+    achado nenhum a gravar.
+    """
+    uteis = [r for r in por_ligacao if (r.get("answer") or "").strip()]
+    if not uteis:
+        return None
+
+    if len(uteis) == 1:
+        r = uteis[0]
+        return {
+            "answer": r["answer"],
+            "title": r.get("title") or "",
+            "conn_id": r["conn_id"],
+            "viz_kind": r.get("viz_kind"),
+            "rows": r.get("rows"),
+            "data_sources": r.get("table_ids") or [str(r["conn_id"])],
+        }
+
+    partes = [f"**{r['title'] or r['conn_id']}**\n{r['answer']}" for r in uteis]
+    com_grafico = next((r for r in uteis if r.get("rows")), uteis[0])
+    fontes: list[str] = []
+    for r in uteis:
+        fontes.extend(r.get("table_ids") or [str(r["conn_id"])])
+
+    return {
+        "answer": "\n\n".join(partes),
+        "title": com_grafico.get("title") or uteis[0].get("title") or "",
+        "conn_id": com_grafico["conn_id"],
+        "viz_kind": com_grafico.get("viz_kind"),
+        "rows": com_grafico.get("rows"),
+        # Sem repetidos e por ordem: a mesma tabela pode chegar por duas
+        # ligações, e listá-la duas vezes só faz a origem parecer maior.
+        "data_sources": list(dict.fromkeys(fontes)),
+    }
+
+
 def _normalize_rows(rows):
     if not rows:
         return None, None
@@ -357,10 +413,24 @@ async def _execute_agent_async(agent_id: str):
         depth = agent.depth or "standard"
         cycles = DEPTH_CYCLES.get(depth, 3)
         findings_created = 0
-        # O achado desta corrida que a mensagem do fio vai apresentar como
-        # cartao. Uma corrida com varios achados mostra o mais recente; os
-        # outros continuam a aparecer no feed.
-        last_finding_id = None
+        # UMA PERGUNTA, UMA RESPOSTA — o que cada ligação disse, para juntar
+        # no fim.
+        #
+        # Antes gravava-se um `AgentFinding` POR LIGAÇÃO. Um agente é uma
+        # pergunta só; varrer três ligações para lhe responder é detalhe de
+        # como se chega à resposta, não três descobertas. No feed saíam três
+        # cartões para uma pergunta, e a mensagem no fio era uma — a da última
+        # ligação, porque tanto o `answer` como o id do achado eram
+        # reatribuídos a cada volta do ciclo. As outras duas ficavam gravadas
+        # e sem conversa nenhuma: impossíveis de abrir num produto onde uma
+        # descoberta É uma conversa.
+        #
+        # Com UMA ligação — o caso normal — isto dá exactamente o mesmo que
+        # dava antes.
+        respostas_por_ligacao: list[dict] = []
+        # As ligações que rebentaram, com a razão. Sem isto, uma corrida em
+        # que TODAS falharam ficava `completed` sem erro nenhum — ver o 5c.
+        ligacoes_falhadas: list[tuple] = []
         ai_client = AIServiceHTTPClient()
 
         try:
@@ -681,28 +751,55 @@ async def _execute_agent_async(agent_id: str):
                         )
                         cols, data = _normalize_rows(raw_data)
                         rows_payload = {"columns": cols, "data": data} if cols and data else None
-                        finding = AgentFinding(
-                            agent_id=agent.id,
-                            execution_id=execution.id,
-                            type="insight",
-                            severity="medium",
-                            title=(response.get("title", "") if isinstance(response, dict) else "") or f"Analysis from {agent.name}",
-                            description=answer[:3000],
-                            confidence=0.75,
-                            query=question[:500],
-                            connection_id=conn_id,
-                            data_sources=table_ids or [str(conn_id)],
-                            viz_kind=viz_kind,
-                            rows=rows_payload,
+                        # Guarda-se o que esta ligação disse; o achado é um só
+                        # e nasce depois do ciclo. Ver a nota lá em cima.
+                        respostas_por_ligacao.append(
+                            {
+                                "conn_id": conn_id,
+                                "answer": answer,
+                                "title": (
+                                    response.get("title", "")
+                                    if isinstance(response, dict)
+                                    else ""
+                                ),
+                                "viz_kind": viz_kind,
+                                "rows": rows_payload,
+                                "table_ids": table_ids,
+                            }
                         )
-                        db.add(finding)
-                        await db.flush()  # precisa do id para o ligar a mensagem
-                        last_finding_id = finding.id
-                        findings_created += 1
 
                 except Exception as e:
                     logger.warning(f"Agent {agent_id}: failed to query connection {conn_id}: {e}")
+                    # Guarda-se a razão da PRIMEIRA que falhou. Se falharem
+                    # todas, é isto que a corrida vai dizer — ver o 5c.
+                    ligacoes_falhadas.append((conn_id, f"{type(e).__name__}: {e}"))
                     continue
+
+            # 5a. UM achado por corrida, com o que todas as ligações disseram.
+            #
+            # A pergunta é uma; a resposta é uma. As ligações são por onde se
+            # foi buscar a resposta — detalhe do caminho, não descobertas
+            # separadas. Ver a nota no `respostas_por_ligacao`.
+            resposta_da_corrida = _juntar_respostas(respostas_por_ligacao)
+            finding_da_corrida = None
+            if resposta_da_corrida:
+                finding_da_corrida = AgentFinding(
+                    agent_id=agent.id,
+                    execution_id=execution.id,
+                    type="insight",
+                    severity="medium",
+                    title=resposta_da_corrida["title"] or f"Analysis from {agent.name}",
+                    description=resposta_da_corrida["answer"][:3000],
+                    confidence=0.75,
+                    query=question[:500],
+                    connection_id=resposta_da_corrida["conn_id"],
+                    data_sources=resposta_da_corrida["data_sources"],
+                    viz_kind=resposta_da_corrida["viz_kind"],
+                    rows=resposta_da_corrida["rows"],
+                )
+                db.add(finding_da_corrida)
+                await db.flush()  # precisa do id para o ligar à mensagem
+                findings_created = 1
 
             # 5b. Escrever a resposta na conversa do agente.
             #
@@ -711,8 +808,14 @@ async def _execute_agent_async(agent_id: str):
             # em vez de uma folha solta. Quem ve o fio e quem ve o agente:
             # crew -> a crew, pessoal -> o dono (ver o servico).
             #
+            # A conversa é a MESMA em todas as corridas — o
+            # `ensure_agent_conversation` reutiliza a do agente — por isso
+            # cada corrida acrescenta uma mensagem ao mesmo fio. É esse fio o
+            # histórico do agente: "está a piorar ou a melhorar?" responde-se
+            # a rolar para cima.
+            #
             # Falhar aqui nao pode perder o achado, que ja esta gravado.
-            if answer:
+            if finding_da_corrida is not None:
                 try:
                     from src.services.agent_conversation_service import (
                         post_agent_answer,
@@ -721,8 +824,8 @@ async def _execute_agent_async(agent_id: str):
                     await post_agent_answer(
                         db,
                         agent=agent,
-                        answer=answer,
-                        finding_id=last_finding_id,
+                        answer=resposta_da_corrida["answer"],
+                        finding_id=finding_da_corrida.id,
                     )
                 except Exception as _post_err:  # noqa: BLE001
                     logger.warning(
@@ -730,6 +833,36 @@ async def _execute_agent_async(agent_id: str):
                         agent_id,
                         _post_err,
                     )
+
+            # 5c. Uma corrida em que TODAS as ligações falharam não correu.
+            #
+            # Visto em produção a 22/08: o serviço de IA devolvia 404 a todas
+            # as ligações — não tinha metadados — e a execução ficava
+            # `completed`, sem `error_message`, com zero achados. Do lado da
+            # app isso lê-se como «correu e não encontrou nada», que é uma
+            # frase tranquilizadora para dizer que nem uma consulta chegou a
+            # ser feita. É o mesmo silêncio que fez ninguém reparar, durante
+            # meses, que nenhum agente corria.
+            #
+            # Só quando falham TODAS: se uma respondeu, houve resposta, e
+            # marcar a corrida como falhada por causa de outra seria enganar
+            # ao contrário.
+            if ligacoes_falhadas and not respostas_por_ligacao:
+                execution.status = "failed"
+                primeira = ligacoes_falhadas[0]
+                execution.error_message = (
+                    f"{len(ligacoes_falhadas)} ligação(ões) sem resposta. "
+                    f"A primeira: {primeira[0]} — {primeira[1]}"
+                )[:2000]
+                execution.findings_count = 0
+                execution.finished_at = datetime.now(timezone.utc)
+                await db.commit()
+                logger.error(
+                    "Agent %s: nenhuma ligação respondeu (%d falharam)",
+                    agent_id,
+                    len(ligacoes_falhadas),
+                )
+                return
 
             # 5. Update execution with answer for comparison
             execution.status = "completed"
