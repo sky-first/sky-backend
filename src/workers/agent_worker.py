@@ -274,7 +274,19 @@ def _juntar_respostas(por_ligacao: list[dict]) -> dict | None:
             "data_sources": r.get("table_ids") or [str(r["conn_id"])],
         }
 
-    partes = [f"**{r['title'] or r['conn_id']}**\n{r['answer']}" for r in uteis]
+    # O NOME da ligação, e o id só como último recurso.
+    #
+    # Era o id quando a IA não devolvia título, e o que se via no achado era
+    # isto, por cima do parágrafo:
+    #
+    #     **aa0f521d-a0ac-4edf-9aec-9bde9acc2aaa**
+    #     Ontem não houve vendas…
+    #
+    # Um UUID não diz a ninguém de onde veio o número. «Demo — Sales» diz.
+    partes = [
+        f"**{r.get('title') or r.get('conn_nome') or r['conn_id']}**\n{r['answer']}"
+        for r in uteis
+    ]
     com_grafico = next((r for r in uteis if r.get("rows")), uteis[0])
     fontes: list[str] = []
     for r in uteis:
@@ -587,6 +599,22 @@ async def _execute_agent_async(agent_id: str):
                     )
                 connection_ids = [c for c in connection_ids if c in allowed]
 
+            # O NOME de cada ligação, para o achado o poder dizer em vez do
+            # id. Uma consulta só, aqui — não uma por ligação dentro do ciclo.
+            nomes_das_ligacoes: dict = {}
+            if connection_ids:
+                from sqlalchemy import select as _select
+                from src.models.connection import DataConnection as _DC
+
+                nomes_das_ligacoes = {
+                    str(cid): nome
+                    for cid, nome in (
+                        await db.execute(
+                            _select(_DC.id, _DC.name).where(_DC.id.in_(connection_ids))
+                        )
+                    ).all()
+                }
+
             # ── L1 — delta check ───────────────────────────────────────
             # If none of the agent's connections have been touched since
             # the previous successful run, skip the L2/L3 path entirely.
@@ -756,6 +784,7 @@ async def _execute_agent_async(agent_id: str):
                         respostas_por_ligacao.append(
                             {
                                 "conn_id": conn_id,
+                                "conn_nome": nomes_das_ligacoes.get(str(conn_id)),
                                 "answer": answer,
                                 "title": (
                                     response.get("title", "")
