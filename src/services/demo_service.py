@@ -45,7 +45,6 @@ from src.models.space import Space, SpaceConnection, SpaceMember
 from src.models.user import RefreshToken, User
 from src.schemas.demo import DemoSignupRequest, DemoSignupResponse
 from src.schemas.user import UserResponse
-from src.services.agent_conversation_service import post_agent_answer
 from src.services.demo_seed_data import GLOSSARY_TERMS, METRICS_DATA, RELATIONSHIPS_DATA
 
 logger = logging.getLogger(__name__)
@@ -1268,30 +1267,6 @@ class DemoService:
             agent.last_execution_at = now
             agent.executions_this_month = (agent.executions_this_month or 0) + 1
             inserted += 1
-
-            # O achado de demonstração também vai para a conversa do agente.
-            #
-            # Sem isto, os achados semeados eram os ÚNICOS sem fio: um insight
-            # é uma conversa, e tocar-lhes caía num ecrã de detalhe sem saída,
-            # exactamente nos achados que a demonstração existe para mostrar.
-            #
-            # `post_agent_answer` abre a conversa à primeira vez e reutiliza-a
-            # daí em diante, portanto os vários achados do mesmo agente ficam
-            # no mesmo fio — que é o histórico que se quer demonstrar.
-            try:
-                await self.db.flush()  # precisa do id para o ligar à mensagem
-                await post_agent_answer(
-                    self.db,
-                    agent=agent,
-                    answer=payload["description"],
-                    finding_id=finding.id,
-                )
-            except Exception as exc:  # noqa: BLE001
-                # A semente não pode falhar por causa disto: o achado já lá
-                # está, e uma demonstração sem fio é melhor do que nenhuma.
-                logger.warning(
-                    "demo_finding_sem_conversa agent=%s erro=%s", agent.id, exc
-                )
 
         logger.info(
             "demo_findings_seeded space_id=%s count=%d",
