@@ -389,6 +389,50 @@ class InsightFeedService:
 
     # ─── Review / pin (per-user, idempotent) ─────────────────────────────
 
+    async def reclassificar(
+        self,
+        user_id: UUID,
+        finding_id: str,
+        tipo: Optional[str],
+        gravidade: Optional[str],
+    ) -> bool:
+        """Corrige a classificação de um achado.
+
+        A Sky classifica ao gravar; isto é a correcção de quem discorda, e vale
+        mais do que a adivinhação inicial — quem está a ver o achado sabe se
+        aquilo é mesmo um risco.
+
+        **Não é por pessoa**, ao contrário do «visto» e do «fixado»: a
+        classificação é do achado e muda para toda a gente. Um risco não é
+        risco só para mim.
+
+        Passa pelo mesmo `_scoped_row` de sempre: só se corrige o que já se
+        podia ver. Devolve `False` quando não há achado — e é o mesmo `False`
+        de «não existe» e de «não é para si», de propósito, para não confirmar
+        a existência de um achado a quem não lhe chega.
+        """
+        from src.models.agent import AgentFinding as _AF
+
+        linha = await self._scoped_row(user_id, finding_id)
+        if linha is None:
+            return False
+
+        # Valores fora da lista não se gravam. Um `type` inventado deixa o
+        # achado fora de todos os filtros — invisível sem estar apagado, que é
+        # a pior maneira de perder uma coisa.
+        if tipo is not None and tipo not in ("risk", "opportunity", "insight"):
+            return False
+        if gravidade is not None and gravidade not in ("high", "med", "low"):
+            return False
+
+        achado: _AF = linha[0]
+        if tipo is not None:
+            achado.type = tipo
+        if gravidade is not None:
+            achado.severity = gravidade
+        await self.db.flush()
+        return True
+
     async def set_reviewed(self, user_id: UUID, finding_id: str, reviewed: bool) -> bool:
         return await self._set_flag(user_id, finding_id, "reviewed_at", reviewed)
 

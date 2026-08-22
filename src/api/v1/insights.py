@@ -26,6 +26,7 @@ from src.schemas.insight_feed import (
     InsightDetail,
     InsightFeedResponse,
     PinRequest,
+    ReclassificarRequest,
     ReviewRequest,
 )
 from src.services.insight_feed_service import InsightFeedService, InvalidCursor
@@ -131,3 +132,41 @@ async def pin_insight(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
     await db.commit()
     return {"id": finding_id, "pinned": body.pinned}
+
+
+@router.post(
+    "/{finding_id}/reclassify",
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+    summary="Corrigir a classificação de um achado",
+    description=(
+        "A Sky classifica ao gravar; isto é a correcção de quem discorda. "
+        "AO CONTRÁRIO do «visto» e do «fixado», não é por pessoa: a "
+        "classificação é do achado e muda para toda a gente — um risco não é "
+        "risco só para quem o marcou."
+    ),
+)
+async def reclassificar_achado(
+    finding_id: str,
+    body: ReclassificarRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    if body.type is None and body.severity is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Indique pelo menos `type` ou `severity`.",
+        )
+    ok = await InsightFeedService(db).reclassificar(
+        current_user.id, finding_id, body.type, body.severity
+    )
+    if not ok:
+        # O mesmo 404 para «não existe», «não é para si» e «valor inválido».
+        # Distinguir os dois primeiros confirmaria a existência de um achado a
+        # quem não lhe chega.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
+    await db.commit()
+    return {"id": finding_id, "type": body.type, "severity": body.severity}

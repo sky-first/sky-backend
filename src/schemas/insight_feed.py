@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # The five filter chips the design ships.
 # Os mesmos cortes que a web oferece no seu painel, para os dois clientes
@@ -76,3 +76,21 @@ class ReviewRequest(BaseModel):
 
 class PinRequest(BaseModel):
     pinned: bool
+
+
+class ReclassificarRequest(BaseModel):
+    """Corrigir a classificação de um achado.
+
+    A Sky classifica ao gravar; isto é a correcção de quem discorda. Vale mais
+    do que a adivinhação inicial — quem está a ver o achado sabe se aquilo é
+    mesmo um risco.
+
+    Ao contrário do «visto» e do «fixado», isto NÃO é por pessoa: a
+    classificação é do achado e muda para toda a gente. Um risco não é risco
+    só para mim.
+    """
+
+    type: Optional[str] = Field(
+        default=None, description="risk | opportunity | insight"
+    )
+    severity: Optional[str] = Field(default=None, description="high | med | low")
