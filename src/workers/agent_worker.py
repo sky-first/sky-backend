@@ -783,11 +783,30 @@ async def _execute_agent_async(agent_id: str):
             resposta_da_corrida = _juntar_respostas(respostas_por_ligacao)
             finding_da_corrida = None
             if resposta_da_corrida:
+                # A SKY CLASSIFICA O QUE ENCONTROU.
+                #
+                # Era `type="insight"` e `severity="medium"` cravados aqui —
+                # nenhum agente produziu alguma vez um risco ou uma
+                # oportunidade, e por isso os filtros «Risco» e «Oportunidade»,
+                # que existem nas duas interfaces, estavam sempre a zero para
+                # achados a sério. Podia-se filtrar, mas não havia por onde.
+                #
+                # A classificação é do ACHADO e não do agente: um agente que
+                # vigia margens encontra às vezes um risco e às vezes uma boa
+                # notícia, e um rótulo no agente faria o filtro mentir.
+                #
+                # Falhar devolve exactamente o que se gravava antes, portanto
+                # o pior caso é ficar como estava — ver `classificar_achado`.
+                classe = await ai_client.classificar_achado(
+                    answer=resposta_da_corrida["answer"],
+                    title=resposta_da_corrida["title"] or "",
+                    question=question,
+                )
                 finding_da_corrida = AgentFinding(
                     agent_id=agent.id,
                     execution_id=execution.id,
-                    type="insight",
-                    severity="medium",
+                    type=classe.get("type") or "insight",
+                    severity=classe.get("severity") or "med",
                     title=resposta_da_corrida["title"] or f"Analysis from {agent.name}",
                     description=resposta_da_corrida["answer"][:3000],
                     confidence=0.75,

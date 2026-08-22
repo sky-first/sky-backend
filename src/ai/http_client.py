@@ -49,6 +49,45 @@ class AIServiceHTTPClient:
             pass
         return {}
 
+    async def classificar_achado(
+        self,
+        *,
+        answer: str,
+        title: str = "",
+        question: str | None = None,
+    ) -> dict:
+        """Risco, oportunidade ou achado — e o quanto pesa.
+
+        Todos os achados nasciam iguais: o worker gravava `type="insight"` e
+        `severity="medium"` cravados no código, e por isso os filtros «Risco»
+        e «Oportunidade» — que existem nas duas interfaces — estavam sempre a
+        zero para achados a sério.
+
+        **NUNCA rebenta.** Um classificador que rebenta faz perder o achado
+        que estava a classificar, e o achado vale mais do que a etiqueta. Em
+        qualquer falha devolve o que o worker gravava antes: o pior caso é
+        ficar como estava.
+
+        Chamada curta e com prazo curto: isto é uma etiqueta, e uma etiqueta
+        não pode atrasar a corrida de um agente.
+        """
+        import httpx
+
+        de_omissao = {"type": "insight", "severity": "med", "classified": False}
+        try:
+            async with httpx.AsyncClient(
+                timeout=20.0, headers=self._tenant_headers()
+            ) as client:
+                r = await client.post(
+                    f"{self.base_url}/findings/classify",
+                    json={"answer": answer, "title": title, "question": question},
+                )
+                r.raise_for_status()
+                return r.json() or de_omissao
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("classificar_achado falhou: %s", exc)
+            return de_omissao
+
     async def query_connection(
         self,
         connection_id: str,

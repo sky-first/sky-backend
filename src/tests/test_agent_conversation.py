@@ -267,3 +267,45 @@ def test_a_razao_da_falha_fica_gravada():
     fonte = _linhas_do_worker()
     assert "execution.error_message" in fonte
     assert "ligacoes_falhadas.append((conn_id" in fonte
+
+
+# ─── A Sky classifica o que encontra ────────────────────────────────────────
+#
+# Todos os achados nasciam iguais: `type="insight"` e `severity="medium"`
+# cravados no worker. Nenhum agente produziu alguma vez um risco ou uma
+# oportunidade — e por isso os filtros «Risco» e «Oportunidade», que existem
+# nas duas interfaces, estavam sempre a zero para achados a sério.
+#
+# Podia-se filtrar, mas não havia por onde.
+
+
+def test_o_tipo_e_a_gravidade_deixam_de_estar_cravados():
+    fonte = _linhas_do_worker()
+    assert 'type="insight",' not in fonte
+    assert 'severity="medium",' not in fonte
+    assert 'type=classe.get("type") or "insight"' in fonte
+    assert 'severity=classe.get("severity") or "med"' in fonte
+
+
+def test_a_classificacao_vem_da_resposta_e_nao_do_agente():
+    """Um agente que vigia margens encontra às vezes um risco e às vezes uma
+    boa notícia. Classificar o AGENTE faria o filtro mentir."""
+    fonte = _linhas_do_worker()
+    i = fonte.index("classe = await ai_client.classificar_achado(")
+    chamada = fonte[i : i + 260]
+    assert 'answer=resposta_da_corrida["answer"]' in chamada
+    assert "agent.name" not in chamada
+
+
+def test_falhar_a_classificar_nao_perde_o_achado():
+    """O achado vale mais do que a etiqueta. Em qualquer falha, o cliente
+    devolve o que se gravava antes — o pior caso é ficar como estava."""
+    import inspect
+
+    from src.ai.http_client import AIServiceHTTPClient
+
+    fonte = inspect.getsource(AIServiceHTTPClient.classificar_achado)
+    assert '{"type": "insight", "severity": "med", "classified": False}' in fonte
+    assert "except Exception" in fonte
+    # E com prazo curto: uma etiqueta não pode atrasar a corrida de um agente.
+    assert "timeout=20.0" in fonte
