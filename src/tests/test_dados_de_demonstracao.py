@@ -278,3 +278,134 @@ async def test_uma_ligacao_sem_esquema_nao_derruba_as_outras(db_session, monkeyp
         t.schema_name for t in (await db_session.execute(select(SpaceTable))).scalars().all()
     }
     assert "finance" not in esquemas
+
+
+# ── Os agentes da demonstração ───────────────────────────────────────────────
+#
+# O segundo buraco do mesmo género, encontrado a 21/08/2026 a percorrer a app:
+# `ligar()` criava as ligações e as tabelas, e os ecrãs de **Agentes** e de
+# **Insights** ficavam vazios. Um cliente que acabou de ligar a demonstração
+# via uma app montada sem uma única pergunta a correr, e quem a mostrava tinha
+# de criar agentes à mão, ao vivo.
+#
+# Semeiam-se as PERGUNTAS, não as respostas: um insight é o que um agente
+# encontrou nos dados, e inventá-lo era pôr números falsos num ecrã que existe
+# para mostrar números verdadeiros.
+
+
+def _connector_falso(monkeypatch):
+    """O mesmo duplo dos testes de cima, para não o repetir em cada um."""
+
+    class _ConnectorFalso:
+        async def get_metadata(self, config):
+            esquema = config["schema"]
+            return {"tables": [{"name": f"{esquema}_vendas", "schema": esquema}], "schemas": [{"name": esquema}]}
+
+    monkeypatch.setattr("src.connectors.registry.get_connector", lambda _cid: _ConnectorFalso())
+    monkeypatch.setattr(
+        "src.utils.encryption.decrypt_dict",
+        lambda cfg, _k: {"schema": cfg.get("schema", "crm")},
+    )
+
+
+async def _dono(db_session):
+    import uuid as _uuid
+
+    from src.models.user import User
+
+    dono = User(
+        id=_uuid.uuid4(),
+        email="dono@empresa-de-mentira.pt",
+        role="member",
+        password_hash="x",
+        name="Dono",
+    )
+    db_session.add(dono)
+    await db_session.flush()
+    return dono
+
+
+@pytest.mark.asyncio
+async def test_ligar_cria_os_agentes_com_as_ligacoes_do_projeto(db_session, monkeypatch):
+    from sqlalchemy import select
+
+    from src.models.agent import Agent
+
+    monkeypatch.setattr(demo, "settings", _Def(host="db.exemplo", user="leitor", password="x"))
+    _connector_falso(monkeypatch)
+    dono = await _dono(db_session)
+
+    resultado = await demo.ligar(db_session, dono)
+    assert resultado["agentes"] == len(demo.AGENTES)
+
+    agentes = (await db_session.execute(select(Agent))).scalars().all()
+    assert len(agentes) == len(demo.AGENTES)
+
+    # Cada um com uma pergunta a sério — um agente sem `focus` não vigia nada.
+    assert all(a.focus for a in agentes)
+
+    # E com as ligações do projeto. Sem isto o agente existe e não tem onde
+    # procurar, que é a mesma demonstração vazia com mais passos.
+    assert all(len(a.connection_ids or []) == len(demo.LIGACOES) for a in agentes)
+
+
+@pytest.mark.asyncio
+async def test_os_agentes_nascem_parados(db_session, monkeypatch):
+    """Ligar a demonstração não põe o agendador a correr consultas.
+
+    Quem liga isto pode só querer espreitar. Ficam à espera de um «Perguntar
+    agora» ou de um «Retomar» — que são gestos de quem já decidiu.
+    """
+    from sqlalchemy import select
+
+    from src.models.agent import Agent
+
+    monkeypatch.setattr(demo, "settings", _Def(host="db.exemplo", user="leitor", password="x"))
+    _connector_falso(monkeypatch)
+    dono = await _dono(db_session)
+
+    await demo.ligar(db_session, dono)
+
+    agentes = (await db_session.execute(select(Agent))).scalars().all()
+    assert {a.status for a in agentes} == {"paused"}
+
+
+@pytest.mark.asyncio
+async def test_ligar_duas_vezes_nao_duplica_agentes(db_session, monkeypatch):
+    from sqlalchemy import select
+
+    from src.models.agent import Agent
+
+    monkeypatch.setattr(demo, "settings", _Def(host="db.exemplo", user="leitor", password="x"))
+    _connector_falso(monkeypatch)
+    dono = await _dono(db_session)
+
+    await demo.ligar(db_session, dono)
+    segundo = await demo.ligar(db_session, dono)
+
+    assert segundo["agentes"] == 0
+    agentes = (await db_session.execute(select(Agent))).scalars().all()
+    assert len(agentes) == len(demo.AGENTES)
+
+
+@pytest.mark.asyncio
+async def test_desligar_leva_os_agentes_atras(db_session, monkeypatch):
+    """`Agent.scope_id` é uma string, não uma chave estrangeira.
+
+    Sem apagar à mão, desligar a demonstração deixava agentes órfãos a apontar
+    para um projeto que já não existe — e o agendador continuava a tentar
+    corrê-los.
+    """
+    from sqlalchemy import select
+
+    from src.models.agent import Agent
+
+    monkeypatch.setattr(demo, "settings", _Def(host="db.exemplo", user="leitor", password="x"))
+    _connector_falso(monkeypatch)
+    dono = await _dono(db_session)
+
+    await demo.ligar(db_session, dono)
+    await demo.desligar(db_session, dono)
+
+    agentes = (await db_session.execute(select(Agent))).scalars().all()
+    assert agentes == []

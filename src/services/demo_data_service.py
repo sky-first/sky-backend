@@ -57,6 +57,40 @@ LIGACOES: List[Dict[str, str]] = [
 ]
 
 
+#: Os agentes que a demonstração cria, um por área.
+#:
+#: Porque existem: até aqui a demonstração criava cinco ligações e mais nada.
+#: Os ecrãs de Agentes e de Insights ficavam VAZIOS num cliente que acabou de
+#: ligar a demonstração — a app parecia montada e não tinha uma pergunta a
+#: correr. Quem a mostrava tinha de criar agentes à mão, ao vivo.
+#:
+#: **Não se semeiam insights.** Um insight é o que um agente ENCONTROU nos
+#: dados; inventá-lo era pôr números falsos num ecrã que existe para mostrar
+#: números verdadeiros. Semeiam-se as perguntas, e as respostas saem dos
+#: esquemas de demonstração, que são reais.
+#:
+#: Nascem em `paused` de propósito: ligar a demonstração não deve pôr o
+#: agendador a correr consultas de imediato num cliente que talvez só queira
+#: espreitar. Ficam à espera de um «Perguntar agora» ou de um «Retomar».
+AGENTES: List[Dict[str, str]] = [
+    {
+        "nome": "Vendas do dia",
+        "pergunta": "Quanto vendemos ontem, e como se compara com a média das últimas quatro semanas?",
+        "frequencia": "daily",
+    },
+    {
+        "nome": "Clientes em silêncio",
+        "pergunta": "Que clientes deixaram de comprar nos últimos 30 dias e compravam antes?",
+        "frequencia": "weekly",
+    },
+    {
+        "nome": "Margem por categoria",
+        "pergunta": "Que categorias perderam margem este mês face ao mês anterior?",
+        "frequencia": "weekly",
+    },
+]
+
+
 class DemoDataIndisponivel(Exception):
     """A base de demonstração não está configurada neste ambiente."""
 
@@ -183,18 +217,77 @@ async def ligar(db: AsyncSession, dono: User) -> Dict[str, object]:
     # é também a linha que dá dados ao projeto. Ligar a demonstração e escolher
     # os dados do projeto passam a ser o mesmo gesto.
     tabelas = await _descobrir_tabelas(db, espaco)
+    agentes = await _criar_agentes(db, espaco, dono)
 
     await db.commit()
     logger.info(
         "demo_data_ligado",
-        extra={"user": str(dono.id), "novas": len(criadas), "tabelas": tabelas},
+        extra={
+            "user": str(dono.id),
+            "novas": len(criadas),
+            "tabelas": tabelas,
+            "agentes": agentes,
+        },
     )
     return {
         "ligado": True,
         "ligacoes": len(LIGACOES),
         "novas": len(criadas),
         "tabelas": tabelas,
+        "agentes": agentes,
     }
+
+
+async def _criar_agentes(db: AsyncSession, espaco: Space, dono: User) -> int:
+    """Cria os agentes da demonstração no espaço, se ainda não existirem.
+
+    Idempotente pelo NOME dentro do espaço: voltar a ligar não duplica.
+
+    Ficam com as ligações do espaço em `connection_ids` — sem isso o agente
+    existe e não tem onde procurar, que é a mesma demonstração vazia com mais
+    passos.
+    """
+    from src.models.agent import Agent
+
+    ligadas = await db.execute(
+        select(SpaceConnection.connection_id).where(SpaceConnection.space_id == espaco.id)
+    )
+    ids_das_ligacoes = [str(r[0]) for r in ligadas.all()]
+
+    ja = await db.execute(
+        select(Agent.name).where(
+            Agent.scope == "space",
+            Agent.scope_id == str(espaco.id),
+        )
+    )
+    existentes = {r[0] for r in ja.all()}
+
+    criados = 0
+    for spec in AGENTES:
+        if spec["nome"] in existentes:
+            continue
+        db.add(
+            Agent(
+                id=uuid.uuid4(),
+                name=spec["nome"],
+                archetype="custom",
+                scope="space",
+                scope_id=str(espaco.id),
+                scope_name=espaco.name,
+                # Ver a nota em AGENTES: parados à nascença, de propósito.
+                status="paused",
+                monitor_type="question",
+                focus=spec["pergunta"],
+                frequency=spec["frequencia"],
+                connection_ids=ids_das_ligacoes,
+                created_by=dono.id,
+            )
+        )
+        criados += 1
+
+    if criados:
+        await db.flush()
+    return criados
 
 
 async def _descobrir_tabelas(db: AsyncSession, espaco: Space) -> int:
@@ -290,6 +383,17 @@ async def desligar(db: AsyncSession, dono: User) -> Dict[str, object]:
 
     espaco = await _espaco_existente(db, dono)
     if espaco is not None:
+        # Os agentes primeiro: o `scope_id` é uma string e não uma chave
+        # estrangeira, portanto apagar o espaço deixá-los-ia órfãos a apontar
+        # para um projeto que já não existe.
+        from src.models.agent import Agent
+
+        await db.execute(
+            Agent.__table__.delete().where(
+                Agent.scope == "space",
+                Agent.scope_id == str(espaco.id),
+            )
+        )
         await db.execute(SpaceMember.__table__.delete().where(SpaceMember.space_id == espaco.id))
         await db.delete(espaco)
 
