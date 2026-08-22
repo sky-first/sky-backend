@@ -309,6 +309,32 @@ async def create_agent(
     await pricing_service.check_can_create_agent(db)
     agent = await service.create_agent(data, user_id=current_user.id)
     await pricing_service.record_agent_created(db)
+
+    # ── A PRIMEIRA CORRIDA É AGORA ───────────────────────────────────────
+    #
+    # Criar um agente guardava-o e ia-se embora à espera do agendador. Quem o
+    # acabou de criar ficava a olhar para um ecrã onde não acontecia nada; o
+    # primeiro achado chegava no dia seguinte, se a pessoa se lembrasse de
+    # voltar.
+    #
+    # Esse é o único momento em que alguém está a olhar à espera de prova — e
+    # era gasto a não acontecer nada. É a diferença entre «fiz um agente» e «a
+    # Sky encontrou-me isto».
+    #
+    # **Falhar aqui NÃO desfaz a criação.** O agente existe e vai correr na
+    # cadência dele; só a estreia é que se perdeu. Devolver 503 e deixar o
+    # cliente a pensar que não criou nada seria trocar um atraso por uma
+    # mentira. Fica no registo, e o ecrã tem o «Perguntar agora».
+    try:
+        from src.workers.agent_worker import execute_agent
+
+        execute_agent.delay(str(agent.id))
+    except Exception as e:
+        logging.getLogger(__name__).error(
+            f"Agent {agent.id} created but the first run could not be queued: {e}",
+            exc_info=True,
+        )
+
     return agent
 
 
@@ -455,13 +481,27 @@ async def run_agent_now(
         permission="agents.run",
     )
 
+    # Uma falha a pôr na fila é uma FALHA, e diz-se.
+    #
+    # Isto engolia a excepção e respondia 200 na mesma. Com o worker em baixo,
+    # a app dizia «está a correr, o que encontrar aparece nos Insights» — e não
+    # corria nada. Ninguém ficava a saber: nem quem carregou, nem quem estava a
+    # ver o ecrã à espera.
+    #
+    # Um botão que finge é pior do que um botão a menos.
     try:
         from src.workers.agent_worker import execute_agent
 
         execute_agent.delay(str(agent_id))
     except Exception as e:
-        logging.getLogger(__name__).warning(
-            f"Could not enqueue agent task (Celery may not be running): {e}"
+        logging.getLogger(__name__).error(
+            f"Could not enqueue agent task: {e}", exc_info=True
+        )
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=503,
+            detail="Could not start the agent right now. Nothing was lost — try again in a moment.",
         )
     return {"message": "Agent execution started", "agent_id": str(agent_id)}
 
