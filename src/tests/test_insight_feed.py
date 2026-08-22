@@ -298,3 +298,159 @@ async def test_union_agent_and_scan_findings(db_session):
     assert by_title["agent-finding"].is_live is True
     # featured = pinned OR high severity → the high-severity agent finding counts
     assert res.counts["featured"] >= 1
+
+
+# ─── As descobertas são DO PROJETO ──────────────────────────────────────────
+#
+# O Lucas abriu um projeto sem uma única ligação de dados e viu descobertas
+# lá dentro. O feed respondia a «o que é que EU posso ver?» em vez de «o que
+# há NESTE projeto?»: bastava o achado ser de um agente meu para aparecer em
+# todos os projetos.
+#
+# Não era fuga — só se vê o que já é nosso — mas fazia o projeto deixar de
+# querer dizer alguma coisa. E ficou pior quando a app passou a abrir nas
+# Descobertas: abre-se um projeto vazio e ele mostra trabalho de outro.
+
+
+def _agente_do_projeto(session, user_id, space_id, *, nome="Agente"):
+    a = Agent(
+        name=nome,
+        scope="space",
+        scope_id=str(space_id),
+        scope_name="projeto",
+        frequency="daily",
+        focus="?",
+        created_by=user_id,
+        status="active",
+    )
+    session.add(a)
+    return a
+
+
+@pytest.mark.asyncio
+async def test_o_feed_de_um_projeto_nao_traz_achados_de_outro(db_session):
+    user = uuid4()
+    projeto_a, projeto_b = uuid4(), uuid4()
+    _member_of_space(db_session, user, projeto_a)
+    _member_of_space(db_session, user, projeto_b)
+
+    a1 = _agente_do_projeto(db_session, user, projeto_a, nome="do A")
+    a2 = _agente_do_projeto(db_session, user, projeto_b, nome="do B")
+    await db_session.flush()
+    for agente, titulo in ((a1, "achado do A"), (a2, "achado do B")):
+        db_session.add(
+            AgentFinding(
+                agent_id=agente.id,
+                source="agent",
+                type="insight",
+                severity="med",
+                title=titulo,
+                description=titulo,
+            )
+        )
+    await db_session.commit()
+
+    svc = InsightFeedService(db_session)
+
+    so_a = await svc.list(user, "all", None, 20, projeto_a)
+    assert [i.title for i in so_a.items] == ["achado do A"]
+
+    so_b = await svc.list(user, "all", None, 20, projeto_b)
+    assert [i.title for i in so_b.items] == ["achado do B"]
+
+
+@pytest.mark.asyncio
+async def test_um_projeto_sem_nada_fica_vazio(db_session):
+    """O caso que o Lucas viu: projeto sem ligações mostrava descobertas."""
+    user = uuid4()
+    com_trabalho, vazio = uuid4(), uuid4()
+    _member_of_space(db_session, user, com_trabalho)
+    _member_of_space(db_session, user, vazio)
+
+    a = _agente_do_projeto(db_session, user, com_trabalho)
+    await db_session.flush()
+    db_session.add(
+        AgentFinding(
+            agent_id=a.id, source="agent", type="insight", severity="med",
+            title="trabalho", description="x",
+        )
+    )
+    await db_session.commit()
+
+    res = await InsightFeedService(db_session).list(user, "all", None, 20, vazio)
+    assert res.items == []
+    assert res.counts["all"] == 0
+
+
+@pytest.mark.asyncio
+async def test_sem_projeto_continua_a_trazer_tudo(db_session):
+    """Quem não manda projeto fica com o feed de sempre.
+
+    A web chama assim, e o feed global tem o seu lugar. Mudar isto sem aviso
+    partia o outro cliente para corrigir este.
+    """
+    user = uuid4()
+    a_, b_ = uuid4(), uuid4()
+    _member_of_space(db_session, user, a_)
+    _member_of_space(db_session, user, b_)
+    for space, titulo in ((a_, "de A"), (b_, "de B")):
+        ag = _agente_do_projeto(db_session, user, space, nome=titulo)
+        await db_session.flush()
+        db_session.add(
+            AgentFinding(
+                agent_id=ag.id, source="agent", type="insight", severity="med",
+                title=titulo, description="x",
+            )
+        )
+    await db_session.commit()
+
+    res = await InsightFeedService(db_session).list(user, "all", None, 20)
+    assert sorted(i.title for i in res.items) == ["de A", "de B"]
+
+
+@pytest.mark.asyncio
+async def test_as_contagens_seguem_o_projeto(db_session):
+    """Senão a pastilha «Todos 12» ficava por cima de uma lista de três."""
+    user = uuid4()
+    a_, b_ = uuid4(), uuid4()
+    _member_of_space(db_session, user, a_)
+    _member_of_space(db_session, user, b_)
+    ag_a = _agente_do_projeto(db_session, user, a_)
+    ag_b = _agente_do_projeto(db_session, user, b_)
+    await db_session.flush()
+    db_session.add(
+        AgentFinding(agent_id=ag_a.id, source="agent", type="insight",
+                     severity="med", title="a", description="x")
+    )
+    for i in range(4):
+        db_session.add(
+            AgentFinding(agent_id=ag_b.id, source="agent", type="insight",
+                         severity="med", title=f"b{i}", description="x")
+        )
+    await db_session.commit()
+
+    res = await InsightFeedService(db_session).list(user, "all", None, 20, a_)
+    assert len(res.items) == 1
+    assert res.counts["all"] == 1
+
+
+@pytest.mark.asyncio
+async def test_abrir_UM_achado_nao_depende_do_projeto(db_session):
+    """Uma notificação chega de fora, sem projeto escolhido.
+
+    Filtrar aqui fazia uma notificação deixar de abrir por a pessoa estar
+    «noutro sítio» — que é uma ideia da interface, não do achado.
+    """
+    user = uuid4()
+    space = uuid4()
+    _member_of_space(db_session, user, space)
+    ag = _agente_do_projeto(db_session, user, space)
+    await db_session.flush()
+    f = AgentFinding(agent_id=ag.id, source="agent", type="insight",
+                     severity="med", title="por ligação directa", description="x")
+    db_session.add(f)
+    await db_session.commit()
+
+    achado = await InsightFeedService(db_session).detail(user, str(f.id))
+    assert achado is not None
+    assert achado.title == "por ligação directa"

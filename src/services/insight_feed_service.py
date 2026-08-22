@@ -22,11 +22,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.agent import Agent, AgentFinding
-from src.models.crew import CrewMember
+from src.models.crew import Crew, CrewMember
 from src.models.insight_state import InsightState
 from src.models.space import SpaceMember
 from src.schemas.insight_feed import InsightDetail, InsightFeedResponse, InsightItem
@@ -65,9 +65,30 @@ class InsightFeedService:
         )
         return space_ids, crew_ids
 
-    def _scope_where(self, user_id: UUID, space_ids: List[UUID], crew_ids: List[UUID]):
+    def _scope_where(
+        self,
+        user_id: UUID,
+        space_ids: List[UUID],
+        crew_ids: List[UUID],
+        space_id: Optional[UUID] = None,
+    ):
         """A finding is visible when it is a scan finding in one of my Spaces,
-        OR an agent finding I own / whose Space or Crew I belong to."""
+        OR an agent finding I own / whose Space or Crew I belong to.
+
+        Com ``space_id``, o feed é DAQUELE projeto e não de tudo o que a
+        pessoa alcança.
+
+        Sem isto, o feed respondia a «o que é que EU posso ver?» em vez de «o
+        que há NESTE projeto?»: bastava o achado ser de um agente meu para
+        aparecer em todos os projetos, incluindo os que não têm uma única
+        ligação de dados. Não era fuga — só se via o que já era nosso — mas
+        fazia o projeto deixar de querer dizer alguma coisa. E ficou pior
+        quando a app passou a abrir nas Descobertas: abre-se um projeto vazio
+        e ele mostra trabalho de outro.
+
+        `space_id` opcional para não partir quem chama sem ele (a web, e o
+        feed global). Quem o manda, fica com o feed do projeto.
+        """
         space_strs = [str(s) for s in space_ids]  # Agent.scope_id is text
         crew_strs = [str(c) for c in crew_ids]
 
@@ -79,6 +100,31 @@ class InsightFeedService:
                     AgentFinding.space_id.in_(space_ids),
                 )
             )
+        # Filtrado por projeto: só o que é DELE.
+        #
+        # Um agente pertence a um projeto pelo `scope`/`scope_id` — de espaço
+        # directamente, de crew através da crew. O "sou eu o dono" desaparece
+        # aqui de propósito: dentro de um projeto, ser meu não chega para o
+        # achado ser deste sítio.
+        if space_id is not None:
+            # `Agent.scope_id` é TEXTO — a coluna guarda o id do espaço ou da
+            # crew conforme o `scope`. Daí o `cast`: comparar texto com uuid
+            # não dá erro no Postgres, dá zero resultados, que é pior.
+            crews_do_projeto = select(cast(Crew.id, String)).where(Crew.space_id == space_id)
+            return or_(
+                and_(
+                    AgentFinding.source == "scan",
+                    AgentFinding.space_id == space_id,
+                ),
+                and_(
+                    AgentFinding.agent_id.isnot(None),
+                    or_(
+                        and_(Agent.scope == "space", Agent.scope_id == str(space_id)),
+                        and_(Agent.scope == "crew", Agent.scope_id.in_(crews_do_projeto)),
+                    ),
+                ),
+            )
+
         agent_clauses = [Agent.created_by == user_id]
         if space_strs:
             agent_clauses.append(and_(Agent.scope == "space", Agent.scope_id.in_(space_strs)))
@@ -116,10 +162,15 @@ class InsightFeedService:
     # ─── Feed ────────────────────────────────────────────────────────────
 
     async def list(
-        self, user_id: UUID, filter_: str, cursor: Optional[str], limit: int
+        self,
+        user_id: UUID,
+        filter_: str,
+        cursor: Optional[str],
+        limit: int,
+        space_id: Optional[UUID] = None,
     ) -> InsightFeedResponse:
         space_ids, crew_ids = await self._member_scope(user_id)
-        scope = self._scope_where(user_id, space_ids, crew_ids)
+        scope = self._scope_where(user_id, space_ids, crew_ids, space_id)
 
         query = self._base_query(user_id).where(scope).where(AgentFinding.dismissed.is_(False))
         query = self._apply_filter(query, filter_)
@@ -145,13 +196,19 @@ class InsightFeedService:
         rows = rows[:limit]
         items = [self._to_item(f, a, s) for (f, a, s) in rows]
         next_cursor = self._encode_cursor(rows[-1][0]) if has_more and rows else None
-        counts = await self._counts(user_id, space_ids, crew_ids)
+        # As contagens seguem o mesmo âmbito da lista: senão a pastilha
+        # «Todos 12» ficava por cima de uma lista de três.
+        counts = await self._counts(user_id, space_ids, crew_ids, space_id)
         return InsightFeedResponse(items=items, next_cursor=next_cursor, counts=counts)
 
     async def _counts(
-        self, user_id: UUID, space_ids: List[UUID], crew_ids: List[UUID]
+        self,
+        user_id: UUID,
+        space_ids: List[UUID],
+        crew_ids: List[UUID],
+        space_id: Optional[UUID] = None,
     ) -> Dict[str, int]:
-        scope = self._scope_where(user_id, space_ids, crew_ids)
+        scope = self._scope_where(user_id, space_ids, crew_ids, space_id)
         by_type_rows = (
             await self.db.execute(
                 select(AgentFinding.type, func.count())
@@ -221,6 +278,11 @@ class InsightFeedService:
         except (ValueError, TypeError):
             return None
         space_ids, crew_ids = await self._member_scope(user_id)
+        # SEM projeto, de propósito: abrir UM achado é o que uma notificação
+        # ou uma ligação directa fazem, e essas chegam de fora sem projeto
+        # escolhido. Filtrar aqui fazia uma notificação deixar de abrir por a
+        # pessoa estar «noutro sítio» — que é uma ideia da interface, não do
+        # achado. O que se pode ver continua a ser o mesmo.
         scope = self._scope_where(user_id, space_ids, crew_ids)
         query = self._base_query(user_id).where(scope).where(AgentFinding.id == fid)
         return (await self.db.execute(query)).first()
