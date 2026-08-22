@@ -18,11 +18,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.tenant_context import DEFAULT_TENANT_CONTEXT
+from src.models.agent import Agent
 from src.models.tenant_plan_limits import (
     TIER_LIMITS,
     TenantPlanLimits,
@@ -64,13 +67,39 @@ def foundation_row_factory(db_session: AsyncSession):
 
 
 # ── check_can_create_agent ────────────────────────────────────────
+#
+# Estes testes punham um número na coluna `current_agents` e verificavam
+# que o portão o respeitava. Passavam sempre — e provavam apenas que o
+# portão sabe comparar dois inteiros.
+#
+# O que não cobriam era se esse número correspondia a alguma coisa. Não
+# correspondia: no sandbox estava a 0 com doze agentes na base, e num
+# cliente com o teto em 10 estava a 243. Passaram a criar AGENTES.
+
+
+async def _semear_agentes(db: AsyncSession, quantos: int) -> None:
+    """Põe `quantos` agentes na base — os de verdade, não um número."""
+    for i in range(quantos):
+        db.add(
+            Agent(
+                name=f"Agente {i}",
+                scope="personal",
+                scope_id=str(uuid.uuid4()),
+                scope_name="self",
+                frequency="daily",
+                focus="?",
+                status="active",
+            )
+        )
+    await db.flush()
 
 
 @pytest.mark.asyncio
 async def test_check_can_create_agent_under_cap(
     db_session: AsyncSession, foundation_row_factory
 ):
-    await foundation_row_factory(current_agents=5)
+    await foundation_row_factory()
+    await _semear_agentes(db_session, 5)
     # Foundation cap is 10 — under cap returns True without raising.
     assert await pricing_service.check_can_create_agent(db_session, _TID) is True
 
@@ -79,7 +108,8 @@ async def test_check_can_create_agent_under_cap(
 async def test_check_can_create_agent_at_cap_raises(
     db_session: AsyncSession, foundation_row_factory
 ):
-    await foundation_row_factory(current_agents=10)
+    await foundation_row_factory()
+    await _semear_agentes(db_session, 10)
     with pytest.raises(pricing_service.TierLimitExceededError) as exc_info:
         await pricing_service.check_can_create_agent(db_session, _TID)
     err = exc_info.value
@@ -89,6 +119,36 @@ async def test_check_can_create_agent_at_cap_raises(
     assert err.tier == "foundation"
     assert err.upgrade_hint == "scale"
     assert err.status_code == 402
+
+
+@pytest.mark.asyncio
+async def test_contador_desactualizado_nao_manda_no_portao(
+    db_session: AsyncSession, foundation_row_factory
+):
+    """O caso do Lucas: 243 na coluna, poucos agentes na base.
+
+    O portão devolvia 402 e ninguém conseguia criar um agente, sem haver
+    um único a mais. Agora conta, e a coluna passa a ser irrelevante.
+    """
+    await foundation_row_factory(current_agents=243)
+    await _semear_agentes(db_session, 2)
+
+    assert await pricing_service.check_can_create_agent(db_session, _TID) is True
+    assert await pricing_service.contar_agentes(db_session) == 2
+
+
+@pytest.mark.asyncio
+async def test_contador_a_zero_nao_abre_a_porta(
+    db_session: AsyncSession, foundation_row_factory
+):
+    """O outro sentido da mesma avaria, visto no sandbox: coluna a 0 com
+    agentes a mais na base. Se o portão lesse a coluna, deixava passar."""
+    await foundation_row_factory(current_agents=0)
+    await _semear_agentes(db_session, 12)
+
+    with pytest.raises(pricing_service.TierLimitExceededError) as exc_info:
+        await pricing_service.check_can_create_agent(db_session, _TID)
+    assert exc_info.value.current == 12
 
 
 @pytest.mark.asyncio

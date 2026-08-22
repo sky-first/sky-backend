@@ -140,7 +140,12 @@ async def get_my_tenant_usage(
     return TenantUsageResponse(
         tier=row.tier,
         max_agents=row.max_agents,
-        current_agents=row.current_agents,
+        # Contado, não lido da coluna — ver `pricing_service.contar_agentes`.
+        # É este número que a interface mostra ("tem 243 de 10 agentes"), por
+        # isso tem de ser o mesmo que o portão de criação usa. Dois números
+        # diferentes para a mesma pergunta é como o "243 de 10" apareceu num
+        # ecrã sem que houvesse um único agente a mais.
+        current_agents=await pricing_service.contar_agentes(db),
         max_users=row.max_users,
         current_users=row.current_users,
         max_storage_gb=row.max_storage_gb,

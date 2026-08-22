@@ -41,11 +41,12 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import case, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import PaymentRequiredError
 from src.core.tenant_context import current_tenant
+from src.models.agent import Agent
 from src.models.internal_console import InternalConsoleAudit
 from src.models.tenant import Tenant
 from src.models.tenant_plan_limits import (
@@ -284,6 +285,43 @@ async def get_limits(
     return row
 
 
+async def contar_agentes(db: AsyncSession) -> int:
+    """Quantos agentes este cliente tem, contados agora.
+
+    ``current_agents`` era um contador desnormalizado, incrementado à mão
+    numa rota (``agents.py``). Mas há QUATRO sítios que inserem em
+    ``agents`` — ``agent_service``, ``demo_data_service``, ``demo_service``,
+    ``insight_agent_service`` — e um ``delete_agent`` que apaga sem
+    decrementar. Um contador mantido por um de cinco caminhos não é um
+    contador, é uma estimativa.
+
+    E derivava nos DOIS sentidos, o que se viu ao mesmo tempo:
+
+    * no sandbox estava a **0** com doze agentes na base: os do seeder de
+      demonstração nunca lhe tocaram;
+    * num cliente com o teto em 10 mostrava **243**, porque a migração de
+      reconciliação faz ``COUNT(*) FROM agents`` e a tabela não tem
+      ``tenant_id`` — varreu os agentes de toda a gente.
+
+    A segunda não é cosmética: ``check_can_create_agent`` lê este mesmo
+    número, portanto 243/10 devolve **HTTP 402** a quem tenta criar um
+    agente sem ter um único a mais.
+
+    A sessão já vem encaminhada para a base do cliente (Modelo B), por isso
+    o ``COUNT(*)`` daqui é o número de agentes DESTE cliente. É justamente
+    por a tabela não ter ``tenant_id`` que a reconciliação, feita fora de
+    uma sessão encaminhada, se enganou.
+
+    Contar custa um ``COUNT(*)`` numa tabela pequena e o frontend já guarda
+    o resultado 60 segundos — barato de mais para se justificar manter um
+    número que pode estar errado. A coluna fica onde está; deixa é de ser
+    lida, para não haver duas respostas à mesma pergunta.
+    """
+    return int(
+        (await db.execute(select(func.count()).select_from(Agent))).scalar() or 0
+    )
+
+
 async def check_can_create_agent(
     db: AsyncSession,
     tenant_id: UUID | str | None = None,
@@ -292,11 +330,12 @@ async def check_can_create_agent(
     row = await get_limits(db, tenant_id)
     if row.max_agents is None:  # enterprise / unlimited
         return True
-    if row.current_agents >= row.max_agents:
+    atuais = await contar_agentes(db)
+    if atuais >= row.max_agents:
         raise TierLimitExceededError(
             resource="agents",
             limit=row.max_agents,
-            current=row.current_agents,
+            current=atuais,
             tier=row.tier,
             upgrade_hint=UPGRADE_HINT.get(row.tier),
         )
