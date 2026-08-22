@@ -47,6 +47,15 @@ async def list_insights(
     filter: str = Query("all"),
     cursor: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
+    q: Optional[str] = Query(
+        None,
+        description=(
+            "Procura no título, descrição, recomendação e nome do agente — os "
+            "mesmos campos em que a web procura. NO SERVIDOR: a app procurava "
+            "só no título e só no que já estava carregado, e uma palavra que "
+            "estivesse no achado 25 não dava nada."
+        ),
+    ),
     space_id: Optional[UUID] = Query(
         None,
         description=(
@@ -65,7 +74,7 @@ async def list_insights(
         )
     try:
         return await InsightFeedService(db).list(
-            current_user.id, filter, cursor, limit, space_id
+            current_user.id, filter, cursor, limit, space_id, q
         )
     except InvalidCursor:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Malformed cursor")
