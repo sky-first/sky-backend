@@ -13,6 +13,7 @@ detail/mutation — never a 403 that would leak their existence.
 from __future__ import annotations
 
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +47,14 @@ async def list_insights(
     filter: str = Query("all"),
     cursor: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
+    space_id: Optional[UUID] = Query(
+        None,
+        description=(
+            "Restringe o feed a um projeto. Sem ele, devolve tudo o que quem "
+            "chama alcança — que era o comportamento anterior e continua a ser "
+            "o de quem não o manda."
+        ),
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> InsightFeedResponse:
@@ -55,7 +64,9 @@ async def list_insights(
             detail=f"filter must be one of {', '.join(INSIGHT_FILTERS)}",
         )
     try:
-        return await InsightFeedService(db).list(current_user.id, filter, cursor, limit)
+        return await InsightFeedService(db).list(
+            current_user.id, filter, cursor, limit, space_id
+        )
     except InvalidCursor:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Malformed cursor")
 
