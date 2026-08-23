@@ -217,12 +217,16 @@ async def _adaptive_interval_hours(db, agent_id, base_hours: int, current_findin
 
 
 def _run_async(coro):
-    """Helper to run async code from sync Celery task."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    """Corre codigo assincrono a partir de uma tarefa sincrona do Celery.
+
+    Delega no `laco_do_celery.correr`, que fecha as ligacoes as bases dos
+    clientes antes de fechar o laco. Sem isso, a SEGUNDA tarefa do mesmo
+    processo herdava ligacoes presas ao laco anterior e rebentava com
+    «got Future attached to a different loop» — ver o modulo.
+    """
+    from src.workers.laco_do_celery import correr
+
+    return correr(coro)
 
 
 # Sprint 1.17 round 5 — viz_kind heuristics for new agent findings.

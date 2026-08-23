@@ -5,6 +5,8 @@ the full ``WS /voice/session`` duplex pipeline (§8) — the persistence logic
 here becomes its on-close handler.
 """
 
+from typing import Optional
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -22,6 +24,17 @@ from src.schemas.common import ErrorResponse
 from src.schemas.voice import VoiceSessionCreate, VoiceSessionResponse, VoiceTurn
 from src.services.speech_text import speech_text
 from src.services.voice_session_service import VoiceSessionService
+
+
+#: Quanto silêncio conta como «acabei de falar», em segundos.
+#:
+#: Uma vírgula ou uma respiração ficam bem abaixo disto; hesitar a meio de uma
+#: frase também. Baixar este número traz de volta, em ponto pequeno, o defeito
+#: que ele existe para resolver — corta quem fala devagar a meio da pergunta.
+#:
+#: Ao nível do módulo para os testes o poderem encurtar: um teste que espera
+#: 1,6 s de verdade é um teste que alguém acaba por apagar.
+SILENCIO_QUE_FECHA_O_TURNO = 1.6
 
 router = APIRouter()
 
@@ -150,6 +163,88 @@ async def create_voice_session(
     return VoiceSessionResponse(conversation_id=conv_id, title=title, message_count=count)
 
 
+@router.get(
+    "/voices",
+    summary="As vozes disponiveis, por lingua",
+)
+async def listar_vozes(current_user: User = Depends(get_current_user)) -> dict:
+    """O catalogo, para o ecra de definicoes se desenhar a partir do servidor.
+
+    A app tem uma copia da lista para nao esperar pela rede a desenhar o ecra.
+    Se as duas divergirem, ganha esta — e o `voz_polly` so devolve vozes que
+    existem, portanto uma preferencia velha nunca fica sem som.
+    """
+    from src.services.vozes import catalogo_como_json
+
+    return {"voices": catalogo_como_json()}
+
+
+@router.get(
+    "/preview",
+    summary="Ouvir uma voz antes de a escolher",
+)
+async def ouvir_voz(
+    voice: str,
+    language: str = "English",
+    current_user: User = Depends(get_current_user),
+):
+    """Uma frase curta, dita pela voz escolhida.
+
+    **Porque isto faltava.** Escolher entre duas vozes a olhar para dois
+    circulos coloridos e escolher as cegas: o que distingue duas vozes e o
+    som. Na web havia pre-escuta pelo sintetizador do browser — que nao e a
+    voz que responde, portanto mentia. No telemovel nao havia nada, e o
+    comentario no codigo dizia porque: «ate haver um endpoint de amostra».
+
+    E este. Sintetiza a MESMA voz que vai responder, que e a unica pre-escuta
+    que vale alguma coisa.
+
+    Devolve MP3 e nao PCM: e para tocar num leitor de audio normal, nao para
+    entrar no fluxo do WebSocket.
+    """
+    import asyncio as _aio
+    import os as _os
+
+    from fastapi.responses import Response
+
+    from src.services.vozes import AMOSTRA, voz_polly
+
+    texto = AMOSTRA.get(language) or AMOSTRA["English"]
+    voice_id = voz_polly(language, voice)
+
+    def _sintetizar() -> bytes:
+        import boto3
+
+        polly = boto3.client(
+            "polly", region_name=_os.getenv("AWS_REGION", "eu-west-1")
+        )
+        r = polly.synthesize_speech(
+            Text=texto,
+            OutputFormat="mp3",
+            VoiceId=voice_id,
+            Engine="neural",
+        )
+        return r["AudioStream"].read()
+
+    try:
+        audio = await _aio.to_thread(_sintetizar)
+    except Exception as exc:  # noqa: BLE001
+        # Sem Polly (local, ou permissoes em falta) nao ha amostra. 503 e nao
+        # 500: nao esta partido, esta indisponivel — e a app sabe distinguir
+        # «nao deu para ouvir» de «esta avariado».
+        raise HTTPException(
+            status_code=503, detail=f"Voice preview unavailable: {exc}"
+        )
+
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        # A amostra nao muda. Deixar o telemovel guarda-la evita pagar Polly
+        # de cada vez que alguem toca no mesmo circulo duas vezes.
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @router.websocket("/session")
 async def voice_session_ws(websocket: WebSocket) -> None:
     """Duplex voice pipeline (BE-07 / §8).
@@ -241,12 +336,50 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     # and the Polly voice, so a PT app gets a PT-spoken answer. Set from `start`.
     locale = "en"
     voice_lang = "English"
+    #: A voz escolhida nas definicoes. Vem no `start`; ate agora NAO VINHA —
+    #: o servidor escolhia so pela lingua e o ecra de definicoes era
+    #: decoracao. Ver `src/services/vozes.py`.
+    voz_escolhida: Optional[str] = None
     muted = False
     persisted = False
     turn_active = False
     barge = _asyncio.Event()
     ptt = False       # push-to-talk: the user's release ends the turn, not VAD
     last_partial = ""  # latest transcript, committed on a push-to-talk release
+
+    # ── Uma frase nao acaba na primeira pausa ────────────────────────────────
+    #
+    # O Lucas fez uma pergunta longa em voz alta e a Sky recebeu «reven».
+    #
+    # O Transcribe emite SEGMENTOS, e fecha um segmento a cada pausa de fala —
+    # uma virgula chega. Cada um desses fechos vinha marcado `final`, e o
+    # codigo tratava o primeiro `final` como o fim do turno: mandava a primeira
+    # fatia para a Sky e, a partir dai, `turn_active` mandava deitar fora tudo
+    # o que ele continuasse a dizer.
+    #
+    # `final` do Transcribe quer dizer «fechei esta frase», nao «esta pessoa
+    # acabou de falar». Sao coisas diferentes e o codigo lia uma pela outra.
+    #
+    # Passa a juntar os segmentos e a esperar por silencio de verdade. Quem
+    # decide o fim do turno e a AUSENCIA de fala nova, nao a presenca de um
+    # fecho de frase.
+    segmentos: list[str] = []
+    fim_do_turno: Optional[_asyncio.Task] = None
+
+    def texto_falado() -> str:
+        """Tudo o que a pessoa disse neste turno, segmentos fechados incluidos.
+
+        E tambem o que se mostra no ecra: antes mostrava-se so o segmento
+        actual, portanto o que ja tinha sido dito desaparecia a cada pausa e
+        parecia que o microfone nao estava a apanhar nada.
+        """
+        return " ".join([*segmentos, last_partial]).strip()
+
+    def cancelar_fim_do_turno() -> None:
+        nonlocal fim_do_turno
+        if fim_do_turno is not None and not fim_do_turno.done():
+            fim_do_turno.cancel()
+        fim_do_turno = None
 
     async def finalize(send_final: bool) -> None:
         nonlocal persisted
@@ -294,7 +427,15 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                 await send({"type": "sky_text", "text": answer})  # show it on screen
                 await state("speaking")
                 samples = 0
-                tts_voice = {"Portuguese": "Camila", "Español": "Lucia"}.get(voice_lang, "Ruth")
+                # A VOZ ESCOLHIDA, e nao so a lingua.
+                #
+                # Isto era um mapa lingua -> voz, cravado: um portugues ouvia
+                # sempre a Camila, escolhesse o que escolhesse. O Lucas foi as
+                # definicoes, escolheu, e nao ouviu diferenca — nao ouvia
+                # porque nao havia.
+                from src.services.vozes import voz_polly
+
+                tts_voice = voz_polly(voice_lang, voz_escolhida)
                 # Sem marcação.
                 #
                 # A resposta vem em markdown e ia crua para a síntese: ouvia-se
@@ -338,15 +479,45 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             async for ev in provider.transcripts():
                 if turn_active:
                     continue  # ignore stray STT while Sky is answering
+                if muted:
+                    # Silenciado. O `muted` ja impede alimentar o microfone,
+                    # mas o que ficou na fila do STT continuava a passar por
+                    # aqui — e podia abrir um turno depois de a pessoa ter
+                    # carregado no botao. Silenciar tem de calar o que ja
+                    # estava a caminho, senao o botao esconde o microfone em
+                    # vez de o desligar.
+                    cancelar_fim_do_turno()
+                    segmentos.clear()
+                    last_partial = ""
+                    continue
                 text = ev.get("text", "")
                 # Hands-free ends the turn on Transcribe's own endpointing; in
                 # push-to-talk the release ("stop") ends it, so a final is just
                 # another partial to be committed on release.
                 if ev.get("final") and not ptt:
-                    await do_turn(text)
+                    # Fim de FRASE, nao fim de turno. Guarda-se e espera-se:
+                    # se ele continuar a falar, o proximo segmento cancela a
+                    # espera; se ficar calado, o turno fecha com tudo junto.
+                    if text.strip():
+                        segmentos.append(text.strip())
                     last_partial = ""
+                    cancelar_fim_do_turno()
+
+                    async def fechar_por_silencio() -> None:
+                        try:
+                            await _asyncio.sleep(SILENCIO_QUE_FECHA_O_TURNO)
+                        except _asyncio.CancelledError:
+                            return
+                        tudo = " ".join(segmentos).strip()
+                        segmentos.clear()
+                        if tudo:
+                            await do_turn(tudo)
+
+                    fim_do_turno = _asyncio.create_task(fechar_por_silencio())
                 elif text:
                     last_partial = text
+                    # Voltou a falar: o turno ainda nao acabou.
+                    cancelar_fim_do_turno()
                     # ``final`` marks where the STT closed a segment. Voice
                     # ignores it (it only renders the latest text), but
                     # dictation needs it: the next segment starts from
@@ -357,7 +528,10 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                     await send(
                         {
                             "type": "partial_transcript",
-                            "text": text,
+                            # O turno INTEIRO, e nao so o segmento actual. Ver
+                            # `texto_falado`: mostrar so o segmento fazia
+                            # desaparecer do ecra o que ja tinha sido dito.
+                            "text": texto_falado(),
                             "final": bool(ev.get("final")),
                         }
                     )
@@ -393,6 +567,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                 ptt = ctrl.get("mode") == "push-to-talk"
                 locale = (ctrl.get("locale") or locale)[:2]
                 voice_lang = {"pt": "Portuguese", "es": "Español"}.get(locale, "English")
+                voz_escolhida = ctrl.get("voice") or voz_escolhida
                 # STT booted in English at accept; re-open it in the app language
                 # so a PT question transcribes as PT.
                 if voice_lang != "English":
@@ -403,6 +578,13 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                 await state("user_speaking")
             elif action == "mute":
                 muted = True
+                # Silenciar a meio de uma frase nao pode deixar meia frase a
+                # caminho da Sky: o Lucas silenciou e a pergunta partida foi
+                # na mesma. Silenciar e dizer «esquece o que eu estava a
+                # dizer», e e isso que passa a fazer.
+                cancelar_fim_do_turno()
+                segmentos.clear()
+                last_partial = ""
             elif action == "unmute":
                 muted = False
             elif action == "barge_in":
@@ -410,9 +592,17 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             elif action in ("stop", "end_turn"):
                 # Push-to-talk release: commit what was transcribed as the turn.
                 # (Hands-free rarely sends this; flush is a no-op for AWS.)
-                if not turn_active and last_partial.strip():
-                    _text, last_partial = last_partial, ""
-                    await do_turn(_text)
+                #
+                # O TURNO INTEIRO, e nao so o ultimo segmento. Largar o botao
+                # depois de uma frase com pausas mandava so a fatia depois da
+                # ultima pausa — a mesma perda que o modo maos-livres tinha,
+                # pela mesma razao.
+                cancelar_fim_do_turno()
+                tudo = texto_falado()
+                if not turn_active and tudo:
+                    segmentos.clear()
+                    last_partial = ""
+                    await do_turn(tudo)
                 else:
                     await provider.flush()
             elif action == "end":

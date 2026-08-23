@@ -22,26 +22,27 @@ def _transcribe_lang(lang: str) -> str:
     return {"English": "en-US", "Portuguese": "pt-BR", "Español": "es-ES"}.get(lang, "en-US")
 
 
-# Natural neural voices per language. Our two mobile palettes — "Clara"
-# (brighter) and "Suave" (softer) — map to distinct neural voices so each has
-# its own character. Ruth/Danielle are among Polly's most natural neural voices
-# (verified available in eu-west-1). A "default" backs every unknown request so
-# an invalid VoiceId (e.g. a raw palette name) never reaches Polly.
-_NEURAL_VOICES: Dict[str, Dict[str, str]] = {
-    "English": {"default": "Ruth", "Clara": "Ruth", "Suave": "Danielle"},
-    "Portuguese": {"default": "Camila", "Clara": "Camila", "Suave": "Camila"},
-    "Español": {"default": "Lucia", "Clara": "Lucia", "Suave": "Lucia"},
-}
+# As vozes vivem no `src/services/vozes.py`, que e o catalogo unico — nomes,
+# genero e a voz Polly correspondente. Esta tabela existia aqui em duplicado e
+# tinha, em portugues, «Clara» e «Suave» a apontar as duas para a MESMA voz:
+# escolher no ecra nao mudava nada porque nao havia nada para mudar.
+#
+# Deixa-se passar um VoiceId cru do Polly, que e o que os agendamentos antigos
+# e os testes mandam.
+from src.services.vozes import CATALOGO as _CATALOGO, voz_polly as _voz_polly
 
 
 def _polly_voice(lang: str, requested: str) -> str:
-    table = _NEURAL_VOICES.get(lang, _NEURAL_VOICES["English"])
-    if requested in table:
-        return table[requested]
-    # Allow a caller to pass a real Polly VoiceId straight through; otherwise
-    # fall back to the language default rather than risk an invalid VoiceId.
-    known = {v for t in _NEURAL_VOICES.values() for v in t.values()}
-    return requested if requested in known else table["default"]
+    """A voz Polly a usar. Nunca devolve um id invalido.
+
+    Ficar sem som porque a preferencia guardada envelheceu seria pior do que
+    a voz nao ser a preferida — por isso o desconhecido cai na omissao da
+    lingua em vez de rebentar no Polly.
+    """
+    conhecidas = {v.polly for vs in _CATALOGO.values() for v in vs}
+    if requested in conhecidas:
+        return requested  # ja e um VoiceId do Polly
+    return _voz_polly(lang, requested)
 
 
 class AwsVoiceProvider:
