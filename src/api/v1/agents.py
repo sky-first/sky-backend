@@ -335,6 +335,27 @@ async def create_agent(
             exc_info=True,
         )
 
+    # E o FIO tambem nasce agora.
+    #
+    # A conversa do agente so nascia dentro do worker, ao gravar o primeiro
+    # achado. Um agente que ainda nao encontrou nada nao tinha fio nenhum — e
+    # a lista mostrava «Abrir conversa» num agente e em mais nenhum, o que o
+    # Lucas leu como «tem aqui um agente diferente dos outros».
+    #
+    # Nao ha agentes diferentes. Ha agentes que ja falaram e agentes que
+    # ainda nao, e os dois tem onde falar.
+    try:
+        from src.services.agent_conversation_service import ensure_agent_conversation
+
+        await ensure_agent_conversation(db, agent)
+        await db.commit()
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "Agent %s created but its conversation could not be opened: %s",
+            agent.id,
+            e,
+        )
+
     return agent
 
 
@@ -503,7 +524,39 @@ async def run_agent_now(
             status_code=503,
             detail="Could not start the agent right now. Nothing was lost — try again in a moment.",
         )
-    return {"message": "Agent execution started", "agent_id": str(agent_id)}
+
+    # A conversa do agente, ABERTA JA — e nao so quando ele encontrar alguma
+    # coisa.
+    #
+    # O Lucas carregou em «Perguntar agora» e apanhou um aviso: «corre em
+    # segundo plano, o que encontrar aparece nas Descobertas». Nao e o que ele
+    # quer nem o que ficou decidido a 22/08: **a descoberta e a casa, e cada
+    # corrida e uma mensagem no fio do agente.** Carregar tem de LEVAR ao fio.
+    #
+    # Nao havia para onde levar. A conversa so nascia dentro do worker, ao
+    # gravar o primeiro achado — portanto um agente que nunca encontrou nada
+    # nao tinha fio, e a lista mostrava «Abrir conversa» num agente e em mais
+    # nenhum. Ele reparou: «parece que tem um agente diferente dos outros».
+    #
+    # Falhar aqui nao pode impedir a corrida, que ja esta na fila.
+    conversa = getattr(agent, "conversation_id", None)
+    try:
+        from src.services.agent_conversation_service import ensure_agent_conversation
+
+        conversa = await ensure_agent_conversation(db, agent) or conversa
+        await db.commit()
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "Could not open the agent's conversation: %s", e
+        )
+
+    return {
+        "message": "Agent execution started",
+        "agent_id": str(agent_id),
+        # Para onde a app deve levar quem carregou. `None` quando nao ha
+        # pagina onde por a conversa — nesse caso a app fica onde esta.
+        "conversation_id": str(conversa) if conversa else None,
+    }
 
 
 @router.post("/{agent_id}/run/stream")

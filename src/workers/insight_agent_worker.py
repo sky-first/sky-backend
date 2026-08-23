@@ -137,20 +137,17 @@ async def _emit_insight_notifications(
 # ─── Helpers ──────────────────────────────────────────────────────────────
 
 def _run_async(coro):
-    """Run an async coroutine from sync Celery context.
+    """Corre codigo assincrono a partir de uma tarefa sincrona do Celery.
 
-    Mirrors the pattern used by `src.workers.agent_worker`. Each Celery
-    task invocation gets its own event loop so coroutines do not cross
-    task boundaries.
+    Delega no `laco_do_celery.correr`. A versao anterior REUTILIZAVA o laco
+    do processo quando ele ainda estava aberto — o que evitava por acaso o
+    defeito das ligacoes presas, mas guardava estado entre tarefas, que e a
+    mesma familia de problema com outra cara. Agora e um laco por tarefa e as
+    ligacoes sao devolvidas ao sair, como nos outros dois workers.
     """
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            raise RuntimeError("closed loop")
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
+    from src.workers.laco_do_celery import correr
+
+    return correr(coro)
 
 
 async def _call_ai_run_agent(

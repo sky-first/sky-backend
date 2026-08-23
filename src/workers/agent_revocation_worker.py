@@ -28,11 +28,16 @@ logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    """Corre codigo assincrono a partir de uma tarefa sincrona do Celery.
+
+    Delega no `laco_do_celery.correr`, que fecha as ligacoes as bases dos
+    clientes antes de fechar o laco. Sem isso, a SEGUNDA tarefa do mesmo
+    processo herdava ligacoes presas ao laco anterior e rebentava com
+    «got Future attached to a different loop» — ver o modulo.
+    """
+    from src.workers.laco_do_celery import correr
+
+    return correr(coro)
 
 
 async def _sweep_async() -> Dict[str, Any]:
