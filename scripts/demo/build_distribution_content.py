@@ -184,12 +184,22 @@ V = {
     ),
 }
 
-FONTES = [
-    {"table": "sales.order_lines", "description": "Linhas de encomenda, com desconto"},
-    {"table": "catalog.products", "description": "Custo e preço de tabela"},
-    {"table": "inventory.stock", "description": "Quantidade e última movimentação"},
-    {"table": "supply.receipts", "description": "Prometido contra recebido"},
+# As fontes, nos dois idiomas.
+#
+# Estiveram em português nos dois durante meses: `FONTES` era uma constante
+# de módulo e o `L(pt, en)` do resto do ficheiro nunca lhe chegava. Quem
+# abria a demo em inglês lia «Linhas de encomenda, com desconto» debaixo de
+# uma resposta inglesa — na página onde alguém decide se compra.
+_FONTES = [
+    ("sales.order_lines", "Linhas de encomenda, com desconto", "Order lines, with discount"),
+    ("catalog.products", "Custo e preço de tabela", "Cost and list price"),
+    ("inventory.stock", "Quantidade e última movimentação", "Quantity and last movement"),
+    ("supply.receipts", "Prometido contra recebido", "Promised against received"),
 ]
+
+
+def fontes(pt):
+    return [{"table": t, "description": (a if pt else b)} for t, a, b in _FONTES]
 
 
 def tile(rotulo, chave, formato=None):
@@ -202,6 +212,7 @@ def tile(rotulo, chave, formato=None):
 def dataset(locale):
     pt = locale == "pt"
     L = (lambda a, b: a if pt else b)
+    FONTES = fontes(pt)
 
     return {
         "vertical": "distribution",
