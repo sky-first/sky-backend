@@ -42,10 +42,17 @@ def _run_async(coro):
 
 async def _sweep_async() -> Dict[str, Any]:
     """Open a DB session and ask AgentRevocationService to do the work."""
-    from src.config.database import AsyncSessionLocal
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.tenant_context import current_tenant
     from src.services.agent_revocation_service import AgentRevocationService
 
-    async with AsyncSessionLocal() as db:
+    # A base DESTE cliente. Era a da plataforma — onde nao ha agentes de
+    # clientes — portanto a varredura de orfaos nunca apanhou ninguem.
+    #
+    # Isto e SEGURANCA, nao conveniencia: e a garantia de que quem sai de uma
+    # equipa deixa de ter agentes a ler os dados dela. Ver
+    # `src/workers/por_cada_cliente.py`.
+    async with tenant_connection_manager.session_for(current_tenant()) as db:
         svc = AgentRevocationService(db)
         result = await svc.periodic_sweep()
         if result.paused_agent_ids:
@@ -68,7 +75,17 @@ def sweep_orphan_agents() -> Dict[str, Any]:
     """Celery entrypoint. Returns ``{paused: N, reason: ...}`` so the
     Flower UI shows a useful payload."""
     try:
-        return _run_async(_sweep_async())
+        # UMA PASSAGEM POR CADA CLIENTE — ver `src/workers/por_cada_cliente.py`.
+        from src.workers.por_cada_cliente import por_cada_cliente
+
+        async def _um_cliente(_slug: str):
+            r = await _sweep_async()
+            return int(r.get("paused", 0)), 0
+
+        pausados, _ = _run_async(
+            por_cada_cliente(_um_cliente, nome="orphan-sweep")
+        )
+        return {"paused": pausados}
     except Exception as e:
         logger.exception("Periodic sweep failed: %s", e)
         # Fail-open — the next tick will retry. Don't bubble to celery

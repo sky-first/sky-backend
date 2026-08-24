@@ -345,7 +345,13 @@ def schedule_insight_agents() -> Dict[str, int]:
 
     async def _tick() -> int:
         now = datetime.now(timezone.utc)
-        async with AsyncSessionLocal() as db:
+        # A base DESTE cliente, e nao a da plataforma. No modelo B os agentes
+        # vivem na base dedicada de cada cliente; percorrer a da plataforma
+        # devolvia sempre zero. Ver `src/workers/por_cada_cliente.py`.
+        from src.config.tenant_connection_manager import tenant_connection_manager
+        from src.core.tenant_context import current_tenant
+
+        async with tenant_connection_manager.session_for(current_tenant()) as db:
             result = await db.execute(
                 select(Agent).where(
                     Agent.monitor_type == "insight",
@@ -367,7 +373,15 @@ def schedule_insight_agents() -> Dict[str, int]:
                     logger.exception(f"Failed to enqueue agent {agent.id}")
             return enqueued
 
-    count = _run_async(_tick())
+    # UMA PASSAGEM POR CADA CLIENTE — ver `src/workers/por_cada_cliente.py`.
+    from src.workers.por_cada_cliente import por_cada_cliente
+
+    async def _um_cliente(_slug: str):
+        return await _tick(), 0
+
+    count = _run_async(
+        por_cada_cliente(_um_cliente, nome="insight-scheduler")
+    )[0]
     logger.info(f"Insight agent scheduler: {count} runs enqueued")
     return {"enqueued": count}
 
@@ -387,7 +401,15 @@ def execute_insight_run(self, run_id: str) -> Dict[str, Any]:
 
     async def _process() -> Dict[str, Any]:
         run_uuid = UUID(run_id)
-        async with AsyncSessionLocal() as db:
+        # A base DESTE cliente. O `current_tenant()` foi reposto pelo sinal
+        # `task_prerun` a partir do cabecalho que o agendador escreveu ao
+        # enfileirar. Era `AsyncSessionLocal()` — a base da plataforma — e a
+        # corrida do cliente nao esta la: dava «Run disappeared before claim»
+        # para toda a gente menos para uma instalacao de cliente unico.
+        from src.config.tenant_connection_manager import tenant_connection_manager
+        from src.core.tenant_context import current_tenant
+
+        async with tenant_connection_manager.session_for(current_tenant()) as db:
             service = AgentRunService(db)
             try:
                 run = await service.claim(run_uuid)
