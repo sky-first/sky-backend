@@ -84,6 +84,53 @@ async def clientes_activos() -> List[str]:
     return slugs
 
 
+async def _resolver(slug: str):
+    """O contexto deste cliente, resolvido DE DENTRO de um laco a correr.
+
+    **Nao se usa o `_resolve_worker_side`.** Ele faz `asyncio.run(...)`, que
+    rebenta com «cannot be called from a running event loop» quando ja ha um
+    laco — e a excepcao e engolida por um `except` largo que devolve o
+    contexto por omissao.
+
+    Resultado, visto em producao: os tres clientes resolviam todos para
+    «default», o `session_for` devolvia a base da PLATAFORMA aos tres, e os
+    mesmos 10 agentes corriam TRES VEZES — um por cada volta do ciclo. Custo a
+    triplicar, e os agentes dos clientes a nao correr de todo.
+
+    O `_resolve_worker_side` esta certo onde nasceu: e chamado do
+    `task_prerun` do Celery, que corre FORA do laco. So nao serve aqui.
+
+    Usa a mesma cache, para a primeira volta pagar a consulta e as seguintes
+    nao.
+    """
+    from src.api.middleware.tenant_resolver import (
+        _cache_get,
+        _cache_put,
+        _load_tenant_from_db,
+    )
+    from src.core.tenant_context import DEFAULT_TENANT_CONTEXT
+
+    em_cache = _cache_get(slug)
+    if em_cache is not None:
+        return em_cache
+    try:
+        ctx = await _load_tenant_from_db(slug)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("por_cada_cliente: nao deu para resolver %r: %s", slug, exc)
+        return DEFAULT_TENANT_CONTEXT
+    if ctx is not None and not ctx.is_default:
+        _cache_put(slug, ctx)
+        return ctx
+    # Um slug que nao resolve NAO pode cair no default em silencio: seria
+    # correr os agentes da plataforma a pensar que sao os deste cliente.
+    logger.warning(
+        "por_cada_cliente: %r nao resolveu para um cliente com base propria "
+        "— ignorado nesta passagem",
+        slug,
+    )
+    return None
+
+
 @asynccontextmanager
 async def contexto_do_cliente(slug: str) -> AsyncIterator[None]:
     """Põe o cliente em contexto enquanto o bloco corre.
@@ -101,13 +148,16 @@ async def contexto_do_cliente(slug: str) -> AsyncIterator[None]:
     if slug == DEFAULT_TENANT_CONTEXT.slug:
         ctx = DEFAULT_TENANT_CONTEXT
     else:
-        from src.workers.tenant_context_propagation import _resolve_worker_side
+        ctx = await _resolver(slug)
 
-        ctx = _resolve_worker_side(slug)
+    if ctx is None:
+        # Nao resolveu. Saltar e melhor do que correr contra a base errada.
+        yield False
+        return
 
     token = set_current_tenant(ctx)
     try:
-        yield
+        yield True
     finally:
         reset_current_tenant(token)
 
@@ -125,7 +175,9 @@ async def por_cada_cliente(
     total_a, total_b = 0, 0
     for slug in await clientes_activos():
         try:
-            async with contexto_do_cliente(slug):
+            async with contexto_do_cliente(slug) as resolveu:
+                if not resolveu:
+                    continue
                 a, b = await passagem(slug)
             total_a += a
             total_b += b

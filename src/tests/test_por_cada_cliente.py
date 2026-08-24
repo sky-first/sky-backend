@@ -120,8 +120,11 @@ async def test_um_cliente_que_rebenta_nao_trava_os_outros():
 
 
 def _vazio():
+    """Um contexto que RESOLVEU. O `True` nao e decoracao: o ciclo salta os
+    clientes que nao resolvem, e um `None` aqui fazia estes testes verem
+    zero passagens."""
     c = MagicMock()
-    c.__aenter__ = AsyncMock(return_value=None)
+    c.__aenter__ = AsyncMock(return_value=True)
     c.__aexit__ = AsyncMock(return_value=False)
     return c
 
@@ -173,3 +176,78 @@ class TestOsTresAgendadoresForamMudados:
     def test_percorre_todos_os_clientes(self, ficheiro):
         fonte = self._sem_comentarios(ficheiro)
         assert "por_cada_cliente" in fonte
+
+
+class TestOContextoResolveDeDentroDoLaco:
+    """**O defeito que custou dinheiro.**
+
+    O `_resolve_worker_side` faz `asyncio.run(...)`, que rebenta com «cannot
+    be called from a running event loop» quando ja ha um laco — e a excepcao
+    e engolida por um `except` largo que devolve o contexto por omissao.
+
+    Visto em producao: os tres clientes resolviam todos para «default», o
+    `session_for` devolvia a base da PLATAFORMA aos tres, e os mesmos 10
+    agentes corriam TRES VEZES. Custo a triplicar, e os agentes dos clientes
+    a nao correr de todo.
+
+    Apanhei-o a olhar para os registos: `agent-scheduler[sky]: 9`,
+    `[sandbox]: 9`, `[skyfirstlabs]: 9` — tres contagens identicas e 10 ids
+    distintos em 31 arranques.
+    """
+
+    def test_nao_usa_o_resolve_worker_side(self):
+        """Ele esta certo onde nasceu — no `task_prerun`, que corre FORA do
+        laco. So nao serve de dentro de um.
+
+        Le o CODIGO, com comentarios e docstrings fora: a primeira versao
+        deste guarda acendeu por causa da propria explicacao do modulo, que
+        cita `asyncio.run` para dizer porque nao se usa. Ver `_sem_prosa`.
+        """
+        from src.tests._sem_prosa import sem_prosa
+
+        codigo = sem_prosa(mod)
+        assert "_resolve_worker_side" not in codigo
+        assert "asyncio.run" not in codigo
+
+    @pytest.mark.asyncio
+    async def test_um_cliente_que_nao_resolve_e_SALTADO(self):
+        """Nunca cair no default em silencio.
+
+        Correr os agentes da plataforma a pensar que sao os de um cliente e
+        pior do que nao correr nada: gasta tokens e grava achados no sitio
+        errado.
+        """
+        correu = []
+
+        async def passagem(slug):
+            correu.append(slug)
+            return 1, 0
+
+        with patch.object(
+            mod, "clientes_activos", AsyncMock(return_value=["default", "fantasma"])
+        ), patch.object(mod, "_resolver", AsyncMock(return_value=None)):
+            a, _ = await mod.por_cada_cliente(passagem)
+
+        assert correu == ["default"], correu
+        assert a == 1
+
+    @pytest.mark.asyncio
+    async def test_um_cliente_que_resolve_corre(self):
+        from unittest.mock import MagicMock as _M
+
+        ctx = _M()
+        ctx.is_default = False
+        ctx.slug = "gbt"
+        correu = []
+
+        async def passagem(slug):
+            correu.append(slug)
+            return 2, 0
+
+        with patch.object(
+            mod, "clientes_activos", AsyncMock(return_value=["gbt"])
+        ), patch.object(mod, "_resolver", AsyncMock(return_value=ctx)):
+            a, _ = await mod.por_cada_cliente(passagem)
+
+        assert correu == ["gbt"]
+        assert a == 2
