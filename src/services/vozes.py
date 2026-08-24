@@ -47,9 +47,17 @@ from typing import Dict, List, Optional
 #: `id` é o que viaja entre a app e o servidor — nunca o nome do Polly, para
 #: se poder trocar a voz subjacente sem partir as preferências já guardadas.
 class Voz:
-    __slots__ = ("id", "nome", "gene", "polly", "lingua")
+    __slots__ = ("id", "nome", "gene", "polly", "lingua", "sotaque")
 
-    def __init__(self, id: str, nome: str, gene: str, polly: str, lingua: str):
+    def __init__(
+        self,
+        id: str,
+        nome: str,
+        gene: str,
+        polly: str,
+        lingua: str,
+        sotaque: str = "",
+    ):
         self.id = id
         self.nome = nome
         #: "f" | "m". No ecrã aparece por extenso e traduzido; aqui fica curto
@@ -57,9 +65,15 @@ class Voz:
         self.gene = gene
         self.polly = polly
         self.lingua = lingua
+        #: "Portugal" | "Brasil" | "". Só se mostra quando a língua tem vozes
+        #: de sotaques diferentes — ver a nota sobre o português.
+        self.sotaque = sotaque
 
     def como_json(self) -> dict:
-        return {"id": self.id, "name": self.nome, "gender": self.gene}
+        d = {"id": self.id, "name": self.nome, "gender": self.gene}
+        if self.sotaque:
+            d["accent"] = self.sotaque
+        return d
 
 
 #: O catálogo, por língua. A PRIMEIRA de cada língua é a de omissão.
@@ -68,9 +82,23 @@ class Voz:
 #: lista que ninguém percorre, e o que falta mesmo é poder escolher entre uma
 #: voz de mulher e uma de homem.
 CATALOGO: Dict[str, List[Voz]] = {
+    # ⚠️ **NÃO EXISTE VOZ MASCULINA PORTUGUESA EM MODO NEURAL.**
+    #
+    # Escolhi o `Cristiano` a olhar para uma lista de cabeça, e ele é
+    # standard-only. O Polly recusou com «This voice does not support the
+    # selected engine: neural» — um 503 na pré-escuta, apanhado a carregar
+    # no botão em produção.
+    #
+    # Perguntei à AWS em vez de adivinhar (`aws polly describe-voices`), e em
+    # eu-west-1 o português neural são exactamente três: `Ines` (pt-PT, F),
+    # `Camila` e `Vitoria` (pt-BR, F), `Thiago` (pt-BR, M).
+    #
+    # Então o par português é Portugal + Brasil, e o sotaque **diz-se**. Ficar
+    # só com vozes femininas para não misturar sotaques resolvia o problema
+    # errado; esconder a mistura seria pior do que a mistura.
     "Portuguese": [
-        Voz("ines", "Inês", "f", "Ines", "pt-PT"),
-        Voz("cristiano", "Cristiano", "m", "Cristiano", "pt-PT"),
+        Voz("ines", "Inês", "f", "Ines", "pt-PT", "Portugal"),
+        Voz("thiago", "Thiago", "m", "Thiago", "pt-BR", "Brasil"),
     ],
     "Español": [
         Voz("lucia", "Lucía", "f", "Lucia", "es-ES"),

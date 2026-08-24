@@ -28,10 +28,15 @@ class TestOCatalogo:
             generos = {v.gene for v in vozes}
             assert generos == {"f", "m"}, f"{lingua}: {generos}"
 
-    def test_o_portugues_e_de_portugal(self):
-        # A voz que la estava, «Camila», e pt-BR. Foi mais um sitio onde a app
-        # dizia «portugues» e entregava outra coisa.
-        assert all(v.lingua == "pt-PT" for v in CATALOGO["Portuguese"])
+    def test_a_voz_de_omissao_portuguesa_e_de_PORTUGAL(self):
+        """A que la estava, «Camila», e pt-BR — a app dizia «portugues» e
+        entregava outra coisa.
+
+        A PRIMEIRA de cada lingua e a de omissao, e essa e a Ines (pt-PT).
+        A masculina tem de ser brasileira porque nao existe pt-PT masculina
+        em neural — ver `TestAsVozesEXISTEM`.
+        """
+        assert CATALOGO["Portuguese"][0].lingua == "pt-PT"
 
     def test_duas_vozes_da_mesma_lingua_sao_vozes_DIFERENTES(self):
         """O defeito exacto, em portugues.
@@ -49,7 +54,7 @@ class TestOCatalogo:
 
 class TestQualVozFala:
     def test_a_escolha_manda(self):
-        assert voz_polly("Portuguese", "cristiano") == "Cristiano"
+        assert voz_polly("Portuguese", "thiago") == "Thiago"
         assert voz_polly("Portuguese", "ines") == "Ines"
 
     def test_sem_escolha_e_a_primeira_da_lingua(self):
@@ -96,7 +101,7 @@ class TestOMapaAntigoContinuaALigar:
     def test_um_id_do_catalogo_e_traduzido(self):
         from src.services.voice_aws import _polly_voice
 
-        assert _polly_voice("Portuguese", "cristiano") == "Cristiano"
+        assert _polly_voice("Portuguese", "thiago") == "Thiago"
 
     def test_lixo_nao_chega_ao_polly(self):
         from src.services.voice_aws import _polly_voice
@@ -104,3 +109,65 @@ class TestOMapaAntigoContinuaALigar:
         assert _polly_voice("English", "qualquer-coisa") in {
             v.polly for v in vozes_de("English")
         }
+
+
+class TestAsVozesEXISTEM:
+    """Comparado com o que a AWS diz, e nao com o que eu me lembrava.
+
+    **O defeito.** Escolhi o `Cristiano` para a voz masculina portuguesa a
+    olhar para uma lista de cabeca. Ele e standard-only: o Polly recusou com
+    «This voice does not support the selected engine: neural» e a pre-escuta
+    dava 503. Apanhei-o a carregar no botao em producao.
+
+    O `vozes_neurais_eu_west_1.json` e a resposta do `aws polly
+    describe-voices --region eu-west-1`, gravada a 24/08/2026. Nao e uma
+    lista que eu escrevi: e o que a AWS respondeu.
+
+    Se a AWS mudar a oferta, este teste acende e regrava-se o ficheiro. O que
+    nao pode voltar a acontecer e escolher uma voz de memoria.
+    """
+
+    def _verificadas(self):
+        import json
+        from pathlib import Path
+
+        p = Path(__file__).resolve().parents[1] / "services" / "vozes_neurais_eu_west_1.json"
+        return json.loads(p.read_text(encoding="utf-8"))
+
+    def test_todas_as_vozes_do_catalogo_sao_neurais_na_regiao(self):
+        verificadas = self._verificadas()
+        for lingua, vozes in CATALOGO.items():
+            for v in vozes:
+                assert v.polly in verificadas, (
+                    f"{v.polly} ({lingua}) NAO existe em modo neural em "
+                    f"eu-west-1 — foi assim que o Cristiano chegou a producao"
+                )
+
+    def test_o_genero_do_catalogo_bate_certo_com_o_da_AWS(self):
+        verificadas = self._verificadas()
+        mapa = {"f": "Female", "m": "Male"}
+        for vozes in CATALOGO.values():
+            for v in vozes:
+                assert verificadas[v.polly]["genero"] == mapa[v.gene], v.polly
+
+    def test_a_lingua_do_catalogo_bate_certo_com_a_da_AWS(self):
+        verificadas = self._verificadas()
+        for vozes in CATALOGO.values():
+            for v in vozes:
+                assert verificadas[v.polly]["lingua"] == v.lingua, v.polly
+
+    def test_o_par_portugues_mistura_sotaques_e_DI_LO(self):
+        """Nao ha voz masculina pt-PT neural. O par e Portugal + Brasil.
+
+        Esconder a mistura seria pior do que a mistura: quem escolhe merece
+        saber que vai ouvir sotaque brasileiro.
+        """
+        pt = CATALOGO["Portuguese"]
+        assert {v.lingua for v in pt} == {"pt-PT", "pt-BR"}
+        assert all(v.sotaque for v in pt), "o sotaque tem de se dizer"
+
+    def test_so_se_diz_o_sotaque_onde_ele_muda(self):
+        # Em ingles e espanhol as duas vozes sao da mesma variante; escrever
+        # «Estados Unidos» duas vezes por baixo de dois nomes e ruido.
+        for lingua in ("English", "Español"):
+            assert all(not v.sotaque for v in CATALOGO[lingua]), lingua

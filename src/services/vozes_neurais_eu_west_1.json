@@ -1,0 +1,254 @@
+{
+ "Adriano": {
+  "lingua": "it-IT",
+  "genero": "Male"
+ },
+ "Amy": {
+  "lingua": "en-GB",
+  "genero": "Female"
+ },
+ "Andres": {
+  "lingua": "es-MX",
+  "genero": "Male"
+ },
+ "Aria": {
+  "lingua": "en-NZ",
+  "genero": "Female"
+ },
+ "Arlet": {
+  "lingua": "ca-ES",
+  "genero": "Female"
+ },
+ "Arthur": {
+  "lingua": "en-GB",
+  "genero": "Male"
+ },
+ "Ayanda": {
+  "lingua": "en-ZA",
+  "genero": "Female"
+ },
+ "Bianca": {
+  "lingua": "it-IT",
+  "genero": "Female"
+ },
+ "Brian": {
+  "lingua": "en-GB",
+  "genero": "Male"
+ },
+ "Burcu": {
+  "lingua": "tr-TR",
+  "genero": "Female"
+ },
+ "Camila": {
+  "lingua": "pt-BR",
+  "genero": "Female"
+ },
+ "Daniel": {
+  "lingua": "de-DE",
+  "genero": "Male"
+ },
+ "Danielle": {
+  "lingua": "en-US",
+  "genero": "Female"
+ },
+ "Elin": {
+  "lingua": "sv-SE",
+  "genero": "Female"
+ },
+ "Emma": {
+  "lingua": "en-GB",
+  "genero": "Female"
+ },
+ "Gabrielle": {
+  "lingua": "fr-CA",
+  "genero": "Female"
+ },
+ "Gregory": {
+  "lingua": "en-US",
+  "genero": "Male"
+ },
+ "Hala": {
+  "lingua": "ar-AE",
+  "genero": "Female"
+ },
+ "Hannah": {
+  "lingua": "de-AT",
+  "genero": "Female"
+ },
+ "Hiujin": {
+  "lingua": "yue-CN",
+  "genero": "Female"
+ },
+ "Ida": {
+  "lingua": "nb-NO",
+  "genero": "Female"
+ },
+ "Ines": {
+  "lingua": "pt-PT",
+  "genero": "Female"
+ },
+ "Isabelle": {
+  "lingua": "fr-BE",
+  "genero": "Female"
+ },
+ "Ivy": {
+  "lingua": "en-US",
+  "genero": "Female"
+ },
+ "Jasmine": {
+  "lingua": "en-SG",
+  "genero": "Female"
+ },
+ "Jihye": {
+  "lingua": "ko-KR",
+  "genero": "Female"
+ },
+ "Jitka": {
+  "lingua": "cs-CZ",
+  "genero": "Female"
+ },
+ "Joanna": {
+  "lingua": "en-US",
+  "genero": "Female"
+ },
+ "Joey": {
+  "lingua": "en-US",
+  "genero": "Male"
+ },
+ "Justin": {
+  "lingua": "en-US",
+  "genero": "Male"
+ },
+ "Kajal": {
+  "lingua": "en-IN",
+  "genero": "Female"
+ },
+ "Kazuha": {
+  "lingua": "ja-JP",
+  "genero": "Female"
+ },
+ "Kendra": {
+  "lingua": "en-US",
+  "genero": "Female"
+ },
+ "Kevin": {
+  "lingua": "en-US",
+  "genero": "Male"
+ },
+ "Kimberly": {
+  "lingua": "en-US",
+  "genero": "Female"
+ },
+ "Laura": {
+  "lingua": "nl-NL",
+  "genero": "Female"
+ },
+ "Lea": {
+  "lingua": "fr-FR",
+  "genero": "Female"
+ },
+ "Liam": {
+  "lingua": "fr-CA",
+  "genero": "Male"
+ },
+ "Lisa": {
+  "lingua": "nl-BE",
+  "genero": "Female"
+ },
+ "Lucia": {
+  "lingua": "es-ES",
+  "genero": "Female"
+ },
+ "Lupe": {
+  "lingua": "es-US",
+  "genero": "Female"
+ },
+ "Matthew": {
+  "lingua": "en-US",
+  "genero": "Male"
+ },
+ "Mia": {
+  "lingua": "es-MX",
+  "genero": "Female"
+ },
+ "Niamh": {
+  "lingua": "en-IE",
+  "genero": "Female"
+ },
+ "Ola": {
+  "lingua": "pl-PL",
+  "genero": "Female"
+ },
+ "Olivia": {
+  "lingua": "en-AU",
+  "genero": "Female"
+ },
+ "Pedro": {
+  "lingua": "es-US",
+  "genero": "Male"
+ },
+ "Remi": {
+  "lingua": "fr-FR",
+  "genero": "Male"
+ },
+ "Ruth": {
+  "lingua": "en-US",
+  "genero": "Female"
+ },
+ "Sabrina": {
+  "lingua": "de-CH",
+  "genero": "Female"
+ },
+ "Salli": {
+  "lingua": "en-US",
+  "genero": "Female"
+ },
+ "Seoyeon": {
+  "lingua": "ko-KR",
+  "genero": "Female"
+ },
+ "Sergio": {
+  "lingua": "es-ES",
+  "genero": "Male"
+ },
+ "Sofie": {
+  "lingua": "da-DK",
+  "genero": "Female"
+ },
+ "Stephen": {
+  "lingua": "en-US",
+  "genero": "Male"
+ },
+ "Suvi": {
+  "lingua": "fi-FI",
+  "genero": "Female"
+ },
+ "Takumi": {
+  "lingua": "ja-JP",
+  "genero": "Male"
+ },
+ "Thiago": {
+  "lingua": "pt-BR",
+  "genero": "Male"
+ },
+ "Tomoko": {
+  "lingua": "ja-JP",
+  "genero": "Female"
+ },
+ "Vicki": {
+  "lingua": "de-DE",
+  "genero": "Female"
+ },
+ "Vitoria": {
+  "lingua": "pt-BR",
+  "genero": "Female"
+ },
+ "Zayd": {
+  "lingua": "ar-AE",
+  "genero": "Male"
+ },
+ "Zhiyu": {
+  "lingua": "cmn-CN",
+  "genero": "Female"
+ }
+}
