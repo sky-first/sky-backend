@@ -146,12 +146,18 @@ V = {
     ),
 }
 
-FONTES = [
-    {"table": "production.orders", "description": "Planeado contra bom, por turno"},
-    {"table": "quality.scrap", "description": "Refugo e motivo"},
-    {"table": "maintenance.stoppages", "description": "Paragens planeadas e não planeadas"},
-    {"table": "plant.machines", "description": "Linha, ano e cadência nominal"},
+# As fontes, nos dois idiomas — ver a nota igual no construtor da
+# distribuição: estavam em português também em inglês.
+_FONTES = [
+    ("production.orders", "Planeado contra bom, por turno", "Planned against good, by shift"),
+    ("quality.scrap", "Refugo e motivo", "Scrap and reason"),
+    ("maintenance.stoppages", "Paragens planeadas e não planeadas", "Planned and unplanned stoppages"),
+    ("plant.machines", "Linha, ano e cadência nominal", "Line, year and nominal rate"),
 ]
+
+
+def fontes(pt):
+    return [{"table": t, "description": (a if pt else b)} for t, a, b in _FONTES]
 
 
 def tile(rotulo, chave, formato=None):
@@ -164,6 +170,7 @@ def tile(rotulo, chave, formato=None):
 def dataset(locale):
     pt = locale == "pt"
     L = lambda a, b: a if pt else b  # noqa: E731
+    FONTES = fontes(pt)
 
     return {
         "vertical": "industry",
