@@ -86,23 +86,25 @@ ROTULO_APLICADO: Dict[str, str] = {
 #: `max_queries_per_month` conta as perguntas E as corridas dos agentes — ver
 #: a nota no topo. Os valores saem de `economia_dos_planos`.
 TECTOS: Dict[str, Dict[str, Optional[int]]] = {
-    "starter": {
+    "starter": {  # Sky Start — 490 €/mês
         "max_agents": 3,
-        "max_users": 5,
+        # A página promete «utilizadores ilimitados». Uma promessa na página é
+        # um contrato: cobra-se pelo que se vigia, não por quem olha.
+        "max_users": None,
         "max_storage_gb": 50,
-        "max_queries_per_month": 1_000,
+        "max_queries_per_month": 500,
     },
-    "foundation": {
+    "foundation": {  # Sky Core — 900 €/mês
         "max_agents": 10,
-        "max_users": 25,
+        "max_users": None,
         "max_storage_gb": 200,
-        "max_queries_per_month": 4_000,
+        "max_queries_per_month": 2_000,
     },
-    "scale": {
+    "scale": {  # Sky Plus — 1800 €/mês
         "max_agents": 30,
-        "max_users": 100,
+        "max_users": None,
         "max_storage_gb": 500,
-        "max_queries_per_month": 10_000,
+        "max_queries_per_month": 8_000,
     },
     "enterprise": {
         # Negociado por contrato, caso a caso. É o único sem tecto.
