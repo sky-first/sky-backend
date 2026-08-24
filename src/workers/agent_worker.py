@@ -1071,12 +1071,34 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                     from src.services.notification_service import NotificationService
 
                     notif_svc = NotificationService(db)
+                    # A CHAVE viaja, e a frase monta-se ao mostrar.
+                    #
+                    # Isto gravava a frase feita em INGLES — «Receita faturada
+                    # found 1 new insight» — num produto inteiramente em
+                    # portugues. E o esquema ja tinha `title_key` e
+                    # `title_params`: o caminho de traducao existe e a web ja
+                    # o usa. O worker e que nao o usava.
+                    #
+                    # Uma notificacao e escrita uma vez, por um worker que
+                    # corre de madrugada, e pode ser lida por pessoas com
+                    # linguas diferentes — ja acontece numa equipa com um
+                    # portugues e um brasileiro. Gravar a frase feita escolhe
+                    # a lingua no momento errado.
+                    #
+                    # O `title` fica na mesma como rede de seguranca, para
+                    # clientes antigos que ainda nao leiam a chave.
                     title = (
-                        f"{agent.name} found {findings_created} new insight{'s' if findings_created > 1 else ''}"
+                        f"{agent.name} found {findings_created} new insight"
+                        f"{'s' if findings_created > 1 else ''}"
                     )
                     await notif_svc.create(
                         NotificationCreate(
                             user_id=agent.created_by,
+                            title_key="notif_agent_findings_title",
+                            title_params={
+                                "agent": agent.name,
+                                "count": findings_created,
+                            },
                             type="agent_finding",
                             title=title,
                             description=answer[:200] if answer else None,
