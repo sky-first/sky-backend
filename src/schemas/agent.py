@@ -99,11 +99,30 @@ class AgentUpdate(BaseModel):
         return _validate_monitor_type(v)
 
 
+#: O que ja esta gravado na base e nao e um valor do enum, e o valor certo.
+#:
+#: O classificador do `sky-ai` escreveu `med` durante dois dias — o enum
+#: chama-lhe `medium`. Cada achado assim gravado rebentava o `GET
+#: /agents/{id}` inteiro com um `ResponseValidationError`, e o ecra do agente
+#: dava 500 sem nada a explicar.
+#:
+#: **Tolerante a leitura, estrito a escrita.** A escrita ja foi corrigida nos
+#: dois servicos; isto e para as linhas que ficaram. Rejeitar na leitura
+#: castiga quem le por um erro de quem escreveu — e o achado esta na base,
+#: correcto, so com a palavra errada.
+_GRAVIDADES_ANTIGAS = {"med": "medium", "mid": "medium", "moderate": "medium"}
+
+
 class AgentFindingResponse(BaseModel):
     id: UUID
     agent_id: UUID
     type: FindingType
     severity: FindingSeverity
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _gravidade_antiga(cls, v):
+        return _GRAVIDADES_ANTIGAS.get(str(v).lower().strip(), v)
     title: str
     description: str
     confidence: Optional[float] = None

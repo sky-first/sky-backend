@@ -280,11 +280,31 @@ def test_a_razao_da_falha_fica_gravada():
 
 
 def test_o_tipo_e_a_gravidade_deixam_de_estar_cravados():
+    """A classificacao vem da resposta, e a gravidade e sempre gravavel.
+
+    **Este teste fixava a PALAVRA `"med"`**, e por isso ficou vermelho quando
+    corrigi o `med` para `medium` — a correcao de um 500 que estava em
+    producao. Fixar o texto de uma linha guarda como o codigo foi escrito
+    naquele dia, nao o que ele tem de fazer, e o preco e um guarda que se
+    queixa de uma correcao.
+
+    Passa a exigir o que interessa: que nao esteja cravado, e que o que se
+    grava seja um valor que a API consegue devolver.
+    """
     fonte = _linhas_do_worker()
     assert 'type="insight",' not in fonte
     assert 'severity="medium",' not in fonte
     assert 'type=classe.get("type") or "insight"' in fonte
-    assert 'severity=classe.get("severity") or "med"' in fonte
+    assert 'classe.get("severity")' in fonte
+
+    # E o valor gravado e sempre um dos que o enum aceita — foi gravar `med`
+    # que rebentou o `GET /agents/{id}` com um 500 durante dois dias.
+    from src.models.agent import FindingSeverity
+    from src.workers.agent_worker import _gravidade_valida
+
+    validos = {g.value for g in FindingSeverity}
+    for entrada in ["med", "mid", "", None, "lixo", "HIGH", "critical"]:
+        assert _gravidade_valida(entrada) in validos
 
 
 def test_a_classificacao_vem_da_resposta_e_nao_do_agente():
@@ -305,7 +325,15 @@ def test_falhar_a_classificar_nao_perde_o_achado():
     from src.ai.http_client import AIServiceHTTPClient
 
     fonte = inspect.getsource(AIServiceHTTPClient.classificar_achado)
-    assert '{"type": "insight", "severity": "med", "classified": False}' in fonte
+    assert "de_omissao" in fonte
+    assert '"type": "insight"' in fonte
+    # A gravidade de omissao tem de ser um valor do enum. Era `"med"`, que a
+    # API nao consegue devolver — a saida de emergencia gravava um achado que
+    # depois partia o ecra.
+    from src.models.agent import FindingSeverity
+
+    assert any(f'"severity": "{g.value}"' in fonte for g in FindingSeverity)
+    assert '"severity": "med"' not in fonte
     assert "except Exception" in fonte
     # E com prazo curto: uma etiqueta não pode atrasar a corrida de um agente.
     assert "timeout=20.0" in fonte
