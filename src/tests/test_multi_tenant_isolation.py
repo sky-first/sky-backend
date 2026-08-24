@@ -186,6 +186,20 @@ _ALLOWED_REFS = {
     str((_SRC_ROOT / "workers" / "insight_agent_worker.py").resolve()),
     str((_SRC_ROOT / "workers" / "knowledge_worker.py").resolve()),
     str((_SRC_ROOT / "workers" / "sync_worker.py").resolve()),
+    # O que faz os agendadores percorrerem a base de CADA cliente — e para
+    # isso precisa da base da PLATAFORMA, que é onde vive o registo de
+    # clientes. É o único sítio onde a lista existe: perguntar «quem são os
+    # clientes?» a uma base de cliente é a pergunta ao contrário.
+    #
+    # Nasceu de os três agendadores lerem a base da plataforma à procura de
+    # agentes que vivem nas dos clientes — e escreverem «0 vencidos» para
+    # sempre. Este ficheiro é a correcção; ler o registo é o que ele faz de
+    # propósito.
+    #
+    # Falha para «só a plataforma» se a consulta rebentar: uma indisponi-
+    # bilidade do registo degrada para uma instalação de cliente único em vez
+    # de parar todos os agendadores.
+    str((_SRC_ROOT / "workers" / "por_cada_cliente.py").resolve()),
     # Login mobile por domínio de email (Sky Mobile T-01) — a descoberta
     # do cliente corre contra a base de **registo** e não contra a de um
     # cliente, porque acontece antes de sabermos qual é o cliente. Não
