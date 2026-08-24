@@ -75,13 +75,13 @@ class TierPreset:
 TIER_REGISTRY: Dict[str, TierPreset] = {
     "starter": TierPreset(
         slug="starter",
-        display_name="Starter",
-        headline_price_eur=15_000,
+        display_name="Sky Start",
+        headline_price_eur=490,
         setup_fee_eur=0,
-        pricing_unit="12 months",
+        pricing_unit="month",
         capacity_limits={
             "agents": 3,
-            "sources": 3,
+            "sources": 1,
             "indexed_gb": 50,
         },
         rate_limit_rpm=60,
@@ -106,13 +106,13 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
     ),
     "foundation": TierPreset(
         slug="foundation",
-        display_name="Foundation",
-        headline_price_eur=60_000,
+        display_name="Sky Core",
+        headline_price_eur=900,
         setup_fee_eur=5_000,
-        pricing_unit="year",
+        pricing_unit="month",
         capacity_limits={
             "agents": 10,
-            "sources": 10,
+            "sources": 2,
             "indexed_gb": 200,
         },
         rate_limit_rpm=120,
@@ -136,15 +136,24 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
             "Quarterly strategic review",
         ],
     ),
-    "core": TierPreset(
-        slug="core",
-        display_name="Enterprise Core",
-        headline_price_eur=120_000,
+    # ── Os QUATRO planos da pagina comercial ────────────────────────────
+    #
+    # Os `core`, `advanced` e `strategic` sairam daqui: eram um segundo
+    # catalogo, anual e com outros nomes, que a tabela de aplicacao nao
+    # conhecia — e o codigo tratava o desconhecido como ILIMITADO.
+    #
+    # Continuam a ser reconhecidos como nomes ANTIGOS no
+    # `tectos_do_plano.ROTULO_APLICADO`, para os clientes gravados com
+    # eles nao ficarem sem tecto. Mas ja nao se vendem.
+    "scale": TierPreset(
+        slug="scale",
+        display_name="Sky Plus",
+        headline_price_eur=1_800,
         setup_fee_eur=10_000,
-        pricing_unit="year",
+        pricing_unit="month",
         capacity_limits={
             "agents": 30,
-            "sources": 30,
+            "sources": 5,
             "indexed_gb": 500,
         },
         rate_limit_rpm=300,
@@ -170,44 +179,9 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
             "Impact-aware Query Model (source-system protection)",
         ],
     ),
-    "advanced": TierPreset(
-        slug="advanced",
-        display_name="Enterprise Advanced",
-        headline_price_eur=180_000,
-        setup_fee_eur=15_000,
-        pricing_unit="year",
-        capacity_limits={
-            "agents": 100,
-            "sources": 100,
-            "indexed_gb": 1_500,
-        },
-        rate_limit_rpm=600,
-        rate_limit_tpm=750_000,
-        universe_intelligence_mode="continuous",
-        ai_processing_profile="high_throughput",
-        monitored_entities_cap=1_500,
-        concurrent_sessions_cap=100,
-        target_audience=(
-            "Organisations requiring continuous intelligence and "
-            "operational intensity at scale."
-        ),
-        onboarding_scope="2-week white-glove with architecture review",
-        support_sla="Priority · 1h response · 99.9% uptime",
-        bedrock_dedicated_profile=True,
-        inclusions=[
-            "All Core inclusions",
-            "Continuous Universe Intelligence mode",
-            "Up to 100 concurrent sessions",
-            "AI Processing Profile: High Throughput",
-            "Configurable Data Source Impact Throttling",
-            "Priority SLA (1h response, 99.9% uptime)",
-            "Dedicated technical account team",
-            "Quarterly executive business review (QBR)",
-        ],
-    ),
-    "strategic": TierPreset(
-        slug="strategic",
-        display_name="Enterprise Strategic",
+    "enterprise": TierPreset(
+        slug="enterprise",
+        display_name="Sky Enterprise",
         headline_price_eur=None,
         setup_fee_eur=None,
         pricing_unit="custom",

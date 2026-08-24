@@ -125,7 +125,10 @@ def test_starter_is_cheapest_tier():
 
     cheapest = pricing_tiers.list_tiers()[0]
     assert cheapest.slug == "starter"
-    assert cheapest.display_name == "Starter"
+    # «Sky Start», o nome da PAGINA COMERCIAL — que e o que o cliente le
+    # antes de assinar. Este teste fixava «Starter», o nome interno, e por
+    # isso acendeu quando o codigo passou a dizer o mesmo que a pagina.
+    assert cheapest.display_name == "Sky Start"
 
 
 def test_tenant_tier_enum_uses_starter():
@@ -249,8 +252,15 @@ async def test_downgrade_rejected_when_usage_exceeds_new_caps(
     assert dims["agents"]["used"] == 15
     assert dims["agents"]["new_cap"] == 3
     assert dims["agents"]["excess"] == 12
-    # Sources and indexed_gb are within Starter caps → not listed.
-    assert "sources" not in dims
+    # As FONTES tambem estouram agora.
+    #
+    # O Sky Start passou a permitir UMA fonte (a pagina comercial diz 1; o
+    # codigo dizia 3), e este cenario tem duas. Nao e o teste que esta
+    # errado — e a consequencia de o codigo passar a dizer o mesmo que a
+    # pagina, e o guarda apanhou-a.
+    assert dims["sources"]["new_cap"] == 1
+    assert dims["sources"]["excess"] == 1
+    # O armazenamento continua dentro do tecto.
     assert "indexed_gb" not in dims
 
 

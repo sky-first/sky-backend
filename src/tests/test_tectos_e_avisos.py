@@ -297,3 +297,72 @@ class TestAsContasFecham:
 
         assert margem("starter", 5)["margem_pct"] < 50
         assert margem("starter", 20)["margem_pct"] >= 75
+
+
+class TestOCodigoBateCertoComAPaginaComercial:
+    """A pagina e o contrato. O codigo tem de dizer o mesmo.
+
+    **Havia dois numeros a circular.** O codigo dizia 450/950/1800 com
+    1000/4000/10000 perguntas; a pagina comercial dizia 490/900/1800 com
+    500/2000/8000 — e o Felipe ja andava a dizer 900 a interessados.
+
+    A pagina ganhou, e nao por ser dele: **as contas dao-lhe razao.** Com
+    estes numeros os tres planos chegam aos 80% de margem por volta dos 11 a
+    16 clientes; com os outros eram 19 a 22. A diferenca nao e o preco — e o
+    limite de perguntas.
+
+    Estes valores estao escritos numa pagina que o cliente le antes de
+    assinar. Mudar um numero aqui sem mudar la e vender uma coisa e entregar
+    outra.
+    """
+
+    #: Copiado da pagina comercial a 24/08/2026.
+    #: nome, preco/mes, fontes, perguntas/mes
+    PAGINA = [
+        ("starter", "Sky Start", 490, 1, 500),
+        ("foundation", "Sky Core", 900, 2, 2_000),
+        ("scale", "Sky Plus", 1_800, 5, 8_000),
+    ]
+
+    @pytest.mark.parametrize("slug,nome,preco,fontes,perguntas", PAGINA)
+    def test_o_preco_e_o_nome_sao_os_da_pagina(
+        self, slug, nome, preco, fontes, perguntas
+    ):
+        from src.services.pricing_tiers import TIER_REGISTRY
+
+        t = TIER_REGISTRY[slug]
+        assert t.display_name == nome
+        assert t.headline_price_eur == preco
+        assert t.pricing_unit == "month", "a pagina cobra ao MES, nao ao ano"
+        assert t.capacity_limits["sources"] == fontes
+
+    @pytest.mark.parametrize("slug,nome,preco,fontes,perguntas", PAGINA)
+    def test_as_perguntas_sao_as_da_pagina(
+        self, slug, nome, preco, fontes, perguntas
+    ):
+        assert TECTOS[slug]["max_queries_per_month"] == perguntas
+
+    def test_os_utilizadores_sao_MESMO_ilimitados(self):
+        """«Utilizadores ilimitados» esta escrito na pagina.
+
+        Uma promessa na pagina e um contrato. Cobra-se pelo que se vigia, nao
+        por quem olha — e limitar utilizadores punia o cliente por espalhar a
+        Sky pela empresa, que e exactamente o que queremos que ele faca.
+        """
+        for slug, *_ in self.PAGINA:
+            assert TECTOS[slug]["max_users"] is None, slug
+
+    def test_so_existem_os_quatro_planos_da_pagina(self):
+        """Os `core`, `advanced` e `strategic` sairam do catalogo.
+
+        Eram um segundo conjunto, anual e com outros nomes, que a tabela de
+        aplicacao nao conhecia. Continuam a ser RECONHECIDOS como nomes
+        antigos — para os clientes gravados com eles nao ficarem sem tecto —
+        mas ja nao se vendem.
+        """
+        from src.services.pricing_tiers import TIER_REGISTRY
+
+        assert set(TIER_REGISTRY) == {"starter", "foundation", "scale", "enterprise"}
+        for antigo in ("core", "advanced", "strategic"):
+            assert antigo not in TIER_REGISTRY, f"{antigo} ainda se vende"
+            assert antigo in ROTULO_APLICADO, f"{antigo} deixou de ser reconhecido"

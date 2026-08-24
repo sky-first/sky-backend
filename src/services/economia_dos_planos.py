@@ -102,15 +102,28 @@ class Plano:
     utilizadores: Optional[int]
 
 
-#: Os quatro planos. Preços fechados pelo Lucas a 24/08/2026.
+#: Os quatro planos, **tal como estão na página comercial**.
+#:
+#: Havia dois números diferentes a circular: o código dizia 450/950/1800 com
+#: 1000/4000/10000 perguntas, e a página comercial dizia 490/900/1800 com
+#: 500/2000/8000. O Felipe já andava a dizer 900 a interessados.
+#:
+#: A página ganhou, e não por ser dele: **as contas dão-lhe razão.** Com estes
+#: números os três planos chegam aos 80% de margem por volta dos 11 a 16
+#: clientes; com os outros eram 19 a 22. A diferença não é o preço — é o
+#: limite de perguntas. Dar 1000 no plano de entrada em vez de 500 duplica o
+#: custo variável sem duplicar o preço.
+#:
+#: `utilizadores = None` porque a página promete «utilizadores ilimitados», e
+#: uma promessa na página é um contrato.
 #:
 #: As perguntas incluem as corridas dos agentes — ver a nota no topo.
 PLANOS: Dict[str, Plano] = {
-    "starter": Plano("starter", "Starter", 450, 3, 1_000, 3, 5),
-    "foundation": Plano("foundation", "Foundation", 950, 10, 4_000, 10, 25),
-    "scale": Plano("scale", "Scale", 1_800, 30, 10_000, 25, 100),
+    "starter": Plano("starter", "Sky Start", 490, 3, 500, 1, None),
+    "foundation": Plano("foundation", "Sky Core", 900, 10, 2_000, 2, None),
+    "scale": Plano("scale", "Sky Plus", 1_800, 30, 8_000, 5, None),
     # Negociado caso a caso. Sem tectos na plataforma: o contrato é que manda.
-    "enterprise": Plano("enterprise", "Enterprise", None, None, None, None, None),
+    "enterprise": Plano("enterprise", "Sky Enterprise", None, None, None, None, None),
 }
 
 
