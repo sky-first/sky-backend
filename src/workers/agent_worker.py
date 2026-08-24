@@ -381,7 +381,7 @@ def _infer_viz_kind(response, answer: str) -> str:
     return "callout"
 
 
-async def _execute_agent_async(agent_id: str):
+async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
     """
     Core agent execution logic:
     1. Load agent config from DB
@@ -414,9 +414,23 @@ async def _execute_agent_async(agent_id: str):
             logger.error(f"Agent {agent_id} not found")
             return
 
-        if agent.status != "active":
+        # Um agente EM PAUSA nao corre sozinho — mas corre quando lhe pedem.
+        #
+        # «Em pausa» quer dizer «nao vas ver por tua conta», nao «recusa-te
+        # quando eu te pergunto». Sao coisas diferentes, e o codigo lia uma
+        # pela outra: carregar em «Perguntar agora» num agente pausado
+        # devolvia 200, abria a conversa, e a mensagem nunca chegava. Do lado
+        # de quem carregou isso le-se como avariado.
+        #
+        # E ha aqui uma armadilha por cima: os agentes do Lucas foram
+        # AUTO-PAUSADOS por um defeito nosso (o laco de eventos), nao por
+        # decisao dele. Recusar o pedido manual deixava-os presos numa pausa
+        # que ninguem escolheu e que nada desfazia.
+        if agent.status != "active" and not a_pedido:
             logger.info(f"Agent {agent_id} is {agent.status}, skipping")
             return
+        if agent.status != "active":
+            logger.info(f"Agent {agent_id} is {agent.status} but was asked directly")
 
         # 2. Create execution record
         execution = AgentExecution(
@@ -1050,11 +1064,15 @@ async def _execute_agent_async(agent_id: str):
 
 
 @celery_app.task(bind=True, max_retries=2)
-def execute_agent(self, agent_id: str):
-    """Execute a single agent — called by scheduler or on-demand."""
+def execute_agent(self, agent_id: str, a_pedido: bool = False):
+    """Corre um agente. Vem do agendador, ou de alguem que carregou no botao.
+
+    `a_pedido` distingue os dois. Um agente em pausa ignora o agendador e
+    obedece ao pedido — ver a nota em `_execute_agent_async`.
+    """
     try:
-        logger.info(f"Starting agent execution: {agent_id}")
-        _run_async(_execute_agent_async(agent_id))
+        logger.info(f"Starting agent execution: {agent_id} (a_pedido={a_pedido})")
+        _run_async(_execute_agent_async(agent_id, a_pedido=a_pedido))
         return {"status": "success", "agent_id": agent_id}
     except Exception as exc:
         logger.error(f"Agent execution failed for {agent_id}: {exc}")

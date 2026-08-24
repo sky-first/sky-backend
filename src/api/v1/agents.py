@@ -513,7 +513,10 @@ async def run_agent_now(
     try:
         from src.workers.agent_worker import execute_agent
 
-        execute_agent.delay(str(agent_id))
+        # `a_pedido`: alguem carregou no botao. Um agente em pausa obedece a
+        # um pedido directo — «em pausa» quer dizer «nao vas ver por tua
+        # conta», nao «recusa-te quando eu te pergunto».
+        execute_agent.delay(str(agent_id), a_pedido=True)
     except Exception as e:
         logging.getLogger(__name__).error(
             f"Could not enqueue agent task: {e}", exc_info=True
