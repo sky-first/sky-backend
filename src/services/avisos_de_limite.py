@@ -49,17 +49,21 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 #: O que cada limiar quer dizer, em português de quem lê.
+#: Por «você», como o resto do produto. O guarda do tratamento formal
+#: apanhou-me a escrever «estás» e «o teu plano» — a app inteira trata a
+#: pessoa por você, e uma mensagem sobre faturação é o pior sítio para mudar
+#: de registo a meio.
 FRASE: dict = {
     80: (
-        "Já usaste {atual} de {limite} {recurso}.",
-        "Estás a 80% do teu plano. Ainda dá folga, mas vale a pena saber.",
+        "Já usou {atual} de {limite} {recurso}.",
+        "Está a 80% do seu plano. Ainda há folga, mas vale a pena saber.",
     ),
     95: (
-        "Estás quase no limite de {recurso}: {atual} de {limite}.",
+        "Está quase no limite de {recurso}: {atual} de {limite}.",
         "A 95% do plano. Quando chegar ao fim, deixa de dar para criar mais.",
     ),
     100: (
-        "Chegaste ao limite de {recurso}: {atual} de {limite}.",
+        "Chegou ao limite de {recurso}: {atual} de {limite}.",
         "Para criar mais, é preciso subir de plano.",
     ),
 }
