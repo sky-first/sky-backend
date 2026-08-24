@@ -570,6 +570,14 @@ class Settings(BaseSettings):
     # destructive actions; budgeting it separately keeps a runaway
     # tenant burst from burning Console quota and a Console script gone
     # wild from draining the customer-facing budget.
+    # Para onde vao os avisos de «este cliente esta a 80/95/100% do plano».
+    #
+    # Lista separada por virgulas. VAZIO significa que ninguem da equipa e
+    # avisado — e nesse caso o codigo grita nos registos, em vez de ficar
+    # calado. Nao se inventa destinatario: mandar email para um endereco
+    # adivinhado e pior do que nao mandar.
+    PLATFORM_ALERT_EMAILS: str = ""
+
     CONSOLE_RATE_LIMIT_PER_MINUTE: int = 60
     CONSOLE_RATE_LIMIT_PER_HOUR: int = 1000
 

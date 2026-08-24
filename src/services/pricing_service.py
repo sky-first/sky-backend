@@ -220,6 +220,32 @@ async def _log_threshold_crossings(
             await db.flush()
         except Exception:  # pragma: no cover — best-effort
             pass
+
+        # E AVISAR ALGUEM.
+        #
+        # A linha de auditoria acima existia desde o inicio, com um comentario
+        # a dizer que «os ganchos de email da Fase 2 leem estas linhas». A Fase
+        # 2 nunca foi feita: o cliente era BLOQUEADO aos 100% e nunca tinha
+        # sido AVISADO a caminho. Um bloqueio sem aviso le-se como avaria.
+        #
+        # Melhor-esforco, como tudo o que esta neste bloco: isto corre dentro
+        # do incremento de um contador, e uma falha de SMTP nao pode impedir
+        # alguem de fazer uma pergunta.
+        try:
+            from src.services.avisos_de_limite import avisar
+
+            await avisar(
+                db,
+                tenant_id=row.tenant_id,
+                tenant_slug=getattr(row, "tenant_slug", None),
+                tier=row.tier,
+                recurso=resource,
+                limiar=t,
+                atual=_current_count_for(row, resource),
+                limite=_limit_for(row, resource),
+            )
+        except Exception:  # pragma: no cover — best-effort
+            pass
     return crossings
 
 
@@ -270,8 +296,25 @@ async def get_limits(
             await db.execute(select(Tenant).where(Tenant.id == tid))
         ).scalar_one_or_none()
         product_tier = tenant_row.tier if tenant_row else "foundation"
-        caps = TIER_LIMITS.get(product_tier, _ENTERPRISE_CAPS)
-        pricing_tier = product_tier if product_tier in TIER_LIMITS else "enterprise"
+        # OS CINCO PLANOS, e nao dois.
+        #
+        # Isto era `TIER_LIMITS.get(product_tier, _ENTERPRISE_CAPS)` — e os
+        # planos `core`, `advanced` e `strategic` nao existem no `TIER_LIMITS`,
+        # portanto caiam TODOS em «ilimitado». Um cliente de 120 000 EUR em
+        # `core` (30 agentes no papel) nao era limitado em nada.
+        #
+        # Ver `src/services/tectos_do_plano.py` para o mapa completo e para o
+        # que ficou por decidir.
+        from src.services.tectos_do_plano import tectos_de
+
+        pricing_tier, caps, conhecido = tectos_de(product_tier)
+        if not conhecido:
+            logger.warning(
+                "pricing: cliente %s tem o plano %r, que nao esta no mapa de "
+                "tectos — a servir sem limite",
+                tid,
+                product_tier,
+            )
 
         row = TenantPlanLimits(
             tenant_id=tid,
