@@ -1,4 +1,14 @@
-"""Pricing tier registry (Projeto B It3 — B#16).
+"""Pricing tier registry.
+
+⚠️ **Os PLANOS e os LIMITES vivem agora em `src/services/tectos_do_plano.py`,
+e as CONTAS em `src/services/economia_dos_planos.py`.** Este ficheiro guarda
+só o que é de montra: preço de tabela, público-alvo, o que está incluído.
+
+Havia aqui um segundo catálogo de planos (`core`, `advanced`, `strategic`)
+que a tabela de aplicação não conhecia — e o código tratava o desconhecido
+como ILIMITADO. Vendia-se um plano que não limitava nada.
+
+Original (Projeto B It3 — B#16):
 
 Single source of truth for the five tiers defined in the customer-
 facing pricing model (``~/Downloads/SkyFirst-Docs/01-customer-facing/
