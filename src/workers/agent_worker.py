@@ -1088,13 +1088,21 @@ async def _schedule_agents_async():
 
     Returns ``(enqueued, rescheduled)``.
     """
-    from src.config.database import AsyncSessionLocal  # noqa: E402
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.tenant_context import current_tenant
     from src.models.agent import Agent
     from src.services.agent_service import FREQUENCY_HOURS
     from sqlalchemy import or_, select
 
+    # A base DESTE cliente, e nao a da plataforma.
+    #
+    # Isto era `AsyncSessionLocal()` — a base da plataforma. No modelo B os
+    # agentes de cada cliente vivem na base dedicada dele, e na da plataforma
+    # nao ha agente nenhum de cliente nenhum. O agendador percorria uma base
+    # vazia e escrevia «0 vencidos», que e indistinguivel de «nao ha nada a
+    # fazer». Ver `src/workers/por_cada_cliente.py`.
     now = datetime.now(timezone.utc)
-    async with AsyncSessionLocal() as db:
+    async with tenant_connection_manager.session_for(current_tenant()) as db:
         # Insight-mode agents are scheduled by insight_agent_worker
         # via the new AgentRunService state machine; the legacy
         # scheduler only handles question/datasource/sql modes here
@@ -1152,7 +1160,19 @@ def schedule_agents():
     Periodic task — checks all active agents and enqueues those due for execution.
     Runs every 5 minutes via Celery Beat.
     """
-    count, healed = _run_async(_schedule_agents_async())
+    # UMA PASSAGEM POR CADA CLIENTE.
+    #
+    # Corria so na base da plataforma, onde nao ha agentes de clientes. Ver
+    # `src/workers/por_cada_cliente.py` — e a razao por que ligar o `celery
+    # beat` sozinho nao teria posto agente nenhum a correr.
+    from src.workers.por_cada_cliente import por_cada_cliente
+
+    async def _todos():
+        return await por_cada_cliente(
+            lambda _slug: _schedule_agents_async(), nome="agent-scheduler"
+        )
+
+    count, healed = _run_async(_todos())
     logger.info(
         f"Agent scheduler: {count} agents enqueued for execution, {healed} rescheduled"
     )
