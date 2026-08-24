@@ -308,4 +308,25 @@ class AgentListResponse(BaseModel):
     conversation_id: Optional[UUID] = None
     created_at: datetime
 
+    # ── OS SINAIS DE VIDA — **também aqui**. ─────────────────────────────
+    #
+    # É o mesmo erro que o comentário logo acima descreve, com outros campos.
+    # Pu-los no `AgentResponse` (o detalhe) e o repositório preenche-os na
+    # LISTAGEM — mas este schema não os declarava, e o Pydantic deita fora o
+    # que não declara.
+    #
+    # Resultado no ecrã: TODOS os agentes diziam «A correr, mas ainda não
+    # encontrou nada», incluindo um com 22 descobertas no feed. A app não
+    # estava enganada: o servidor nunca lhe mandou o campo.
+    #
+    # Apanhei-o a olhar para a resposta crua do `/agents` — as três chaves
+    # não vinham a `null`, não vinham de todo.
+    last_finding_title: Optional[str] = None
+    last_finding_at: Optional[datetime] = None
+    #: `completed`, `failed`, `running` — ou `None` se nunca correu.
+    #:
+    #: Um agente ACTIVO que falha em silêncio é pior do que um parado: o
+    #: parado diz que está parado. Sem isto, os dois liam-se igual.
+    last_run_status: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
