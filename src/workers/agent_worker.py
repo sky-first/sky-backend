@@ -240,6 +240,27 @@ _PERCENT_DELTA_RE = _re_viz.compile(r"[+\-]?\s?\d+(?:\.\d+)?\s?%")
 _NUMERIC_RE = _re_viz.compile(r"\d+(?:\.\d+)?")
 
 
+#: Os valores que o esquema da API aceita. Ver `FindingSeverity` no modelo.
+GRAVIDADES_VALIDAS = ("low", "medium", "high", "critical")
+
+#: O que o classificador do sky-ai devolve, traduzido. Ele fala em `med`
+#: (curto); o modelo e a API falam em `medium`. Duas palavras para a mesma
+#: coisa, e a diferenca so aparece num 500 dois dias depois.
+_TRADUCAO_DE_GRAVIDADE = {"med": "medium", "mid": "medium", "moderate": "medium"}
+
+
+def _gravidade_valida(bruta) -> str:
+    """Uma gravidade que o esquema aceita, sempre.
+
+    Gravar um valor que a API nao consegue serializar transforma um achado bom
+    num 500 — o achado fica na base e o ecra nunca o mostra. Melhor uma
+    etiqueta aproximada do que um ecra partido.
+    """
+    v = str(bruta or "").strip().lower()
+    v = _TRADUCAO_DE_GRAVIDADE.get(v, v)
+    return v if v in GRAVIDADES_VALIDAS else "medium"
+
+
 def _juntar_respostas(por_ligacao: list[dict]) -> dict | None:
     """O que a corrida encontrou, numa resposta só.
 
@@ -675,7 +696,25 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                 except Exception as _kc_err:
                     logger.debug("Agent %s: knowledge context load skipped: %s", agent_id, _kc_err)
 
-            l1_should_run = await _connections_changed_since(
+            # QUEM PERGUNTA, RECEBE — mesmo que os dados nao tenham mudado.
+            #
+            # Este atalho salta a chamada a IA quando nenhuma ligacao mudou
+            # desde a ultima corrida. Para o AGENDADOR e o que se quer: nao se
+            # gastam tokens a reanalisar dados iguais.
+            #
+            # Para quem carrega em «Perguntar agora» esta errado. O Lucas:
+            # «perguntar agora significa rodar aquilo que ele tem na pergunta
+            # do agente agora. Levar ao fio, mas nao rodar, e a mesma coisa
+            # que nada.» Tem razao — ele carregava, a corrida devolvia
+            # `skipped_no_delta` em 1 segundo, e no fio nao aparecia nada.
+            #
+            # Foi a SEGUNDA razao pela qual os agentes nao produziam nada, e
+            # sobreviveu escondida atras da primeira (o laco de eventos): com
+            # o laco partido nunca se chegava aqui.
+            #
+            # E a mesma distincao da pausa: o que vale para quem corre sozinho
+            # nao vale para quem foi perguntado directamente.
+            l1_should_run = a_pedido or await _connections_changed_since(
                 db, connection_ids, agent.last_execution_at
             )
             if agent_user is not None:
@@ -853,7 +892,17 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                     agent_id=agent.id,
                     execution_id=execution.id,
                     type=classe.get("type") or "insight",
-                    severity=classe.get("severity") or "med",
+            # `medium` e nao `med`.
+            #
+            # Escrevi `med` no classificador a 22/08 e o esquema da API tem um
+            # enum `low|medium|high|critical`. Resultado: TODO o achado que o
+            # classificador tocou passou a rebentar o `GET /agents/{id}` com um
+            # 500 — «Input should be 'low', 'medium', 'high' or 'critical'».
+            #
+            # Nao dei por isso porque a LISTA de agentes funciona (nao devolve
+            # achados) e so o DETALHE e que parte. Apanhei-o a percorrer os
+            # ecras, dois dias depois.
+                    severity=_gravidade_valida(classe.get("severity")),
                     title=resposta_da_corrida["title"] or f"Analysis from {agent.name}",
                     description=resposta_da_corrida["answer"][:3000],
                     confidence=0.75,

@@ -73,7 +73,10 @@ class AIServiceHTTPClient:
         """
         import httpx
 
-        de_omissao = {"type": "insight", "severity": "med", "classified": False}
+        # `medium` e nao `med` — o esquema da API so aceita
+        # `low|medium|high|critical`, e um `med` gravado rebenta o detalhe do
+        # agente com um 500. Ver `_gravidade_valida` no `agent_worker`.
+        de_omissao = {"type": "insight", "severity": "medium", "classified": False}
         try:
             async with httpx.AsyncClient(
                 timeout=20.0, headers=self._tenant_headers()
