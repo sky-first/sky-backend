@@ -1,7 +1,7 @@
 """Space schemas."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Literal, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -16,7 +16,21 @@ class SpaceBase(BaseModel):
     description: Optional[str] = None
     color: Optional[str] = Field(None)  # Allow any string or None, validate in service if needed
     icon: Optional[str] = None
-    privacy: str = Field("private", description="public, private")  # Default can be 'private'
+    # **Todos os projetos são privados.**
+    #
+    # O campo existe na base e é guardado, mas NUNCA é lido: nenhuma decisão
+    # de acesso o consulta — nem o `acesso_ao_projeto`, nem o RBAC. Quem
+    # alcança um projeto alcança-o por convite (`space_members`) ou por uma
+    # equipa vinculada (`space_crews`), e mais nada.
+    #
+    # «Público» era, por isso, uma promessa que o servidor não cumpria: quem
+    # o escolhia ficava convencido de que tinha aberto o projeto à empresa.
+    # O ecrã deixou de o oferecer (27/08); aqui deixa de ser aceite, para não
+    # voltar por outra porta.
+    #
+    # Abrir um projeto a toda a empresa é uma decisão de produto por tomar —
+    # e implica escrevê-la na resolução de acesso, não só num campo.
+    privacy: Literal["private"] = "private"
     sensitivity: str = Field("internal", description="internal, confidential, restricted")
 
     @field_validator("color", mode="before")
@@ -47,7 +61,8 @@ class SpaceUpdate(BaseModel):
     description: Optional[str] = None
     color: Optional[str] = Field(None)  # Allow any string or None, validate in service if needed
     icon: Optional[str] = None
-    privacy: Optional[str] = Field(None, pattern="^(public|private)$")
+    # Ver `SpaceBase.privacy`: só existe «private».
+    privacy: Optional[Literal["private"]] = None
     sensitivity: Optional[str] = Field(None, pattern="^(internal|confidential|restricted)$")
 
 
