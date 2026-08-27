@@ -58,20 +58,24 @@ def test_o_varrimento_encontra_modelos():
 #: A lista fica aqui, à vista, para se fechar com calma. O que importa é que
 #: **não cresce**: um modelo novo que não passe pelo `__init__` faz este teste
 #: falhar com o nome dele.
+#: **Sete destes foram pagos a 27/08** — e não por arrumação. O
+#: `tenant_membership` não estava registado, logo a tabela não nascia do
+#: `create_all`; o login com cliente resolvido rebentava com
+#: `relation "tenant_membership" does not exist`. Ao registá-lo,
+#: registaram-se os outros seis que estavam no mesmo caso.
+#:
+#: Os que ficam são de módulos que ninguém importa hoje. Continuam aqui
+#: nomeados para que a lista diga a verdade — e o teste abaixo garante que
+#: diz: se alguém registar um deles e se esquecer de o tirar, falha.
 DIVIDA = {
-    "dataset": ["UserDataset"],
     "demo_content": ["DemoEvent"],
     "file": ["SyncLog"],
-    "insight_state": ["InsightState"],
     "internal_console": [
         "ProvisioningJobEvent",
         "ConsoleSupportTicket",
         "ConsoleImpersonationSession",
     ],
-    "knowledge": ["KnowledgeFile", "KnowledgeFileChunk", "KnowledgeQuotaUsage"],
     "permission": ["TableMemberPermission", "RolePermission"],
-    "tenant_membership": ["TenantMembership"],
-    "tenant_plan": ["TenantPlan"],
 }
 
 
@@ -113,7 +117,9 @@ def test_a_divida_nao_cresce_e_e_verdadeira():
     }
     sobra = {m: n for m, n in ja_registados.items() if n}
     assert sobra == {}, f"já não são dívida — tirar da lista: {sobra}"
-    assert sum(len(v) for v in DIVIDA.values()) <= 14
+    # Eram 14 a 26/08; são 7 desde que os sete se registaram. O tecto desce
+    # com a dívida — senão deixa de ser um tecto e passa a ser um sofá.
+    assert sum(len(v) for v in DIVIDA.values()) <= 7
 
 
 def test_o_space_crew_esta_la():
