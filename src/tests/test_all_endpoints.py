@@ -1437,11 +1437,33 @@ class TestSpacesEndpoints:
         test_user_with_tokens: dict,
         db_session: AsyncSession,
     ):
-        """Test DELETE /api/v1/spaces/{id}."""
+        """Test DELETE /api/v1/spaces/{id}.
+
+        **Apagar exige o nome escrito à mão** desde 26/08. Estava ao lado de
+        «Arquivar», sem travão nenhum, e leva as conversas e as ligações
+        atrás. Sem o nome, o servidor recusa — e é isso que este teste passa
+        a afirmar, nos dois sentidos.
+        """
         user = test_user_with_tokens["user"]
         space = await create_test_space(db_session, user)
         headers = get_auth_headers(test_user_with_tokens["access_token"])
-        response = await async_client.delete(f"/api/v1/spaces/{space.id}", headers=headers)
+
+        # Sem confirmar o nome não apaga: o parâmetro é obrigatório, e a
+        # recusa vem da validação (422) antes de chegar ao serviço.
+        recusa = await async_client.delete(f"/api/v1/spaces/{space.id}", headers=headers)
+        assert recusa.status_code == 422
+
+        # Com o nome errado também não.
+        errado = await async_client.delete(
+            f"/api/v1/spaces/{space.id}?confirmar_nome=outra+coisa", headers=headers
+        )
+        assert errado.status_code == 400
+
+        from urllib.parse import quote
+
+        response = await async_client.delete(
+            f"/api/v1/spaces/{space.id}?confirmar_nome={quote(space.name)}", headers=headers
+        )
         assert response.status_code == 200
 
     @pytest.mark.asyncio

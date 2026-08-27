@@ -97,7 +97,12 @@ def perguntas_recebidas(monkeypatch):
     """O que chegou à Sky. É a única coisa que este ficheiro mede."""
     recebidas: List[str] = []
 
-    async def _resposta(user, page_id, text, ctx, locale="en"):
+    # O duplo aceita **o que a função real aceita**, e não só o que este
+    # ficheiro usa. Com cinco parâmetros, rebentou com `TypeError` a 26/08
+    # quando o `_voice_answer` ganhou o `space_id` — e o efeito não foi uma
+    # falha: foi o teste a ficar à espera de tramas que nunca chegavam, e a
+    # suíte encravada nele. Ver `test_voz_nao_fica_muda`.
+    async def _resposta(user, page_id, text, ctx, locale="en", space_id=None):
         recebidas.append(text)
         return "Foram 1.234,00 €."
 

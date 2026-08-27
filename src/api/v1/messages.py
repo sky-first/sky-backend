@@ -12,6 +12,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
@@ -218,6 +219,65 @@ async def fork_conversation(
 # ─── /messages/{id}/pin ───────────────────────────────────────────────────
 
 router = APIRouter()
+
+
+class TextoDaMensagem(BaseModel):
+    """O texto corrigido."""
+
+    content: str = Field(min_length=1, max_length=8000)
+
+
+@router.delete(
+    "/{message_id}",
+    summary="Apagar uma mensagem minha",
+    description=(
+        "Só quem a escreveu. **Leva atrás as respostas que ela gerou** — a "
+        "razão para apagar costuma ser ter perguntado no projeto errado, e "
+        "uma pergunta no projeto errado traz uma resposta com dados desse "
+        "projeto."
+    ),
+    responses={404: {"model": ErrorResponse}},
+)
+async def apagar_mensagem(
+    message_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    try:
+        quantas = await MessageService(db).apagar(message_id, current_user)
+    except NotFoundError as erro:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(erro))
+    return {"apagadas": quantas}
+
+
+@router.patch(
+    "/{message_id}",
+    summary="Corrigir o texto de uma mensagem minha",
+    description=(
+        "Marca-a como editada, para se ver que mudou. **A resposta antiga "
+        "sai**: se a pergunta muda, o que estava lá deixou de ser resposta "
+        "àquilo — e deixá-la é pior do que não ter nenhuma, porque parece "
+        "que é."
+    ),
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def editar_mensagem(
+    message_id: UUID,
+    corpo: TextoDaMensagem,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    try:
+        msg = await MessageService(db).editar(message_id, current_user, corpo.content)
+    except NotFoundError as erro:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(erro))
+    except BadRequestError as erro:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(erro))
+    return {
+        "id": str(msg.id),
+        "content": msg.content,
+        "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
+    }
 
 
 @router.post(

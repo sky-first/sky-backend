@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
+from src.models.crew import Crew
 from src.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -161,6 +162,22 @@ class CrewService:
             NotFoundError: If space not found
             ForbiddenError: If user doesn't have access to space
         """
+        # Equipa DO CLIENTE: sem projeto, é uma lista de pessoas reutilizável.
+        #
+        # Não há projeto para verificar, por isso quem manda é a permissão
+        # `crews.create` que a rota já exigiu. É deliberado que qualquer pessoa
+        # com essa permissão possa fazer uma lista de gente: **uma lista não dá
+        # acesso a nada.** O acesso nasce quando a equipa é convidada para um
+        # projeto — e aí é o projeto que decide, como sempre foi (S8).
+        if crew_data.space_id is None:
+            crew = await self.crew_repo.create(
+                name=crew_data.name,
+                description=crew_data.description,
+                space_id=None,
+                created_by=user.id,
+            )
+            return await self._depois_de_criar(crew, user, crew_data)
+
         # Verify space exists and user is a member (or admin/creator)
         space = await self.space_repo.get_by_id(crew_data.space_id)
         if not space:
@@ -190,6 +207,24 @@ class CrewService:
             created_by=user.id,
         )
 
+        # Data access — grant the crew a subset of the parent space's
+        # connections (and, optionally, specific tables within them). Validated
+        # against the space so a crew can never see more than its space already
+        # exposes. Added to the same transaction as the crew itself.
+        await self._grant_crew_data_access(crew, space.id, crew_data)
+
+        return await self._depois_de_criar(crew, user, crew_data)
+
+    async def _depois_de_criar(
+        self, crew: Crew, user: User, crew_data: CrewCreate
+    ) -> CrewResponse:
+        """O que é igual nas duas equipas — a do projeto e a do cliente.
+
+        Estava tudo em linha no `create_crew`, e a equipa do cliente teria de o
+        repetir. Duas cópias do mesmo remate divergem à primeira mudança: uma
+        ganha o dono e a outra fica sem, e depois há equipas onde quem as criou
+        não aparece na lista de gente.
+        """
         # Auto-add creator as the first member of the crew with owner role.
         # Without this, the creator does not show up in the members list
         # nor in the collaborative presence pill.
@@ -208,12 +243,6 @@ class CrewService:
         )
         self.db.add(sp)
 
-        # Data access — grant the crew a subset of the parent space's
-        # connections (and, optionally, specific tables within them). Validated
-        # against the space so a crew can never see more than its space already
-        # exposes. Added to the same transaction as the crew itself.
-        await self._grant_crew_data_access(crew, space.id, crew_data)
-
         await self.db.commit()
         await self.db.refresh(crew)
 
@@ -226,7 +255,10 @@ class CrewService:
                     "entity_type": "crew",
                     "name": crew.name,
                     "description": crew.description,
-                    "space_id": str(crew.space_id),
+                    # Uma equipa do cliente não tem projeto. `None` é a
+                    # verdade; `str(None)` mandava a palavra "None" como se
+                    # fosse um id.
+                    "space_id": str(crew.space_id) if crew.space_id else None,
                     "crew_id": str(crew.id),
                     "owner_user_id": str(user.id),
                     "entity_details": {"created_by": str(user.id)},
@@ -779,6 +811,24 @@ class CrewService:
         member = await self.member_repo.get_by_crew_and_user(crew_id, user_id)
         if not member:
             raise NotFoundError("Member not found")
+
+        # **Uma equipa não pode ficar sem dono.**
+        #
+        # Não havia travão nenhum: o dono podia passar-se a `viewer` e ficava
+        # trancado fora do que era seu — sem ninguém com poder para o repor.
+        # Um projeto sem dono é um projeto que ninguém volta a gerir, e a
+        # recuperação exigia alguém a mexer na base de dados.
+        #
+        # O gesto certo é o inverso e é o que a interface passa a obrigar:
+        # **dá-se primeiro a outra pessoa, e só depois se desce**. Isto é a
+        # regra que o Jira, o Confluence e o Google Drive todos aplicam — e
+        # pela mesma razão.
+        if member.role == "owner" and role_data.role != "owner":
+            donos = await self.member_repo.contar_por_papel(crew_id, "owner")
+            if donos <= 1:
+                raise BadRequestError(
+                    "This is the only owner. Make someone else an owner first."
+                )
 
         member = await self.member_repo.update(member.id, role=role_data.role)
         await self.db.commit()

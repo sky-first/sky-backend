@@ -175,6 +175,21 @@ class Message(Base):
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
     )
+    #: Apagada por quem a escreveu. **Marca-se, não se remove.**
+    #:
+    #: Uma resposta da IA aponta para a pergunta que a gerou
+    #: (`parent_message_id`), e há reacções, fixações e widgets pendurados
+    #: nas mensagens: apagar a linha parte o fio. Marcá-la tira-a de todas as
+    #: vistas e deixa o histórico para quem tiver de o auditar.
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    #: Editada, e **vê-se que foi**.
+    #:
+    #: Uma mensagem que muda de texto sem dizer que mudou é pior do que uma
+    #: com um erro: numa conversa partilhada, alguém respondeu à versão
+    #: anterior.
+    edited_at = Column(DateTime(timezone=True), nullable=True)
+
     pinned_widget_id = Column(
         UUID(as_uuid=True),
         ForeignKey("widgets.id", ondelete="SET NULL"),

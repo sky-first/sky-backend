@@ -26,6 +26,7 @@ from src.core.permissions import is_tenant_admin
 from src.models.data_access_request import DataAccessRequest
 from src.models.space import Space, SpaceMember
 from src.models.user import User
+from src.schemas.common import ErrorResponse
 from src.services import data_access_request_service as pedidos
 
 logger = logging.getLogger(__name__)
@@ -52,17 +53,27 @@ class Decisao(BaseModel):
 
 
 async def _pertence_ao_projeto(db: AsyncSession, user: User, space_id: UUID) -> bool:
-    if (
-        await db.execute(
-            select(SpaceMember.id).where(
-                SpaceMember.space_id == space_id, SpaceMember.user_id == user.id
-            )
-        )
-    ).first():
-        return True
-    return (
-        await db.execute(select(Space.id).where(Space.id == space_id, Space.created_by == user.id))
-    ).first() is not None
+    """Alcança este projeto — **por qualquer via**.
+
+    Olhava só para `space_members` e para quem criou o projeto. Com o modelo
+    de 26/08 isso deixou de chegar: quem é convidado entra pela equipa
+    **Geral**, e quem vem por uma equipa da empresa nunca teve linha em
+    `space_members`.
+
+    O efeito era do pior tipo. Esta função guarda a criação de um pedido de
+    dados, e quando diz «não» a resposta é **a mesma de sempre** — «o seu
+    pedido foi enviado» — de propósito, para não confirmar que o projeto
+    existe. Ou seja: a pessoa escrevia o que precisava, lia que tinha sido
+    enviado, e não tinha sido. Nada gravado, ninguém avisado, e nenhuma
+    maneira de dar por isso.
+
+    Pergunta-se ao mesmo sítio que decide o acesso aos dados. Uma segunda
+    definição de «pertence» acabaria por divergir — e a divergência aparece
+    assim.
+    """
+    from src.services.acesso_ao_projeto import papel_no_projeto
+
+    return await papel_no_projeto(db, user.id, space_id) is not None
 
 
 @router.post(
@@ -111,6 +122,107 @@ async def criar_pedido(
 def _so_admin(user: User) -> None:
     if not is_tenant_admin(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Não pode decidir pedidos de acesso.")
+
+
+@router.get(
+    "/meus",
+    summary="Os pedidos que EU fiz",
+    description=(
+        "Depois de pedir, a app dizia «o seu pedido foi enviado» e acabava "
+        "aí — sem lista, sem estado, sem forma de saber se alguém tinha "
+        "olhado. É esta a lista que faltava."
+    ),
+)
+async def meus_pedidos(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[Dict[str, Any]]:
+    """Sem portão nenhum: são os pedidos da própria pessoa.
+
+    Vai o **estado** e o motivo da decisão, que é o que se quer saber. Não vai
+    a `proposta`: é a tradução do pedido em tabelas concretas, feita do lado
+    de quem aprova, e mostrá-la a quem pediu era mostrar-lhe nomes de tabelas
+    a que pode não ter acesso — exactamente o que o pedido existe para evitar.
+    """
+    linhas = (
+        (
+            await db.execute(
+                select(DataAccessRequest, Space.name)
+                .join(Space, Space.id == DataAccessRequest.space_id)
+                .where(DataAccessRequest.requester_user_id == current_user.id)
+                .order_by(DataAccessRequest.created_at.desc())
+                .limit(100)
+            )
+        )
+        .all()
+    )
+    return [
+        {
+            "id": str(pedido.id),
+            "space_id": str(pedido.space_id),
+            "projeto": nome_do_projeto,
+            "texto": pedido.texto,
+            "status": pedido.status,
+            "motivo_decisao": pedido.motivo_decisao,
+            "expires_at": pedido.expires_at.isoformat() if pedido.expires_at else None,
+            "created_at": pedido.created_at.isoformat() if pedido.created_at else None,
+            "decided_at": pedido.decided_at.isoformat() if pedido.decided_at else None,
+        }
+        for pedido, nome_do_projeto in linhas
+    ]
+
+
+@router.get(
+    "/do-projeto/{space_id}",
+    summary="Os pedidos de dados deste projeto",
+    description=(
+        "A lista de tarefas de quem trata dos dados: o que foi pedido para "
+        "este projeto e ainda ninguém decidiu."
+    ),
+    responses={403: {"model": ErrorResponse}},
+)
+async def pedidos_do_projeto(
+    space_id: UUID,
+    estado: Optional[str] = Query(
+        None, pattern="^(pending|proposed|approved|rejected|expired)$"
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[Dict[str, Any]]:
+    """**Quem manda aqui é o projeto, não a plataforma.**
+
+    A lista global é de administradores do cliente. Esta é de quem trata dos
+    dados **deste** projeto — que muitas vezes não é a mesma pessoa, e que
+    era quem estava a ficar sem saber que havia pedidos à espera.
+    """
+    from src.services.acesso_ao_projeto import papel_no_projeto
+
+    papel = await papel_no_projeto(db, current_user.id, space_id)
+    if papel not in ("owner", "editor") and not is_tenant_admin(current_user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Não pode ver os pedidos deste projeto."
+        )
+
+    q = select(DataAccessRequest).where(DataAccessRequest.space_id == space_id)
+    if estado:
+        q = q.where(DataAccessRequest.status == estado)
+    linhas = (
+        (await db.execute(q.order_by(DataAccessRequest.created_at.desc()).limit(200)))
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "id": str(pedido.id),
+            "space_id": str(pedido.space_id),
+            "requester_user_id": str(pedido.requester_user_id),
+            "texto": pedido.texto,
+            "proposta": pedido.proposta,
+            "status": pedido.status,
+            "created_at": pedido.created_at.isoformat() if pedido.created_at else None,
+        }
+        for pedido in linhas
+    ]
 
 
 @router.get("", summary="Pedidos por decidir (admin do cliente)")

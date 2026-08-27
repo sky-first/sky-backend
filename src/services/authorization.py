@@ -273,15 +273,26 @@ class Authorization:
         this Space. Used when checking a Space-level resource against a
         user that has no SpaceMember row but is a member of one or more
         Crews inside the Space."""
-        from src.models.crew import Crew, CrewMember
+        from src.models.crew import CrewMember
+        from src.services.acesso_ao_projeto import equipas_que_alcancam
 
+        # **As duas origens, e não só a antiga.**
+        #
+        # Esta consulta perguntava por `Crew.space_id` — a equipa que nasceu
+        # dentro do projeto. Com `space_crews`, uma equipa do cliente é
+        # convidada para o projeto, e ficaria invisível aqui: o portão de
+        # conteúdo fecharia a porta a quem legitimamente entra por essa via.
+        #
+        # A união vive num sítio só (`acesso_ao_projeto`), de propósito. Dois
+        # sítios a decidir acesso é o caminho para dois resultados diferentes.
+        alcancam = await equipas_que_alcancam(self.db, space_id)
+        if not alcancam:
+            return None
         rows = (
             await self.db.execute(
-                select(CrewMember.role)
-                .join(Crew, Crew.id == CrewMember.crew_id)
-                .where(
+                select(CrewMember.role).where(
                     CrewMember.user_id == user_id,
-                    Crew.space_id == space_id,
+                    CrewMember.crew_id.in_(list(alcancam.keys())),
                 )
             )
         ).scalars().all()

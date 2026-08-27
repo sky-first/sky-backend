@@ -284,7 +284,21 @@ def _juntar_respostas(por_ligacao: list[dict]) -> dict | None:
     Devolve ``None`` quando nenhuma ligação respondeu — nesse caso não há
     achado nenhum a gravar.
     """
-    uteis = [r for r in por_ligacao if (r.get("answer") or "").strip()]
+    from src.workers.uma_recusa_nao_e_um_achado import respostas_que_sao_achados
+
+    # **Uma recusa não é um achado.**
+    #
+    # O filtro era só «a resposta não está vazia». Uma recusa — *"Nenhuma
+    # fonte de dados disponível para este chat."* — é uma resposta não vazia:
+    # passava, virava um achado com esse texto por descrição, e acordava a
+    # pessoa com uma notificação a dizer que o agente tinha descoberto uma
+    # coisa. A coisa era a máquina a dizer que não podia responder.
+    #
+    # Pior do que ruído: ensina a ignorar as notificações dos agentes, que
+    # são a razão de os agentes existirem.
+    uteis = respostas_que_sao_achados(
+        [r for r in por_ligacao if (r.get("answer") or "").strip()]
+    )
     if not uteis:
         return None
 
@@ -1091,6 +1105,38 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         f"{agent.name} found {findings_created} new insight"
                         f"{'s' if findings_created > 1 else ''}"
                     )
+                    # **E TODA A GENTE DO PROJETO.**
+                    #
+                    # Isto ia só para quem criou o agente. Um achado sobre os
+                    # dados de um projeto interessa a quem trabalha nesse
+                    # projeto — e quem o criou pode até já lá não estar. O
+                    # resto da equipa só o via se calhasse abrir o feed.
+                    #
+                    # A audiência vem do mesmo sítio que decide o acesso aos
+                    # dados (`acesso_ao_projeto`), para não haver duas
+                    # definições de "quem está no projeto" a divergir.
+                    if agent.scope == "space" and agent.scope_id:
+                        try:
+                            from uuid import UUID as _UUID
+
+                            from src.services.notificar_o_projeto import notificar_o_projeto
+
+                            await notificar_o_projeto(
+                                db,
+                                _UUID(str(agent.scope_id)),
+                                tipo="agent_finding",
+                                title_key="notif_agent_findings_title",
+                                title_params={"agent": agent.name, "count": findings_created},
+                                entity_type="agent",
+                                entity_id=str(agent.id),
+                                # Quem criou recebe pela via de baixo, com o
+                                # `deep_link` e a descrição. Aqui evita-se o
+                                # duplicado.
+                                excepto=agent.created_by,
+                            )
+                        except Exception as exc:
+                            logger.warning("fan-out do achado falhou: %s", exc)
+
                     await notif_svc.create(
                         NotificationCreate(
                             user_id=agent.created_by,

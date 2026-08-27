@@ -77,8 +77,23 @@ async def test_chat_ws_broadcasts_message_created(
         )
         assert r_msg.status_code == 201, r_msg.text
 
-        raw = ws.receive_text()
-        envelope = json.loads(raw)
+        # **Lê-se até encontrar**, e não a primeira trama.
+        #
+        # O que este teste garante é que o evento *chega* a quem está
+        # subscrito — é o que a explicação lá em cima diz. Exigir que seja o
+        # primeiro envelope é exigir uma ordem que ninguém prometeu: o relay
+        # também empurra `conversation.created`, e qual deles chega primeiro
+        # depende de tempos. Apanhado a 26/08, com o teste a falhar por
+        # receber `conversation.created` num sítio onde nada tinha mudado.
+        #
+        # Se o evento **não** chegar, isto continua a falhar — no limite das
+        # tentativas ou no tempo de espera da própria ligação.
+        envelope = None
+        for _ in range(5):
+            envelope = json.loads(ws.receive_text())
+            if envelope["type"] == "message.created":
+                break
+        assert envelope is not None
         assert envelope["type"] == "message.created"
         assert envelope["payload"]["content"] == "hello"
         assert envelope["payload"]["conversation_id"] == conv_id

@@ -27,6 +27,8 @@ from src.models.context_document import (
     ContextDocumentVisibility,
 )
 from src.models.conversation import Conversation, Message
+from src.models.convite_ao_projeto import ConviteAoProjeto
+from src.models.space_crew import SpaceCrew
 from src.models.crew import Crew, CrewConnection, CrewMember, CrewTable
 from src.models.data_access_request import DataAccessRequest
 from src.models.demo_content import DemoDataset, DemoInsight, DemoLead, DemoQA
@@ -74,6 +76,22 @@ from src.models.user import RefreshToken, User
 from src.models.user_permission_grant import UserPermissionGrant
 from src.models.widget import Connection, Widget, WidgetFeedback
 from src.models.workspace import Workspace, WorkspaceMember
+
+# **Um modelo que não é importado aqui não existe.**
+#
+# O `Base.metadata` só conhece as classes que alguém importou. Uma que fique
+# de fora não aparece no `create_all`, não aparece no autogenerate do
+# alembic, e a tabela simplesmente não é criada — sem erro nenhum, até que
+# um pedido bate nela em tempo de execução e devolve 500.
+#
+# Aconteceu com o `tenant_membership` a 27/08: o login com cliente resolvido
+# rebentava com «relation "tenant_membership" does not exist» numa base
+# criada a partir dos modelos.
+from src.models.dataset import UserDataset
+from src.models.insight_state import InsightState
+from src.models.knowledge import KnowledgeFile, KnowledgeFileChunk, KnowledgeQuotaUsage
+from src.models.tenant_membership import TenantMembership
+from src.models.tenant_plan import TenantPlan
 
 __all__ = [
     "Agent",
@@ -135,6 +153,8 @@ __all__ = [
     "Comment",
     "ChatSession",
     "Conversation",
+    "ConviteAoProjeto",
+    "SpaceCrew",
     "Message",
     "EnterpriseRelationship",
     "EnterpriseAPI",
@@ -154,4 +174,11 @@ __all__ = [
     "AuditResult",
     "ProvisioningJobType",
     "ProvisioningJobStatus",
+    "UserDataset",
+    "InsightState",
+    "KnowledgeFile",
+    "KnowledgeFileChunk",
+    "KnowledgeQuotaUsage",
+    "TenantMembership",
+    "TenantPlan",
 ]

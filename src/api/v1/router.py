@@ -51,6 +51,7 @@ from src.api.v1 import (
     settings,
     settings_metrics,
     sharing,
+    convites,
     spaces,
     starred,
     support,
@@ -152,6 +153,7 @@ api_router.include_router(devices.router, prefix="/devices", tags=["Devices"])
 
 # Space endpoints
 api_router.include_router(spaces.router, prefix="/spaces", tags=["Spaces"])
+api_router.include_router(convites.router, prefix="/convites", tags=["Spaces"])
 
 # Crew endpoints
 api_router.include_router(crews.router, prefix="/crews", tags=["Crews"])

@@ -70,7 +70,11 @@ class MessageRepository(BaseRepository[Message]):
         limit: int = 50,
         cursor: Optional[datetime] = None,
     ) -> List[Message]:
-        conditions = [Message.conversation_id == conversation_id]
+        conditions = [
+            Message.conversation_id == conversation_id,
+            # Apagada não aparece — nem aqui, nem no que vai à IA.
+            Message.deleted_at.is_(None),
+        ]
         if cursor is not None:
             # Keyset: return messages strictly newer than cursor so the
             # client can paginate forward through the thread.
@@ -110,6 +114,7 @@ class MessageRepository(BaseRepository[Message]):
             .where(
                 Message.conversation_id == conversation_id,
                 Message.kind == "ai_response",
+                Message.deleted_at.is_(None),
             )
             .order_by(Message.created_at.desc())
             .limit(1)
@@ -121,6 +126,7 @@ class MessageRepository(BaseRepository[Message]):
             Message.conversation_id == conversation_id,
             Message.kind == "comment",
             Message.incorporated_in_message_id.is_(None),
+            Message.deleted_at.is_(None),
         ]
         if last_ai_at is not None:
             conditions.append(Message.created_at > last_ai_at)
@@ -165,6 +171,10 @@ class MessageRepository(BaseRepository[Message]):
             .where(
                 Message.conversation_id == conversation_id,
                 Message.created_at <= until.created_at,
+                # **O contexto que vai à IA.** Sem isto, a pergunta feita no
+                # projeto errado voltava a entrar no prompt depois de
+                # apagada — que é o oposto do que apagar serve.
+                Message.deleted_at.is_(None),
             )
             .order_by(Message.created_at.asc(), Message.id.asc())
         )

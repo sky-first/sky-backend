@@ -254,6 +254,52 @@ async def propor(db, pedido: DataAccessRequest) -> List[Dict[str, Any]]:
 # ── Decidir ──────────────────────────────────────────────────────────────────
 
 
+async def _avisar_quem_pediu(
+    db,
+    pedido: DataAccessRequest,
+    *,
+    chave: str,
+    motivo: str = "",
+) -> None:
+    """Diz a quem pediu como acabou.
+
+    **Nunca rebenta o que a chamou.** A decisão já foi tomada e gravada;
+    falhar o aviso não pode devolver um erro a quem aprovou, nem desfazer a
+    aprovação. Regista-se e segue.
+
+    A frase vai como **chave** (`title_key`), e não montada aqui: a língua
+    escolhe-se quando se lê, e o servidor não sabe a de quem vai abrir a
+    caixa. Ver `notificar_o_projeto`.
+    """
+    from sqlalchemy import select as _select
+
+    from src.models.space import Space
+    from src.schemas.notification import NotificationCreate
+    from src.services.notification_service import NotificationService
+
+    try:
+        nome = (
+            await db.execute(_select(Space.name).where(Space.id == pedido.space_id))
+        ).scalar_one_or_none() or ""
+        await NotificationService(db).create_notification(
+            NotificationCreate(
+                user_id=pedido.requester_user_id,
+                type="data_access_request",
+                title=chave,
+                title_key=chave,
+                title_params={"project": nome},
+                # O motivo da recusa é o que faz a diferença entre «não» e
+                # «não, porque isto vive noutro sítio — peça ali».
+                description_key="notif.dataRequestReason" if motivo else None,
+                description_params={"reason": motivo} if motivo else {},
+                entity_type="space",
+                entity_id=str(pedido.space_id),
+            )
+        )
+    except Exception as exc:  # pragma: no cover - defensivo
+        logger.warning("pedido %s: aviso a quem pediu falhou: %s", pedido.id, exc)
+
+
 async def aprovar(
     db,
     pedido: DataAccessRequest,
@@ -329,6 +375,8 @@ async def aprovar(
     pedido.expires_at = datetime.now(timezone.utc) + timedelta(days=dias)
     await db.flush()
 
+    await _avisar_quem_pediu(db, pedido, chave="notif.dataRequestApproved")
+
     logger.info(
         "pedido_de_acesso_aprovado",
         extra={
@@ -349,3 +397,6 @@ async def recusar(db, pedido: DataAccessRequest, *, aprovador_id: UUID, motivo: 
     pedido.decided_at = datetime.now(timezone.utc)
     pedido.motivo_decisao = motivo or None
     await db.flush()
+    await _avisar_quem_pediu(
+        db, pedido, chave="notif.dataRequestRejected", motivo=motivo or ""
+    )

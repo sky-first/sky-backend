@@ -190,6 +190,13 @@ async def update_space(
 )
 async def delete_space(
     space_id: UUID,
+    confirmar_nome: str = Query(
+        ...,
+        description=(
+            "O nome do projeto, escrito à mão. É o travão que impede apagar "
+            "por engano — «Apagar» fica ao lado de «Arquivar»."
+        ),
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
@@ -213,7 +220,7 @@ async def delete_space(
         str(current_user.id),
         str(space_id),
     )
-    await space_service.delete_space(space_id, current_user)
+    await space_service.delete_space(space_id, current_user, confirmacao=confirmar_nome)
     logger.info(
         "[spaces:delete] deleted user_id=%s space_id=%s",
         str(current_user.id),
@@ -449,6 +456,168 @@ async def get_space_members(
     """
     space_service = SpaceService(db)
     return await space_service.get_space_members(space_id, current_user)
+
+
+@router.post(
+    "/{space_id}/arquivar",
+    summary="Arquivar o projeto — ou reabri-lo",
+    description=(
+        "Sai das listas; os dados e as conversas ficam. **Pausa os agentes**: "
+        "um projeto arquivado que continua a correr agentes é uma fatura que "
+        "ninguém percebe."
+    ),
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def arquivar_projeto(
+    space_id: UUID,
+    reabrir: bool = Query(False, description="true reabre em vez de arquivar"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await SpaceService(db).arquivar(space_id, current_user, arquivar=not reabrir)
+
+
+@router.post(
+    "/{space_id}/sair",
+    summary="Sair do projeto",
+    description=(
+        "Tira-se a si próprio. O último dono não sai — um projeto sem dono é "
+        "um projeto que ninguém volta a gerir."
+    ),
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def sair_do_projeto(
+    space_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await SpaceService(db).sair(space_id, current_user)
+
+
+@router.post(
+    "/{space_id}/duplicar",
+    summary="Duplicar o projeto",
+    description=(
+        "Novo projeto com as mesmas ligações e acessos. **Não leva conversas.** "
+        "As ligações que quem duplica não pode ligar ficam de fora, e o número "
+        "vem na resposta."
+    ),
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def duplicar_projeto(
+    space_id: UUID,
+    nome: str = Query(..., min_length=1, max_length=255),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await SpaceService(db).duplicar(space_id, current_user, nome)
+
+
+@router.get(
+    "/{space_id}/pessoas-para-convidar",
+    summary="Procurar gente na empresa para convidar",
+    description=(
+        "Procura por nome ou email em toda a empresa e **esconde quem já está "
+        "no projeto** — por linha directa ou por equipa."
+    ),
+    responses={403: {"model": ErrorResponse}},
+)
+async def pessoas_para_convidar(
+    space_id: UUID,
+    procura: str = Query("", max_length=120),
+    limite: int = Query(20, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await SpaceService(db).pessoas_para_convidar(
+        space_id, current_user, procura=procura, limite=limite
+    )
+
+
+@router.post(
+    "/{space_id}/pessoas/{user_id}",
+    summary="Convidar UMA pessoa para o projeto",
+    description=(
+        "Envia um **convite**. Não dá acesso: a pessoa é avisada e decide. "
+        "Ao aceitar entra pela equipa **Geral** — um sítio só onde se procura "
+        "gente, e a regra de uma frase: se não veio por uma equipa sua, veio "
+        "pela Geral. Nessa altura o projeto inteiro é notificado."
+    ),
+    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+)
+async def convidar_pessoa(
+    space_id: UUID,
+    user_id: UUID,
+    papel: str = Query("editor", pattern="^(owner|editor|viewer)$"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await SpaceService(db).convidar_pessoa(space_id, current_user, user_id, papel=papel)
+
+
+@router.get(
+    "/{space_id}/equipas",
+    summary="As equipas com acesso a este projeto",
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def equipas_do_projeto(
+    space_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await SpaceService(db).equipas_do_projeto(space_id, current_user)
+
+
+@router.put(
+    "/{space_id}/equipas/{crew_id}",
+    summary="Convidar uma equipa — ou mudar o papel que ela tem aqui",
+    description=(
+        "A ligação é VIVA: quem entrar na equipa amanhã alcança este projeto, "
+        "e quem sair deixa de o alcançar na pergunta seguinte. Chamar duas "
+        "vezes muda o papel em vez de duplicar."
+    ),
+    responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+)
+async def convidar_equipa(
+    space_id: UUID,
+    crew_id: UUID,
+    papel: str = Query("editor", pattern="^(owner|editor|viewer)$"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await SpaceService(db).convidar_equipa(space_id, current_user, crew_id, role=papel)
+
+
+@router.delete(
+    "/{space_id}/equipas/{crew_id}",
+    summary="Tirar a uma equipa o acesso a este projeto",
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def tirar_equipa(
+    space_id: UUID,
+    crew_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await SpaceService(db).tirar_equipa(space_id, current_user, crew_id)
+
+
+@router.get(
+    "/{space_id}/acesso",
+    summary="Quem alcança este projeto, e POR ONDE",
+    description=(
+        "Cada pessoa vem com a origem do seu acesso: linha directa, equipas, "
+        "ou as duas. É o que evita julgar que tirar a linha directa corta o "
+        "acesso de quem lá está por uma equipa."
+    ),
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def acesso_das_pessoas(
+    space_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await SpaceService(db).acesso_das_pessoas(space_id, current_user)
 
 
 @router.post(

@@ -51,3 +51,6 @@ build/
 .ruff_cache/
 .deps-installed
 celerybeat-schedule.db
+
+# Rascunhos de sessão (chegaram a conter JWTs de teste).
+*.tmp

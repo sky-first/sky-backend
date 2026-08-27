@@ -11,7 +11,7 @@ widgets.pinned_message_id: the second concurrent INSERT hits the
 constraint and we return the pre-existing widget instead of raising.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
@@ -256,6 +256,117 @@ class MessageService:
         )
         await self._attach_author_names(messages)
         return messages
+
+    # ─── Apagar e editar (4.3 e 4.4) ────────────────────────────────────
+
+    async def _minha_mensagem(self, message_id: UUID, user: User) -> Message:
+        """A mensagem, se for desta pessoa e ainda existir.
+
+        **Só quem escreveu.** Nem o dono do projeto apaga a mensagem de
+        outra pessoa: são palavras dela, e um dono que possa reescrever a
+        conversa alheia transforma o histórico em algo que não se pode
+        acreditar. Quem tem de tirar alguém tira-lhe o acesso, não as
+        frases.
+
+        Devolve 404 e não 403 a quem não é o autor: um 403 confirmava que a
+        mensagem existe, e com um identificador ao calhas isso é informação.
+        """
+        msg = (
+            await self.db.execute(select(Message).where(Message.id == message_id))
+        ).scalar_one_or_none()
+        if msg is None or msg.deleted_at is not None:
+            raise NotFoundError("Message not found")
+        if msg.user_id != user.id:
+            raise NotFoundError("Message not found")
+        # Ver a conversa é condição para lá mexer: sem isto, alguém que
+        # perdeu o acesso ao projeto continuava a poder apagar lá dentro.
+        await self._load_viewable_conversation(msg.conversation_id, user)
+        return msg
+
+    async def apagar(self, message_id: UUID, user: User) -> int:
+        """Apaga a mensagem — **e a resposta que ela gerou**.
+
+        A razão para apagar não é vergonha de uma pergunta: é ter perguntado
+        **no projeto errado**, e uma pergunta no projeto errado traz uma
+        resposta com dados desse projeto. Apagar só a pergunta era deixar
+        exactamente o que interessa tirar.
+
+        Devolve quantas mensagens saíram, para o ecrã poder dizê-lo.
+        """
+        msg = await self._minha_mensagem(message_id, user)
+        agora = datetime.now(timezone.utc)
+        msg.deleted_at = agora
+        apagadas = 1
+
+        # As respostas que esta pergunta gerou vão atrás.
+        filhas = (
+            (
+                await self.db.execute(
+                    select(Message).where(
+                        Message.parent_message_id == msg.id,
+                        Message.deleted_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for filha in filhas:
+            filha.deleted_at = agora
+            apagadas += 1
+
+        await self.db.commit()
+        logger.info(
+            "mensagem_apagada: id=%s por=%s levou_respostas=%d",
+            message_id,
+            user.id,
+            apagadas - 1,
+        )
+        return apagadas
+
+    async def editar(self, message_id: UUID, user: User, texto: str) -> Message:
+        """Corrige o texto, e **marca que foi corrigido**.
+
+        Uma mensagem que muda sem dizer que mudou é pior do que uma com um
+        erro: numa conversa partilhada, alguém respondeu à versão anterior.
+
+        **A resposta antiga sai.** Se a pergunta muda, a resposta que estava
+        lá deixou de ser resposta àquilo — e deixá-la é pior do que não ter
+        nenhuma, porque parece que é. Quem edita volta a perguntar.
+        """
+        texto = (texto or "").strip()
+        if not texto:
+            raise BadRequestError("A message cannot be empty.")
+
+        msg = await self._minha_mensagem(message_id, user)
+        # Só o que a pessoa escreveu. Uma resposta da IA não se edita: seria
+        # pôr palavras na boca da máquina e guardá-las como se fossem dela.
+        if msg.role != "user":
+            raise BadRequestError("Only your own messages can be edited.")
+
+        msg.content = texto
+        agora = datetime.now(timezone.utc)
+        msg.edited_at = agora
+
+        filhas = (
+            (
+                await self.db.execute(
+                    select(Message).where(
+                        Message.parent_message_id == msg.id,
+                        Message.deleted_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for filha in filhas:
+            filha.deleted_at = agora
+
+        await self.db.commit()
+        await self.db.refresh(msg)
+        logger.info("mensagem_editada: id=%s por=%s", message_id, user.id)
+        return msg
 
     # ─── Ask-AI bundling (chat-threads-master-plan PR2) ─────────────────
 

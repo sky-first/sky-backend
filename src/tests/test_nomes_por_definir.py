@@ -83,9 +83,19 @@ def test_nenhum_ficheiro_usa_um_nome_que_nao_definiu():
 
 
 def test_o_select_do_space_service_esta_mesmo_importado():
-    """O caso concreto, nomeado, para não se perder no teste geral acima."""
-    fonte = (RAIZ / "services" / "space_service.py").read_text(encoding="utf-8")
-    assert "\nfrom sqlalchemy import select\n" in fonte
+    """O caso concreto, nomeado, para não se perder no teste geral acima.
+
+    **Afirma-se que o nome existe, não a linha que o traz.** A versão
+    anterior exigia a linha literal ``from sqlalchemy import select`` e
+    partiu-se a 26/08, quando o ficheiro passou a precisar também de ``or_``
+    e a importação virou ``from sqlalchemy import func, or_, select`` — que é
+    igualmente correcta. Um teste que fixa a forma da linha em vez do que ela
+    garante obriga a mexer no teste sempre que o ficheiro cresce, e não
+    apanha nada que o ``NameError`` não apanhasse.
+    """
+    import src.services.space_service as mod
+
+    assert hasattr(mod, "select"), "o `select` não está no âmbito do módulo"
 
 
 def test_a_deteccao_funciona():

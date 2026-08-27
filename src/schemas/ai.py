@@ -79,6 +79,20 @@ class AIQueryRequest(BaseModel):
     def _normalize_locale(cls, v: object) -> object:
         if v is None:
             return None
+        # **`"auto"` quer dizer: responde na língua da pergunta.**
+        #
+        # Não é o mesmo que não dizer nada. Omitir o campo quer dizer «o
+        # cliente é antigo e não sabe disto», e aí vale a preferência
+        # guardada; dizer `auto` é uma escolha da pessoa, feita no ecrã das
+        # definições — «segue a sua pergunta».
+        #
+        # Sem esta distinção o silêncio queria dizer as duas coisas ao mesmo
+        # tempo: o telemóvel omitia o campo para pedir automático e o servidor
+        # lia isso como «usa o `language` guardado». Quem tinha a app em
+        # inglês e escrevia em português recebia inglês — e tinha escolhido
+        # explicitamente o contrário.
+        if str(v).strip().lower() == "auto":
+            return "auto"
         from src.core.locale import normalize_locale
         return normalize_locale(str(v))
 
@@ -188,6 +202,20 @@ class ChatMessageRequest(BaseModel):
     def _normalize_locale(cls, v: object) -> object:
         if v is None:
             return None
+        # **`"auto"` quer dizer: responde na língua da pergunta.**
+        #
+        # Não é o mesmo que não dizer nada. Omitir o campo quer dizer «o
+        # cliente é antigo e não sabe disto», e aí vale a preferência
+        # guardada; dizer `auto` é uma escolha da pessoa, feita no ecrã das
+        # definições — «segue a sua pergunta».
+        #
+        # Sem esta distinção o silêncio queria dizer as duas coisas ao mesmo
+        # tempo: o telemóvel omitia o campo para pedir automático e o servidor
+        # lia isso como «usa o `language` guardado». Quem tinha a app em
+        # inglês e escrevia em português recebia inglês — e tinha escolhido
+        # explicitamente o contrário.
+        if str(v).strip().lower() == "auto":
+            return "auto"
         from src.core.locale import normalize_locale
         return normalize_locale(str(v))
 
@@ -286,6 +314,20 @@ class GenerateSQLRequest(BaseModel):
     def _normalize_locale(cls, v: object) -> object:
         if v is None:
             return None
+        # **`"auto"` quer dizer: responde na língua da pergunta.**
+        #
+        # Não é o mesmo que não dizer nada. Omitir o campo quer dizer «o
+        # cliente é antigo e não sabe disto», e aí vale a preferência
+        # guardada; dizer `auto` é uma escolha da pessoa, feita no ecrã das
+        # definições — «segue a sua pergunta».
+        #
+        # Sem esta distinção o silêncio queria dizer as duas coisas ao mesmo
+        # tempo: o telemóvel omitia o campo para pedir automático e o servidor
+        # lia isso como «usa o `language` guardado». Quem tinha a app em
+        # inglês e escrevia em português recebia inglês — e tinha escolhido
+        # explicitamente o contrário.
+        if str(v).strip().lower() == "auto":
+            return "auto"
         from src.core.locale import normalize_locale
         return normalize_locale(str(v))
 

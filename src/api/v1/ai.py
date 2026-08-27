@@ -227,6 +227,16 @@ async def process_query(
     if query_data.locale is None:
         query_data.locale = prefs.get("language", DEFAULT_LOCALE)
 
+    # **`"auto"` é uma escolha, e não uma ausência.**
+    #
+    # Quem escolheu «segue a sua pergunta» nas definições quer que o motor
+    # detecte a língua do que escreveu. Deixá-lo passar para o motor como a
+    # palavra `auto` seria pedir-lhe que respondesse em «auto»; convertê-lo em
+    # `None` **aqui**, depois da queda para as preferências, é o que faz a
+    # escolha valer.
+    if getattr(query_data, "locale", None) == "auto":
+        query_data.locale = None
+
     # Beats quota gate — fires AFTER rate limit (cheap Redis check)
     # and AFTER page validation, so users near their cap aren't
     # charged when those earlier gates would have rejected the call
@@ -606,6 +616,16 @@ async def send_chat_message(
     if message_data.locale is None:
         message_data.locale = prefs.get("language", "pt")
 
+    # **`"auto"` é uma escolha, e não uma ausência.**
+    #
+    # Quem escolheu «segue a sua pergunta» nas definições quer que o motor
+    # detecte a língua do que escreveu. Deixá-lo passar para o motor como a
+    # palavra `auto` seria pedir-lhe que respondesse em «auto»; convertê-lo em
+    # `None` **aqui**, depois da queda para as preferências, é o que faz a
+    # escolha valer.
+    if getattr(message_data, "locale", None) == "auto":
+        message_data.locale = None
+
     ai_service = AIService(db)
     response = await ai_service.send_chat_message(current_user.id, message_data)
     # Pricing Fase 1 — counter bump on success only.
@@ -751,6 +771,16 @@ async def send_chat_message_stream(
         message_data.ai_style = prefs.get("ai_style")
     if message_data.locale is None:
         message_data.locale = prefs.get("language", "pt")
+
+    # **`"auto"` é uma escolha, e não uma ausência.**
+    #
+    # Quem escolheu «segue a sua pergunta» nas definições quer que o motor
+    # detecte a língua do que escreveu. Deixá-lo passar para o motor como a
+    # palavra `auto` seria pedir-lhe que respondesse em «auto»; convertê-lo em
+    # `None` **aqui**, depois da queda para as preferências, é o que faz a
+    # escolha valer.
+    if getattr(message_data, "locale", None) == "auto":
+        message_data.locale = None
 
     # Resolve scope inline. We can't reuse AIService.send_chat_message
     # because it persists and returns a single blob; streaming needs us
