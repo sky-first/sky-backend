@@ -1328,6 +1328,44 @@ class AIService:
                                 else knowledge_block
                             )
 
+                        # **Os documentos anexados à pergunta.**
+                        #
+                        # Este é o caminho do `/ai/query` — o que o chat
+                        # PRINCIPAL da web usa. Liguei primeiro o `/ai/chat`
+                        # e só ao seguir a chamada a partir do compositor é
+                        # que vi que não era este. Um anexo enviado do chat
+                        # nunca teria chegado ao modelo, e nada o diria.
+                        #
+                        # A leitura é a mesma dos três caminhos
+                        # (`services/anexos_da_pergunta`), verificação de
+                        # dono incluída.
+                        try:
+                            from sqlalchemy import select as _anexq_select
+
+                            from src.models.user import User as _AnexqUser
+                            from src.services.anexos_da_pergunta import (
+                                juntar_aos_dados,
+                                leads_dos_anexos,
+                            )
+
+                            _ctx_anexos = (
+                                query_data.context
+                                if isinstance(getattr(query_data, "context", None), dict)
+                                else (configure_data.model_dump() if configure_data else {})
+                            )
+                            _quem_q = (
+                                await self.db.execute(
+                                    _anexq_select(_AnexqUser).where(_AnexqUser.id == user_id)
+                                )
+                            ).scalar_one_or_none()
+                            if _quem_q is not None:
+                                merged_instructions = juntar_aos_dados(
+                                    await leads_dos_anexos(self.db, _ctx_anexos, _quem_q),
+                                    merged_instructions,
+                                ) or ""
+                        except Exception as _anexq_err:
+                            logger.debug("[process_query] anexos ignorados: %s", _anexq_err)
+
                         # Personal mode: forward the caller's full Space
                         # membership so the AI RAG can surface
                         # space-scoped rows from every Space the caller
@@ -1977,6 +2015,46 @@ class AIService:
                         except Exception as _kc_err:
                             logger.debug(
                                 "[send_chat_message] knowledge_context_loader skipped: %s", _kc_err
+                            )
+
+                        # **Os documentos anexados à pergunta.**
+                        #
+                        # Faltava aqui, e era o bloqueio real do anexo na web:
+                        # este é o caminho do `/ai/chat`, e só o
+                        # `/chat/stream` — que a web não usa — lia anexos. A
+                        # web podia ter o botão todo feito que o documento
+                        # nunca chegaria ao modelo.
+                        #
+                        # A leitura é a mesma dos dois lados
+                        # (`services/anexos_da_pergunta`), incluindo a
+                        # verificação de dono.
+                        try:
+                            # `select` importado aqui e não reaproveitado do
+                            # bloco anterior: aquele importa-o dentro do seu
+                            # próprio `try`, e se ele falhar este ficava a
+                            # usar um nome que não existe — um erro que só
+                            # aparece quando outra coisa já correu mal.
+                            from sqlalchemy import select as _anex_select
+
+                            from src.models.user import User as _AnexUser
+                            from src.services.anexos_da_pergunta import (
+                                juntar_aos_dados,
+                                leads_dos_anexos,
+                            )
+
+                            _quem = (
+                                await self.db.execute(
+                                    _anex_select(_AnexUser).where(_AnexUser.id == user_id)
+                                )
+                            ).scalar_one_or_none()
+                            if _quem is not None:
+                                merged_instructions = juntar_aos_dados(
+                                    await leads_dos_anexos(self.db, context, _quem),
+                                    merged_instructions,
+                                ) or ""
+                        except Exception as _anex_err:
+                            logger.debug(
+                                "[send_chat_message] anexos ignorados: %s", _anex_err
                             )
 
                         # Personal mode: forward caller Space membership.

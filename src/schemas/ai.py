@@ -24,6 +24,16 @@ class ConfigureData(BaseModel):
     # Org-certified rows first. Populated by ai_service.process_query
     # via knowledge_context_loader and spliced into the engine prompt.
     knowledge_context: Optional[str] = None
+    # **Documentos anexados a ESTA pergunta.**
+    #
+    # Transitórios: o servidor lê o texto extraído de cada um, põe-no à
+    # frente da pergunta, e não o guarda com a conversa. Para documentos que
+    # devem servir todas as perguntas existe a biblioteca de conhecimento
+    # (`knowledge`), que é outra coisa.
+    #
+    # O nome é o mesmo que o `/chat/stream` usa há muito, para que
+    # `attachment_ids` os leia sem saber de que caminho vieram.
+    file_ids: Optional[List[str]] = None
 
 
 class AIQueryRequest(BaseModel):

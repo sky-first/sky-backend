@@ -886,30 +886,16 @@ async def send_chat_message_stream(
     # context.file_id (singular) is the older shape and still accepted: a
     # client that predates file_ids must keep working, and mobile sends both
     # so an older backend still gets one document instead of none.
-    _file_leads: list[str] = []
-    for _file_id in attachment_ids(_ctx):
-        try:
-            import uuid as _uuid
+    # A leitura vive em `services/anexos_da_pergunta` desde 27/08 — o
+    # `/ai/chat`, que é o endpoint da WEB, precisava exactamente da mesma
+    # e não a tinha. Duas cópias seriam a garantia de que uma ficava para
+    # trás, e a que fica para trás nestas coisas é a que decide o que o
+    # modelo vê.
+    from src.services.anexos_da_pergunta import juntar_aos_dados, leads_dos_anexos
 
-            from src.models.file import FileUpload
-
-            _fu = await db.get(FileUpload, _uuid.UUID(str(_file_id)))
-            if _fu is not None and _fu.user_id == current_user.id:
-                _ftext = ((_fu.parsed_data or {}).get("text") or "").strip()
-                if _ftext:
-                    _file_leads.append(
-                        f'The user attached a document named "{_fu.original_name}". '
-                        f'Use its contents to answer:\n"""\n{_ftext[:100000]}\n"""'
-                    )
-        except Exception as _file_err:
-            logger.debug("[chat/stream] file context skipped: %s", _file_err)
-    if _file_leads:
-        # Joined once, in the order the user attached them — prepending inside
-        # the loop would hand the model the documents back to front.
-        _flead = "\n\n".join(_file_leads)
-        stream_instructions = (
-            f"{_flead}\n\n{stream_instructions}" if stream_instructions else _flead
-        )
+    stream_instructions = juntar_aos_dados(
+        await leads_dos_anexos(db, _ctx, current_user), stream_instructions
+    )
 
     # Multi-turn threading (mobile, opt-in). Resolve or create the conversation
     # up front so its id is stable; the turn's messages are saved once the
