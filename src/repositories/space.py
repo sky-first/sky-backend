@@ -29,6 +29,14 @@ class SpaceRepository(BaseRepository[Space]):
             .join(CrewMember, CrewMember.crew_id == Crew.id)
             .where(CrewMember.user_id == user_id)
         )
+        # E as equipas CONVIDADAS — ver o comentário em `get_by_user_with_stats`.
+        from src.models.space_crew import SpaceCrew as _SC
+
+        convidada_space_ids = (
+            select(_SC.space_id)
+            .join(CrewMember, CrewMember.crew_id == _SC.crew_id)
+            .where(CrewMember.user_id == user_id)
+        )
         result = await self.db.execute(
             select(Space)
             .where(
@@ -37,6 +45,7 @@ class SpaceRepository(BaseRepository[Space]):
                     Space.created_by == user_id,
                     Space.id.in_(member_space_ids),
                     Space.id.in_(crew_space_ids),
+                    Space.id.in_(convidada_space_ids),
                 ),
             )
             .order_by(Space.created_at.desc())
@@ -56,6 +65,20 @@ class SpaceRepository(BaseRepository[Space]):
             .join(CrewMember, CrewMember.crew_id == Crew.id)
             .where(CrewMember.user_id == user_id)
         )
+        # **E as equipas CONVIDADAS, que é o modelo novo.**
+        #
+        # A consulta acima só conhece a equipa que nasceu dentro do projeto
+        # (`crews.space_id`). Com `space_crews`, uma equipa do cliente é
+        # convidada — e quem lá está PODIA perguntar no projeto mas não o via
+        # na lista. Um acesso que existe e não se encontra é um acesso que não
+        # existe: o João tinha 200 a perguntar em Operação e lista vazia.
+        from src.models.space_crew import SpaceCrew as _SC2
+
+        convidada_space_ids = (
+            select(_SC2.space_id)
+            .join(CrewMember, CrewMember.crew_id == _SC2.crew_id)
+            .where(CrewMember.user_id == user_id)
+        )
         stmt = (
             select(
                 Space,
@@ -70,6 +93,7 @@ class SpaceRepository(BaseRepository[Space]):
                     Space.created_by == user_id,
                     Space.id.in_(member_space_ids),
                     Space.id.in_(crew_space_ids),
+                    Space.id.in_(convidada_space_ids),
                 ),
             )
             .group_by(Space.id)

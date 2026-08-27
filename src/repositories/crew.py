@@ -266,6 +266,23 @@ class CrewMemberRepository(BaseRepository[CrewMember]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, CrewMember)
 
+    async def contar_por_papel(self, crew_id: UUID, papel: str) -> int:
+        """Quantas pessoas têm este papel nesta equipa.
+
+        Existe para uma regra só: **uma equipa não pode ficar sem dono**.
+        Contar em SQL e não em Python porque a alternativa é trazer a equipa
+        inteira para responder a uma pergunta de um número — e há equipas com
+        muita gente.
+        """
+        from sqlalchemy import func, select as _select
+
+        r = await self.db.execute(
+            _select(func.count())
+            .select_from(CrewMember)
+            .where(CrewMember.crew_id == crew_id, CrewMember.role == papel)
+        )
+        return int(r.scalar_one() or 0)
+
     async def get_by_crew(self, crew_id: UUID) -> List[CrewMember]:
         """
         Get members by crew.

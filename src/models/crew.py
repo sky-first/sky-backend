@@ -18,10 +18,31 @@ class Crew(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    #: O projeto a que esta equipa pertence — ou ``None``, se for do cliente.
+    #:
+    #: **Passou a poder ser nulo, e é a mudança que faz a equipa ser gente.**
+    #:
+    #: Uma equipa nascia sempre dentro de um projeto. Isso obrigava a recriar a
+    #: "Equipa Comercial" em cada projeto novo: seis pessoas escritas outra vez,
+    #: seis listas que divergem, e acrescentar alguém à empresa não chegava a
+    #: lado nenhum. Era o modelo errado, e o Lucas apanhou-o a usar a app —
+    #: *"dentro do projeto eu tenho é que chamar uma equipa que já existe"*.
+    #:
+    #: Com ``None``, a equipa é do cliente: uma **lista de pessoas reutilizável**
+    #: (``docs/modelo-projeto-equipa-e-pedidos-de-acesso.md`` §1). Convidá-la
+    #: para um projeto **copia** as pessoas — é uma fotografia, não uma ligação
+    #: viva. Essa decisão é o S6 do mesmo documento, e existe porque a
+    #: alternativa é a armadilha mais provável deste modelo: tirar alguém da
+    #: equipa e julgar que se lhe cortou o acesso aos projetos, quando não se
+    #: cortou.
+    #:
+    #: As que já existem ficam como estão (com projeto). Nada se migra à força:
+    #: uma equipa presa a um projeto continua a funcionar exactamente como
+    #: funcionava.
     space_id = Column(
         UUID(as_uuid=True),
         ForeignKey("spaces.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     created_by = Column(

@@ -44,7 +44,12 @@ class CrewConnectionResponse(BaseModel):
 class CrewCreate(CrewBase):
     """Crew creation schema."""
 
-    space_id: UUID
+    # Omitir cria uma equipa **do cliente** — uma lista de pessoas reutilizável,
+    # que depois se convida para os projetos que se quiser. Dar um projeto
+    # mantém o comportamento antigo: a equipa nasce lá dentro.
+    #
+    # Ver `models/crew.py::Crew.space_id` para o porquê da mudança.
+    space_id: Optional[UUID] = None
     # Connections (a subset of the parent space's connections) this crew may
     # use. Empty/omitted means the crew is created without any explicit
     # connection grant.
@@ -81,7 +86,10 @@ class CrewResponse(CrewBase):
     """Crew response schema."""
 
     id: UUID
-    space_id: UUID
+    # `None` numa equipa do cliente — as que não pertencem a projeto nenhum.
+    # Sem isto a criação rebentava com 500 na própria resposta: a equipa era
+    # gravada e o pedido devolvia erro, o pior dos dois mundos.
+    space_id: Optional[UUID] = None
     created_by: UUID
     created_at: datetime
     updated_at: datetime

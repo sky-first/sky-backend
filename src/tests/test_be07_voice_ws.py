@@ -68,7 +68,13 @@ def test_t07_4_happy_turn(client, monkeypatch):
     """
     _mock_auth(monkeypatch)
 
-    async def _fake_answer(user, page_id, text, ctx, locale="en"):
+    # O duplo aceita **o que a função real aceita**, e não só o que este
+    # teste usa. Escrito com cinco parâmetros, rebentou com `TypeError` a
+    # 26/08 quando o `_voice_answer` ganhou o `space_id` — e o efeito não foi
+    # uma falha: foi o teste a ficar à espera de tramas que nunca chegavam,
+    # e a suíte inteira encravada nele. Um duplo que não segue o contrato
+    # não protege nada; esconde.
+    async def _fake_answer(user, page_id, text, ctx, locale="en", space_id=None):
         return "There are 374 clients."
 
     monkeypatch.setattr("src.api.v1.voice._voice_answer", _fake_answer)

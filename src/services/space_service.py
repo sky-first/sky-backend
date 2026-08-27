@@ -11,13 +11,13 @@ from fastapi import BackgroundTasks
 # pertence a uma **equipa** dentro do projeto sem ser membro directo dele.
 # Alguém já tinha tropeçado nisto e contornou com um `import select as
 # _select` local (linha ~663) em vez de corrigir aqui.
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.models.crew import Crew
-from src.models.space import SpaceConnection
+from src.models.space import Space, SpaceConnection, SpaceMember
 from src.models.user import User
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
 from src.repositories.space import SpaceMemberRepository, SpaceRepository, SpaceTableRepository
@@ -335,17 +335,28 @@ class SpaceService:
 
         return SpaceResponse.model_validate(space)
 
-    async def delete_space(self, space_id: UUID, user: User) -> None:
-        """
-        Delete space.
+    async def delete_space(
+        self, space_id: UUID, user: User, confirmacao: Optional[str] = None
+    ) -> None:
+        """Apaga um projeto — com o nome escrito à mão.
+
+        **O travão existe porque «Apagar» fica ao lado de «Arquivar».** Um
+        toque a mais e vai-se um projeto inteiro com os seus dados e conversas.
+        Escrever o nome é o mesmo travão que o GitHub usa para apagar um
+        repositório, e funciona: obriga a ler o que se está a apagar.
+
+        `confirmacao` a `None` mantém o comportamento antigo, para os
+        chamadores internos (limpeza de demo, testes) não terem de o saber.
 
         Args:
             space_id: Space ID
             user: Current user
+            confirmacao: o nome do projeto, escrito por quem apaga
 
         Raises:
             NotFoundError: If space not found
             ForbiddenError: If user doesn't have access
+            BadRequestError: se o nome não bater certo
         """
         import logging
 
@@ -356,6 +367,9 @@ class SpaceService:
         space = await self.space_repo.get_by_id(space_id)
         if not space:
             raise NotFoundError("Space not found")
+
+        if confirmacao is not None and confirmacao.strip() != (space.name or "").strip():
+            raise BadRequestError("Type the project name exactly to delete it.")
 
         settings = get_settings()
 
@@ -630,6 +644,674 @@ class SpaceService:
         await self.db.commit()
         await self.db.refresh(member, ["user"])
         return member
+
+    async def arquivar(self, space_id: UUID, user: User, arquivar: bool = True) -> Dict[str, Any]:
+        """Arquiva um projeto — ou reabre-o.
+
+        **Sai das listas; os dados e as conversas ficam.** Um projeto de teste
+        que não se pode tirar da frente polui a lista para sempre, e apagar é
+        demasiado para o que muitas vezes se quer, que é só arrumar.
+
+        **E pausa os agentes.** Um projeto arquivado que continua a correr
+        agentes é uma fatura que ninguém percebe. Ver §4.3 de
+        ``docs/pessoas-equipas-e-projetos.md``.
+        """
+        from datetime import datetime, timezone
+
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+        await self._require_space_role(space_id, user, min_role="owner")
+
+        space.archived_at = datetime.now(timezone.utc) if arquivar else None
+
+        pausados = 0
+        if arquivar:
+            from src.models.agent import Agent
+
+            # O agente aponta ao projeto por `scope`/`scope_id`, e não por
+            # uma coluna `space_id` — há agentes pessoais e de organização.
+            agentes = (
+                await self.db.execute(
+                    select(Agent).where(
+                        Agent.scope == "space",
+                        Agent.scope_id == str(space_id),
+                        Agent.status == "active",
+                    )
+                )
+            ).scalars().all()
+            for a in agentes:
+                a.status = "paused"
+                pausados += 1
+
+        await self.db.commit()
+        from src.services.notificar_o_projeto import notificar_o_projeto
+
+        await notificar_o_projeto(
+            self.db,
+            space_id,
+            tipo="system",
+            title_key="notif.projectArchived" if arquivar else "notif.projectReopened",
+            title_params={"project": space.name},
+            excepto=user.id,
+        )
+        logger.info(
+            "projeto_%s: space=%s por=%s agentes_pausados=%d",
+            "arquivado" if arquivar else "reaberto",
+            space_id,
+            user.id,
+            pausados,
+        )
+        return {"space_id": str(space_id), "arquivado": arquivar, "agentes_pausados": pausados}
+
+    async def sair(self, space_id: UUID, user: User) -> Dict[str, Any]:
+        """Tira-se a si próprio do projeto.
+
+        Não existia: só o dono podia tirar alguém, e quem quisesse sair de um
+        projeto onde já não trabalha não tinha por onde.
+
+        **O último dono não sai.** Um projeto sem dono é um projeto que
+        ninguém volta a gerir — a mesma regra que trava a despromoção (A2).
+        """
+        from src.services.acesso_ao_projeto import papel_no_projeto
+
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+
+        meu = await papel_no_projeto(self.db, user.id, space_id)
+        if meu is None:
+            raise NotFoundError("You are not in this project.")
+
+        if meu == "owner":
+            outros = (
+                await self.db.execute(
+                    select(func.count())
+                    .select_from(SpaceMember)
+                    .where(
+                        SpaceMember.space_id == space_id,
+                        SpaceMember.role == "owner",
+                        SpaceMember.user_id != user.id,
+                    )
+                )
+            ).scalar_one()
+            if not outros or space.created_by == user.id:
+                raise BadRequestError(
+                    "You are the only owner. Make someone else an owner first."
+                )
+
+        linha = (
+            await self.db.execute(
+                select(SpaceMember).where(
+                    SpaceMember.space_id == space_id, SpaceMember.user_id == user.id
+                )
+            )
+        ).scalar_one_or_none()
+        if linha is not None:
+            await self.db.delete(linha)
+        await self.db.commit()
+        logger.info("saiu_do_projeto: space=%s user=%s", space_id, user.id)
+        # Quem continua a alcançar por equipa continua — e é honesto dizê-lo,
+        # em vez de fingir que a saída cortou tudo.
+        resta = await papel_no_projeto(self.db, user.id, space_id)
+        return {"space_id": str(space_id), "ainda_alcanca_por_equipa": resta is not None}
+
+    async def duplicar(self, space_id: UUID, user: User, nome: str) -> Dict[str, Any]:
+        """Um projeto novo com as mesmas ligações e os mesmos acessos.
+
+        **Não leva conversas.** Duplicar é montar a estrutura outra vez, não
+        copiar o trabalho de ninguém — e conversas copiadas seriam respostas
+        antigas a parecer novas.
+
+        **E não leva ligações que quem duplica não pode ligar.** Duplicar não
+        pode ser uma forma de contornar a permissão de ligar dados (A5): as
+        que ficam de fora são devolvidas, para se dizer quais.
+        """
+        from src.models.space_crew import SpaceCrew
+
+        origem = await self.space_repo.get_by_id(space_id)
+        if not origem:
+            raise NotFoundError("Space not found")
+        await self._require_space_role(space_id, user, min_role="viewer")
+
+        novo = await self.space_repo.create(
+            name=nome, description=origem.description, created_by=user.id
+        )
+        await self.db.flush()
+
+        # `assert_permission` lança; aqui quer-se um sim/não, porque
+        # duplicar sem poder ligar dados **continua a duplicar** — só deixa as
+        # ligações de fora, e diz quais.
+        from src.services.rbac_service import RBACService as _RBAC
+
+        try:
+            await _RBAC(self.db).assert_permission(user, "connections.edit")
+            pode_ligar = True
+        except Exception:
+            pode_ligar = False
+        ligadas, de_fora = [], []
+        for (conn_id,) in (
+            await self.db.execute(
+                select(SpaceConnection.connection_id).where(SpaceConnection.space_id == space_id)
+            )
+        ).all():
+            if pode_ligar:
+                self.db.add(SpaceConnection(space_id=novo.id, connection_id=conn_id))
+                ligadas.append(str(conn_id))
+            else:
+                de_fora.append(str(conn_id))
+
+        for crew_id, papel in (
+            await self.db.execute(
+                select(SpaceCrew.crew_id, SpaceCrew.role).where(SpaceCrew.space_id == space_id)
+            )
+        ).all():
+            self.db.add(
+                SpaceCrew(space_id=novo.id, crew_id=crew_id, role=papel, added_by=user.id)
+            )
+
+        for uid, papel in (
+            await self.db.execute(
+                select(SpaceMember.user_id, SpaceMember.role).where(
+                    SpaceMember.space_id == space_id
+                )
+            )
+        ).all():
+            if uid != user.id:
+                self.db.add(SpaceMember(space_id=novo.id, user_id=uid, role=papel))
+
+        await self.db.commit()
+        logger.info(
+            "projeto_duplicado: origem=%s novo=%s por=%s ligacoes=%d de_fora=%d",
+            space_id,
+            novo.id,
+            user.id,
+            len(ligadas),
+            len(de_fora),
+        )
+        return {
+            "space_id": str(novo.id),
+            "name": nome,
+            "ligacoes": len(ligadas),
+            "ligacoes_de_fora": len(de_fora),
+        }
+
+    async def equipa_geral(self, space_id: UUID) -> Optional[Crew]:
+        """A equipa **Geral** deste projeto — a casa de quem é convidado à unidade.
+
+        Ideia do Lucas a 26/08, e simplifica o modelo: em vez de uma segunda
+        lista de "pessoas convidadas directamente" ao lado das equipas,
+        convidar alguém é pô-lo na Geral. Passa a haver **um** sítio onde se
+        procura gente — a equipa — e a regra fica de uma frase: *se não veio
+        por uma equipa sua, veio pela Geral*.
+        """
+        return (
+            await self.db.execute(
+                select(Crew).where(
+                    Crew.space_id == space_id,
+                    Crew.name == DEFAULT_CREW_NAME,
+                    Crew.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def pessoas_para_convidar(
+        self, space_id: UUID, user: User, procura: str = "", limite: int = 20
+    ) -> List[Dict[str, Any]]:
+        """Procura gente na empresa inteira para convidar para este projeto.
+
+        **Porque não se reutiliza `GET /users`.** Três razões. O portão é
+        outro — quem manda aqui é ser dono *deste* projeto, e não uma
+        permissão global de administrar utilizadores. Devolve no máximo 100 e
+        sem procura, o que numa empresa de 300 pessoas é uma lista onde não se
+        encontra ninguém. E não sabe esconder **quem já está no projeto** —
+        que é a diferença entre uma lista útil e uma lista onde se convida
+        alguém que já lá está para receber um erro a dizê-lo.
+        """
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+        await self._require_space_role(space_id, user, min_role="owner")
+
+        from src.services.notificar_o_projeto import quem_esta_no_projeto
+
+        ja_la = set(await quem_esta_no_projeto(self.db, space_id))
+
+        # Só `deleted_at`. **Não** `status`: nesta tabela `status` é presença
+        # (active/away/offline), e não estado de conta — filtrar por ele
+        # esconderia toda a gente que não estivesse com a app aberta naquele
+        # instante, e a pesquisa devolveria quase sempre uma lista vazia.
+        q = select(User).where(User.deleted_at.is_(None))
+        procura = (procura or "").strip()
+        if procura:
+            # Por nome **ou** email: procura-se pelo nome, mas há homónimos e
+            # há quem só saiba o email de um colega.
+            like = f"%{procura}%"
+            q = q.where(or_(User.name.ilike(like), User.email.ilike(like)))
+        # Pede-se mais do que se mostra porque quem já está no projeto é
+        # descartado depois: pedir `limite` devolveria menos do que `limite`.
+        linhas = (await self.db.execute(q.order_by(User.name).limit(limite + len(ja_la) + 10))).scalars().all()
+
+        fora = [u for u in linhas if u.id not in ja_la][:limite]
+        return [
+            {"id": str(u.id), "name": u.name, "email": u.email, "avatar": u.avatar}
+            for u in fora
+        ]
+
+    async def convidar_pessoa(
+        self, space_id: UUID, user: User, alvo_id: UUID, papel: str = "editor"
+    ) -> Dict[str, Any]:
+        """Convida UMA pessoa. **Não lhe dá acesso** — só quando aceitar.
+
+        Se convidar já desse acesso, o botão de aceitar era decoração e o de
+        recusar era uma mentira: a pessoa já teria estado lá dentro, a ver
+        números de uma área que talvez não seja a dela.
+        """
+        from src.models.convite_ao_projeto import ConviteAoProjeto
+        from src.services.notificar_o_projeto import quem_esta_no_projeto
+
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+        await self._require_space_role(space_id, user, min_role="owner")
+
+        if papel not in ("owner", "editor", "viewer"):
+            raise BadRequestError("Unknown role.")
+
+        alvo = (
+            await self.db.execute(
+                select(User).where(User.id == alvo_id, User.deleted_at.is_(None))
+            )
+        ).scalar_one_or_none()
+        if alvo is None:
+            raise NotFoundError("User not found")
+
+        if alvo_id in set(await quem_esta_no_projeto(self.db, space_id)):
+            raise BadRequestError("This person is already in the project.")
+
+        pendente = (
+            await self.db.execute(
+                select(ConviteAoProjeto).where(
+                    ConviteAoProjeto.space_id == space_id,
+                    ConviteAoProjeto.user_id == alvo_id,
+                    ConviteAoProjeto.estado == "pendente",
+                )
+            )
+        ).scalar_one_or_none()
+        if pendente is not None:
+            raise BadRequestError("This person already has a pending invite.")
+
+        convite = ConviteAoProjeto(
+            space_id=space_id,
+            user_id=alvo_id,
+            papel=papel,
+            estado="pendente",
+            convidado_por=user.id,
+        )
+        self.db.add(convite)
+        await self.db.commit()
+        await self.db.refresh(convite)
+
+        # Só a pessoa convidada é avisada. O projeto fica a saber quando ela
+        # **entrar** — anunciar uma entrada que pode nunca acontecer é ruído,
+        # e ruído é o que faz desligar as notificações todas.
+        from src.schemas.notification import NotificationCreate
+        from src.services.notification_service import NotificationService
+
+        try:
+            await NotificationService(self.db).create_notification(
+                NotificationCreate(
+                    user_id=alvo_id,
+                    type="space_invite",
+                    title="notif.projectInvite",
+                    title_key="notif.projectInvite",
+                    title_params={"person": user.name or user.email, "project": space.name},
+                    entity_type="space",
+                    entity_id=str(space_id),
+                )
+            )
+        except Exception as exc:  # pragma: no cover - defensivo
+            logger.warning("convite %s: aviso falhou: %s", convite.id, exc)
+
+        logger.info(
+            "convite_ao_projeto: space=%s alvo=%s papel=%s por=%s",
+            space_id,
+            alvo_id,
+            papel,
+            user.id,
+        )
+        return {
+            "id": str(convite.id),
+            "user_id": str(alvo_id),
+            "name": alvo.name,
+            "email": alvo.email,
+            "papel": papel,
+            "estado": "pendente",
+        }
+
+    async def meus_convites(self, user: User) -> List[Dict[str, Any]]:
+        """Os convites que estão à espera de resposta desta pessoa."""
+        from src.models.convite_ao_projeto import ConviteAoProjeto
+
+        linhas = (
+            await self.db.execute(
+                select(ConviteAoProjeto, Space)
+                .join(Space, Space.id == ConviteAoProjeto.space_id)
+                .where(
+                    ConviteAoProjeto.user_id == user.id,
+                    ConviteAoProjeto.estado == "pendente",
+                    Space.deleted_at.is_(None),
+                )
+                .order_by(ConviteAoProjeto.created_at.desc())
+            )
+        ).all()
+        return [
+            {
+                "id": str(c.id),
+                "space_id": str(c.space_id),
+                "projeto": s.name,
+                "papel": c.papel,
+                "convidado_por": str(c.convidado_por) if c.convidado_por else None,
+            }
+            for c, s in linhas
+        ]
+
+    async def responder_ao_convite(
+        self, convite_id: UUID, user: User, aceitar: bool
+    ) -> Dict[str, Any]:
+        """A pessoa aceita ou recusa. **Só ela** — nem o dono responde por ela.
+
+        Ao aceitar entra pela equipa **Geral**: um sítio só onde se procura
+        gente, e a regra de uma frase — *se não veio por uma equipa sua, veio
+        pela Geral*.
+        """
+        from src.models.convite_ao_projeto import ConviteAoProjeto
+        from src.models.crew import CrewMember
+
+        convite = (
+            await self.db.execute(
+                select(ConviteAoProjeto).where(ConviteAoProjeto.id == convite_id)
+            )
+        ).scalar_one_or_none()
+        if convite is None:
+            raise NotFoundError("Invite not found")
+        if convite.user_id != user.id:
+            # Não se diz "existe mas não é teu": quem não é o destinatário não
+            # tem de saber que o convite existe.
+            raise NotFoundError("Invite not found")
+        if convite.estado != "pendente":
+            raise BadRequestError("This invite was already answered.")
+
+        space = await self.space_repo.get_by_id(convite.space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+
+        convite.estado = "aceite" if aceitar else "recusado"
+        convite.respondido_em = func.now()
+
+        if aceitar:
+            geral = await self.equipa_geral(convite.space_id)
+            if geral is None:
+                # Projeto criado antes desta regra. Cria-se em vez de recusar:
+                # recusar deixaria o convite impossível de aceitar por uma
+                # razão que não é da pessoa que o recebeu.
+                geral = await self.crew_repo.create(
+                    name=DEFAULT_CREW_NAME,
+                    description=None,
+                    space_id=convite.space_id,
+                    created_by=space.created_by,
+                )
+                await self.db.flush()
+            ja = (
+                await self.db.execute(
+                    select(CrewMember).where(
+                        CrewMember.crew_id == geral.id, CrewMember.user_id == user.id
+                    )
+                )
+            ).scalar_one_or_none()
+            if ja is None:
+                self.db.add(CrewMember(crew_id=geral.id, user_id=user.id, role=convite.papel))
+
+        await self.db.commit()
+
+        from src.services.notificar_o_projeto import notificar_o_projeto
+
+        if aceitar:
+            # O projeto inteiro fica a saber quem passou a alcançar os seus
+            # dados — incluindo quem convidou, que é quem espera a resposta.
+            await notificar_o_projeto(
+                self.db,
+                convite.space_id,
+                tipo="space_member_added",
+                title_key="notif.personJoinedProject",
+                title_params={"person": user.name or user.email, "project": space.name},
+                excepto=user.id,
+            )
+        elif convite.convidado_por:
+            from src.schemas.notification import NotificationCreate
+            from src.services.notification_service import NotificationService
+
+            try:
+                await NotificationService(self.db).create_notification(
+                    NotificationCreate(
+                        user_id=convite.convidado_por,
+                        type="space_invite",
+                        title="notif.projectInviteDeclined",
+                        title_key="notif.projectInviteDeclined",
+                        title_params={
+                            "person": user.name or user.email,
+                            "project": space.name,
+                        },
+                        entity_type="space",
+                        entity_id=str(convite.space_id),
+                    )
+                )
+            except Exception as exc:  # pragma: no cover - defensivo
+                logger.warning("recusa %s: aviso falhou: %s", convite_id, exc)
+
+        logger.info(
+            "convite_respondido: convite=%s space=%s user=%s estado=%s",
+            convite_id,
+            convite.space_id,
+            user.id,
+            convite.estado,
+        )
+        return {"id": str(convite_id), "estado": convite.estado}
+
+    async def equipas_do_projeto(self, space_id: UUID, user: User) -> List[Dict[str, Any]]:
+        """As equipas com acesso a este projeto, e com que papel."""
+        from src.models.crew import Crew, CrewMember
+        from src.services.acesso_ao_projeto import equipas_que_alcancam
+
+        await self._require_space_role(space_id, user, min_role="viewer")
+        alcancam = await equipas_que_alcancam(self.db, space_id)
+        if not alcancam:
+            return []
+        linhas = (
+            await self.db.execute(
+                select(Crew.id, Crew.name, Crew.space_id).where(
+                    Crew.id.in_(list(alcancam.keys())), Crew.deleted_at.is_(None)
+                )
+            )
+        ).all()
+        saida = []
+        for crew_id, nome, dono_do_projeto in linhas:
+            n = (
+                await self.db.execute(
+                    select(func.count()).select_from(CrewMember).where(CrewMember.crew_id == crew_id)
+                )
+            ).scalar_one()
+            saida.append(
+                {
+                    "crew_id": str(crew_id),
+                    "name": nome,
+                    "role": alcancam[crew_id],
+                    "member_count": int(n or 0),
+                    # As que nasceram dentro do projeto não se podem tirar por
+                    # aqui — pertencem-lhe. A interface precisa de o saber.
+                    "nativa": dono_do_projeto is not None,
+                }
+            )
+        return saida
+
+    async def convidar_equipa(
+        self, space_id: UUID, user: User, crew_id: UUID, role: str = "editor"
+    ) -> Dict[str, Any]:
+        """Dá a uma equipa acesso a este projeto, **com um papel**.
+
+        A ligação é **viva**: quem entrar na equipa amanhã passa a alcançar
+        este projeto, e quem sair deixa de o alcançar na pergunta seguinte.
+
+        Substitui a cópia de pessoas de 25/08. Copiar resolvia a armadilha do
+        S6 destruindo a razão de a equipa existir — acrescentar alguém à
+        Comercial não o metia nos projetos onde a Comercial trabalha, que foi
+        exactamente a queixa do Lucas. A armadilha resolve-se mostrando a
+        proveniência (`de_onde_vem_o_acesso`), não copiando.
+        """
+        from src.models.crew import Crew
+        from src.models.space_crew import SpaceCrew
+
+        space = await self.space_repo.get_by_id(space_id)
+        if not space:
+            raise NotFoundError("Space not found")
+        await self._require_space_role(space_id, user, min_role="owner")
+
+        equipa = (
+            await self.db.execute(select(Crew).where(Crew.id == crew_id, Crew.deleted_at.is_(None)))
+        ).scalar_one_or_none()
+        if equipa is None:
+            raise NotFoundError("Crew not found")
+        if equipa.space_id is not None and equipa.space_id != space_id:
+            # Uma equipa que pertence a OUTRO projeto não se empresta: o seu
+            # nome e a sua gente foram pensados para lá. Convidá-la daqui
+            # seria dar a este projeto uma lista que outro dono controla.
+            raise BadRequestError("This team belongs to another project.")
+
+        ja = (
+            await self.db.execute(
+                select(SpaceCrew).where(
+                    SpaceCrew.space_id == space_id, SpaceCrew.crew_id == crew_id
+                )
+            )
+        ).scalar_one_or_none()
+        if ja is not None:
+            ja.role = role
+        else:
+            self.db.add(
+                SpaceCrew(space_id=space_id, crew_id=crew_id, role=role, added_by=user.id)
+            )
+        await self.db.commit()
+        logger.info(
+            "equipa_no_projeto: space=%s crew=%s papel=%s por=%s",
+            space_id,
+            crew_id,
+            role,
+            user.id,
+        )
+        # **Quem está no projeto fica a saber.** Um convite em massa muda quem
+        # alcança os dados; toda a gente que já lá está tem direito a ver isso
+        # acontecer, e não só quem convidou.
+        from src.services.notificar_o_projeto import notificar_o_projeto
+
+        await notificar_o_projeto(
+            self.db,
+            space_id,
+            tipo="crew_member_added",
+            title_key="notif.teamJoinedProject",
+            title_params={"team": equipa.name, "project": space.name},
+            excepto=user.id,
+        )
+        return {"crew_id": str(crew_id), "crew_name": equipa.name, "role": role}
+
+    async def tirar_equipa(self, space_id: UUID, user: User, crew_id: UUID) -> Dict[str, Any]:
+        """Tira a uma equipa o acesso a este projeto.
+
+        Quem lá estiver **também** por linha directa continua — e é por isso
+        que a interface mostra a proveniência antes de alguém carregar aqui.
+        """
+        from src.models.space_crew import SpaceCrew
+
+        await self._require_space_role(space_id, user, min_role="owner")
+        linha = (
+            await self.db.execute(
+                select(SpaceCrew).where(
+                    SpaceCrew.space_id == space_id, SpaceCrew.crew_id == crew_id
+                )
+            )
+        ).scalar_one_or_none()
+        if linha is None:
+            raise NotFoundError("This team is not in this project.")
+        await self.db.delete(linha)
+        await self.db.commit()
+        logger.info("equipa_fora_do_projeto: space=%s crew=%s por=%s", space_id, crew_id, user.id)
+        from src.services.notificar_o_projeto import notificar_o_projeto
+
+        await notificar_o_projeto(
+            self.db,
+            space_id,
+            tipo="crew_member_removed",
+            title_key="notif.teamLeftProject",
+            title_params={"team": str(crew_id)},
+            excepto=user.id,
+        )
+        return {"crew_id": str(crew_id)}
+
+    async def acesso_das_pessoas(self, space_id: UUID, user: User) -> List[Dict[str, Any]]:
+        """Quem alcança este projeto, e **por onde**.
+
+        É esta lista que evita a armadilha do S6: mostra "via equipa
+        Comercial" ao lado de quem lá está por essa via, para ninguém julgar
+        que tirar a linha directa lhe corta o acesso.
+        """
+        from src.models.crew import CrewMember
+        from src.services.acesso_ao_projeto import de_onde_vem_o_acesso, equipas_que_alcancam
+
+        await self._require_space_role(space_id, user, min_role="viewer")
+
+        ids = {
+            r[0]
+            for r in (
+                await self.db.execute(
+                    select(SpaceMember.user_id).where(SpaceMember.space_id == space_id)
+                )
+            ).all()
+        }
+        alcancam = await equipas_que_alcancam(self.db, space_id)
+        if alcancam:
+            ids |= {
+                r[0]
+                for r in (
+                    await self.db.execute(
+                        select(CrewMember.user_id).where(
+                            CrewMember.crew_id.in_(list(alcancam.keys()))
+                        )
+                    )
+                ).all()
+            }
+        space = await self.space_repo.get_by_id(space_id)
+        if space:
+            ids.add(space.created_by)
+
+        saida = []
+        for uid in ids:
+            pessoa = (
+                await self.db.execute(select(User).where(User.id == uid))
+            ).scalar_one_or_none()
+            if pessoa is None or pessoa.deleted_at is not None:
+                continue
+            vem = await de_onde_vem_o_acesso(self.db, uid, space_id)
+            saida.append(
+                {
+                    "user_id": str(uid),
+                    "name": pessoa.name,
+                    "email": pessoa.email,
+                    "papel": vem["papel"],
+                    "directo": vem["directo"],
+                    "por_equipa": vem["por_equipa"],
+                    "criador": bool(space and space.created_by == uid),
+                }
+            )
+        return saida
 
     async def add_space_member(
         self, space_id: UUID, user: User, member_data: SpaceMemberCreate

@@ -136,7 +136,11 @@ def _slug_from_request(request: Request) -> Optional[str]:
     # Device clients have no sub-domain — honour the explicit X-Tenant-Slug
     # override (same header the tenant resolver already accepts), so mobile can
     # reach a workspace's auth methods (e.g. password-enabled) on a bare host.
-    header_slug = (request.headers.get("x-tenant-slug") or "").strip().lower()
+    # Pelo mesmo caminho do resolvedor: um proxy pode ter juntado um segundo
+    # valor por vírgulas, e `"local, localhost"` não é cliente nenhum.
+    from src.api.middleware.tenant_resolver import slug_do_cabecalho
+
+    header_slug = slug_do_cabecalho(request.headers.get("x-tenant-slug")) or ""
     if header_slug:
         return header_slug
     # Último recurso: o cliente em parâmetro de query.

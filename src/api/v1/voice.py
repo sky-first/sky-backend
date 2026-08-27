@@ -5,6 +5,7 @@ the full ``WS /voice/session`` duplex pipeline (§8) — the persistence logic
 here becomes its on-close handler.
 """
 
+import logging
 from typing import Optional
 
 from fastapi import (
@@ -35,6 +36,8 @@ from src.services.voice_session_service import VoiceSessionService
 #: Ao nível do módulo para os testes o poderem encurtar: um teste que espera
 #: 1,6 s de verdade é um teste que alguém acaba por apagar.
 SILENCIO_QUE_FECHA_O_TURNO = 1.6
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -97,7 +100,9 @@ async def _resolve_voice_tenant(claims: dict):
     return result.context if result.resolution is DeviceResolution.RESOLVED else None
 
 
-async def _voice_answer(user, page_id, text: str, ctx, locale: str = "en") -> str:
+async def _voice_answer(
+    user, page_id, text: str, ctx, locale: str = "en", space_id: str | None = None
+) -> str:
     """The grounded answer for one voice turn — the same Bedrock engine as chat.
 
     Resolves the caller's connection and asks the AI engine, so a spoken
@@ -113,7 +118,50 @@ async def _voice_answer(user, page_id, text: str, ctx, locale: str = "en") -> st
 
     try:
         async with tenant_connection_manager.session_for(ctx) as db:
-            conn_id = await AIService(db)._get_first_active_connection(user.id)  # noqa: SLF001
+            servico = AIService(db)
+            if space_id:
+                # ── A voz responde DO PROJETO ONDE A PESSOA ESTÁ ────────────
+                #
+                # Antes: `_get_first_active_connection(user.id)` — a primeira
+                # ligação activa da pessoa, fosse ela de que projeto fosse, e
+                # `space_id="default"` para o motor. Perguntar pela voz dentro
+                # de um projeto SEM DADOS respondia com os dados de outro. Foi
+                # o que o Lucas apanhou: o projeto "Felipe e Lucas", com zero
+                # ligações, a dizer "o total de clientes é 46".
+                #
+                # Isto contorna o modelo inteiro: os dados pertencem ao
+                # projeto, o acesso vem da equipa, e o chat escrito respeita-o.
+                # A voz era uma porta ao lado que dava para todas as salas.
+                #
+                # `_get_all_connections_for_space` é o que sabe quem alcança o
+                # quê (dono, membro do projeto, ou membro de uma equipa lá
+                # dentro). Só se escolhe DENTRO desse conjunto.
+                permitidas = set(
+                    await servico._get_all_connections_for_space(  # noqa: SLF001
+                        user.id, space_id
+                    )
+                )
+                if not permitidas:
+                    # **Calar é a resposta certa.** O projeto não tem dados
+                    # que esta pessoa alcance; cair na "primeira ligação" era
+                    # precisamente o defeito.
+                    logger.info(
+                        "voice: space=%s sem ligações alcançáveis para user=%s — sem resposta",
+                        space_id,
+                        user.id,
+                    )
+                    return ""
+                escolhida = await servico._get_first_active_connection_for_space(  # noqa: SLF001
+                    user.id, space_id, text
+                )
+                # Aquele ajudante cai na primeira ligação do utilizador quando
+                # não encontra nada no projeto — a mesma fuga por outro nome.
+                # Só se aceita o que estiver no conjunto permitido.
+                conn_id = escolhida if escolhida in permitidas else None
+            else:
+                # Sem projeto: é o modo pessoal, onde a primeira ligação da
+                # própria pessoa é o âmbito certo.
+                conn_id = await servico._get_first_active_connection(user.id)  # noqa: SLF001
         if not conn_id:
             return ""
         # Use the same streaming path as /ai/chat/stream — the non-streaming
@@ -123,7 +171,10 @@ async def _voice_answer(user, page_id, text: str, ctx, locale: str = "en") -> st
             connection_id=conn_id,
             question=text,
             user_id=str(user.id),
-            space_id="default",
+            # O projeto vai a sério quando existe. `"default"` só fica para o
+            # modo pessoal, onde não há projeto nenhum — era o valor fixo que
+            # dizia ao motor "responde do que quiseres".
+            space_id=space_id or "default",
             locale=locale,
         ):
             line = line.strip()
@@ -331,6 +382,10 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     started = _time.monotonic()
     turns: list[VoiceTurn] = []
     page_id = None
+    #: O projeto onde a pessoa está a falar. Vem no `start`.
+    #: Sem ele, a resposta saía da primeira ligação do utilizador —
+    #: ver `_voice_answer`. `None` é o modo pessoal, que é legítimo.
+    space_id: str | None = None
     conversation_id = None  # set from `start` → thread voice into an open chat
     # The app language ('en'|'pt'|'es') drives STT language, the answer language,
     # and the Polly voice, so a PT app gets a PT-spoken answer. Set from `start`.
@@ -421,7 +476,14 @@ async def voice_session_ws(websocket: WebSocket) -> None:
         try:
             turns.append(VoiceTurn(role="user", text=user_text))
             await state("thinking")
-            answer = (await _voice_answer(user, page_id, user_text, ctx, locale)).strip()
+            # `space_id` **por nome**. Passado como sexto argumento posicional
+            # rebentava com `TypeError` em qualquer duplo de teste escrito
+            # antes de este parâmetro existir — e o efeito não era um erro
+            # visível, era a sessão a ficar muda: o telemóvel com o microfone
+            # aberto e nada a acontecer, para sempre. Ver o `except` abaixo.
+            answer = (
+                await _voice_answer(user, page_id, user_text, ctx, locale, space_id=space_id)
+            ).strip()
             if answer and not barge.is_set():
                 turns.append(VoiceTurn(role="sky", text=answer))
                 await send({"type": "sky_text", "text": answer})  # show it on screen
@@ -466,6 +528,34 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             except Exception:
                 pass
             await state("user_speaking")
+        except Exception:
+            # **Uma falha no turno não pode deixar a sessão muda.**
+            #
+            # Não havia `except` nenhum aqui. Qualquer erro a meio — o motor
+            # em baixo, uma resposta vazia, um `TypeError` numa assinatura que
+            # mudou — subia e a sessão ficava calada: do lado de lá é o
+            # telemóvel com o microfone aberto e nada a acontecer, sem erro,
+            # sem fim, até a pessoa desistir. Apanhado a 26/08 porque o
+            # `test_be07_voice_ws` encravava para sempre em vez de falhar.
+            #
+            # Diz-se que correu mal e volta-se a ouvir. Voltar a ouvir é o que
+            # importa: sem isso a sessão está viva mas inútil.
+            logger.exception("voice: o turno falhou; a devolver a palavra ao utilizador")
+            try:
+                await send(
+                    {
+                        "type": "error",
+                        # A frase escolhe-se na app, na língua de quem lê.
+                        "code": "turn_failed",
+                    }
+                )
+                await provider.restart_stt()
+            except Exception:
+                pass
+            try:
+                await state("user_speaking")
+            except Exception:
+                pass
         finally:
             turn_active = False
 
@@ -563,6 +653,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             action = ctrl.get("action")
             if action == "start":
                 page_id = ctrl.get("page_id") or page_id
+                space_id = ctrl.get("space_id") or space_id
                 conversation_id = ctrl.get("conversation_id") or conversation_id
                 ptt = ctrl.get("mode") == "push-to-talk"
                 locale = (ctrl.get("locale") or locale)[:2]

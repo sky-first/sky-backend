@@ -157,6 +157,26 @@ _RESERVED_SLUGS: frozenset[str] = frozenset(
 )
 
 
+def slug_do_cabecalho(bruto: Optional[str]) -> Optional[str]:
+    """O `X-Tenant-Slug` que chegou, mesmo que um proxy lhe tenha juntado outro.
+
+    **Porquê.** Um cabeçalho HTTP repetido chega juntado por vírgulas — é o
+    que a norma manda. O valor passava daqui para a procura tal e qual, e
+    `"sandbox, outro"` não é cliente nenhum: o pedido levava
+    `tenant_not_found` com um cliente que existe e está bom. Nenhum dos
+    saltos de hoje o faz — isto é uma defesa, e não a correcção de uma avaria
+    observada.
+
+    Fica-se pelo primeiro valor: é o que a origem escreveu, e o que um
+    intermediário acrescente a seguir não pode mandar mais do que ela. E
+    trata do resto que já se via: espaços à volta e maiúsculas.
+    """
+    if not bruto:
+        return None
+    primeiro = bruto.split(",")[0].strip().lower()
+    return primeiro or None
+
+
 def _slug_from_host(host_header: Optional[str]) -> Optional[str]:
     if not host_header:
         return None
@@ -417,7 +437,7 @@ async def _resolve_context(request: Request) -> Tuple[TenantContext, Optional[st
     # 3. Pick the slug from the request, in priority order.
     slug = (
         _slug_from_host(request.headers.get("host"))
-        or request.headers.get("x-tenant-slug")
+        or slug_do_cabecalho(request.headers.get("x-tenant-slug"))
         or _slug_from_jwt(request.headers.get("authorization"))
     )
 

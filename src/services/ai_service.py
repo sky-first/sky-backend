@@ -655,9 +655,18 @@ class AIService:
                     return []
 
                 space_uuid = UUIDType(space_id) if isinstance(space_id, str) else space_id
-                crew_ids = await self.crew_member_repo.get_crew_ids_by_user_and_space(
-                    user_id, space_uuid
-                )
+                # **Uma equipa já não vive dentro do projeto.**
+                #
+                # Este resolvedor perguntava por `crews.space_id`, que era a
+                # única ligação que existia. Com `space_crews`, uma equipa do
+                # cliente é convidada para o projeto — e continuaria invisível
+                # aqui, o que fecharia o acesso a quem legitimamente o tem.
+                #
+                # A resolução vive num sítio só (`acesso_ao_projeto`) e une as
+                # duas origens. Nenhum chamador calcula acesso por si.
+                from src.services.acesso_ao_projeto import equipas_da_pessoa_no_projeto
+
+                crew_ids = await equipas_da_pessoa_no_projeto(self.db, user_id, space_uuid)
 
             # Convert UUIDs to strings for API
             crew_ids_str = [str(crew_id) for crew_id in crew_ids]
