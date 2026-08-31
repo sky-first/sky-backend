@@ -11,6 +11,26 @@ from src.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+#: O que um agente diz quando olhou e nao ha nada a assinalar.
+#:
+#: Escrito por extenso e nao gerado: e a frase que fecha uma corrida vazia, e
+#: uma corrida vazia e o caso em que menos se pode gastar tempo do modelo.
+#: Ver a nota no sitio onde e usada.
+#: O que se diz quando a corrida nao chegou a resposta nenhuma.
+#:
+#: Separado do `NADA_A_ASSINALAR` de proposito: um e uma conclusao sobre os
+#: dados, o outro e uma avaria nossa. Trocá-los manda a pessoa procurar no
+#: sitio errado — e foi o que a primeira versao desta correccao fez.
+NAO_CONSEGUI = (
+    "Não consegui responder desta vez — foi um problema nosso, não dos seus "
+    "dados. Vou tentar outra vez na próxima corrida."
+)
+
+NADA_A_ASSINALAR = (
+    "Olhei agora e não há nada a assinalar. Volto a olhar na próxima corrida "
+    "e só falo se encontrar alguma coisa que valha a pena."
+)
+
 
 def _extract_tables_from_sql(sql: str) -> List[str]:
     """Extract table names from a SQL query to guide the orchestrator's table selection."""
@@ -944,24 +964,67 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             # a rolar para cima.
             #
             # Falhar aqui nao pode perder o achado, que ja esta gravado.
-            if finding_da_corrida is not None:
-                try:
-                    from src.services.agent_conversation_service import (
-                        post_agent_answer,
-                    )
+            #
+            # ── E responde-se SEMPRE, mesmo sem achado. ────────────────
+            #
+            # Isto era `if finding_da_corrida is not None`. Uma corrida que
+            # acabasse sem nada a assinalar nao escrevia UMA LINHA no fio — e
+            # quem tinha acabado de criar o agente ficava a olhar para «A Sky
+            # esta a trabalhar nisto» para sempre.
+            #
+            # > *"aparece a Sky esta a trabalhar nisso, a resposta aparece
+            # > aqui, mas nada acontece. Isso ja fazem varios minutos. E bem
+            # > provavel que alguma coisa travou"* — Lucas, 31/08/2026
+            #
+            # Nada tinha travado: a corrida completou em menos de um segundo,
+            # com zero achados, e ficou calada. Confirmado na base:
+            # `agent_executions.status = 'completed'`, `findings_count = 0`,
+            # zero mensagens na conversa.
+            #
+            # **Um agente e uma pergunta que se repete, e uma pergunta tem
+            # sempre resposta.** «Olhei e nao ha nada a assinalar» e uma
+            # resposta; silencio nao e. E o silencio nao se distingue de uma
+            # avaria — foi exactamente essa a leitura dele.
+            try:
+                from src.services.agent_conversation_service import (
+                    post_agent_answer,
+                )
 
+                if finding_da_corrida is not None:
                     await post_agent_answer(
                         db,
                         agent=agent,
                         answer=resposta_da_corrida["answer"],
                         finding_id=finding_da_corrida.id,
                     )
-                except Exception as _post_err:  # noqa: BLE001
-                    logger.warning(
-                        "Agent %s: could not post to its conversation: %s",
-                        agent_id,
-                        _post_err,
+                elif answer and _looks_like_orchestrator_error(answer):
+                    # **Falhou. Nao se diz que nao ha nada.**
+                    #
+                    # Apanhei-me a fazer o que ando a corrigir o dia todo: a
+                    # primeira versao desta linha escrevia «olhei e nao ha
+                    # nada a assinalar» com o orquestrador a devolver 404.
+                    # Isso e uma mentira tranquilizadora — diz que os dados
+                    # nao tinham nada quando o que houve foi uma avaria
+                    # nossa, e manda a pessoa procurar no sitio errado.
+                    await post_agent_answer(db, agent=agent, answer=NAO_CONSEGUI)
+                else:
+                    # Correu, e nao ha nada a assinalar. Diz-se — porque o
+                    # silencio nao se distingue de uma avaria.
+                    await post_agent_answer(
+                        db,
+                        agent=agent,
+                        answer=(
+                            answer.strip()
+                            if answer and answer.strip()
+                            else NADA_A_ASSINALAR
+                        ),
                     )
+            except Exception as _post_err:  # noqa: BLE001
+                logger.warning(
+                    "Agent %s: could not post to its conversation: %s",
+                    agent_id,
+                    _post_err,
+                )
 
             # 5c. Uma corrida em que TODAS as ligações falharam não correu.
             #
