@@ -33,6 +33,19 @@ class TestPedirPeloProjeto:
     def test_o_ramo_do_projeto_existe(self):
         assert 'scope == "space" and scope_id' in _fonte()
 
+    def test_um_identificador_mal_formado_nao_derruba_a_lista(self):
+        """`space_id` e uma coluna UUID; `Agent.scope_id` e texto.
+
+        Comparar a coluna com uma cadeia que nao e UUID rebenta dentro do
+        SQLAlchemy (``'str' object has no attribute 'hex'``) em vez de dar
+        lista vazia. Uma lista de agentes nao pode ir abaixo por causa de um
+        identificador mal formado vindo do cliente — e foi assim que a CI
+        apanhou isto, com dois testes que passam `scope_id="s1"`.
+        """
+        fonte = _fonte()
+        assert "projeto = UUID(str(scope_id))" in fonte
+        assert "except (ValueError, AttributeError, TypeError)" in fonte
+
     def test_traz_as_equipas_convidadas_e_as_que_la_nasceram(self):
         """Só um dos dois deixava metade dos agentes de fora.
 
@@ -41,8 +54,8 @@ class TestPedirPeloProjeto:
         mesmo sítio, e o de fora não é menos do projeto do que o de dentro.
         """
         fonte = _fonte()
-        assert "SpaceCrew.space_id == scope_id" in fonte
-        assert "Crew.space_id == scope_id" in fonte
+        assert "SpaceCrew.space_id == projeto" in fonte
+        assert "Crew.space_id == projeto" in fonte
 
     def test_o_texto_e_comparado_com_texto(self):
         """`Agent.scope_id` é `String` e as chaves das equipas são `UUID`.

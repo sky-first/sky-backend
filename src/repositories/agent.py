@@ -40,7 +40,18 @@ class AgentRepository(BaseRepository[Agent]):
         # GET /{agent_id} (get_with_findings) for the cockpit/halo detail
         # view. The list endpoint only needs the agent metadata.
         query = select(Agent)
+        # `space_id`/`crew_id` sao colunas UUID; `Agent.scope_id` e texto. Um
+        # `scope_id` que nao seja um UUID rebenta a comparacao dentro do
+        # SQLAlchemy (`'str' object has no attribute 'hex'`) em vez de
+        # devolver lista vazia — e uma lista de agentes nao pode ir abaixo por
+        # causa de um identificador mal formado que veio do cliente.
+        projeto: Optional[UUID] = None
         if scope == "space" and scope_id:
+            try:
+                projeto = UUID(str(scope_id))
+            except (ValueError, AttributeError, TypeError):
+                projeto = None
+        if projeto is not None:
             # ── Os agentes DO PROJETO, não só os que dizem «space» ──────
             #
             # Um agente é sempre criado ao nível da equipa (`scope="crew"`),
@@ -60,9 +71,9 @@ class AgentRepository(BaseRepository[Agent]):
             # `Agent.scope_id` é texto e as chaves das equipas são UUID —
             # sem o `cast` o Postgres recusa a comparação.
             convidadas = select(cast(SpaceCrew.crew_id, String)).where(
-                SpaceCrew.space_id == scope_id
+                SpaceCrew.space_id == projeto
             )
-            nascidas_la = select(cast(Crew.id, String)).where(Crew.space_id == scope_id)
+            nascidas_la = select(cast(Crew.id, String)).where(Crew.space_id == projeto)
             query = query.where(
                 or_(
                     (Agent.scope == "space") & (Agent.scope_id == str(scope_id)),
