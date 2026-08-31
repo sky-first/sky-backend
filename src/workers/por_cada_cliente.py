@@ -119,7 +119,22 @@ async def _resolver(slug: str):
         logger.warning("por_cada_cliente: nao deu para resolver %r: %s", slug, exc)
         return DEFAULT_TENANT_CONTEXT
     if ctx is not None and not ctx.is_default:
-        _cache_put(slug, ctx)
+        # `_cache_put(ctx)` — o slug vem DE DENTRO do contexto.
+        #
+        # **Esta linha impediu qualquer agente de correr a horas.** Chamava
+        # `_cache_put(slug, ctx)` e a funcao so aceita o contexto:
+        #
+        #     agent-scheduler[sandbox] falhou: _cache_put() takes 1
+        #     positional argument but 2 were given
+        #
+        # Uma vez por cliente, a cada cinco minutos, desde que o agendador
+        # entrou em producao. E o `schedule_agents` apanhava a excepcao por
+        # cliente e seguia — devolvendo `agents_scheduled: 0`, que se le
+        # como «nao havia nada por correr» e nao como «rebentou em todos».
+        #
+        # Foi assim que passou despercebido: o beat dizia que despachava, o
+        # worker dizia que a tarefa tinha sucesso, e o numero era zero.
+        _cache_put(ctx)
         return ctx
     # Um slug que nao resolve NAO pode cair no default em silencio: seria
     # correr os agentes da plataforma a pensar que sao os deste cliente.
@@ -173,6 +188,7 @@ async def por_cada_cliente(
     guarda seria toda a gente sem agentes até alguém reparar.
     """
     total_a, total_b = 0, 0
+    correram, falharam = 0, 0
     for slug in await clientes_activos():
         try:
             async with contexto_do_cliente(slug) as resolveu:
@@ -181,8 +197,33 @@ async def por_cada_cliente(
                 a, b = await passagem(slug)
             total_a += a
             total_b += b
+            correram += 1
             if a or b:
                 logger.info("%s[%s]: %s enfileirados, %s corrigidos", nome, slug, a, b)
         except Exception as exc:  # noqa: BLE001
+            falharam += 1
             logger.warning("%s[%s] falhou: %s", nome, slug, exc)
+
+    # ── Zero clientes com sucesso NAO e zero agentes por correr. ──────
+    #
+    # A soma la em cima nao distingue «olhei em todos e nao havia nada» de
+    # «nao cheguei a olhar em lado nenhum». Sao a mesma coisa vista de fora:
+    # `agents_scheduled: 0`.
+    #
+    # E foi assim que uma excepcao por cliente — `_cache_put()` chamada com
+    # dois argumentos — passou despercebida em producao: o beat dizia que
+    # despachava, o worker dizia que a tarefa tinha sucesso, e o numero era
+    # zero. Nenhum agente correu a horas, e nada nos registos dizia isso.
+    #
+    # Um aviso por passagem, so quando falharam TODOS: se um cliente
+    # respondeu, a passagem correu, e um alarme por causa de outro seria
+    # ruido a cada cinco minutos.
+    if falharam and not correram:
+        logger.error(
+            "%s: nenhum cliente respondeu (%d falharam). Nenhum agente foi "
+            "enfileirado — isto nao e uma passagem vazia, e uma passagem "
+            "que nao chegou a acontecer.",
+            nome,
+            falharam,
+        )
     return total_a, total_b
