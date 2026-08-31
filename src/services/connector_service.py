@@ -242,6 +242,25 @@ class ConnectorService:
                         "required": False,
                         "placeholder": "v1",
                     },
+                    {
+                        # **Sem isto a ligacao cria-se e nao serve para nada.**
+                        #
+                        # `RestAPIConnector.get_metadata` le `config["endpoints"]`
+                        # e trata cada um como se fosse uma tabela — e uma API
+                        # nao tem tabelas para descobrir. O catalogo nunca
+                        # declarou o campo, por isso nenhum cliente o pedia:
+                        # a ligacao passava no teste e o passo do esquema vinha
+                        # vazio. Verificado contra a Open-Meteo: `tables: []`.
+                        "key": "endpoints",
+                        "label": "Endpoints",
+                        "type": "endpoints",
+                        "required": False,
+                        "description": (
+                            "The requests this connection can make. Each one "
+                            "becomes selectable as if it were a table — an API "
+                            "has no schema to discover."
+                        ),
+                    },
                 ],
                 "auth_methods": [
                     {
