@@ -186,9 +186,9 @@ async def de_onde_vem_o_acesso(
     alcancam = await equipas_que_alcancam(db, space_id)
     vias = []
     if alcancam:
-        for crew_id, nome in (
+        for crew_id, nome, dono in (
             await db.execute(
-                select(Crew.id, Crew.name).where(
+                select(Crew.id, Crew.name, Crew.space_id).where(
                     Crew.id.in_(list(alcancam.keys())),
                     Crew.deleted_at.is_(None),
                     Crew.id.in_(
@@ -197,6 +197,18 @@ async def de_onde_vem_o_acesso(
                 )
             )
         ).all():
+            # **A equipa por omissão não é uma via.**
+            #
+            # Todo o projeto nasce com uma «General» para haver onde pôr quem
+            # é convidado directamente. Estar nela É ser convidado
+            # directamente — dizer «via equipa General» seria dar um nome de
+            # equipa a uma pessoa que nunca entrou em equipa nenhuma.
+            #
+            # O Lucas viu-se «na equipa Geral» do seu próprio projeto e
+            # perguntou que equipa era essa. Não era nenhuma: era o modelo a
+            # vazar para o ecrã.
+            if nome == "General" and dono == space_id:
+                continue
             vias.append({"crew_id": str(crew_id), "crew_name": nome, "role": alcancam[crew_id]})
 
     return {

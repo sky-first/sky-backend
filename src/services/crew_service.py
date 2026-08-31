@@ -754,6 +754,27 @@ class CrewService:
         if not member:
             raise NotFoundError("Member not found")
 
+        # **Ninguém se remove do próprio projeto sem dar por isso.**
+        #
+        # A equipa por omissão de um projeto é onde ficam as pessoas
+        # convidadas directamente. Sair dela é perder o acesso ao projeto —
+        # e o Lucas conseguiu remover-se a si próprio da «General» do projeto
+        # que tinha acabado de criar, com um ✕ ao lado do nome, sem aviso.
+        #
+        # Quem quer mesmo sair de um projeto tem um gesto para isso («Sair
+        # deste projeto»), que sabe o que está a fazer e avisa.
+        from src.services.space_service import DEFAULT_CREW_NAME
+
+        if (
+            crew.name == DEFAULT_CREW_NAME
+            and crew.space_id is not None
+            and user_id == current_user.id
+        ):
+            raise BadRequestError(
+                "Para sair deste projeto use «Sair do projeto». "
+                "Esta é a lista de quem foi convidado directamente."
+            )
+
         await self.member_repo.delete(member.id)
 
         # W12 wire-in — pause every active agent the removed user

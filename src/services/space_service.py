@@ -1150,6 +1150,18 @@ class SpaceService:
                     # As que nasceram dentro do projeto não se podem tirar por
                     # aqui — pertencem-lhe. A interface precisa de o saber.
                     "nativa": dono_do_projeto is not None,
+                    # **A equipa que ninguém pediu.**
+                    #
+                    # Todo o projeto nasce com uma «General» para haver onde
+                    # pôr quem foi convidado directamente. É plumbing nosso, e
+                    # estava a aparecer no ecrã: o Lucas viu-se dentro de uma
+                    # equipa que nunca criou, com um papel que não escolheu, e
+                    # pôde remover-se dela — perdendo o acesso ao seu próprio
+                    # projeto.
+                    #
+                    # Continua a existir na base; a interface esconde-a e
+                    # mostra essas pessoas como convidadas directamente.
+                    "e_a_de_omissao": nome == DEFAULT_CREW_NAME and dono_do_projeto == space_id,
                 }
             )
         return saida

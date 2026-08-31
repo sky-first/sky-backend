@@ -3,11 +3,13 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import String, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.models.agent import Agent, AgentExecution, AgentFinding
+from src.models.crew import Crew
+from src.models.space_crew import SpaceCrew
 from src.repositories.base import BaseRepository
 
 
@@ -38,10 +40,44 @@ class AgentRepository(BaseRepository[Agent]):
         # GET /{agent_id} (get_with_findings) for the cockpit/halo detail
         # view. The list endpoint only needs the agent metadata.
         query = select(Agent)
-        if scope:
-            query = query.where(Agent.scope == scope)
-        if scope_id:
-            query = query.where(Agent.scope_id == scope_id)
+        if scope == "space" and scope_id:
+            # ── Os agentes DO PROJETO, não só os que dizem «space» ──────
+            #
+            # Um agente é sempre criado ao nível da equipa (`scope="crew"`),
+            # por decisão de 2026-06. Pedir `scope=space` devolvia por isso
+            # zero — nenhuma linha tem `scope="space"` — e quem quisesse a
+            # lista de um projeto ficava sem filtro nenhum.
+            #
+            # E é aí que dói: sem filtro, o servidor devolve ao administrador
+            # do cliente **todos** os agentes do inquilino. Foi o que o Lucas
+            # viu num projeto acabado de criar — *"ja vem com agentes? Pois
+            # aparece que tem 6 agente que estao a procura e nao encontraram
+            # nada"*. Não vinham com o projeto: eram os de outros projetos,
+            # a dizer que não encontravam nada porque não olhavam para ali.
+            #
+            # O projeto é a fronteira; a equipa é uma etiqueta. Um pedido
+            # pelo projeto tem de trazer o que as equipas dele criaram.
+            # `Agent.scope_id` é texto e as chaves das equipas são UUID —
+            # sem o `cast` o Postgres recusa a comparação.
+            convidadas = select(cast(SpaceCrew.crew_id, String)).where(
+                SpaceCrew.space_id == scope_id
+            )
+            nascidas_la = select(cast(Crew.id, String)).where(Crew.space_id == scope_id)
+            query = query.where(
+                or_(
+                    (Agent.scope == "space") & (Agent.scope_id == str(scope_id)),
+                    (Agent.scope == "crew")
+                    & (
+                        Agent.scope_id.in_(convidadas)
+                        | Agent.scope_id.in_(nascidas_la)
+                    ),
+                )
+            )
+        else:
+            if scope:
+                query = query.where(Agent.scope == scope)
+            if scope_id:
+                query = query.where(Agent.scope_id == scope_id)
         if created_by:
             query = query.where(Agent.created_by == created_by)
         query = query.order_by(Agent.created_at.desc()).offset(skip).limit(limit)
