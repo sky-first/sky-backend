@@ -524,11 +524,14 @@ class SpaceService:
             self._trigger_ai_discovery,
             connection_id=str(connection_id),
             space_id=str(space_id),
+            user_id=str(user.id),
         )
 
         return space_connection
 
-    async def _trigger_ai_discovery(self, connection_id: str, space_id: str) -> None:
+    async def _trigger_ai_discovery(
+        self, connection_id: str, space_id: str, user_id: Optional[str] = None
+    ) -> None:
         """Helper to trigger AI discovery with proper error handling for BackgroundTasks."""
         try:
             await self.ai_client.discover_connection(
@@ -539,6 +542,42 @@ class SpaceService:
         except Exception as e:
             logger.error(
                 f"Background task failed: Auto-discovery for space {space_id} and connection {connection_id} failed: {str(e)}"
+            )
+            # Sem metadados nao ha o que sugerir. Parar aqui poupa uma
+            # chamada ao modelo que so podia devolver a lista generica.
+            return
+
+        # ── E pre-aquece as perguntas sugeridas. ──────────────────────
+        #
+        # > *"na conexao que fazemos, ja gerarmos ali algumas perguntas e
+        # > respostas"* — Lucas, 31/08/2026
+        #
+        # As perguntas sao geradas pelo Sherlock a olhar para as tabelas que
+        # acabaram de ser descobertas, e o resultado fica em cache. Sem isto,
+        # quem abre o projeto a seguir e a PRIMEIRA pessoa a pagar a espera —
+        # e, pior, apanha a lista generica de reserva se o pedido demorar de
+        # mais, porque um ecra vazio nao espera.
+        #
+        # **Sao perguntas, nao respostas.** Pre-correr as respostas seria N
+        # consultas ao modelo por ligacao, a envelhecer sozinhas — e uma
+        # resposta velha e pior do que nenhuma, porque parece fresca. As
+        # perguntas nao envelhecem: o esquema e que manda, e o esquema so
+        # muda quando se volta a descobrir.
+        #
+        # Falhar aqui nao e grave: o ecra pede-as na mesma quando abrir.
+        try:
+            await self.ai_client.chat_bootstrap(
+                connection_id=connection_id,
+                user_id=user_id or "",
+                space_id=space_id,
+                max_suggestions=4,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.info(
+                "Pre-aquecimento das sugestoes falhou para %s/%s: %s",
+                space_id,
+                connection_id,
+                e,
             )
 
     async def remove_space_connection(
