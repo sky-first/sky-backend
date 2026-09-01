@@ -1,4 +1,24 @@
-"""Cria a conta que o revisor das lojas usa para entrar na app móvel.
+"""Cria uma conta de revisão das lojas. **Nada o corre automaticamente.**
+
+Não está ligado a Job nenhum
+----------------------------
+O Job ``demo-review-account`` que o corria foi removido a 01/09/2026
+(sky-infra #807). Semeava o valor por omissão daqui,
+``demo@skyfirstlabs.com``, que é o endereço de **desenvolvimento local**
+do ``seed_demo.py`` — não é a conta que as lojas usam.
+
+A conta das lojas está em ``sky-mobile/apps/mobile/docs/FICHA-DAS-LOJAS.md``:
+``reviewer@sandbox.skyfirstlabs.com``, com a password em
+``sky/production/tenant-sandbox/admin``. Vive na base do **tenant**
+``sandbox``; este script, quando corria em produção, apontava à base da
+**plataforma** — daí o duplicado.
+
+Se um dia se quiser voltar a automatizar isto, o script serve: passa-se
+``REVIEW_ACCOUNT_EMAIL``, ``REVIEW_TENANT_SLUG`` e um ``DATABASE_URL`` que
+aponte à base do tenant. Mas cuidado com o mapeamento de domínio no fim —
+``domain_of_email`` de um email ``@skyfirstlabs.com`` dá o domínio da
+equipa inteira, e associá-lo a um tenant de demonstração levava lá dentro
+toda a gente da SkyFirst.
 
 Porque não se usa o ``seed_demo.py``
 ------------------------------------
