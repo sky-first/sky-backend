@@ -12,12 +12,19 @@ of the box. The workflow generates a random password, runs alembic,
 runs this script, and posts the password back to the BE via the
 report-phase webhook so the Console can surface it to the operator.
 
-Env vars (all required):
+Env vars:
 
-    DATABASE_URL              — tenant DB (asyncpg or psycopg2 URL)
-    TENANT_ADMIN_EMAIL        — e.g. ``lucas.ventura@gbtsolutions.pt``
-    TENANT_ADMIN_PASSWORD     — plaintext (will be bcrypted)
-    TENANT_ADMIN_NAME         — optional display name; defaults to "Admin"
+    DATABASE_URL              — required. A base do cliente; ou a da
+                                PLATAFORMA, se se passar ``TENANT_SLUG``.
+    TENANT_ADMIN_EMAIL        — required. e.g. ``lucas.ventura@gbtsolutions.pt``
+    TENANT_ADMIN_PASSWORD     — required. plaintext (will be bcrypted)
+    TENANT_SLUG               — opcional. Descobre a base dedicada do
+                                cliente a partir do registo + Secrets
+                                Manager. Quando presente, manda sobre o
+                                ``DATABASE_URL``.
+    TENANT_ADMIN_ROLE         — opcional. Por omissao ``super_admin``.
+                                ``member`` para contas que so tem de ver.
+    TENANT_ADMIN_NAME         — opcional. defaults to "Admin"
 
 Idempotent: an existing user with the same email is refreshed (new
 password hash + role=admin) so re-running the migrate Job after a
@@ -63,11 +70,40 @@ def _prepare_async_url(url: str) -> str:
     return urlunparse(parsed._replace(query=urlencode(keep)))
 
 
+async def _url_do_ambiente() -> str:
+    """O URL da base onde escrever: dado a direito, ou descoberto do slug.
+
+    ``TENANT_SLUG`` existe para quem so sabe o nome do cliente. Nesse caso
+    ``DATABASE_URL`` tem de apontar a base da **plataforma** (e onde vive o
+    registo) e o URL do cliente sai dali, ja com as credenciais do Secrets
+    Manager.
+
+    A ordem importa: se vier ``TENANT_SLUG``, ele manda. Deixar o
+    ``DATABASE_URL`` ganhar seria pior de todas as formas — o script diria
+    que semeou o cliente e teria escrito na plataforma, sem falhar.
+    """
+    slug = (os.environ.get("TENANT_SLUG") or "").strip()
+    if not slug:
+        return _prepare_async_url(_require("DATABASE_URL"))
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from _ligacao_ao_tenant import url_do_tenant
+
+    url = await url_do_tenant(slug)
+    print(f"  [..] cliente {slug!r}: base dedicada resolvida a partir do registo")
+    return _prepare_async_url(url)
+
+
 async def main() -> int:
-    db_url = _prepare_async_url(_require("DATABASE_URL"))
+    db_url = await _url_do_ambiente()
     email = _require("TENANT_ADMIN_EMAIL").strip().lower()
     password = _require("TENANT_ADMIN_PASSWORD")
     name = os.environ.get("TENANT_ADMIN_NAME") or "Admin"
+    # `super_admin` continua a ser o valor por omissao: e para isso que este
+    # script foi feito, e o onboarding depende dele. Mas nem toda a conta
+    # semeada e um administrador — a do revisor das lojas tem de ver a app a
+    # trabalhar e nao tem de poder administrar nada.
+    papel = (os.environ.get("TENANT_ADMIN_ROLE") or "super_admin").strip()
 
     engine = create_async_engine(db_url, echo=False)
     sm = async_sessionmaker(engine, expire_on_commit=False)
@@ -86,23 +122,33 @@ async def main() -> int:
             if existing is not None:
                 existing.password_hash = get_password_hash(password)
                 if not existing.role:
-                    existing.role = "super_admin"
+                    existing.role = papel
                 existing.email_verified = True
                 existing.has_completed_onboarding = True
+                # ── Apagada nao e inexistente. ────────────────────────
+                #
+                # A procura acima nao filtra `deleted_at`, por isso uma
+                # conta apagada em soft-delete e encontrada e leva password
+                # nova — e continua apagada. O script diz "refreshed" e a
+                # pessoa nao entra. Uma conta que este seed garante nao tem
+                # estado nenhum em que ficar apagada seja o correcto.
+                if existing.deleted_at is not None:
+                    existing.deleted_at = None
+                    print(f"  [OK] {email!r} estava apagada — reposta em servico")
                 await session.commit()
-                print(f"  [OK] tenant super_admin {email!r} refreshed (role={existing.role})")
+                print(f"  [OK] tenant user {email!r} refreshed (role={existing.role})")
             else:
                 user = User(
                     email=email,
                     password_hash=get_password_hash(password),
                     name=name,
-                    role="super_admin",
+                    role=papel,
                     email_verified=True,
                     has_completed_onboarding=True,
                 )
                 session.add(user)
                 await session.commit()
-                print(f"  [OK] tenant super_admin {email!r} created (role=super_admin)")
+                print(f"  [OK] tenant user {email!r} created (role={papel})")
     finally:
         await engine.dispose()
     return 0

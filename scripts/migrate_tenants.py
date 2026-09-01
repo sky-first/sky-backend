@@ -38,13 +38,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import List, Tuple
-from urllib.parse import quote_plus, unquote, urlparse
 
 # Corrido como `python scripts/migrate_tenants.py`, o Python põe `scripts/` no
 # caminho e não a raiz — e `import src...` falha com ModuleNotFoundError. Os
@@ -86,19 +84,13 @@ async def _clientes(slug: str | None) -> List[Tuple[str, str]]:
 
 
 def _url(row) -> str:
-    import boto3  # type: ignore[import-untyped]
+    # A regra vive em `_ligacao_ao_tenant`. Estava aqui primeiro; saiu para
+    # o seed da conta do revisor a poder usar sem a copiar — um filtro por
+    # equipa espalhado por cinco ficheiros ja nos custou duas tentativas de
+    # o corrigir num so.
+    from _ligacao_ao_tenant import url_a_partir_do_registo
 
-    host = row.db_host
-    port = getattr(row, "db_port", None) or 5432
-    arn = row.db_credentials_secret_arn
-
-    blob = json.loads(boto3.client("secretsmanager").get_secret_value(SecretId=arn)["SecretString"])
-    if "username" in blob and "password" in blob:
-        user, pw = blob["username"], blob["password"]
-    else:
-        parsed = urlparse(blob["url"])
-        user, pw = unquote(parsed.username or ""), unquote(parsed.password or "")
-    return f"postgresql+asyncpg://{quote_plus(user)}:{quote_plus(pw)}@{host}:{port}/{row.db_name}"
+    return url_a_partir_do_registo(row)
 
 
 def _tabelas_com_dono_errado(slug: str, url: str) -> list[str]:
