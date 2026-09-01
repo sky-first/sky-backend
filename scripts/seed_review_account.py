@@ -90,7 +90,29 @@ async def seed() -> None:
     async with AsyncSessionLocal() as db:
         users = UserRepository(db)
 
-        user = await users.get_by_email(EMAIL)
+        # ── Apagada nao e inexistente. ────────────────────────────────
+        #
+        # O `get_by_email` filtra `deleted_at IS NULL`. Se a conta do
+        # revisor foi apagada em soft-delete, a procura devolve `None`, o
+        # seed acredita que tem de a criar, e o INSERT bate no indice
+        # unico de email:
+        #
+        #     duplicate key value violates unique constraint
+        #     Key (email)=(demo@skyfirstlabs.com) already exists
+        #
+        # O Job morre, o `sky-demo-seed` fica Degraded, e — o que
+        # realmente importa — o revisor da App Store fica sem conta para
+        # entrar, que e a causa n1 de rejeicao de apps atras de login.
+        #
+        # O callback do SSO ja tinha este problema e ja lhe deu resposta:
+        # ver a linha apagada e ressuscita-la. Aqui e a mesma coisa, e por
+        # uma razao mais forte — esta conta EXISTE POR CONTRATO com as
+        # lojas. Nao ha estado nenhum em que a deixar apagada seja o
+        # comportamento certo.
+        user = await users.get_by_email_including_deleted(EMAIL)
+        if user is not None and user.deleted_at is not None:
+            user.deleted_at = None
+            print(f"[seed] conta {EMAIL} estava apagada — reposta em servico.")
         if user is None:
             user = await users.create(
                 email=EMAIL,
