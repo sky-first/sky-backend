@@ -27,6 +27,36 @@ from sqlalchemy import select  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from src.config.database import AsyncSessionLocal  # noqa: E402
+
+
+async def _sessao():
+    """A sessao sobre a base onde os dados de demonstracao vivem hoje.
+
+    Mesma historia do `smoke_test_e2e.py`: escrito antes do modelo
+    multi-cliente, olhava sempre para o `DATABASE_URL` — a base da
+    plataforma. Semeava as metricas e o glossario num espaco `Demo` que
+    la sobrou, enquanto as 5 ligacoes de demonstracao vivem na base do
+    cliente `sandbox`.
+
+    Nao dava erro. Encontrava o espaco antigo, dizia `refreshed` cinco
+    vezes, e o teste a seguir perguntava pelas metricas no sitio certo e
+    nao as encontrava.
+    """
+    slug = (os.environ.get("TENANT_SLUG") or "").strip()
+    if not slug:
+        return AsyncSessionLocal()
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from _ligacao_ao_tenant import url_do_tenant
+
+    url = await url_do_tenant(slug)
+    print(f"  cliente {slug!r}: base dedicada resolvida a partir do registo")
+    motor = create_async_engine(url, pool_pre_ping=True)
+    return async_sessionmaker(motor, expire_on_commit=False)()
+
+
 from src.models.user import User  # noqa: E402
 from src.models.space import Space  # noqa: E402
 from src.models.metric import Metric  # noqa: E402
@@ -313,7 +343,7 @@ async def main() -> None:
     print("=" * 60)
     print("Seeding demo metrics + glossary in 'Demo - Sky' Space")
     print("=" * 60)
-    async with AsyncSessionLocal() as db:
+    async with await _sessao() as db:
         owner = (
             await db.execute(select(User).where(User.email == OWNER_EMAIL))
         ).scalar_one_or_none()
