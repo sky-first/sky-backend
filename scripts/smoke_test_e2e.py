@@ -36,6 +36,34 @@ import httpx  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 from src.config.database import AsyncSessionLocal  # noqa: E402
+
+
+async def _sessao():
+    """A sessao sobre a base onde os dados de demonstracao vivem hoje.
+
+    Este script foi escrito antes do modelo multi-cliente e olhava
+    sempre para o `DATABASE_URL` — a base da **plataforma**. As ligacoes
+    de demonstracao mudaram-se para a base do cliente `sandbox`, e o
+    teste passou a encontrar `connections: []`: nada para perguntar, e as
+    vinte perguntas a falhar a 0 ms sem sequer sairem daqui.
+
+    Com `TENANT_SLUG`, a base dedicada e descoberta a partir do registo,
+    como no `seed_tenant_admin_user.py`. Sem ele, nada muda.
+    """
+    slug = (os.environ.get("TENANT_SLUG") or "").strip()
+    if not slug:
+        return AsyncSessionLocal()
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from _ligacao_ao_tenant import url_do_tenant
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    url = await url_do_tenant(slug)
+    print(f"  cliente {slug!r}: base dedicada resolvida a partir do registo")
+    motor = create_async_engine(url, pool_pre_ping=True)
+    return async_sessionmaker(motor, expire_on_commit=False)()
+
+
 from src.models.user import User  # noqa: E402
 from src.models.space import Space  # noqa: E402
 from src.models.connection import DataConnection  # noqa: E402
@@ -363,7 +391,7 @@ async def main() -> None:
     print(f"Sky smoke test — env={ENV_LABEL}, ai={AI_BASE}")
     print("=" * 60)
 
-    async with AsyncSessionLocal() as db:
+    async with await _sessao() as db:
         owner, space, conn_by_hint = await resolve_owner_and_space(db)
 
     print(f"  owner={owner.id}  space={space.id}")
@@ -409,6 +437,17 @@ async def main() -> None:
         f"PASS={ok}/{len(results)}  p50={int(statistics.median([r.latency_ms for r in results]))}ms"
     )
 
+    # ── Um teste que falha tudo nao pode terminar bem. ────────────────
+    #
+    # Ate 02/09/2026 este script imprimia `PASS=0/20` e saia com 0. Como
+    # Job de Kubernetes isso e `Complete 1/1`: o ArgoCD ve saude, o
+    # `kubectl get jobs` ve sucesso, e o relatorio com vinte FAIL fica
+    # dentro dos logs a espera de que alguem os abra.
+    #
+    # A unica razao de ser deste teste e dar sinal. Sem codigo de saida
+    # nao da nenhum.
+    return 0 if ok == len(results) else 1
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))
