@@ -68,7 +68,6 @@ from src.models.user import User  # noqa: E402
 from src.models.space import Space  # noqa: E402
 from src.models.connection import DataConnection  # noqa: E402
 
-OWNER_EMAIL = "rbac.owner@example.com"
 AI_BASE = os.environ.get("AI_SERVICE_URL", "http://localhost:8001").rstrip("/")
 ENV_LABEL = os.environ.get("ENV_LABEL", "unknown")
 REPORT_PATH = os.environ.get("REPORT_PATH", "/tmp/smoke-report.md")
@@ -192,27 +191,14 @@ def excerpt(s: str, n: int = 220) -> str:
 
 
 async def resolve_owner_and_space(db) -> tuple[User, Space, dict[str, str]]:
-    owner = (await db.execute(select(User).where(User.email == OWNER_EMAIL))).scalar_one()
-    spaces = (await db.execute(select(Space).where(Space.created_by == owner.id))).scalars().all()
-    space = next(
-        (s for s in spaces if s.name and s.name.startswith("Demo") and "Sky" in s.name),
-        None,
-    )
-    if not space:
-        raise RuntimeError("'Demo' Space not found — run seed_demo_connections.py first")
+    # O espaco primeiro, o dono depois. Ver `_espaco_da_demonstracao`: a
+    # conta fixa `rbac.owner@example.com` nao existe na base do cliente, e
+    # os quatro espacos do `sandbox` tem dois criadores diferentes.
+    sys.path.insert(0, str(Path(__file__).parent))
+    from _espaco_da_demonstracao import espaco_e_dono, ligacoes_da_base
 
-    conns = (
-        (
-            await db.execute(
-                select(DataConnection).where(
-                    DataConnection.created_by == owner.id,
-                    DataConnection.deleted_at.is_(None),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    space, owner = await espaco_e_dono(db)
+    conns = await ligacoes_da_base(db)
 
     conn_by_hint: dict[str, str] = {}
     for c in conns:
