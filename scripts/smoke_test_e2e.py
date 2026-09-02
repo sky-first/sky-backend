@@ -351,13 +351,33 @@ async def discover_all(
     smoke run hit.
     """
     print("Discover phase — populating AI-side metadata + embeddings...")
+    # ── Não voltar a indexar tudo a cada passagem. ───────────────────────
+    #
+    # Com `skip_if_recent_seconds=0` este passo reindexava as cinco ligações
+    # de cada vez, e a 02/09/2026 foi o que matou o serviço de IA a meio da
+    # corrida — `OOMKilled`, e com ele quatro perguntas que nem chegaram a
+    # sair. Como só existe uma réplica, isso é a app em baixo para toda a
+    # gente.
+    #
+    # E era carga que o próprio teste inventava: parado, o serviço ocupa
+    # 202 MB. Nenhum utilizador reindexa cinco ligações antes de cada
+    # pergunta.
+    #
+    # Seis horas. Cobre a corrida diária (o TTL do Job é de 24h, portanto
+    # indexa uma vez por dia) e continua a reindexar de propósito quando se
+    # promove duas vezes seguidas com esquemas novos — que é quando a
+    # indexação velha daria falsos negativos.
+    #
+    # Sobrepõe-se com `SMOKE_DISCOVER_MAX_AGE=0` para forçar, quando se
+    # quiser testar precisamente a indexação.
+    idade_maxima = os.environ.get("SMOKE_DISCOVER_MAX_AGE", "21600")
     for hint, conn_id in conn_by_hint.items():
         url = (
             f"{AI_BASE}/connections/{conn_id}/discover"
             f"?space_id={space_id}"
             f"&run_in_background=false"
             f"&auto_generate_embeddings=true"
-            f"&skip_if_recent_seconds=0"
+            f"&skip_if_recent_seconds={idade_maxima}"
         )
         t0 = time.monotonic()
         try:
