@@ -385,7 +385,23 @@ async def main() -> None:
     print()
 
     results: list[QuestionResult] = []
-    async with httpx.AsyncClient() as client:
+    # ── O servico de IA tem de saber de que cliente falamos. ─────────
+    #
+    # O backend manda-lhe sempre `X-Tenant-Slug` (ver `src/ai/http_client`).
+    # Este script nao mandava nada, e a IA ia procurar as ligacoes a base
+    # da plataforma:
+    #
+    #     HTTP 404 {"detail":"Conexao aa0f521d-... nao encontrada"}
+    #
+    # As ligacoes existiam — o script tinha acabado de as ler, todas as
+    # cinco, na base do cliente. Sem o cabecalho, quem responde procura
+    # noutro sitio.
+    cabecalhos = {}
+    slug = (os.environ.get("TENANT_SLUG") or "").strip()
+    if slug:
+        cabecalhos["X-Tenant-Slug"] = slug
+
+    async with httpx.AsyncClient(headers=cabecalhos) as client:
         await discover_all(client, conn_by_hint, str(space.id))
         for n, spec in enumerate(QUESTIONS, start=1):
             conn_id = conn_by_hint.get(spec["conn_hint"])
