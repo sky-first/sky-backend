@@ -63,7 +63,6 @@ from src.models.metric import Metric  # noqa: E402
 from src.models.glossary import GlossaryTerm  # noqa: E402
 from src.models.connection import DataConnection  # noqa: E402
 
-OWNER_EMAIL = "rbac.owner@example.com"
 SPACE_NAME = "Demo - Sky"  # falls back to em-dash variant; we resolve by exact match
 
 DEMO_METRICS = [
@@ -344,39 +343,26 @@ async def main() -> None:
     print("Seeding demo metrics + glossary in 'Demo - Sky' Space")
     print("=" * 60)
     async with await _sessao() as db:
-        owner = (
-            await db.execute(select(User).where(User.email == OWNER_EMAIL))
-        ).scalar_one_or_none()
-        if not owner:
-            print(f"Owner {OWNER_EMAIL} not found — run seed_demo_connections.py first.")
-            sys.exit(2)
+        # O espaco primeiro, o dono depois. Ver `_espaco_da_demonstracao`:
+        # a conta fixa `rbac.owner@example.com` nao existe na base do
+        # cliente, e os quatro espacos do `sandbox` tem dois criadores
+        # diferentes.
+        sys.path.insert(0, str(Path(__file__).parent))
+        from _espaco_da_demonstracao import EspacoNaoEncontrado, espaco_e_dono
 
-        # Match either em-dash variant ("Demo — Sky") or hyphen ("Demo - Sky")
-        spaces = (
-            (await db.execute(select(Space).where(Space.created_by == owner.id))).scalars().all()
-        )
-        space = next(
-            (s for s in spaces if s.name and s.name.startswith("Demo") and "Sky" in s.name),
-            None,
-        )
-        if not space:
-            print("'Demo' Space not found — run seed_demo_connections.py first.")
+        try:
+            space, owner = await espaco_e_dono(db)
+        except EspacoNaoEncontrado as erro:
+            print(erro, file=sys.stderr)
             sys.exit(3)
         print(f"  space {space.name!r} (id={space.id})")
 
-        # Map schema name → connection_id so metric.source_id can FK to it
-        conns = (
-            (
-                await db.execute(
-                    select(DataConnection).where(
-                        DataConnection.created_by == owner.id,
-                        DataConnection.deleted_at.is_(None),
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
+        # Map schema name → connection_id so metric.source_id can FK to it.
+        # Sem filtrar pelo criador: no `sandbox` as ligacoes e o espaco nao
+        # sao da mesma pessoa, e filtrar perdia-as todas.
+        from _espaco_da_demonstracao import ligacoes_da_base
+
+        conns = await ligacoes_da_base(db)
         source_id_by_table = {}
         for c in conns:
             cfg = c.config or {}
