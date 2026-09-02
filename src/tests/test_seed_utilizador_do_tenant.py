@@ -169,3 +169,33 @@ async def test_sem_slug_usa_o_database_url(monkeypatch):
     await modulo.main()
 
     assert "directo" in usados[0]
+
+
+@pytest.mark.asyncio
+async def test_papel_pedido_corrige_conta_que_ja_existe(monkeypatch):
+    """A conta do revisor ficou super_admin por ter sido criada antes."""
+    ja_existe = _Utilizador(role="super_admin")
+    modulo, _ = _montar(
+        monkeypatch,
+        ja_existe,
+        DATABASE_URL="postgresql://x/y",
+        TENANT_ADMIN_ROLE="member",
+    )
+    monkeypatch.delenv("TENANT_SLUG", raising=False)
+
+    await modulo.main()
+
+    assert ja_existe.role == "member"
+
+
+@pytest.mark.asyncio
+async def test_sem_papel_pedido_nao_promove_ninguem(monkeypatch):
+    """Impor super_admin por omissao promovia quem foi despromovido de proposito."""
+    despromovido = _Utilizador(role="member")
+    modulo, _ = _montar(monkeypatch, despromovido, DATABASE_URL="postgresql://x/y")
+    monkeypatch.delenv("TENANT_ADMIN_ROLE", raising=False)
+    monkeypatch.delenv("TENANT_SLUG", raising=False)
+
+    await modulo.main()
+
+    assert despromovido.role == "member", "promoveu uma conta que ninguem mandou promover"

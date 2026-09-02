@@ -24,6 +24,9 @@ Env vars:
                                 ``DATABASE_URL``.
     TENANT_ADMIN_ROLE         — opcional. Por omissao ``super_admin``.
                                 ``member`` para contas que so tem de ver.
+                                Quando dado, **impoe-se tambem a contas
+                                que ja existem**. Quando ausente, uma
+                                conta existente fica com o papel que tem.
     TENANT_ADMIN_NAME         — opcional. defaults to "Admin"
 
 Idempotent: an existing user with the same email is refreshed (new
@@ -103,7 +106,8 @@ async def main() -> int:
     # script foi feito, e o onboarding depende dele. Mas nem toda a conta
     # semeada e um administrador — a do revisor das lojas tem de ver a app a
     # trabalhar e nao tem de poder administrar nada.
-    papel = (os.environ.get("TENANT_ADMIN_ROLE") or "super_admin").strip()
+    papel_pedido = (os.environ.get("TENANT_ADMIN_ROLE") or "").strip()
+    papel = papel_pedido or "super_admin"
 
     engine = create_async_engine(db_url, echo=False)
     sm = async_sessionmaker(engine, expire_on_commit=False)
@@ -121,7 +125,21 @@ async def main() -> int:
             # ``skyfirst-role-taxonomy`` memory for the full table.
             if existing is not None:
                 existing.password_hash = get_password_hash(password)
-                if not existing.role:
+                # ── Quem pede um papel, leva esse papel. ──────────────
+                #
+                # Quem NAO pede fica como esta. A diferenca importa: sem
+                # ela, uma conta criada antes fica com o papel de entao
+                # para sempre, e a conta do revisor das lojas ficou
+                # `super_admin` quando devia ser `member`.
+                #
+                # Mas impor `super_admin` a toda a gente por omissao
+                # seria pior: este mesmo script corre no onboarding, e
+                # promoveria em cada passagem qualquer conta que alguem
+                # tivesse despromovido de proposito.
+                if papel_pedido and existing.role != papel_pedido:
+                    print(f"  [OK] papel de {email!r}: {existing.role} -> {papel_pedido}")
+                    existing.role = papel_pedido
+                elif not existing.role:
                     existing.role = papel
                 existing.email_verified = True
                 existing.has_completed_onboarding = True
