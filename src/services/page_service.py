@@ -1,6 +1,7 @@
 """Page service."""
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 from uuid import UUID
@@ -26,6 +27,8 @@ from src.models.page import Page, PageMember
 from src.models.user import User
 from src.repositories.page import PageMemberRepository, PageRepository
 from src.repositories.widget import WidgetRepository
+
+logger = logging.getLogger(__name__)
 from src.schemas.page import (
     PageCreate,
     PageMemberCreate,
@@ -661,20 +664,42 @@ class PageService:
             from src.schemas.notification import NotificationCreate
             from src.services.notification_service import NotificationService
 
+            from src.core.locale import get_message, resolve_locale
+
+            # A frase vai como CHAVE — ver a nota igual no `crew_service`.
+            # Estava em inglês, sem chave, num produto em português.
+            destinatario = await self.db.get(User, member_data.user_id)
+            locale = resolve_locale(None, destinatario)
+            actor = user.name or user.email
+
             notif_svc = NotificationService(self.db)
             await notif_svc.create(
                 NotificationCreate(
                     user_id=member_data.user_id,
                     type="page_member_added",
-                    title=f"You were added to '{page.name}'",
-                    description=f"{user.name or user.email} added you as {member_data.role}",
+                    title=get_message("notif_page_added_title", locale).format(
+                        page=page.name
+                    ),
+                    description=get_message("notif_page_added_desc", locale).format(
+                        actor=actor, role=member_data.role
+                    ),
                     entity_type="page",
                     entity_id=str(page_id),
                     deep_link=f"/page?page={page_id}",
+                    title_key="notif_page_added_title",
+                    title_params={"page": page.name},
+                    description_key="notif_page_added_desc",
+                    description_params={"actor": actor, "role": member_data.role},
                 )
             )
         except Exception:
-            pass  # Non-fatal — don't block the membership operation
+            # Não bloqueia a operação de membro, mas também não desaparece:
+            # a notificação em falta era invisível nos registos.
+            logger.exception(
+                "nao consegui notificar %s de que entrou na pagina %s",
+                member_data.user_id,
+                page_id,
+            )
 
         return PageMemberResponse.model_validate(member)
 

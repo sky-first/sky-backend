@@ -10,20 +10,31 @@ from __future__ import annotations
 
 DEFAULT_LOCALE = "pt"
 
-_ALLOWED: frozenset[str] = frozenset({"en", "pt"})
+# ⚠️ O espanhol faltava aqui, e o que acontecia era pior do que ficar em
+# inglês: `normalize_locale("es")` caía no DEFAULT_LOCALE, que é `pt`. Um
+# cliente espanhol recebia **português**.
+#
+# A app e a web já falam espanhol há muito; este ficheiro é que não sabia.
+# Duas listas de línguas em serviços diferentes divergem em silêncio — e a
+# que mente é sempre a que alguém se esqueceu de actualizar.
+_ALLOWED: frozenset[str] = frozenset({"en", "pt", "es"})
 
 _NORMALIZE_MAP: dict[str, str] = {
     "pt-br": "pt",
     "pt-pt": "pt",
     "en-us": "en",
     "en-gb": "en",
+    "es-es": "es",
+    "es-mx": "es",
+    "es-ar": "es",
+    "es-419": "es",
 }
 
 
 def normalize_locale(value: str | None) -> str:
-    """Canonicalise a locale string to 'en' or 'pt'.
+    """Canonicalise a locale string to 'en', 'pt' or 'es'.
 
-    Handles BCP-47 variants (pt-BR → pt, en-US → en).
+    Handles BCP-47 variants (pt-BR → pt, en-US → en, es-MX → es).
     Unknown or empty values fall back to DEFAULT_LOCALE.
     """
     if not value:
@@ -56,9 +67,16 @@ def resolve_locale(request_locale: str | None, user: object | None) -> str:
 # ---------------------------------------------------------------------------
 
 _MESSAGES: dict[str, dict[str, str]] = {
+    # ⚠️ **Isto estava em português do Brasil.**
+    #
+    # «Pensando…», «Mencionaram você», «na aba Editar», «uma conexão». A web
+    # e a app já tinham sido corrigidas; este catálogo é a cópia do servidor
+    # e ficou para trás. E não é decorativo: quando o cliente não conhece a
+    # chave, é ESTE texto que aparece no ecrã (ver NOTIFICATION_KEYS).
     "thinking": {
-        "pt": "Pensando...",
+        "pt": "A pensar…",
         "en": "Thinking...",
+        "es": "Pensando…",
     },
     # Sem dados no projeto — a frase depende de **quem** pergunta.
     #
@@ -74,51 +92,64 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ferramentas (Fontes → Ligar) e eu respondo com base nela.",
         "en": "This project has no data yet. Connect a source from the "
         "toolbar (Sources → Connect) and I'll answer from it.",
+        "es": "Este proyecto aún no tiene datos. Conecte una fuente en la "
+        "barra de herramientas (Fuentes › Conectar) y le respondo con ella.",
     },
     "space_has_no_data_ask_access": {
         "pt": "Este projeto ainda não tem dados. Peça acesso em "
         "Definições › Pedir dados e um administrador trata do resto.",
         "en": "This project has no data yet. Ask for access in "
         "Settings › Request data and an admin takes it from there.",
+        "es": "Este proyecto aún no tiene datos. Pida acceso en "
+        "Ajustes › Solicitar datos y un administrador se encarga del resto.",
     },
     "no_data_source": {
-        "pt": "Nenhuma fonte de dados disponível para este chat.",
+        "pt": "Nenhuma fonte de dados disponível para esta conversa.",
         "en": "No data source available for this chat.",
+        "es": "No hay ninguna fuente de datos disponible para esta conversación.",
     },
     "no_data_source_agent": {
-        "pt": "Nenhuma fonte de dados disponível. Adicione uma conexão na aba Editar, ou mude para o modo Contexto completo.",
+        "pt": "Nenhuma fonte de dados disponível. Acrescente uma ligação no separador Editar, ou mude para o modo Contexto completo.",
         "en": "No data source available. Add a connection in the Edit tab, or switch to Full context mode.",
+        "es": "No hay ninguna fuente de datos disponible. Añada una conexión en la pestaña Editar, o cambie al modo Contexto completo.",
     },
     "unable_to_start_stream": {
-        "pt": "Não foi possível iniciar o stream do chat.",
+        "pt": "Não foi possível iniciar a conversa.",
         "en": "Unable to start chat stream.",
+        "es": "No se ha podido iniciar la conversación.",
     },
     "couldnt_understand": {
-        "pt": "Não consegui entender essa pergunta. Tente reformulá-la.",
+        "pt": "Não percebi essa pergunta. Tente reformulá-la.",
         "en": "I couldn't understand that question. Try rephrasing it.",
+        "es": "No he entendido esa pregunta. Pruebe a reformularla.",
     },
     "how_can_i_help": {
-        "pt": "Como posso ajudá-lo hoje?",
+        "pt": "Em que posso ajudar hoje?",
         "en": "How can I help you today?",
+        "es": "¿En qué puedo ayudarle hoy?",
     },
     "how_can_i_help_data": {
-        "pt": "Como posso ajudá-lo com seus dados?",
+        "pt": "Em que posso ajudar com os seus dados?",
         "en": "How can I help you with your data?",
+        "es": "¿En qué puedo ayudarle con sus datos?",
     },
     "empty_message": {
         "pt": "Mensagem vazia.",
         "en": "Empty message.",
+        "es": "Mensaje vacío.",
     },
     # ── Notifications — localized at creation time by the recipient's
     # locale. Strings carry {placeholders} resolved via str.format() at
     # the callsite (get_message itself does not interpolate).
     "notif_comment_mention_title": {
-        "pt": "Você foi mencionado em um comentário",
+        "pt": "Foi mencionado num comentário",
         "en": "You were mentioned in a comment",
+        "es": "Le han mencionado en un comentario",
     },
     "notif_comment_mention_desc": {
-        "pt": "Mencionaram você: {snippet}...",
+        "pt": "Mencionaram-no: {snippet}…",
         "en": "Someone mentioned you: {snippet}...",
+        "es": "Alguien le ha mencionado: {snippet}…",
     },
     # Alguem escreveu numa conversa em que participo.
     #
@@ -126,21 +157,53 @@ _MESSAGES: dict[str, dict[str, str]] = {
     # conversa mexeu-se". O texto tem de dizer QUEM escreveu, porque numa
     # conversa de tres pessoas saber o autor decide se vale a pena abrir agora.
     "notif_conversation_reply_title": {
-        "pt": "{autor} escreveu em '{conversa}'",
-        "en": "{autor} wrote in '{conversa}'",
+        "pt": "{autor} escreveu em «{conversa}»",
+        "en": "{autor} wrote in “{conversa}”",
+        "es": "{autor} ha escrito en «{conversa}»",
     },
     "notif_conversation_reply_desc": {
-        "pt": "{snippet}...",
-        "en": "{snippet}...",
+        "pt": "{snippet}",
+        "en": "{snippet}",
+        "es": "{snippet}",
     },
+    # «espaço» era o nome antigo. Hoje chama-se **projeto** em toda a
+    # aplicação — menos aqui, que era o que a app mostrava no ecrã.
     "notif_space_added_title": {
-        "pt": "Você foi adicionado ao espaço '{space}'",
-        "en": "You were added to space '{space}'",
+        "pt": "Foi adicionado ao projeto «{space}»",
+        "en": "You were added to the project “{space}”",
+        "es": "Le han añadido al proyecto «{space}»",
     },
     "notif_space_added_desc": {
-        "pt": "{actor} adicionou você a este espaço",
-        "en": "{actor} added you to this space",
+        "pt": "{actor} acrescentou-o a este projeto",
+        "en": "{actor} added you to this project",
+        "es": "{actor} le ha añadido a este proyecto",
     },
+    # ── Equipas e páginas ────────────────────────────────────────────────
+    #
+    # Estas duas eram montadas com um f-string em inglês dentro do
+    # `crew_service` e do `page_service` — «You were added to crew 'X'» —
+    # e sem chave nenhuma. Num produto em português.
+    "notif_crew_added_title": {
+        "pt": "Foi adicionado à equipa «{crew}»",
+        "en": "You were added to the team “{crew}”",
+        "es": "Le han añadido al equipo «{crew}»",
+    },
+    "notif_crew_added_desc": {
+        "pt": "{actor} acrescentou-o como {role}",
+        "en": "{actor} added you as {role}",
+        "es": "{actor} le ha añadido como {role}",
+    },
+    "notif_page_added_title": {
+        "pt": "Foi adicionado a «{page}»",
+        "en": "You were added to “{page}”",
+        "es": "Le han añadido a «{page}»",
+    },
+    "notif_page_added_desc": {
+        "pt": "{actor} acrescentou-o como {role}",
+        "en": "{actor} added you as {role}",
+        "es": "{actor} le ha añadido como {role}",
+    },
+
 }
 
 
@@ -151,6 +214,10 @@ NOTIFICATION_KEYS: frozenset[str] = frozenset({
     "notif_conversation_reply_desc",
     "notif_space_added_title",
     "notif_space_added_desc",
+    "notif_crew_added_title",
+    "notif_crew_added_desc",
+    "notif_page_added_title",
+    "notif_page_added_desc",
 })
 
 # DB migration that adds the columns consumed by these keys: notif_i18n_keys_20260612
