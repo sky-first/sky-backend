@@ -703,20 +703,47 @@ class CrewService:
             from src.schemas.notification import NotificationCreate
             from src.services.notification_service import NotificationService
 
+            from src.core.locale import get_message, resolve_locale
+
+            # A frase vai como CHAVE, e não montada aqui.
+            #
+            # Estava assim: `title=f"You were added to crew '{crew.name}'"`.
+            # Em inglês, num produto em português, e sem chave nenhuma — por
+            # isso nem a web nem a app a podiam traduzir. Era o mesmo defeito
+            # do «found 1 new insight» que o Lucas apanhou no ecrã.
+            #
+            # O `title` continua a ser escrito, na língua de quem recebe, como
+            # rede de segurança para clientes que ainda não conheçam a chave.
+            destinatario = await self.db.get(User, member_data.user_id)
+            locale = resolve_locale(None, destinatario)
+            actor = user.name or user.email
+
             notif_svc = NotificationService(self.db)
             await notif_svc.create(
                 NotificationCreate(
                     user_id=member_data.user_id,
                     type="crew_member_added",
-                    title=f"You were added to crew '{crew.name}'",
-                    description=f"{user.name or user.email} added you as {member_data.role}",
+                    title=get_message("notif_crew_added_title", locale).format(
+                        crew=crew.name
+                    ),
+                    description=get_message("notif_crew_added_desc", locale).format(
+                        actor=actor, role=member_data.role
+                    ),
                     entity_type="crew",
                     entity_id=str(crew_id),
                     deep_link=f"/page?crew={crew_id}",
+                    title_key="notif_crew_added_title",
+                    title_params={"crew": crew.name},
+                    description_key="notif_crew_added_desc",
+                    description_params={"actor": actor, "role": member_data.role},
                 )
             )
         except Exception:
-            pass  # Non-fatal
+            logger.exception(
+                "nao consegui notificar %s de que entrou na equipa %s",
+                member_data.user_id,
+                crew_id,
+            )
 
         # Convert user to dict if present (CrewMemberResponse expects Optional[dict])
 

@@ -13,11 +13,18 @@ from src.core.locale import get_message, normalize_locale
 
 class TestNotificationMessages:
     def test_comment_mention_title_localized(self) -> None:
+        # ⚠️ Este teste fixava «Você foi mencionado em um comentário» — a
+        # frase em português do Brasil. Estava verde, e era ele que segurava
+        # o erro no sítio: a web já tinha sido corrigida para «Foi mencionado
+        # num comentário» e o servidor não podia acompanhar sem chumbar aqui.
         assert get_message("notif_comment_mention_title", "pt") == (
-            "Você foi mencionado em um comentário"
+            "Foi mencionado num comentário"
         )
         assert get_message("notif_comment_mention_title", "en") == (
             "You were mentioned in a comment"
+        )
+        assert get_message("notif_comment_mention_title", "es") == (
+            "Le han mencionado en un comentario"
         )
 
     def test_comment_mention_desc_formats_snippet(self) -> None:
@@ -29,10 +36,14 @@ class TestNotificationMessages:
             assert "{snippet}" not in rendered
 
     def test_space_added_title_formats_space_name(self) -> None:
+        # ⚠️ Fixava «Você foi adicionado ao espaço 'Vendas'» — brasileiro E
+        # com o nome antigo. Hoje chama-se **projeto** em toda a aplicação.
         pt = get_message("notif_space_added_title", "pt").format(space="Vendas")
-        assert pt == "Você foi adicionado ao espaço 'Vendas'"
+        assert pt == "Foi adicionado ao projeto «Vendas»"
         en = get_message("notif_space_added_title", "en").format(space="Sales")
-        assert en == "You were added to space 'Sales'"
+        assert en == "You were added to the project “Sales”"
+        es = get_message("notif_space_added_title", "es").format(space="Ventas")
+        assert es == "Le han añadido al proyecto «Ventas»"
 
     def test_space_added_desc_formats_actor(self) -> None:
         for locale in ("pt", "en"):
