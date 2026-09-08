@@ -46,10 +46,20 @@ from pathlib import Path
 
 import pytest
 
-RAIZ = Path(__file__).resolve().parents[3]
+#: A raiz DESTE repositorio — `src/tests/x.py` → dois niveis acima.
+#:
+#: ⚠️ Estava escrito a contar a partir da pasta que esta acima de todos os
+#: repositorios, com o nome «sky-poc-backend» cravado. Aqui a pasta local
+#: chama-se assim; na integracao o checkout chama-se «sky-backend», que e o
+#: nome do repositorio. Passava localmente e chumbava la.
+REPO = Path(__file__).resolve().parents[2]
+
+#: A pasta que contem os varios repositorios — pode nao existir na
+#: integracao, onde so este e clonado.
+LADO_A_LADO = REPO.parent
 
 _spec = importlib.util.spec_from_file_location(
-    "_locale_sob_teste", RAIZ / "sky-poc-backend" / "src" / "core" / "locale.py"
+    "_locale_sob_teste", REPO / "src" / "core" / "locale.py"
 )
 locale = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(locale)
@@ -146,7 +156,10 @@ def test_o_vocabulario_e_o_novo():
 # Sincronia com a web
 # ---------------------------------------------------------------------------
 def _dicionario_da_web(lang: str) -> dict[str, str]:
-    caminho = RAIZ / "sky-poc-frontend" / "messages" / f"{lang}.json"
+    # Na integração só este repositório é clonado, por isso a comparação
+    # com a web só corre na máquina de quem desenvolve. Não é ideal — mas
+    # o alternativo era não a ter de todo.
+    caminho = LADO_A_LADO / "sky-poc-frontend" / "messages" / f"{lang}.json"
     if not caminho.exists():  # pragma: no cover - repositório sozinho
         pytest.skip("o repositório da web não está ao lado deste")
 
