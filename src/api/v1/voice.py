@@ -39,6 +39,22 @@ SILENCIO_QUE_FECHA_O_TURNO = 1.6
 
 logger = logging.getLogger(__name__)
 
+#: As linguas que a voz sabe ouvir e falar, do codigo de duas letras que a
+#: app manda para o nome que o fornecedor de transcricao espera.
+#:
+#: Estava escrito no meio da funcao, com `.get(locale, "English")` — e uma
+#: lingua fora do mapa caia em ingles sem uma linha nos registos. No dia em
+#: que a app ganhasse uma lingua e este sitio nao, a voz respondia em ingles
+#: e parecia que «a lingua nao funciona».
+#:
+#: Tem de acompanhar o `LINGUAS` da app e o `SUPPORTED_LANGUAGES` do motor.
+#: O `test_qa_voz_na_lingua_certa.py` compara-os.
+_LINGUAS_DA_VOZ = {
+    "en": "English",
+    "pt": "Portuguese",
+    "es": "Español",
+}
+
 router = APIRouter()
 
 # The client authenticates the WS by offering this subprotocol followed by the
@@ -656,16 +672,70 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                 space_id = ctrl.get("space_id") or space_id
                 conversation_id = ctrl.get("conversation_id") or conversation_id
                 ptt = ctrl.get("mode") == "push-to-talk"
+                # Sem locale no `start` fica-se com o valor inicial, que é
+                # inglês. É legítimo — clientes antigos não o mandavam — mas
+                # deixa de ser calado: uma sessão inteira na língua errada
+                # merece uma linha nos registos.
+                if not ctrl.get("locale"):
+                    logger.warning(
+                        "voz: o cliente nao mandou locale no `start`; a sessao "
+                        "vai ouvir e responder em %s",
+                        _LINGUAS_DA_VOZ.get(locale, locale),
+                    )
                 locale = (ctrl.get("locale") or locale)[:2]
-                voice_lang = {"pt": "Portuguese", "es": "Español"}.get(locale, "English")
+                # ── Uma lingua que nao conhecemos nao vira ingles calado. ──
+                #
+                # Isto era `.get(locale, "English")`: um locale fora do mapa
+                # caia em ingles sem uma linha nos registos. No dia em que a
+                # app ganhasse uma lingua e este sitio nao, a voz respondia em
+                # ingles e parecia que «a lingua nao funciona».
+                voice_lang = _LINGUAS_DA_VOZ.get(locale, "")
+                if not voice_lang:
+                    logger.warning(
+                        "voz: locale %r desconhecido — conheco %s. A sessao vai "
+                        "ouvir e responder em ingles.",
+                        locale,
+                        sorted(_LINGUAS_DA_VOZ),
+                    )
+                    voice_lang = "English"
                 voz_escolhida = ctrl.get("voice") or voz_escolhida
-                # STT booted in English at accept; re-open it in the app language
-                # so a PT question transcribes as PT.
+                # ── A mudanca de lingua nao pode falhar em silencio. ───────
+                #
+                # A transcricao arranca em ingles no `accept` e e reaberta
+                # aqui na lingua da app. Isto era `except Exception: pass`:
+                # se a reabertura falhasse, o erro desaparecia e a sessao
+                # continuava a ouvir em ingles.
+                #
+                # Foi o que o Lucas apanhou: *«estando a voz e a app em
+                # portugues, ainda so me escutou em ingles»*. Nem ele sabia
+                # porque — so sentia que nao o entendia — nem ficava nada
+                # nos registos para alguem investigar.
+                #
+                # Continua a nao derrubar a sessao: ouvir em ingles e mau,
+                # cair a meio da frase e pior. Mas passa a deixar rasto, e a
+                # dizer a quem esta do outro lado o que aconteceu.
                 if voice_lang != "English":
                     try:
                         await provider.start(voice_lang)
                     except Exception:
-                        pass
+                        logger.exception(
+                            "voz: nao consegui reabrir a transcricao em %s; a "
+                            "sessao fica a ouvir em ingles",
+                            voice_lang,
+                        )
+                        # Avisar quem esta a falar. Um aviso, nao um erro: a
+                        # sessao continua util, so nao na lingua pedida.
+                        try:
+                            await send(
+                                {
+                                    "type": "warning",
+                                    "code": "voice_language_fallback",
+                                    "lang": locale,
+                                    "message": "Voice is listening in English.",
+                                }
+                            )
+                        except Exception:
+                            pass
                 await state("user_speaking")
             elif action == "mute":
                 muted = True
