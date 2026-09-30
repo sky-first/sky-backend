@@ -184,12 +184,26 @@ class TestRefreshEndpoint:
         assert "expires_in" in data
         assert data["refresh_token"] != old_refresh_token
 
-        # Verify old token was revoked by trying to use it again
+        # BE-09 — repetir o token LOGO A SEGUIR já não é 401.
+        #
+        # Era, e isso expulsava toda a gente: a app volta do segundo plano,
+        # vários ecrãs renovam ao mesmo tempo com o mesmo token, o primeiro
+        # roda e os outros levavam 401 — que o cliente trata como fim de
+        # sessão. Quatro `/auth/refresh` no mesmo segundo, quatro 401, e o
+        # Lucas quinze horas fora da app (28/09/2026 18:22:15).
+        #
+        # Dentro da janela de graça devolve-se o MESMO filho. Não é um
+        # relaxamento do detector de roubo: é não chamar roubo à corrida.
+        # Fora da janela continua a ser 401 e a família morre — ver
+        # `TestJanelaDeGraca::test_fora_da_janela_continua_a_ser_roubo`.
         old_token_response = await async_client.post(
             "/api/v1/auth/refresh",
             json={"refresh_token": old_refresh_token},
         )
-        assert old_token_response.status_code == 401
+        assert old_token_response.status_code == 200
+        # O mesmo filho, não uma segunda linhagem viva da mesma sessão —
+        # que é precisamente o que o detector existe para impedir.
+        assert old_token_response.json()["refresh_token"] == data["refresh_token"]
 
     @pytest.mark.asyncio
     async def test_refresh_invalid_token(self, async_client: AsyncClient):
