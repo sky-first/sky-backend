@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks
@@ -671,11 +671,14 @@ class AuthenticationService:
         # one 401, so a stolen token that had already been rotated could be
         # replayed and nobody would notice.
         #
-        # TODO(BE-09): TOCTOU on concurrent refresh. Two simultaneous refreshes
-        # with the same token can both read it as active before either revokes,
-        # so the loser trips the reuse detector and nukes a healthy family by
-        # mistake. Harden with a row lock (SELECT ... FOR UPDATE) + a short
-        # grace window, plus a concurrency test. Accepted for now (BE-05).
+        # BE-09 — RESOLVIDO a 30/09. Era assim: duas renovacoes simultaneas
+        # com o mesmo token liam-no as duas como activo, e o perdedor
+        # disparava o detector de reutilizacao, revogando uma familia
+        # saudavel. Custou ao Lucas quinze horas fora da app.
+        #
+        # A correccao esta no ramo do `revoked_at` mais abaixo: dentro da
+        # `JANELA_DE_GRACA`, quem chega atrasado recebe o mesmo filho em vez
+        # do alarme. Fora dela o alarme mantem-se intacto.
         from sqlalchemy import select
 
         result = await self.db.execute(
@@ -688,8 +691,28 @@ class AuthenticationService:
             raise UnauthorizedError("Invalid refresh token")
 
         if token_model.revoked_at is not None:
-            # 🚨 A revoked token is being reused. Treat it as compromise:
-            # revoke the whole family and blocklist the user's access tokens.
+            # BE-09 — o token acabou de ser rodado? Então isto não é roubo,
+            # é a corrida de sempre.
+            #
+            # Quando a app volta do segundo plano, vários ecrãs pedem ao
+            # mesmo tempo — presença, conversas, websocket, voz. Todos
+            # apanham 401, todos renovam, todos com o MESMO token. O
+            # primeiro roda; os outros chegam com o token já revogado e
+            # caíam aqui, a matar a família inteira — incluindo o token
+            # que o primeiro tinha acabado de emitir um milissegundo antes.
+            #
+            # O Lucas ficou de fora da app quinze horas por causa disto:
+            # quatro `/auth/refresh` no mesmo segundo, quatro 401, e a
+            # sessão nunca mais recuperou (28/09 18:22:15).
+            #
+            # Dentro da janela devolve-se o MESMO filho a quem chegou
+            # atrasado. Uma rotação, um filho, todos servidos.
+            filho = await self._filho_recente(token_model)
+            if filho is not None:
+                return await self._resposta_para(filho, payload)
+
+            # Fora da janela o alarme mantém-se tal e qual: revogar a
+            # família e bloquear os access tokens do utilizador.
             await self._revoke_token_family(token_model)
             raise UnauthorizedError("Refresh token reuse detected")
 
@@ -739,6 +762,80 @@ class AuthenticationService:
         return RefreshTokenResponse(
             access_token=new_access_token,
             refresh_token=new_refresh_token,
+            expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        )
+
+    #: Quanto tempo depois de uma rotação é que o token antigo ainda serve
+    #: para ser trocado pelo mesmo filho.
+    #:
+    #: ⚠️ **Isto é a fresta que a correcção abre, e é deliberada.** Quem
+    #: roube um refresh token e o use DENTRO destes segundos recebe o mesmo
+    #: filho que a vítima, em vez de ser apanhado.
+    #:
+    #: É aceitável porque o custo do que havia antes era certo e diário —
+    #: toda a gente expulsa — e o desta fresta é hipotético e estreito: quem
+    #: rouba um token usa-o mais tarde, não no mesmo segundo em que a vítima
+    #: o roda, e esse caso continua detectado. A janela conta-se a partir da
+    #: rotação e não se renova.
+    #:
+    #: O número vem da ordem de grandeza do caso real: os quatro pedidos do
+    #: Lucas aconteceram no MESMO segundo. Sobe com dados, não com opinião.
+    JANELA_DE_GRACA = timedelta(seconds=10)
+
+    async def _filho_recente(self, token_model: RefreshToken) -> Optional[RefreshToken]:
+        """O token que substituiu este, se a rotação foi agora mesmo.
+
+        Devolve `None` quando a rotação é antiga (aí é mesmo reutilização) ou
+        quando não há filho vivo — que é o caso de uma família já revogada, e
+        essa tem de continuar a disparar o alarme.
+        """
+        revogado_em = token_model.revoked_at
+        if revogado_em is None:
+            return None
+        if revogado_em.tzinfo is None:
+            revogado_em = revogado_em.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - revogado_em > self.JANELA_DE_GRACA:
+            return None
+
+        from sqlalchemy import select
+
+        familia = token_model.family_id or token_model.id
+        agora = datetime.now(timezone.utc)
+        resultado = await self.db.execute(
+            select(RefreshToken)
+            .where(
+                RefreshToken.family_id == familia,
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.expires_at > agora,
+            )
+            .order_by(RefreshToken.created_at.desc())
+            .limit(1)
+        )
+        return resultado.scalar_one_or_none()
+
+    async def _resposta_para(
+        self, filho: RefreshToken, payload: Dict[str, Any]
+    ) -> RefreshTokenResponse:
+        """Um access token novo para um refresh token que já existe.
+
+        Não roda nada: quem chegou atrasado à corrida recebe o mesmo filho
+        que o vencedor. Abrir uma segunda linhagem aqui seria voltar a ter
+        duas cadeias vivas da mesma sessão — que é o que a detecção de
+        reutilização existe para impedir.
+        """
+        user = await self.user_repo.get_by_id(UUID(payload.get("sub")))
+        if not user:
+            raise UnauthorizedError("User not found")
+
+        token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            **carry_tenant_claims(payload),
+        }
+        return RefreshTokenResponse(
+            access_token=create_access_token(token_data),
+            refresh_token=filho.token,
             expires_in=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         )
 
