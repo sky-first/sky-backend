@@ -47,6 +47,20 @@ async def _row(db: AsyncSession, token: str) -> RefreshToken:
     return result.scalar_one_or_none()
 
 
+async def _envelhecer_rotacao(db: AsyncSession, token: str) -> None:
+    """Empurra a rotacao para tras da `JANELA_DE_GRACA`.
+
+    BE-09 — a partir de 30/09 um token acabado de rodar e devolvido com o
+    mesmo filho, em vez de disparar o alarme: quatro renovacoes em paralelo
+    (que e o que a app faz ao voltar do segundo plano) deixaram de matar a
+    familia. Os testes de ROUBO tem de sair dessa janela, senao passam a
+    exercitar o caminho da corrida e nao o do atacante.
+    """
+    row = await _row(db, token)
+    row.revoked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    await db.commit()
+
+
 @pytest.mark.asyncio
 class TestRefreshReuse:
     # ─── T-05.1 · happy rotation stays in the same family ────────────────────
@@ -72,7 +86,8 @@ class TestRefreshReuse:
         resp = await svc.refresh_access_token(raw_a)  # A → B (A now revoked)
         raw_b = resp.refresh_token
 
-        # 🚨 Replay A (the already-rotated token).
+        # 🚨 Replay A (the already-rotated token), fora da janela de graca.
+        await _envelhecer_rotacao(db_session, raw_a)
         with pytest.raises(UnauthorizedError) as exc:
             await svc.refresh_access_token(raw_a)
         assert "reuse" in str(exc.value).lower()
@@ -86,6 +101,7 @@ class TestRefreshReuse:
         raw_a, _ = await _store_login_token(db_session, test_user["user"])
         raw_b = (await svc.refresh_access_token(raw_a)).refresh_token
 
+        await _envelhecer_rotacao(db_session, raw_a)
         with pytest.raises(UnauthorizedError):
             await svc.refresh_access_token(raw_a)  # trip the reuse detector
 
@@ -103,6 +119,7 @@ class TestRefreshReuse:
         assert row_c.family_id is not None
 
         await svc.refresh_access_token(raw_a)  # rotate family 1
+        await _envelhecer_rotacao(db_session, raw_a)
         with pytest.raises(UnauthorizedError):
             await svc.refresh_access_token(raw_a)  # nuke family 1
 
@@ -163,9 +180,114 @@ class TestRefreshReuse:
         svc = AuthenticationService(db_session)
         raw_a, _ = await _store_login_token(db_session, test_user["user"])
         await svc.refresh_access_token(raw_a)  # rotate A → B
+        await _envelhecer_rotacao(db_session, raw_a)
         with pytest.raises(UnauthorizedError):
             await svc.refresh_access_token(raw_a)  # reuse → must bump blocklist
 
         assert len(calls) == 1
         assert calls[0][0] == str(test_user["user"].id)
         assert isinstance(calls[0][1], int)  # epoch second
+
+
+@pytest.mark.asyncio
+class TestJanelaDeGraca:
+    """BE-09 — renovacoes simultaneas deixaram de matar a sessao.
+
+    ⚠️ **O que isto corrige, com a prova.**
+
+    Quando a app volta do segundo plano, varios ecras pedem ao mesmo tempo:
+    presenca, conversas, websocket, voz. Todos apanham 401, todos renovam,
+    todos com o MESMO refresh token.
+
+    O primeiro rodava e revogava o antigo; os outros chegavam com o token ja
+    revogado, caiam no detector de reutilizacao, e esse revogava a FAMILIA
+    INTEIRA — incluindo o token que o primeiro tinha acabado de emitir. A
+    sessao morria depois de renovada com sucesso.
+
+    Nos registos do ingress, 28/09/2026 as 18:22:15: quatro `/auth/refresh`,
+    quatro 401. O Lucas ficou quinze horas fora da app.
+
+    A janela de graca devolve a quem chega atrasado **o mesmo filho**. Fora
+    dela, o alarme de roubo mantem-se — e e a classe `TestRefreshReuse` acima
+    que o garante.
+    """
+
+    async def test_quem_chega_atrasado_recebe_o_mesmo_filho(self, db_session, test_user):
+        svc = AuthenticationService(db_session)
+        raw_a, _ = await _store_login_token(db_session, test_user["user"])
+
+        primeiro = await svc.refresh_access_token(raw_a)   # A → B
+        segundo = await svc.refresh_access_token(raw_a)    # o atrasado
+
+        # Mesmo filho — nao uma segunda linhagem viva da mesma sessao.
+        assert segundo.refresh_token == primeiro.refresh_token
+        # Mas um access token proprio, acabado de emitir.
+        assert segundo.access_token
+
+    async def test_a_familia_sobrevive_a_corrida(self, db_session, test_user):
+        """O coracao do defeito: o token do vencedor ficava revogado."""
+        svc = AuthenticationService(db_session)
+        raw_a, _ = await _store_login_token(db_session, test_user["user"])
+
+        raw_b = (await svc.refresh_access_token(raw_a)).refresh_token
+        await svc.refresh_access_token(raw_a)  # o atrasado
+
+        assert (await _row(db_session, raw_b)).revoked_at is None, (
+            "o filho do vencedor foi revogado pela corrida — e o defeito de 28/09"
+        )
+
+    async def test_quatro_ao_mesmo_tempo_continuam_a_poder_renovar(
+        self, db_session, test_user
+    ):
+        """Os quatro pedidos do caso real, e a sessao continua viva."""
+        svc = AuthenticationService(db_session)
+        raw_a, _ = await _store_login_token(db_session, test_user["user"])
+
+        respostas = [await svc.refresh_access_token(raw_a) for _ in range(4)]
+
+        # Todos servidos, todos com o mesmo filho.
+        assert len({r.refresh_token for r in respostas}) == 1
+        # E esse filho continua a servir para renovar a seguir.
+        seguinte = await svc.refresh_access_token(respostas[0].refresh_token)
+        assert seguinte.refresh_token != respostas[0].refresh_token
+
+    async def test_fora_da_janela_continua_a_ser_roubo(self, db_session, test_user):
+        """⚠️ A fresta e estreita de proposito — esta e a prova."""
+        svc = AuthenticationService(db_session)
+        raw_a, _ = await _store_login_token(db_session, test_user["user"])
+        raw_b = (await svc.refresh_access_token(raw_a)).refresh_token
+
+        await _envelhecer_rotacao(db_session, raw_a)
+
+        with pytest.raises(UnauthorizedError) as exc:
+            await svc.refresh_access_token(raw_a)
+        assert "reuse" in str(exc.value).lower()
+        assert (await _row(db_session, raw_b)).revoked_at is not None
+
+    async def test_a_janela_e_curta(self):
+        """Dez segundos. Se alguem a alargar, que seja com dados.
+
+        A janela conta-se a partir da rotacao e nao se renova. Quanto maior,
+        maior a fresta para um token roubado ser trocado pelo mesmo filho em
+        vez de disparar o alarme.
+        """
+        assert AuthenticationService.JANELA_DE_GRACA <= timedelta(seconds=30)
+
+    async def test_familia_ja_morta_nao_ressuscita(self, db_session, test_user):
+        """Depois de um roubo detectado, a janela nao serve de porta lateral.
+
+        Se a familia foi revogada, nao ha filho vivo — e o alarme tem de
+        continuar a disparar mesmo para um token rodado ha um segundo.
+        """
+        svc = AuthenticationService(db_session)
+        raw_a, _ = await _store_login_token(db_session, test_user["user"])
+        raw_b = (await svc.refresh_access_token(raw_a)).refresh_token
+
+        await _envelhecer_rotacao(db_session, raw_a)
+        with pytest.raises(UnauthorizedError):
+            await svc.refresh_access_token(raw_a)  # mata a familia
+
+        # Agora o B, revogado pela limpeza, ha pouco tempo.
+        with pytest.raises(UnauthorizedError) as exc:
+            await svc.refresh_access_token(raw_b)
+        assert "reuse" in str(exc.value).lower()
