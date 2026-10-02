@@ -82,7 +82,7 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
         capacity_limits={
             "agents": 3,
             "sources": 1,
-            "indexed_gb": 50,
+            "indexed_gb": 5,
         },
         rate_limit_rpm=60,
         rate_limit_tpm=50_000,
@@ -113,7 +113,7 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
         capacity_limits={
             "agents": 10,
             "sources": 2,
-            "indexed_gb": 200,
+            "indexed_gb": 50,
         },
         rate_limit_rpm=120,
         rate_limit_tpm=100_000,
@@ -152,9 +152,9 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
         setup_fee_eur=10_000,
         pricing_unit="month",
         capacity_limits={
-            "agents": 30,
+            "agents": 50,
             "sources": 5,
-            "indexed_gb": 500,
+            "indexed_gb": 200,
         },
         rate_limit_rpm=300,
         rate_limit_tpm=300_000,
@@ -181,7 +181,7 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
     ),
     "enterprise": TierPreset(
         slug="enterprise",
-        display_name="Sky Enterprise",
+        display_name="Sky Max",
         headline_price_eur=None,
         setup_fee_eur=None,
         pricing_unit="custom",
