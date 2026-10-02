@@ -662,6 +662,35 @@ _REGISTRY_TO_COMMERCIAL_TIER: dict[str, str] = {
 }
 
 
+# ⚠️ **O caminho de volta, e sem ele o Console dava 500.**
+#
+# O endpoint do tier procura o preset no catálogo COMERCIAL
+# (`pricing_tiers`: starter / foundation / scale / enterprise) e depois
+# gravava esse mesmo nome em `tenant_registry.tier` — uma coluna cuja
+# restrição só aceita os nomes do REGISTO (starter / foundation / core /
+# advanced / strategic).
+#
+# `starter` e `foundation` passavam **por coincidência**: são os dois
+# únicos nomes que existem nos dois lados. `scale` e `enterprise`
+# rebentavam na base:
+#
+#     CheckViolationError: new row for relation "tenant_registry"
+#     violates check constraint "tenant_registry_tier_check"
+#
+# O Lucas apanhou-o a tentar pôr a própria SkyFirst em Enterprise, e o
+# erro que via era um 500 genérico — nada que dissesse o que se passou.
+#
+# `scale` tem duas origens possíveis (`core` e `advanced`); escolhe-se
+# `core`, que é a mais baixa, porque subir é decisão de quem opera e
+# descer à socapa não é.
+_COMMERCIAL_TO_REGISTRY_TIER: dict[str, str] = {
+    "starter": "starter",
+    "foundation": "foundation",
+    "scale": "core",
+    "enterprise": "strategic",
+}
+
+
 # Conversion factor used for the storage breach comparison. The plan-
 # limits row stores ``current_storage_bytes`` (atomic increments) and
 # ``max_storage_gb`` (human-readable ceiling); the breach payload
@@ -854,9 +883,13 @@ async def change_tenant_tier(
                 },
             )
 
+    # O que vai para a coluna é o nome do REGISTO. Ver
+    # `_COMMERCIAL_TO_REGISTRY_TIER` — gravar o nome comercial aqui dava
+    # 500 em `scale` e em `enterprise`.
+    tier_do_registo = _COMMERCIAL_TO_REGISTRY_TIER.get(preset.slug, preset.slug)
     old_tier = row.tier
-    tier_actually_changed = old_tier != preset.slug
-    row.tier = preset.slug
+    tier_actually_changed = old_tier != tier_do_registo
+    row.tier = tier_do_registo
     row.rate_limit_rpm = preset.rate_limit_rpm
     row.rate_limit_tpm = preset.rate_limit_tpm
     if payload.apply_preset:
