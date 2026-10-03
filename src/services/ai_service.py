@@ -1608,32 +1608,45 @@ class AIService:
             # the full detail server-side only.
             import httpx as _httpx
 
+            # ── Todas as frases vêm do catálogo, não só uma. ──────────
+            #
+            # Seis dos sete ramos estavam cravados em inglês e só o 400
+            # pedia a frase ao `get_message`. Numa plataforma em
+            # português lia-se «The AI service rejected the request.
+            # Please retry or open a ticket.» — e não há nenhum botão
+            # para abrir esse pedido, por isso a frase mandava fazer uma
+            # coisa que o ecrã não deixa.
+            idioma = getattr(query_data, "locale", None)
             error_key = "chat.server"
-            friendly = "The AI service had a problem. Please try again."
+            friendly = get_message("chat_error_generic", idioma)
             if isinstance(e, _httpx.TimeoutException):
                 error_key = "chat.timeout"
-                friendly = "The question took too long to answer. Try a simpler one or retry."
+                friendly = get_message("chat_error_timeout", idioma)
             elif isinstance(e, _httpx.HTTPStatusError):
                 code = e.response.status_code
                 if code == 429:
                     error_key = "chat.rate_limited"
-                    friendly = "Too many AI requests in a short window. Please wait a few seconds and retry."
+                    friendly = get_message("chat_error_rate_limited", idioma)
                 elif 500 <= code < 600:
                     error_key = "chat.server"
-                    friendly = (
-                        "The AI service is temporarily unavailable. Please retry in a moment."
-                    )
+                    friendly = get_message("chat_error_unavailable", idioma)
                 elif code == 400:
                     error_key = "chat.server"
-                    friendly = get_message(
-                        "couldnt_understand", getattr(query_data, "locale", None)
-                    )
+                    friendly = get_message("couldnt_understand", idioma)
+                elif code == 404:
+                    # O 404 do `/connections/<id>/query` quer dizer uma
+                    # coisa concreta: a ligação não tem metadados. Caía
+                    # no ramo genérico e saía como «o serviço recusou o
+                    # pedido», que manda procurar o defeito no sítio
+                    # errado — custou-nos uma demonstração a perceber.
+                    error_key = "chat.no_metadata"
+                    friendly = get_message("chat_error_no_metadata", idioma)
                 else:
                     error_key = "chat.server"
-                    friendly = "The AI service rejected the request. Please retry or open a ticket."
+                    friendly = get_message("chat_error_generic", idioma)
             elif isinstance(e, (_httpx.ConnectError, _httpx.NetworkError)):
                 error_key = "chat.network"
-                friendly = "Couldn't reach the AI service. Check your connection and retry."
+                friendly = get_message("chat_error_network", idioma)
 
             query.status = "error"
             # Store the friendly message as `answer` so the chat bubble shows
