@@ -199,6 +199,14 @@ async def get_tenant_detail(
     ).scalars().all()
 
     base = ConsoleTenantDetail.model_validate(row).model_dump()
+    # O mesmo plano, dito no vocabulário comercial. O `tier` continua a
+    # ser a palavra do registo; estes dois são o que o ecrã mostra e com
+    # que o seletor de planos compara. Sem eles o frontend repetia o mapa
+    # — e um mapa em dois repositórios diverge.
+    from src.services.vocabulario_dos_planos import comercial_de, nome_de
+
+    base["tier_commercial"] = comercial_de(row.tier)
+    base["tier_display_name"] = nome_de(row.tier)
     base["recent_audit"] = [AuditEntryRead.model_validate(r) for r in recent_audit_rows]
     base["recent_jobs"] = [ProvisioningJobRead.model_validate(r) for r in recent_jobs_rows]
     return ConsoleTenantDetail(**base)

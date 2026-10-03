@@ -142,6 +142,16 @@ class ConsoleTenantDetail(TenantRead):
     """Tenant detail screen payload. Extends the registry shape with
     operational extras the Console renders on the Overview tab."""
 
+    # O mesmo plano, dito no vocabulario COMERCIAL. `tier` continua a ser
+    # a palavra do registo (`strategic`), que e a que o provisionamento
+    # usa; esta e a que se mostra e com que o seletor de planos compara.
+    #
+    # Sem isto o frontend tinha de repetir o mapa, e um mapa em dois
+    # repositorios diverge -- foi assim que o Console deu 500 ao mudar o
+    # tier para Enterprise (#694).
+    tier_commercial: Optional[str] = None
+    tier_display_name: Optional[str] = None
+
     # Last 50 audit entries scoped to this tenant. Filled by the
     # service layer; the API never asks the client to provide it.
     recent_audit: List[AuditEntryRead] = Field(default_factory=list)
