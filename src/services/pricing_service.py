@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import inspect, case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import PaymentRequiredError
@@ -295,7 +295,50 @@ async def get_limits(
         tenant_row = (
             await db.execute(select(Tenant).where(Tenant.id == tid))
         ).scalar_one_or_none()
-        product_tier = tenant_row.tier if tenant_row else "foundation"
+
+        # ── Não se inventa um plano para um cliente que não se sabe
+        #    qual é. ──────────────────────────────────────────────────
+        #
+        # Isto dizia `tenant_row.tier if tenant_row else "foundation"`, e
+        # a seguir gravava a linha. Lido em voz alta: *quando não sei de
+        # quem é o pedido, assumo o plano de 10 agentes e escrevo-o na
+        # base*. A auto-cura, que existia para cobrir um cliente criado
+        # entre migrações, passava a tornar o engano permanente.
+        #
+        # Em produção, a 03/10/2026, havia uma linha debaixo do sentinela
+        # `UUID(int=0)` — na base da plataforma E dentro da base de um
+        # cliente. O painel do plano mostrava-lhe «297 de 10 agentes»:
+        #
+        #   * o tecto 10/25/50 era o desta linha fantasma;
+        #   * os 297 eram `COUNT(*) FROM agents` na base da PLATAFORMA,
+        #     ou seja os agentes de toda a gente;
+        #   * o cliente tinha 6 agentes, 2 pessoas, e plano sem limites.
+        #
+        # Os quatro números do painel estavam errados, todos pela mesma
+        # causa: um `tenant_id` por resolver que ninguém assinalou.
+        #
+        # Agora: sem cliente conhecido não se grava nada e não se limita
+        # nada. A linha devolvida vive só neste pedido, e o registo diz o
+        # que aconteceu. Servir sem limite é a escolha menos má — um
+        # tecto inventado não trava só a interface, trava a criação de
+        # agentes com 402 a quem não tem um único a mais.
+        if tenant_row is None:
+            logger.error(
+                "pricing: pedido sem cliente resolvido (tenant_id=%s) — a "
+                "servir sem limites e sem gravar. Se isto aparece em "
+                "produção, o resolvedor de cliente não correu neste "
+                "caminho.",
+                tid,
+            )
+            return TenantPlanLimits(
+                tenant_id=tid,
+                tier="enterprise",
+                **_ENTERPRISE_CAPS,
+                queries_period_start=datetime.now(timezone.utc),
+                last_threshold_alerted={},
+            )
+
+        product_tier = tenant_row.tier
         # OS CINCO PLANOS, e nao dois.
         #
         # Isto era `TIER_LIMITS.get(product_tier, _ENTERPRISE_CAPS)` — e os
@@ -524,6 +567,30 @@ async def _bump_counter(
     """
     tid = _resolve_tenant_id(tenant_id)
     row = await get_limits(db, tid)
+    # ── Um contador de um cliente que nao se sabe qual e nao conta nada.
+    #
+    # Quando o `tenant_id` nao resolve, o `get_limits` devolve uma linha
+    # que vive so neste pedido — nao esta na sessao, de proposito, para
+    # a ficcao nao chegar a base. Mas este caminho faz `db.refresh(row)`
+    # a seguir ao UPDATE, e um `refresh` sobre uma instancia transiente
+    # rebenta com "is not persistent within this Session".
+    #
+    # Apanhado pela CI, nao por mim: a primeira versao desta correccao
+    # transformava um numero errado num 500 em cada vez que alguem
+    # juntava uma pessoa a um projecto. Trocar um defeito visivel por um
+    # erro e um mau negocio.
+    #
+    # Sem cliente nao ha contador para incrementar e nao ha tecto para
+    # cruzar. Sai-se por aqui, em silencio para quem usa e com um aviso
+    # no registo para quem procura.
+    if inspect(row).transient:
+        logger.warning(
+            "pricing: %s%+d ignorado — o pedido nao tem cliente resolvido",
+            column,
+            delta,
+        )
+        return
+
     limit = _limit_for(row, resource)
     previous_count = _current_count_for(row, resource)
     previous_percent = _percent(previous_count, limit)
