@@ -3252,6 +3252,646 @@
       ]
     },
     {
+      "vertical": "food",
+      "locale": "pt",
+      "is_default": false,
+      "name": "Distribuidora Guadiana — alimentação selecta e vinhos",
+      "description": "Distribuidora à hostelaria com 72 referências, 360 lotes e 18 meses de encomendas.",
+      "connection_ref": "Demo — Alimentar",
+      "insight": {
+        "severity": "expiry_exposure",
+        "severity_level": "warning",
+        "agent_name": "Armazém",
+        "title": "Há mercadoria a caducar que ainda se vendia — e outra que já não",
+        "summary": "O stock vê-se por referência. A validade está no lote. São duas vistas da mesma caixa e só uma delas tem a data — por isso a pergunta «o que caduca este mês» não tem resposta em nenhum dos dois sítios sozinho.\n\nA distinção que interessa não é entre bom e mau: é entre o que ainda se consegue escoar e o que já se perdeu. O primeiro é uma campanha com duas semanas de aviso; o segundo é uma quebra que só se descobre a inventariar.\n\nO vinho de guarda fica de fora desta conta de propósito. Ele não caduca — envelhece — e metê-lo aqui inventava um problema que não existe.",
+        "stat_tiles": [
+          {
+            "label": "Já caducado em armazém",
+            "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE",
+            "format": "eur"
+          },
+          {
+            "label": "Caduca nos próximos 60 dias",
+            "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before >= CURRENT_DATE AND l.best_before < CURRENT_DATE + 60",
+            "format": "eur"
+          },
+          {
+            "label": "A família mais exposta",
+            "value_sql": "SELECT p.family FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE + 60 GROUP BY p.family ORDER BY SUM(s.quantity * p.unit_cost) DESC LIMIT 1"
+          }
+        ],
+        "sources": [
+          {
+            "table": "warehouse.lots",
+            "description": "O lote: quando entrou, quando caduca"
+          },
+          {
+            "table": "warehouse.stock",
+            "description": "Quanto resta de cada lote, e em que zona"
+          },
+          {
+            "table": "assortment.products",
+            "description": "Referência, família, custo e preço de tarifa"
+          }
+        ],
+        "executed_sql": "SELECT l.lot_code AS lot,\n       p.name AS product,\n       p.family,\n       l.best_before,\n       (l.best_before - CURRENT_DATE) AS days_left,\n       s.quantity AS units,\n       ROUND(s.quantity * p.unit_cost) AS cost,\n       s.zone\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage\n  AND l.best_before < CURRENT_DATE + 60\nORDER BY l.best_before\nLIMIT 40",
+        "series_sql": "SELECT TO_CHAR(DATE_TRUNC('month', l.best_before), 'YYYY-MM') AS t,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS v\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage\n  AND l.best_before BETWEEN CURRENT_DATE - 180 AND CURRENT_DATE + 180\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "rebate_erosion",
+          "severity_level": "warning",
+          "agent_name": "Margem",
+          "title": "A margem bruta é igual em todos os canais. A líquida não é.",
+          "summary": "O rappel acordado aplica-se sobre o acumulado, no fim do ano, e não aparece em nenhuma linha de factura. Por isso o relatório de vendas mostra a mesma margem em todos os canais — e está certo, até ao dia em que não está.\n\nO número só existe cruzando o que foi vendido com a percentagem que está no contrato de cada cliente. Um dos dois vive na facturação, o outro vive numa pasta.\n\nA diferença entre as duas colunas é dinheiro que já foi prometido e ainda não foi contado.",
+          "stat_tiles": [
+            {
+              "label": "Margem bruta",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Margem líquida após rappel",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "O que o rappel custa",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            }
+          ],
+          "sources": [
+            {
+              "table": "trade.order_lines",
+              "description": "O que saiu, de que lote, e por quanto"
+            },
+            {
+              "table": "trade.customers",
+              "description": "Canal, praça, e o rappel acordado"
+            },
+            {
+              "table": "assortment.products",
+              "description": "Referência, família, custo e preço de tarifa"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS gross_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct,\n       ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))) AS rebate_cost\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.channel\nORDER BY net_pct",
+          "series_sql": "SELECT TO_CHAR(DATE_TRUNC('month', o.ordered_at), 'YYYY-MM') AS t,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS v\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY 1 ORDER BY 1"
+        },
+        {
+          "severity": "idle_capital",
+          "severity_level": "info",
+          "agent_name": "Existências",
+          "title": "Capital parado por estratégia e capital parado por esquecimento",
+          "summary": "Numa folha de stock os dois são a mesma linha: mercadoria que não se mexeu. Mas um vinho de guarda que não se mexe está a fazer o seu trabalho, e uma referência que entrou para um cliente que entretanto fechou está a ocupar dinheiro e prateleira.\n\nO que separa os dois não é a quantidade nem o tempo — é se alguma vez se vendeu. Essa coluna não existe no stock; existe na facturação.\n\nAs referências que nunca tiveram uma única venda são o caso extremo, e existem em qualquer catálogo.",
+          "stat_tiles": [
+            {
+              "label": "Parado sem ser de guarda",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND NOT p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "De guarda — a propósito",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "Referências sem uma única venda",
+              "value_sql": "SELECT COUNT(*) FROM assortment.products p WHERE NOT EXISTS (SELECT 1 FROM trade.order_lines ol JOIN warehouse.lots l ON l.id = ol.lot_id WHERE l.product_id = p.id)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "warehouse.stock",
+              "description": "Quanto resta de cada lote, e em que zona"
+            },
+            {
+              "table": "assortment.products",
+              "description": "Referência, família, custo e preço de tarifa"
+            },
+            {
+              "table": "trade.order_lines",
+              "description": "O que saiu, de que lote, e por quanto"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, p.family,\n       CASE WHEN p.is_vintage THEN 'sí' ELSE 'no' END AS vintage,\n       SUM(s.quantity) AS units,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS capital\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0\nGROUP BY p.id, p.sku, p.name, p.family, p.is_vintage\nORDER BY capital DESC\nLIMIT 40",
+          "series_sql": "SELECT p.family AS t,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS v\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0\nGROUP BY p.family ORDER BY v DESC"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "O que é que está a caducar, e quanto vale?",
+          "answer_markdown": "**Separado entre o que ainda se vende e o que já se perdeu.** São dois problemas diferentes e só um deles tem solução.\n\nO que caduca nas próximas semanas é uma campanha: há tempo de escoar com desconto, de propor ao cliente certo, de mudar de praça. O que já passou do prazo é uma quebra — resta decidir como se contabiliza.\n\nA lista vem por lote e não por referência, porque é o lote que tem a data. Com o stock por referência esta pergunta não tem resposta: a mesma referência tem lotes de meses diferentes.",
+          "citations": [
+            {
+              "table": "warehouse.lots"
+            },
+            {
+              "table": "warehouse.stock"
+            }
+          ],
+          "executed_sql": "SELECT l.lot_code AS lot,\n       p.name AS product,\n       p.family,\n       l.best_before,\n       (l.best_before - CURRENT_DATE) AS days_left,\n       s.quantity AS units,\n       ROUND(s.quantity * p.unit_cost) AS cost,\n       s.zone\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage\n  AND l.best_before < CURRENT_DATE + 60\nORDER BY l.best_before\nLIMIT 40",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Já caducado",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE",
+              "format": "eur"
+            },
+            {
+              "label": "Caduca em 60 dias",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before >= CURRENT_DATE AND l.best_before < CURRENT_DATE + 60",
+              "format": "eur"
+            },
+            {
+              "label": "Lotes em risco",
+              "value_sql": "SELECT COUNT(*) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE + 60"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "Quanto é que o rappel me está mesmo a custar?",
+          "answer_markdown": "**Mais no canal que negoceia melhor, como seria de esperar — e a diferença não aparece em lado nenhum até Dezembro.**\n\nA margem bruta é praticamente igual em todos os canais: a tabela de preços é a mesma. A líquida separa-os, e a separação é o contrato, não a venda.\n\nO quadro põe as duas lado a lado por canal. A última coluna é o euro que já foi prometido e ainda não foi lançado — e é essa que decide se vale a pena crescer naquele canal.",
+          "citations": [
+            {
+              "table": "trade.customers"
+            },
+            {
+              "table": "trade.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS gross_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct,\n       ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))) AS rebate_cost\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.channel\nORDER BY net_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Margem bruta",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Margem líquida",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "O que o rappel custa",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Que capital tenho parado, e qual dele é de propósito?",
+          "answer_markdown": "**A separação é a resposta.** O total sozinho não serve para decidir nada, porque mistura duas coisas opostas.\n\nO vinho de guarda está parado porque deve estar — é o modelo de negócio. O resto está parado porque alguém comprou e ninguém voltou a olhar.\n\nO caso extremo são as referências sem uma única venda: entraram para um cliente concreto, esse cliente mudou, e elas ficaram. Não aparecem em nenhum relatório de rotação porque rotação zero não gera linhas.",
+          "citations": [
+            {
+              "table": "warehouse.stock"
+            },
+            {
+              "table": "assortment.products"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, p.family,\n       CASE WHEN p.is_vintage THEN 'sí' ELSE 'no' END AS vintage,\n       SUM(s.quantity) AS units,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS capital\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0\nGROUP BY p.id, p.sku, p.name, p.family, p.is_vintage\nORDER BY capital DESC\nLIMIT 40",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Parado sem ser de guarda",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND NOT p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "De guarda",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "Sem uma única venda",
+              "value_sql": "SELECT COUNT(*) FROM assortment.products p WHERE NOT EXISTS (SELECT 1 FROM trade.order_lines ol JOIN warehouse.lots l ON l.id = ol.lot_id WHERE l.product_id = p.id)"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Que famílias deixam menos depois do rappel?",
+          "answer_markdown": "**Por margem líquida, que é a ordem que decide o catálogo.** A bruta ordena quase sempre de outra maneira.\n\nUma família com boa margem de tarifa que se vende sobretudo ao canal com mais rappel acaba abaixo de outra com tarifa pior e clientes que não negoceiam. Isso não se vê na ficha do produto.",
+          "citations": [
+            {
+              "table": "assortment.products"
+            },
+            {
+              "table": "trade.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT p.family,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS gross_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY net_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Facturado no período",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            },
+            {
+              "label": "Margem líquida",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Referências no catálogo",
+              "value_sql": "SELECT COUNT(*) FROM assortment.products"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Que clientes pesam mais, e quais deixam mais?",
+          "answer_markdown": "**São listas diferentes, e é essa a utilidade de as ver juntas.**\n\nO cliente que mais factura costuma ser o que mais negoceia — foi assim que chegou a esse volume. A coluna da margem líquida ao lado da facturação diz quanto desse volume chega ao fim.\n\nNão é um argumento para o perder. É um argumento para saber quanto custa mantê-lo antes da próxima negociação.",
+          "citations": [
+            {
+              "table": "trade.customers"
+            },
+            {
+              "table": "trade.orders"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.channel, c.city,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * c.rebate_pct, 2) AS rebate_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.id, c.name, c.channel, c.city, c.rebate_pct\nORDER BY billed DESC\nLIMIT 30",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Clientes activos",
+              "value_sql": "SELECT COUNT(*) FROM trade.customers"
+            },
+            {
+              "label": "Encomendas servidas",
+              "value_sql": "SELECT COUNT(*) FROM trade.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "O canal que menos deixa",
+              "value_sql": "SELECT c.channel FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id GROUP BY c.channel ORDER BY SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0) LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Que praças compram mais, e quais compensam?",
+          "answer_markdown": "**Facturação e margem líquida por praça, lado a lado.** A praça que mais factura não é sempre a que mais deixa.\n\nNuma zona onde se entrega duas vezes por semana a clientes pequenos, o volume é baixo e o rappel também. Noutra, meia dúzia de contas grandes fazem o número e levam a margem com elas.\n\nÉ a conta que decide onde vale a pena pôr mais um comercial.",
+          "citations": [
+            {
+              "table": "trade.customers"
+            },
+            {
+              "table": "trade.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT c.city,\n       COUNT(DISTINCT c.id) AS customers,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.city\nORDER BY billed DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "A praça que mais factura",
+              "value_sql": "SELECT c.city FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id GROUP BY c.city ORDER BY SUM(ol.quantity * ol.unit_price * (1 - ol.discount)) DESC LIMIT 1"
+            },
+            {
+              "label": "Facturado no período",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            },
+            {
+              "label": "Clientes activos",
+              "value_sql": "SELECT COUNT(*) FROM trade.customers"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vertical": "food",
+      "locale": "en",
+      "is_default": false,
+      "name": "Guadiana Fine Foods — speciality food and wine",
+      "description": "Distributor to the hospitality trade with 72 references, 360 lots and 18 months of orders.",
+      "connection_ref": "Demo — Food",
+      "insight": {
+        "severity": "expiry_exposure",
+        "severity_level": "warning",
+        "agent_name": "Warehouse",
+        "title": "There is stock expiring that could still be sold — and some that cannot",
+        "summary": "Stock is seen by reference. The date is on the lot. Two views of the same box and only one of them has the date — which is why \"what expires this month\" has no answer in either place alone.\n\nThe distinction that matters is not good versus bad: it is between what can still be moved and what is already lost. The first is a campaign with a fortnight's notice; the second is shrinkage you only find at stocktake.\n\nVintage wine is deliberately left out of this count. It does not expire — it ages — and including it would invent a problem that does not exist.",
+        "stat_tiles": [
+          {
+            "label": "Already expired in the warehouse",
+            "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE",
+            "format": "eur"
+          },
+          {
+            "label": "Expires in the next 60 days",
+            "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before >= CURRENT_DATE AND l.best_before < CURRENT_DATE + 60",
+            "format": "eur"
+          },
+          {
+            "label": "The most exposed family",
+            "value_sql": "SELECT p.family FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE + 60 GROUP BY p.family ORDER BY SUM(s.quantity * p.unit_cost) DESC LIMIT 1"
+          }
+        ],
+        "sources": [
+          {
+            "table": "warehouse.lots",
+            "description": "The lot: when it arrived, when it expires"
+          },
+          {
+            "table": "warehouse.stock",
+            "description": "How much of each lot is left, and in which zone"
+          },
+          {
+            "table": "assortment.products",
+            "description": "Reference, family, cost and list price"
+          }
+        ],
+        "executed_sql": "SELECT l.lot_code AS lot,\n       p.name AS product,\n       p.family,\n       l.best_before,\n       (l.best_before - CURRENT_DATE) AS days_left,\n       s.quantity AS units,\n       ROUND(s.quantity * p.unit_cost) AS cost,\n       s.zone\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage\n  AND l.best_before < CURRENT_DATE + 60\nORDER BY l.best_before\nLIMIT 40",
+        "series_sql": "SELECT TO_CHAR(DATE_TRUNC('month', l.best_before), 'YYYY-MM') AS t,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS v\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage\n  AND l.best_before BETWEEN CURRENT_DATE - 180 AND CURRENT_DATE + 180\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "rebate_erosion",
+          "severity_level": "warning",
+          "agent_name": "Margin",
+          "title": "Gross margin is the same across every channel. Net margin is not.",
+          "summary": "The agreed rebate applies to the running total, at year end, and appears on no invoice line. So the sales report shows the same margin on every channel — and it is right, until the day it isn't.\n\nThe number only exists by crossing what was sold with the percentage in each client's contract. One of the two lives in billing, the other lives in a folder.\n\nThe gap between the two columns is money already promised and not yet counted.",
+          "stat_tiles": [
+            {
+              "label": "Gross margin",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Net margin after rebate",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "What the rebate costs",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            }
+          ],
+          "sources": [
+            {
+              "table": "trade.order_lines",
+              "description": "What went out, from which lot, and for how much"
+            },
+            {
+              "table": "trade.customers",
+              "description": "Channel, town, and the agreed rebate"
+            },
+            {
+              "table": "assortment.products",
+              "description": "Reference, family, cost and list price"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS gross_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct,\n       ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))) AS rebate_cost\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.channel\nORDER BY net_pct",
+          "series_sql": "SELECT TO_CHAR(DATE_TRUNC('month', o.ordered_at), 'YYYY-MM') AS t,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS v\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY 1 ORDER BY 1"
+        },
+        {
+          "severity": "idle_capital",
+          "severity_level": "info",
+          "agent_name": "Stock",
+          "title": "Capital parked on purpose, and capital parked by forgetting",
+          "summary": "On a stock sheet the two are the same line: goods that have not moved. But a vintage wine that does not move is doing its job, while a reference brought in for a client who has since closed is taking up both money and shelf.\n\nWhat separates them is neither quantity nor time — it is whether it ever sold at all. That column does not exist in stock; it exists in billing.\n\nReferences with not a single sale are the extreme case, and they exist in every catalogue.",
+          "stat_tiles": [
+            {
+              "label": "Parked and not vintage",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND NOT p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "Vintage — on purpose",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "References with not a single sale",
+              "value_sql": "SELECT COUNT(*) FROM assortment.products p WHERE NOT EXISTS (SELECT 1 FROM trade.order_lines ol JOIN warehouse.lots l ON l.id = ol.lot_id WHERE l.product_id = p.id)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "warehouse.stock",
+              "description": "How much of each lot is left, and in which zone"
+            },
+            {
+              "table": "assortment.products",
+              "description": "Reference, family, cost and list price"
+            },
+            {
+              "table": "trade.order_lines",
+              "description": "What went out, from which lot, and for how much"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, p.family,\n       CASE WHEN p.is_vintage THEN 'sí' ELSE 'no' END AS vintage,\n       SUM(s.quantity) AS units,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS capital\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0\nGROUP BY p.id, p.sku, p.name, p.family, p.is_vintage\nORDER BY capital DESC\nLIMIT 40",
+          "series_sql": "SELECT p.family AS t,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS v\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0\nGROUP BY p.family ORDER BY v DESC"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "What is expiring, and what is it worth?",
+          "answer_markdown": "**Split between what can still be sold and what is already lost.** They are two different problems and only one has a solution.\n\nWhat expires in the coming weeks is a campaign: there is time to move it at a discount, offer it to the right client, shift it to another town. What is already past date is shrinkage — all that is left is deciding how to book it.\n\nThe list comes by lot and not by reference, because it is the lot that carries the date. With stock by reference this question has no answer: the same reference has lots from different months.",
+          "citations": [
+            {
+              "table": "warehouse.lots"
+            },
+            {
+              "table": "warehouse.stock"
+            }
+          ],
+          "executed_sql": "SELECT l.lot_code AS lot,\n       p.name AS product,\n       p.family,\n       l.best_before,\n       (l.best_before - CURRENT_DATE) AS days_left,\n       s.quantity AS units,\n       ROUND(s.quantity * p.unit_cost) AS cost,\n       s.zone\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage\n  AND l.best_before < CURRENT_DATE + 60\nORDER BY l.best_before\nLIMIT 40",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Already expired",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE",
+              "format": "eur"
+            },
+            {
+              "label": "Expires within 60 days",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before >= CURRENT_DATE AND l.best_before < CURRENT_DATE + 60",
+              "format": "eur"
+            },
+            {
+              "label": "Lots at risk",
+              "value_sql": "SELECT COUNT(*) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE + 60"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "What is the rebate actually costing me?",
+          "answer_markdown": "**Most in the channel that negotiates best, as you would expect — and the difference shows up nowhere until December.**\n\nGross margin is practically the same on every channel: the rate card is the same. Net margin separates them, and the separation is the contract, not the sale.\n\nThe table puts the two side by side per channel. The last column is the euro already promised and not yet booked — and that is the one that decides whether growing in that channel is worth it.",
+          "citations": [
+            {
+              "table": "trade.customers"
+            },
+            {
+              "table": "trade.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS gross_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct,\n       ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))) AS rebate_cost\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.channel\nORDER BY net_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Gross margin",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Net margin",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "What the rebate costs",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "How much capital is parked, and how much on purpose?",
+          "answer_markdown": "**The split is the answer.** The total on its own decides nothing, because it mixes two opposite things.\n\nVintage wine is parked because it should be — that is the business model. The rest is parked because somebody bought it and nobody looked again.\n\nThe extreme case is references with not a single sale: they came in for one specific client, that client moved on, and they stayed. They appear in no turnover report, because zero turnover produces no rows.",
+          "citations": [
+            {
+              "table": "warehouse.stock"
+            },
+            {
+              "table": "assortment.products"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, p.family,\n       CASE WHEN p.is_vintage THEN 'sí' ELSE 'no' END AS vintage,\n       SUM(s.quantity) AS units,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS capital\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0\nGROUP BY p.id, p.sku, p.name, p.family, p.is_vintage\nORDER BY capital DESC\nLIMIT 40",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Parked and not vintage",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND NOT p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "Vintage",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "Not a single sale",
+              "value_sql": "SELECT COUNT(*) FROM assortment.products p WHERE NOT EXISTS (SELECT 1 FROM trade.order_lines ol JOIN warehouse.lots l ON l.id = ol.lot_id WHERE l.product_id = p.id)"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Which families leave least after the rebate?",
+          "answer_markdown": "**By net margin, which is the order that decides the catalogue.** Gross margin almost always sorts differently.\n\nA family with a good rate-card margin that sells mostly to the channel with the biggest rebate ends up below one with a worse rate card and clients who do not negotiate. None of that is on the product sheet.",
+          "citations": [
+            {
+              "table": "assortment.products"
+            },
+            {
+              "table": "trade.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT p.family,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS gross_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY net_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Billed in the period",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            },
+            {
+              "label": "Net margin",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "References in the catalogue",
+              "value_sql": "SELECT COUNT(*) FROM assortment.products"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Which clients weigh most, and which leave most?",
+          "answer_markdown": "**They are different lists, and that is the point of seeing them together.**\n\nThe client who bills most is usually the one who negotiates most — that is how they got to that volume. The net-margin column beside the billing says how much of that volume reaches the end.\n\nIt is not an argument for losing them. It is an argument for knowing what keeping them costs, before the next negotiation.",
+          "citations": [
+            {
+              "table": "trade.customers"
+            },
+            {
+              "table": "trade.orders"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.channel, c.city,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * c.rebate_pct, 2) AS rebate_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.id, c.name, c.channel, c.city, c.rebate_pct\nORDER BY billed DESC\nLIMIT 30",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Active clients",
+              "value_sql": "SELECT COUNT(*) FROM trade.customers"
+            },
+            {
+              "label": "Orders delivered",
+              "value_sql": "SELECT COUNT(*) FROM trade.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "The channel that leaves least",
+              "value_sql": "SELECT c.channel FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id GROUP BY c.channel ORDER BY SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0) LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Which towns buy most, and which pay off?",
+          "answer_markdown": "**Billing and net margin per town, side by side.** The town that bills most is not always the one that leaves most.\n\nIn an area served twice a week to small accounts, volume is low and so is the rebate. In another, half a dozen large accounts make the number and take the margin with them.\n\nIt is the sum that decides where another salesperson is worth it.",
+          "citations": [
+            {
+              "table": "trade.customers"
+            },
+            {
+              "table": "trade.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT c.city,\n       COUNT(DISTINCT c.id) AS customers,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.city\nORDER BY billed DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "The town that bills most",
+              "value_sql": "SELECT c.city FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id GROUP BY c.city ORDER BY SUM(ol.quantity * ol.unit_price * (1 - ol.discount)) DESC LIMIT 1"
+            },
+            {
+              "label": "Billed in the period",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            },
+            {
+              "label": "Active clients",
+              "value_sql": "SELECT COUNT(*) FROM trade.customers"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "vertical": "saas",
       "locale": "es",
       "is_default": false,
@@ -4862,6 +5502,326 @@
               "label": "Dentro del plazo del cliente",
               "value_sql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*), 1) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed'",
               "format": "pct"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vertical": "food",
+      "locale": "es",
+      "is_default": false,
+      "name": "Distribuidora Guadiana — alimentación selecta y vinos",
+      "description": "Distribuidora a hostelería con 72 referencias, 360 lotes y 18 meses de pedidos.",
+      "connection_ref": "Demo — Food",
+      "insight": {
+        "severity": "expiry_exposure",
+        "severity_level": "warning",
+        "agent_name": "Almacén",
+        "title": "Hay mercancía caducando que todavía se vendía — y otra que ya no",
+        "summary": "El stock se mira por referencia. La fecha está en el lote. Son dos vistas de la misma caja y solo una tiene la fecha — por eso la pregunta «qué caduca este mes» no tiene respuesta en ninguno de los dos sitios por separado.\n\nLa distinción que importa no es entre bueno y malo: es entre lo que todavía se puede dar salida y lo que ya se perdió. Lo primero es una campaña con dos semanas de aviso; lo segundo es una merma que solo se descubre al inventariar.\n\nEl vino de guarda queda fuera de esta cuenta a propósito. No caduca — envejece — y meterlo aquí inventaba un problema que no existe.",
+        "stat_tiles": [
+          {
+            "label": "Ya caducado en almacén",
+            "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE",
+            "format": "eur"
+          },
+          {
+            "label": "Caduca en los próximos 60 días",
+            "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before >= CURRENT_DATE AND l.best_before < CURRENT_DATE + 60",
+            "format": "eur"
+          },
+          {
+            "label": "La familia más expuesta",
+            "value_sql": "SELECT p.family FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE + 60 GROUP BY p.family ORDER BY SUM(s.quantity * p.unit_cost) DESC LIMIT 1"
+          }
+        ],
+        "sources": [
+          {
+            "table": "warehouse.lots",
+            "description": "El lote: cuándo entró, cuándo caduca"
+          },
+          {
+            "table": "warehouse.stock",
+            "description": "Cuánto queda de cada lote, y en qué zona"
+          },
+          {
+            "table": "assortment.products",
+            "description": "Referencia, familia, coste y precio de tarifa"
+          }
+        ],
+        "executed_sql": "SELECT l.lot_code AS lot,\n       p.name AS product,\n       p.family,\n       l.best_before,\n       (l.best_before - CURRENT_DATE) AS days_left,\n       s.quantity AS units,\n       ROUND(s.quantity * p.unit_cost) AS cost,\n       s.zone\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage\n  AND l.best_before < CURRENT_DATE + 60\nORDER BY l.best_before\nLIMIT 40",
+        "series_sql": "SELECT TO_CHAR(DATE_TRUNC('month', l.best_before), 'YYYY-MM') AS t,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS v\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage\n  AND l.best_before BETWEEN CURRENT_DATE - 180 AND CURRENT_DATE + 180\nGROUP BY 1 ORDER BY 1"
+      },
+      "extra_insights": [
+        {
+          "severity": "rebate_erosion",
+          "severity_level": "warning",
+          "agent_name": "Margen",
+          "title": "El margen bruto es igual en todos los canales. El neto no.",
+          "summary": "El rappel acordado se aplica sobre el acumulado, a final de año, y no aparece en ninguna línea de factura. Por eso el informe de ventas muestra el mismo margen en todos los canales — y está bien, hasta el día en que no lo está.\n\nEl número solo existe cruzando lo vendido con el porcentaje que está en el contrato de cada cliente. Uno de los dos vive en facturación, el otro vive en una carpeta.\n\nLa diferencia entre las dos columnas es dinero ya prometido y todavía sin contar.",
+          "stat_tiles": [
+            {
+              "label": "Margen bruto",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Margen neto tras rappel",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Lo que cuesta el rappel",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            }
+          ],
+          "sources": [
+            {
+              "table": "trade.order_lines",
+              "description": "Lo que salió, de qué lote, y por cuánto"
+            },
+            {
+              "table": "trade.customers",
+              "description": "Canal, plaza, y el rappel acordado"
+            },
+            {
+              "table": "assortment.products",
+              "description": "Referencia, familia, coste y precio de tarifa"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS gross_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct,\n       ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))) AS rebate_cost\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.channel\nORDER BY net_pct",
+          "series_sql": "SELECT TO_CHAR(DATE_TRUNC('month', o.ordered_at), 'YYYY-MM') AS t,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS v\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY 1 ORDER BY 1"
+        },
+        {
+          "severity": "idle_capital",
+          "severity_level": "info",
+          "agent_name": "Inventario",
+          "title": "Capital parado por estrategia y capital parado por olvido",
+          "summary": "En una hoja de stock los dos son la misma línea: mercancía que no se ha movido. Pero un vino de guarda que no se mueve está haciendo su trabajo, y una referencia que entró para un cliente que entretanto cerró está ocupando dinero y estantería.\n\nLo que los separa no es la cantidad ni el tiempo — es si alguna vez se vendió. Esa columna no existe en el stock; existe en facturación.\n\nLas referencias que nunca tuvieron una sola venta son el caso extremo, y existen en cualquier catálogo.",
+          "stat_tiles": [
+            {
+              "label": "Parado sin ser de guarda",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND NOT p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "De guarda — a propósito",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "Referencias sin una sola venta",
+              "value_sql": "SELECT COUNT(*) FROM assortment.products p WHERE NOT EXISTS (SELECT 1 FROM trade.order_lines ol JOIN warehouse.lots l ON l.id = ol.lot_id WHERE l.product_id = p.id)"
+            }
+          ],
+          "sources": [
+            {
+              "table": "warehouse.stock",
+              "description": "Cuánto queda de cada lote, y en qué zona"
+            },
+            {
+              "table": "assortment.products",
+              "description": "Referencia, familia, coste y precio de tarifa"
+            },
+            {
+              "table": "trade.order_lines",
+              "description": "Lo que salió, de qué lote, y por cuánto"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, p.family,\n       CASE WHEN p.is_vintage THEN 'sí' ELSE 'no' END AS vintage,\n       SUM(s.quantity) AS units,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS capital\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0\nGROUP BY p.id, p.sku, p.name, p.family, p.is_vintage\nORDER BY capital DESC\nLIMIT 40",
+          "series_sql": "SELECT p.family AS t,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS v\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0\nGROUP BY p.family ORDER BY v DESC"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "¿Qué está caducando, y cuánto vale?",
+          "answer_markdown": "**Separado entre lo que todavía se vende y lo que ya se perdió.** Son dos problemas distintos y solo uno tiene solución.\n\nLo que caduca en las próximas semanas es una campaña: hay tiempo de darle salida con descuento, de proponerlo al cliente adecuado, de cambiar de plaza. Lo que ya pasó de fecha es una merma — queda decidir cómo se contabiliza.\n\nLa lista viene por lote y no por referencia, porque es el lote el que lleva la fecha. Con el stock por referencia esta pregunta no tiene respuesta: la misma referencia tiene lotes de meses distintos.",
+          "citations": [
+            {
+              "table": "warehouse.lots"
+            },
+            {
+              "table": "warehouse.stock"
+            }
+          ],
+          "executed_sql": "SELECT l.lot_code AS lot,\n       p.name AS product,\n       p.family,\n       l.best_before,\n       (l.best_before - CURRENT_DATE) AS days_left,\n       s.quantity AS units,\n       ROUND(s.quantity * p.unit_cost) AS cost,\n       s.zone\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage\n  AND l.best_before < CURRENT_DATE + 60\nORDER BY l.best_before\nLIMIT 40",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Ya caducado",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE",
+              "format": "eur"
+            },
+            {
+              "label": "Caduca en 60 días",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before >= CURRENT_DATE AND l.best_before < CURRENT_DATE + 60",
+              "format": "eur"
+            },
+            {
+              "label": "Lotes en riesgo",
+              "value_sql": "SELECT COUNT(*) FROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0 AND NOT p.is_vintage AND l.best_before < CURRENT_DATE + 60"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "¿Cuánto me está costando realmente el rappel?",
+          "answer_markdown": "**Más en el canal que mejor negocia, como era de esperar — y la diferencia no aparece en ninguna parte hasta diciembre.**\n\nEl margen bruto es prácticamente igual en todos los canales: la tarifa es la misma. El neto los separa, y la separación es el contrato, no la venta.\n\nLa tabla pone los dos uno al lado del otro por canal. La última columna es el euro ya prometido y todavía sin apuntar — y es esa la que decide si merece la pena crecer en ese canal.",
+          "citations": [
+            {
+              "table": "trade.customers"
+            },
+            {
+              "table": "trade.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT c.channel,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS gross_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct,\n       ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))) AS rebate_cost\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.channel\nORDER BY net_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Margen bruto",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Margen neto",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Lo que cuesta el rappel",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) - SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "¿Qué capital tengo parado, y cuánto de él es a propósito?",
+          "answer_markdown": "**La separación es la respuesta.** El total por sí solo no sirve para decidir nada, porque mezcla dos cosas opuestas.\n\nEl vino de guarda está parado porque debe estarlo — es el modelo de negocio. El resto está parado porque alguien compró y nadie volvió a mirar.\n\nEl caso extremo son las referencias sin una sola venta: entraron para un cliente concreto, ese cliente cambió, y se quedaron. No aparecen en ningún informe de rotación porque rotación cero no genera líneas.",
+          "citations": [
+            {
+              "table": "warehouse.stock"
+            },
+            {
+              "table": "assortment.products"
+            }
+          ],
+          "executed_sql": "SELECT p.sku, p.name, p.family,\n       CASE WHEN p.is_vintage THEN 'sí' ELSE 'no' END AS vintage,\n       SUM(s.quantity) AS units,\n       ROUND(SUM(s.quantity * p.unit_cost)) AS capital\nFROM warehouse.stock s\nJOIN warehouse.lots l ON l.id = s.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nWHERE s.quantity > 0\nGROUP BY p.id, p.sku, p.name, p.family, p.is_vintage\nORDER BY capital DESC\nLIMIT 40",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Parado sin ser de guarda",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND NOT p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "De guarda",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) FROM warehouse.stock s JOIN warehouse.lots l ON l.id = s.lot_id JOIN assortment.products p ON p.id = l.product_id WHERE s.quantity > 0 AND p.is_vintage",
+              "format": "eur"
+            },
+            {
+              "label": "Sin una sola venta",
+              "value_sql": "SELECT COUNT(*) FROM assortment.products p WHERE NOT EXISTS (SELECT 1 FROM trade.order_lines ol JOIN warehouse.lots l ON l.id = ol.lot_id WHERE l.product_id = p.id)"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "¿Qué familias dejan menos después del rappel?",
+          "answer_markdown": "**Por margen neto, que es el orden que decide el catálogo.** El bruto ordena casi siempre de otra manera.\n\nUna familia con buen margen de tarifa que se vende sobre todo al canal con más rappel acaba por debajo de otra con peor tarifa y clientes que no negocian. Eso no se ve en la ficha del producto.",
+          "citations": [
+            {
+              "table": "assortment.products"
+            },
+            {
+              "table": "trade.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT p.family,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS gross_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY p.family\nORDER BY net_pct",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Facturado en el periodo",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            },
+            {
+              "label": "Margen neto",
+              "value_sql": "SELECT ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "pct"
+            },
+            {
+              "label": "Referencias en el catálogo",
+              "value_sql": "SELECT COUNT(*) FROM assortment.products"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "¿Qué clientes pesan más, y cuáles dejan más?",
+          "answer_markdown": "**Son listas distintas, y esa es la utilidad de verlas juntas.**\n\nEl cliente que más factura suele ser el que más negocia — así llegó a ese volumen. La columna de margen neto al lado de la facturación dice cuánto de ese volumen llega al final.\n\nNo es un argumento para perderlo. Es un argumento para saber cuánto cuesta mantenerlo, antes de la próxima negociación.",
+          "citations": [
+            {
+              "table": "trade.customers"
+            },
+            {
+              "table": "trade.orders"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.channel, c.city,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * c.rebate_pct, 2) AS rebate_pct,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.id, c.name, c.channel, c.city, c.rebate_pct\nORDER BY billed DESC\nLIMIT 30",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Clientes activos",
+              "value_sql": "SELECT COUNT(*) FROM trade.customers"
+            },
+            {
+              "label": "Pedidos servidos",
+              "value_sql": "SELECT COUNT(*) FROM trade.orders WHERE status = 'delivered'"
+            },
+            {
+              "label": "El canal que menos deja",
+              "value_sql": "SELECT c.channel FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id GROUP BY c.channel ORDER BY SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0) LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "¿Qué plazas compran más, y cuáles compensan?",
+          "answer_markdown": "**Facturación y margen neto por plaza, uno al lado del otro.** La plaza que más factura no es siempre la que más deja.\n\nEn una zona donde se entrega dos veces por semana a clientes pequeños, el volumen es bajo y el rappel también. En otra, media docena de cuentas grandes hacen el número y se llevan el margen con ellas.\n\nEs la cuenta que decide dónde merece la pena poner un comercial más.",
+          "citations": [
+            {
+              "table": "trade.customers"
+            },
+            {
+              "table": "trade.order_lines"
+            }
+          ],
+          "executed_sql": "SELECT c.city,\n       COUNT(DISTINCT c.id) AS customers,\n       COUNT(DISTINCT o.id) AS orders,\n       ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))) AS billed,\n       ROUND(100.0 * SUM(ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)) / NULLIF(SUM(ol.quantity * ol.unit_price * (1 - ol.discount)), 0), 1) AS net_pct\nFROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id\nGROUP BY c.city\nORDER BY billed DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "La plaza que más factura",
+              "value_sql": "SELECT c.city FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id GROUP BY c.city ORDER BY SUM(ol.quantity * ol.unit_price * (1 - ol.discount)) DESC LIMIT 1"
+            },
+            {
+              "label": "Facturado en el periodo",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(ol.quantity * ol.unit_price * (1 - ol.discount))), 0) FROM trade.order_lines ol\nJOIN trade.orders o ON o.id = ol.order_id\nJOIN trade.customers c ON c.id = o.customer_id\nJOIN warehouse.lots l ON l.id = ol.lot_id\nJOIN assortment.products p ON p.id = l.product_id",
+              "format": "eur"
+            },
+            {
+              "label": "Clientes activos",
+              "value_sql": "SELECT COUNT(*) FROM trade.customers"
             }
           ]
         }
