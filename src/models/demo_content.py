@@ -79,7 +79,15 @@ EMBEDDING_DIM = 1024
 # Em produção funcionava e em teste não, porque os testes criam a tabela
 # a partir do modelo e correm em SQLite — o pior sítio para uma
 # divergência, porque o sinal aparece no ambiente errado.
-VERTICALS = ("saas", "distribution", "services", "industry", "transport", "default")
+VERTICALS = (
+    "saas",
+    "distribution",
+    "services",
+    "industry",
+    "transport",
+    "food",
+    "default",
+)
 
 
 class DemoDataset(Base):
@@ -110,7 +118,8 @@ class DemoDataset(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "vertical IN ('saas','distribution','services','industry','transport','default')",
+            "vertical IN ('saas','distribution','services','industry',"
+            "'transport','food','default')",
             name="demo_datasets_vertical_check",
         ),
         UniqueConstraint("vertical", "locale", name="uq_demo_datasets_vertical_locale"),

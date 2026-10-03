@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""O sector dos transportes está ligado de ponta a ponta.
+"""Os sectores novos da demo pública estão ligados de ponta a ponta.
 
 Um sector novo na demo pública toca em cinco sítios, e falhar um deles
 não dá erro nenhum — dá um prospect a escolher "Logística e Transportes"
@@ -32,8 +32,13 @@ RAIZ = Path(__file__).resolve().parents[2]
 CURADO = RAIZ / "scripts" / "demo" / "curated_content.json"
 FLUXO = RAIZ / "scripts" / "demo" / "flow_content.json"
 
-SECTOR = "transport"
+SECTORES = ("transport", "food")
 IDIOMAS = ("pt", "en", "es")
+
+
+@pytest.fixture(params=SECTORES)
+def SECTOR(request):
+    return request.param
 
 
 @pytest.fixture(scope="module")
@@ -42,7 +47,7 @@ def datasets():
     return doc["datasets"]
 
 
-def test_a_vertical_existe_na_tupla():
+def test_a_vertical_existe_na_tupla(SECTOR):
     assert SECTOR in VERTICALS
 
 
@@ -63,7 +68,7 @@ def test_o_check_da_tabela_diz_o_mesmo_que_a_tupla():
         assert f"'{v}'" in texto, f"{v!r} está em VERTICALS e não está no CHECK"
 
 
-def test_o_passo_1_oferece_o_sector_nos_tres_idiomas():
+def test_o_passo_1_oferece_o_sector_nos_tres_idiomas(SECTOR):
     fluxo = json.loads(FLUXO.read_text(encoding="utf-8"))
     entrada = next((v for v in fluxo["verticals"] if v["id"] == SECTOR), None)
     assert entrada is not None, "o sector não aparece no primeiro ecrã da demo"
@@ -72,7 +77,7 @@ def test_o_passo_1_oferece_o_sector_nos_tres_idiomas():
         assert entrada["hook_markdown"][idioma].strip()
 
 
-def test_ha_um_dataset_curado_por_idioma(datasets):
+def test_ha_um_dataset_curado_por_idioma(datasets, SECTOR):
     for idioma in IDIOMAS:
         achados = [
             d for d in datasets
@@ -81,7 +86,7 @@ def test_ha_um_dataset_curado_por_idioma(datasets):
         assert len(achados) == 1, f"{idioma}: esperava 1 dataset, encontrei {len(achados)}"
 
 
-def test_nenhum_dataset_do_sector_e_o_de_omissao(datasets):
+def test_nenhum_dataset_do_sector_e_o_de_omissao(datasets, SECTOR):
     """Dois predefinidos no mesmo idioma tornam a entrada não-determinista.
 
     Quem carrega em "Saltar" tem de cair sempre no mesmo sítio, e a
@@ -92,7 +97,7 @@ def test_nenhum_dataset_do_sector_e_o_de_omissao(datasets):
             assert d["is_default"] is False
 
 
-def test_o_espanhol_nao_ficou_a_meio(datasets):
+def test_o_espanhol_nao_ficou_a_meio(datasets, SECTOR):
     """Meia tradução não se vê até estar à frente de um cliente.
 
     A verificação é diferencial de propósito: procurar palavras
@@ -126,14 +131,17 @@ def test_o_espanhol_nao_ficou_a_meio(datasets):
     assert not iguais, "campos por traduzir (iguais ao inglês):\n" + "\n".join(iguais)
 
 
-def test_o_sql_dos_cartoes_fala_das_tabelas_do_sector(datasets):
+def test_o_sql_dos_cartoes_fala_das_tabelas_do_sector(datasets, SECTOR):
     """Um cartão com o SQL de outro sector renderiza "—" e não dá erro.
 
     O `--verify-sql` da curadoria corre o SQL contra a base sintética e
     apanha o que rebenta. Não apanha SQL válido que consulta as tabelas
     erradas — isso só se apanha aqui.
     """
-    esquemas = ("fleet.", "ops.", "freight.")
+    esquemas = {
+        "transport": ("fleet.", "ops.", "freight."),
+        "food": ("assortment.", "warehouse.", "trade."),
+    }[SECTOR]
     pt = next(d for d in datasets if d["vertical"] == SECTOR and d["locale"] == "pt")
 
     sqls: list[tuple[str, str]] = []
@@ -156,6 +164,6 @@ def test_o_sql_dos_cartoes_fala_das_tabelas_do_sector(datasets):
         assert any(e in sql for e in esquemas), f"{onde} não consulta o sector: {sql[:80]!r}"
 
 
-def test_a_vertical_chega_ao_servico_do_fluxo():
+def test_a_vertical_chega_ao_servico_do_fluxo(SECTOR):
     ids = [v["id"] for v in demo_flow_service.list_verticals("pt")]
     assert SECTOR in ids

@@ -87,6 +87,19 @@
         "en": "**In transport, the kilometre that earns nothing is the one nobody can count.**\n\nEmpty running shows up entirely in the fuel and nowhere at all in the billing — there is no report where it is a line. Same with the old truck that is \"already paid off\": the lease ended, the diesel and the workshop did not. Each piece lives in a different system, and none of them, on its own, looks like a problem.",
         "es": "**En transporte, el kilómetro que no rinde es el que nadie consigue contar.**\n\nEl vacío de retorno aparece entero en el gasóleo y no aparece en absoluto en la facturación — no hay informe donde sea una línea. Lo mismo con el camión viejo que \"ya está pagado\": la cuota terminó, el gasóleo y el taller no. Cada parte vive en un sistema distinto, y ninguna de ellas, por sí sola, parece un problema."
       }
+    },
+    {
+      "id": "food",
+      "label": {
+        "pt": "Alimentar e Bebidas",
+        "en": "Food & Drink",
+        "es": "Alimentación y Bebidas"
+      },
+      "hook_markdown": {
+        "pt": "**Na alimentação, a mercadoria morre e o stock não sabe disso.**\n\nA validade está no lote; o stock vê-se por referência. São duas vistas da mesma caixa e só uma delas tem a data. Depois há o rappel, que não está em nenhuma linha de factura: a margem que se celebrou em Janeiro é outra em Dezembro, e ninguém multiplicou o acumulado pela percentagem do contrato.",
+        "en": "**In food, the goods die and the stock doesn't know it.**\n\nThe date is on the lot; stock is seen by reference. Two views of the same box and only one of them has the date. Then there is the rebate, which appears on no invoice line: the margin you celebrated in January is a different one in December, and nobody multiplied the running total by the percentage in the contract.",
+        "es": "**En alimentación, la mercancía caduca y el stock no se entera.**\n\nLa fecha está en el lote; el stock se mira por referencia. Son dos vistas de la misma caja y solo una tiene la fecha. Luego está el rappel, que no aparece en ninguna línea de factura: el margen que se celebró en enero es otro en diciembre, y nadie multiplicó el acumulado por el porcentaje del contrato."
+      }
     }
   ],
   "sources": [
