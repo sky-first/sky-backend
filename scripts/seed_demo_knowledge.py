@@ -23,7 +23,7 @@ if not os.environ.get("DATABASE_URL"):
     print("Set DATABASE_URL first.", file=sys.stderr)
     sys.exit(1)
 
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import func, select  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from src.config.database import AsyncSessionLocal  # noqa: E402
@@ -350,12 +350,83 @@ async def main() -> None:
         sys.path.insert(0, str(Path(__file__).parent))
         from _espaco_da_demonstracao import EspacoNaoEncontrado, espaco_e_dono
 
-        try:
-            space, owner = await espaco_e_dono(db)
-        except EspacoNaoEncontrado as erro:
-            print(erro, file=sys.stderr)
-            sys.exit(3)
+        # ── O espaço tem de ser o MESMO das ligações. ───────────────
+        #
+        # Em produção, a 03/10, o sandbox tinha:
+        #
+        #     métricas + glossário  →  espaço "Demo Sky"            (13 + 19)
+        #     ligações              →  "Dados de demonstração"       (5)
+        #
+        # Dois semeadores, dois espaços. Quem abre o projecto que tem os
+        # dados vê o painel «Conhecimento» a zeros, e o conhecimento
+        # existe — noutro espaço que ninguém abre.
+        #
+        # A causa é esta linha: o `espaco_e_dono` procura um espaço cujo
+        # nome comece por «Demo» e contenha «Sky», enquanto o
+        # `seed_demo_connections.py` usa `DEMO_SPACE_NAME` e pode estar
+        # em qualquer outro. Os dois estavam certos à sua maneira e
+        # discordavam.
+        #
+        # Passa a aceitar o mesmo `DEMO_SPACE_NAME`. Quando ele não vem,
+        # fica a procura antiga — o comportamento de antes, para não
+        # mudar nada a quem já o usa assim.
+        nome_pedido = (os.environ.get("DEMO_SPACE_NAME") or "").strip()
+        if nome_pedido:
+            space = (
+                await db.execute(
+                    select(Space).where(
+                        Space.name == nome_pedido, Space.deleted_at.is_(None)
+                    )
+                )
+            ).scalars().first()
+            if space is None:
+                print(
+                    f"não há espaço {nome_pedido!r} nesta base. "
+                    "DEMO_SPACE_NAME tem de bater certo com o nome exacto.",
+                    file=sys.stderr,
+                )
+                sys.exit(3)
+            owner = (
+                await db.execute(select(User).where(User.id == space.created_by))
+            ).scalar_one_or_none()
+            if owner is None:
+                print(
+                    f"o espaço {space.name!r} aponta para um criador que não "
+                    f"existe ({space.created_by}).",
+                    file=sys.stderr,
+                )
+                sys.exit(3)
+        else:
+            try:
+                space, owner = await espaco_e_dono(db)
+            except EspacoNaoEncontrado as erro:
+                print(erro, file=sys.stderr)
+                sys.exit(3)
         print(f"  space {space.name!r} (id={space.id})")
+
+        # ── E diz quantas ligações esse espaço tem. ─────────────────
+        #
+        # As fórmulas das métricas apontam para os esquemas das ligações
+        # de demonstração. Semear num espaço sem nenhuma produz métricas
+        # que não resolvem — e o Job termina com sucesso, que é a pior
+        # maneira de falhar. Avisa-se alto.
+        from src.models.space import SpaceConnection
+
+        n_ligacoes = (
+            await db.execute(
+                select(func.count())
+                .select_from(SpaceConnection)
+                .where(SpaceConnection.space_id == space.id)
+            )
+        ).scalar() or 0
+        print(f"  ligações neste espaço: {n_ligacoes}")
+        if n_ligacoes == 0:
+            print(
+                "  ⚠️ este espaço não tem ligações. As fórmulas das métricas "
+                "apontam para os esquemas das ligações de demonstração e não "
+                "vão resolver. Confirme o DEMO_SPACE_NAME.",
+                file=sys.stderr,
+            )
 
         # Map schema name → connection_id so metric.source_id can FK to it.
         # Sem filtrar pelo criador: no `sandbox` as ligacoes e o espaco nao
