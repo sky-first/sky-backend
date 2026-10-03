@@ -128,3 +128,24 @@ async def test_um_cliente_conhecido_continua_a_receber_o_plano_dele(
     assert row.tenant_id == esperada.tenant_id
     assert row.max_agents == esperada.max_agents
     assert row.max_agents is not None, "um cliente com plano tem de ter tecto"
+
+
+@pytest.mark.asyncio
+async def test_contar_sem_cliente_nao_rebenta(db_session: AsyncSession):
+    """A primeira versão desta correcção trocou um número errado por um 500.
+
+    `get_limits` passou a devolver uma linha que vive só no pedido — e o
+    `_bump_counter` faz `db.refresh()` logo a seguir ao UPDATE. Um
+    `refresh` sobre uma instância transiente rebenta com *"is not
+    persistent within this Session"*, e o caminho que passa por aqui é
+    o de juntar uma pessoa a um projecto.
+
+    Ou seja: sem este caso, a correcção transformava um número estranho
+    num canto do ecrã numa falha a cada convite. Trocar um defeito
+    visível por um erro é um mau negócio.
+
+    Apanhou-o a CI, não eu — e é por isso que o caso fica escrito.
+    """
+    # Não deve levantar. Sem cliente não há contador para incrementar.
+    await pricing_service.record_user_created(db_session, tenant_id=SEM_CLIENTE)
+    await pricing_service.record_agent_created(db_session, tenant_id=SEM_CLIENTE)
