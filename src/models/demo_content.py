@@ -69,10 +69,17 @@ _JSONB_OR_JSON = JSONB().with_variant(JSON(), "sqlite")
 # declara 768 e está desalinhado da coluna real.
 EMBEDDING_DIM = 1024
 
-# Os quatro sectores que a demo oferece no passo 1, mais o de omissão.
+# Os sectores que a demo oferece no passo 1, mais o de omissão.
 # "industry" faltava aqui e o passo 1 já o mostrava — quem o escolhesse
 # caía no dataset de omissão e recebia perguntas de outro negócio.
-VERTICALS = ("saas", "distribution", "services", "industry", "default")
+#
+# ⚠️ Esta tupla e o CHECK lá em baixo têm de dizer a mesma coisa. Durante
+# algum tempo não disseram: a migração `demo_vertical_industry_20260804`
+# acrescentou "industry" ao CHECK em Postgres e o modelo ficou para trás.
+# Em produção funcionava e em teste não, porque os testes criam a tabela
+# a partir do modelo e correm em SQLite — o pior sítio para uma
+# divergência, porque o sinal aparece no ambiente errado.
+VERTICALS = ("saas", "distribution", "services", "industry", "transport", "default")
 
 
 class DemoDataset(Base):
@@ -103,7 +110,7 @@ class DemoDataset(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "vertical IN ('saas','distribution','services','default')",
+            "vertical IN ('saas','distribution','services','industry','transport','default')",
             name="demo_datasets_vertical_check",
         ),
         UniqueConstraint("vertical", "locale", name="uq_demo_datasets_vertical_locale"),

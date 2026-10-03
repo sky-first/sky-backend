@@ -74,6 +74,19 @@
         "en": "**In manufacturing, true unit cost is rarely the one in the system.**\n\nUnplanned downtime, scrap, energy and overtime arrive through separate systems and reach costing weeks late. You price using last month's cost, which works right up until last month stops resembling this one.",
         "es": "**En industria, el coste real por unidad rara vez es el que está en el sistema.**\n\nParadas no planificadas, merma, energía y horas extra entran por sistemas separados y llegan al escandallo con semanas de retraso. Se pone precio con el coste del mes pasado, lo que funciona hasta que el mes pasado deja de parecerse a este."
       }
+    },
+    {
+      "id": "transport",
+      "label": {
+        "pt": "Logística e Transportes",
+        "en": "Logistics & Transport",
+        "es": "Logística y Transporte"
+      },
+      "hook_markdown": {
+        "pt": "**No transporte, o quilómetro que não rende é o que ninguém consegue contar.**\n\nO retorno vazio aparece todo no gasóleo e não aparece em lado nenhum na faturação — não há relatório onde seja uma linha. O mesmo com a viatura velha que \"já está paga\": a prestação acabou, o gasóleo e a oficina não. Cada parcela vive num sistema diferente, e nenhuma delas, sozinha, parece um problema.",
+        "en": "**In transport, the kilometre that earns nothing is the one nobody can count.**\n\nEmpty running shows up entirely in the fuel and nowhere at all in the billing — there is no report where it is a line. Same with the old truck that is \"already paid off\": the lease ended, the diesel and the workshop did not. Each piece lives in a different system, and none of them, on its own, looks like a problem.",
+        "es": "**En transporte, el kilómetro que no rinde es el que nadie consigue contar.**\n\nEl vacío de retorno aparece entero en el gasóleo y no aparece en absoluto en la facturación — no hay informe donde sea una línea. Lo mismo con el camión viejo que \"ya está pagado\": la cuota terminó, el gasóleo y el taller no. Cada parte vive en un sistema distinto, y ninguna de ellas, por sí sola, parece un problema."
+      }
     }
   ],
   "sources": [

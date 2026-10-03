@@ -2596,6 +2596,662 @@
       ]
     },
     {
+      "vertical": "transport",
+      "locale": "pt",
+      "is_default": false,
+      "name": "Transportes Guadiana — 18 viaturas",
+      "description": "Transportadora ibérica com 18 viaturas, 20 rotas entre Portugal e Espanha e 12 meses de viagens.",
+      "connection_ref": "Demo — Transportes",
+      "insight": {
+        "severity": "fleet_contribution",
+        "severity_level": "warning",
+        "agent_name": "Frota",
+        "title": "Três viaturas custam por quilómetro quase o que rendem",
+        "summary": "São as mais velhas, e continuam a ser escaladas porque já estão pagas. A prestação acabou, por isso o custo fixo é baixo — e é esse número baixo que faz parecer que compensa mantê-las.\n\nO que não aparece em lado nenhum é a soma do resto: gastam mais um terço de gasóleo por quilómetro, entram na oficina várias vezes por ano, e passam semanas fora da estrada. Cada parcela está num sistema diferente — cartão de combustível, factura da oficina, mapa de serviço — e nenhuma delas, sozinha, parece um problema.\n\nÉ a diferença entre receita e custo por quilómetro, viatura a viatura. Não é o lucro da empresa: a estrutura não está aqui. É o que cada camião traz depois de pagar o que ele próprio consome.",
+        "stat_tiles": [
+          {
+            "label": "Custo médio por km",
+            "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND(SUM(total_cost) / NULLIF(SUM(km), 0), 2) FROM frota",
+            "format": "eur"
+          },
+          {
+            "label": "Receita média por km",
+            "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND(SUM(revenue) / NULLIF(SUM(km), 0), 2) FROM frota",
+            "format": "eur"
+          },
+          {
+            "label": "A pior delas",
+            "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT plate FROM frota ORDER BY contribution LIMIT 1"
+          }
+        ],
+        "sources": [
+          {
+            "table": "fleet.vehicles",
+            "description": "A viatura, e o que custa tê-la"
+          },
+          {
+            "table": "ops.trips",
+            "description": "Cada viagem: km, gasóleo, horas, chegada"
+          },
+          {
+            "table": "fleet.maintenance_jobs",
+            "description": "Oficina: avaria, preventiva, dias parado"
+          },
+          {
+            "table": "freight.shipments",
+            "description": "A carga que seguiu, e por quanto"
+          }
+        ],
+        "executed_sql": "WITH custo AS (\n    SELECT t.vehicle_id,\n           SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62\n               + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed'\n    GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost, SUM(days_off_road) AS days_off\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n)\nSELECT v.plate,\n       EXTRACT(YEAR FROM v.acquired_on)::INT AS year,\n       c.km,\n       ROUND((c.running_cost + COALESCE(w.workshop_cost, 0)\n              + v.fixed_cost_month * 12) / NULLIF(c.km, 0), 3) AS cost_per_km,\n       ROUND(COALESCE(i.revenue, 0) / NULLIF(c.km, 0), 3) AS revenue_per_km,\n       ROUND(COALESCE(i.revenue, 0)\n             - (c.running_cost + COALESCE(w.workshop_cost, 0)\n                + v.fixed_cost_month * 12)) AS contribution\nFROM fleet.vehicles v\nJOIN custo c ON c.vehicle_id = v.id\nLEFT JOIN workshop w ON w.vehicle_id = v.id\nLEFT JOIN income i ON i.vehicle_id = v.id\nORDER BY contribution",
+        "series_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed'\n    GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n)\nSELECT v.plate AS t,\n       ROUND(COALESCE(i.revenue, 0)\n             - (c.running_cost + COALESCE(w.workshop_cost, 0)\n                + v.fixed_cost_month * 12)) AS v\nFROM fleet.vehicles v\nJOIN custo c ON c.vehicle_id = v.id\nLEFT JOIN workshop w ON w.vehicle_id = v.id\nLEFT JOIN income i ON i.vehicle_id = v.id\nORDER BY v"
+      },
+      "extra_insights": [
+        {
+          "severity": "empty_running",
+          "severity_level": "warning",
+          "agent_name": "Tráfego",
+          "title": "Um quinto dos quilómetros é andado sem carga nenhuma",
+          "summary": "O retorno vazio é o custo mais invisível desta indústria. Aparece todo no gasóleo e não aparece em lado nenhum na faturação — portanto não há nenhum relatório onde ele seja uma linha.\n\nNinguém o nega e ninguém sabe quanto é. O número só existe cruzando as viagens com a carga: a viagem está no mapa de serviço, a carga está na nota de porte, e é a ausência de uma para a outra que o define.\n\nPor troço, porque é assim que se resolve: um retorno vazio repetido no mesmo sentido é uma carga de regresso por vender, não um acaso.",
+          "stat_tiles": [
+            {
+              "label": "Quilómetros em vazio",
+              "value_sql": "SELECT COALESCE(SUM(t.km_run), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL"
+            },
+            {
+              "label": "Gasóleo queimado sem carga",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(t.fuel_litres * 1.62)), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL",
+              "format": "eur"
+            },
+            {
+              "label": "O troço com mais vazio",
+              "value_sql": "SELECT r.origin || ' - ' || r.destination FROM ops.trips t JOIN ops.routes r ON r.id = t.route_id LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL GROUP BY r.id, r.origin, r.destination ORDER BY SUM(t.fuel_litres * 1.62) DESC LIMIT 1"
+            }
+          ],
+          "sources": [
+            {
+              "table": "ops.trips",
+              "description": "Cada viagem: km, gasóleo, horas, chegada"
+            },
+            {
+              "table": "freight.shipments",
+              "description": "A carga que seguiu, e por quanto"
+            },
+            {
+              "table": "ops.routes",
+              "description": "Distância, tempo padrão e portagens"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       COUNT(*) AS trips,\n       COUNT(*) FILTER (WHERE s.id IS NULL) AS empty_trips,\n       SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END) AS empty_km,\n       ROUND(SUM(CASE WHEN s.id IS NULL THEN t.fuel_litres * 1.62 ELSE 0 END)) AS fuel_burned\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nLEFT JOIN freight.shipments s ON s.trip_id = t.id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km\nHAVING COUNT(*) FILTER (WHERE s.id IS NULL) > 0\nORDER BY fuel_burned DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', t.departed_at)::date AS t,\n       ROUND(100.0 * SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END)\n             / NULLIF(SUM(t.km_run), 0), 1) AS v\nFROM ops.trips t\nLEFT JOIN freight.shipments s ON s.trip_id = t.id\nWHERE t.status = 'completed'\nGROUP BY 1 ORDER BY 1"
+        },
+        {
+          "severity": "sla_breach",
+          "severity_level": "info",
+          "agent_name": "Serviço",
+          "title": "Duas rotas falham a hora em mais de metade das viagens",
+          "summary": "A pontualidade média da operação é boa, e é por isso que estas duas rotas nunca chegaram a uma reunião: a média tapa-as.\n\nO que torna o número honesto é medir contra a tolerância contratada de cada cliente e não contra uma hora fixa. O mesmo atraso de quarenta minutos é indiferente numa carga de construção e é uma penalização numa de frio.\n\nQuando uma rota falha quase sempre, o problema não é o trânsito — é o tempo padrão, que foi estimado uma vez e nunca mais foi olhado.",
+          "stat_tiles": [
+            {
+              "label": "Dentro do prazo do cliente",
+              "value_sql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*), 1) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed'",
+              "format": "pct"
+            },
+            {
+              "label": "Portes fora de prazo",
+              "value_sql": "SELECT COUNT(*) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' AND t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')"
+            },
+            {
+              "label": "A pior rota",
+              "value_sql": "SELECT r.origin || ' - ' || r.destination FROM ops.trips t JOIN ops.routes r ON r.id = t.route_id JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' GROUP BY r.id, r.origin, r.destination ORDER BY 100.0 * COUNT(*) FILTER (WHERE t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*) DESC LIMIT 1"
+            }
+          ],
+          "sources": [
+            {
+              "table": "ops.trips",
+              "description": "Cada viagem: km, gasóleo, horas, chegada"
+            },
+            {
+              "table": "ops.routes",
+              "description": "Distância, tempo padrão e portagens"
+            },
+            {
+              "table": "freight.clients",
+              "description": "Quem paga, e com que tolerância contratada"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       r.standard_minutes,\n       COUNT(*) AS trips,\n       ROUND(100.0 * COUNT(*) FILTER (\n             WHERE t.arrived_at > t.planned_arrival\n                   + (c.sla_minutes * INTERVAL '1 minute'))\n             / COUNT(*), 1) AS pct_outside_sla,\n       ROUND(AVG(EXTRACT(EPOCH FROM (t.arrived_at - t.planned_arrival)) / 60)) AS avg_delay_min\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nJOIN freight.shipments s ON s.trip_id = t.id\nJOIN freight.clients c ON c.id = s.client_id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km, r.standard_minutes\nORDER BY pct_outside_sla DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', t.departed_at)::date AS t,\n       ROUND(100.0 * COUNT(*) FILTER (\n             WHERE t.arrived_at <= t.planned_arrival\n                   + (c.sla_minutes * INTERVAL '1 minute'))\n             / COUNT(*), 1) AS v\nFROM ops.trips t\nJOIN freight.shipments s ON s.trip_id = t.id\nJOIN freight.clients c ON c.id = s.client_id\nWHERE t.status = 'completed'\nGROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Que viaturas custam mais por quilómetro do que rendem?",
+          "answer_markdown": "**As mais velhas — e são as que ninguém questiona**, porque já não têm prestação.\n\nO custo por quilómetro soma quatro coisas que vivem em quatro sistemas: gasóleo, horas de motorista, portagens e oficina, mais o custo fixo da viatura. A receita vem da nota de porte. A conta é trivial; o que não é trivial é ter as quatro parcelas no mesmo sítio.\n\nO quadro está ordenado pela contribuição em euros e não pela percentagem: uma viatura que anda muito e ganha pouco por quilómetro custa mais do que uma que anda pouco e perde em cada um — e é a primeira que vale a pena resolver.",
+          "citations": [
+            {
+              "table": "fleet.vehicles"
+            },
+            {
+              "table": "ops.trips"
+            },
+            {
+              "table": "fleet.maintenance_jobs"
+            }
+          ],
+          "executed_sql": "WITH custo AS (\n    SELECT t.vehicle_id,\n           SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62\n               + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed'\n    GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost, SUM(days_off_road) AS days_off\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n)\nSELECT v.plate,\n       EXTRACT(YEAR FROM v.acquired_on)::INT AS year,\n       c.km,\n       ROUND((c.running_cost + COALESCE(w.workshop_cost, 0)\n              + v.fixed_cost_month * 12) / NULLIF(c.km, 0), 3) AS cost_per_km,\n       ROUND(COALESCE(i.revenue, 0) / NULLIF(c.km, 0), 3) AS revenue_per_km,\n       ROUND(COALESCE(i.revenue, 0)\n             - (c.running_cost + COALESCE(w.workshop_cost, 0)\n                + v.fixed_cost_month * 12)) AS contribution\nFROM fleet.vehicles v\nJOIN custo c ON c.vehicle_id = v.id\nLEFT JOIN workshop w ON w.vehicle_id = v.id\nLEFT JOIN income i ON i.vehicle_id = v.id\nORDER BY contribution",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Custo médio por km",
+              "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND(SUM(total_cost) / NULLIF(SUM(km), 0), 2) FROM frota",
+              "format": "eur"
+            },
+            {
+              "label": "Diferença entre as duas metades da frota",
+              "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND((SELECT AVG(contribution) FROM frota WHERE contribution > (SELECT AVG(contribution) FROM frota)) - (SELECT AVG(contribution) FROM frota WHERE contribution <= (SELECT AVG(contribution) FROM frota)))",
+              "format": "eur"
+            },
+            {
+              "label": "A pior delas",
+              "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT plate FROM frota ORDER BY contribution LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "Quantos quilómetros andamos em vazio, e em que troços?",
+          "answer_markdown": "**Cerca de um quinto de tudo o que a frota anda.** Gasóleo, motorista e portagens pagos; faturação zero.\n\nNão há nenhum sistema onde esta linha exista, porque ela é definida por uma ausência: uma viagem registada sem nenhuma carga associada. A viagem está no mapa de serviço e a carga está na nota de porte; é preciso ter os dois para ver o buraco.\n\nPor troço, e ordenado pelo gasóleo queimado, porque é assim que se age: um troço que volta vazio todas as semanas é uma carga de regresso por vender, e tem nome e sentido.",
+          "citations": [
+            {
+              "table": "ops.trips"
+            },
+            {
+              "table": "freight.shipments"
+            },
+            {
+              "table": "ops.routes"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       COUNT(*) AS trips,\n       COUNT(*) FILTER (WHERE s.id IS NULL) AS empty_trips,\n       SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END) AS empty_km,\n       ROUND(SUM(CASE WHEN s.id IS NULL THEN t.fuel_litres * 1.62 ELSE 0 END)) AS fuel_burned\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nLEFT JOIN freight.shipments s ON s.trip_id = t.id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km\nHAVING COUNT(*) FILTER (WHERE s.id IS NULL) > 0\nORDER BY fuel_burned DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Quilómetros em vazio",
+              "value_sql": "SELECT COALESCE(SUM(t.km_run), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL"
+            },
+            {
+              "label": "Gasóleo queimado sem carga",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(t.fuel_litres * 1.62)), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL",
+              "format": "eur"
+            },
+            {
+              "label": "Do total percorrido",
+              "value_sql": "SELECT ROUND(100.0 * SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END) / NULLIF(SUM(t.km_run), 0), 1) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed'",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Que rotas chegam fora do prazo combinado com o cliente?",
+          "answer_markdown": "**Duas, e falham quase sempre.** O resto da operação anda nos 6 a 8 por cento, que é ruído normal.\n\nA média da empresa é boa — e é exactamente por isso que estas duas nunca chegaram a uma reunião. Uma rota que falha 60% das vezes desaparece numa média de 89%.\n\nA medição é contra a tolerância contratada de cada cliente, não contra uma hora fixa: quarenta minutos não é a mesma coisa numa carga de cerâmica e numa de fruta.\n\nQuando uma rota falha sistematicamente, a causa quase nunca é o trânsito — é o tempo padrão, estimado uma vez e nunca revisto.",
+          "citations": [
+            {
+              "table": "ops.trips"
+            },
+            {
+              "table": "ops.routes"
+            },
+            {
+              "table": "freight.clients"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       r.standard_minutes,\n       COUNT(*) AS trips,\n       ROUND(100.0 * COUNT(*) FILTER (\n             WHERE t.arrived_at > t.planned_arrival\n                   + (c.sla_minutes * INTERVAL '1 minute'))\n             / COUNT(*), 1) AS pct_outside_sla,\n       ROUND(AVG(EXTRACT(EPOCH FROM (t.arrived_at - t.planned_arrival)) / 60)) AS avg_delay_min\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nJOIN freight.shipments s ON s.trip_id = t.id\nJOIN freight.clients c ON c.id = s.client_id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km, r.standard_minutes\nORDER BY pct_outside_sla DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Dentro do prazo do cliente",
+              "value_sql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*), 1) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed'",
+              "format": "pct"
+            },
+            {
+              "label": "Portes fora de prazo",
+              "value_sql": "SELECT COUNT(*) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' AND t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')"
+            },
+            {
+              "label": "A pior rota",
+              "value_sql": "SELECT r.origin || ' - ' || r.destination FROM ops.trips t JOIN ops.routes r ON r.id = t.route_id JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' GROUP BY r.id, r.origin, r.destination ORDER BY 100.0 * COUNT(*) FILTER (WHERE t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*) DESC LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Que clientes pagam melhor por quilómetro?",
+          "answer_markdown": "**Por euro facturado a dividir pelos quilómetros que foi preciso andar para o facturar** — que é diferente de quem factura mais.\n\nUm cliente grande que obriga a atravessar o país por carga meia vazia pode render menos por quilómetro do que um pequeno à porta do armazém. A facturação total não diz isso; o euro por quilómetro diz.\n\nA coluna dos incidentes está ao lado de propósito: carga danificada e falha de temperatura custam dinheiro que nunca aparece na tabela de preços.",
+          "citations": [
+            {
+              "table": "freight.clients"
+            },
+            {
+              "table": "freight.shipments"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.sector, c.sla_minutes,\n       COUNT(*) AS shipments,\n       ROUND(SUM(s.revenue)) AS revenue,\n       ROUND(SUM(s.revenue) / NULLIF(SUM(t.km_run), 0), 2) AS revenue_per_km,\n       COUNT(*) FILTER (WHERE s.incident IS NOT NULL) AS incidents\nFROM freight.shipments s\nJOIN ops.trips t ON t.id = s.trip_id\nJOIN freight.clients c ON c.id = s.client_id\nGROUP BY c.id, c.name, c.sector, c.sla_minutes\nORDER BY revenue_per_km DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Melhor cliente por km",
+              "value_sql": "SELECT c.name FROM freight.shipments s JOIN ops.trips t ON t.id = s.trip_id JOIN freight.clients c ON c.id = s.client_id GROUP BY c.id, c.name ORDER BY SUM(s.revenue) / NULLIF(SUM(t.km_run), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Facturado no período",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(revenue)), 0) FROM freight.shipments",
+              "format": "eur"
+            },
+            {
+              "label": "Incidentes de carga",
+              "value_sql": "SELECT COUNT(*) FROM freight.shipments WHERE incident IS NOT NULL"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "Quanto nos custou a oficina, e que viaturas a puxam?",
+          "answer_markdown": "**A factura da oficina é metade da história; os dias fora da estrada são a outra metade** — e só a primeira tem um documento.\n\nUm camião parado não deixa de ter leasing, seguro e imposto, e a carga que ele não fez ou foi recusada ou foi subcontratada. Esse custo não tem factura nenhuma, e por isso não entra em nenhuma conta.\n\nA separação entre avaria e preventiva é o que interessa: preventiva a mais é caro, preventiva a menos é mais caro.",
+          "citations": [
+            {
+              "table": "fleet.maintenance_jobs"
+            },
+            {
+              "table": "fleet.vehicles"
+            }
+          ],
+          "executed_sql": "SELECT v.plate,\n       EXTRACT(YEAR FROM v.acquired_on)::INT AS year,\n       COUNT(*) FILTER (WHERE m.kind = 'avaria') AS breakdowns,\n       COUNT(*) FILTER (WHERE m.kind = 'preventiva') AS preventive,\n       ROUND(SUM(m.cost)) AS workshop_cost,\n       SUM(m.days_off_road) AS days_off_road\nFROM fleet.vehicles v\nJOIN fleet.maintenance_jobs m ON m.vehicle_id = v.id\nGROUP BY v.id, v.plate, v.acquired_on\nORDER BY workshop_cost DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Oficina no período",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(cost)), 0) FROM fleet.maintenance_jobs",
+              "format": "eur"
+            },
+            {
+              "label": "Dias fora da estrada",
+              "value_sql": "SELECT COALESCE(SUM(days_off_road), 0) FROM fleet.maintenance_jobs"
+            },
+            {
+              "label": "Avarias",
+              "value_sql": "SELECT COUNT(*) FROM fleet.maintenance_jobs WHERE kind = 'avaria'"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Que motoristas acumulam mais horas ao volante?",
+          "answer_markdown": "**Antes de ser um custo, é um risco de tacógrafo.** Os tempos de condução são matéria de coima e de responsabilidade, e a escala é feita por quem tem a carga à frente, não por quem tem o mapa de horas.\n\nA coluna do cumprimento do tempo padrão está ao lado para evitar a leitura errada: quem acumula horas não é necessariamente quem trabalha mais devagar — pode ser quem apanha sempre as rotas longas.\n\nSai do cruzamento das viagens com o cadastro de motoristas.",
+          "citations": [
+            {
+              "table": "fleet.drivers"
+            },
+            {
+              "table": "ops.trips"
+            }
+          ],
+          "executed_sql": "SELECT d.name, d.licence,\n       COUNT(*) AS trips,\n       ROUND(SUM(t.driver_hours)) AS hours,\n       ROUND(SUM(t.km_run)) AS km,\n       ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival)\n             / COUNT(*), 1) AS pct_on_standard\nFROM ops.trips t\nJOIN fleet.drivers d ON d.id = t.driver_id\nWHERE t.status = 'completed'\nGROUP BY d.id, d.name, d.licence\nORDER BY hours DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Mais horas ao volante",
+              "value_sql": "SELECT d.name FROM ops.trips t JOIN fleet.drivers d ON d.id = t.driver_id WHERE t.status = 'completed' GROUP BY d.id, d.name ORDER BY SUM(t.driver_hours) DESC LIMIT 1"
+            },
+            {
+              "label": "Viagens concluídas",
+              "value_sql": "SELECT COUNT(*) FROM ops.trips WHERE status = 'completed'"
+            },
+            {
+              "label": "Dentro do prazo do cliente",
+              "value_sql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*), 1) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed'",
+              "format": "pct"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vertical": "transport",
+      "locale": "en",
+      "is_default": false,
+      "name": "Guadiana Haulage — 18 vehicles",
+      "description": "Iberian haulier with 18 vehicles, 20 routes between Portugal and Spain and 12 months of trips.",
+      "connection_ref": "Demo — Transport",
+      "insight": {
+        "severity": "fleet_contribution",
+        "severity_level": "warning",
+        "agent_name": "Fleet",
+        "title": "Three vehicles cost nearly per kilometre what they earn",
+        "summary": "They are the oldest, and they keep being dispatched because they are paid off. The lease is over, so the fixed cost is low — and it is that low number that makes keeping them look sensible.\n\nWhat appears nowhere is the sum of the rest: they burn a third more diesel per kilometre, go into the workshop several times a year, and spend weeks off the road. Each piece lives in a different system — fuel card, workshop invoice, duty roster — and none of them, on its own, looks like a problem.\n\nThis is revenue minus cost per kilometre, vehicle by vehicle. It is not company profit: overheads are not in here. It is what each truck brings once it has paid for what it consumes itself.",
+        "stat_tiles": [
+          {
+            "label": "Average cost per km",
+            "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND(SUM(total_cost) / NULLIF(SUM(km), 0), 2) FROM frota",
+            "format": "eur"
+          },
+          {
+            "label": "Average revenue per km",
+            "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND(SUM(revenue) / NULLIF(SUM(km), 0), 2) FROM frota",
+            "format": "eur"
+          },
+          {
+            "label": "The worst of them",
+            "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT plate FROM frota ORDER BY contribution LIMIT 1"
+          }
+        ],
+        "sources": [
+          {
+            "table": "fleet.vehicles",
+            "description": "The vehicle, and what it costs to have it"
+          },
+          {
+            "table": "ops.trips",
+            "description": "Every trip: km, fuel, hours, arrival"
+          },
+          {
+            "table": "fleet.maintenance_jobs",
+            "description": "Workshop: breakdown, preventive, days off road"
+          },
+          {
+            "table": "freight.shipments",
+            "description": "The load that went, and for how much"
+          }
+        ],
+        "executed_sql": "WITH custo AS (\n    SELECT t.vehicle_id,\n           SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62\n               + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed'\n    GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost, SUM(days_off_road) AS days_off\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n)\nSELECT v.plate,\n       EXTRACT(YEAR FROM v.acquired_on)::INT AS year,\n       c.km,\n       ROUND((c.running_cost + COALESCE(w.workshop_cost, 0)\n              + v.fixed_cost_month * 12) / NULLIF(c.km, 0), 3) AS cost_per_km,\n       ROUND(COALESCE(i.revenue, 0) / NULLIF(c.km, 0), 3) AS revenue_per_km,\n       ROUND(COALESCE(i.revenue, 0)\n             - (c.running_cost + COALESCE(w.workshop_cost, 0)\n                + v.fixed_cost_month * 12)) AS contribution\nFROM fleet.vehicles v\nJOIN custo c ON c.vehicle_id = v.id\nLEFT JOIN workshop w ON w.vehicle_id = v.id\nLEFT JOIN income i ON i.vehicle_id = v.id\nORDER BY contribution",
+        "series_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed'\n    GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n)\nSELECT v.plate AS t,\n       ROUND(COALESCE(i.revenue, 0)\n             - (c.running_cost + COALESCE(w.workshop_cost, 0)\n                + v.fixed_cost_month * 12)) AS v\nFROM fleet.vehicles v\nJOIN custo c ON c.vehicle_id = v.id\nLEFT JOIN workshop w ON w.vehicle_id = v.id\nLEFT JOIN income i ON i.vehicle_id = v.id\nORDER BY v"
+      },
+      "extra_insights": [
+        {
+          "severity": "empty_running",
+          "severity_level": "warning",
+          "agent_name": "Traffic",
+          "title": "A fifth of the kilometres are run with nothing on board",
+          "summary": "Empty running is the most invisible cost in this industry. It all shows up in the fuel and nowhere at all in the billing — so there is no report where it is a line.\n\nNobody denies it and nobody knows how much it is. The number only exists by joining trips to loads: the trip is on the duty roster, the load is on the consignment note, and it is the absence of one against the other that defines it.\n\nBy leg, because that is how it gets fixed: an empty return repeated in the same direction is a backload nobody has sold, not bad luck.",
+          "stat_tiles": [
+            {
+              "label": "Kilometres run empty",
+              "value_sql": "SELECT COALESCE(SUM(t.km_run), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL"
+            },
+            {
+              "label": "Diesel burned with no load",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(t.fuel_litres * 1.62)), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL",
+              "format": "eur"
+            },
+            {
+              "label": "The leg with the most empty running",
+              "value_sql": "SELECT r.origin || ' - ' || r.destination FROM ops.trips t JOIN ops.routes r ON r.id = t.route_id LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL GROUP BY r.id, r.origin, r.destination ORDER BY SUM(t.fuel_litres * 1.62) DESC LIMIT 1"
+            }
+          ],
+          "sources": [
+            {
+              "table": "ops.trips",
+              "description": "Every trip: km, fuel, hours, arrival"
+            },
+            {
+              "table": "freight.shipments",
+              "description": "The load that went, and for how much"
+            },
+            {
+              "table": "ops.routes",
+              "description": "Distance, standard time and tolls"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       COUNT(*) AS trips,\n       COUNT(*) FILTER (WHERE s.id IS NULL) AS empty_trips,\n       SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END) AS empty_km,\n       ROUND(SUM(CASE WHEN s.id IS NULL THEN t.fuel_litres * 1.62 ELSE 0 END)) AS fuel_burned\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nLEFT JOIN freight.shipments s ON s.trip_id = t.id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km\nHAVING COUNT(*) FILTER (WHERE s.id IS NULL) > 0\nORDER BY fuel_burned DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', t.departed_at)::date AS t,\n       ROUND(100.0 * SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END)\n             / NULLIF(SUM(t.km_run), 0), 1) AS v\nFROM ops.trips t\nLEFT JOIN freight.shipments s ON s.trip_id = t.id\nWHERE t.status = 'completed'\nGROUP BY 1 ORDER BY 1"
+        },
+        {
+          "severity": "sla_breach",
+          "severity_level": "info",
+          "agent_name": "Service",
+          "title": "Two routes miss the clock on more than half their trips",
+          "summary": "The operation's average punctuality is good, and that is precisely why these two routes never reached a meeting: the average hides them.\n\nWhat makes the number honest is measuring against each client's contracted tolerance rather than a fixed hour. The same forty minutes is irrelevant on a construction load and a penalty on a chilled one.\n\nWhen a route misses almost every time, the problem is not traffic — it is the standard time, estimated once and never looked at again.",
+          "stat_tiles": [
+            {
+              "label": "Within the client's window",
+              "value_sql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*), 1) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed'",
+              "format": "pct"
+            },
+            {
+              "label": "Consignments outside the window",
+              "value_sql": "SELECT COUNT(*) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' AND t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')"
+            },
+            {
+              "label": "The worst route",
+              "value_sql": "SELECT r.origin || ' - ' || r.destination FROM ops.trips t JOIN ops.routes r ON r.id = t.route_id JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' GROUP BY r.id, r.origin, r.destination ORDER BY 100.0 * COUNT(*) FILTER (WHERE t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*) DESC LIMIT 1"
+            }
+          ],
+          "sources": [
+            {
+              "table": "ops.trips",
+              "description": "Every trip: km, fuel, hours, arrival"
+            },
+            {
+              "table": "ops.routes",
+              "description": "Distance, standard time and tolls"
+            },
+            {
+              "table": "freight.clients",
+              "description": "Who pays, and with what contracted tolerance"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       r.standard_minutes,\n       COUNT(*) AS trips,\n       ROUND(100.0 * COUNT(*) FILTER (\n             WHERE t.arrived_at > t.planned_arrival\n                   + (c.sla_minutes * INTERVAL '1 minute'))\n             / COUNT(*), 1) AS pct_outside_sla,\n       ROUND(AVG(EXTRACT(EPOCH FROM (t.arrived_at - t.planned_arrival)) / 60)) AS avg_delay_min\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nJOIN freight.shipments s ON s.trip_id = t.id\nJOIN freight.clients c ON c.id = s.client_id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km, r.standard_minutes\nORDER BY pct_outside_sla DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', t.departed_at)::date AS t,\n       ROUND(100.0 * COUNT(*) FILTER (\n             WHERE t.arrived_at <= t.planned_arrival\n                   + (c.sla_minutes * INTERVAL '1 minute'))\n             / COUNT(*), 1) AS v\nFROM ops.trips t\nJOIN freight.shipments s ON s.trip_id = t.id\nJOIN freight.clients c ON c.id = s.client_id\nWHERE t.status = 'completed'\nGROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "Which vehicles cost more per kilometre than they earn?",
+          "answer_markdown": "**The oldest ones — and they are the ones nobody questions**, because they no longer have a lease.\n\nCost per kilometre adds four things that live in four systems: diesel, driver hours, tolls and the workshop, plus the vehicle's fixed cost. Revenue comes from the consignment note. The sum is trivial; what is not trivial is having the four pieces in the same place.\n\nThe table is ordered by contribution in euros, not by percentage: a vehicle that runs a lot and earns little per kilometre costs more than one that barely runs and loses on each — and it is the first that is worth fixing.",
+          "citations": [
+            {
+              "table": "fleet.vehicles"
+            },
+            {
+              "table": "ops.trips"
+            },
+            {
+              "table": "fleet.maintenance_jobs"
+            }
+          ],
+          "executed_sql": "WITH custo AS (\n    SELECT t.vehicle_id,\n           SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62\n               + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed'\n    GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost, SUM(days_off_road) AS days_off\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n)\nSELECT v.plate,\n       EXTRACT(YEAR FROM v.acquired_on)::INT AS year,\n       c.km,\n       ROUND((c.running_cost + COALESCE(w.workshop_cost, 0)\n              + v.fixed_cost_month * 12) / NULLIF(c.km, 0), 3) AS cost_per_km,\n       ROUND(COALESCE(i.revenue, 0) / NULLIF(c.km, 0), 3) AS revenue_per_km,\n       ROUND(COALESCE(i.revenue, 0)\n             - (c.running_cost + COALESCE(w.workshop_cost, 0)\n                + v.fixed_cost_month * 12)) AS contribution\nFROM fleet.vehicles v\nJOIN custo c ON c.vehicle_id = v.id\nLEFT JOIN workshop w ON w.vehicle_id = v.id\nLEFT JOIN income i ON i.vehicle_id = v.id\nORDER BY contribution",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Average cost per km",
+              "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND(SUM(total_cost) / NULLIF(SUM(km), 0), 2) FROM frota",
+              "format": "eur"
+            },
+            {
+              "label": "Gap between the two halves of the fleet",
+              "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND((SELECT AVG(contribution) FROM frota WHERE contribution > (SELECT AVG(contribution) FROM frota)) - (SELECT AVG(contribution) FROM frota WHERE contribution <= (SELECT AVG(contribution) FROM frota)))",
+              "format": "eur"
+            },
+            {
+              "label": "The worst of them",
+              "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT plate FROM frota ORDER BY contribution LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "How many kilometres do we run empty, and on which legs?",
+          "answer_markdown": "**About a fifth of everything the fleet runs.** Diesel, driver and tolls paid; nothing billed.\n\nThere is no system where this line exists, because it is defined by an absence: a logged trip with no load attached to it. The trip is on the duty roster and the load is on the consignment note; you need both to see the hole.\n\nBy leg, ordered by diesel burned, because that is how it gets acted on: a leg that comes back empty every week is a backload nobody has sold, and it has a name and a direction.",
+          "citations": [
+            {
+              "table": "ops.trips"
+            },
+            {
+              "table": "freight.shipments"
+            },
+            {
+              "table": "ops.routes"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       COUNT(*) AS trips,\n       COUNT(*) FILTER (WHERE s.id IS NULL) AS empty_trips,\n       SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END) AS empty_km,\n       ROUND(SUM(CASE WHEN s.id IS NULL THEN t.fuel_litres * 1.62 ELSE 0 END)) AS fuel_burned\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nLEFT JOIN freight.shipments s ON s.trip_id = t.id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km\nHAVING COUNT(*) FILTER (WHERE s.id IS NULL) > 0\nORDER BY fuel_burned DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Kilometres run empty",
+              "value_sql": "SELECT COALESCE(SUM(t.km_run), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL"
+            },
+            {
+              "label": "Diesel burned with no load",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(t.fuel_litres * 1.62)), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL",
+              "format": "eur"
+            },
+            {
+              "label": "Of all distance run",
+              "value_sql": "SELECT ROUND(100.0 * SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END) / NULLIF(SUM(t.km_run), 0), 1) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed'",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "Which routes arrive outside the window agreed with the client?",
+          "answer_markdown": "**Two, and they miss almost every time.** The rest of the operation sits at 6 to 8 per cent, which is normal noise.\n\nThe company average is good — and that is exactly why these two never reached a meeting. A route that misses 60% of the time disappears inside an 89% average.\n\nThe measurement is against each client's contracted tolerance, not a fixed hour: forty minutes is not the same thing on a load of tiles and a load of fruit.\n\nWhen a route misses systematically, the cause is almost never traffic — it is the standard time, estimated once and never revisited.",
+          "citations": [
+            {
+              "table": "ops.trips"
+            },
+            {
+              "table": "ops.routes"
+            },
+            {
+              "table": "freight.clients"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       r.standard_minutes,\n       COUNT(*) AS trips,\n       ROUND(100.0 * COUNT(*) FILTER (\n             WHERE t.arrived_at > t.planned_arrival\n                   + (c.sla_minutes * INTERVAL '1 minute'))\n             / COUNT(*), 1) AS pct_outside_sla,\n       ROUND(AVG(EXTRACT(EPOCH FROM (t.arrived_at - t.planned_arrival)) / 60)) AS avg_delay_min\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nJOIN freight.shipments s ON s.trip_id = t.id\nJOIN freight.clients c ON c.id = s.client_id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km, r.standard_minutes\nORDER BY pct_outside_sla DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Within the client's window",
+              "value_sql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*), 1) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed'",
+              "format": "pct"
+            },
+            {
+              "label": "Consignments outside the window",
+              "value_sql": "SELECT COUNT(*) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' AND t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')"
+            },
+            {
+              "label": "The worst route",
+              "value_sql": "SELECT r.origin || ' - ' || r.destination FROM ops.trips t JOIN ops.routes r ON r.id = t.route_id JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' GROUP BY r.id, r.origin, r.destination ORDER BY 100.0 * COUNT(*) FILTER (WHERE t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*) DESC LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "Which clients pay best per kilometre?",
+          "answer_markdown": "**By euro billed divided by the kilometres it took to bill it** — which is not the same as who bills most.\n\nA large client that makes you cross the country for a half-empty load can pay less per kilometre than a small one at the depot gate. Total billing does not say that; euro per kilometre does.\n\nThe incident column sits beside it deliberately: damaged goods and temperature failures cost money that never shows up on the rate card.",
+          "citations": [
+            {
+              "table": "freight.clients"
+            },
+            {
+              "table": "freight.shipments"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.sector, c.sla_minutes,\n       COUNT(*) AS shipments,\n       ROUND(SUM(s.revenue)) AS revenue,\n       ROUND(SUM(s.revenue) / NULLIF(SUM(t.km_run), 0), 2) AS revenue_per_km,\n       COUNT(*) FILTER (WHERE s.incident IS NOT NULL) AS incidents\nFROM freight.shipments s\nJOIN ops.trips t ON t.id = s.trip_id\nJOIN freight.clients c ON c.id = s.client_id\nGROUP BY c.id, c.name, c.sector, c.sla_minutes\nORDER BY revenue_per_km DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Best client per km",
+              "value_sql": "SELECT c.name FROM freight.shipments s JOIN ops.trips t ON t.id = s.trip_id JOIN freight.clients c ON c.id = s.client_id GROUP BY c.id, c.name ORDER BY SUM(s.revenue) / NULLIF(SUM(t.km_run), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Billed in the period",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(revenue)), 0) FROM freight.shipments",
+              "format": "eur"
+            },
+            {
+              "label": "Load incidents",
+              "value_sql": "SELECT COUNT(*) FROM freight.shipments WHERE incident IS NOT NULL"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "What did the workshop cost us, and which vehicles drive it?",
+          "answer_markdown": "**The workshop invoice is half the story; the days off road are the other half** — and only the first one has a document.\n\nA truck standing still still has its lease, insurance and road tax, and the load it did not run was either refused or subcontracted. That cost has no invoice at all, and so it enters no account.\n\nSplitting breakdown from preventive is what matters: too much preventive is expensive, too little is more expensive.",
+          "citations": [
+            {
+              "table": "fleet.maintenance_jobs"
+            },
+            {
+              "table": "fleet.vehicles"
+            }
+          ],
+          "executed_sql": "SELECT v.plate,\n       EXTRACT(YEAR FROM v.acquired_on)::INT AS year,\n       COUNT(*) FILTER (WHERE m.kind = 'avaria') AS breakdowns,\n       COUNT(*) FILTER (WHERE m.kind = 'preventiva') AS preventive,\n       ROUND(SUM(m.cost)) AS workshop_cost,\n       SUM(m.days_off_road) AS days_off_road\nFROM fleet.vehicles v\nJOIN fleet.maintenance_jobs m ON m.vehicle_id = v.id\nGROUP BY v.id, v.plate, v.acquired_on\nORDER BY workshop_cost DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Workshop in the period",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(cost)), 0) FROM fleet.maintenance_jobs",
+              "format": "eur"
+            },
+            {
+              "label": "Days off road",
+              "value_sql": "SELECT COALESCE(SUM(days_off_road), 0) FROM fleet.maintenance_jobs"
+            },
+            {
+              "label": "Breakdowns",
+              "value_sql": "SELECT COUNT(*) FROM fleet.maintenance_jobs WHERE kind = 'avaria'"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "Which drivers are accumulating the most hours at the wheel?",
+          "answer_markdown": "**Before it is a cost, it is a tachograph risk.** Driving times are a matter of fines and liability, and the roster is made by whoever has the load in front of them, not by whoever has the hours sheet.\n\nThe standard-time column sits beside it to head off the wrong reading: whoever accumulates hours is not necessarily whoever works slowest — it may be whoever always draws the long routes.\n\nIt comes from joining trips to the driver register.",
+          "citations": [
+            {
+              "table": "fleet.drivers"
+            },
+            {
+              "table": "ops.trips"
+            }
+          ],
+          "executed_sql": "SELECT d.name, d.licence,\n       COUNT(*) AS trips,\n       ROUND(SUM(t.driver_hours)) AS hours,\n       ROUND(SUM(t.km_run)) AS km,\n       ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival)\n             / COUNT(*), 1) AS pct_on_standard\nFROM ops.trips t\nJOIN fleet.drivers d ON d.id = t.driver_id\nWHERE t.status = 'completed'\nGROUP BY d.id, d.name, d.licence\nORDER BY hours DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Most hours at the wheel",
+              "value_sql": "SELECT d.name FROM ops.trips t JOIN fleet.drivers d ON d.id = t.driver_id WHERE t.status = 'completed' GROUP BY d.id, d.name ORDER BY SUM(t.driver_hours) DESC LIMIT 1"
+            },
+            {
+              "label": "Trips completed",
+              "value_sql": "SELECT COUNT(*) FROM ops.trips WHERE status = 'completed'"
+            },
+            {
+              "label": "Within the client's window",
+              "value_sql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*), 1) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed'",
+              "format": "pct"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "vertical": "saas",
       "locale": "es",
       "is_default": false,
@@ -3878,6 +4534,334 @@
             {
               "label": "Unidades desechadas",
               "value_sql": "SELECT COALESCE(SUM(units), 0) FROM quality.scrap"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "vertical": "transport",
+      "locale": "es",
+      "is_default": false,
+      "name": "Transportes Guadiana — 18 vehículos",
+      "description": "Transportista ibérico con 18 vehículos, 20 rutas entre Portugal y España y 12 meses de viajes.",
+      "connection_ref": "Demo — Transport",
+      "insight": {
+        "severity": "fleet_contribution",
+        "severity_level": "warning",
+        "agent_name": "Flota",
+        "title": "Tres vehículos cuestan por kilómetro casi lo que ingresan",
+        "summary": "Son los más viejos, y se les sigue asignando carga porque ya están pagados. El renting terminó, así que el coste fijo es bajo — y es ese número bajo el que hace parecer que compensa mantenerlos.\n\nLo que no aparece en ninguna parte es la suma de lo demás: gastan un tercio más de gasóleo por kilómetro, entran en el taller varias veces al año, y pasan semanas fuera de la carretera. Cada parte vive en un sistema distinto — tarjeta de combustible, factura del taller, cuadro de servicio — y ninguna de ellas, por sí sola, parece un problema.\n\nEsto es ingreso menos coste por kilómetro, vehículo a vehículo. No es el beneficio de la empresa: la estructura no está aquí. Es lo que cada camión aporta después de pagar lo que él mismo consume.",
+        "stat_tiles": [
+          {
+            "label": "Coste medio por km",
+            "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND(SUM(total_cost) / NULLIF(SUM(km), 0), 2) FROM frota",
+            "format": "eur"
+          },
+          {
+            "label": "Ingreso medio por km",
+            "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND(SUM(revenue) / NULLIF(SUM(km), 0), 2) FROM frota",
+            "format": "eur"
+          },
+          {
+            "label": "El peor de todos",
+            "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT plate FROM frota ORDER BY contribution LIMIT 1"
+          }
+        ],
+        "sources": [
+          {
+            "table": "fleet.vehicles",
+            "description": "El vehículo, y lo que cuesta tenerlo"
+          },
+          {
+            "table": "ops.trips",
+            "description": "Cada viaje: km, gasóleo, horas, llegada"
+          },
+          {
+            "table": "fleet.maintenance_jobs",
+            "description": "Taller: avería, preventivo, días parado"
+          },
+          {
+            "table": "freight.shipments",
+            "description": "La carga que salió, y por cuánto"
+          }
+        ],
+        "executed_sql": "WITH custo AS (\n    SELECT t.vehicle_id,\n           SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62\n               + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed'\n    GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost, SUM(days_off_road) AS days_off\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n)\nSELECT v.plate,\n       EXTRACT(YEAR FROM v.acquired_on)::INT AS year,\n       c.km,\n       ROUND((c.running_cost + COALESCE(w.workshop_cost, 0)\n              + v.fixed_cost_month * 12) / NULLIF(c.km, 0), 3) AS cost_per_km,\n       ROUND(COALESCE(i.revenue, 0) / NULLIF(c.km, 0), 3) AS revenue_per_km,\n       ROUND(COALESCE(i.revenue, 0)\n             - (c.running_cost + COALESCE(w.workshop_cost, 0)\n                + v.fixed_cost_month * 12)) AS contribution\nFROM fleet.vehicles v\nJOIN custo c ON c.vehicle_id = v.id\nLEFT JOIN workshop w ON w.vehicle_id = v.id\nLEFT JOIN income i ON i.vehicle_id = v.id\nORDER BY contribution",
+        "series_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed'\n    GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n)\nSELECT v.plate AS t,\n       ROUND(COALESCE(i.revenue, 0)\n             - (c.running_cost + COALESCE(w.workshop_cost, 0)\n                + v.fixed_cost_month * 12)) AS v\nFROM fleet.vehicles v\nJOIN custo c ON c.vehicle_id = v.id\nLEFT JOIN workshop w ON w.vehicle_id = v.id\nLEFT JOIN income i ON i.vehicle_id = v.id\nORDER BY v"
+      },
+      "extra_insights": [
+        {
+          "severity": "empty_running",
+          "severity_level": "warning",
+          "agent_name": "Tráfico",
+          "title": "Uno de cada cinco kilómetros se hace sin carga alguna",
+          "summary": "El vacío de retorno es el coste más invisible de este sector. Aparece entero en el gasóleo y no aparece en absoluto en la facturación — así que no hay ningún informe donde sea una línea.\n\nNadie lo niega y nadie sabe cuánto es. El número solo existe cruzando los viajes con la carga: el viaje está en el cuadro de servicio, la carga está en la carta de porte, y es la ausencia de una frente a la otra lo que lo define.\n\nPor trayecto, porque así es como se resuelve: un retorno vacío repetido en el mismo sentido es un retorno sin vender, no una casualidad.",
+          "stat_tiles": [
+            {
+              "label": "Kilómetros en vacío",
+              "value_sql": "SELECT COALESCE(SUM(t.km_run), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL"
+            },
+            {
+              "label": "Gasóleo quemado sin carga",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(t.fuel_litres * 1.62)), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL",
+              "format": "eur"
+            },
+            {
+              "label": "El trayecto con más vacío",
+              "value_sql": "SELECT r.origin || ' - ' || r.destination FROM ops.trips t JOIN ops.routes r ON r.id = t.route_id LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL GROUP BY r.id, r.origin, r.destination ORDER BY SUM(t.fuel_litres * 1.62) DESC LIMIT 1"
+            }
+          ],
+          "sources": [
+            {
+              "table": "ops.trips",
+              "description": "Cada viaje: km, gasóleo, horas, llegada"
+            },
+            {
+              "table": "freight.shipments",
+              "description": "La carga que salió, y por cuánto"
+            },
+            {
+              "table": "ops.routes",
+              "description": "Distancia, tiempo estándar y peajes"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       COUNT(*) AS trips,\n       COUNT(*) FILTER (WHERE s.id IS NULL) AS empty_trips,\n       SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END) AS empty_km,\n       ROUND(SUM(CASE WHEN s.id IS NULL THEN t.fuel_litres * 1.62 ELSE 0 END)) AS fuel_burned\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nLEFT JOIN freight.shipments s ON s.trip_id = t.id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km\nHAVING COUNT(*) FILTER (WHERE s.id IS NULL) > 0\nORDER BY fuel_burned DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', t.departed_at)::date AS t,\n       ROUND(100.0 * SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END)\n             / NULLIF(SUM(t.km_run), 0), 1) AS v\nFROM ops.trips t\nLEFT JOIN freight.shipments s ON s.trip_id = t.id\nWHERE t.status = 'completed'\nGROUP BY 1 ORDER BY 1"
+        },
+        {
+          "severity": "sla_breach",
+          "severity_level": "info",
+          "agent_name": "Servicio",
+          "title": "Dos rutas incumplen la hora en más de la mitad de los viajes",
+          "summary": "La puntualidad media de la operación es buena, y justamente por eso estas dos rutas nunca llegaron a una reunión: la media las tapa.\n\nLo que hace honesto el número es medir contra la tolerancia contratada de cada cliente y no contra una hora fija. Los mismos cuarenta minutos son irrelevantes en una carga de construcción y una penalización en una de frío.\n\nCuando una ruta falla casi siempre, el problema no es el tráfico — es el tiempo estándar, estimado una vez y nunca vuelto a mirar.",
+          "stat_tiles": [
+            {
+              "label": "Dentro del plazo del cliente",
+              "value_sql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*), 1) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed'",
+              "format": "pct"
+            },
+            {
+              "label": "Portes fuera de plazo",
+              "value_sql": "SELECT COUNT(*) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' AND t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')"
+            },
+            {
+              "label": "La peor ruta",
+              "value_sql": "SELECT r.origin || ' - ' || r.destination FROM ops.trips t JOIN ops.routes r ON r.id = t.route_id JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' GROUP BY r.id, r.origin, r.destination ORDER BY 100.0 * COUNT(*) FILTER (WHERE t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*) DESC LIMIT 1"
+            }
+          ],
+          "sources": [
+            {
+              "table": "ops.trips",
+              "description": "Cada viaje: km, gasóleo, horas, llegada"
+            },
+            {
+              "table": "ops.routes",
+              "description": "Distancia, tiempo estándar y peajes"
+            },
+            {
+              "table": "freight.clients",
+              "description": "Quién paga, y con qué tolerancia contratada"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       r.standard_minutes,\n       COUNT(*) AS trips,\n       ROUND(100.0 * COUNT(*) FILTER (\n             WHERE t.arrived_at > t.planned_arrival\n                   + (c.sla_minutes * INTERVAL '1 minute'))\n             / COUNT(*), 1) AS pct_outside_sla,\n       ROUND(AVG(EXTRACT(EPOCH FROM (t.arrived_at - t.planned_arrival)) / 60)) AS avg_delay_min\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nJOIN freight.shipments s ON s.trip_id = t.id\nJOIN freight.clients c ON c.id = s.client_id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km, r.standard_minutes\nORDER BY pct_outside_sla DESC",
+          "series_sql": "SELECT DATE_TRUNC('month', t.departed_at)::date AS t,\n       ROUND(100.0 * COUNT(*) FILTER (\n             WHERE t.arrived_at <= t.planned_arrival\n                   + (c.sla_minutes * INTERVAL '1 minute'))\n             / COUNT(*), 1) AS v\nFROM ops.trips t\nJOIN freight.shipments s ON s.trip_id = t.id\nJOIN freight.clients c ON c.id = s.client_id\nWHERE t.status = 'completed'\nGROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "qas": [
+        {
+          "position": 0,
+          "is_suggested": true,
+          "question": "¿Qué vehículos cuestan más por kilómetro de lo que ingresan?",
+          "answer_markdown": "**Los más viejos — y son los que nadie cuestiona**, porque ya no tienen cuota.\n\nEl coste por kilómetro suma cuatro cosas que viven en cuatro sistemas: gasóleo, horas de conductor, peajes y taller, más el coste fijo del vehículo. El ingreso sale de la carta de porte. La cuenta es trivial; lo que no es trivial es tener las cuatro partes en el mismo sitio.\n\nLa tabla está ordenada por aportación en euros y no por porcentaje: un vehículo que rueda mucho y gana poco por kilómetro cuesta más que uno que rueda poco y pierde en cada uno — y es el primero el que vale la pena resolver.",
+          "citations": [
+            {
+              "table": "fleet.vehicles"
+            },
+            {
+              "table": "ops.trips"
+            },
+            {
+              "table": "fleet.maintenance_jobs"
+            }
+          ],
+          "executed_sql": "WITH custo AS (\n    SELECT t.vehicle_id,\n           SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62\n               + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed'\n    GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost, SUM(days_off_road) AS days_off\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n)\nSELECT v.plate,\n       EXTRACT(YEAR FROM v.acquired_on)::INT AS year,\n       c.km,\n       ROUND((c.running_cost + COALESCE(w.workshop_cost, 0)\n              + v.fixed_cost_month * 12) / NULLIF(c.km, 0), 3) AS cost_per_km,\n       ROUND(COALESCE(i.revenue, 0) / NULLIF(c.km, 0), 3) AS revenue_per_km,\n       ROUND(COALESCE(i.revenue, 0)\n             - (c.running_cost + COALESCE(w.workshop_cost, 0)\n                + v.fixed_cost_month * 12)) AS contribution\nFROM fleet.vehicles v\nJOIN custo c ON c.vehicle_id = v.id\nLEFT JOIN workshop w ON w.vehicle_id = v.id\nLEFT JOIN income i ON i.vehicle_id = v.id\nORDER BY contribution",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Coste medio por km",
+              "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND(SUM(total_cost) / NULLIF(SUM(km), 0), 2) FROM frota",
+              "format": "eur"
+            },
+            {
+              "label": "Diferencia entre las dos mitades de la flota",
+              "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT ROUND((SELECT AVG(contribution) FROM frota WHERE contribution > (SELECT AVG(contribution) FROM frota)) - (SELECT AVG(contribution) FROM frota WHERE contribution <= (SELECT AVG(contribution) FROM frota)))",
+              "format": "eur"
+            },
+            {
+              "label": "El peor de todos",
+              "value_sql": "WITH custo AS (\n    SELECT t.vehicle_id, SUM(t.km_run) AS km,\n           SUM(t.fuel_litres * 1.62 + t.driver_hours * d.cost_per_hour\n               + r.toll_cost) AS running_cost\n    FROM ops.trips t\n    JOIN fleet.drivers d ON d.id = t.driver_id\n    JOIN ops.routes r ON r.id = t.route_id\n    WHERE t.status = 'completed' GROUP BY t.vehicle_id\n), workshop AS (\n    SELECT vehicle_id, SUM(cost) AS workshop_cost\n    FROM fleet.maintenance_jobs GROUP BY vehicle_id\n), income AS (\n    SELECT t.vehicle_id, SUM(s.revenue) AS revenue\n    FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id\n    GROUP BY t.vehicle_id\n), frota AS (\n    SELECT v.plate, c.km,\n           (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS total_cost,\n           COALESCE(i.revenue, 0) AS revenue,\n           COALESCE(i.revenue, 0) - (c.running_cost + COALESCE(w.workshop_cost, 0) + v.fixed_cost_month * 12) AS contribution\n    FROM fleet.vehicles v\n    JOIN custo c ON c.vehicle_id = v.id\n    LEFT JOIN workshop w ON w.vehicle_id = v.id\n    LEFT JOIN income i ON i.vehicle_id = v.id\n) SELECT plate FROM frota ORDER BY contribution LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 1,
+          "is_suggested": true,
+          "question": "¿Cuántos kilómetros hacemos en vacío, y en qué trayectos?",
+          "answer_markdown": "**Alrededor de una quinta parte de todo lo que rueda la flota.** Gasóleo, conductor y peajes pagados; facturación cero.\n\nNo hay ningún sistema donde exista esta línea, porque se define por una ausencia: un viaje registrado sin ninguna carga asociada. El viaje está en el cuadro de servicio y la carga está en la carta de porte; hacen falta los dos para ver el agujero.\n\nPor trayecto, y ordenado por gasóleo quemado, porque así es como se actúa: un trayecto que vuelve vacío todas las semanas es un retorno sin vender, y tiene nombre y sentido.",
+          "citations": [
+            {
+              "table": "ops.trips"
+            },
+            {
+              "table": "freight.shipments"
+            },
+            {
+              "table": "ops.routes"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       COUNT(*) AS trips,\n       COUNT(*) FILTER (WHERE s.id IS NULL) AS empty_trips,\n       SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END) AS empty_km,\n       ROUND(SUM(CASE WHEN s.id IS NULL THEN t.fuel_litres * 1.62 ELSE 0 END)) AS fuel_burned\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nLEFT JOIN freight.shipments s ON s.trip_id = t.id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km\nHAVING COUNT(*) FILTER (WHERE s.id IS NULL) > 0\nORDER BY fuel_burned DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Kilómetros en vacío",
+              "value_sql": "SELECT COALESCE(SUM(t.km_run), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL"
+            },
+            {
+              "label": "Gasóleo quemado sin carga",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(t.fuel_litres * 1.62)), 0) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed' AND s.id IS NULL",
+              "format": "eur"
+            },
+            {
+              "label": "Del total recorrido",
+              "value_sql": "SELECT ROUND(100.0 * SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END) / NULLIF(SUM(t.km_run), 0), 1) FROM ops.trips t LEFT JOIN freight.shipments s ON s.trip_id = t.id WHERE t.status = 'completed'",
+              "format": "pct"
+            }
+          ]
+        },
+        {
+          "position": 2,
+          "is_suggested": true,
+          "question": "¿Qué rutas llegan fuera del plazo acordado con el cliente?",
+          "answer_markdown": "**Dos, y fallan casi siempre.** El resto de la operación se mueve entre el 6 y el 8 por ciento, que es ruido normal.\n\nLa media de la empresa es buena — y es exactamente por eso que estas dos nunca llegaron a una reunión. Una ruta que falla el 60% de las veces desaparece dentro de una media del 89%.\n\nLa medición es contra la tolerancia contratada de cada cliente, no contra una hora fija: cuarenta minutos no es lo mismo en una carga de cerámica que en una de fruta.\n\nCuando una ruta falla sistemáticamente, la causa casi nunca es el tráfico — es el tiempo estándar, estimado una vez y nunca revisado.",
+          "citations": [
+            {
+              "table": "ops.trips"
+            },
+            {
+              "table": "ops.routes"
+            },
+            {
+              "table": "freight.clients"
+            }
+          ],
+          "executed_sql": "SELECT r.origin || ' - ' || r.destination AS leg,\n       r.distance_km,\n       r.standard_minutes,\n       COUNT(*) AS trips,\n       ROUND(100.0 * COUNT(*) FILTER (\n             WHERE t.arrived_at > t.planned_arrival\n                   + (c.sla_minutes * INTERVAL '1 minute'))\n             / COUNT(*), 1) AS pct_outside_sla,\n       ROUND(AVG(EXTRACT(EPOCH FROM (t.arrived_at - t.planned_arrival)) / 60)) AS avg_delay_min\nFROM ops.trips t\nJOIN ops.routes r ON r.id = t.route_id\nJOIN freight.shipments s ON s.trip_id = t.id\nJOIN freight.clients c ON c.id = s.client_id\nWHERE t.status = 'completed'\nGROUP BY r.id, leg, r.distance_km, r.standard_minutes\nORDER BY pct_outside_sla DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Dentro del plazo del cliente",
+              "value_sql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*), 1) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed'",
+              "format": "pct"
+            },
+            {
+              "label": "Portes fuera de plazo",
+              "value_sql": "SELECT COUNT(*) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' AND t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')"
+            },
+            {
+              "label": "La peor ruta",
+              "value_sql": "SELECT r.origin || ' - ' || r.destination FROM ops.trips t JOIN ops.routes r ON r.id = t.route_id JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed' GROUP BY r.id, r.origin, r.destination ORDER BY 100.0 * COUNT(*) FILTER (WHERE t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*) DESC LIMIT 1"
+            }
+          ]
+        },
+        {
+          "position": 3,
+          "is_suggested": false,
+          "question": "¿Qué clientes pagan mejor por kilómetro?",
+          "answer_markdown": "**Por euro facturado dividido entre los kilómetros que hubo que rodar para facturarlo** — que no es lo mismo que quién factura más.\n\nUn cliente grande que obliga a cruzar el país con carga media vacía puede rendir menos por kilómetro que uno pequeño a la puerta del almacén. La facturación total no dice eso; el euro por kilómetro sí.\n\nLa columna de incidencias está al lado a propósito: mercancía dañada y fallo de temperatura cuestan dinero que nunca aparece en la tarifa.",
+          "citations": [
+            {
+              "table": "freight.clients"
+            },
+            {
+              "table": "freight.shipments"
+            }
+          ],
+          "executed_sql": "SELECT c.name, c.sector, c.sla_minutes,\n       COUNT(*) AS shipments,\n       ROUND(SUM(s.revenue)) AS revenue,\n       ROUND(SUM(s.revenue) / NULLIF(SUM(t.km_run), 0), 2) AS revenue_per_km,\n       COUNT(*) FILTER (WHERE s.incident IS NOT NULL) AS incidents\nFROM freight.shipments s\nJOIN ops.trips t ON t.id = s.trip_id\nJOIN freight.clients c ON c.id = s.client_id\nGROUP BY c.id, c.name, c.sector, c.sla_minutes\nORDER BY revenue_per_km DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Mejor cliente por km",
+              "value_sql": "SELECT c.name FROM freight.shipments s JOIN ops.trips t ON t.id = s.trip_id JOIN freight.clients c ON c.id = s.client_id GROUP BY c.id, c.name ORDER BY SUM(s.revenue) / NULLIF(SUM(t.km_run), 0) DESC LIMIT 1"
+            },
+            {
+              "label": "Facturado en el periodo",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(revenue)), 0) FROM freight.shipments",
+              "format": "eur"
+            },
+            {
+              "label": "Incidencias de carga",
+              "value_sql": "SELECT COUNT(*) FROM freight.shipments WHERE incident IS NOT NULL"
+            }
+          ]
+        },
+        {
+          "position": 4,
+          "is_suggested": false,
+          "question": "¿Cuánto nos costó el taller, y qué vehículos tiran de él?",
+          "answer_markdown": "**La factura del taller es la mitad de la historia; los días fuera de la carretera son la otra mitad** — y solo la primera tiene un documento.\n\nUn camión parado sigue teniendo renting, seguro e impuesto, y la carga que no hizo o se rechazó o se subcontrató. Ese coste no tiene factura ninguna, y por eso no entra en ninguna cuenta.\n\nSeparar avería de preventivo es lo que importa: demasiado preventivo es caro, demasiado poco es más caro.",
+          "citations": [
+            {
+              "table": "fleet.maintenance_jobs"
+            },
+            {
+              "table": "fleet.vehicles"
+            }
+          ],
+          "executed_sql": "SELECT v.plate,\n       EXTRACT(YEAR FROM v.acquired_on)::INT AS year,\n       COUNT(*) FILTER (WHERE m.kind = 'avaria') AS breakdowns,\n       COUNT(*) FILTER (WHERE m.kind = 'preventiva') AS preventive,\n       ROUND(SUM(m.cost)) AS workshop_cost,\n       SUM(m.days_off_road) AS days_off_road\nFROM fleet.vehicles v\nJOIN fleet.maintenance_jobs m ON m.vehicle_id = v.id\nGROUP BY v.id, v.plate, v.acquired_on\nORDER BY workshop_cost DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Taller en el periodo",
+              "value_sql": "SELECT COALESCE(ROUND(SUM(cost)), 0) FROM fleet.maintenance_jobs",
+              "format": "eur"
+            },
+            {
+              "label": "Días fuera de la carretera",
+              "value_sql": "SELECT COALESCE(SUM(days_off_road), 0) FROM fleet.maintenance_jobs"
+            },
+            {
+              "label": "Averías",
+              "value_sql": "SELECT COUNT(*) FROM fleet.maintenance_jobs WHERE kind = 'avaria'"
+            }
+          ]
+        },
+        {
+          "position": 5,
+          "is_suggested": false,
+          "question": "¿Qué conductores acumulan más horas al volante?",
+          "answer_markdown": "**Antes de ser un coste, es un riesgo de tacógrafo.** Los tiempos de conducción son materia de multa y de responsabilidad, y el cuadro lo hace quien tiene la carga delante, no quien tiene la hoja de horas.\n\nLa columna de cumplimiento del tiempo estándar está al lado para evitar la lectura equivocada: quien acumula horas no es necesariamente quien trabaja más despacio — puede ser quien siempre coge las rutas largas.\n\nSale de cruzar los viajes con el registro de conductores.",
+          "citations": [
+            {
+              "table": "fleet.drivers"
+            },
+            {
+              "table": "ops.trips"
+            }
+          ],
+          "executed_sql": "SELECT d.name, d.licence,\n       COUNT(*) AS trips,\n       ROUND(SUM(t.driver_hours)) AS hours,\n       ROUND(SUM(t.km_run)) AS km,\n       ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival)\n             / COUNT(*), 1) AS pct_on_standard\nFROM ops.trips t\nJOIN fleet.drivers d ON d.id = t.driver_id\nWHERE t.status = 'completed'\nGROUP BY d.id, d.name, d.licence\nORDER BY hours DESC",
+          "chart_spec": null,
+          "stat_tiles": [
+            {
+              "label": "Más horas al volante",
+              "value_sql": "SELECT d.name FROM ops.trips t JOIN fleet.drivers d ON d.id = t.driver_id WHERE t.status = 'completed' GROUP BY d.id, d.name ORDER BY SUM(t.driver_hours) DESC LIMIT 1"
+            },
+            {
+              "label": "Viajes completados",
+              "value_sql": "SELECT COUNT(*) FROM ops.trips WHERE status = 'completed'"
+            },
+            {
+              "label": "Dentro del plazo del cliente",
+              "value_sql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE t.arrived_at <= t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')) / COUNT(*), 1) FROM ops.trips t JOIN freight.shipments s ON s.trip_id = t.id JOIN freight.clients c ON c.id = s.client_id WHERE t.status = 'completed'",
+              "format": "pct"
             }
           ]
         }
