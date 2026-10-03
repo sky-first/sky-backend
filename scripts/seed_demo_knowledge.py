@@ -339,8 +339,15 @@ async def upsert_glossary(
 
 
 async def main() -> None:
+    # O cabeçalho não pode anunciar um espaço e o script semear noutro.
+    #
+    # Dizia sempre «in 'Demo - Sky' Space», cravado, e a linha seguinte
+    # dizia «space 'Dados de demonstração'» — o registo a contradizer-se
+    # a si próprio em duas linhas consecutivas. Quem o ler a procurar
+    # porque é que o painel está vazio vai ao espaço errado.
+    escolhido = os.environ.get("DEMO_SPACE_NAME") or SPACE_NAME
     print("=" * 60)
-    print("Seeding demo metrics + glossary in 'Demo - Sky' Space")
+    print(f"Seeding demo metrics + glossary in {escolhido!r} Space")
     print("=" * 60)
     async with await _sessao() as db:
         # O espaco primeiro, o dono depois. Ver `_espaco_da_demonstracao`:
