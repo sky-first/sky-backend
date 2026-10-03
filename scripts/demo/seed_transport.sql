@@ -289,7 +289,19 @@ SELECT
     1 + (ABS(hashint4(t.id)) % 12),
     peso.kg,
     GREATEST(1, peso.kg / 800),
-    (120 + t.km_run * (1.05 + peso.kg * 0.000028))::NUMERIC(10,2),
+    -- ⚠️ Sem a tarifa por cliente, todos rendem o mesmo por quilómetro.
+    --
+    -- A receita saía só dos quilómetros e do peso, e o peso é aleatório
+    -- por viagem — independente do cliente. Resultado: os doze clientes
+    -- davam entre 1,81 e 1,88 €/km, quatro por cento de diferença entre
+    -- o melhor e o pior. A pergunta «que clientes dejan más por
+    -- kilómetro?» respondia com seis números iguais e uma conclusão
+    -- vazia, que é pior do que não ter a pergunta.
+    --
+    -- Num transportador real a tarifa é negociada, e é essa negociação
+    -- que decide quem paga o camião. Quinze por cento para cada lado
+    -- não é exagero: é o que separa um contrato antigo de um recente.
+    (120 + t.km_run * (1.05 + peso.kg * 0.000028) * tarifa.m)::NUMERIC(10,2),
     CASE
         WHEN t.id % 53 = 0 THEN 'mercadoria danificada'
         WHEN t.id % 71 = 0 THEN 'falha de temperatura'
@@ -298,6 +310,12 @@ SELECT
     END
 FROM ops.trips t
 CROSS JOIN LATERAL (SELECT (4200 + ABS(hashint4(t.id * 31)) % 15000)::INT AS kg) peso
+CROSS JOIN LATERAL (
+    SELECT (ARRAY[0.86, 0.90, 0.94, 0.97, 0.99, 1.01,
+                  1.03, 1.06, 1.09, 1.13, 1.18, 1.25])[
+        1 + (ABS(hashint4(t.id)) % 12)
+    ] AS m
+) tarifa
 WHERE t.status = 'completed'
   -- O retorno vazio, ~20%, de propósito.
   --
@@ -321,13 +339,22 @@ SELECT
         WHEN g % 4 = 0 THEN 'pneus'
         ELSE 'preventiva'
     END,
+    -- ⚠️ O custo tem de depender da VIATURA, não só do `g`.
+    --
+    -- Sem o `v.id` na conta, as catorze intervenções de cada viatura
+    -- custavam exactamente o mesmo que as da viatura ao lado: três
+    -- camiões a 26.331 € e 35 dias parados, ao euro e ao dia. Numa
+    -- tabela de oficina isso é a coisa mais visível a dizer «dados
+    -- inventados» — e é a tabela que um director de frota lê primeiro.
     (CASE
-        WHEN v.id IN (3, 9, 14) AND g % 3 <> 0 THEN 1400 + (g * 137) % 2600
-        WHEN g % 4 = 0 THEN 620 + (g * 41) % 400
-        ELSE 310 + (g * 23) % 280
+        WHEN v.id IN (3, 9, 14) AND g % 3 <> 0
+            THEN 1400 + ABS(hashint4(v.id * 977 + g * 137)) % 2600
+        WHEN g % 4 = 0 THEN 620 + ABS(hashint4(v.id * 613 + g * 41)) % 400
+        ELSE 310 + ABS(hashint4(v.id * 419 + g * 23)) % 280
      END)::NUMERIC(10,2),
     CASE
-        WHEN v.id IN (3, 9, 14) AND g % 3 <> 0 THEN 2 + (g * 3) % 6
+        WHEN v.id IN (3, 9, 14) AND g % 3 <> 0
+            THEN 2 + ABS(hashint4(v.id * 251 + g * 3)) % 6
         ELSE 0
     END
 FROM fleet.vehicles v

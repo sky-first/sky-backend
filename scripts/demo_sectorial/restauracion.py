@@ -33,7 +33,8 @@ mentir. Ver a nota longa em `transportes.py`.
 
 from __future__ import annotations
 
-from scripts.demo_sectorial.pecas import Agente, Pagina, Sector, grafico, kpi, tabela
+from scripts.demo_sectorial.formato import eur, euro2, n, pct
+from scripts.demo_sectorial.pecas import Agente, Pagina, Pergunta, Sector, grafico, kpi, tabela
 
 # ── blocos reutilizados ─────────────────────────────────────────────
 
@@ -88,7 +89,12 @@ ORDER BY labour_pct DESC"""
 
 SQL_MERMA = """SELECT p.name AS product, p.family, w.reason,
        SUM(w.units) AS units,
-       ROUND(SUM(w.units * p.unit_cost)) AS cost,
+       -- Duas casas e não zero: a resposta à pergunta soma esta coluna
+       -- por motivo, e com os euros já arredondados por artigo o total
+       -- saía 9.847 € onde o cartão dizia 9.846 €. Um euro de diferença
+       -- entre dois sítios do mesmo ecrã custa mais confiança do que
+       -- vale.
+       ROUND(SUM(w.units * p.unit_cost), 2) AS cost,
        p.hold_minutes
 FROM kitchen.waste w
 JOIN kitchen.products p ON p.id = w.product_id
@@ -216,18 +222,20 @@ V = {
 }
 
 _FONTES = [
-    ("service.orders", "Cada pedido: canal, hora, tempo e total",
-     "Every order: channel, hour, time and total"),
-    ("service.order_items", "O que foi vendido em cada pedido",
-     "What was sold on each order"),
-    ("kitchen.waste", "O que se preparou e não se vendeu",
-     "What was prepared and not sold"),
-    ("kitchen.products", "Custo, preço de carta e validade",
-     "Cost, menu price and hold time"),
-    ("restaurant.staff_shifts", "Quem esteve, quantas horas, a que custo",
-     "Who was on, how many hours, at what cost"),
-    ("restaurant.stores", "A loja e o seu formato",
-     "The store and its format"),
+    (
+        "service.orders",
+        "Cada pedido: canal, hora, tempo e total",
+        "Every order: channel, hour, time and total",
+    ),
+    ("service.order_items", "O que foi vendido em cada pedido", "What was sold on each order"),
+    ("kitchen.waste", "O que se preparou e não se vendeu", "What was prepared and not sold"),
+    ("kitchen.products", "Custo, preço de carta e validade", "Cost, menu price and hold time"),
+    (
+        "restaurant.staff_shifts",
+        "Quem esteve, quantas horas, a que custo",
+        "Who was on, how many hours, at what cost",
+    ),
+    ("restaurant.stores", "A loja e o seu formato", "The store and its format"),
 ]
 
 
@@ -282,17 +290,47 @@ SECTOR = Sector(
             widgets=[
                 # `duration` e não um número cru: o valor vem em segundos e
                 # o cartão mostrava «204», que ninguém lê como 3m 24s.
-                kpi("Tiempo medio de entrega", "kpi1", "servicio", V["tempo_medio"],
-                    legenda="Del pedido a la entrega", formato="duration"),
-                kpi("Fuera de los 4 minutos", "kpi2", "servicio", V["fora_do_prazo"],
-                    legenda="Sobre todos los pedidos", formato="percent"),
-                kpi("Fuera, en hora punta", "kpi3", "servicio", V["fora_do_prazo_no_pico"],
-                    legenda="Comida y cena — donde se decide", formato="percent"),
-                kpi("La tienda más lenta", "kpi4", "tiendas", V["pior_loja"],
-                    legenda="Por incumplimiento en hora punta"),
+                kpi(
+                    "Tiempo medio de entrega",
+                    "kpi1",
+                    "servicio",
+                    V["tempo_medio"],
+                    legenda="Del pedido a la entrega",
+                    formato="duration",
+                ),
+                kpi(
+                    "Fuera de los 4 minutos",
+                    "kpi2",
+                    "servicio",
+                    V["fora_do_prazo"],
+                    legenda="Sobre todos los pedidos",
+                    formato="percent",
+                ),
+                kpi(
+                    "Fuera, en hora punta",
+                    "kpi3",
+                    "servicio",
+                    V["fora_do_prazo_no_pico"],
+                    legenda="Comida y cena — donde se decide",
+                    formato="percent",
+                ),
+                kpi(
+                    "La tienda más lenta",
+                    "kpi4",
+                    "tiendas",
+                    V["pior_loja"],
+                    legenda="Por incumplimiento en hora punta",
+                ),
                 tabela("Cumplimiento por tienda", "larga1", "servicio", SQL_SERVICO_POR_LOJA),
-                grafico("Fuera de plazo, semana a semana", "larga2", "servicio",
-                        SQL_SERIE_SERVICO, variante="line", x="t", y="v"),
+                grafico(
+                    "Fuera de plazo, semana a semana",
+                    "larga2",
+                    "servicio",
+                    SQL_SERIE_SERVICO,
+                    variante="line",
+                    x="t",
+                    y="v",
+                ),
             ],
         ),
         Pagina(
@@ -304,17 +342,46 @@ SECTOR = Sector(
             icone="users",
             cor="#F5A623",
             widgets=[
-                kpi("Personal sobre ventas", "kpi1", "tiendas", V["pessoal_pct"],
-                    legenda="En toda la red y el periodo", formato="percent"),
-                kpi("Coste de personal", "kpi2", "tiendas", V["pessoal_total"],
-                    legenda="90 días, 12 tiendas", formato="currency"),
-                kpi("La franja más cara", "kpi3", "tiendas", V["faixa_mais_cara"],
-                    legenda="Por euro de personal sobre euro vendido"),
-                kpi("La más rentable", "kpi4", "tiendas", V["faixa_mais_barata"],
-                    legenda="Donde la hora se paga sola"),
+                kpi(
+                    "Personal sobre ventas",
+                    "kpi1",
+                    "tiendas",
+                    V["pessoal_pct"],
+                    legenda="En toda la red y el periodo",
+                    formato="percent",
+                ),
+                kpi(
+                    "Coste de personal",
+                    "kpi2",
+                    "tiendas",
+                    V["pessoal_total"],
+                    legenda="90 días, 12 tiendas",
+                    formato="currency",
+                ),
+                kpi(
+                    "La franja más cara",
+                    "kpi3",
+                    "tiendas",
+                    V["faixa_mais_cara"],
+                    legenda="Por euro de personal sobre euro vendido",
+                ),
+                kpi(
+                    "La más rentable",
+                    "kpi4",
+                    "tiendas",
+                    V["faixa_mais_barata"],
+                    legenda="Donde la hora se paga sola",
+                ),
                 tabela("Ventas y personal por franja", "esq1", "tiendas", SQL_PESSOAL),
-                grafico("Personal sobre ventas, por franja", "dir1", "tiendas",
-                        SQL_SERIE_PESSOAL, variante="bar", x="t", y="v"),
+                grafico(
+                    "Personal sobre ventas, por franja",
+                    "dir1",
+                    "tiendas",
+                    SQL_SERIE_PESSOAL,
+                    variante="bar",
+                    x="t",
+                    y="v",
+                ),
             ],
         ),
         Pagina(
@@ -327,19 +394,47 @@ SECTOR = Sector(
             icone="trash",
             cor="#7B61FF",
             widgets=[
-                kpi("Merma en el periodo", "kpi1", "cocina", V["merma_total"],
-                    legenda="A coste, no a precio de carta", formato="currency"),
-                kpi("Por caducidad", "kpi2", "cocina", V["merma_validade"],
+                kpi(
+                    "Merma en el periodo",
+                    "kpi1",
+                    "cocina",
+                    V["merma_total"],
+                    legenda="A coste, no a precio de carta",
+                    formato="currency",
+                ),
+                kpi(
+                    "Por caducidad",
+                    "kpi2",
+                    "cocina",
+                    V["merma_validade"],
                     legenda="Producto con vida corta — es de carta",
-                    formato="currency"),
-                kpi("Por preparar de más", "kpi3", "cocina", V["merma_excesso"],
+                    formato="currency",
+                ),
+                kpi(
+                    "Por preparar de más",
+                    "kpi3",
+                    "cocina",
+                    V["merma_excesso"],
                     legenda="Se preparó para una ola que no vino",
-                    formato="currency"),
-                kpi("La familia más perdida", "kpi4", "cocina", V["familia_mais_perdida"],
-                    legenda="Por coste tirado"),
+                    formato="currency",
+                ),
+                kpi(
+                    "La familia más perdida",
+                    "kpi4",
+                    "cocina",
+                    V["familia_mais_perdida"],
+                    legenda="Por coste tirado",
+                ),
                 tabela("Merma por artículo y motivo", "esq1", "cocina", SQL_MERMA),
-                grafico("Merma por motivo", "dir1", "cocina", SQL_SERIE_MERMA,
-                        variante="bar", x="t", y="v"),
+                grafico(
+                    "Merma por motivo",
+                    "dir1",
+                    "cocina",
+                    SQL_SERIE_MERMA,
+                    variante="bar",
+                    x="t",
+                    y="v",
+                ),
             ],
         ),
         Pagina(
@@ -351,16 +446,39 @@ SECTOR = Sector(
             icone="layers",
             cor="#4A90D9",
             widgets=[
-                kpi("Pedidos servidos", "kpi1", "servicio", V["pedidos"],
-                    legenda="90 días"),
-                kpi("Ticket medio", "kpi2", "servicio", V["ticket_medio"],
-                    legenda="Importe medio por pedido", formato="currency"),
-                kpi("El canal que más vende", "kpi3", "servicio", V["canal_maior"],
-                    legenda="Por importe, no por número"),
-                kpi("Margen medio de carta", "kpi4", "cocina", V["margem_carta"],
-                    legenda="Precio contra coste, por artículo", formato="percent"),
-                grafico("Ventas por canal", "esq1", "servicio", SQL_CANAL,
-                        variante="bar", x="channel", y="sales"),
+                kpi("Pedidos servidos", "kpi1", "servicio", V["pedidos"], legenda="90 días"),
+                kpi(
+                    "Ticket medio",
+                    "kpi2",
+                    "servicio",
+                    V["ticket_medio"],
+                    legenda="Importe medio por pedido",
+                    formato="currency",
+                ),
+                kpi(
+                    "El canal que más vende",
+                    "kpi3",
+                    "servicio",
+                    V["canal_maior"],
+                    legenda="Por importe, no por número",
+                ),
+                kpi(
+                    "Margen medio de carta",
+                    "kpi4",
+                    "cocina",
+                    V["margem_carta"],
+                    legenda="Precio contra coste, por artículo",
+                    formato="percent",
+                ),
+                grafico(
+                    "Ventas por canal",
+                    "esq1",
+                    "servicio",
+                    SQL_CANAL,
+                    variante="bar",
+                    x="channel",
+                    y="sales",
+                ),
                 tabela("Margen por familia de carta", "dir1", "cocina", SQL_CARTA),
             ],
         ),
@@ -437,3 +555,144 @@ SECTOR = Sector(
         ),
     ],
 )
+
+
+# ── as perguntas ─────────────────────────────────────────────────────
+#
+# Cinco fios já respondidos. A resposta é construída a partir do
+# resultado da consulta, não escrita à mão — ver a nota longa em
+# `pecas.Pergunta`. O que está escrito é a *forma* da resposta: o que
+# vale a pena dizer e em que ordem.
+#
+# Em castelhano, e com os números no formato europeu, que é o que a
+# aplicação mostra nos cartões ao lado.
+
+
+def _r_servico(linhas):
+    if not linhas:
+        return "No hay pedidos en el periodo."
+    lentas = [r for r in linhas if float(r["pct_over_peak"] or 0) > 40]
+    resto = [r for r in linhas if float(r["pct_over_peak"] or 0) <= 40]
+    media_resto = sum(float(r["pct_over_peak"] or 0) for r in resto) / len(resto) if resto else 0
+    cabeca = ", ".join(f"{r['store']} ({pct(r['pct_over_peak'])})" for r in lentas) or "ninguna"
+    return (
+        f"En hora punta el incumplimiento se concentra en {len(lentas)} de "
+        f"{len(linhas)} tiendas: {cabeca}. Las demás se quedan en torno al "
+        f"{pct(media_resto)}.\n\n"
+        "La media de la red no sirve para decidir aquí: mezclar esas dos con "
+        "las demás da un número que no manda a nadie a ningún sitio. Y son "
+        "lentas **en hora punta**, no siempre — su media fuera del pico se "
+        "parece a la del resto, así que no es el equipo, es lo que pasa "
+        "cuando la casa se llena."
+    )
+
+
+def _r_pessoal(linhas):
+    if not linhas:
+        return "No hay turnos registrados en el periodo."
+    cara, barata = linhas[0], linhas[-1]
+    return (
+        f"El personal pesa {pct(cara['labour_pct'])} de las ventas en "
+        f"**{cara['day_part']}** y {pct(barata['labour_pct'])} en "
+        f"**{barata['day_part']}**.\n\n"
+        f"Es al revés de lo que dice el instinto. En {barata['day_part']} hay "
+        f"{n(barata['hours'])} horas para {eur(barata['sales'])} de ventas; "
+        f"en {cara['day_part']}, {n(cara['hours'])} horas para "
+        f"{eur(cara['sales'])}. El coste no está en la hora punta — está en "
+        "las franjas vacías, donde la plantilla sigue puesta y la caja no."
+    )
+
+
+def _r_merma(linhas):
+    if not linhas:
+        return "No hay merma registrada en el periodo."
+    por_motivo: dict[str, float] = {}
+    for r in linhas:
+        por_motivo[r["reason"]] = por_motivo.get(r["reason"], 0) + float(r["cost"] or 0)
+
+    ordenado = sorted(por_motivo.items(), key=lambda x: -x[1])
+    linhas_motivo = "\n".join(f"- {m}: {eur(v)}" for m, v in ordenado)
+    topo = linhas[0]
+    return (
+        f"{linhas_motivo}\n\n"
+        f"El artículo que más cuesta es **{topo['product']}** "
+        f"({topo['family']}, {eur(topo['cost'])}, vida de "
+        f"{n(topo['hold_minutes'])} minutos).\n\n"
+        "La separación importa: la caducidad se corrige en la carta — un "
+        "producto con vida de diez minutos tira solo —, y el exceso de "
+        "preparación se corrige en la previsión del turno. En una hoja de "
+        "turno son la misma línea, y por eso nadie arregla ninguna de las dos."
+    )
+
+
+def _r_canal(linhas):
+    if not linhas:
+        return "No hay pedidos en el periodo."
+    por_importe = linhas[0]
+    por_ticket = max(linhas, key=lambda r: float(r["avg_ticket"] or 0))
+    detalhe = "\n".join(
+        f"- {r['channel']}: {n(r['orders'])} pedidos, {eur(r['sales'])}, "
+        f"ticket {euro2(r['avg_ticket'])}, "
+        f"{n(r['avg_sec'])} s de media"
+        for r in linhas
+    )
+    return (
+        f"{detalhe}\n\n"
+        f"**{por_importe['channel']}** trae el importe; "
+        f"**{por_ticket['channel']}** trae el ticket más alto. No son "
+        "necesariamente el mismo, y confundirlos lleva a empujar el canal "
+        "equivocado: el que hace volumen no es el que sube la caja por pedido."
+    )
+
+
+def _r_carta(linhas):
+    if not linhas:
+        return "No hay artículos en la carta."
+    pior, melhor = linhas[0], linhas[-1]
+    detalhe = "\n".join(
+        f"- {r['family']}: margen {pct(r['margin_pct'])}, " f"vida {n(r['hold_min'])} min"
+        for r in linhas
+    )
+    return (
+        f"{detalhe}\n\n"
+        f"**{pior['family']}** es la familia de margen más bajo "
+        f"({pct(pior['margin_pct'])}) y **{melhor['family']}** la más alta "
+        f"({pct(melhor['margin_pct'])}).\n\n"
+        "Lo que hay que mirar es el cruce con la vida del producto: margen "
+        "bajo con caducidad corta es la peor combinación que existe — se gana "
+        "poco por unidad y se tira lo que no se vende en minutos."
+    )
+
+
+SECTOR.perguntas = [
+    Pergunta(
+        texto="¿En qué tiendas se nos va el tiempo de servicio en hora punta?",
+        esquemas=["servicio", "tiendas"],
+        sql=SQL_SERVICO_POR_LOJA,
+        resposta=_r_servico,
+    ),
+    Pergunta(
+        texto="¿Cuánto me cuesta la hora de personal por cada euro que vendo?",
+        esquemas=["tiendas", "servicio"],
+        sql=SQL_PESSOAL,
+        resposta=_r_pessoal,
+    ),
+    Pergunta(
+        texto="¿Qué estamos tirando, y es por caducidad o por preparar de más?",
+        esquemas=["cocina"],
+        sql=SQL_MERMA,
+        resposta=_r_merma,
+    ),
+    Pergunta(
+        texto="¿Qué canal trae el importe y cuál trae el ticket?",
+        esquemas=["servicio"],
+        sql=SQL_CANAL,
+        resposta=_r_canal,
+    ),
+    Pergunta(
+        texto="¿Qué familias de la carta sostienen el margen?",
+        esquemas=["cocina"],
+        sql=SQL_CARTA,
+        resposta=_r_carta,
+    ),
+]

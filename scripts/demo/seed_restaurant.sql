@@ -116,7 +116,19 @@ FROM generate_series(1, 12) g;
 INSERT INTO kitchen.products (sku, name, family, unit_cost, menu_price, hold_minutes)
 SELECT
     'ART-' || LPAD(g::TEXT, 3, '0'),
-    fam.nome || ' ' || g,
+    -- Nomes de carta, e não `Patatas 27`.
+    --
+    -- O nome gerado (`familia || ' ' || g`) é a coisa mais visível num
+    -- ecrã de demonstração a dizer «isto são dados de teste». O resto
+    -- do conjunto está calibrado para ser crível; o nome do artigo
+    -- desfazia-o de graça.
+    --
+    -- O índice: a família sai de `1 + g % 5`, portanto os oito artigos
+    -- de cada família são os `g` com o mesmo resto. `1 + (g - 1) / 5`
+    -- dá-lhes 1..8 dentro da família, para qualquer das cinco.
+    -- Os dois subscritos: o Postgres não corta uma linha de um array
+    -- 2-D com um índice só («cannot subscript type text»).
+    fam.nomes[1 + g % 5][1 + (g - 1) / 5],
     fam.nome,
     custo.c,
     (custo.c * fam.mult)::NUMERIC(8,2),
@@ -125,6 +137,19 @@ FROM generate_series(1, 40) g
 CROSS JOIN LATERAL (
     SELECT
         (ARRAY['Hamburguesas','Pollo','Patatas','Bebidas','Postres'])[1 + g % 5] AS nome,
+        (ARRAY[
+            ARRAY['Clásica','Doble','Con queso','Picante','De pollo crujiente',
+                  'Vegetal','Barbacoa','Premium'],
+            ARRAY['Alitas 6','Alitas 12','Tiras de pollo','Nuggets 6','Nuggets 12',
+                  'Wrap de pollo','Ensalada de pollo','Pollo asado'],
+            ARRAY['Patatas pequeñas','Patatas medianas','Patatas grandes',
+                  'Patatas deluxe','Gajos','Patatas con queso','Patatas con bacon',
+                  'Aros de cebolla'],
+            ARRAY['Refresco pequeño','Refresco mediano','Refresco grande','Agua',
+                  'Zumo de naranja','Café','Batido','Té helado'],
+            ARRAY['Cono de helado','Sundae de chocolate','Sundae de fresa',
+                  'Tarta de manzana','Brownie','Donut','Natillas','Yogur con fruta']
+        ]) AS nomes,
         -- As bebidas têm a melhor margem e a pior merma (quase nenhuma);
         -- os hambúrgueres é ao contrário. É a tensão do negócio.
         (ARRAY[2.6, 2.8, 3.4, 5.2, 3.0])[1 + g % 5] AS mult,
@@ -222,7 +247,22 @@ INSERT INTO service.order_items (order_id, product_id, quantity, unit_price)
 SELECT
     o.id,
     p.id,
-    1 + ABS(hashint4(o.id * 31 + p.id)) % 3,
+    -- ⚠️ O canal tem de mexer no cesto, senão o ticket é igual nos
+    -- quatro.
+    --
+    -- Com a quantidade a depender só do artigo, os quatro canais davam
+    -- 36,35 / 36,38 / 36,41 / 36,49 € de ticket médio — e a resposta à
+    -- pergunta «que canal traz o ticket?» apresentava onze cêntimos
+    -- como se fossem um achado. Quem olha vê quatro números iguais e
+    -- uma conclusão vazia, que é pior do que não ter a pergunta.
+    --
+    -- A diferença é a do negócio real: a entrega é um pedido de casa,
+    -- com várias pessoas; o drive é quase sempre de um.
+    CASE o.channel
+        WHEN 'entrega' THEN 2 + ABS(hashint4(o.id * 31 + p.id)) % 3
+        WHEN 'drive'   THEN 1 + ABS(hashint4(o.id * 31 + p.id)) % 2
+        ELSE                1 + ABS(hashint4(o.id * 31 + p.id)) % 3
+    END,
     p.menu_price
 FROM service.orders o
 CROSS JOIN LATERAL (
