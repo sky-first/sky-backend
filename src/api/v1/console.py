@@ -2334,8 +2334,11 @@ async def compare_tenants(
                 queries_7d=int(
                     sum(p.value for p in activity_provider().tenant_activity_7d(slug))
                 ),
+                # O preco de tabela JA e mensal — dividi-lo por 12
+                # mostrava o Sky Start a 40,83 EUR/mes. Ver a nota em
+                # `TierPreset.headline_price_eur`.
                 monthly_eur=(
-                    preset.headline_price_eur / 12.0
+                    float(preset.headline_price_eur)
                     if preset and preset.headline_price_eur
                     else 0.0
                 ),

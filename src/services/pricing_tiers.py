@@ -40,9 +40,18 @@ class TierPreset:
 
     slug: str  # canonical lowercase identifier — matches Tenant.tier
     display_name: str  # human-friendly label rendered in the UI
-    headline_price_eur: Optional[int]  # annual list price; None = "custom"
+    # ⚠️ O preco e MENSAL, nao anual.
+    #
+    # O comentario dizia "annual list price" e os valores sao 490, 900 e
+    # 1.800 — que sao as mensalidades do documento comercial. Lidos como
+    # anuais davam 41 EUR/mes, o que ninguem notou porque o numero so
+    # aparece ao lado do `pricing_unit`, que ja dizia "month".
+    #
+    # Um comentario errado num ficheiro de precos nao e cosmetica: e a
+    # primeira coisa que alguem le antes de montar uma factura.
+    headline_price_eur: Optional[int]  # preco de tabela por `pricing_unit`
     setup_fee_eur: Optional[int]
-    pricing_unit: str  # "year" / "custom"
+    pricing_unit: str  # "month" / "custom"
 
     # Capacity defaults applied when a tenant is moved to this tier.
     # The Tenant.capacity_limits JSONB column gets these keys.
@@ -82,7 +91,7 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
         capacity_limits={
             "agents": 3,
             "sources": 1,
-            "indexed_gb": 50,
+            "indexed_gb": 5,
         },
         rate_limit_rpm=60,
         rate_limit_tpm=50_000,
@@ -113,7 +122,7 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
         capacity_limits={
             "agents": 10,
             "sources": 2,
-            "indexed_gb": 200,
+            "indexed_gb": 50,
         },
         rate_limit_rpm=120,
         rate_limit_tpm=100_000,
@@ -152,9 +161,9 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
         setup_fee_eur=10_000,
         pricing_unit="month",
         capacity_limits={
-            "agents": 30,
+            "agents": 50,
             "sources": 5,
-            "indexed_gb": 500,
+            "indexed_gb": 200,
         },
         rate_limit_rpm=300,
         rate_limit_tpm=300_000,
@@ -181,7 +190,7 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
     ),
     "enterprise": TierPreset(
         slug="enterprise",
-        display_name="Sky Enterprise",
+        display_name="Sky Max",
         headline_price_eur=None,
         setup_fee_eur=None,
         pricing_unit="custom",

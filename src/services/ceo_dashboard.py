@@ -36,7 +36,7 @@ from src.services.console_telemetry import billing_provider, cost_provider
 # update. Falls back to None ("custom" / enterprise) — those tenants are
 # excluded from MRR roll-ups because their actual contract amount is
 # negotiated.
-def _tier_annual_price_eur(tier: str) -> Optional[int]:
+def _tier_monthly_price_eur(tier: str) -> Optional[int]:
     registry = getattr(pricing_tiers, "TIER_REGISTRY", {}) or {}
     entry = registry.get(tier)
     if entry is None:
@@ -121,14 +121,22 @@ async def compute_ceo_summary(db: AsyncSession) -> CeoMasterSummary:
     tier_rows: List[CeoTierRow] = []
     contracted_mrr = 0.0
     for tier, count in by_tier_rows:
-        annual = _tier_annual_price_eur(tier)
-        monthly = (annual / 12.0) * count if annual else 0.0
+        # ⚠️ **O preco de tabela e MENSAL. Dividir por 12 reportava 1/12 da receita.**
+        #
+        # O comentario em `TierPreset.headline_price_eur` dizia "annual list
+        # price" e nao era verdade: 490, 900 e 1.800 sao as MENSALIDADES do
+        # documento comercial. Tres sitios acreditaram no comentario e dividiram
+        # por 12 — o Sky Start aparecia a 40,83 EUR/mes.
+        #
+        # Apanhado a 03/10/2026, a corrigir o proprio comentario.
+        mensal_do_plano = _tier_monthly_price_eur(tier)
+        monthly = mensal_do_plano * count if mensal_do_plano else 0.0
         contracted_mrr += monthly
         tier_rows.append(
             CeoTierRow(
                 tier=tier,
                 active_tenants=int(count),
-                annual_price_eur=annual,
+                annual_price_eur=(mensal_do_plano * 12 if mensal_do_plano else None),
                 contracted_mrr_eur=round(monthly, 2),
             )
         )
