@@ -115,6 +115,10 @@ from src.services import (
     pricing_service,
     pricing_tiers,
 )
+from src.services.vocabulario_dos_planos import (
+    COMERCIAL_PARA_REGISTO,
+    REGISTO_PARA_COMERCIAL,
+)
 from src.services.console_telemetry import (
     TelemetryUnavailable,
     activity_provider,
@@ -653,13 +657,12 @@ async def list_pricing_tiers(
 # with what the customer is paying for. ``core`` and ``advanced`` both
 # map to ``scale`` because the enforced commercial ceilings are the
 # same band; ``strategic`` maps to ``enterprise`` (unlimited).
-_REGISTRY_TO_COMMERCIAL_TIER: dict[str, str] = {
-    "starter": "starter",
-    "foundation": "foundation",
-    "core": "scale",
-    "advanced": "scale",
-    "strategic": "enterprise",
-}
+# O mapa mudou-se para `src/services/vocabulario_dos_planos.py`.
+# Vivia aqui, e o ecra de detalhe do cliente nao o via: o separador
+# Settings comparava a palavra do REGISTO com a do CATALOGO e nunca
+# casava, deixando o seletor de tier morto para todos os clientes em
+# core/advanced/strategic.
+_REGISTRY_TO_COMMERCIAL_TIER = REGISTO_PARA_COMERCIAL
 
 
 # ⚠️ **O caminho de volta, e sem ele o Console dava 500.**
@@ -683,12 +686,7 @@ _REGISTRY_TO_COMMERCIAL_TIER: dict[str, str] = {
 # `scale` tem duas origens possíveis (`core` e `advanced`); escolhe-se
 # `core`, que é a mais baixa, porque subir é decisão de quem opera e
 # descer à socapa não é.
-_COMMERCIAL_TO_REGISTRY_TIER: dict[str, str] = {
-    "starter": "starter",
-    "foundation": "foundation",
-    "scale": "core",
-    "enterprise": "strategic",
-}
+_COMMERCIAL_TO_REGISTRY_TIER = COMERCIAL_PARA_REGISTO
 
 
 # Conversion factor used for the storage breach comparison. The plan-
