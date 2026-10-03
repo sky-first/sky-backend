@@ -12,11 +12,11 @@ import decimal
 
 import pytest
 
-from scripts.demo_sectorial import alimentacion, transportes
+from scripts.demo_sectorial import alimentacion, restauracion, transportes
 from scripts.demo_sectorial.motor import _id
 from scripts.demo_sectorial.pecas import Sector
 
-SECTORES: list[Sector] = [transportes.SECTOR, alimentacion.SECTOR]
+SECTORES: list[Sector] = [transportes.SECTOR, alimentacion.SECTOR, restauracion.SECTOR]
 IDS = [s.chave for s in SECTORES]
 
 

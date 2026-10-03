@@ -39,18 +39,46 @@ if not os.environ.get("DATABASE_URL"):
     print("Falta DATABASE_URL (a base do cliente).", file=sys.stderr)
     raise SystemExit(1)
 
-from scripts.demo_sectorial import alimentacion, transportes  # noqa: E402
+from scripts.demo_sectorial import alimentacion, restauracion, transportes  # noqa: E402
 from scripts.demo_sectorial.motor import SementeiraRecusada, semear  # noqa: E402
 from src.config.database import AsyncSessionLocal  # noqa: E402
 
+
+async def _sessao():
+    """A base onde se semeia: a do cliente, se `TENANT_SLUG` vier.
+
+    Sem o slug usa-se o `DATABASE_URL` tal e qual, que é o caminho de
+    quem corre isto à mão contra uma base local.
+
+    Com o slug, o `DATABASE_URL` tem de apontar à base da **plataforma**
+    — é lá que vive o registo — e a base dedicada do cliente é resolvida
+    a partir dele. É o mesmo caminho do `seed_demo_knowledge.py`, e
+    existe pela mesma razão: um Job não pode trazer o URL da base de
+    cada cliente no manifesto.
+    """
+    slug = (os.environ.get("TENANT_SLUG") or "").strip()
+    if not slug:
+        return AsyncSessionLocal(), os.environ["DATABASE_URL"]
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from _ligacao_ao_tenant import url_do_tenant
+
+    url = await url_do_tenant(slug)
+    print(f"cliente {slug!r}: base dedicada resolvida a partir do registo")
+    motor = create_async_engine(url, pool_pre_ping=True)
+    return async_sessionmaker(motor, expire_on_commit=False)(), url
+
 SECTORES = {
     "alimentacion": alimentacion.SECTOR,
+    "restauracion": restauracion.SECTOR,
     "transportes": transportes.SECTOR,
 }
 
 
 async def principal(args) -> int:
-    url = os.environ["DATABASE_URL"]
+    sessao, url = await _sessao()
     if args.confirmar_base not in url:
         print(
             f"ABORTADO: --confirmar-base {args.confirmar_base!r} não aparece no "
@@ -66,7 +94,7 @@ async def principal(args) -> int:
     print(f"modo:   {'APLICAR' if args.aplicar else 'ensaio (nada é gravado)'}")
     print("-" * 60)
 
-    async with AsyncSessionLocal() as db:
+    async with sessao as db:
         try:
             resumo = await semear(db, sector, email_do_dono=args.dono)
         except SementeiraRecusada as e:
