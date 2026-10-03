@@ -64,7 +64,8 @@ def _ranhura(nome: str) -> tuple[dict, dict]:
         i = int(nome[3:]) - 1
         x = _MARGEM_X + i * (_LARG_KPI + _ESPACO)
         return {"x": float(x), "y": float(_TOPO)}, {
-            "width": float(_LARG_KPI), "height": float(_ALT_KPI)
+            "width": float(_LARG_KPI),
+            "height": float(_ALT_KPI),
         }
 
     fila = int(nome[-1]) - 1
@@ -72,12 +73,14 @@ def _ranhura(nome: str) -> tuple[dict, dict]:
 
     if nome.startswith("larga"):
         return {"x": float(_MARGEM_X), "y": float(y)}, {
-            "width": float(_LARG_INTEIRA), "height": float(_ALT_CORPO)
+            "width": float(_LARG_INTEIRA),
+            "height": float(_ALT_CORPO),
         }
 
     x = _MARGEM_X if nome.startswith("esq") else _MARGEM_X + _LARG_METADE + _ESPACO
     return {"x": float(x), "y": float(y)}, {
-        "width": float(_LARG_METADE), "height": float(_ALT_CORPO)
+        "width": float(_LARG_METADE),
+        "height": float(_ALT_CORPO),
     }
 
 
@@ -96,7 +99,7 @@ class Widget:
     tipo: str
     titulo: str
     ranhura: str
-    esquema: str          # qual das ligações do sector o alimenta
+    esquema: str  # qual das ligações do sector o alimenta
     sql: str
     dados: Callable[[list[dict]], dict]
     config: dict = field(default_factory=dict)
@@ -274,6 +277,45 @@ class Agente:
 
 
 @dataclass
+class Pergunta:
+    """Uma pergunta e a sua resposta, como um fio de conversa.
+
+    ── Porque é que a resposta não é um texto ──────────────────────
+
+    Porque o cliente vai repetir a pergunta ao vivo.
+
+    Uma resposta escrita à mão fica certa no dia em que se escreve e
+    passa a mentir no dia seguinte — os dados mudam, o número do fio
+    fica. E a mentira é da pior espécie: é o produto a contradizer-se a
+    si mesmo à frente de quem está a decidir se compra.
+
+    Por isso a resposta é uma função do resultado do `sql`. A mesma
+    consulta que o motor corre para gravar o fio é a que a aplicação
+    corre quando alguém pergunta outra vez.
+
+    ── `esquemas`, no plural, ao contrário do agente ──────────────
+
+    Uma pergunta na conversa pode atravessar ligações; um agente não.
+
+    A diferença está no código: o `_get_all_connections_for_space`
+    entrega à conversa **todas** as ligações do projecto, e o
+    `connection_ids` segue com mais do que uma. O agente, não — guarda
+    uma só em `connection_ids`, e é por isso que o `Agente` declara um
+    esquema e esta declara uma lista.
+
+    A lista não é decoração: o teste exige que cubra todos os esquemas
+    que o SQL lê. Uma pergunta que leia um esquema fora das ligações do
+    projecto é respondida uma vez — agora, pelo semeador, que fala com
+    a base inteira — e nunca mais.
+    """
+
+    texto: str
+    esquemas: list[str]
+    sql: str
+    resposta: Callable[[list[dict]], str]
+
+
+@dataclass
 class Sector:
     """Tudo o que define uma demonstração sectorial."""
 
@@ -284,3 +326,4 @@ class Sector:
     ligacoes: dict[str, tuple[str, str, str]]
     paginas: list[Pagina]
     agentes: list[Agente]
+    perguntas: list[Pergunta] = field(default_factory=list)

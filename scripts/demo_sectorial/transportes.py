@@ -127,25 +127,34 @@ SECTOR = Sector(
             cor="#F5A623",
             widgets=[
                 kpi(
-                    "Coste medio por km", "kpi1", "operaciones",
+                    "Coste medio por km",
+                    "kpi1",
+                    "operaciones",
                     _FROTA + " SELECT ROUND(SUM(coste) / NULLIF(SUM(km), 0), 2) AS v FROM frota",
                     legenda="Gasóleo, conductor, peajes, taller y coste fijo",
                     formato="currency",
                 ),
                 kpi(
-                    "Ingreso medio por km", "kpi2", "carga",
+                    "Ingreso medio por km",
+                    "kpi2",
+                    "carga",
                     _FROTA + " SELECT ROUND(SUM(ingreso) / NULLIF(SUM(km), 0), 2) AS v FROM frota",
                     legenda="Lo facturado dividido por todo lo rodado",
                     formato="currency",
                 ),
                 kpi(
-                    "Vehículos que no se pagan", "kpi3", "flota",
+                    "Vehículos que no se pagan",
+                    "kpi3",
+                    "flota",
                     _FROTA + " SELECT COUNT(*) AS v FROM frota WHERE ingreso < coste",
                     legenda="Ingresan menos de lo que cuestan",
                 ),
                 kpi(
-                    "Diferencia entre las dos mitades", "kpi4", "flota",
-                    _FROTA + """ SELECT ROUND(
+                    "Diferencia entre las dos mitades",
+                    "kpi4",
+                    "flota",
+                    _FROTA
+                    + """ SELECT ROUND(
                         (SELECT AVG(ingreso - coste) FROM frota
                           WHERE ingreso - coste > (SELECT AVG(ingreso - coste) FROM frota))
                       - (SELECT AVG(ingreso - coste) FROM frota
@@ -155,15 +164,23 @@ SECTOR = Sector(
                     formato="currency",
                 ),
                 grafico(
-                    "Aportación por vehículo", "esq1", "flota",
-                    _FROTA + """ SELECT plate AS matricula,
+                    "Aportación por vehículo",
+                    "esq1",
+                    "flota",
+                    _FROTA
+                    + """ SELECT plate AS matricula,
                                         ROUND(ingreso - coste) AS aportacion
                                  FROM frota ORDER BY aportacion""",
-                    variante="bar", x="matricula", y="aportacion",
+                    variante="bar",
+                    x="matricula",
+                    y="aportacion",
                 ),
                 tabela(
-                    "Coste e ingreso por kilómetro", "dir1", "flota",
-                    _FROTA + """ SELECT plate AS "Matrícula",
+                    "Coste e ingreso por kilómetro",
+                    "dir1",
+                    "flota",
+                    _FROTA
+                    + """ SELECT plate AS "Matrícula",
                                         anio AS "Año",
                                         ROUND(km) AS "Km",
                                         ROUND(coste / NULLIF(km, 0), 2) AS "Coste/km",
@@ -184,24 +201,34 @@ SECTOR = Sector(
             cor="#E8743B",
             widgets=[
                 kpi(
-                    "Kilómetros en vacío", "kpi1", "operaciones",
+                    "Kilómetros en vacío",
+                    "kpi1",
+                    "operaciones",
                     f"SELECT COALESCE(SUM(t.km_run), 0) AS v {_VAZIO} AND s.id IS NULL",
                     legenda="Viajes sin ninguna carga asociada",
                 ),
                 kpi(
-                    "Del total rodado", "kpi2", "operaciones",
+                    "Del total rodado",
+                    "kpi2",
+                    "operaciones",
                     "SELECT ROUND(100.0 * SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END)"
                     f" / NULLIF(SUM(t.km_run), 0), 1) AS v {_VAZIO}",
-                    legenda="Uno de cada cinco kilómetros", formato="percent",
+                    legenda="Uno de cada cinco kilómetros",
+                    formato="percent",
                 ),
                 kpi(
-                    "Gasóleo quemado sin carga", "kpi3", "operaciones",
+                    "Gasóleo quemado sin carga",
+                    "kpi3",
+                    "operaciones",
                     "SELECT COALESCE(ROUND(SUM(t.fuel_litres * 1.62)), 0) AS v "
                     f"{_VAZIO} AND s.id IS NULL",
-                    legenda="A 1,62 €/litro", formato="currency",
+                    legenda="A 1,62 €/litro",
+                    formato="currency",
                 ),
                 kpi(
-                    "El trayecto con más vacío", "kpi4", "operaciones",
+                    "El trayecto con más vacío",
+                    "kpi4",
+                    "operaciones",
                     "SELECT r.origin || ' - ' || r.destination AS v FROM ops.trips t "
                     "JOIN ops.routes r ON r.id = t.route_id "
                     "LEFT JOIN freight.shipments s ON s.trip_id = t.id "
@@ -211,7 +238,9 @@ SECTOR = Sector(
                     legenda="Un retorno vacío repetido es un retorno sin vender",
                 ),
                 tabela(
-                    "Vacío por trayecto", "larga1", "operaciones",
+                    "Vacío por trayecto",
+                    "larga1",
+                    "operaciones",
                     """SELECT r.origin || ' - ' || r.destination AS "Trayecto",
                               r.distance_km AS "Km",
                               COUNT(*) AS "Viajes",
@@ -227,7 +256,9 @@ SECTOR = Sector(
                        ORDER BY 6 DESC""",
                 ),
                 grafico(
-                    "Porcentaje en vacío, mes a mes", "larga2", "operaciones",
+                    "Porcentaje en vacío, mes a mes",
+                    "larga2",
+                    "operaciones",
                     """SELECT TO_CHAR(DATE_TRUNC('month', t.departed_at), 'YYYY-MM') AS mes,
                               ROUND(100.0 * SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END)
                                     / NULLIF(SUM(t.km_run), 0), 1) AS pct
@@ -235,7 +266,9 @@ SECTOR = Sector(
                        LEFT JOIN freight.shipments s ON s.trip_id = t.id
                        WHERE t.status = 'completed'
                        GROUP BY 1 ORDER BY 1""",
-                    variante="line", x="mes", y="pct",
+                    variante="line",
+                    x="mes",
+                    y="pct",
                 ),
             ],
         ),
@@ -251,19 +284,25 @@ SECTOR = Sector(
             cor="#4A90D9",
             widgets=[
                 kpi(
-                    "Dentro del plazo del cliente", "kpi1", "carga",
+                    "Dentro del plazo del cliente",
+                    "kpi1",
+                    "carga",
                     "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE NOT (" + _FUERA + "))"
                     f" / COUNT(*), 1) AS v {_PLAZO}",
                     legenda="La media tapa las dos rutas que fallan",
                     formato="percent",
                 ),
                 kpi(
-                    "Portes fuera de plazo", "kpi2", "carga",
+                    "Portes fuera de plazo",
+                    "kpi2",
+                    "carga",
                     f"SELECT COUNT(*) AS v {_PLAZO} AND {_FUERA}",
                     legenda="Cada uno es una llamada del cliente",
                 ),
                 kpi(
-                    "La peor ruta", "kpi3", "operaciones",
+                    "La peor ruta",
+                    "kpi3",
+                    "operaciones",
                     # Escrita por extenso, sem colar os blocos do topo. A
                     # primeira versão reutilizava o `_PLAZO` e falava de
                     # `r` sem ter feito o JOIN a `ops.routes`. O Postgres
@@ -285,20 +324,28 @@ SECTOR = Sector(
                     legenda="Falla en dos de cada tres viajes",
                 ),
                 kpi(
-                    "Incidencias de carga", "kpi4", "carga",
+                    "Incidencias de carga",
+                    "kpi4",
+                    "carga",
                     "SELECT COUNT(*) AS v FROM freight.shipments WHERE incident IS NOT NULL",
                     legenda="Daños, temperatura y documentación",
                 ),
                 grafico(
-                    "Puntualidad mes a mes", "esq1", "carga",
+                    "Puntualidad mes a mes",
+                    "esq1",
+                    "carga",
                     "SELECT TO_CHAR(DATE_TRUNC('month', t.departed_at), 'YYYY-MM') AS mes, "
                     "ROUND(100.0 * COUNT(*) FILTER (WHERE NOT (" + _FUERA + "))"
                     f" / COUNT(*), 1) AS pct {_PLAZO} GROUP BY 1 ORDER BY 1",
-                    variante="line", x="mes", y="pct",
+                    variante="line",
+                    x="mes",
+                    y="pct",
                 ),
                 tabela(
-                    "Cumplimiento por ruta", "dir1", "operaciones",
-                    'SELECT r.origin || \' - \' || r.destination AS "Ruta", '
+                    "Cumplimiento por ruta",
+                    "dir1",
+                    "operaciones",
+                    "SELECT r.origin || ' - ' || r.destination AS \"Ruta\", "
                     'r.distance_km AS "Km", r.standard_minutes AS "Estándar (min)", '
                     'COUNT(*) AS "Viajes", '
                     "ROUND(100.0 * COUNT(*) FILTER (WHERE " + _FUERA + ") / COUNT(*), 1) "
@@ -326,7 +373,9 @@ SECTOR = Sector(
             cor="#7B61FF",
             widgets=[
                 kpi(
-                    "Mejor cliente por km", "kpi1", "carga",
+                    "Mejor cliente por km",
+                    "kpi1",
+                    "carga",
                     "SELECT c.name AS v FROM freight.shipments s "
                     "JOIN ops.trips t ON t.id = s.trip_id "
                     "JOIN freight.clients c ON c.id = s.client_id "
@@ -335,31 +384,45 @@ SECTOR = Sector(
                     legenda="Facturación partida por kilómetros rodados",
                 ),
                 kpi(
-                    "Facturado en el periodo", "kpi2", "carga",
+                    "Facturado en el periodo",
+                    "kpi2",
+                    "carga",
                     "SELECT COALESCE(ROUND(SUM(revenue)), 0) AS v FROM freight.shipments",
-                    legenda="12 meses de portes", formato="currency",
+                    legenda="12 meses de portes",
+                    formato="currency",
                 ),
                 kpi(
-                    "Taller en el periodo", "kpi3", "flota",
+                    "Taller en el periodo",
+                    "kpi3",
+                    "flota",
                     "SELECT COALESCE(ROUND(SUM(cost)), 0) AS v FROM fleet.maintenance_jobs",
-                    legenda="Avería, preventivo y neumáticos", formato="currency",
+                    legenda="Avería, preventivo y neumáticos",
+                    formato="currency",
                 ),
                 kpi(
-                    "Días fuera de la carretera", "kpi4", "flota",
+                    "Días fuera de la carretera",
+                    "kpi4",
+                    "flota",
                     "SELECT COALESCE(SUM(days_off_road), 0) AS v FROM fleet.maintenance_jobs",
                     legenda="Este coste no tiene factura, y por eso no entra en ninguna cuenta",
                 ),
                 grafico(
-                    "Ingreso por kilómetro, por cliente", "esq1", "carga",
-                    'SELECT c.name AS cliente, '
+                    "Ingreso por kilómetro, por cliente",
+                    "esq1",
+                    "carga",
+                    "SELECT c.name AS cliente, "
                     "ROUND(SUM(s.revenue) / NULLIF(SUM(t.km_run), 0), 2) AS eur_km "
                     "FROM freight.shipments s JOIN ops.trips t ON t.id = s.trip_id "
                     "JOIN freight.clients c ON c.id = s.client_id "
                     "GROUP BY c.id, c.name ORDER BY eur_km DESC",
-                    variante="bar", x="cliente", y="eur_km",
+                    variante="bar",
+                    x="cliente",
+                    y="eur_km",
                 ),
                 tabela(
-                    "Taller por vehículo", "dir1", "flota",
+                    "Taller por vehículo",
+                    "dir1",
+                    "flota",
                     'SELECT v.plate AS "Matrícula", '
                     'EXTRACT(YEAR FROM v.acquired_on)::INT AS "Año", '
                     "COUNT(*) FILTER (WHERE m.kind = 'avaria') AS \"Averías\", "
@@ -444,3 +507,219 @@ SECTOR = Sector(
         ),
     ],
 )
+
+
+# ── as perguntas ─────────────────────────────────────────────────────
+#
+# Cinco fios já respondidos. A resposta é função do resultado da
+# consulta, não texto escrito à mão — ver `pecas.Pergunta`.
+
+from scripts.demo_sectorial.formato import eur, euro2, n, pct  # noqa: E402
+from scripts.demo_sectorial.pecas import Pergunta  # noqa: E402
+
+P_FROTA = (
+    _FROTA
+    + """ SELECT plate, anio, ROUND(km) AS km,
+       ROUND(coste / NULLIF(km, 0), 2) AS coste_km,
+       ROUND(ingreso / NULLIF(km, 0), 2) AS ingreso_km,
+       ROUND(ingreso - coste) AS aportacion
+FROM frota ORDER BY ingreso - coste"""
+)
+
+P_VAZIO = """SELECT r.origin || ' - ' || r.destination AS trayecto,
+       COUNT(*) AS viajes,
+       COUNT(*) FILTER (WHERE s.id IS NULL) AS vacios,
+       ROUND(SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END)) AS km_vacio,
+       ROUND(SUM(CASE WHEN s.id IS NULL THEN t.fuel_litres * 1.62 ELSE 0 END)) AS gasoleo
+FROM ops.trips t
+JOIN ops.routes r ON r.id = t.route_id
+LEFT JOIN freight.shipments s ON s.trip_id = t.id
+WHERE t.status = 'completed'
+GROUP BY r.id, r.origin, r.destination
+HAVING COUNT(*) FILTER (WHERE s.id IS NULL) > 0
+ORDER BY gasoleo DESC"""
+
+P_PRAZOS = (
+    "SELECT r.origin || ' - ' || r.destination AS ruta, COUNT(*) AS viajes, "
+    "ROUND(100.0 * COUNT(*) FILTER (WHERE " + _FUERA + ") / COUNT(*), 1) AS fuera_pct, "
+    "ROUND(AVG(EXTRACT(EPOCH FROM (t.arrived_at - t.planned_arrival)) / 60)) AS retraso_min "
+    "FROM ops.trips t JOIN ops.routes r ON r.id = t.route_id "
+    "JOIN freight.shipments s ON s.trip_id = t.id "
+    "JOIN freight.clients c ON c.id = s.client_id "
+    "WHERE t.status = 'completed' "
+    "GROUP BY r.id, r.origin, r.destination ORDER BY fuera_pct DESC"
+)
+
+P_CLIENTES = """SELECT c.name AS cliente,
+       COUNT(*) AS portes,
+       ROUND(SUM(s.revenue)) AS facturado,
+       ROUND(SUM(s.revenue) / NULLIF(SUM(t.km_run), 0), 2) AS por_km,
+       COUNT(*) FILTER (WHERE s.incident IS NOT NULL AND s.incident <> '') AS incidencias
+FROM freight.shipments s
+JOIN freight.clients c ON c.id = s.client_id
+JOIN ops.trips t ON t.id = s.trip_id
+GROUP BY c.id, c.name ORDER BY por_km DESC"""
+
+P_TALLER = """SELECT v.plate AS matricula,
+       EXTRACT(YEAR FROM v.acquired_on)::INT AS anio,
+       COUNT(*) FILTER (WHERE m.kind = 'avaria') AS averias,
+       ROUND(SUM(m.cost)) AS coste,
+       SUM(m.days_off_road) AS dias
+FROM fleet.vehicles v JOIN fleet.maintenance_jobs m ON m.vehicle_id = v.id
+GROUP BY v.id, v.plate, v.acquired_on ORDER BY coste DESC"""
+
+
+def _r_frota(linhas):
+    """A lista tem de ser a dos que perdem, não os cinco primeiros.
+
+    A primeira versão mostrava sempre `linhas[:5]` e escrevia por baixo
+    «os que aparecem aqui custam mais por quilómetro do que ingressam».
+    Com dois veículos a perder, três das cinco linhas contradiziam a
+    frase debaixo delas — a resposta a desmentir a sua própria tabela, à
+    frente de quem está a decidir se compra.
+    """
+    if not linhas:
+        return "No hay viajes completados en el periodo."
+
+    def linha(r):
+        return (
+            f"- {r['plate']} ({r['anio']}): {eur(r['aportacion'])} de "
+            f"aportación, {n(r['km'])} km, coste {euro2(r['coste_km'])}/km "
+            f"contra {euro2(r['ingreso_km'])}/km de ingreso"
+        )
+
+    perdem = [r for r in linhas if float(r["aportacion"]) < 0]
+    if not perdem:
+        detalhe = "\n".join(linha(r) for r in linhas[:3])
+        return (
+            f"{detalhe}\n\nNingún vehículo pierde dinero en el periodo. El que "
+            f"menos aporta, {linhas[0]['plate']}, deja "
+            f"{eur(linhas[0]['aportacion'])}.\n\n"
+            "Lo que decide es el coste por kilómetro, no el total: un camión "
+            "que rueda mucho cuesta más en absoluto y puede aportar más."
+        )
+
+    detalhe = "\n".join(linha(r) for r in perdem)
+    seguintes = linhas[len(perdem) : len(perdem) + 2]
+    comparacao = (
+        "\n\nPara comparar, los dos siguientes:\n" + "\n".join(linha(r) for r in seguintes)
+        if seguintes
+        else ""
+    )
+    plural = "vehículo no se paga" if len(perdem) == 1 else "vehículos no se pagan"
+    return (
+        f"{detalhe}{comparacao}\n\n"
+        f"**{len(perdem)} de {len(linhas)} {plural}**: cuestan más por "
+        "kilómetro de lo que ingresan por kilómetro, y eso no se arregla "
+        "dándoles más viajes.\n\n"
+        "El total engaña: un camión que rueda mucho cuesta más en absoluto y "
+        "aporta más. La línea que decide es el euro por kilómetro."
+    )
+
+
+def _r_vazio(linhas):
+    if not linhas:
+        return "No hay viajes en vacío en el periodo."
+    total = sum(float(r["gasoleo"] or 0) for r in linhas)
+    detalhe = "\n".join(
+        f"- {r['trayecto']}: {r['vacios']} de {r['viajes']} viajes en vacío, "
+        f"{n(r['km_vacio'])} km, {eur(r['gasoleo'])} de gasóleo"
+        for r in linhas[:6]
+    )
+    return (
+        f"{detalhe}\n\n"
+        f"En total, **{eur(total)} de gasóleo quemado sin carga**.\n\n"
+        "Esta línea no existe en ningún sistema: se define por una ausencia — "
+        "un viaje al que no corresponde ningún porte. Por eso no aparece en "
+        "ningún informe y por eso nadie la defiende en una reunión de costes."
+    )
+
+
+def _r_prazos(linhas):
+    if not linhas:
+        return "No hay viajes completados en el periodo."
+    detalhe = "\n".join(
+        f"- {r['ruta']}: {pct(r['fuera_pct'])} fuera de plazo sobre "
+        f"{n(r['viajes'])} viajes, retraso medio {n(r['retraso_min'])} min"
+        for r in linhas[:6]
+    )
+    pior = linhas[0]
+    return (
+        f"{detalhe}\n\n"
+        f"La peor es **{pior['ruta']}**, con {pct(pior['fuera_pct'])}.\n\n"
+        "El plazo es el del cliente, no un estándar interno: cada uno tiene el "
+        "suyo, y la misma ruta cumple con uno e incumple con otro. Comparar "
+        "rutas contra un único umbral es lo que hace que el problema no "
+        "aparezca."
+    )
+
+
+def _r_clientes(linhas):
+    if not linhas:
+        return "No hay portes en el periodo."
+    detalhe = "\n".join(
+        f"- {r['cliente']}: {euro2(r['por_km'])}/km, {n(r['portes'])} portes, "
+        f"{eur(r['facturado'])}, {r['incidencias']} incidencias"
+        for r in linhas[:6]
+    )
+    melhor, pior = linhas[0], linhas[-1]
+    return (
+        f"{detalhe}\n\n"
+        f"**{melhor['cliente']}** deja {euro2(melhor['por_km'])} por kilómetro "
+        f"y **{pior['cliente']}** {euro2(pior['por_km'])}.\n\n"
+        "El facturado total engaña: un cliente grande que pide trayectos largos "
+        "y baratos puede estar por debajo de uno pequeño con rutas cortas. Lo "
+        "que paga el camión es el euro por kilómetro."
+    )
+
+
+def _r_taller(linhas):
+    if not linhas:
+        return "No hay intervenciones de taller en el periodo."
+    detalhe = "\n".join(
+        f"- {r['matricula']} ({r['anio']}): {eur(r['coste'])}, {r['averias']} "
+        f"averías, {r['dias']} días parado"
+        for r in linhas[:6]
+    )
+    dias = sum(int(r["dias"] or 0) for r in linhas)
+    return (
+        f"{detalhe}\n\n"
+        f"En conjunto, **{n(dias)} días fuera de la carretera**.\n\n"
+        "El coste del taller es la mitad de la historia; la otra son los días "
+        "parado, que no aparecen en ninguna factura. Un camión en el taller no "
+        "cuesta solo la reparación: cuesta los viajes que no hizo."
+    )
+
+
+SECTOR.perguntas = [
+    Pergunta(
+        texto="¿Qué vehículos no se pagan?",
+        esquemas=["flota", "operaciones", "carga"],
+        sql=P_FROTA,
+        resposta=_r_frota,
+    ),
+    Pergunta(
+        texto="¿Cuánto gasóleo quemamos en vacío, y en qué trayectos?",
+        esquemas=["operaciones", "carga"],
+        sql=P_VAZIO,
+        resposta=_r_vazio,
+    ),
+    Pergunta(
+        texto="¿Qué rutas incumplen el plazo del cliente?",
+        esquemas=["operaciones", "carga"],
+        sql=P_PRAZOS,
+        resposta=_r_prazos,
+    ),
+    Pergunta(
+        texto="¿Qué clientes dejan más por kilómetro?",
+        esquemas=["carga", "operaciones"],
+        sql=P_CLIENTES,
+        resposta=_r_clientes,
+    ),
+    Pergunta(
+        texto="¿Qué vehículos se nos están comiendo el taller?",
+        esquemas=["flota"],
+        sql=P_TALLER,
+        resposta=_r_taller,
+    ),
+]

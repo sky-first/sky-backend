@@ -48,6 +48,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from scripts.demo_sectorial.pecas import Sector
 from src.models.agent import Agent
 from src.models.connection import DataConnection
+from src.models.conversation import Conversation, Message
 from src.models.crew import Crew, CrewConnection, CrewMember
 from src.models.page import Page
 from src.models.space import Space, SpaceConnection, SpaceMember
@@ -131,10 +132,7 @@ async def _linhas(motor, sql: str) -> list[dict]:
     async with motor.connect() as c:
         res = await c.execute(text(sql))
         colunas = list(res.keys())
-        return [
-            {k: _converter(v) for k, v in zip(colunas, linha)}
-            for linha in res.fetchall()
-        ]
+        return [{k: _converter(v) for k, v in zip(colunas, linha)} for linha in res.fetchall()]
 
 
 # ── o dono ──────────────────────────────────────────────────────────
@@ -142,9 +140,7 @@ async def _linhas(motor, sql: str) -> list[dict]:
 
 async def _dono(db: AsyncSession, email: Optional[str]) -> User:
     if email:
-        u = (
-            await db.execute(select(User).where(User.email == email))
-        ).scalar_one_or_none()
+        u = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
         if u is None:
             raise SementeiraRecusada(
                 f"não há nenhum utilizador {email!r} nesta base. "
@@ -153,10 +149,10 @@ async def _dono(db: AsyncSession, email: Optional[str]) -> User:
         return u
 
     u = (
-        await db.execute(
-            select(User).where(User.deleted_at.is_(None)).order_by(User.created_at)
-        )
-    ).scalars().first()
+        (await db.execute(select(User).where(User.deleted_at.is_(None)).order_by(User.created_at)))
+        .scalars()
+        .first()
+    )
     if u is None:
         raise SementeiraRecusada("esta base não tem utilizadores — base errada?")
     return u
@@ -381,17 +377,12 @@ async def semear(
             f"{e}.{t}"
             for e, t in (
                 await c.execute(
-                    text(
-                        "SELECT table_schema, table_name FROM information_schema.tables"
-                    )
+                    text("SELECT table_schema, table_name FROM information_schema.tables")
                 )
             ).fetchall()
         }
     em_falta = {
-        f"{ag.nome}: {t}"
-        for ag in sector.agentes
-        for t in ag.tabelas
-        if t not in existentes
+        f"{ag.nome}: {t}" for ag in sector.agentes for t in ag.tabelas if t not in existentes
     }
     if em_falta:
         raise SementeiraRecusada(
@@ -426,6 +417,74 @@ async def semear(
     relatar(f"  {len(sector.agentes)} agentes")
     await db.flush()
 
+    # ── as perguntas ────────────────────────────────────────────────
+    #
+    # Cada uma é um fio: a pergunta como mensagem do utilizador e a
+    # resposta como mensagem do assistente. A resposta é calculada agora,
+    # a partir da mesma consulta que a aplicação volta a correr se
+    # alguém perguntar outra vez — ver a nota em `pecas.Pergunta`.
+    #
+    # Ficam penduradas na primeira página do sector. Uma conversa sem
+    # `page_id` existe mas não se abre de lado nenhum: o ecrã lista as
+    # conversas de uma página, e um fio órfão seria trabalho feito que
+    # ninguém vê.
+    n_perguntas = 0
+    if sector.perguntas:
+        primeira = _id(sector.chave, "page", sector.paginas[0].nome)
+        motor_demo = create_async_engine(_dsn_da_demo(), pool_pre_ping=True)
+        try:
+            for pq in sector.perguntas:
+                linhas = await _linhas(motor_demo, pq.sql)
+                texto_da_resposta = pq.resposta(linhas)
+                cid = _id(sector.chave, "conv", pq.texto)
+                conv = await db.get(Conversation, cid)
+                if conv is None:
+                    conv = Conversation(
+                        id=cid,
+                        page_id=primeira,
+                        space_id=espaco.id,
+                        crew_id=equipa.id,
+                        title=pq.texto,
+                        created_by=dono.id,
+                    )
+                    db.add(conv)
+                else:
+                    conv.title = pq.texto
+                await db.flush()
+
+                # Duas mensagens com identificadores derivados, para a
+                # segunda passagem actualizar em vez de acrescentar um
+                # par novo ao mesmo fio.
+                for papel, conteudo in (
+                    ("user", pq.texto),
+                    ("assistant", texto_da_resposta),
+                ):
+                    mid = _id(sector.chave, "msg", pq.texto, papel)
+                    msg = await db.get(Message, mid)
+                    if msg is None:
+                        db.add(
+                            Message(
+                                id=mid,
+                                conversation_id=cid,
+                                role=papel,
+                                content=conteudo,
+                                user_id=dono.id if papel == "user" else None,
+                                # `ck_messages_origin` só aceita `text`
+                                # ou `voice`. O `"chat"` que aqui estava
+                                # primeiro passava no Python e morria na
+                                # base — e numa transacção que já tinha
+                                # feito metade do trabalho.
+                                origin="text",
+                            )
+                        )
+                    else:
+                        msg.content = conteudo
+                n_perguntas += 1
+            await db.flush()
+        finally:
+            await motor_demo.dispose()
+        relatar(f"  {n_perguntas} perguntas respondidas")
+
     return {
         "espaco_id": str(espaco.id),
         "equipa_id": str(equipa.id),
@@ -433,4 +492,5 @@ async def semear(
         "paginas": len(sector.paginas),
         "widgets": n_widgets,
         "agentes": len(sector.agentes),
+        "perguntas": n_perguntas,
     }

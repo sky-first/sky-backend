@@ -100,14 +100,18 @@ SECTOR = Sector(
             cor="#E05C5C",
             widgets=[
                 kpi(
-                    "Ya caducado en almacén", "kpi1", "almacen",
+                    "Ya caducado en almacén",
+                    "kpi1",
+                    "almacen",
                     f"SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) AS v "
                     f"{_CADUCA} AND l.best_before < CURRENT_DATE",
                     legenda="Mercancía con existencias y fecha pasada",
                     formato="currency",
                 ),
                 kpi(
-                    "Caduca en 60 días", "kpi2", "almacen",
+                    "Caduca en 60 días",
+                    "kpi2",
+                    "almacen",
                     f"SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) AS v "
                     f"{_CADUCA} AND l.best_before >= CURRENT_DATE "
                     "AND l.best_before < CURRENT_DATE + 60",
@@ -115,20 +119,25 @@ SECTOR = Sector(
                     formato="currency",
                 ),
                 kpi(
-                    "Lotes afectados", "kpi3", "almacen",
-                    f"SELECT COUNT(*) AS v {_CADUCA} "
-                    "AND l.best_before < CURRENT_DATE + 60",
+                    "Lotes afectados",
+                    "kpi3",
+                    "almacen",
+                    f"SELECT COUNT(*) AS v {_CADUCA} " "AND l.best_before < CURRENT_DATE + 60",
                     legenda="Entre caducados y a punto de caducar",
                 ),
                 kpi(
-                    "La familia más expuesta", "kpi4", "catalogo",
+                    "La familia más expuesta",
+                    "kpi4",
+                    "catalogo",
                     f"SELECT p.family AS v {_CADUCA} "
                     "AND l.best_before < CURRENT_DATE + 60 "
                     "GROUP BY p.family ORDER BY SUM(s.quantity * p.unit_cost) DESC LIMIT 1",
                     legenda="Por valor en riesgo, no por número de lotes",
                 ),
                 tabela(
-                    "Lotes a vigilar", "larga1", "almacen",
+                    "Lotes a vigilar",
+                    "larga1",
+                    "almacen",
                     """SELECT l.lot_code AS "Lote",
                               p.name AS "Referencia",
                               p.family AS "Familia",
@@ -146,12 +155,16 @@ SECTOR = Sector(
                        LIMIT 60""",
                 ),
                 grafico(
-                    "Valor en riesgo por familia", "larga2", "catalogo",
+                    "Valor en riesgo por familia",
+                    "larga2",
+                    "catalogo",
                     f"""SELECT p.family AS familia,
                                ROUND(SUM(s.quantity * p.unit_cost)) AS coste
                         {_CADUCA} AND l.best_before < CURRENT_DATE + 60
                         GROUP BY p.family ORDER BY coste DESC""",
-                    variante="bar", x="familia", y="coste",
+                    variante="bar",
+                    x="familia",
+                    y="coste",
                 ),
             ],
         ),
@@ -167,37 +180,54 @@ SECTOR = Sector(
             cor="#F5A623",
             widgets=[
                 kpi(
-                    "Facturado en el periodo", "kpi1", "comercial",
+                    "Facturado en el periodo",
+                    "kpi1",
+                    "comercial",
                     f"SELECT COALESCE(ROUND(SUM({_VENDA})), 0) AS v {_MARGEM}",
-                    legenda="18 meses de pedidos servidos", formato="currency",
+                    legenda="18 meses de pedidos servidos",
+                    formato="currency",
                 ),
                 kpi(
-                    "Margen bruto", "kpi2", "catalogo",
+                    "Margen bruto",
+                    "kpi2",
+                    "catalogo",
                     f"SELECT ROUND(100.0 * SUM({_BRUTO}) / NULLIF(SUM({_VENDA}), 0), 1) AS v "
                     f"{_MARGEM}",
-                    legenda="El que se celebra en enero", formato="percent",
+                    legenda="El que se celebra en enero",
+                    formato="percent",
                 ),
                 kpi(
-                    "Margen neto tras rappel", "kpi3", "comercial",
+                    "Margen neto tras rappel",
+                    "kpi3",
+                    "comercial",
                     f"SELECT ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS v "
                     f"{_MARGEM}",
-                    legenda="El que queda en diciembre", formato="percent",
+                    legenda="El que queda en diciembre",
+                    formato="percent",
                 ),
                 kpi(
-                    "Lo que cuesta el rappel", "kpi4", "comercial",
+                    "Lo que cuesta el rappel",
+                    "kpi4",
+                    "comercial",
                     f"SELECT COALESCE(ROUND(SUM({_BRUTO}) - SUM({_NETO})), 0) AS v {_MARGEM}",
                     legenda="Acordado en contrato, invisible en la factura",
                     formato="currency",
                 ),
                 grafico(
-                    "Margen neto por canal", "esq1", "comercial",
+                    "Margen neto por canal",
+                    "esq1",
+                    "comercial",
                     f"""SELECT c.channel AS canal,
                                ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS neto
                         {_MARGEM} GROUP BY c.channel ORDER BY neto""",
-                    variante="bar", x="canal", y="neto",
+                    variante="bar",
+                    x="canal",
+                    y="neto",
                 ),
                 tabela(
-                    "Bruto contra neto, por canal", "dir1", "comercial",
+                    "Bruto contra neto, por canal",
+                    "dir1",
+                    "comercial",
                     f"""SELECT c.channel AS "Canal",
                                COUNT(DISTINCT o.id) AS "Pedidos",
                                ROUND(SUM({_VENDA})) AS "Facturado (€)",
@@ -220,25 +250,33 @@ SECTOR = Sector(
             cor="#7B61FF",
             widgets=[
                 kpi(
-                    "Capital en almacén", "kpi1", "almacen",
+                    "Capital en almacén",
+                    "kpi1",
+                    "almacen",
                     """SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) AS v
                        FROM warehouse.stock s
                        JOIN warehouse.lots l ON l.id = s.lot_id
                        JOIN assortment.products p ON p.id = l.product_id
                        WHERE s.quantity > 0""",
-                    legenda="A coste, no a tarifa", formato="currency",
+                    legenda="A coste, no a tarifa",
+                    formato="currency",
                 ),
                 kpi(
-                    "De guarda — parado a propósito", "kpi2", "catalogo",
+                    "De guarda — parado a propósito",
+                    "kpi2",
+                    "catalogo",
                     """SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) AS v
                        FROM warehouse.stock s
                        JOIN warehouse.lots l ON l.id = s.lot_id
                        JOIN assortment.products p ON p.id = l.product_id
                        WHERE s.quantity > 0 AND p.is_vintage""",
-                    legenda="Esto es estrategia, no descuido", formato="currency",
+                    legenda="Esto es estrategia, no descuido",
+                    formato="currency",
                 ),
                 kpi(
-                    "Parado sin ser de guarda", "kpi3", "almacen",
+                    "Parado sin ser de guarda",
+                    "kpi3",
+                    "almacen",
                     """SELECT COALESCE(ROUND(SUM(s.quantity * p.unit_cost)), 0) AS v
                        FROM warehouse.stock s
                        JOIN warehouse.lots l ON l.id = s.lot_id
@@ -248,7 +286,9 @@ SECTOR = Sector(
                     formato="currency",
                 ),
                 kpi(
-                    "Referencias sin una sola venta", "kpi4", "catalogo",
+                    "Referencias sin una sola venta",
+                    "kpi4",
+                    "catalogo",
                     """SELECT COUNT(*) AS v FROM assortment.products p
                        WHERE NOT EXISTS (
                            SELECT 1 FROM trade.order_lines ol
@@ -257,7 +297,9 @@ SECTOR = Sector(
                     legenda="Se compraron, se quedaron, nadie volvió a mirar",
                 ),
                 grafico(
-                    "Capital parado por familia", "esq1", "catalogo",
+                    "Capital parado por familia",
+                    "esq1",
+                    "catalogo",
                     """SELECT p.family AS familia,
                               ROUND(SUM(s.quantity * p.unit_cost)) AS capital
                        FROM warehouse.stock s
@@ -265,10 +307,14 @@ SECTOR = Sector(
                        JOIN assortment.products p ON p.id = l.product_id
                        WHERE s.quantity > 0
                        GROUP BY p.family ORDER BY capital DESC""",
-                    variante="bar", x="familia", y="capital",
+                    variante="bar",
+                    x="familia",
+                    y="capital",
                 ),
                 tabela(
-                    "Las referencias más paradas", "dir1", "catalogo",
+                    "Las referencias más paradas",
+                    "dir1",
+                    "catalogo",
                     """SELECT p.sku AS "Referencia",
                               p.name AS "Nombre",
                               p.family AS "Familia",
@@ -295,37 +341,52 @@ SECTOR = Sector(
             cor="#4A90D9",
             widgets=[
                 kpi(
-                    "La plaza que más factura", "kpi1", "comercial",
+                    "La plaza que más factura",
+                    "kpi1",
+                    "comercial",
                     f"""SELECT c.city AS v {_MARGEM}
                         GROUP BY c.city ORDER BY SUM({_VENDA}) DESC LIMIT 1""",
                     legenda="Por importe servido",
                 ),
                 kpi(
-                    "El canal que más deja", "kpi2", "comercial",
+                    "El canal que más deja",
+                    "kpi2",
+                    "comercial",
                     f"""SELECT c.channel AS v {_MARGEM}
                         GROUP BY c.channel
                         ORDER BY SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0) DESC LIMIT 1""",
                     legenda="Por margen neto, no por facturación",
                 ),
                 kpi(
-                    "Pedidos servidos", "kpi3", "comercial",
+                    "Pedidos servidos",
+                    "kpi3",
+                    "comercial",
                     "SELECT COUNT(*) AS v FROM trade.orders WHERE status = 'delivered'",
                     legenda="18 meses",
                 ),
                 kpi(
-                    "Ticket medio", "kpi4", "comercial",
+                    "Ticket medio",
+                    "kpi4",
+                    "comercial",
                     f"""SELECT ROUND(SUM({_VENDA}) / NULLIF(COUNT(DISTINCT o.id), 0)) AS v
                         {_MARGEM}""",
-                    legenda="Importe medio por pedido servido", formato="currency",
+                    legenda="Importe medio por pedido servido",
+                    formato="currency",
                 ),
                 grafico(
-                    "Facturación por plaza", "esq1", "comercial",
+                    "Facturación por plaza",
+                    "esq1",
+                    "comercial",
                     f"""SELECT c.city AS plaza, ROUND(SUM({_VENDA})) AS facturado
                         {_MARGEM} GROUP BY c.city ORDER BY facturado DESC""",
-                    variante="bar", x="plaza", y="facturado",
+                    variante="bar",
+                    x="plaza",
+                    y="facturado",
                 ),
                 tabela(
-                    "Los clientes que más pesan", "dir1", "comercial",
+                    "Los clientes que más pesan",
+                    "dir1",
+                    "comercial",
                     f"""SELECT c.name AS "Cliente",
                                c.channel AS "Canal",
                                c.city AS "Plaza",
@@ -414,3 +475,196 @@ SECTOR = Sector(
         ),
     ],
 )
+
+
+# ── as perguntas ─────────────────────────────────────────────────────
+#
+# Cinco fios já respondidos. A resposta é função do resultado da
+# consulta, não texto escrito à mão — ver `pecas.Pergunta`.
+
+from scripts.demo_sectorial.formato import eur, n, pct  # noqa: E402
+from scripts.demo_sectorial.pecas import Pergunta  # noqa: E402
+
+P_CADUCA = """SELECT p.family AS familia,
+       COUNT(*) AS lotes,
+       SUM(s.quantity) AS unidades,
+       ROUND(SUM(s.quantity * p.unit_cost)) AS coste,
+       MIN(l.best_before - CURRENT_DATE) AS dias_min
+FROM warehouse.stock s
+JOIN warehouse.lots l ON l.id = s.lot_id
+JOIN assortment.products p ON p.id = l.product_id
+WHERE s.quantity > 0 AND NOT p.is_vintage
+  AND l.best_before < CURRENT_DATE + 60
+GROUP BY p.family ORDER BY coste DESC"""
+
+P_PARADO = """SELECT p.family AS familia,
+       CASE WHEN p.is_vintage THEN 'de guarda' ELSE 'rotación' END AS tipo,
+       COUNT(DISTINCT p.id) AS referencias,
+       ROUND(SUM(s.quantity * p.unit_cost)) AS capital
+FROM warehouse.stock s
+JOIN warehouse.lots l ON l.id = s.lot_id
+JOIN assortment.products p ON p.id = l.product_id
+WHERE s.quantity > 0
+GROUP BY p.family, p.is_vintage ORDER BY capital DESC"""
+
+P_SEM_VENDA = """SELECT p.sku AS sku, p.name AS nombre, p.family AS familia,
+       ROUND(SUM(s.quantity * p.unit_cost)) AS capital
+FROM warehouse.stock s
+JOIN warehouse.lots l ON l.id = s.lot_id
+JOIN assortment.products p ON p.id = l.product_id
+WHERE s.quantity > 0
+  AND NOT EXISTS (
+      SELECT 1 FROM trade.order_lines ol
+      JOIN warehouse.lots l2 ON l2.id = ol.lot_id
+      WHERE l2.product_id = p.id
+  )
+GROUP BY p.id, p.sku, p.name, p.family ORDER BY capital DESC"""
+
+P_RAPPEL = f"""SELECT c.channel AS canal,
+       COUNT(DISTINCT o.id) AS pedidos,
+       ROUND(SUM({_VENDA})) AS facturado,
+       ROUND(100.0 * SUM({_BRUTO}) / NULLIF(SUM({_VENDA}), 0), 1) AS bruto_pct,
+       ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS neto_pct,
+       ROUND(SUM({_BRUTO}) - SUM({_NETO})) AS rappel
+{_MARGEM} GROUP BY c.channel ORDER BY neto_pct"""
+
+P_CLIENTES = f"""SELECT c.name AS cliente, c.channel AS canal, c.city AS plaza,
+       COUNT(DISTINCT o.id) AS pedidos,
+       ROUND(SUM({_VENDA})) AS facturado,
+       ROUND(100.0 * c.rebate_pct, 2) AS rappel_pct,
+       ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS neto_pct
+{_MARGEM}
+GROUP BY c.id, c.name, c.channel, c.city, c.rebate_pct
+ORDER BY facturado DESC LIMIT 12"""
+
+
+def _r_caduca(linhas):
+    if not linhas:
+        return "No hay lotes con caducidad próxima."
+    total = sum(float(r["coste"] or 0) for r in linhas)
+    detalhe = "\n".join(
+        f"- {r['familia']}: {eur(r['coste'])} en {r['lotes']} lotes, "
+        f"{n(r['unidades'])} unidades, el más próximo a {r['dias_min']} días"
+        for r in linhas
+    )
+    return (
+        f"{detalhe}\n\n"
+        f"En total **{eur(total)} de mercancía con menos de 60 días**.\n\n"
+        "Están excluidos los vinos de guarda: en esos el tiempo no es un "
+        "riesgo, es el producto. Mezclarlos aquí es lo que hace que la cifra "
+        "deje de significar nada y nadie la mire."
+    )
+
+
+def _r_parado(linhas):
+    if not linhas:
+        return "No hay existencias en almacén."
+    guarda = sum(float(r["capital"] or 0) for r in linhas if r["tipo"] == "de guarda")
+    rotacao = sum(float(r["capital"] or 0) for r in linhas if r["tipo"] == "rotación")
+    detalhe = "\n".join(
+        f"- {r['familia']} ({r['tipo']}): {eur(r['capital'])} en " f"{r['referencias']} referencias"
+        for r in linhas
+    )
+    return (
+        f"{detalhe}\n\n"
+        f"**{eur(rotacao)} parados sin ser de guarda**, frente a "
+        f"{eur(guarda)} que lo están a propósito.\n\n"
+        "La diferencia es toda: el vino de guarda está ahí porque tiene que "
+        "estar, y el resto está ahí porque no se vendió. Sumados en una sola "
+        "línea de balance son indistinguibles, y por eso el segundo nunca se "
+        "discute."
+    )
+
+
+def _r_sem_venda(linhas):
+    if not linhas:
+        return "Todas las referencias en almacén han tenido alguna venta."
+    total = sum(float(r["capital"] or 0) for r in linhas)
+    detalhe = "\n".join(
+        f"- {r['sku']} {r['nombre']} ({r['familia']}): {eur(r['capital'])}" for r in linhas
+    )
+    return (
+        f"{detalhe}\n\n"
+        f"**{len(linhas)} referencias sin una sola venta**, {eur(total)} de "
+        "capital.\n\n"
+        "No es que vendan poco: es que no han salido ni una vez. En un informe "
+        "de rotación aparecen abajo del todo, junto a las que venden despacio, "
+        "y ahí dejan de distinguirse — que es justo lo contrario de lo que "
+        "hace falta para decidir si se descatalogan."
+    )
+
+
+def _r_rappel(linhas):
+    if not linhas:
+        return "No hay pedidos en el periodo."
+    rappel = sum(float(r["rappel"] or 0) for r in linhas)
+    detalhe = "\n".join(
+        f"- {r['canal']}: bruto {pct(r['bruto_pct'])} → neto {pct(r['neto_pct'])}, "
+        f"{eur(r['rappel'])} de rappel sobre {eur(r['facturado'])}"
+        for r in linhas
+    )
+    pior = linhas[0]
+    return (
+        f"{detalhe}\n\n"
+        f"El rappel cuesta **{eur(rappel)}** en el periodo, y el canal donde "
+        f"más aprieta es **{pior['canal']}**: {pct(pior['bruto_pct'])} de "
+        f"margen bruto se quedan en {pct(pior['neto_pct'])}.\n\n"
+        "El rappel se liquida a final de año y no aparece en la línea del "
+        "pedido. El margen que se mira al vender no es el que queda — y la "
+        "diferencia no está repartida por igual entre los canales."
+    )
+
+
+def _r_clientes(linhas):
+    if not linhas:
+        return "No hay pedidos en el periodo."
+    detalhe = "\n".join(
+        f"- {r['cliente']} ({r['canal']}, {r['plaza']}): {eur(r['facturado'])}, "
+        f"rappel {pct(r['rappel_pct'])}, neto {pct(r['neto_pct'])}"
+        for r in linhas
+    )
+    por_neto = sorted(linhas, key=lambda r: float(r["neto_pct"] or 0))
+    pior, melhor = por_neto[0], por_neto[-1]
+    return (
+        f"{detalhe}\n\n"
+        f"Por facturación manda **{linhas[0]['cliente']}**; por margen neto, "
+        f"**{melhor['cliente']}** ({pct(melhor['neto_pct'])}) está muy por "
+        f"encima de **{pior['cliente']}** ({pct(pior['neto_pct'])}).\n\n"
+        "Ordenar la cartera por facturación es lo que mantiene arriba a los "
+        "clientes que más rappel se llevan. El orden que importa para decidir "
+        "es el del neto."
+    )
+
+
+SECTOR.perguntas = [
+    Pergunta(
+        texto="¿Qué mercancía caduca en los próximos 60 días?",
+        esquemas=["almacen", "catalogo"],
+        sql=P_CADUCA,
+        resposta=_r_caduca,
+    ),
+    Pergunta(
+        texto="¿Cuánto capital tengo parado en almacén, y cuánto es de guarda?",
+        esquemas=["almacen", "catalogo"],
+        sql=P_PARADO,
+        resposta=_r_parado,
+    ),
+    Pergunta(
+        texto="¿Qué referencias no han tenido ni una sola venta?",
+        esquemas=["catalogo", "almacen", "comercial"],
+        sql=P_SEM_VENDA,
+        resposta=_r_sem_venda,
+    ),
+    Pergunta(
+        texto="¿Cuánto me come el rappel, y en qué canal?",
+        esquemas=["comercial", "almacen", "catalogo"],
+        sql=P_RAPPEL,
+        resposta=_r_rappel,
+    ),
+    Pergunta(
+        texto="¿Qué clientes facturan mucho y dejan poco?",
+        esquemas=["comercial", "almacen", "catalogo"],
+        sql=P_CLIENTES,
+        resposta=_r_clientes,
+    ),
+]

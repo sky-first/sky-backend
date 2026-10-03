@@ -204,8 +204,19 @@ JOIN assortment.products p ON p.id = l.product_id;
 -- nenhuma linha de factura.
 INSERT INTO trade.customers (name, channel, city, rebate_pct)
 SELECT
-    (ARRAY['Restaurante','Hotel','Taberna','Mesón','Gastrobar','Tienda',
-           'Bodega','Hostal','Asador','Cafetería'])[1 + g % 10]
+    -- ⚠️ O tipo no nome tem de concordar com o canal.
+    --
+    -- Os dois saíam de progressões independentes, e a lista de clientes
+    -- mostrava «Cafetería San Juan (distribuidor)» e «Hostal El Olivar
+    -- (distribuidor)». Para quem vende neste sector o canal é
+    -- vocabulário diário: é a primeira linha que lê e a primeira
+    -- incoerência que vê.
+    --
+    -- Três tipos por canal, escolhidos pelo mesmo `g` que já decide o
+    -- resto, para a correspondência ser sempre a mesma.
+    -- Os dois subscritos: o Postgres não corta uma linha de um array
+    -- 2-D com um índice só.
+    canal.tipos[1 + g % 4][1 + (g / 4) % 3]
         || ' ' || (ARRAY['El Mirador','La Dehesa','Puerta Palma','San Juan',
                          'Los Arcos','La Giralda','El Olivar','Las Cruces',
                          'Santa Marina','El Rincón'])[1 + (g / 10) % 10],
@@ -217,6 +228,12 @@ FROM generate_series(1, 90) g
 CROSS JOIN LATERAL (
     SELECT
         (ARRAY['restaurante','hotel','tienda','distribuidor'])[1 + g % 4] AS c,
+        (ARRAY[
+            ARRAY['Restaurante','Asador','Taberna'],
+            ARRAY['Hotel','Hostal','Mesón'],
+            ARRAY['Tienda','Bodega','Colmado'],
+            ARRAY['Distribuciones','Mayorista','Suministros']
+        ]) AS tipos,
         -- O distribuidor negoceia o dobro de toda a gente. É ele que faz
         -- a margem líquida divergir da bruta.
         (ARRAY[0.0300, 0.0450, 0.0150, 0.0900])[1 + g % 4]::NUMERIC(5,4) AS rappel
