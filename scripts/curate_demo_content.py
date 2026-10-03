@@ -143,7 +143,20 @@ def _format_value(raw: Any, fmt: Optional[str]) -> str:
     if raw is None:
         return "—"
     if fmt == "eur":
-        return f"{float(raw):,.0f} €".replace(",", " ")
+        v = float(raw)
+        # ⚠️ Os cêntimos só são ruído acima de uma certa ordem de grandeza.
+        #
+        # Isto arredondava sempre ao euro. Está certo para 1 862 227 € e
+        # destrói um número por unidade: em produção, o insight da frota
+        # mostrava «Coste medio por km = 1 €» e «Ingreso medio por km =
+        # 1 €» — 1,20 e 1,49 reduzidos ao mesmo algarismo, nos dois
+        # cartões que existem precisamente para serem comparados.
+        #
+        # O corte nos 100 € é uma heurística assumida: o formatador não
+        # sabe se o valor é um total ou uma taxa, e abaixo dessa ordem de
+        # grandeza os cêntimos quase sempre carregam o sentido.
+        casas = 2 if abs(v) < 100 else 0
+        return f"{v:,.{casas}f} €".replace(",", " ").replace(".", ",")
     if fmt == "pct":
         return f"{float(raw):.1f}%"
     if isinstance(raw, float):

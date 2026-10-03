@@ -144,7 +144,10 @@ def test_cada_kpi_pede_um_numero_so(sector: Sector):
             if w.tipo != "kpi":
                 continue
             dados = w.dados([{"v": 42}])
-            assert dados["value"] == 42
+            # As percentagens são convertidas para a gama 0–1 que o
+            # `Intl` espera; tudo o resto passa intacto.
+            esperado = 0.42 if dados["config"].get("format") == "percent" else 42
+            assert dados["value"] == pytest.approx(esperado)
             assert dados["config"]["label"], f"{w.titulo} sem legenda"
 
 
@@ -208,3 +211,82 @@ def test_a_conversao_de_valores_para_json(entrada, esperado):
     # `True == 1` em Python: sem comparar o tipo, o caso do booleano
     # passaria com a conversão a transformá-lo em inteiro.
     assert type(_converter(entrada)) is type(esperado)
+
+
+# ── os números que o cliente lê ─────────────────────────────────────
+
+
+def _cfg(w, linhas):
+    return w.dados(linhas)
+
+
+def test_o_dinheiro_vai_em_euros(sector: Sector):
+    """O `KpiWidget` usa `cfg.currency || "USD"`.
+
+    Sem dizer a moeda, um custo por quilómetro de 1,20 € aparecia como
+    **$1.20** — dólares, numa demonstração em castelhano para uma
+    empresa ibérica. Confirmado no próprio `Intl` antes de corrigir.
+    """
+    for pagina in sector.paginas:
+        for w in pagina.widgets:
+            if w.tipo != "kpi":
+                continue
+            cfg = _cfg(w, [{"v": 1.2}])["config"]
+            if cfg.get("format") == "currency":
+                assert cfg.get("currency") == "EUR", (
+                    f"{pagina.nome} / {w.titulo}: moeda por dizer — sai em dólares"
+                )
+
+
+def test_as_percentagens_vao_na_gama_que_o_componente_espera(sector: Sector):
+    """`Intl` com `style: "percent"` espera 0–1.
+
+    Passar 19,7 dá **1 970%**. Não rebenta: dá um número errado com ar
+    de certo, que é a única coisa que uma demonstração não pode fazer.
+    """
+    for pagina in sector.paginas:
+        for w in pagina.widgets:
+            if w.tipo != "kpi":
+                continue
+            dados = _cfg(w, [{"v": 88.6}])
+            if dados["config"].get("format") == "percent":
+                assert dados["value"] == pytest.approx(0.886), (
+                    f"{pagina.nome} / {w.titulo}: 88,6 ficaria 8 860%"
+                )
+
+
+def test_os_centimos_aparecem_onde_dizem_alguma_coisa(sector: Sector):
+    """1,20 €/km contra 1,49 €/km é a comparação inteira de um painel.
+
+    Com zero casas os dois cartões diziam «1 €» — e existem precisamente
+    para serem comparados. Acima de 100 € os cêntimos são ruído.
+    """
+    w = next(
+        w
+        for pagina in sector.paginas
+        for w in pagina.widgets
+        if w.tipo == "kpi" and _cfg(w, [{"v": 1}])["config"].get("format") == "currency"
+    )
+    assert _cfg(w, [{"v": 1.2}])["config"]["decimals"] == 2
+    assert _cfg(w, [{"v": 118784}])["config"]["decimals"] == 0
+    # E não se abrevia: «€50.1K» de mercadoria a caducar perde metade da
+    # força de «50 090 €».
+    assert _cfg(w, [{"v": 50090}])["config"]["abbreviate"] is False
+
+
+def test_as_duas_grafias_de_formato_dao_o_mesmo(sector: Sector):
+    """A primeira correcção só tratava `eur`/`pct`, e os sectores escrevem
+    `currency`/`percent`. O código novo nunca corria.
+
+    Uma função que depende de o chamador escolher entre duas palavras
+    igualmente razoáveis está a pedir esse erro.
+    """
+    from scripts.demo_sectorial.pecas import kpi
+
+    curto = kpi("x", "kpi1", "a", "sql", legenda="l", formato="eur")
+    longo = kpi("x", "kpi1", "a", "sql", legenda="l", formato="currency")
+    assert curto.dados([{"v": 5}]) == longo.dados([{"v": 5}])
+
+    curto = kpi("x", "kpi1", "a", "sql", legenda="l", formato="pct")
+    longo = kpi("x", "kpi1", "a", "sql", legenda="l", formato="percent")
+    assert curto.dados([{"v": 50}]) == longo.dados([{"v": 50}])

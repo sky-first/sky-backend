@@ -119,22 +119,77 @@ def kpi(
     *,
     legenda: str,
     formato: Optional[str] = None,
-    sufixo: Optional[str] = None,
 ) -> Widget:
     """Um número grande.
 
     O frontend lê `data.value` directamente (`extractRawValue`, caso 1)
     e o subtítulo de `data.config.label`. O `sql` tem de devolver uma
     linha com uma coluna.
+
+    ── `formato` tem dois valores e os dois tinham armadilha ────────
+
+    `"eur"` → o `KpiWidget` formata moeda com `cfg.currency || "USD"`.
+    Sem dizer a moeda, um custo por quilómetro de 1,20 € aparecia como
+    **$1.20** — dólares, numa demonstração em castelhano para uma
+    transportadora ibérica. Vai sempre com `currency: "EUR"`.
+
+    `"pct"` → o componente usa `Intl` com `style: "percent"`, que espera
+    o valor na gama **0–1**. Passar 19,7 dava **1 970%**. O valor é
+    dividido aqui, e não no SQL, para a consulta continuar a devolver o
+    número que uma pessoa lê quando a executa à mão.
+
+    Nenhuma das duas rebenta: dão um número errado com ar de certo, que
+    é a única coisa que uma demonstração não pode fazer. Confirmei as
+    duas no próprio `Intl` antes de corrigir.
+
+    As duas grafias são aceites — `"eur"`/`"currency"` e `"pct"`/
+    `"percent"` — e não por generosidade. A primeira versão desta
+    correcção só tratava os apelidos curtos, e os dois sectores
+    escreviam os nomes longos: o código novo nunca corria e os cartões
+    continuavam em dólares. Uma função que depende de o chamador
+    escolher a palavra certa entre duas igualmente razoáveis está a
+    pedir exactamente este erro.
+
+    O `sufixo` saiu: escrevia uma chave `suffix` que o componente não lê.
+    Configuração morta é pior do que configuração nenhuma — parece que
+    alguém tratou do assunto.
     """
 
     def monta(linhas: list[dict]) -> dict:
+        valor = _primeiro_valor(linhas)
         cfg: dict[str, Any] = {"label": legenda}
-        if formato:
+        if formato in ("eur", "currency"):
+            cfg["format"] = "currency"
+            cfg["currency"] = "EUR"
+            # Sem abreviar, e com os cêntimos só onde eles dizem alguma
+            # coisa.
+            #
+            # O componente abrevia a partir de 10 000 e usa duas casas
+            # por omissão. Sozinhos, os dois davam «€1.9M» para a
+            # facturação e «€1,862,227.00» quando não abreviava. Nenhum
+            # dos dois serve: numa demonstração o número É o argumento, e
+            # 50 090 € de mercadoria a caducar lido como «€50.1K» perde
+            # metade da força.
+            #
+            # O corte nos 100 € é o mesmo do formatador da demo pública,
+            # e pela mesma razão: abaixo dessa ordem de grandeza os
+            # cêntimos carregam o sentido (1,20 €/km contra 1,49 €/km),
+            # acima dela são ruído.
+            cfg["abbreviate"] = False
+            if isinstance(valor, (int, float)):
+                cfg["decimals"] = 2 if abs(valor) < 100 else 0
+        elif formato in ("pct", "percent"):
+            cfg["format"] = "percent"
+            cfg["decimals"] = 1
+            if isinstance(valor, (int, float)):
+                # Arredondado para não guardar `0.19699999999999998` na
+                # base. O `Intl` arredondaria na mesma, mas o que fica
+                # gravado também se lê — em registos, em exportações, e
+                # na próxima pessoa que abra a tabela.
+                valor = round(valor / 100.0, 5)
+        elif formato:
             cfg["format"] = formato
-        if sufixo:
-            cfg["suffix"] = sufixo
-        return {"value": _primeiro_valor(linhas), "config": cfg}
+        return {"value": valor, "config": cfg}
 
     return Widget("kpi", titulo, ranhura, esquema, sql, monta)
 
