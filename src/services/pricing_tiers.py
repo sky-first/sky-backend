@@ -40,9 +40,18 @@ class TierPreset:
 
     slug: str  # canonical lowercase identifier — matches Tenant.tier
     display_name: str  # human-friendly label rendered in the UI
-    headline_price_eur: Optional[int]  # annual list price; None = "custom"
+    # ⚠️ O preco e MENSAL, nao anual.
+    #
+    # O comentario dizia "annual list price" e os valores sao 490, 900 e
+    # 1.800 — que sao as mensalidades do documento comercial. Lidos como
+    # anuais davam 41 EUR/mes, o que ninguem notou porque o numero so
+    # aparece ao lado do `pricing_unit`, que ja dizia "month".
+    #
+    # Um comentario errado num ficheiro de precos nao e cosmetica: e a
+    # primeira coisa que alguem le antes de montar uma factura.
+    headline_price_eur: Optional[int]  # preco de tabela por `pricing_unit`
     setup_fee_eur: Optional[int]
-    pricing_unit: str  # "year" / "custom"
+    pricing_unit: str  # "month" / "custom"
 
     # Capacity defaults applied when a tenant is moved to this tier.
     # The Tenant.capacity_limits JSONB column gets these keys.

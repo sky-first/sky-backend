@@ -108,3 +108,62 @@ def test_os_nomes_nao_se_traduzem():
         nome = pricing_tiers.get_tier(slug).display_name
         assert nome.startswith("Sky "), f"{slug}: {nome!r} foge ao padrao"
         assert nome.isascii(), f"{slug}: {nome!r} tem acentos — nao e marca"
+
+
+# ── A receita ───────────────────────────────────────────────────────
+#
+# ⚠️ **O painel de CEO reportava um doze avos da receita real.**
+#
+# O comentario em `TierPreset.headline_price_eur` dizia "annual list
+# price". Nao era verdade: 490, 900 e 1.800 sao as MENSALIDADES do
+# documento comercial.
+#
+# Tres sitios acreditaram no comentario e dividiram por 12:
+#
+#     ceo_dashboard.py  — o MRR e o ARR contratados
+#     console.py        — a coluna `monthly_eur` do comparador
+#     csm_service.py    — o valor em risco nas renovacoes
+#
+# O Sky Start aparecia a **40,83 EUR/mes**. Ninguem reparou porque o
+# numero aparece sozinho, longe do preco de tabela.
+
+
+def test_os_precos_sao_mensais():
+    """O documento comercial: 490 / 900 / 1.800 por MES."""
+    esperado = {"starter": 490, "foundation": 900, "scale": 1_800}
+    for slug, preco in esperado.items():
+        t = pricing_tiers.get_tier(slug)
+        assert t.headline_price_eur == preco, slug
+        assert t.pricing_unit == "month", f"{slug}: {t.pricing_unit!r}"
+
+
+def test_o_plano_sob_consulta_nao_tem_preco():
+    t = pricing_tiers.get_tier("enterprise")
+    assert t.headline_price_eur is None
+    assert t.pricing_unit == "custom"
+
+
+@pytest.mark.parametrize(
+    "ficheiro",
+    [
+        "src/services/ceo_dashboard.py",
+        "src/api/v1/console.py",
+        "src/services/csm_service.py",
+    ],
+)
+def test_ninguem_volta_a_dividir_o_preco_por_doze(ficheiro):
+    """A regra, nao o caso.
+
+    Os tres sitios que calculavam receita dividiam por 12 porque o
+    comentario os enganou. Se alguem voltar a faze-lo, e aqui que se ve —
+    e o custo de nao ver e reportar 1/12 da receita ao proprio CEO.
+    """
+    from pathlib import Path
+
+    fonte = Path(ficheiro).read_text(encoding="utf-8")
+    linhas = [
+        (n, l.strip())
+        for n, l in enumerate(fonte.splitlines(), 1)
+        if "headline_price_eur" in l and ("/ 12" in l or "/12" in l)
+    ]
+    assert not linhas, f"{ficheiro}: o preco mensal esta a ser dividido por 12: {linhas}"

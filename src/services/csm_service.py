@@ -256,8 +256,9 @@ async def upcoming_renewals(
             continue
         days_until = (renewal - now).days
         preset = pricing_tiers.get_tier(t.tier)
+        # O preco de tabela JA e mensal. Ver `TierPreset.headline_price_eur`.
         monthly = (
-            (preset.headline_price_eur or 0) / 12.0
+            float(preset.headline_price_eur or 0)
             if preset and preset.headline_price_eur
             else 0.0
         )
