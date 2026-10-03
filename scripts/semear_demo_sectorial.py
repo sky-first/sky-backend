@@ -39,11 +39,12 @@ if not os.environ.get("DATABASE_URL"):
     print("Falta DATABASE_URL (a base do cliente).", file=sys.stderr)
     raise SystemExit(1)
 
-from scripts.demo_sectorial import transportes  # noqa: E402
+from scripts.demo_sectorial import alimentacion, transportes  # noqa: E402
 from scripts.demo_sectorial.motor import SementeiraRecusada, semear  # noqa: E402
 from src.config.database import AsyncSessionLocal  # noqa: E402
 
 SECTORES = {
+    "alimentacion": alimentacion.SECTOR,
     "transportes": transportes.SECTOR,
 }
 

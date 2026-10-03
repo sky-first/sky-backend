@@ -12,11 +12,11 @@ import decimal
 
 import pytest
 
-from scripts.demo_sectorial import transportes
+from scripts.demo_sectorial import alimentacion, transportes
 from scripts.demo_sectorial.motor import _id
 from scripts.demo_sectorial.pecas import Sector
 
-SECTORES: list[Sector] = [transportes.SECTOR]
+SECTORES: list[Sector] = [transportes.SECTOR, alimentacion.SECTOR]
 IDS = [s.chave for s in SECTORES]
 
 
@@ -70,24 +70,38 @@ def test_cada_agente_vive_dentro_de_um_so_esquema(sector: Sector):
     """É a decisão central deste desenho, e a mais fácil de desfazer.
 
     Uma ligação Postgres tem UM esquema. Um agente apontado à ligação
-    `ops` não consegue juntar `fleet` nem `freight` — e se o seu foco
-    pedir essa junção, ele não falha com erro: responde mal, ao vivo, à
-    frente do cliente.
+    `ops` não consegue juntar `fleet` nem `freight` — e se a sua
+    pergunta pedir essa junção, ele não falha com erro: responde mal, ao
+    vivo, à frente do cliente.
 
-    Por isso as junções entre esquemas ficam nos painéis, que são
-    pré-calculados, e os agentes ficam com perguntas de um esquema só.
-    Acrescentar um agente que atravesse esquemas é fácil e parece uma
-    melhoria — este teste é o que diz que não é.
+    ── A primeira versão deste teste não servia para nada ──────────
+
+    Procurava nomes de tabelas no texto do `foco`. Mas um `foco` é uma
+    pergunta em castelhano escrita para uma pessoa — nenhum agente real
+    nomeia tabelas. O teste passava sempre, com qualquer agente,
+    incluindo um que pedisse uma junção impossível. Só falhava com um
+    agente inventado de propósito para o fazer falhar, que é a definição
+    de um teste que fixa o código em vez do comportamento.
+
+    Agora cada agente declara as tabelas de que precisa, e é essa
+    declaração que se verifica. Continua a ser preciso que quem escreve
+    o agente seja honesto na declaração — mas isso é uma linha visível
+    na revisão, em vez de uma suposição invisível.
     """
-    esquemas = {esq for _, esq, _ in sector.ligacoes.values()}
+    por_sufixo = {k: esq for k, (_, esq, _) in sector.ligacoes.items()}
     for ag in sector.agentes:
-        seu = sector.ligacoes[ag.esquema][1]
-        texto = (ag.sql or "") + "\n" + ag.foco
-        citados = _esquemas_citados(texto, esquemas)
-        assert citados <= {seu}, (
-            f"agente {ag.nome!r} está ligado a {seu!r} mas fala de "
-            f"{sorted(citados - {seu})} — não os consegue ler."
+        assert ag.tabelas, (
+            f"agente {ag.nome!r} não declara as tabelas de que precisa — "
+            "sem isso não há como saber se a ligação lhe chega"
         )
+        seu = por_sufixo[ag.esquema]
+        for tabela in ag.tabelas:
+            assert "." in tabela, f"{ag.nome!r}: {tabela!r} devia vir com esquema"
+            esquema = tabela.split(".", 1)[0]
+            assert esquema == seu, (
+                f"agente {ag.nome!r} está ligado a {seu!r} e precisa de "
+                f"{tabela!r} — não a consegue ler."
+            )
 
 
 def test_os_paineis_e_so_eles_atravessam_esquemas(sector: Sector):

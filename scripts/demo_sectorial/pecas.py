@@ -191,11 +191,28 @@ class Agente:
     `foco` é a pergunta em linguagem natural — é o que o utilizador lê
     e edita. `sql` é opcional: com ele o agente é determinista
     (`monitor_type='sql'`), sem ele responde pelo caminho normal.
+
+    ── `tabelas` não é decoração ───────────────────────────────────
+
+    Declara as tabelas de que a pergunta precisa, com esquema. Não vai
+    para a base: serve para o teste poder verificar, a sério, que o
+    agente consegue responder com a ligação que tem.
+
+    Sem isto o teste era inútil e eu não tinha dado por isso. Ele
+    procurava nomes de tabelas no texto do `foco` — e um `foco` é uma
+    pergunta em castelhano escrita para uma pessoa, não SQL. Nenhum
+    agente real nomeia tabelas, portanto o teste passava sempre, com
+    qualquer agente, incluindo um que pedisse uma junção impossível.
+
+    Era um teste que fixava o código em vez do comportamento. A
+    declaração torna a intenção explícita, e explícito é o que se pode
+    verificar.
     """
 
     nome: str
     foco: str
     esquema: str
+    tabelas: list[str] = field(default_factory=list)
     frequencia: str = "daily"
     sql: Optional[str] = None
     arquetipo: str = "custom"

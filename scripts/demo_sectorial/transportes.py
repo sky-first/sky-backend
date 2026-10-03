@@ -380,6 +380,7 @@ SECTOR = Sector(
         Agente(
             nome="Consumo por vehículo",
             esquema="operaciones",
+            tabelas=["ops.trips", "ops.routes"],
             foco=(
                 "Revisa el consumo de gasóleo por cada 100 km de cada vehículo "
                 "en los viajes completados. Avísame de los vehículos cuyo "
@@ -392,6 +393,7 @@ SECTOR = Sector(
         Agente(
             nome="Rutas que incumplen el plazo",
             esquema="operaciones",
+            tabelas=["ops.trips", "ops.routes"],
             foco=(
                 "Compara la hora de llegada con la hora prevista en cada ruta. "
                 "Dime qué rutas llegan tarde de forma sistemática y cuántos "
@@ -404,6 +406,7 @@ SECTOR = Sector(
         Agente(
             nome="Taller y disponibilidad",
             esquema="flota",
+            tabelas=["fleet.maintenance_jobs", "fleet.vehicles"],
             foco=(
                 "Vigila el coste de taller y los días fuera de la carretera por "
                 "vehículo. Avísame cuando un vehículo acumule varias averías o "
@@ -416,6 +419,7 @@ SECTOR = Sector(
         Agente(
             nome="Incidencias por cliente",
             esquema="carga",
+            tabelas=["freight.shipments", "freight.clients"],
             foco=(
                 "Agrupa las incidencias de carga (mercancía dañada, fallo de "
                 "temperatura, documentación) por cliente y por tipo. Dime si "
@@ -428,6 +432,7 @@ SECTOR = Sector(
         Agente(
             nome="Margen por cliente",
             esquema="carga",
+            tabelas=["freight.shipments", "freight.clients"],
             foco=(
                 "Calcula el importe facturado por tonelada y por porte de cada "
                 "cliente, y compáralo con el mes anterior. Avísame de los "

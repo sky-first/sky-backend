@@ -370,6 +370,35 @@ async def semear(
         await motor_demo.dispose()
 
     # ── os agentes ──────────────────────────────────────────────────
+    #
+    # As tabelas que cada agente declara têm de existir mesmo. O teste
+    # unitário confirma que pertencem ao esquema certo; só aqui, contra
+    # a base, se apanha um nome mal escrito — e um agente apontado a uma
+    # tabela que não existe não rebenta: responde que não encontrou
+    # dados, ao vivo, à frente do cliente.
+    async with create_async_engine(_dsn_da_demo()).connect() as c:
+        existentes = {
+            f"{e}.{t}"
+            for e, t in (
+                await c.execute(
+                    text(
+                        "SELECT table_schema, table_name FROM information_schema.tables"
+                    )
+                )
+            ).fetchall()
+        }
+    em_falta = {
+        f"{ag.nome}: {t}"
+        for ag in sector.agentes
+        for t in ag.tabelas
+        if t not in existentes
+    }
+    if em_falta:
+        raise SementeiraRecusada(
+            "tabelas declaradas que não existem na base sintética:\n  "
+            + "\n  ".join(sorted(em_falta))
+        )
+
     for ag in sector.agentes:
         aid = _id(sector.chave, "agent", ag.nome)
         conn = ligacoes[ag.esquema]
