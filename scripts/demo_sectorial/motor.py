@@ -486,6 +486,7 @@ async def semear(
         relatar(f"  {n_perguntas} perguntas respondidas")
 
     return {
+        "ligacoes_criadas": [str(c.id) for c in ligacoes.values()],
         "espaco_id": str(espaco.id),
         "equipa_id": str(equipa.id),
         "ligacoes": len(ligacoes),
@@ -494,3 +495,52 @@ async def semear(
         "agentes": len(sector.agentes),
         "perguntas": n_perguntas,
     }
+
+
+async def sincronizar_metadados(ids: list[str], email_do_dono: Optional[str] = None) -> int:
+    """Introspecciona cada ligação e grava as tabelas e colunas.
+
+    ── Sem isto o projecto parece completo e não responde ───────────
+
+    Os widgets nascem preenchidos — os números são calculados aqui e
+    gravados — por isso um projecto sem metadados abre bonito. O que não
+    funciona é tudo o que é ao vivo: a conversa e os agentes.
+
+    O `sky-ai` responde `404` ao `/connections/<id>/query` quando não
+    encontra metadados, e o backend traduz esse 404 — que não é 400, nem
+    429, nem 5xx — em «The AI service rejected the request». A mensagem
+    não tem nada a ver com a causa, e manda procurar um defeito no
+    serviço de IA que está bom.
+
+    Aconteceu em produção a 03/10/2026, à frente do Lucas, com os três
+    projectos acabados de semear. O `seed_demo_connections.py` já tinha
+    este passo e o aviso escrito por cima dele; o meu semeador não o
+    copiou.
+
+    ── Sessão nova, de propósito ───────────────────────────────────
+
+    A introspecção tem de correr contra linhas **já gravadas**. Na
+    sessão do semeador as ligações ainda estão por confirmar, e o
+    serviço lê-as de volta da base.
+
+    Devolve quantas sincronizaram. Uma que falhe não derruba as outras:
+    ficar com duas ligações boas e uma por sincronizar é melhor do que
+    ficar com zero.
+    """
+    if not ids:
+        return 0
+
+    from src.config.database import AsyncSessionLocal
+    from src.services.connection_service import ConnectionService
+
+    feitas = 0
+    async with AsyncSessionLocal() as db:
+        dono = await _dono(db, email_do_dono)
+        servico = ConnectionService(db)
+        for cid in ids:
+            try:
+                await servico.sync_connection(uuid.UUID(cid), dono)
+                feitas += 1
+            except Exception as exc:  # noqa: BLE001
+                print(f"  AVISO: metadados por sincronizar em {cid}: {exc}")
+    return feitas

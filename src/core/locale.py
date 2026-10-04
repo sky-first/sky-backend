@@ -123,6 +123,53 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "en": "I couldn't understand that question. Try rephrasing it.",
         "es": "No he entendido esa pregunta. Pruebe a reformularla.",
     },
+    # ── Falhas da conversa ──────────────────────────────────────────
+    #
+    # Sete ramos do `ai_service` classificavam a excepção e só UM pedia a
+    # frase a este catálogo. Os outros seis estavam cravados em inglês, e
+    # apareciam numa plataforma em português a dizer «The AI service
+    # rejected the request. Please retry or open a ticket.»
+    #
+    # Essa frase tinha um segundo problema: mandava abrir um pedido de
+    # apoio e não havia botão nenhum para o abrir. Agora não promete o
+    # que o ecrã não dá.
+    "chat_error_generic": {
+        "pt": "A Sky não conseguiu responder agora. Tente outra vez.",
+        "en": "Sky couldn't answer right now. Please try again.",
+        "es": "Sky no ha podido responder ahora. Inténtelo de nuevo.",
+    },
+    "chat_error_timeout": {
+        "pt": "A pergunta demorou demasiado. Experimente uma mais simples, ou repita.",
+        "en": "The question took too long. Try a simpler one, or retry.",
+        "es": "La pregunta ha tardado demasiado. Pruebe con una más sencilla, o reinténtelo.",
+    },
+    "chat_error_rate_limited": {
+        "pt": "Perguntas a mais em pouco tempo. Espere uns segundos e repita.",
+        "en": "Too many questions in a short window. Wait a few seconds and retry.",
+        "es": "Demasiadas preguntas en poco tiempo. Espere unos segundos y reinténtelo.",
+    },
+    "chat_error_unavailable": {
+        "pt": "A Sky está indisponível neste momento. Repita daqui a pouco.",
+        "en": "Sky is unavailable right now. Please retry in a moment.",
+        "es": "Sky no está disponible en este momento. Reinténtelo en un momento.",
+    },
+    "chat_error_network": {
+        "pt": "Não foi possível contactar a Sky. Verifique a ligação e repita.",
+        "en": "Couldn't reach Sky. Check your connection and retry.",
+        "es": "No se ha podido contactar con Sky. Compruebe la conexión y reinténtelo.",
+    },
+    # O 404 do `/connections/<id>/query` quer dizer uma coisa muito
+    # concreta: a ligação não tem metadados. A frase antiga — «the AI
+    # service rejected the request» — mandava procurar um defeito no
+    # serviço de IA, que está bom, em vez de no sítio onde se resolve.
+    "chat_error_no_metadata": {
+        "pt": "Esta ligação ainda não foi analisada, por isso a Sky não "
+        "sabe que tabelas existem. Sincronize-a em Definições › Ligações.",
+        "en": "This connection hasn't been analysed yet, so Sky doesn't know "
+        "which tables exist. Sync it in Settings › Connections.",
+        "es": "Esta conexión aún no se ha analizado, así que Sky no sabe qué "
+        "tablas existen. Sincronícela en Ajustes › Conexiones.",
+    },
     "how_can_i_help": {
         "pt": "Em que posso ajudar hoje?",
         "en": "How can I help you today?",
@@ -203,22 +250,23 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "en": "{actor} added you as {role}",
         "es": "{actor} le ha añadido como {role}",
     },
-
 }
 
 
-NOTIFICATION_KEYS: frozenset[str] = frozenset({
-    "notif_comment_mention_title",
-    "notif_comment_mention_desc",
-    "notif_conversation_reply_title",
-    "notif_conversation_reply_desc",
-    "notif_space_added_title",
-    "notif_space_added_desc",
-    "notif_crew_added_title",
-    "notif_crew_added_desc",
-    "notif_page_added_title",
-    "notif_page_added_desc",
-})
+NOTIFICATION_KEYS: frozenset[str] = frozenset(
+    {
+        "notif_comment_mention_title",
+        "notif_comment_mention_desc",
+        "notif_conversation_reply_title",
+        "notif_conversation_reply_desc",
+        "notif_space_added_title",
+        "notif_space_added_desc",
+        "notif_crew_added_title",
+        "notif_crew_added_desc",
+        "notif_page_added_title",
+        "notif_page_added_desc",
+    }
+)
 
 # DB migration that adds the columns consumed by these keys: notif_i18n_keys_20260612
 

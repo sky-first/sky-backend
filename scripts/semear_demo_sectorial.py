@@ -40,7 +40,11 @@ if not os.environ.get("DATABASE_URL"):
     raise SystemExit(1)
 
 from scripts.demo_sectorial import alimentacion, restauracion, transportes  # noqa: E402
-from scripts.demo_sectorial.motor import SementeiraRecusada, semear  # noqa: E402
+from scripts.demo_sectorial.motor import (  # noqa: E402
+    SementeiraRecusada,
+    semear,
+    sincronizar_metadados,
+)
 from src.config.database import AsyncSessionLocal  # noqa: E402
 
 
@@ -69,6 +73,7 @@ async def _sessao():
     print(f"cliente {slug!r}: base dedicada resolvida a partir do registo")
     motor = create_async_engine(url, pool_pre_ping=True)
     return async_sessionmaker(motor, expire_on_commit=False)(), url
+
 
 SECTORES = {
     "alimentacion": alimentacion.SECTOR,
@@ -109,6 +114,31 @@ async def principal(args) -> int:
             await db.rollback()
             print("\nensaio — nada foi gravado. Repetir com --aplicar.")
 
+    # ── os metadados, depois do commit ──────────────────────────────
+    #
+    # Sem este passo o projecto abre com os painéis cheios e não responde
+    # a nada. A conversa e os agentes dão «The AI service rejected the
+    # request», que é como o backend traduz o 404 do `sky-ai` quando a
+    # ligação não tem metadados — uma mensagem que manda procurar um
+    # defeito no serviço de IA, que está bom.
+    #
+    # Ver a nota longa em `motor.sincronizar_metadados`.
+    #
+    # Só com `--aplicar`: num ensaio as ligações foram desfeitas e não há
+    # nada para introspeccionar.
+    ids = resumo.pop("ligacoes_criadas", [])
+    if args.aplicar:
+        print(f"\na sincronizar metadados de {len(ids)} ligações…")
+        feitas = await sincronizar_metadados(ids, args.dono)
+        resumo["metadados"] = f"{feitas}/{len(ids)} ligações"
+        if feitas < len(ids):
+            print(
+                "AVISO: ficaram ligações sem metadados. Os painéis funcionam "
+                "na mesma, porque os números estão gravados — mas a conversa "
+                "e os agentes vão recusar as perguntas dessas ligações.",
+                file=sys.stderr,
+            )
+
     print("-" * 60)
     for k, v in resumo.items():
         print(f"  {k}: {v}")
@@ -120,6 +150,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("sector", choices=sorted(SECTORES))
     ap.add_argument("--dono", default=None, help="email do dono; omitir usa o 1.º utilizador")
-    ap.add_argument("--confirmar-base", required=True, help="pedaço que tem de estar no DATABASE_URL")
+    ap.add_argument(
+        "--confirmar-base", required=True, help="pedaço que tem de estar no DATABASE_URL"
+    )
     ap.add_argument("--aplicar", action="store_true")
     raise SystemExit(asyncio.run(principal(ap.parse_args())))
