@@ -497,7 +497,9 @@ async def semear(
     }
 
 
-async def sincronizar_metadados(ids: list[str], email_do_dono: Optional[str] = None) -> int:
+async def sincronizar_metadados(
+    ids: list[str], url: str, email_do_dono: Optional[str] = None
+) -> int:
     """Introspecciona cada ligação e grava as tabelas e colunas.
 
     ── Sem isto o projecto parece completo e não responde ───────────
@@ -523,6 +525,24 @@ async def sincronizar_metadados(ids: list[str], email_do_dono: Optional[str] = N
     sessão do semeador as ligações ainda estão por confirmar, e o
     serviço lê-as de volta da base.
 
+    ── ⚠️ `url` é obrigatório, e foi por faltar que isto falhou ────
+
+    A primeira versão abria a sessão com o `AsyncSessionLocal`, que vem
+    do `DATABASE_URL` — **a base da plataforma**. As ligações vivem na
+    base do cliente. Em produção deu, nas três:
+
+        AVISO: metadados por sincronizar em 611b5fb0…: Connection not found
+        metadados: 0/3 ligações
+
+    Em local tinha passado, e passou por acidente: aí o `DATABASE_URL`
+    aponta directamente para a base do cliente, por isso as duas eram a
+    mesma coisa. O caminho com `TENANT_SLUG` — que é o do Job — nunca
+    chegou a ser exercido antes de chegar lá.
+
+    Agora recebe o URL que o semeador usou. Não tem valor por omissão:
+    um `AsyncSessionLocal` em segundo plano é precisamente como este
+    defeito entrou, e a chamada tem de dizer onde escreve.
+
     Devolve quantas sincronizaram. Uma que falhe não derruba as outras:
     ficar com duas ligações boas e uma por sincronizar é melhor do que
     ficar com zero.
@@ -530,17 +550,23 @@ async def sincronizar_metadados(ids: list[str], email_do_dono: Optional[str] = N
     if not ids:
         return 0
 
-    from src.config.database import AsyncSessionLocal
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from src.services.connection_service import ConnectionService
 
     feitas = 0
-    async with AsyncSessionLocal() as db:
-        dono = await _dono(db, email_do_dono)
-        servico = ConnectionService(db)
-        for cid in ids:
-            try:
-                await servico.sync_connection(uuid.UUID(cid), dono)
-                feitas += 1
-            except Exception as exc:  # noqa: BLE001
-                print(f"  AVISO: metadados por sincronizar em {cid}: {exc}")
+    motor_do_cliente = create_async_engine(url, pool_pre_ping=True)
+    try:
+        sessao = async_sessionmaker(motor_do_cliente, expire_on_commit=False)
+        async with sessao() as db:
+            dono = await _dono(db, email_do_dono)
+            servico = ConnectionService(db)
+            for cid in ids:
+                try:
+                    await servico.sync_connection(uuid.UUID(cid), dono)
+                    feitas += 1
+                except Exception as exc:  # noqa: BLE001
+                    print(f"  AVISO: metadados por sincronizar em {cid}: {exc}")
+    finally:
+        await motor_do_cliente.dispose()
     return feitas
