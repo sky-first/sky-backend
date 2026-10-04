@@ -126,10 +126,14 @@ async def principal(args) -> int:
     #
     # Só com `--aplicar`: num ensaio as ligações foram desfeitas e não há
     # nada para introspeccionar.
+    #
+    # O `url` é o mesmo que o semeador usou — a base do CLIENTE quando
+    # vem `TENANT_SLUG`. Sem o passar, a sincronização abria a base da
+    # plataforma e dava «Connection not found» nas três ligações.
     ids = resumo.pop("ligacoes_criadas", [])
     if args.aplicar:
         print(f"\na sincronizar metadados de {len(ids)} ligações…")
-        feitas = await sincronizar_metadados(ids, args.dono)
+        feitas = await sincronizar_metadados(ids, url, args.dono)
         resumo["metadados"] = f"{feitas}/{len(ids)} ligações"
         if feitas < len(ids):
             print(

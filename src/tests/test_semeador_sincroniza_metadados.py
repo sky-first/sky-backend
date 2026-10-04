@@ -99,14 +99,18 @@ class _SessaoFalsa:
 
 
 IDS = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"]
+URL_DO_CLIENTE = "postgresql+asyncpg://u:p@h/tenant_prova"
 
 
 def _montar(cli, monkeypatch, sessao):
     """Substitui tudo o que fala com o mundo e devolve o que foi chamado."""
     chamadas: dict = {}
 
+    # A base do CLIENTE, que é o que o `_sessao()` devolve quando vem
+    # `TENANT_SLUG`. O nome é deliberadamente diferente de qualquer
+    # coisa que pareça a plataforma.
     async def _sessao_falsa():
-        return sessao, "postgresql+asyncpg://u:p@h/tenant_prova"
+        return sessao, URL_DO_CLIENTE
 
     async def _semear_falso(db, sector, email_do_dono=None):
         return {
@@ -119,8 +123,9 @@ def _montar(cli, monkeypatch, sessao):
             "perguntas": 5,
         }
 
-    async def _sincronizar_falso(ids, email=None):
+    async def _sincronizar_falso(ids, url, email=None):
         chamadas["ids"] = list(ids)
+        chamadas["url"] = url
         return len(ids)
 
     monkeypatch.setattr(cli, "_sessao", _sessao_falsa)
@@ -140,6 +145,14 @@ async def test_com_aplicar_sincroniza_as_ligacoes_criadas(cli, monkeypatch, caps
         "as ligações criadas têm de chegar à sincronização — sem isto o "
         "projecto abre com os painéis cheios e a conversa recusa tudo"
     )
+    # ⚠️ E têm de ser sincronizadas na base do CLIENTE.
+    #
+    # A primeira versão abria o `AsyncSessionLocal`, que é a base da
+    # plataforma, e em produção deu «Connection not found» nas três.
+    # Em local passou por acidente: aí as duas bases são a mesma.
+    assert (
+        chamadas.get("url") == URL_DO_CLIENTE
+    ), "a sincronização tem de usar a mesma base que o semeador usou"
     assert sessao.commits == 1
     assert "2/2" in capsys.readouterr().out
 
@@ -190,4 +203,19 @@ def test_sincronizar_sem_ligacoes_nao_toca_na_base():
 
     from scripts.demo_sectorial.motor import sincronizar_metadados
 
-    assert asyncio.run(sincronizar_metadados([])) == 0
+    assert asyncio.run(sincronizar_metadados([], URL_DO_CLIENTE)) == 0
+
+
+def test_a_sincronizacao_exige_que_lhe_digam_a_base():
+    """Sem valor por omissao: foi um valor por omissao que causou o defeito.
+
+    A versao anterior caia no `AsyncSessionLocal` — a base da plataforma
+    — quando ninguem dizia nada. Agora a chamada tem de dizer onde
+    escreve, e quem a escrever tem de pensar nisso.
+    """
+    import inspect
+
+    from scripts.demo_sectorial.motor import sincronizar_metadados
+
+    p = inspect.signature(sincronizar_metadados).parameters["url"]
+    assert p.default is inspect.Parameter.empty
