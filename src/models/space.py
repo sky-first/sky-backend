@@ -135,6 +135,25 @@ class SpaceMember(Base):
     )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
+    # De onde veio esta pertenca.
+    #
+    # `convite` e o normal: alguem adicionou a pessoa. `auto_demo` e a
+    # que o interruptor das definicoes cria quando alguem adere sozinho
+    # aos projectos de demonstracao.
+    #
+    # ⚠️ A distincao nao e decorativa. Ao desligar o interruptor so se
+    # removem as `auto_demo`. Sem isto, uma pessoa CONVIDADA para um
+    # projecto `is_demo` — usamo-los para formacao — perderia esse
+    # acesso ao mexer no que julga ser uma preferencia de arrumacao.
+    #
+    # Ver `docs/quem-ve-que-projectos.md`, caso de stress 7.
+    origem = Column(
+        String(20),
+        nullable=False,
+        default="convite",
+        server_default="convite",
+    )
+
     # Relationships
     space = relationship("Space", back_populates="members")
     user = relationship("User")

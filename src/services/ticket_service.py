@@ -102,7 +102,10 @@ class TicketService:
 
         logger.info(
             "ticket_created id=%s reporter=%s severity=%s category=%s",
-            ticket.id, user.id, ticket.severity, ticket.category,
+            ticket.id,
+            user.id,
+            ticket.severity,
+            ticket.category,
         )
 
         # Privacy gate (Lucas's 2026-04-29 demo review): ticket creation
@@ -118,6 +121,39 @@ class TicketService:
         # webhook-resolution helper) so we can wire an opt-in
         # "Send feedback to SKY team" toggle later without rebuilding
         # the routing.
+        #
+        # ── 05/10/2026: o silêncio total também não servia ───────────
+        #
+        # «eu tenho que fazer alguma coisa com os alertas. Como é que eu
+        #  recebo eles? imagina um cliente envia alguma coisa lá e eu não
+        #  respondo ele em minutos?» — Lucas
+        #
+        # O portão de privacidade continua de pé — o conteúdo não sai do
+        # cliente. O que passa a sair são duas coisas diferentes:
+        #
+        #   • para quem gere o CLIENTE: um email com o pedido completo.
+        #     São os dados dele, na caixa dele; não há nada a proteger
+        #     de si próprio.
+        #
+        #   • para a SKY: um aviso SEM conteúdo — cliente, categoria,
+        #     gravidade, identificador. Sabemos que existe e em quanto
+        #     tempo temos de lá ir; para o ler é preciso que alguém do
+        #     lado do cliente escale, como já era.
+        #
+        # As duas falham em silêncio de propósito: um ticket gravado e
+        # não anunciado é mau, um ticket perdido porque o SMTP estava em
+        # baixo é pior.
+        try:
+            await _avisar_quem_gere_o_cliente(self.db, ticket, user)
+            await _avisar_a_sky_sem_conteudo(ticket)
+        except Exception as exc:  # noqa: BLE001
+            # O pedido já está gravado. Um aviso que falha não pode
+            # desfazer isso nem devolver um erro a quem escreveu — a
+            # pessoa fez a parte dela e o pedido existe.
+            logger.warning(
+                "aviso_do_pedido_falhou",
+                extra={"ticket_id": str(ticket.id), "erro": str(exc)},
+            )
         return TicketResponse.model_validate(ticket)
 
     # ------------------------------------------------------------------
@@ -145,10 +181,14 @@ class TicketService:
         total = (await self.db.execute(count_stmt)).scalar_one()
 
         rows = (
-            await self.db.execute(
-                base.order_by(desc(Ticket.created_at)).offset(skip).limit(limit)
+            (
+                await self.db.execute(
+                    base.order_by(desc(Ticket.created_at)).offset(skip).limit(limit)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         return TicketListResponse(
             items=[TicketResponse.model_validate(t) for t in rows],
@@ -160,17 +200,23 @@ class TicketService:
         self._assert_can_view(ticket, user)
 
         events = (
-            await self.db.execute(
-                select(TicketEvent)
-                .where(TicketEvent.ticket_id == ticket.id)
-                .order_by(TicketEvent.created_at.asc())
+            (
+                await self.db.execute(
+                    select(TicketEvent)
+                    .where(TicketEvent.ticket_id == ticket.id)
+                    .order_by(TicketEvent.created_at.asc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         detail = TicketDetailResponse.model_validate(ticket)
-        detail = detail.model_copy(update={
-            "events": [TicketEventResponse.model_validate(e) for e in events],
-        })
+        detail = detail.model_copy(
+            update={
+                "events": [TicketEventResponse.model_validate(e) for e in events],
+            }
+        )
         return detail
 
     # ------------------------------------------------------------------
@@ -225,24 +271,29 @@ class TicketService:
         for field, (old, new) in changed.items():
             if field == "status":
                 await self._append_event(
-                    ticket_id=ticket.id, actor=user,
+                    ticket_id=ticket.id,
+                    actor=user,
                     kind=TicketEventKind.STATUS_CHANGED,
                     payload={"from": old, "to": new},
                 )
                 if new == TicketStatus.RESOLVED.value:
                     await self._append_event(
-                        ticket_id=ticket.id, actor=user,
-                        kind=TicketEventKind.RESOLVED, payload={},
+                        ticket_id=ticket.id,
+                        actor=user,
+                        kind=TicketEventKind.RESOLVED,
+                        payload={},
                     )
             elif field == "assigned_to_user_id":
                 await self._append_event(
-                    ticket_id=ticket.id, actor=user,
+                    ticket_id=ticket.id,
+                    actor=user,
                     kind=TicketEventKind.ASSIGNED,
                     payload={"to": new},
                 )
             else:
                 await self._append_event(
-                    ticket_id=ticket.id, actor=user,
+                    ticket_id=ticket.id,
+                    actor=user,
                     kind=TicketEventKind.STATUS_CHANGED,
                     payload={"field": field, "from": old, "to": new},
                 )
@@ -298,6 +349,7 @@ class TicketService:
             return TicketResponse.model_validate(ticket)
 
         from datetime import datetime, timezone
+
         ticket.status = TicketStatus.ESCALATED.value
         ticket.escalated_at = datetime.now(timezone.utc)
         ticket.escalated_by_user_id = user.id
@@ -319,8 +371,12 @@ class TicketService:
         logger.warning(
             "ticket_escalated ticket_id=%s reporter=%s severity=%s "
             "category=%s subject=%r escalated_by=%s note=%r",
-            ticket.id, ticket.reporter_user_id, ticket.severity,
-            ticket.category, ticket.subject, user.id,
+            ticket.id,
+            ticket.reporter_user_id,
+            ticket.severity,
+            ticket.category,
+            ticket.subject,
+            user.id,
             (payload.note or "")[:200],
         )
 
@@ -351,9 +407,7 @@ class TicketService:
 
     async def reopen(self, *, user: User, ticket_id: UUID) -> TicketResponse:
         ticket = await self._load_or_404(ticket_id)
-        if not (
-            _is_admin_like(user) or ticket.reporter_user_id == user.id
-        ):
+        if not (_is_admin_like(user) or ticket.reporter_user_id == user.id):
             raise ForbiddenError("You can't reopen this ticket")
         if ticket.status not in {TicketStatus.RESOLVED.value, TicketStatus.CLOSED.value}:
             raise ValidationError("Only resolved/closed tickets can be reopened")
@@ -361,7 +415,9 @@ class TicketService:
         prev = ticket.status
         ticket.status = TicketStatus.OPEN.value
         await self._append_event(
-            ticket_id=ticket.id, actor=user, kind=TicketEventKind.REOPENED,
+            ticket_id=ticket.id,
+            actor=user,
+            kind=TicketEventKind.REOPENED,
             payload={"from": prev},
         )
         await self.db.commit()
@@ -465,24 +521,23 @@ async def _post_escalation_webhook(
     body = _escalation_payload(ticket, actor, note)
 
     try:
-        async with httpx.AsyncClient(
-            timeout=settings.TICKET_ESCALATION_WEBHOOK_TIMEOUT
-        ) as client:
+        async with httpx.AsyncClient(timeout=settings.TICKET_ESCALATION_WEBHOOK_TIMEOUT) as client:
             resp = await client.post(url, headers=headers, json=body)
         if resp.status_code >= 400:
             logger.error(
                 "ticket_escalation_webhook_failed status=%s ticket_id=%s body=%r",
-                resp.status_code, ticket.id, resp.text[:500],
+                resp.status_code,
+                ticket.id,
+                resp.text[:500],
             )
         else:
             logger.info(
                 "ticket_escalation_webhook_delivered ticket_id=%s status=%s",
-                ticket.id, resp.status_code,
+                ticket.id,
+                resp.status_code,
             )
     except Exception as exc:  # noqa: BLE001 — webhook must not fail the request
-        logger.exception(
-            "ticket_escalation_webhook_error ticket_id=%s err=%s", ticket.id, exc
-        )
+        logger.exception("ticket_escalation_webhook_error ticket_id=%s err=%s", ticket.id, exc)
 
 
 # ─── Slack Incoming Webhook on ticket creation ───────────────────────────
@@ -578,9 +633,7 @@ def _resolve_ticket_webhook_url(category: str) -> str:
     return feedback or tickets
 
 
-async def _post_slack_ticket_escalated(
-    *, ticket: Ticket, actor: User, note: Optional[str]
-) -> None:
+async def _post_slack_ticket_escalated(*, ticket: Ticket, actor: User, note: Optional[str]) -> None:
     """Slack ping when an admin escalates a ticket to the SKY team.
 
     Forced to SLACK_TICKETS_WEBHOOK_URL (#sky-tickets) regardless of
@@ -610,24 +663,23 @@ async def _post_slack_ticket_escalated(
         )
 
     try:
-        async with httpx.AsyncClient(
-            timeout=settings.SLACK_TICKETS_WEBHOOK_TIMEOUT
-        ) as client:
+        async with httpx.AsyncClient(timeout=settings.SLACK_TICKETS_WEBHOOK_TIMEOUT) as client:
             resp = await client.post(url, json=body)
         if resp.status_code >= 400:
             logger.error(
                 "slack_ticket_escalated_webhook_failed status=%s ticket_id=%s body=%r",
-                resp.status_code, ticket.id, resp.text[:500],
+                resp.status_code,
+                ticket.id,
+                resp.text[:500],
             )
         else:
             logger.info(
                 "slack_ticket_escalated_webhook_delivered ticket_id=%s status=%s",
-                ticket.id, resp.status_code,
+                ticket.id,
+                resp.status_code,
             )
     except Exception as exc:  # noqa: BLE001 — webhook must not fail escalation
-        logger.exception(
-            "slack_ticket_escalated_webhook_error ticket_id=%s err=%s", ticket.id, exc
-        )
+        logger.exception("slack_ticket_escalated_webhook_error ticket_id=%s err=%s", ticket.id, exc)
 
 
 async def _post_slack_ticket_created(*, ticket: Ticket, reporter: User) -> None:
@@ -651,21 +703,129 @@ async def _post_slack_ticket_created(*, ticket: Ticket, reporter: User) -> None:
     body = _slack_blocks_for_created(ticket, reporter)
 
     try:
-        async with httpx.AsyncClient(
-            timeout=settings.SLACK_TICKETS_WEBHOOK_TIMEOUT
-        ) as client:
+        async with httpx.AsyncClient(timeout=settings.SLACK_TICKETS_WEBHOOK_TIMEOUT) as client:
             resp = await client.post(url, json=body)
         if resp.status_code >= 400:
             logger.error(
                 "slack_ticket_webhook_failed status=%s category=%s ticket_id=%s body=%r",
-                resp.status_code, ticket.category, ticket.id, resp.text[:500],
+                resp.status_code,
+                ticket.category,
+                ticket.id,
+                resp.text[:500],
             )
         else:
             logger.info(
                 "slack_ticket_webhook_delivered category=%s ticket_id=%s status=%s",
-                ticket.category, ticket.id, resp.status_code,
+                ticket.category,
+                ticket.id,
+                resp.status_code,
             )
     except Exception as exc:  # noqa: BLE001 — webhook must not fail ticket creation
-        logger.exception(
-            "slack_ticket_webhook_error ticket_id=%s err=%s", ticket.id, exc
+        logger.exception("slack_ticket_webhook_error ticket_id=%s err=%s", ticket.id, exc)
+
+
+# ── Aviso de pedido novo ────────────────────────────────────────────
+
+
+def _assunto_por_categoria(categoria: str) -> str:
+    return {
+        "bug": "Avaria reportada",
+        "feature_request": "Sugestão de funcionalidade",
+        "other": "Comentário",
+    }.get(categoria, "Novo pedido")
+
+
+async def _avisar_quem_gere_o_cliente(db, ticket: Ticket, reporter: User) -> int:
+    """Email com o pedido completo, para os donos e administradores.
+
+    São os dados do próprio cliente, na caixa de quem o gere. Não há
+    aqui nada a proteger — o portão de privacidade existe para o
+    conteúdo não chegar à SKY, não para o esconder de quem o recebeu.
+
+    Devolve quantos emails saíram. Falha em silêncio por destinatário:
+    um endereço morto não pode impedir os outros de serem avisados.
+    """
+    from sqlalchemy import select as _select
+
+    from src.models.user import User as _User
+    from src.services.email_service import EmailService
+
+    destinatarios = (
+        (
+            await db.execute(
+                _select(_User.email).where(
+                    _User.role.in_(("owner", "admin", "super_admin")),
+                    _User.deleted_at.is_(None),
+                )
+            )
         )
+        .scalars()
+        .all()
+    )
+    if not destinatarios:
+        logger.warning(
+            "ticket_sem_destinatario",
+            extra={"ticket_id": str(ticket.id)},
+        )
+        return 0
+
+    titulo = _assunto_por_categoria(ticket.category)
+    corpo = (
+        f"<p><strong>{titulo}</strong> — {ticket.subject}</p>"
+        f"<p>De: {reporter.email}</p>"
+        f"<pre style='white-space:pre-wrap'>{ticket.body or ''}</pre>"
+        f"<p>Gravidade: {ticket.severity}</p>"
+    )
+    servico = EmailService()
+    saidos = 0
+    for email in destinatarios:
+        try:
+            if servico.send_email(
+                to_email=email,
+                subject=f"[Sky] {titulo}: {ticket.subject}"[:200],
+                html_content=corpo,
+            ):
+                saidos += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "ticket_email_falhou",
+                extra={"ticket_id": str(ticket.id), "para": email, "erro": str(exc)},
+            )
+    return saidos
+
+
+async def _avisar_a_sky_sem_conteudo(ticket: Ticket) -> None:
+    """Aviso à SKY de que existe um pedido — e mais nada.
+
+    ⚠️ Nunca leva `subject`, `body` nem `context`. O portão de
+    privacidade de 29/04/2026 continua inteiro: o conteúdo só chega à
+    SKY quando alguém do lado do cliente escala.
+
+    O que leva é o que permite responder a tempo: que cliente, que
+    categoria, que gravidade, e o identificador para quem for lá ver.
+    """
+    url = (settings.TICKET_ESCALATION_WEBHOOK_URL or "").strip()
+    if not url:
+        return
+
+    from src.core.tenant_context import current_tenant
+
+    ctx = current_tenant()
+    corpo = {
+        "evento": "pedido_criado",
+        "ticket_id": str(ticket.id),
+        "cliente": getattr(ctx, "slug", None) if ctx else None,
+        "categoria": ticket.category,
+        "gravidade": ticket.severity,
+        "criado_em": ticket.created_at.isoformat() if ticket.created_at else None,
+    }
+    headers = {"Content-Type": "application/json"}
+    if settings.TICKET_ESCALATION_WEBHOOK_TOKEN:
+        headers["Authorization"] = f"Bearer {settings.TICKET_ESCALATION_WEBHOOK_TOKEN}"
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=5.0) as cliente:
+            await cliente.post(url, json=corpo, headers=headers)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("aviso_a_sky_falhou", extra={"erro": str(exc)})
