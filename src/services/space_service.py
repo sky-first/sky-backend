@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import BackgroundTasks
+
 # `select` era usado em cinco sítios deste ficheiro e nunca importado ao
 # nível do módulo. Cada um deles rebentava com `NameError: name 'select' is
 # not defined` — e os cinco são exactamente o bloco que dá acesso a quem
@@ -98,24 +99,37 @@ class SpaceService:
             List[SpaceResponse]: List of spaces
 
         Notes:
-            Tenant owner / admin / sky_operator see ALL non-deleted
-            Spaces (including demo ones they didn't personally create
-            or join). Lucas reported missing demo Spaces in his
-            sidebar — he is owner of the tenant and should see every
-            Space the demo flow has provisioned.
+            ── Lista-se o que se abre. ────────────────────────────────
+
+            Isto tinha um atalho: `owner`/`admin`/`super_admin` recebiam
+            **todos** os projectos do cliente, por `get_all_with_stats`.
+            A docstring explicava porquê — o Lucas, dono do cliente, não
+            via as demonstrações na barra lateral.
+
+            Só que o **abrir** nunca teve atalho nenhum. As duas vias
+            discordavam, e quem estivesse do lado errado da discordância
+            via uma porta que não abre:
+
+                «ele está podendo listar mas quando ele entra ele toma
+                 um erro»  — Lucas, 05/10/2026, sobre o Felipe
+
+            O mesmo defeito já tinha sido corrigido nas equipas; o
+            `crew_service` tem o comentário SECURITY a dizê-lo.
+
+            Agora toda a gente vê o que é seu — por pertença directa ou
+            por pertencer a uma equipa lá dentro, que o
+            `get_by_user_with_stats` já cobre. Quem criou um projecto
+            continua a vê-lo: a criação adiciona o criador como membro.
+
+            E o que o Lucas precisava, que era ver as demonstrações,
+            resolve-se pelo sítio certo — o interruptor das definições,
+            que cria uma pertença a sério. Ver
+            `docs/quem-ve-que-projectos.md`.
         """
         try:
-            is_admin_like = getattr(user, "role", None) in (
-                "admin",
-                "owner",
-                "super_admin",
-            ) or getattr(user, "is_sky_operator", False)
-            if is_admin_like:
-                spaces_data = await self.space_repo.get_all_with_stats(skip=skip, limit=limit)
-            else:
-                spaces_data = await self.space_repo.get_by_user_with_stats(
-                    user.id, skip=skip, limit=limit
-                )
+            spaces_data = await self.space_repo.get_by_user_with_stats(
+                user.id, skip=skip, limit=limit
+            )
             result = []
             for space_data in spaces_data:
                 try:
@@ -711,14 +725,18 @@ class SpaceService:
             # O agente aponta ao projeto por `scope`/`scope_id`, e não por
             # uma coluna `space_id` — há agentes pessoais e de organização.
             agentes = (
-                await self.db.execute(
-                    select(Agent).where(
-                        Agent.scope == "space",
-                        Agent.scope_id == str(space_id),
-                        Agent.status == "active",
+                (
+                    await self.db.execute(
+                        select(Agent).where(
+                            Agent.scope == "space",
+                            Agent.scope_id == str(space_id),
+                            Agent.status == "active",
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for a in agentes:
                 a.status = "paused"
                 pausados += 1
@@ -775,9 +793,7 @@ class SpaceService:
                 )
             ).scalar_one()
             if not outros or space.created_by == user.id:
-                raise BadRequestError(
-                    "You are the only owner. Make someone else an owner first."
-                )
+                raise BadRequestError("You are the only owner. Make someone else an owner first.")
 
         linha = (
             await self.db.execute(
@@ -845,9 +861,7 @@ class SpaceService:
                 select(SpaceCrew.crew_id, SpaceCrew.role).where(SpaceCrew.space_id == space_id)
             )
         ).all():
-            self.db.add(
-                SpaceCrew(space_id=novo.id, crew_id=crew_id, role=papel, added_by=user.id)
-            )
+            self.db.add(SpaceCrew(space_id=novo.id, crew_id=crew_id, role=papel, added_by=user.id))
 
         for uid, papel in (
             await self.db.execute(
@@ -929,12 +943,15 @@ class SpaceService:
             q = q.where(or_(User.name.ilike(like), User.email.ilike(like)))
         # Pede-se mais do que se mostra porque quem já está no projeto é
         # descartado depois: pedir `limite` devolveria menos do que `limite`.
-        linhas = (await self.db.execute(q.order_by(User.name).limit(limite + len(ja_la) + 10))).scalars().all()
+        linhas = (
+            (await self.db.execute(q.order_by(User.name).limit(limite + len(ja_la) + 10)))
+            .scalars()
+            .all()
+        )
 
         fora = [u for u in linhas if u.id not in ja_la][:limite]
         return [
-            {"id": str(u.id), "name": u.name, "email": u.email, "avatar": u.avatar}
-            for u in fora
+            {"id": str(u.id), "name": u.name, "email": u.email, "avatar": u.avatar} for u in fora
         ]
 
     async def convidar_pessoa(
@@ -958,9 +975,7 @@ class SpaceService:
             raise BadRequestError("Unknown role.")
 
         alvo = (
-            await self.db.execute(
-                select(User).where(User.id == alvo_id, User.deleted_at.is_(None))
-            )
+            await self.db.execute(select(User).where(User.id == alvo_id, User.deleted_at.is_(None)))
         ).scalar_one_or_none()
         if alvo is None:
             raise NotFoundError("User not found")
@@ -1068,9 +1083,7 @@ class SpaceService:
         from src.models.crew import CrewMember
 
         convite = (
-            await self.db.execute(
-                select(ConviteAoProjeto).where(ConviteAoProjeto.id == convite_id)
-            )
+            await self.db.execute(select(ConviteAoProjeto).where(ConviteAoProjeto.id == convite_id))
         ).scalar_one_or_none()
         if convite is None:
             raise NotFoundError("Invite not found")
@@ -1177,7 +1190,9 @@ class SpaceService:
         for crew_id, nome, dono_do_projeto in linhas:
             n = (
                 await self.db.execute(
-                    select(func.count()).select_from(CrewMember).where(CrewMember.crew_id == crew_id)
+                    select(func.count())
+                    .select_from(CrewMember)
+                    .where(CrewMember.crew_id == crew_id)
                 )
             ).scalar_one()
             saida.append(
@@ -1248,9 +1263,7 @@ class SpaceService:
         if ja is not None:
             ja.role = role
         else:
-            self.db.add(
-                SpaceCrew(space_id=space_id, crew_id=crew_id, role=role, added_by=user.id)
-            )
+            self.db.add(SpaceCrew(space_id=space_id, crew_id=crew_id, role=role, added_by=user.id))
         await self.db.commit()
         logger.info(
             "equipa_no_projeto: space=%s crew=%s papel=%s por=%s",
@@ -1933,3 +1946,85 @@ class SpaceService:
             },
             activity_feed=activity_feed,
         )
+
+    # ── Adesão aos projectos de demonstração ────────────────────────
+    #
+    # O interruptor das definições. Ligado, a pessoa entra sozinha nos
+    # projectos marcados `is_demo`; desligado, sai.
+    #
+    # Cria uma **pertença a sério** e não um caso especial na listagem.
+    # A razão está em `docs/quem-ve-que-projectos.md`: filtrar só a
+    # lista repunha o defeito que isto veio corrigir — ver o projecto e
+    # não o conseguir abrir, porque o `get_page` e os painéis continuam
+    # a pedir pertença. Com uma linha de `SpaceMember`, todo o resto do
+    # produto funciona sem saber que isto existe.
+
+    async def aderir_as_demonstracoes(self, user: User) -> int:
+        """Entra em todos os `is_demo` onde ainda não está. Devolve quantos."""
+        demos = (
+            (
+                await self.db.execute(
+                    select(Space.id).where(
+                        Space.is_demo.is_(True),
+                        Space.deleted_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not demos:
+            return 0
+
+        ja = set(
+            (
+                await self.db.execute(
+                    select(SpaceMember.space_id).where(
+                        SpaceMember.user_id == user.id,
+                        SpaceMember.space_id.in_(demos),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        novos = 0
+        for space_id in demos:
+            if space_id in ja:
+                # Já lá está, por convite ou por ter ligado isto antes.
+                # Não se mexe na linha existente: se foi um convite, tem
+                # de continuar a ser um convite, senão o desligar
+                # apagava-a.
+                continue
+            self.db.add(
+                SpaceMember(
+                    space_id=space_id,
+                    user_id=user.id,
+                    role="viewer",
+                    origem="auto_demo",
+                )
+            )
+            novos += 1
+        await self.db.commit()
+        return novos
+
+    async def sair_das_demonstracoes(self, user: User) -> int:
+        """Sai dos `is_demo` — e só das pertenças que o interruptor criou.
+
+        ⚠️ O filtro por `origem == "auto_demo"` é o que impede isto de
+        tirar um acesso que alguém deu de propósito. Usamos projectos de
+        demonstração para formação, e quem lá foi **convidado** não pode
+        perder o acesso por mexer num interruptor de arrumação.
+        """
+        from sqlalchemy import delete
+
+        demos = select(Space.id).where(Space.is_demo.is_(True))
+        res = await self.db.execute(
+            delete(SpaceMember).where(
+                SpaceMember.user_id == user.id,
+                SpaceMember.origem == "auto_demo",
+                SpaceMember.space_id.in_(demos),
+            )
+        )
+        await self.db.commit()
+        return res.rowcount or 0

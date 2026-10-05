@@ -13,7 +13,7 @@ from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session, require_service_principal
 from src.config.settings import settings
 from src.core.exceptions import BaseAPIException
-from src.core.locale import DEFAULT_LOCALE, get_message
+from src.core.locale import DEFAULT_LOCALE, get_message, lingua_da_resposta
 from src.middleware.request_limits import depth_guard_dependency
 from src.models.user import User
 from src.rate_limit.core import (
@@ -225,7 +225,10 @@ async def process_query(
     # Locale fallback — same pattern as /chat and /chat/stream.
     prefs = current_user.preferences or {}
     if query_data.locale is None:
-        query_data.locale = prefs.get("language", DEFAULT_LOCALE)
+        # A língua das RESPOSTAS, que pode diferir da da interface.
+        # Ver `lingua_da_resposta` — o caso é dados em inglês e quem
+        # lê a querer castelhano.
+        query_data.locale = lingua_da_resposta(prefs)
 
     # **`"auto"` é uma escolha, e não uma ausência.**
     #
@@ -614,7 +617,7 @@ async def send_chat_message(
     if message_data.ai_style is None:
         message_data.ai_style = prefs.get("ai_style")
     if message_data.locale is None:
-        message_data.locale = prefs.get("language", "pt")
+        message_data.locale = lingua_da_resposta(prefs)
 
     # **`"auto"` é uma escolha, e não uma ausência.**
     #
@@ -770,7 +773,7 @@ async def send_chat_message_stream(
     if message_data.ai_style is None:
         message_data.ai_style = prefs.get("ai_style")
     if message_data.locale is None:
-        message_data.locale = prefs.get("language", "pt")
+        message_data.locale = lingua_da_resposta(prefs)
 
     # **`"auto"` é uma escolha, e não uma ausência.**
     #
@@ -995,9 +998,7 @@ async def send_chat_message_stream(
             bundled_comment_ids: List = []
             if persist_turn and conv_id is not None:
                 try:
-                    pending = await MessageService(db).list_pending_comments(
-                        conv_id, current_user
-                    )
+                    pending = await MessageService(db).list_pending_comments(conv_id, current_user)
                     if pending:
                         question_for_ai = MessageService.build_bundled_prompt(
                             message_data.message, pending
@@ -1643,7 +1644,7 @@ async def generate_sql(
     """
     if request.locale is None:
         prefs = current_user.preferences or {}
-        request.locale = prefs.get("language", DEFAULT_LOCALE)
+        request.locale = lingua_da_resposta(prefs)
 
     ai_service = AIService(db)
     return await ai_service.generate_sql(current_user.id, request)

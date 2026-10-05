@@ -16,7 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
-from src.core.locale import DEFAULT_LOCALE, get_message, normalize_locale
+from src.core.locale import (
+    DEFAULT_LOCALE,
+    get_message,
+    lingua_da_resposta,
+    normalize_locale,
+)
 from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.user import User
 
@@ -634,9 +639,7 @@ async def run_agent_stream(
                 conn_id = await _ai_svc._get_first_active_connection(current_user.id)
 
         if not conn_id and monitor_type != "context":
-            _err_locale = normalize_locale(
-                (current_user.preferences or {}).get("language", DEFAULT_LOCALE)
-            )
+            _err_locale = lingua_da_resposta(current_user.preferences)
             yield f"data: {json.dumps({'type': 'error', 'message': get_message('no_data_source_agent', _err_locale)})}\n\n"
             return
 
@@ -810,9 +813,7 @@ async def run_agent_stream(
                 [_extract_table_name(tid) for tid in table_ids] if table_ids else None
             ) or None
             effective_datasets = sql_table_hints or table_names
-            _agent_locale = normalize_locale(
-                (current_user.preferences or {}).get("language", DEFAULT_LOCALE)
-            )
+            _agent_locale = lingua_da_resposta(current_user.preferences)
             async for line in ai_client.stream_query_connection(
                 connection_id=conn_id,
                 question=question,

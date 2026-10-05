@@ -881,3 +881,35 @@ async def get_space_stats(
     """
     space_service = SpaceService(db)
     return await space_service.get_space_stats(space_id, current_user)
+
+
+# ── Adesão aos projectos de demonstração ────────────────────────────
+#
+# Fica fora de `/spaces/{id}/members` de propósito: isto não é gerir a
+# pertença de outra pessoa, é cada um decidir por si. A permissão é
+# implícita — basta estar autenticado — porque `is_demo` são, por
+# definição, projectos sem dados de ninguém.
+#
+# Ver `docs/quem-ve-que-projectos.md`.
+
+
+@router.put(
+    "/demonstracoes/adesao",
+    status_code=status.HTTP_200_OK,
+    summary="Entrar ou sair dos projectos de demonstração",
+)
+async def adesao_as_demonstracoes(
+    activa: bool = Query(..., description="true entra, false sai"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    servico = SpaceService(db)
+    if activa:
+        return {
+            "activa": True,
+            "projectos_adicionados": await servico.aderir_as_demonstracoes(current_user),
+        }
+    return {
+        "activa": False,
+        "projectos_removidos": await servico.sair_das_demonstracoes(current_user),
+    }
