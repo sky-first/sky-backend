@@ -286,3 +286,33 @@ def get_message(key: str, locale: str | None = None) -> str:
     resolved = normalize_locale(locale)
     bucket = _MESSAGES.get(key, {})
     return bucket.get(resolved) or bucket.get(DEFAULT_LOCALE) or key
+
+
+def lingua_da_resposta(preferences: dict | None) -> str:
+    """A língua em que a IA responde.
+
+    ── Duas definições, não uma ────────────────────────────────────
+
+    > «tem pessoas que falam mais idiomas, querem a plataforma de uma
+    >  forma, e querem a resposta de outra, por causa dos dados»
+    > — Lucas, 05/10/2026
+
+    O caso concreto: uma empresa espanhola cujos dados — tabelas, nomes
+    de colunas — estão em inglês. É preciso ler o dado em inglês e
+    responder em castelhano. A língua do dado é o que é; a de quem lê é
+    uma escolha.
+
+    Até aqui havia uma só preferência, `language`, a servir as duas
+    coisas. Agora `answer_language` sobrepõe-se quando existe.
+
+    ⚠️ Vazio **não** é «inglês»: é «como a interface». Um `or` simples
+    sobre a string vazia dá exactamente o comportamento certo, e é por
+    isso que o valor por omissão é `""` e não `None` — uma preferência
+    gravada como `""` lê-se igual a uma que nunca foi gravada, que é o
+    que queremos.
+    """
+    prefs = preferences or {}
+    escolhida = (prefs.get("answer_language") or "").strip()
+    if escolhida:
+        return normalize_locale(escolhida)
+    return normalize_locale(prefs.get("language", DEFAULT_LOCALE))

@@ -1,79 +1,79 @@
-"""A língua da resposta: «segue a minha pergunta» tem de querer dizer isso.
+# -*- coding: utf-8 -*-
+"""A língua das respostas pode diferir da da interface.
 
-> *"Responde em inglês num telemóvel em português."* — Lucas, item 7.1
+> «tem pessoas que falam mais idiomas, querem a plataforma de uma forma,
+>  e querem a resposta de outra, por causa dos dados» — Lucas, 05/10/2026
 
-**O que estava a acontecer.** O telemóvel tem duas definições separadas, e de
-propósito: a língua **da app** e a língua em que **a Sky responde**. A segunda
-tem um modo automático — «segue a sua pergunta» — que era enviado ao servidor
-**por omissão**: não se mandava campo nenhum.
+O caso concreto que ele deu: uma empresa espanhola cujos dados — tabelas,
+nomes de colunas — estão em inglês. É preciso ler o dado em inglês e
+responder em castelhano.
 
-Só que o servidor lê a ausência do campo como *«este cliente é antigo e não
-sabe disto»*, e cai na preferência guardada::
+Até aqui havia uma preferência só, `language`, a servir a interface e a
+IA ao mesmo tempo.
 
-    if message_data.locale is None:
-        message_data.locale = prefs.get("language", "pt")
+── O que NÃO mudou, e é importante ─────────────────────────────────
 
-O silêncio queria dizer duas coisas ao mesmo tempo. Quem tinha a app em
-inglês, escolhia «segue a minha pergunta» e escrevia em português, recebia
-**inglês** — e tinha escolhido explicitamente o contrário.
-
-**A correcção** é dizer `auto` por palavras. A ausência continua a valer o que
-sempre valeu (cliente antigo → preferência guardada), e a escolha passa a ter
-como se exprimir.
+A resposta continua a seguir **quem pergunta**, nunca os dados nem o
+projecto. Assinalei isso como defeito a 04/10 e estava errado. O que se
+acrescenta é poder dizer «a interface em português, as respostas em
+castelhano» — não é o dado a decidir.
 """
 
-import inspect
+from __future__ import annotations
 
 import pytest
 
-from src.api.v1 import ai as rotas
-from src.schemas.ai import AIQueryRequest
+from src.core.locale import DEFAULT_LOCALE, lingua_da_resposta
 
 
-def test_auto_sobrevive_ao_esquema():
-    """Se o validador o normalizasse para `pt`, a escolha morria à entrada."""
-    assert AIQueryRequest(question="x", locale="auto").locale == "auto"
-    assert AIQueryRequest(question="x", locale="AUTO").locale == "auto"
-    assert AIQueryRequest(question="x", locale=" auto ").locale == "auto"
+def test_sem_escolha_segue_a_interface():
+    assert lingua_da_resposta({"language": "pt"}) == "pt"
+    assert lingua_da_resposta({"language": "es"}) == "es"
 
 
-@pytest.mark.parametrize("dito,esperado", [("pt", "pt"), ("en", "en"), ("pt-PT", "pt")])
-def test_uma_lingua_escolhida_continua_a_valer(dito, esperado):
-    """O `auto` não pode ter estragado o caminho normal."""
-    assert AIQueryRequest(question="x", locale=dito).locale == esperado
+def test_a_escolha_sobrepoe_se_a_interface():
+    # O caso do Lucas: plataforma numa língua, respostas noutra.
+    assert lingua_da_resposta({"language": "pt", "answer_language": "es"}) == "es"
+    assert lingua_da_resposta({"language": "es", "answer_language": "en"}) == "en"
 
 
-def test_nao_dizer_nada_continua_a_ser_nao_dizer_nada():
-    """**A distinção que faltava.**
+@pytest.mark.parametrize("vazio", ["", "   ", None])
+def test_vazio_quer_dizer_como_a_interface_e_nao_ingles(vazio):
+    """O engano mais fácil de cometer aqui.
 
-    Ausência = cliente antigo, e aí a preferência guardada vale. É o
-    comportamento de sempre, e não se toca nele.
+    «Como a interface» grava-se como string vazia. Se alguém trocar o
+    `or` por um `if is not None`, a string vazia passa a ser uma escolha
+    e toda a gente recebe respostas na língua por omissão.
     """
-    assert AIQueryRequest(question="x").locale is None
+    assert lingua_da_resposta({"language": "es", "answer_language": vazio}) == "es"
 
 
-def test_o_servidor_converte_auto_em_deixa_o_motor_detectar():
-    """Passar a palavra `auto` ao motor era pedir-lhe resposta em «auto».
+def test_sem_preferencias_nenhumas():
+    assert lingua_da_resposta({}) == DEFAULT_LOCALE
+    assert lingua_da_resposta(None) == DEFAULT_LOCALE
 
-    A conversão é **depois** da queda para as preferências: se fosse antes, o
-    `auto` virava `None` e a linha seguinte enchia-o com a preferência
-    guardada — exactamente o defeito que se está a corrigir.
+
+def test_normaliza_o_que_vier():
+    # `es-MX` é castelhano; o catálogo só tem `es`.
+    assert lingua_da_resposta({"answer_language": "es-MX"}) == "es"
+    assert lingua_da_resposta({"language": "pt-BR"}) == "pt"
+
+
+def test_os_tres_caminhos_da_ia_usam_o_resolvedor():
+    """Chat, mensagens e agentes — os três, ou nenhum serve.
+
+    Deixar um a ler `preferences["language"]` directamente dava um
+    produto onde a conversa respeita a escolha e o agente não; e a
+    pessoa não tem como saber porquê.
     """
-    fonte = inspect.getsource(rotas)
-    assert fonte.count('locale", None) == "auto"') >= 2, (
-        "algum caminho de pergunta deixou de honrar o «segue a minha pergunta»"
-    )
-    # A ordem importa: a conversão vem depois do `prefs.get`.
-    i_prefs = fonte.index('prefs.get("language"')
-    i_auto = fonte.index('locale", None) == "auto"')
-    assert i_auto > i_prefs
+    import inspect
 
+    from src.api.v1 import agents, ai
 
-def test_os_tres_caminhos_de_pergunta_estao_cobertos():
-    """`/ai/query`, `/ai/chat` e `/ai/chat/stream`.
-
-    O telemóvel usa o streaming; a web usa os outros. Corrigir um só deixava
-    o mesmo defeito no ecrã ao lado.
-    """
-    fonte = inspect.getsource(rotas)
-    assert fonte.count('locale", None) == "auto"') == 3
+    for modulo in (ai, agents):
+        fonte = inspect.getsource(modulo)
+        sem_comentarios = "\n".join(l for l in fonte.splitlines() if not l.strip().startswith("#"))
+        assert (
+            'get("language"' not in sem_comentarios
+        ), f"{modulo.__name__} voltou a ler a língua da interface para a IA"
+        assert "lingua_da_resposta" in sem_comentarios
