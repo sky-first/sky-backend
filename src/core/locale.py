@@ -133,6 +133,13 @@ _MESSAGES: dict[str, dict[str, str]] = {
     # Essa frase tinha um segundo problema: mandava abrir um pedido de
     # apoio e não havia botão nenhum para o abrir. Agora não promete o
     # que o ecrã não dá.
+    # O agente correu e nao devolveu nada. Era «Run produced no output
+    # (nome)», em ingles, e aparecia na lista de descobertas.
+    "agent_run_no_output": {
+        "pt": "a corrida não devolveu nada",
+        "en": "the run produced no output",
+        "es": "la ejecución no ha devuelto nada",
+    },
     "chat_error_generic": {
         "pt": "A Sky não conseguiu responder agora. Tente outra vez.",
         "en": "Sky couldn't answer right now. Please try again.",

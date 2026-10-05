@@ -518,9 +518,7 @@ async def run_agent_now(
         # conta», nao «recusa-te quando eu te pergunto».
         execute_agent.delay(str(agent_id), a_pedido=True)
     except Exception as e:
-        logging.getLogger(__name__).error(
-            f"Could not enqueue agent task: {e}", exc_info=True
-        )
+        logging.getLogger(__name__).error(f"Could not enqueue agent task: {e}", exc_info=True)
         from fastapi import HTTPException
 
         raise HTTPException(
@@ -549,9 +547,7 @@ async def run_agent_now(
         conversa = await ensure_agent_conversation(db, agent) or conversa
         await db.commit()
     except Exception as e:  # noqa: BLE001
-        logging.getLogger(__name__).warning(
-            "Could not open the agent's conversation: %s", e
-        )
+        logging.getLogger(__name__).warning("Could not open the agent's conversation: %s", e)
 
     return {
         "message": "Agent execution started",
@@ -914,10 +910,16 @@ async def run_agent_stream(
                     execution_id=execution_id,
                     type="insight",
                     severity="medium" if has_answer else "low",
+                    # Sem inglês cravado — ver a nota em `agent_worker`.
+                    # O caso sem resposta mantém um texto, mas vai ao
+                    # catálogo: ali há de facto uma frase a dizer, e a
+                    # língua de quem lê vem no pedido.
                     title=(
-                        (collected_meta.get("title") or f"Analysis from {agent.name}")[:500]
+                        (collected_meta.get("title") or agent.name)[:500]
                         if has_answer
-                        else f"Run produced no output ({agent.name})"[:500]
+                        else f"{agent.name} — {get_message('agent_run_no_output', _agent_locale)}"[
+                            :500
+                        ]
                     ),
                     description=(
                         collected_answer[:3000]
@@ -1033,7 +1035,9 @@ async def list_all_insights(
             await db.execute(
                 select(SpaceMember.space_id).where(SpaceMember.user_id == current_user.id)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     ]
     member_crew_ids = [
         str(cid)
@@ -1041,7 +1045,9 @@ async def list_all_insights(
             await db.execute(
                 select(CrewMember.crew_id).where(CrewMember.user_id == current_user.id)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     ]
     clauses = [Agent.created_by == current_user.id]
     if member_space_ids:
@@ -1073,9 +1079,7 @@ async def list_all_insights(
     from src.models.space import Space
 
     crew_ids = {
-        str(a.scope_id)
-        for _, a in pairs
-        if (a.scope or "").lower() == "crew" and a.scope_id
+        str(a.scope_id) for _, a in pairs if (a.scope or "").lower() == "crew" and a.scope_id
     }
     page_ids = {str(f.added_to_page_id) for f, _ in pairs if f.added_to_page_id}
 
@@ -1136,9 +1140,7 @@ async def list_findings(
     # Content gate (Option B): a crew/space-scoped agent's findings require
     # membership of that crew/space — no platform-role bypass. Personal
     # agents: only the creator.
-    agent_row = (
-        await db.execute(select(Agent).where(Agent.id == agent_id))
-    ).scalar_one_or_none()
+    agent_row = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
     if agent_row is not None:
         scope_str = (agent_row.scope or "").lower()
         scope_id_val = agent_row.scope_id
