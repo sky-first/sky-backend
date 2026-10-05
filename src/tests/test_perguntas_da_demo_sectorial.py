@@ -155,3 +155,50 @@ def test_o_formatador_aguenta_um_nulo():
     # escrito tudo o resto.
     for f in (n, eur, euro2, pct):
         assert f(None) == "—"
+
+
+# ── Cada pergunta na sua página ─────────────────────────────────────
+
+
+def test_a_pagina_declarada_existe(sector: Sector):
+    """Um nome mal escrito põe o fio numa página que ninguém abre.
+
+    O `uuid5` não se queixa: gera um identificador perfeitamente válido
+    para uma página inexistente, e a conversa desaparece sem erro.
+    """
+    nomes = {p.nome for p in sector.paginas}
+    enganos = [p.pagina for p in sector.perguntas if p.pagina and p.pagina not in nomes]
+    assert not enganos, f"{sector.chave}: {enganos}"
+
+
+def test_nenhuma_pagina_fica_sem_conversa(sector: Sector):
+    """O defeito que isto corrige.
+
+    Estavam as cinco na primeira página, porque o motor usava
+    `sector.paginas[0]` para todas. Abrir «Merma» ou «Capital parado»
+    dava um painel cheio e um chat vazio — e numa demonstração é
+    exactamente onde se vai a seguir: mostra-se o painel e pergunta-se
+    sobre ele.
+    """
+    com_conversa = {p.pagina for p in sector.perguntas if p.pagina}
+    sem = {p.nome for p in sector.paginas} - com_conversa
+    assert not sem, f"{sector.chave}: páginas sem nenhuma pergunta — {sorted(sem)}"
+
+
+def test_a_pergunta_fala_do_que_a_pagina_mostra(sector: Sector):
+    """Contrapeso ao teste acima: espalhar não pode ser ao calhas.
+
+    Uma pergunta sobre merma na página do pessoal cumpriria «nenhuma
+    página sem conversa» e seria pior do que tê-las todas juntas. As
+    ligações que a pergunta usa têm de ser as mesmas que algum widget
+    dessa página usa.
+    """
+    por_pagina = {p.nome: {w.esquema for w in p.widgets} for p in sector.paginas}
+    for pq in sector.perguntas:
+        if not pq.pagina:
+            continue
+        da_pagina = por_pagina[pq.pagina]
+        assert set(pq.esquemas) & da_pagina, (
+            f"{sector.chave} / {pq.texto}: está na página «{pq.pagina}», que "
+            f"mostra {sorted(da_pagina)}, e a pergunta usa {sorted(pq.esquemas)}"
+        )

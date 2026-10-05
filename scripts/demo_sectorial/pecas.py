@@ -313,6 +313,15 @@ class Pergunta:
     esquemas: list[str]
     sql: str
     resposta: Callable[[list[dict]], str]
+    # A página onde o fio fica pendurado, pelo nome.
+    #
+    # Estavam todas na primeira página do sector, porque o motor usava
+    # `sector.paginas[0]` para todas. As outras três abriam sem conversa
+    # nenhuma, e numa demonstração é exactamente onde se vai a seguir:
+    # mostra-se o painel da merma e pergunta-se sobre a merma.
+    #
+    # Vazio mantém o comportamento antigo — a primeira página.
+    pagina: str = ""
 
 
 @dataclass

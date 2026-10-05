@@ -252,9 +252,28 @@ class ConnectionService:
             await self.sync_connection(connection.id, user)
             # Reload connection to include updated status/last_sync fields
             connection = await self.connection_repo.get_by_id(connection.id) or connection
-        except Exception:
-            # Swallow sync errors here; detailed error handling happens inside sync_connection
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Não rebenta a criação — a ligação existe e é válida — mas
+            # também não desaparece.
+            #
+            # Isto era `pass`, sem linha nenhuma. Uma ligação sem
+            # metadados parece inteira e recusa todas as perguntas: o
+            # `sky-ai` responde 404 ao `/query` e o utilizador recebe uma
+            # mensagem sobre o serviço de IA, que está bom.
+            #
+            # Custou-nos uma demonstração a 04/10/2026, por outro
+            # caminho — um semeador que escrevia as linhas directamente e
+            # saltava este passo. A causa foi a mesma: ninguém soube que
+            # a sincronização não tinha acontecido.
+            logger.warning(
+                "ligacao_criada_sem_metadados",
+                extra={
+                    "connection_id": str(connection.id),
+                    "erro": str(exc),
+                    "consequencia": "a conversa e os agentes vão recusar "
+                    "as perguntas desta ligação até ela ser sincronizada",
+                },
+            )
 
         return ConnectionResponse.model_validate(connection)
 
@@ -310,9 +329,7 @@ class ConnectionService:
 
         return ConnectionResponse.model_validate(connection)
 
-    async def _apagar_se_a_tabela_existir(
-        self, tabela: str, sql: str, params: dict
-    ) -> None:
+    async def _apagar_se_a_tabela_existir(self, tabela: str, sql: str, params: dict) -> None:
         """Corre ``sql`` só se ``tabela`` existir nesta base de dados.
 
         As bases dos clientes (Modelo B) recebem apenas as migrações do
@@ -323,9 +340,7 @@ class ConnectionService:
         ``to_regclass`` devolve NULL em vez de levantar, que é exactamente a
         pergunta que queremos fazer.
         """
-        existe = (
-            await self.db.execute(text("SELECT to_regclass(:t)"), {"t": tabela})
-        ).scalar()
+        existe = (await self.db.execute(text("SELECT to_regclass(:t)"), {"t": tabela})).scalar()
         if existe is None:
             logger.info(
                 "[DELETE SERVICE] tabela '%s' não existe nesta base — nada a limpar",
