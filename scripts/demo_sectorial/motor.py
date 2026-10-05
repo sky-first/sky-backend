@@ -430,7 +430,18 @@ async def semear(
     # ninguém vê.
     n_perguntas = 0
     if sector.perguntas:
-        primeira = _id(sector.chave, "page", sector.paginas[0].nome)
+        # Uma página declarada que não existe põe o fio num espaço de
+        # nomes que ninguém abre — e o `uuid5` não se queixa, gera um
+        # identificador perfeitamente válido para uma página inexistente.
+        nomes_das_paginas = {pg.nome for pg in sector.paginas}
+        enganos = {
+            pq.pagina for pq in sector.perguntas if pq.pagina and pq.pagina not in nomes_das_paginas
+        }
+        if enganos:
+            raise SementeiraRecusada(
+                "perguntas apontadas a páginas que não existem: " + ", ".join(sorted(enganos))
+            )
+        primeira = sector.paginas[0].nome
         motor_demo = create_async_engine(_dsn_da_demo(), pool_pre_ping=True)
         try:
             for pq in sector.perguntas:
@@ -441,7 +452,7 @@ async def semear(
                 if conv is None:
                     conv = Conversation(
                         id=cid,
-                        page_id=primeira,
+                        page_id=_id(sector.chave, "page", pq.pagina or primeira),
                         space_id=espaco.id,
                         crew_id=equipa.id,
                         title=pq.texto,
@@ -450,6 +461,15 @@ async def semear(
                     db.add(conv)
                 else:
                     conv.title = pq.texto
+                    # ⚠️ A página também, e não só o título.
+                    #
+                    # Sem esta linha, a segunda passagem encontrava o fio
+                    # pelo `uuid5(sector, "conv", texto)` e deixava-o onde
+                    # estava. Mudei as perguntas de página, voltei a
+                    # semear, e as cinco continuaram todas na primeira —
+                    # com o semeador a dizer «gravado» e a não gravar
+                    # isto.
+                    conv.page_id = _id(sector.chave, "page", pq.pagina or primeira)
                 await db.flush()
 
                 # Duas mensagens com identificadores derivados, para a
