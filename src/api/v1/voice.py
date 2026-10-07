@@ -116,15 +116,60 @@ async def _resolve_voice_tenant(claims: dict):
     return result.context if result.resolution is DeviceResolution.RESOLVED else None
 
 
+#: Devolvido quando não há nada a responder por uma razão legítima — o
+#: projeto não tem ligações que esta pessoa alcance. É silêncio POR
+#: DESENHO, e o turno acaba calado.
+SEM_DADOS_PARA_RESPONDER = ""
+
+#: Devolvido quando a resposta falhou. Separado do silêncio legítimo de
+#: propósito: do lado de lá os dois eram o mesmo nada, e a app não tinha
+#: como dizer «não consegui» em vez de ficar à espera para sempre.
+FALHOU_A_RESPOSTA = None
+
+
+class _RespostaFalhou(Exception):
+    """A resposta do turno falhou — tratada pelo `except` do `do_turn`.
+
+    Existe para a falha de dentro do `_voice_answer` seguir exactamente o
+    mesmo caminho das outras: um `turn_failed` para o cliente e a palavra
+    devolvida a quem está a falar. Dois caminhos para «o turno falhou»
+    divergem à primeira mudança, e o segundo é o que ninguém testa.
+    """
+
+
 async def _voice_answer(
     user, page_id, text: str, ctx, locale: str = "en", space_id: str | None = None
-) -> str:
+) -> str | None:
     """The grounded answer for one voice turn — the same Bedrock engine as chat.
 
     Resolves the caller's connection and asks the AI engine, so a spoken
-    question gets the same data-grounded answer the typed chat gives. Returns
-    "" on any failure (the turn simply yields no TTS instead of erroring).
+    question gets the same data-grounded answer the typed chat gives.
     Runs against ``ctx``'s tenant database, never the platform default.
+
+    ── Três resultados, e não dois ─────────────────────────────────
+
+    * uma resposta — fala-se;
+    * ``SEM_DADOS_PARA_RESPONDER`` (``""``) — o projeto não tem dados
+      que esta pessoa alcance. Calar é a resposta certa;
+    * ``FALHOU_A_RESPOSTA`` (``None``) — avariou. Quem está do outro
+      lado tem de ouvir que avariou.
+
+    Isto era um só: ``except Exception: return ""``, **sem registo
+    nenhum**. Duas consequências, e as duas foram vistas:
+
+    > «o live talk em si está funcionando. Eu falo e ele pega a minha
+    >  voz e escreve. O que não está funcionando é que o Sky fica
+    >  pensando» — Lucas, 06/10/2026
+
+    A primeira: o ``do_turn`` faz ``if answer:`` e, com ``""``, salta o
+    bloco inteiro — nem texto, nem voz, nem erro. Do lado de lá é o
+    microfone aberto e nada a acontecer, que é o mesmo silêncio que já
+    foi corrigido duas vezes noutros sítios deste produto.
+
+    A segunda, e pior: **a razão era destruída**. Sem um registo não há
+    como saber se foi o motor, se foi a ligação, se foi o cliente — e
+    sem isso a correcção seguinte é um palpite. Agora fica escrito, com
+    o cliente, o projeto e a ligação.
     """
     import json as _json
 
@@ -166,7 +211,7 @@ async def _voice_answer(
                         space_id,
                         user.id,
                     )
-                    return ""
+                    return SEM_DADOS_PARA_RESPONDER
                 escolhida = await servico._get_first_active_connection_for_space(  # noqa: SLF001
                     user.id, space_id, text
                 )
@@ -179,7 +224,14 @@ async def _voice_answer(
                 # própria pessoa é o âmbito certo.
                 conn_id = await servico._get_first_active_connection(user.id)  # noqa: SLF001
         if not conn_id:
-            return ""
+            # Também silêncio legítimo: há ligações no projeto, mas nenhuma
+            # que sirva esta pergunta.
+            logger.info(
+                "voice: nenhuma ligação escolhida (space=%s, user=%s)",
+                space_id,
+                user.id,
+            )
+            return SEM_DADOS_PARA_RESPONDER
         # Use the same streaming path as /ai/chat/stream — the non-streaming
         # /query rejects space_id="default" (UserContext UUID validation).
         answer = ""
@@ -204,9 +256,41 @@ async def _voice_answer(
                 answer += ev.get("content", "")
             elif ev.get("type") == "answer":
                 answer = ev.get("text", answer)
-        return answer.strip()
+            elif ev.get("type") == "error":
+                # O motor diz que falhou. Era lido como «não disse nada»,
+                # porque só os tipos `chunk` e `answer` eram olhados — e a
+                # sessão ficava muda com a razão escrita no evento que
+                # ninguém leu.
+                logger.error(
+                    "voice: o motor devolveu erro (conn=%s, space=%s, tenant=%s): %s",
+                    conn_id,
+                    space_id,
+                    getattr(ctx, "slug", "?"),
+                    str(ev.get("message") or ev.get("code") or ev)[:500],
+                )
+                return FALHOU_A_RESPOSTA
+        limpa = answer.strip()
+        if not limpa:
+            # O motor respondeu sem erro E sem texto. É uma avaria nossa, não
+            # uma conclusão sobre os dados — e sem este registo não há como
+            # distinguir as duas no dia seguinte.
+            logger.error(
+                "voice: o motor não devolveu texto (conn=%s, space=%s, tenant=%s)",
+                conn_id,
+                space_id,
+                getattr(ctx, "slug", "?"),
+            )
+            return FALHOU_A_RESPOSTA
+        return limpa
     except Exception:
-        return ""
+        # `exception` e não `pass`. Era aqui que a razão morria.
+        logger.exception(
+            "voice: a resposta falhou (space=%s, tenant=%s, user=%s)",
+            space_id,
+            getattr(ctx, "slug", "?"),
+            getattr(user, "id", "?"),
+        )
+        return FALHOU_A_RESPOSTA
 
 
 @router.post(
@@ -497,9 +581,26 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             # antes de este parâmetro existir — e o efeito não era um erro
             # visível, era a sessão a ficar muda: o telemóvel com o microfone
             # aberto e nada a acontecer, para sempre. Ver o `except` abaixo.
-            answer = (
-                await _voice_answer(user, page_id, user_text, ctx, locale, space_id=space_id)
-            ).strip()
+            resposta = await _voice_answer(
+                user, page_id, user_text, ctx, locale, space_id=space_id
+            )
+            if resposta is FALHOU_A_RESPOSTA:
+                # **Avariou, e diz-se.**
+                #
+                # Era `""` e caía no `if answer:` abaixo, que saltava o bloco
+                # inteiro: nem texto, nem voz, nem erro. O telemóvel ficava no
+                # «a pensar» e depois a ouvir outra vez, sem nada pelo meio.
+                #
+                # O caminho já existia — é o mesmo `turn_failed` que o `except`
+                # lá em baixo manda, e a app já sabe mostrar a frase na língua
+                # de quem lê. Só não era usado quando a falha vinha de dentro
+                # do `_voice_answer` em vez de subir como excepção.
+                #
+                # A alternativa — ficar calado — foi já rejeitada duas vezes
+                # neste produto: o silêncio não se distingue de uma avaria, e
+                # aqui nem sequer se distingue de «não há nada a responder».
+                raise _RespostaFalhou()
+            answer = (resposta or "").strip()
             if answer and not barge.is_set():
                 turns.append(VoiceTurn(role="sky", text=answer))
                 await send({"type": "sky_text", "text": answer})  # show it on screen
