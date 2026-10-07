@@ -26,7 +26,21 @@ from src.repositories import agent as repo_agentes
 
 
 def _fonte() -> str:
-    return inspect.getsource(repo_agentes.AgentRepository.list_by_scope)
+    """O caminho inteiro de «os agentes deste projecto», nas duas metades.
+
+    A condição saiu de dentro do `list_by_scope` para o
+    `agentes_do_projeto` quando o endpoint das descobertas passou a
+    precisar dela — tinha a sua própria cópia, mais simples e errada, e
+    escondia 18 descobertas em 21 agentes.
+
+    As afirmações deste ficheiro não mudaram: o que mudou foi onde o
+    código mora. Ler as duas juntas mantém-nas válidas sem as
+    enfraquecer — era a LOCALIZAÇÃO que elas fixavam, e foi isso que as
+    fez chumbar na CI sem que nada do que protegem tivesse mudado.
+    """
+    return inspect.getsource(repo_agentes.agentes_do_projeto) + inspect.getsource(
+        repo_agentes.AgentRepository.list_by_scope
+    )
 
 
 class TestPedirPeloProjeto:
@@ -68,7 +82,9 @@ class TestPedirPeloProjeto:
 
     def test_um_agente_do_proprio_projeto_continua_a_contar(self):
         """Se algum dia alguém gravar um agente com `scope="space"`."""
-        assert '(Agent.scope == "space") & (Agent.scope_id == str(scope_id))' in _fonte()
+        # `str(projeto)` depois da extracção: o parâmetro mudou de nome
+        # ao sair do método, o UUID é o mesmo.
+        assert '(Agent.scope == "space") & (Agent.scope_id == str(projeto))' in _fonte()
 
     def test_os_outros_ambitos_nao_mudaram(self):
         """`personal` e `crew` seguem o caminho simples de sempre."""
