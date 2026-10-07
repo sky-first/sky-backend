@@ -223,6 +223,40 @@ class Message(Base):
         nullable=True,
         index=True,
     )
+    # ── Uma mensagem de estado que não se repete ────────────────────
+    #
+    # Um agente corre de hora a hora. Quando não encontra nada, diz-o —
+    # e tem de o dizer, porque o silêncio não se distingue de uma
+    # avaria (ver a nota longa no `agent_worker`). Mas dizê-lo trinta
+    # vezes seguidas enche o fio:
+    #
+    # > «temos muitas mensagens dessas repetidas… Está feio e isso
+    # >  precisa arrumar» — Lucas, 06/10/2026
+    #
+    # Em vez de uma mensagem por corrida, a mesma mensagem conta as
+    # corridas. O `created_at` diz desde quando, o
+    # `ultima_repeticao_em` diz até quando, e o número diz quantas.
+    # Nenhuma informação se perde — e a repetição passa a ser legível,
+    # que é mais do que era: trinta cartões iguais escondem o facto de
+    # serem trinta.
+    #
+    # Uma mensagem normal vale 1 e nunca muda.
+    repeticoes = Column(
+        Integer,
+        nullable=False,
+        server_default="1",
+        default=1,
+    )
+    ultima_repeticao_em = Column(DateTime(timezone=True), nullable=True)
+    # A entrada do catálogo (`src/core/locale.py`) que originou o texto.
+    #
+    # O `content` continua a ser escrito e é o que se vê sem isto. Mas
+    # quem escreve é o worker, que corre sozinho e não sabe quem vai
+    # ler: o mesmo agente é lido pelo Lucas em português e por um
+    # cliente em castelhano. A chave deixa o cliente escolher a língua
+    # na altura de mostrar, que é a única altura em que ela se sabe.
+    chave_de_texto = Column(String(64), nullable=True)
+
     # Slack-style emoji reactions. Shape: {"👍": ["uuid", …], "❤️": [...]}.
     # Postgres → JSONB (indexable, efficient updates). SQLite (tests) →
     # plain JSON. The variant keeps the ORM portable while the prod

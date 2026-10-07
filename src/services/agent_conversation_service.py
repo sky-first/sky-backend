@@ -29,6 +29,7 @@ lateral.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -123,12 +124,27 @@ async def post_agent_answer(
     agent: Agent,
     answer: str,
     finding_id: Optional[UUID] = None,
+    chave_de_texto: Optional[str] = None,
 ) -> Optional[UUID]:
     """Escreve a resposta desta corrida na conversa do agente.
 
     É o passo que faz o agente "responder todos os dias no mesmo sítio". Sem
     ele, cada corrida produzia um achado que ficava fora de qualquer conversa e
     a iteração era impossível.
+
+    ── Com `chave_de_texto`, a mensagem conta-se em vez de se repetir ──
+
+    Uma resposta a sério é sempre uma mensagem nova: duas corridas que
+    encontram a mesma coisa são dois factos, mesmo que o texto saia
+    igual. Uma mensagem de ESTADO — «olhei e não há nada», «não
+    consegui» — é outra coisa: é o agente a dizer que está vivo, e isso
+    dito trinta vezes continua a ser um facto só.
+
+    Por isso o colapso é pedido explicitamente, com a chave do catálogo,
+    e não adivinhado por comparação de texto. Se fosse adivinhado, duas
+    descobertas iguais em dias diferentes fundiam-se numa — e perdia-se
+    a informação de que aconteceu duas vezes, que é precisamente a
+    informação que um agente existe para dar.
     """
     text = (answer or "").strip()
     if not text:
@@ -136,6 +152,26 @@ async def post_agent_answer(
     conv_id = await ensure_agent_conversation(db, agent)
     if conv_id is None:
         return None
+
+    if chave_de_texto:
+        anterior = await _ultima_mensagem(db, conv_id)
+        if (
+            anterior is not None
+            and anterior.role == "assistant"
+            and anterior.chave_de_texto == chave_de_texto
+        ):
+            # Só se for a ÚLTIMA. Se alguém da equipa respondeu no fio
+            # entretanto, ou se o agente encontrou algo pelo meio, a
+            # mensagem antiga ficou para trás no histórico e mexer-lhe
+            # reescrevia o passado — a nova tem de ir para o fim.
+            anterior.repeticoes = (anterior.repeticoes or 1) + 1
+            anterior.ultima_repeticao_em = datetime.now(timezone.utc)
+            await db.flush()
+            await ConversationRepository(db).update(
+                conv_id, updated_at=anterior.ultima_repeticao_em
+            )
+            return anterior.id
+
     msg = await MessageRepository(db).create(
         conversation_id=conv_id,
         role="assistant",
@@ -147,10 +183,25 @@ async def post_agent_answer(
         # pobre do que a mesma resposta no feed.
         finding_id=finding_id,
     )
+    if chave_de_texto:
+        msg.chave_de_texto = chave_de_texto
+        await db.flush()
     # Marca a conversa como mexida, para subir na lista da sala — senão a
     # resposta de hoje ficava enterrada por baixo de conversas antigas.
     await ConversationRepository(db).update(conv_id, updated_at=msg.created_at)
     return msg.id
+
+
+async def _ultima_mensagem(db: AsyncSession, conversation_id: UUID) -> Optional[Message]:
+    """A mensagem mais recente do fio, apagadas excluídas."""
+    result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .where(Message.deleted_at.is_(None))
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
 
 
 async def recent_discussion(db: AsyncSession, conversation_id: UUID) -> List[Message]:

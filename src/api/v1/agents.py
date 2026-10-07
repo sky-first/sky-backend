@@ -925,7 +925,9 @@ async def run_agent_stream(
                     description=(
                         collected_answer[:3000]
                         if has_answer
-                        else "The AI service returned no content for this run. Check the agent's focus prompt, data sources, or retry."
+                        # Inglês cravado, ao lado de um título que já vinha
+                        # traduzido duas linhas acima.
+                        else get_message("agent_run_no_output_body", _agent_locale)
                     ),
                     confidence=0.75 if has_answer else 0.0,
                     query=question[:500],

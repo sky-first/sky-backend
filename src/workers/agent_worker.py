@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+from src.core.locale import get_message
 from src.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -21,15 +22,14 @@ logger = logging.getLogger(__name__)
 #: Separado do `NADA_A_ASSINALAR` de proposito: um e uma conclusao sobre os
 #: dados, o outro e uma avaria nossa. Trocá-los manda a pessoa procurar no
 #: sitio errado — e foi o que a primeira versao desta correccao fez.
-NAO_CONSEGUI = (
-    "Não consegui responder desta vez — foi um problema nosso, não dos seus "
-    "dados. Vou tentar outra vez na próxima corrida."
-)
+#:
+#: As duas frases passaram para `src/core/locale.py`, onde existem nas três
+#: línguas. Aqui ficam as versões por omissão, que são o que vai escrito no
+#: `content` da mensagem: o worker corre sozinho e não sabe quem o vai ler.
+#: A língua escolhe-se no cliente, pela `chave_de_texto` que viaja ao lado.
+NAO_CONSEGUI = get_message("agent_could_not_run")
 
-NADA_A_ASSINALAR = (
-    "Olhei agora e não há nada a assinalar. Volto a olhar na próxima corrida "
-    "e só falo se encontrar alguma coisa que valha a pena."
-)
+NADA_A_ASSINALAR = get_message("agent_nothing_to_report")
 
 
 def _extract_tables_from_sql(sql: str) -> List[str]:
@@ -997,14 +997,33 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                     # Isso e uma mentira tranquilizadora — diz que os dados
                     # nao tinham nada quando o que houve foi uma avaria
                     # nossa, e manda a pessoa procurar no sitio errado.
-                    await post_agent_answer(db, agent=agent, answer=NAO_CONSEGUI)
-                else:
-                    # Correu, e nao ha nada a assinalar. Diz-se — porque o
-                    # silencio nao se distingue de uma avaria.
                     await post_agent_answer(
                         db,
                         agent=agent,
-                        answer=(answer.strip() if answer and answer.strip() else NADA_A_ASSINALAR),
+                        answer=NAO_CONSEGUI,
+                        # A chave faz duas coisas: deixa o cliente mostrar
+                        # isto na língua de quem lê, e faz a 2.ª falha
+                        # seguida contar-se na primeira em vez de abrir
+                        # mensagem nova. Vinte avarias passam a ler-se
+                        # «20 vezes», que é mais alarmante do que vinte
+                        # cartões iguais — e é o que se quer.
+                        chave_de_texto="agent_could_not_run",
+                    )
+                else:
+                    # Correu, e nao ha nada a assinalar. Diz-se — porque o
+                    # silencio nao se distingue de uma avaria.
+                    tem_texto_proprio = bool(answer and answer.strip())
+                    await post_agent_answer(
+                        db,
+                        agent=agent,
+                        answer=(answer.strip() if tem_texto_proprio else NADA_A_ASSINALAR),
+                        # Só a frase do catálogo se colapsa. Se o motor
+                        # devolveu um texto seu, é uma resposta e vale
+                        # uma mensagem — mesmo que saia igual à de
+                        # ontem, porque aí a igualdade é o facto.
+                        chave_de_texto=(
+                            None if tem_texto_proprio else "agent_nothing_to_report"
+                        ),
                     )
             except Exception as _post_err:  # noqa: BLE001
                 logger.warning(
