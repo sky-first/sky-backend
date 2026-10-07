@@ -34,7 +34,20 @@ mentir. Ver a nota longa em `transportes.py`.
 from __future__ import annotations
 
 from scripts.demo_sectorial.formato import eur, euro2, n, pct
-from scripts.demo_sectorial.pecas import Agente, Pagina, Pergunta, Sector, grafico, kpi, tabela
+from scripts.demo_sectorial.pecas import (
+    AMBAR,
+    AZUL,
+    VERDE,
+    Agente,
+    Pagina,
+    Pergunta,
+    Sector,
+    grafico,
+    kpi,
+    paragrafos,
+    tabela,
+    texto,
+)
 
 # ── blocos reutilizados ─────────────────────────────────────────────
 
@@ -62,7 +75,13 @@ JOIN restaurant.stores s ON s.id = o.store_id
 GROUP BY s.id, s.name, s.format, s.city
 ORDER BY pct_over_peak DESC"""
 
-SQL_SERVICO_POR_FAIXA = f"""SELECT o.day_part,
+# O `AS day_part` é explícito porque esta consulta passou a alimentar
+# TAMBÉM um gráfico, e o `mapping` do gráfico aponta a nomes de colunas.
+# Sem o alias o Postgres devolve a coluna com o mesmo nome e tudo
+# funciona — mas a garantia passa a depender de uma convenção em vez de
+# uma declaração, e foi assim que um `SELECT o.channel` sem alias
+# chegou a quebrar um gráfico.
+SQL_SERVICO_POR_FAIXA = f"""SELECT o.day_part AS day_part,
        COUNT(*) AS orders,
        ROUND(AVG(o.service_sec)) AS avg_sec,
        ROUND(100.0 * COUNT(*) FILTER (WHERE o.service_sec > {_PRAZO})
@@ -331,6 +350,117 @@ SECTOR = Sector(
                     x="t",
                     y="v",
                 ),
+                texto(
+                    "La media no le manda a ningún sitio",
+                    "terco1a",
+                    "servicio",
+                    f"""WITH tienda AS (
+                            SELECT s.id,
+                                   100.0 * COUNT(*) FILTER (
+                                       WHERE o.service_sec > {_PRAZO}
+                                             AND o.day_part IN {_PICO})
+                                   / NULLIF(COUNT(*) FILTER (
+                                       WHERE o.day_part IN {_PICO}), 0) AS pico
+                            FROM service.orders o
+                            JOIN restaurant.stores s ON s.id = o.store_id
+                            GROUP BY s.id
+                        )
+                        SELECT ROUND(AVG(pico), 1) AS media,
+                               ROUND(MAX(pico), 1) AS peor,
+                               ROUND(MIN(pico), 1) AS mejor,
+                               COUNT(*) AS tiendas,
+                               COUNT(*) FILTER (WHERE pico > 2 * (SELECT AVG(pico)
+                                                                  FROM tienda)) AS malas
+                        FROM tienda""",
+                    corpo=lambda r: paragrafos(
+                        "LA MEDIA ESCONDE LAS TIENDAS",
+                        f"En hora punta, de media {pct(r[0]['media'])} de los pedidos "
+                        f"salen fuera de los cuatro minutos, en {r[0]['tiendas']} tiendas.",
+                        f"Pero la peor falla en {pct(r[0]['peor'])} y la mejor en "
+                        f"{pct(r[0]['mejor'])}. {r[0]['malas']} están por encima del doble "
+                        "de la media — y la media es justo el número que no le dice "
+                        "cuáles.",
+                    ),
+                    cor=AMBAR,
+                ),
+                texto(
+                    "Por qué cuatro minutos",
+                    "terco1b",
+                    "servicio",
+                    f"""SELECT ROUND(AVG(o.service_sec)) AS medio,
+                               COUNT(*) AS pedidos,
+                               COUNT(*) FILTER (WHERE o.service_sec > {_PRAZO}) AS fuera
+                        FROM service.orders o""",
+                    corpo=lambda r: paragrafos(
+                        "EL UMBRAL, Y DE DÓNDE SALE",
+                        f"Cuatro minutos del pedido a la entrega. El medio de la red es "
+                        f"{r[0]['medio']} segundos sobre {n(r[0]['pedidos'])} pedidos.",
+                        f"{n(r[0]['fuera'])} lo pasan. No es un objetivo inventado: es el "
+                        "punto en que el cliente de mostrador empieza a mirar el reloj.",
+                    ),
+                    cor=AZUL,
+                ),
+                texto(
+                    "Dónde está bien",
+                    "terco1c",
+                    "tiendas",
+                    f"""SELECT s.name AS tienda, s.format AS formato, s.city AS ciudad,
+                               ROUND(100.0 * COUNT(*) FILTER (
+                                     WHERE o.service_sec > {_PRAZO}
+                                           AND o.day_part IN {_PICO})
+                                     / NULLIF(COUNT(*) FILTER (
+                                       WHERE o.day_part IN {_PICO}), 0), 1) AS pico
+                        FROM service.orders o
+                        JOIN restaurant.stores s ON s.id = o.store_id
+                        GROUP BY s.id, s.name, s.format, s.city
+                        ORDER BY 4 LIMIT 1""",
+                    corpo=lambda r: paragrafos(
+                        "LA QUE LO HACE BIEN",
+                        f"{r[0]['tienda']} ({r[0]['formato']}, {r[0]['ciudad']}): solo "
+                        f"{pct(r[0]['pico'])} fuera de plazo en hora punta.",
+                        "La misma carta, la misma cocina y el mismo umbral. Lo que cambia "
+                        "es el turno — y eso se puede copiar.",
+                    ),
+                    cor=VERDE,
+                ),
+                grafico(
+                    "Fuera de plazo por franja",
+                    "esq3",
+                    "servicio",
+                    SQL_SERVICO_POR_FAIXA,
+                    variante="column",
+                    x="day_part",
+                    y="pct_over",
+                ),
+                grafico(
+                    "Tiempo medio por canal",
+                    "dir3",
+                    "servicio",
+                    """SELECT o.channel AS canal, ROUND(AVG(o.service_sec)) AS segundos
+                       FROM service.orders o
+                       GROUP BY o.channel ORDER BY segundos DESC""",
+                    variante="bar",
+                    x="canal",
+                    y="segundos",
+                ),
+                tabela(
+                    "Hora punta por tienda y franja",
+                    "larga4",
+                    "servicio",
+                    f"""SELECT s.name AS "Tienda",
+                               o.day_part AS "Franja",
+                               COUNT(*) AS "Pedidos",
+                               ROUND(AVG(o.service_sec)) AS "Medio (s)",
+                               ROUND(100.0 * COUNT(*) FILTER (
+                                     WHERE o.service_sec > {_PRAZO}) / COUNT(*), 1)
+                                 AS "Fuera de plazo (%)",
+                               ROUND(AVG(o.total), 2) AS "Ticket (€)"
+                        FROM service.orders o
+                        JOIN restaurant.stores s ON s.id = o.store_id
+                        WHERE o.day_part IN {_PICO}
+                        GROUP BY s.id, s.name, o.day_part
+                        ORDER BY 5 DESC""",
+                ),
             ],
         ),
         Pagina(
@@ -381,6 +511,135 @@ SECTOR = Sector(
                     variante="bar",
                     x="t",
                     y="v",
+                ),
+                texto(
+                    "Al revés de lo que dice el instinto",
+                    "terco1a",
+                    "tiendas",
+                    """WITH v AS (
+                           SELECT day_part, SUM(total) AS vendas
+                           FROM service.orders GROUP BY day_part
+                       ), p AS (
+                           SELECT day_part, SUM(hours * cost_per_hour) AS custo
+                           FROM restaurant.staff_shifts GROUP BY day_part
+                       ), f AS (
+                           SELECT v.day_part,
+                                  100.0 * p.custo / NULLIF(v.vendas, 0) AS pct
+                           FROM v JOIN p USING (day_part)
+                       )
+                       SELECT (SELECT day_part FROM f ORDER BY pct DESC LIMIT 1) AS cara,
+                              (SELECT ROUND(pct, 1) FROM f ORDER BY pct DESC LIMIT 1)
+                                AS cara_pct,
+                              (SELECT day_part FROM f ORDER BY pct LIMIT 1) AS barata,
+                              (SELECT ROUND(pct, 1) FROM f ORDER BY pct LIMIT 1)
+                                AS barata_pct
+                       FROM f LIMIT 1""",
+                    corpo=lambda r: paragrafos(
+                        "EL COSTE NO ESTÁ EN LA HORA PUNTA",
+                        f"El personal pesa {pct(r[0]['cara_pct'])} de las ventas en "
+                        f"{r[0]['cara']} y {pct(r[0]['barata_pct'])} en "
+                        f"{r[0]['barata']}.",
+                        "Al revés de lo que dice el instinto: la hora punta llena la "
+                        "tienda y paga las horas. El coste está en las franjas vacías, "
+                        "donde el turno sigue abierto.",
+                    ),
+                    cor=AMBAR,
+                ),
+                texto(
+                    "Qué se está midiendo",
+                    "terco1b",
+                    "tiendas",
+                    """SELECT ROUND(SUM(hours)) AS horas,
+                              ROUND(SUM(hours * cost_per_hour)) AS coste,
+                              ROUND(AVG(cost_per_hour), 2) AS por_hora,
+                              COUNT(DISTINCT store_id) AS tiendas
+                       FROM restaurant.staff_shifts""",
+                    corpo=lambda r: paragrafos(
+                        "LA CUENTA, EN CLARO",
+                        f"{n(r[0]['horas'])} horas trabajadas en {r[0]['tiendas']} "
+                        f"tiendas, {eur(r[0]['coste'])} de coste, a "
+                        f"{euro2(r[0]['por_hora'])} la hora de media.",
+                        "Horas por turno multiplicadas por el coste de esa hora. No es la "
+                        "nómina: son las horas que alguien decidió abrir.",
+                    ),
+                    cor=AZUL,
+                ),
+                texto(
+                    "Lo que se puede mover",
+                    "terco1c",
+                    "tiendas",
+                    """WITH v AS (
+                           SELECT day_part, SUM(total) AS vendas
+                           FROM service.orders GROUP BY day_part
+                       ), p AS (
+                           SELECT day_part, SUM(hours * cost_per_hour) AS custo,
+                                  SUM(hours) AS horas
+                           FROM restaurant.staff_shifts GROUP BY day_part
+                       )
+                       SELECT v.day_part AS franja,
+                              ROUND(p.horas) AS horas,
+                              ROUND(p.custo) AS coste,
+                              ROUND(100.0 * p.custo / NULLIF(v.vendas, 0), 1) AS pct
+                       FROM v JOIN p USING (day_part)
+                       ORDER BY p.custo / NULLIF(v.vendas, 0) DESC LIMIT 1""",
+                    corpo=lambda r: paragrafos(
+                        "DÓNDE ESTÁ LA DECISIÓN",
+                        f"{r[0]['franja']}: {n(r[0]['horas'])} horas y "
+                        f"{eur(r[0]['coste'])}, que son {pct(r[0]['pct'])} de lo que esa "
+                        "franja vende.",
+                        "No se trata de cerrar: se trata de cuántas personas están en la "
+                        "tienda a esa hora. Es la decisión más barata de esta página.",
+                    ),
+                    cor=VERDE,
+                ),
+                grafico(
+                    "Horas de personal por tienda",
+                    "esq2",
+                    "tiendas",
+                    """SELECT s.name AS tienda, ROUND(SUM(sh.hours)) AS horas
+                       FROM restaurant.staff_shifts sh
+                       JOIN restaurant.stores s ON s.id = sh.store_id
+                       GROUP BY s.id, s.name ORDER BY horas DESC""",
+                    variante="bar",
+                    x="tienda",
+                    y="horas",
+                ),
+                grafico(
+                    "Reparto del coste por franja",
+                    "dir2",
+                    "tiendas",
+                    """SELECT day_part AS franja,
+                              ROUND(SUM(hours * cost_per_hour)) AS coste
+                       FROM restaurant.staff_shifts
+                       GROUP BY day_part ORDER BY coste DESC""",
+                    variante="pie",
+                    x="franja",
+                    y="coste",
+                ),
+                tabela(
+                    "Personal sobre ventas, por tienda",
+                    "larga3",
+                    "tiendas",
+                    """WITH v AS (
+                           SELECT store_id, SUM(total) AS vendas, COUNT(*) AS pedidos
+                           FROM service.orders GROUP BY store_id
+                       ), p AS (
+                           SELECT store_id, SUM(hours) AS horas,
+                                  SUM(hours * cost_per_hour) AS custo
+                           FROM restaurant.staff_shifts GROUP BY store_id
+                       )
+                       SELECT s.name AS "Tienda",
+                              s.format AS "Formato",
+                              s.seats AS "Plazas",
+                              v.pedidos AS "Pedidos",
+                              ROUND(v.vendas) AS "Ventas (€)",
+                              ROUND(p.horas) AS "Horas",
+                              ROUND(100.0 * p.custo / NULLIF(v.vendas, 0), 1)
+                                AS "Personal/ventas (%)"
+                       FROM restaurant.stores s
+                       JOIN v ON v.store_id = s.id
+                       JOIN p ON p.store_id = s.id
+                       ORDER BY 7 DESC""",
                 ),
             ],
         ),
@@ -435,6 +694,116 @@ SECTOR = Sector(
                     x="t",
                     y="v",
                 ),
+                texto(
+                    "Dos problemas, no uno",
+                    "terco1a",
+                    "cocina",
+                    """SELECT ROUND(SUM(w.units * p.unit_cost)) AS total,
+                              ROUND(SUM(w.units * p.unit_cost)
+                                    FILTER (WHERE w.reason = 'caducidad')) AS caduca,
+                              ROUND(SUM(w.units * p.unit_cost)
+                                    FILTER (WHERE w.reason = 'preparado de más'))
+                                AS exceso
+                       FROM kitchen.waste w
+                       JOIN kitchen.products p ON p.id = w.product_id""",
+                    corpo=lambda r: paragrafos(
+                        "LA MISMA LÍNEA, DOS CAUSAS",
+                        f"{eur(r[0]['total'])} tirados: {eur(r[0]['caduca'])} por "
+                        f"caducidad y {eur(r[0]['exceso'])} por preparar de más.",
+                        "La caducidad es un problema de CARTA — producto con vida corta. "
+                        "El exceso es de PREVISIÓN. En una hoja de turno son la misma "
+                        "línea, y por eso se intenta arreglar con la misma orden.",
+                    ),
+                    cor=AMBAR,
+                ),
+                texto(
+                    "La vida del producto",
+                    "terco1b",
+                    "cocina",
+                    """SELECT ROUND(AVG(p.hold_minutes)) AS medio,
+                              MIN(p.hold_minutes) AS min_hold,
+                              MAX(p.hold_minutes) AS max_hold,
+                              COUNT(*) AS articulos
+                       FROM kitchen.products p""",
+                    corpo=lambda r: paragrafos(
+                        "POR QUÉ CADUCA LO QUE CADUCA",
+                        f"De los {r[0]['articulos']} artículos de carta, el tiempo de "
+                        f"mantenimiento va de {r[0]['min_hold']} a {r[0]['max_hold']} "
+                        f"minutos, con una media de {r[0]['medio']}.",
+                        "Un artículo de 10 minutos y otro de 120 no se gestionan igual, y "
+                        "la hoja de merma no distingue.",
+                    ),
+                    cor=AZUL,
+                ),
+                texto(
+                    "Dónde se corrige",
+                    "terco1c",
+                    "cocina",
+                    """SELECT w.day_part AS franja,
+                              ROUND(SUM(w.units * p.unit_cost)) AS coste,
+                              SUM(w.units) AS unidades
+                       FROM kitchen.waste w
+                       JOIN kitchen.products p ON p.id = w.product_id
+                       WHERE w.reason = 'preparado de más'
+                       GROUP BY w.day_part ORDER BY 2 DESC LIMIT 1""",
+                    corpo=lambda r: paragrafos(
+                        "LA FRANJA QUE PREPARA DE MÁS",
+                        f"{r[0]['franja']}: {eur(r[0]['coste'])} en "
+                        f"{n(r[0]['unidades'])} unidades preparadas para una ola que no "
+                        "vino.",
+                        "Esta sí se corrige sin tocar la carta: es una previsión, y una "
+                        "previsión se puede vigilar todos los días.",
+                    ),
+                    cor=VERDE,
+                ),
+                grafico(
+                    "Merma por familia",
+                    "esq2",
+                    "cocina",
+                    """SELECT p.family AS familia,
+                              ROUND(SUM(w.units * p.unit_cost)) AS coste
+                       FROM kitchen.waste w
+                       JOIN kitchen.products p ON p.id = w.product_id
+                       GROUP BY p.family ORDER BY coste DESC""",
+                    variante="column",
+                    x="familia",
+                    y="coste",
+                ),
+                grafico(
+                    "Merma semana a semana",
+                    "dir2",
+                    "cocina",
+                    """SELECT TO_CHAR(DATE_TRUNC('week', w.wasted_on), 'YYYY-MM-DD')
+                                AS semana,
+                              ROUND(SUM(w.units * p.unit_cost)) AS coste
+                       FROM kitchen.waste w
+                       JOIN kitchen.products p ON p.id = w.product_id
+                       GROUP BY 1 ORDER BY 1""",
+                    variante="area",
+                    x="semana",
+                    y="coste",
+                ),
+                tabela(
+                    "Merma por tienda y motivo",
+                    "larga3",
+                    "cocina",
+                    """SELECT s.name AS "Tienda",
+                              SUM(w.units) AS "Unidades",
+                              ROUND(SUM(w.units * p.unit_cost)) AS "Coste (€)",
+                              ROUND(SUM(w.units * p.unit_cost)
+                                    FILTER (WHERE w.reason = 'caducidad'))
+                                AS "Caducidad (€)",
+                              ROUND(SUM(w.units * p.unit_cost)
+                                    FILTER (WHERE w.reason = 'preparado de más'))
+                                AS "Exceso (€)",
+                              ROUND(SUM(w.units * p.unit_cost)
+                                    FILTER (WHERE w.reason = 'error de pedido'))
+                                AS "Error (€)"
+                       FROM kitchen.waste w
+                       JOIN kitchen.products p ON p.id = w.product_id
+                       JOIN restaurant.stores s ON s.id = w.store_id
+                       GROUP BY s.id, s.name ORDER BY 3 DESC""",
+                ),
             ],
         ),
         Pagina(
@@ -480,6 +849,127 @@ SECTOR = Sector(
                     y="sales",
                 ),
                 tabela("Margen por familia de carta", "dir1", "cocina", SQL_CARTA),
+                texto(
+                    "Importe y ticket no son el mismo canal",
+                    "terco1a",
+                    "servicio",
+                    """SELECT (SELECT channel FROM service.orders
+                                 GROUP BY channel ORDER BY SUM(total) DESC LIMIT 1)
+                                AS mas_importe,
+                              (SELECT channel FROM service.orders
+                                 GROUP BY channel ORDER BY AVG(total) DESC LIMIT 1)
+                                AS mas_ticket,
+                              (SELECT ROUND(AVG(total), 2) FROM service.orders
+                                 GROUP BY channel ORDER BY AVG(total) DESC LIMIT 1)
+                                AS ticket_alto,
+                              (SELECT ROUND(AVG(total), 2) FROM service.orders
+                                 GROUP BY channel ORDER BY AVG(total) LIMIT 1)
+                                AS ticket_bajo""",
+                    corpo=lambda r: paragrafos(
+                        "DOS CANALES DISTINTOS",
+                        f"El que más importe trae es {r[0]['mas_importe']}. El del ticket "
+                        f"más alto es {r[0]['mas_ticket']}, a "
+                        f"{euro2(r[0]['ticket_alto'])} frente a "
+                        f"{euro2(r[0]['ticket_bajo'])} del último.",
+                        "Uno llena la caja y el otro sube la cuenta. Empujar el primero "
+                        "sin mirar el segundo es trabajar más por lo mismo.",
+                    ),
+                    cor=AMBAR,
+                ),
+                texto(
+                    "Qué sostiene el margen",
+                    "terco1b",
+                    "cocina",
+                    """SELECT (SELECT family FROM kitchen.products GROUP BY family
+                                ORDER BY AVG((menu_price - unit_cost)
+                                             / NULLIF(menu_price, 0)) DESC LIMIT 1)
+                                AS mejor,
+                              (SELECT ROUND(100.0 * AVG((menu_price - unit_cost)
+                                            / NULLIF(menu_price, 0)), 1)
+                                 FROM kitchen.products GROUP BY family
+                                 ORDER BY AVG((menu_price - unit_cost)
+                                              / NULLIF(menu_price, 0)) DESC LIMIT 1)
+                                AS mejor_pct,
+                              (SELECT family FROM kitchen.products GROUP BY family
+                                 ORDER BY AVG((menu_price - unit_cost)
+                                              / NULLIF(menu_price, 0)) LIMIT 1)
+                                AS peor,
+                              (SELECT ROUND(100.0 * AVG((menu_price - unit_cost)
+                                            / NULLIF(menu_price, 0)), 1)
+                                 FROM kitchen.products GROUP BY family
+                                 ORDER BY AVG((menu_price - unit_cost)
+                                              / NULLIF(menu_price, 0)) LIMIT 1)
+                                AS peor_pct""",
+                    corpo=lambda r: paragrafos(
+                        "LAS FAMILIAS QUE PAGAN LA CARTA",
+                        f"{r[0]['mejor']} deja {pct(r[0]['mejor_pct'])} de margen; "
+                        f"{r[0]['peor']}, {pct(r[0]['peor_pct'])}.",
+                        "Las dos están en la misma carta y al mismo precio de menú. La "
+                        "diferencia es el coste del producto — y es ahí donde se decide "
+                        "qué se promociona.",
+                    ),
+                    cor=AZUL,
+                ),
+                texto(
+                    "Lo que se puede empujar",
+                    "terco1c",
+                    "servicio",
+                    """SELECT o.channel AS canal,
+                              COUNT(*) AS pedidos,
+                              ROUND(AVG(o.total), 2) AS ticket,
+                              ROUND(AVG(o.service_sec)) AS segundos
+                       FROM service.orders o
+                       GROUP BY o.channel
+                       ORDER BY AVG(o.total) DESC LIMIT 1""",
+                    corpo=lambda r: paragrafos(
+                        "POR DÓNDE CRECER",
+                        f"{r[0]['canal']}: {euro2(r[0]['ticket'])} de ticket medio en "
+                        f"{n(r[0]['pedidos'])} pedidos, servidos en "
+                        f"{r[0]['segundos']} segundos de media.",
+                        "Es el canal con el ticket más alto. Cada pedido que se mueve "
+                        "hacia aquí vale más sin costar una hora más de cocina.",
+                    ),
+                    cor=VERDE,
+                ),
+                grafico(
+                    "Ticket medio por canal",
+                    "esq2",
+                    "servicio",
+                    """SELECT o.channel AS canal, ROUND(AVG(o.total), 2) AS ticket
+                       FROM service.orders o
+                       GROUP BY o.channel ORDER BY ticket DESC""",
+                    variante="column",
+                    x="canal",
+                    y="ticket",
+                ),
+                grafico(
+                    "Reparto de pedidos por canal",
+                    "dir2",
+                    "servicio",
+                    """SELECT o.channel AS canal, COUNT(*) AS pedidos
+                       FROM service.orders o
+                       GROUP BY o.channel ORDER BY pedidos DESC""",
+                    variante="pie",
+                    x="canal",
+                    y="pedidos",
+                ),
+                tabela(
+                    "Lo que más se vende, y lo que deja",
+                    "larga3",
+                    "cocina",
+                    """SELECT p.name AS "Artículo",
+                              p.family AS "Familia",
+                              SUM(oi.quantity) AS "Unidades",
+                              ROUND(SUM(oi.quantity * oi.unit_price)) AS "Ventas (€)",
+                              ROUND(p.menu_price, 2) AS "Precio (€)",
+                              ROUND(p.unit_cost, 2) AS "Coste (€)",
+                              ROUND(100.0 * (p.menu_price - p.unit_cost)
+                                    / NULLIF(p.menu_price, 0), 1) AS "Margen (%)"
+                       FROM service.order_items oi
+                       JOIN kitchen.products p ON p.id = oi.product_id
+                       GROUP BY p.id, p.name, p.family, p.menu_price, p.unit_cost
+                       ORDER BY 4 DESC LIMIT 40""",
+                ),
             ],
         ),
     ],
