@@ -148,13 +148,28 @@ def _trigger_universe_embedding_seed(space_id: str) -> None:
     base = (settings.AI_SERVICE_URL or "http://localhost:8001").rstrip("/")
     url = f"{base}/spaces/{space_id}/seed-embeddings"
 
+    # Os cabeçalhos são lidos AQUI, e não lá dentro.
+    #
+    # Sem o `X-Tenant-Slug` o `sky-ai` semeia os embeddings na base da
+    # plataforma em vez da do cliente — e não falha: o universo fica
+    # vazio e ninguém sabe porquê.
+    #
+    # Lidos fora do `_fire` de propósito: aqui estamos no pedido, com o
+    # contextvar do cliente garantidamente posto. O `create_task` copia
+    # o contexto, mas depender disso é depender de um detalhe do
+    # `asyncio` para uma coisa que decide em que base de dados se
+    # escreve.
+    from src.ai.http_client import cabecalhos_do_cliente
+
+    cabecalhos = cabecalhos_do_cliente()
+
     async def _fire() -> None:
         try:
             # 90s caps the OpenAI batch — bigger Spaces (org-scope demos
             # with hundreds of metrics) might run slower; we never want
             # to retry mid-flight because the script's idempotent skip
             # keeps a partial run safe to re-seed later.
-            async with httpx.AsyncClient(timeout=90.0) as client:
+            async with httpx.AsyncClient(timeout=90.0, headers=cabecalhos) as client:
                 resp = await client.post(url)
                 if resp.status_code >= 400:
                     logger.warning(

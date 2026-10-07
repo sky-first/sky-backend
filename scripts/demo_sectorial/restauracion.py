@@ -39,9 +39,11 @@ from scripts.demo_sectorial.pecas import (
     AZUL,
     VERDE,
     Agente,
+    Metrica,
     Pagina,
     Pergunta,
     Sector,
+    Termo,
     grafico,
     kpi,
     paragrafos,
@@ -1153,6 +1155,100 @@ def _r_carta(linhas):
         "poco por unidad y se tira lo que no se vende en minutos."
     )
 
+
+# ── o vocabulário desta casa ────────────────────────────────────────
+#
+# A IA lê isto. «Merma» e «hora punta» são as palavras da casa, e as
+# fórmulas são as MESMAS dos widgets.
+
+METRICAS = [
+    Metrica(
+        "Tiempo de servicio",
+        "Segundos entre el pedido y la entrega. El umbral de la casa son "
+        "cuatro minutos: el punto en que el cliente de mostrador empieza "
+        "a mirar el reloj.",
+        "SELECT AVG(o.service_sec) FROM service.orders o",
+        unidade="s",
+        agregacao="avg",
+    ),
+    Metrica(
+        "Fuera de plazo en hora punta",
+        "Pedidos que pasan de los cuatro minutos en comida y cena, sobre "
+        "el total de esas franjas.",
+        f"""SELECT 100.0 * COUNT(*) FILTER (
+                   WHERE o.service_sec > {_PRAZO} AND o.day_part IN {_PICO})
+                 / NULLIF(COUNT(*) FILTER (WHERE o.day_part IN {_PICO}), 0)
+            FROM service.orders o""",
+        unidade="%",
+        agregacao="ratio",
+    ),
+    Metrica(
+        "Personal sobre ventas",
+        "Coste de las horas trabajadas por cada euro vendido. El coste no "
+        "está en la hora punta: está en las franjas vacías.",
+        """WITH v AS (SELECT SUM(total) AS vendas FROM service.orders),
+                p AS (SELECT SUM(hours * cost_per_hour) AS custo
+                      FROM restaurant.staff_shifts)
+           SELECT 100.0 * p.custo / NULLIF(v.vendas, 0) FROM v, p""",
+        unidade="%",
+        agregacao="ratio",
+    ),
+    Metrica(
+        "Merma",
+        "Coste del producto preparado que acaba en la basura, valorado a "
+        "coste de materia prima y no a precio de carta — es lo que se "
+        "perdió, no lo que se dejó de ganar.",
+        """SELECT SUM(w.units * p.unit_cost)
+           FROM kitchen.waste w
+           JOIN kitchen.products p ON p.id = w.product_id""",
+        unidade="EUR",
+        agregacao="sum",
+    ),
+    Metrica(
+        "Ticket medio",
+        "Importe medio por pedido servido, sumando todas las líneas. Sube "
+        "con la venta cruzada y con la carta, no con el número de "
+        "pedidos — por eso se mira al lado del canal.",
+        "SELECT AVG(o.total) FROM service.orders o",
+        unidade="EUR",
+        agregacao="avg",
+    ),
+]
+
+GLOSSARIO = [
+    Termo(
+        "Merma",
+        "Producto preparado que se tira. Son DOS problemas en la misma "
+        "línea: por caducidad (es de carta, producto de vida corta) o por "
+        "preparar de más (es de previsión). Se intentan arreglar con la "
+        "misma orden y no se arregla ninguno.",
+        ["desperdicio", "producto tirado"],
+    ),
+    Termo(
+        "Hora punta",
+        "Las franjas de comida y cena. Es cuando la tienda está llena — y "
+        "es también cuando el personal se paga solo, al revés de lo que "
+        "dice el instinto.",
+        ["pico", "comida y cena"],
+    ),
+    Termo(
+        "Tiempo de mantenimiento",
+        "Minutos que un artículo aguanta preparado antes de dejar de "
+        "servirse. Va de diez minutos a dos horas según el producto, y la "
+        "hoja de merma no distingue.",
+        ["hold", "vida en mostrador"],
+    ),
+    Termo(
+        "Franja",
+        "El tramo del día: desayuno, comida, tarde, cena, noche. Es la "
+        "unidad en la que se decide cuánta gente está en la tienda.",
+        ["day part", "turno"],
+    ),
+]
+
+
+SECTOR.metricas = METRICAS
+SECTOR.glossario = GLOSSARIO
 
 SECTOR.perguntas = [
     Pergunta(

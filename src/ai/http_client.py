@@ -10,6 +10,47 @@ from src.config.settings import settings
 logger = logging.getLogger(__name__)
 
 
+def cabecalhos_do_cliente() -> Dict[str, str]:
+    """O `X-Tenant-Slug` que acompanha qualquer chamada ao `sky-ai`.
+
+    Sem ele o serviço de IA vai à base da PLATAFORMA em vez da base do
+    cliente (Model B / Fase 5) — e não falha: responde com o conteúdo
+    errado, ou com nada.
+
+    ── Porque é que isto saiu de dentro da classe ──────────────────
+
+    > «cade aqui no sky universe todo o dado ao rededor desse globo de
+    >  raio? deveria aparecer todo o dado do cliente ai»
+    > — Lucas, 07/10/2026
+    >
+    > Havia 188 embeddings e 276 linhas de metadados na base do
+    > cliente. O globo estava vazio.
+
+    O `/context/semantic-map` não usa esta classe: abre o seu próprio
+    `httpx.AsyncClient`, e eram quatro chamadas ao `sky-ai` sem
+    cabeçalho nenhum. A IA procurava os embeddings na base da
+    plataforma, não encontrava nenhum, e devolvia uma lista vazia —
+    que o ecrã lê, correctamente, como «não há nada aqui».
+
+    É o terceiro sítio com o mesmo defeito (o semeador e a voz foram os
+    outros dois), e é por isso que a regra passa a ser uma função do
+    módulo em vez de um método: quem fala com o `sky-ai` sem passar
+    pela classe tem de conseguir chamá-la.
+
+    **Nunca levanta.** Uma chamada à IA não pode ir abaixo porque o
+    contextvar do cliente não estava posto nalgum caminho de fundo.
+    """
+    try:
+        from src.core.tenant_context import current_tenant
+
+        ctx = current_tenant()
+        if ctx is not None and not ctx.is_default and ctx.slug:
+            return {"X-Tenant-Slug": ctx.slug}
+    except Exception:  # pragma: no cover — defensivo
+        pass
+    return {}
+
+
 class AIServiceHTTPClient:
     """HTTP client for AI service (ia-do-projeto)."""
 
@@ -29,25 +70,9 @@ class AIServiceHTTPClient:
         self.timeout = float(getattr(settings, "AI_SERVICE_HTTP_TIMEOUT", None) or 90.0)
 
     def _tenant_headers(self) -> Dict[str, str]:
-        """Per-request headers forwarded to the AI service.
-
-        Carries the resolved tenant slug (``X-Tenant-Slug``) so the AI
-        service can route its DB sessions to the tenant's own database
-        (Model B / Phase 5). Returns an empty dict for the default /
-        single-tenant context, so non-tenant traffic is byte-for-byte
-        unchanged and nothing breaks while the AI side is still rolling
-        out the routing. Never raises — an AI call must not fail because
-        the tenant contextvar was unset on some background path.
-        """
-        try:
-            from src.core.tenant_context import current_tenant
-
-            ctx = current_tenant()
-            if ctx is not None and not ctx.is_default and ctx.slug:
-                return {"X-Tenant-Slug": ctx.slug}
-        except Exception:  # pragma: no cover — defensive
-            pass
-        return {}
+        """Ver `cabecalhos_do_cliente`. Fica como método por conveniência
+        dos muitos sítios desta classe que já lhe chamam assim."""
+        return cabecalhos_do_cliente()
 
     async def classificar_achado(
         self,

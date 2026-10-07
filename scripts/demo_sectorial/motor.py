@@ -62,6 +62,22 @@ from src.utils.encryption import encrypt_dict
 NS = uuid.UUID("b7a1f3c2-5d64-4e18-9a0b-2c6f8e4d1a97")
 
 
+def _slug(texto: str) -> str:
+    """Um identificador legível, sem acentos nem espaços.
+
+    As métricas e os termos têm `slug` com `NOT NULL`, e o nome vem em
+    castelhano com acentos. `unicodedata` tira-os sem precisar de uma
+    tabela à mão.
+    """
+    import re
+    import unicodedata
+
+    sem_acento = (
+        unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    )
+    return re.sub(r"[^a-z0-9]+", "-", sem_acento.lower()).strip("-")[:255]
+
+
 def _id(*partes: str) -> uuid.UUID:
     return uuid.uuid5(NS, "|".join(partes))
 
@@ -415,6 +431,74 @@ async def semear(
             for k, v in campos.items():
                 setattr(linha, k, v)
     relatar(f"  {len(sector.agentes)} agentes")
+    await db.flush()
+
+    # ── as métricas e o glossário ───────────────────────────────────
+    #
+    # > «porque voce tambem nao criou metricas e glossario?»
+    # > — Lucas, 07/10/2026
+    #
+    # Não são para encher o ecrã de Conhecimento: **a IA lê-os**. O
+    # `BackendClient.get_metrics` e o `get_glossary` alimentam o
+    # especialista de conhecimento do `sky-ai`, e sem eles o motor
+    # responde sobre as colunas que encontra sem saber como a casa
+    # chama às coisas.
+    #
+    # «Vacío de retorno» não existe em esquema nenhum — define-se por
+    # uma ausência. É exactamente a palavra que o cliente escreve no
+    # chat, e sem o glossário o motor tem de a adivinhar.
+    from src.models.glossary import GlossaryTerm
+    from src.models.metric import Metric
+
+    for met in sector.metricas:
+        mid = _id(sector.chave, "metric", met.nome)
+        linha = await db.get(Metric, mid)
+        campos = dict(
+            name=met.nome,
+            slug=_slug(met.nome),
+            description=met.descricao,
+            scope="space",
+            scope_id=espaco.id,
+            status="active",
+            formula_text=met.formula,
+            formula_language="sql",
+            aggregation=met.agregacao,
+            unit=met.unidade or None,
+            owner_user_id=dono.id,
+            created_by_user_id=dono.id,
+        )
+        if linha is None:
+            db.add(Metric(id=mid, **campos))
+        else:
+            for k, v in campos.items():
+                setattr(linha, k, v)
+
+    for termo in sector.glossario:
+        tid = _id(sector.chave, "term", termo.termo)
+        linha = await db.get(GlossaryTerm, tid)
+        campos = dict(
+            term=termo.termo,
+            definition=termo.definicao,
+            slug=_slug(termo.termo),
+            scope="space",
+            scope_id=espaco.id,
+            space_id=espaco.id,
+            status="active",
+            aliases=list(termo.sinonimos),
+            owner_user_id=dono.id,
+            created_by_user_id=dono.id,
+        )
+        if linha is None:
+            db.add(GlossaryTerm(id=tid, **campos))
+        else:
+            for k, v in campos.items():
+                setattr(linha, k, v)
+
+    if sector.metricas or sector.glossario:
+        relatar(
+            f"  {len(sector.metricas)} métricas, "
+            f"{len(sector.glossario)} termos de glossário"
+        )
     await db.flush()
 
     # ── as perguntas ────────────────────────────────────────────────

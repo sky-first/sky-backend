@@ -501,6 +501,55 @@ class Pergunta:
 
 
 @dataclass
+class Metrica:
+    """Um número que a empresa segue, com a fórmula ao lado.
+
+    ── Porque é que isto existe, além de encher um ecrã ────────────
+
+    > «porque voce tambem nao criou metricas e glossario?»
+    > — Lucas, 07/10/2026
+
+    Não criei, e devia. Mas o motivo de peso não é o ecrã de
+    Conhecimento estar vazio: é que **a IA lê isto**. O
+    `BackendClient.get_metrics` e o `get_glossary` servem o
+    especialista de conhecimento do `sky-ai`, e sem eles o motor
+    responde sobre as colunas que encontra, sem saber como a casa
+    chama às coisas nem como as calcula.
+
+    A `formula` vai em SQL e é a MESMA que alimenta o widget
+    correspondente. Duas definições do mesmo número — uma no painel e
+    outra no glossário — é a maneira mais rápida de o produto se
+    contradizer a si próprio.
+    """
+
+    nome: str
+    descricao: str
+    formula: str
+    unidade: str = ""
+    #: `sum`, `avg`, `count`, `ratio`… Fica no registo e é o que diz se
+    #: dois períodos se somam ou se se faz a média deles.
+    agregacao: str = "sum"
+
+
+@dataclass
+class Termo:
+    """Uma palavra que nesta casa quer dizer uma coisa concreta.
+
+    «Vacío de retorno», «rappel», «merma». São as palavras que o cliente
+    usa em voz alta na reunião e que não existem em nenhum esquema de
+    base de dados — e são precisamente as que ele vai escrever no chat.
+
+    Sem o glossário, perguntar «cuánto vacío tengo?» obriga o motor a
+    adivinhar o que é vacío. Com ele, a definição viaja com a pergunta.
+    """
+
+    termo: str
+    definicao: str
+    #: Como mais se lhe chama. O cliente escreve o que lhe sai.
+    sinonimos: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Sector:
     """Tudo o que define uma demonstração sectorial."""
 
@@ -512,3 +561,5 @@ class Sector:
     paginas: list[Pagina]
     agentes: list[Agente]
     perguntas: list[Pergunta] = field(default_factory=list)
+    metricas: list[Metrica] = field(default_factory=list)
+    glossario: list[Termo] = field(default_factory=list)
