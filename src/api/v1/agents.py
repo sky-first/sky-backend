@@ -1017,10 +1017,39 @@ async def list_all_insights(
     from sqlalchemy.orm import selectinload
 
     query = select(Agent)
-    if scope:
-        query = query.where(Agent.scope == scope)
-    if scope_id:
-        query = query.where(Agent.scope_id == scope_id)
+    # ── «Este projecto» inclui as equipas de dentro ──────────────────
+    #
+    # > «porque o Hallazgos aparece Todo en orden? cade eles?»
+    # > — Lucas, 07/10/2026
+    #
+    # Havia 18 descobertas na base, nenhuma descartada, todas de agentes
+    # dele e de equipas dele. O ecrã dizia que estava tudo em ordem.
+    #
+    # Isto era `Agent.scope == scope`, e um agente nasce sempre ao nível
+    # da EQUIPA (`scope="crew"`): dos 21, 18 eram de equipa e nenhum
+    # passava o filtro `scope="space"`.
+    #
+    # A regra certa já existia — no `AgentRepository.list_all`, que é o
+    # que serve a LISTA de agentes, e foi escrita para este mesmo
+    # defeito em Junho. A lista mostrava os agentes e as descobertas
+    # deles ficavam escondidas, porque cada endpoint tinha a sua cópia
+    # da pergunta «de quem é este agente». Agora é uma só.
+    projeto: Optional[UUID] = None
+    if (scope or "").lower() == "space" and scope_id:
+        try:
+            projeto = UUID(str(scope_id))
+        except (ValueError, AttributeError, TypeError):
+            # Um identificador mal formado dá lista vazia, e não um 500.
+            projeto = None
+    if projeto is not None:
+        from src.repositories.agent import agentes_do_projeto
+
+        query = query.where(agentes_do_projeto(projeto))
+    else:
+        if scope:
+            query = query.where(Agent.scope == scope)
+        if scope_id:
+            query = query.where(Agent.scope_id == scope_id)
 
     # Option B (2026-06): agent findings are CONTENT — even org admins only
     # see findings from agents they own or whose Space/Crew they belong to
