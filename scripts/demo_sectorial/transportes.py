@@ -47,8 +47,10 @@ from scripts.demo_sectorial.pecas import (
     AZUL,
     VERDE,
     Agente,
+    Metrica,
     Pagina,
     Sector,
+    Termo,
     grafico,
     kpi,
     paragrafos,
@@ -100,6 +102,91 @@ _PLAZO = (
 )
 _FUERA = "t.arrived_at > t.planned_arrival + (c.sla_minutes * INTERVAL '1 minute')"
 
+
+# ── o vocabulário desta casa ────────────────────────────────────────
+#
+# A IA lê isto: o `BackendClient.get_metrics` e o `get_glossary`
+# alimentam o especialista de conhecimento. Sem eles, «cuánto vacío
+# tengo?» obriga o motor a adivinhar o que é vacío — e vacío não existe
+# em esquema nenhum, define-se por uma ausência.
+#
+# As fórmulas são as MESMAS dos widgets. Duas definições do mesmo
+# número, uma no painel e outra no glossário, é a maneira mais rápida
+# de o produto se contradizer a si próprio.
+
+METRICAS = [
+    Metrica(
+        "Coste por kilómetro",
+        "Todo lo que el camión consume, partido por lo que rodó: gasóleo, "
+        "horas de conductor, peajes, taller y coste fijo mensual.",
+        _FROTA + " SELECT SUM(coste) / NULLIF(SUM(km), 0) FROM frota",
+        unidade="EUR/km",
+        agregacao="ratio",
+    ),
+    Metrica(
+        "Ingreso por kilómetro",
+        "Lo facturado dividido por todos los kilómetros rodados — también "
+        "los que fueron en vacío.",
+        _FROTA + " SELECT SUM(ingreso) / NULLIF(SUM(km), 0) FROM frota",
+        unidade="EUR/km",
+        agregacao="ratio",
+    ),
+    Metrica(
+        "Porcentaje en vacío",
+        "Kilómetros recorridos sin ninguna carga asociada, sobre el total.",
+        "SELECT 100.0 * SUM(CASE WHEN s.id IS NULL THEN t.km_run ELSE 0 END)"
+        f" / NULLIF(SUM(t.km_run), 0) {_VAZIO}",
+        unidade="%",
+        agregacao="ratio",
+    ),
+    Metrica(
+        "Cumplimiento de plazo",
+        "Portes que llegan dentro de la tolerancia CONTRATADA de cada "
+        "cliente — no contra una hora fija igual para todos.",
+        "SELECT 100.0 * COUNT(*) FILTER (WHERE NOT (" + _FUERA + "))"
+        f" / COUNT(*) {_PLAZO}",
+        unidade="%",
+        agregacao="ratio",
+    ),
+    Metrica(
+        "Aportación por vehículo",
+        "Lo que cada camión ingresa menos lo que él mismo cuesta. No es "
+        "beneficio: la estructura de la empresa no está aquí.",
+        _FROTA + " SELECT ingreso - coste FROM frota",
+        unidade="EUR",
+        agregacao="sum",
+    ),
+]
+
+GLOSSARIO = [
+    Termo(
+        "Vacío de retorno",
+        "Un viaje completado al que no corresponde ningún porte facturado. "
+        "No existe como registro en ningún sistema: se define por una "
+        "AUSENCIA — por eso no aparece en ninguna cuenta de costes.",
+        ["vacío", "retorno vacío", "km en vacío"],
+    ),
+    Termo(
+        "Plazo del cliente",
+        "Los minutos de tolerancia acordados con cada cliente antes de que "
+        "la llegada cuente como retraso. Varía por contrato: cuarenta "
+        "minutos no es lo mismo en cerámica que en fruta.",
+        ["SLA", "tolerancia", "ventana de entrega"],
+    ),
+    Termo(
+        "Coste completo del vehículo",
+        "Gasóleo, horas de conductor, peajes, taller y coste fijo mensual "
+        "(leasing, seguro e impuesto). Cada parcela vive en un sistema "
+        "distinto, y es la suma lo que nadie tiene.",
+        ["coste total", "coste real"],
+    ),
+    Termo(
+        "Días fuera de la carretera",
+        "Días que un vehículo pasa en el taller. El taller tiene factura; "
+        "estos días no — y el camión sigue pagando leasing y seguro.",
+        ["días parado", "inmovilizado"],
+    ),
+]
 
 SECTOR = Sector(
     chave="transportes",
@@ -1166,6 +1253,11 @@ def _r_taller(linhas):
         "cuesta solo la reparación: cuesta los viajes que no hizo."
     )
 
+
+# O vocabulário fica aqui, pelo mesmo motivo das perguntas: o `SECTOR`
+# já está construído e isto é só pendurar.
+SECTOR.metricas = METRICAS
+SECTOR.glossario = GLOSSARIO
 
 SECTOR.perguntas = [
     Pergunta(

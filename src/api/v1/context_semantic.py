@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.http_client import cabecalhos_do_cliente
 from src.api.deps import get_current_user, get_db_session
 from src.config.settings import settings
 from src.models.space import SpaceMember
@@ -100,7 +101,7 @@ async def _seed_synchronously(space_ids: List[str]) -> bool:
     seeded_any = False
     # 50s cap per-seed so the FE's 90s budget still has room for the
     # re-query + transport overhead.
-    async with httpx.AsyncClient(timeout=50.0) as client:
+    async with httpx.AsyncClient(timeout=50.0, headers=cabecalhos_do_cliente()) as client:
         for space_id in space_ids:
             url = f"{base}/spaces/{space_id}/seed-embeddings"
             try:
@@ -282,7 +283,7 @@ async def get_semantic_map(
     url = f"{_ai_base_url()}/semantic/map"
     # UMAP for 1-2k points is ~3s; 60s leaves headroom for cold start
     # of the AI service venv. The FE shows a "loading universe" state.
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=60.0, headers=cabecalhos_do_cliente()) as client:
         try:
             response = await client.post(url, json=payload)
         except httpx.HTTPError as e:
@@ -316,7 +317,7 @@ async def get_semantic_map(
             logger.info(
                 "universe_seed_lazy_completed re-querying AI for the seeded map"
             )
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=60.0, headers=cabecalhos_do_cliente()) as client:
                 try:
                     response2 = await client.post(url, json=payload)
                     if response2.status_code == 200:
@@ -357,7 +358,7 @@ async def post_semantic_search(
         "top_k": body.top_k,
     }
     url = f"{_ai_base_url()}/semantic/search"
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, headers=cabecalhos_do_cliente()) as client:
         try:
             response = await client.post(url, json=payload)
         except httpx.HTTPError as e:

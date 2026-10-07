@@ -13,6 +13,42 @@ from src.models.space_crew import SpaceCrew
 from src.repositories.base import BaseRepository
 
 
+def agentes_do_projeto(projeto: UUID):
+    """A condição SQL que diz «os agentes deste projecto».
+
+    Extraída do `list_all` para o `/agents/insights/all` poder usar a
+    MESMA. Estava escrita aqui e o endpoint das descobertas tinha o seu
+    próprio `Agent.scope == scope`, mais simples e errado: filtrava só
+    o que diz «space» e escondia tudo o que é de equipa.
+
+    O resultado disso foi 18 descobertas na base, nenhuma descartada,
+    todas de agentes do próprio utilizador — e o ecrã a dizer «todo en
+    orden». Duas regras para a mesma pergunta divergem, e a segunda é a
+    que ninguém testa.
+
+    ── O que a condição tem de cobrir ──────────────────────────────
+
+    Um agente nasce sempre ao nível da EQUIPA (`scope="crew"`), por
+    decisão de 2026-06. Um pedido por projecto tem de trazer:
+
+    * os poucos que dizem `space` e apontam a este projecto;
+    * os das equipas **nascidas** aqui (`Crew.space_id`);
+    * os das equipas **convidadas** para cá (`SpaceCrew`).
+
+    O `cast` não é decoração: `Agent.scope_id` é texto e as chaves das
+    equipas são UUID. Sem ele o Postgres recusa a comparação.
+    """
+    convidadas = select(cast(SpaceCrew.crew_id, String)).where(
+        SpaceCrew.space_id == projeto
+    )
+    nascidas_la = select(cast(Crew.id, String)).where(Crew.space_id == projeto)
+    return or_(
+        (Agent.scope == "space") & (Agent.scope_id == str(projeto)),
+        (Agent.scope == "crew")
+        & (Agent.scope_id.in_(convidadas) | Agent.scope_id.in_(nascidas_la)),
+    )
+
+
 class AgentRepository(BaseRepository[Agent]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, Agent)
@@ -70,20 +106,7 @@ class AgentRepository(BaseRepository[Agent]):
             # pelo projeto tem de trazer o que as equipas dele criaram.
             # `Agent.scope_id` é texto e as chaves das equipas são UUID —
             # sem o `cast` o Postgres recusa a comparação.
-            convidadas = select(cast(SpaceCrew.crew_id, String)).where(
-                SpaceCrew.space_id == projeto
-            )
-            nascidas_la = select(cast(Crew.id, String)).where(Crew.space_id == projeto)
-            query = query.where(
-                or_(
-                    (Agent.scope == "space") & (Agent.scope_id == str(scope_id)),
-                    (Agent.scope == "crew")
-                    & (
-                        Agent.scope_id.in_(convidadas)
-                        | Agent.scope_id.in_(nascidas_la)
-                    ),
-                )
-            )
+            query = query.where(agentes_do_projeto(projeto))
         else:
             if scope:
                 query = query.where(Agent.scope == scope)

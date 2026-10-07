@@ -42,8 +42,10 @@ from scripts.demo_sectorial.pecas import (
     AZUL,
     VERDE,
     Agente,
+    Metrica,
     Pagina,
     Sector,
+    Termo,
     grafico,
     kpi,
     paragrafos,
@@ -1090,6 +1092,96 @@ def _r_clientes(linhas):
         "es el del neto."
     )
 
+
+# ── o vocabulário desta casa ────────────────────────────────────────
+#
+# A IA lê isto. «Rappel» e «vino de guarda» não existem em esquema
+# nenhum e são exactamente as palavras que o cliente escreve no chat.
+# As fórmulas são as MESMAS dos widgets — duas definições do mesmo
+# número contradizem-se no mesmo ecrã.
+
+METRICAS = [
+    Metrica(
+        "Margen bruto",
+        "Precio de venta menos coste de la mercancía, antes del rappel. "
+        "Es el margen que se celebra en enero.",
+        f"SELECT 100.0 * SUM({_BRUTO}) / NULLIF(SUM({_VENDA}), 0) {_MARGEM}",
+        unidade="%",
+        agregacao="ratio",
+    ),
+    Metrica(
+        "Margen neto tras rappel",
+        "El mismo margen después de descontar el rappel acordado en "
+        "contrato. Es el que queda en diciembre.",
+        f"SELECT 100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0) {_MARGEM}",
+        unidade="%",
+        agregacao="ratio",
+    ),
+    Metrica(
+        "Capital parado",
+        "Coste de la mercancía en almacén. A coste, no a tarifa — es el "
+        "dinero que está ahí y no está en el banco.",
+        """SELECT SUM(s.quantity * p.unit_cost)
+           FROM warehouse.stock s
+           JOIN warehouse.lots l ON l.id = s.lot_id
+           JOIN assortment.products p ON p.id = l.product_id
+           WHERE s.quantity > 0""",
+        unidade="EUR",
+        agregacao="sum",
+    ),
+    Metrica(
+        "Valor en riesgo por caducidad",
+        "Coste de los lotes que caducan en los próximos 60 días, sin "
+        "contar el vino de guarda. Todavía es una campaña, no una pérdida.",
+        f"""SELECT SUM(s.quantity * p.unit_cost)
+            {_CADUCA} AND l.best_before < CURRENT_DATE + 60""",
+        unidade="EUR",
+        agregacao="sum",
+    ),
+    Metrica(
+        "Coste del rappel",
+        "Lo que el rappel se lleva del margen en el periodo. Se liquida a "
+        "final de año y no aparece en ninguna línea de factura.",
+        f"SELECT SUM({_BRUTO}) - SUM({_NETO}) {_MARGEM}",
+        unidade="EUR",
+        agregacao="sum",
+    ),
+]
+
+GLOSSARIO = [
+    Termo(
+        "Rappel",
+        "Descuento por volumen acordado en contrato y liquidado sobre el "
+        "acumulado, al final del periodo. NO aparece en la línea del "
+        "pedido — por eso el margen que se mira al vender no es el que "
+        "queda.",
+        ["descuento por volumen", "rebate"],
+    ),
+    Termo(
+        "Vino de guarda",
+        "Referencia que mejora con el tiempo y está en almacén a "
+        "propósito. No caduca: envejece. Meterla en un informe de "
+        "caducidades inventa un problema que no existe.",
+        ["vintage", "de guarda", "crianza"],
+    ),
+    Termo(
+        "Capital parado",
+        "Dinero inmovilizado en existencias. En una hoja de stock, el vino "
+        "de guarda y lo que simplemente no se vendió son la misma línea — "
+        "y por eso lo segundo nunca se discute.",
+        ["stock inmovilizado", "existencias"],
+    ),
+    Termo(
+        "Referencia sin salida",
+        "Producto que no ha tenido ni una sola venta en el periodo. Nadie "
+        "decidió quedarse con él: nadie volvió a mirar.",
+        ["sin rotación", "muerto"],
+    ),
+]
+
+
+SECTOR.metricas = METRICAS
+SECTOR.glossario = GLOSSARIO
 
 SECTOR.perguntas = [
     Pergunta(
