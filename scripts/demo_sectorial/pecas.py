@@ -36,8 +36,34 @@ from typing import Any, Callable, Optional
 
 # ── A grelha ────────────────────────────────────────────────────────
 #
-# Quatro colunas no topo para os números grandes, e duas metades por
-# baixo para os quadros e os gráficos. Tudo em píxeis de canvas.
+# Cinco filas, doze ranhuras, e a aritmética num sítio só.
+#
+#   A  y=80     h=190    kpi1 kpi2 kpi3 kpi4          4 números grandes
+#   B  y=294    h=330    esq1 | dir1   (ou larga1)    2 peças de corpo
+#   C  y=648    h=150    terco1a | terco1b | terco1c  3 blocos de texto
+#   D  y=822    h=330    esq2 | dir2   (ou larga2)    2 peças de corpo
+#   E  y=1176   h=300    larga3        (ou esq3|dir3) 1 peça larga
+#
+# ── Porque é que são doze e não seis ────────────────────────────────
+#
+# > «é necessário que os gráficos aqui sejam mais do que seis, tem que
+# >  ser para ir 12. E tem que haver texto também… como se fosse um
+# >  infográfico» — Lucas, 06/10/2026
+#
+# Seis widgets numa página de 1248 píxeis deixavam metade do ecrã
+# vazio, e numa reunião o vazio lê-se como «não há mais nada para
+# mostrar».
+#
+# ── E porque é que há uma fila só para texto ────────────────────────
+#
+# Um painel de números responde «quanto». Não responde «e então?» — e é
+# essa a frase que se diz em voz alta a seguir a cada cartão. A fila de
+# texto escreve-a no ecrã, para ela não depender de quem está a
+# apresentar.
+#
+# A fila fica no MEIO de propósito: depois da primeira leitura dos
+# dados e antes da segunda. É ali que, numa conversa, se para para
+# dizer o que aquilo quer dizer.
 
 _MARGEM_X = 60
 _TOPO = 80
@@ -51,14 +77,65 @@ _ALT_CORPO = 330
 
 _LARG_INTEIRA = 1248
 
+#: Um bloco de texto é mais baixo do que um gráfico — são três ou
+#: quatro linhas. Dar-lhe a altura de um gráfico punha três caixas
+#: quase vazias no meio da página.
+_LARG_TERCO = 400
+_ALT_TERCO = 150
+
+#: A fila E é mais baixa do que as outras duas de corpo: leva o quadro
+#: de detalhe, que se lê a rolar, e não precisa de competir em altura
+#: com o que está acima.
+_ALT_LARGA = 300
+
+
+def _altura_da_fila_de_corpo(n: int) -> float:
+    """A altura da fila de corpo `n`.
+
+    A partir da terceira as filas são mais baixas: levam os quadros de
+    detalhe, que se leem a rolar, e não precisam de competir em altura
+    com os gráficos de cima.
+    """
+    return float(_ALT_CORPO if n <= 2 else _ALT_LARGA)
+
+
+def _y_da_fila_de_corpo(n: int) -> float:
+    """O topo da fila de corpo `n` (1, 2, 3, …).
+
+    Calculado por soma e não por multiplicação, por duas razões:
+
+    * a fila dos textos fica **entre** a 1 e a 2, e tem altura própria.
+      Com `n * (altura + espaço)` a fila 2 aterrava por cima dos textos
+      — foi o primeiro erro deste desenho, e o
+      `test_nenhum_widget_fica_por_cima_de_outro` apanhou-o;
+    * as filas não têm todas a mesma altura (ver acima).
+
+    Sem limite superior de propósito. Uma página que precise de uma
+    quarta fila pede `esq4`/`dir4`/`larga4` e o número sai certo. A
+    primeira versão parava nas três e a segunda página do sector — que
+    já usava `larga1` e `larga2` — ficou sem sítio para os dois
+    gráficos novos.
+    """
+    y = float(_TOPO + _ALT_KPI + _ESPACO)  # a primeira fila de corpo
+    for i in range(1, n):
+        y += _altura_da_fila_de_corpo(i) + _ESPACO
+        if i == 1:
+            y += _ALT_TERCO + _ESPACO  # a fila dos textos vem logo depois da 1ª
+    return y
+
 
 def _ranhura(nome: str) -> tuple[dict, dict]:
     """(position, size) para uma ranhura com nome.
 
-    `kpi1`..`kpi4` — a fila de números grandes, em cima.
-    `esq1`/`dir1`  — a primeira fila de corpo, duas metades.
-    `esq2`/`dir2`  — a segunda fila.
-    `larga1`/`larga2` — uma peça a toda a largura, na mesma fila.
+    `kpi1`..`kpi4`                    — a fila de números grandes (A).
+    `esq1`/`dir1`, `esq2`/`dir2`      — metades, filas B e D.
+    `esq3`/`dir3`                     — metades, fila E.
+    `larga1`/`larga2`/`larga3`        — toda a largura, nas mesmas filas.
+    `terco1a`/`terco1b`/`terco1c`     — terços, fila C (os textos).
+
+    Um nome desconhecido levanta, em vez de aterrar em (0,0) — dois
+    widgets sem posição ficariam um por cima do outro e a página
+    parecia ter um widget a menos.
     """
     if nome.startswith("kpi"):
         i = int(nome[3:]) - 1
@@ -68,19 +145,33 @@ def _ranhura(nome: str) -> tuple[dict, dict]:
             "height": float(_ALT_KPI),
         }
 
-    fila = int(nome[-1]) - 1
-    y = _TOPO + _ALT_KPI + _ESPACO + fila * (_ALT_CORPO + _ESPACO)
+    if nome.startswith("terco"):
+        # `terco1a` — a fila é sempre a C; a letra diz a coluna.
+        coluna = "abc".index(nome[-1])
+        x = _MARGEM_X + coluna * (_LARG_TERCO + _ESPACO)
+        y = _y_da_fila_de_corpo(1) + _ALT_CORPO + _ESPACO
+        return {"x": float(x), "y": y}, {
+            "width": float(_LARG_TERCO),
+            "height": float(_ALT_TERCO),
+        }
+
+    if not (nome.startswith("esq") or nome.startswith("dir") or nome.startswith("larga")):
+        raise ValueError(f"ranhura desconhecida: {nome!r}")
+
+    fila = int(nome[-1])
+    y = _y_da_fila_de_corpo(fila)
+    altura = _altura_da_fila_de_corpo(fila)
 
     if nome.startswith("larga"):
-        return {"x": float(_MARGEM_X), "y": float(y)}, {
+        return {"x": float(_MARGEM_X), "y": y}, {
             "width": float(_LARG_INTEIRA),
-            "height": float(_ALT_CORPO),
+            "height": float(altura),
         }
 
     x = _MARGEM_X if nome.startswith("esq") else _MARGEM_X + _LARG_METADE + _ESPACO
-    return {"x": float(x), "y": float(y)}, {
+    return {"x": float(x), "y": y}, {
         "width": float(_LARG_METADE),
-        "height": float(_ALT_CORPO),
+        "height": float(altura),
     }
 
 
@@ -228,6 +319,91 @@ def tabela(titulo: str, ranhura: str, esquema: str, sql: str) -> Widget:
         return {"data": linhas}
 
     return Widget("table", titulo, ranhura, esquema, sql, monta)
+
+
+# ── Os blocos de texto ──────────────────────────────────────────────
+#
+# > «E tem que haver texto também… como se fosse um infográfico»
+# > — Lucas, 06/10/2026
+#
+# Três cores, e só três. A paleta é curta de propósito: doze widgets
+# numa página já são muita informação, e dar a cada um a sua cor
+# transforma o painel num mostruário de cores em vez de um argumento.
+#
+# Cada cor quer dizer uma coisa, e sempre a mesma:
+
+#: O que está a correr bem, ou o que o cliente já ganha.
+VERDE = {"fundo": "#ecfdf5", "texto": "#065f46"}
+#: O que custa dinheiro agora. É a cor que se usa mais — é o argumento.
+AMBAR = {"fundo": "#fffbeb", "texto": "#92400e"}
+#: Contexto: o que o número quer dizer, de onde vem, o que não diz.
+AZUL = {"fundo": "#eff6ff", "texto": "#1e40af"}
+
+
+def paragrafos(*partes: str) -> str:
+    """Junta parágrafos, com uma linha em branco entre eles.
+
+    Existe para os corpos dos blocos de texto não terem de escrever
+    `\\n\\n` à mão. Não é só estética: um `\\n` a menos cola duas ideias
+    numa parede de texto, e um a mais abre um buraco no meio do cartão —
+    e nenhuma das duas coisas se vê a ler o código.
+
+    Parágrafos vazios são deixados de fora, para um `corpo` poder omitir
+    uma frase condicionalmente sem deixar o espaço dela.
+    """
+    return "\n\n".join(p for p in partes if p and p.strip())
+
+
+def texto(
+    titulo: str,
+    ranhura: str,
+    esquema: str,
+    sql: str,
+    *,
+    corpo: Callable[[list[dict]], str],
+    cor: dict = AZUL,
+) -> Widget:
+    """Um bloco de texto que diz o que os números querem dizer.
+
+    ── Porque é que o texto também vem do SQL ──────────────────────
+
+    Pela mesma razão que a resposta de uma `Pergunta` vem do SQL: uma
+    frase escrita à mão fica certa no dia em que se escreve.
+
+    «Dos camiões não se pagam» é verdade até alguém voltar a semear os
+    dados. E a contradição é visível no mesmo ecrã — o cartão ao lado
+    diz 3 e o texto diz 2 — à frente de quem está a decidir se compra.
+    Era o pior sítio possível para guardar um número à mão.
+
+    Por isso o `corpo` recebe as linhas e escreve a frase. O SQL é o
+    mesmo tipo de consulta dos outros widgets e corre na sementeira.
+
+    ── O título vai no corpo, não no cabeçalho ─────────────────────
+
+    O `TextWidget` desenha-se cru no canvas: sem cartão, sem moldura e
+    **sem cabeçalho** (ver `widget-container.tsx` — o ramo do `text` é
+    o único que não leva `Card`). Um `titulo` passado a este widget
+    não aparece em lado nenhum.
+
+    Fica mesmo assim como argumento, porque o motor e os testes
+    identificam widgets pelo título e um widget sem nome não se
+    consegue nomear num erro. Quem quiser o título à vista escreve-o
+    na primeira linha do `corpo`.
+    """
+
+    def monta(linhas: list[dict]) -> dict:
+        return {
+            "content": corpo(linhas),
+            # 15px: um pouco menor do que o corpo de 16 por omissão. É
+            # texto de apoio, e tem de se ler como apoio.
+            "fontSize": 15,
+            "fontWeight": "normal",
+            "textAlign": "left",
+            "textColor": cor["texto"],
+            "backgroundColor": cor["fundo"],
+        }
+
+    return Widget("text", titulo, ranhura, esquema, sql, monta)
 
 
 # ── Páginas e agentes ───────────────────────────────────────────────

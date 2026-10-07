@@ -36,7 +36,20 @@ só, que é o que lhes permite correr ao vivo sem mentir.
 
 from __future__ import annotations
 
-from scripts.demo_sectorial.pecas import Agente, Pagina, Sector, grafico, kpi, tabela
+from scripts.demo_sectorial.formato import eur, euro2, n, pct
+from scripts.demo_sectorial.pecas import (
+    AMBAR,
+    AZUL,
+    VERDE,
+    Agente,
+    Pagina,
+    Sector,
+    grafico,
+    kpi,
+    paragrafos,
+    tabela,
+    texto,
+)
 
 # ── blocos reutilizados ─────────────────────────────────────────────
 
@@ -166,6 +179,105 @@ SECTOR = Sector(
                     x="familia",
                     y="coste",
                 ),
+                texto(
+                    "Pérdida contra campaña",
+                    "terco1a",
+                    "almacen",
+                    f"""SELECT ROUND(SUM(s.quantity * p.unit_cost)
+                                     FILTER (WHERE l.best_before < CURRENT_DATE)) AS perdido,
+                               ROUND(SUM(s.quantity * p.unit_cost)
+                                     FILTER (WHERE l.best_before >= CURRENT_DATE
+                                             AND l.best_before < CURRENT_DATE + 60))
+                                 AS en_riesgo,
+                               COUNT(*) FILTER (WHERE l.best_before >= CURRENT_DATE
+                                                AND l.best_before < CURRENT_DATE + 60)
+                                 AS lotes
+                        {_CADUCA}""",
+                    corpo=lambda r: paragrafos(
+                        "PÉRDIDA O CAMPAÑA",
+                        f"{eur(r[0]['perdido'])} ya caducado: eso es pérdida, y no hay "
+                        "nada que hacer.",
+                        f"{eur(r[0]['en_riesgo'])} en {n(r[0]['lotes'])} lotes caducan en "
+                        "los próximos 60 días. Eso todavía es una campaña — pero solo si "
+                        "alguien lo sabe con tiempo.",
+                    ),
+                    cor=AMBAR,
+                ),
+                texto(
+                    "El vino de guarda no cuenta",
+                    "terco1b",
+                    "catalogo",
+                    """SELECT COUNT(*) FILTER (WHERE p.is_vintage) AS vintage,
+                              COUNT(*) AS total
+                       FROM assortment.products p""",
+                    corpo=lambda r: paragrafos(
+                        "LO QUE NO ENTRA EN ESTA CUENTA",
+                        f"{r[0]['vintage']} de {r[0]['total']} referencias son de guarda. "
+                        "No caducan: envejecen.",
+                        "Meterlas aquí inventaría un problema que no existe — y es el "
+                        "primer error que comete cualquier informe de caducidades hecho "
+                        "con una fecha y nada más.",
+                    ),
+                    cor=AZUL,
+                ),
+                texto(
+                    "Dónde está el riesgo",
+                    "terco1c",
+                    "catalogo",
+                    f"""SELECT p.family AS familia,
+                               ROUND(SUM(s.quantity * p.unit_cost)) AS coste,
+                               MIN(l.best_before - CURRENT_DATE) AS primeros_dias
+                        {_CADUCA} AND l.best_before < CURRENT_DATE + 60
+                        GROUP BY p.family ORDER BY coste DESC LIMIT 1""",
+                    corpo=lambda r: paragrafos(
+                        "LA FAMILIA QUE MÁS PESA",
+                        f"{r[0]['familia']}: {eur(r[0]['coste'])} en riesgo, y el lote "
+                        f"más próximo caduca en {r[0]['primeros_dias']} días.",
+                        "Por valor, no por número de lotes. Doce lotes de algo barato "
+                        "hacen mucho ruido y poco daño.",
+                    ),
+                    cor=VERDE,
+                ),
+                grafico(
+                    "Qué caduca, semana a semana",
+                    "esq3",
+                    "almacen",
+                    f"""SELECT TO_CHAR(DATE_TRUNC('week', l.best_before), 'YYYY-MM-DD')
+                                 AS semana,
+                               ROUND(SUM(s.quantity * p.unit_cost)) AS coste
+                        {_CADUCA} AND l.best_before >= CURRENT_DATE
+                          AND l.best_before < CURRENT_DATE + 90
+                        GROUP BY 1 ORDER BY 1""",
+                    variante="column",
+                    x="semana",
+                    y="coste",
+                ),
+                grafico(
+                    "Riesgo por zona de almacén",
+                    "dir3",
+                    "almacen",
+                    f"""SELECT s.zone AS zona,
+                               ROUND(SUM(s.quantity * p.unit_cost)) AS coste
+                        {_CADUCA} AND l.best_before < CURRENT_DATE + 60
+                        GROUP BY s.zone ORDER BY coste DESC""",
+                    variante="pie",
+                    x="zona",
+                    y="coste",
+                ),
+                tabela(
+                    "Caducidad por familia",
+                    "larga4",
+                    "catalogo",
+                    f"""SELECT p.family AS "Familia",
+                               COUNT(DISTINCT p.id) AS "Referencias",
+                               COUNT(*) AS "Lotes",
+                               SUM(s.quantity) AS "Unidades",
+                               ROUND(AVG(p.shelf_life_days)) AS "Vida útil (días)",
+                               MIN(l.best_before - CURRENT_DATE) AS "El más próximo",
+                               ROUND(SUM(s.quantity * p.unit_cost)) AS "Coste (€)"
+                        {_CADUCA} AND l.best_before < CURRENT_DATE + 60
+                        GROUP BY p.family ORDER BY 7 DESC""",
+                ),
             ],
         ),
         # ─────────────────────────────────────────────────────────────
@@ -235,6 +347,111 @@ SECTOR = Sector(
                                ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS "Neto (%)",
                                ROUND(SUM({_BRUTO}) - SUM({_NETO})) AS "Rappel (€)"
                         {_MARGEM} GROUP BY c.channel ORDER BY 5""",
+                ),
+                texto(
+                    "Lo que el rappel se lleva",
+                    "terco1a",
+                    "comercial",
+                    f"""SELECT ROUND(100.0 * SUM({_BRUTO})
+                                     / NULLIF(SUM({_VENDA}), 0), 1) AS bruto,
+                               ROUND(100.0 * SUM({_NETO})
+                                     / NULLIF(SUM({_VENDA}), 0), 1) AS neto,
+                               ROUND(SUM({_BRUTO}) - SUM({_NETO})) AS rappel
+                        {_MARGEM}""",
+                    corpo=lambda r: paragrafos(
+                        "EL MARGEN QUE NO ES EL SUYO",
+                        f"Bruto {pct(r[0]['bruto'])}. Después del rappel, "
+                        f"{pct(r[0]['neto'])}. La diferencia son "
+                        f"{eur(r[0]['rappel'])}.",
+                        "El rappel se liquida al final del año y no aparece en ninguna "
+                        "línea de factura. El margen que usted mira al vender no es el "
+                        "que le queda.",
+                    ),
+                    cor=AMBAR,
+                ),
+                texto(
+                    "Por qué el bruto engaña",
+                    "terco1b",
+                    "comercial",
+                    f"""WITH canal AS (
+                            SELECT c.channel,
+                                   100.0 * SUM({_BRUTO})
+                                     / NULLIF(SUM({_VENDA}), 0) AS bruto,
+                                   100.0 * SUM({_NETO})
+                                     / NULLIF(SUM({_VENDA}), 0) AS neto
+                            {_MARGEM} GROUP BY c.channel
+                        )
+                        SELECT ROUND(MAX(bruto) - MIN(bruto), 1) AS rango_bruto,
+                               ROUND(MAX(neto) - MIN(neto), 1) AS rango_neto,
+                               COUNT(*) AS canales
+                        FROM canal""",
+                    corpo=lambda r: paragrafos(
+                        "TODOS IGUALES, HASTA QUE NO",
+                        f"Entre los {r[0]['canales']} canales, el margen bruto varía "
+                        f"{pct(r[0]['rango_bruto'])}. El neto varía "
+                        f"{pct(r[0]['rango_neto'])}.",
+                        "Es la prueba de que el problema no está en el precio de tarifa: "
+                        "está en lo que se acordó fuera de la factura.",
+                    ),
+                    cor=AZUL,
+                ),
+                texto(
+                    "Dónde mirar primero",
+                    "terco1c",
+                    "comercial",
+                    f"""SELECT c.name AS cliente,
+                               ROUND(SUM({_BRUTO}) - SUM({_NETO})) AS rappel,
+                               ROUND(100.0 * SUM({_NETO})
+                                     / NULLIF(SUM({_VENDA}), 0), 1) AS neto
+                        {_MARGEM} GROUP BY c.id, c.name
+                        ORDER BY SUM({_BRUTO}) - SUM({_NETO}) DESC LIMIT 1""",
+                    corpo=lambda r: paragrafos(
+                        "EL CONTRATO QUE MÁS PESA",
+                        f"{r[0]['cliente']}: {eur(r[0]['rappel'])} de rappel, y queda "
+                        f"con {pct(r[0]['neto'])} de margen neto.",
+                        "No se renegocia un rappel sin este número. Con él, la "
+                        "conversación es otra.",
+                    ),
+                    cor=VERDE,
+                ),
+                grafico(
+                    "Margen neto mes a mes",
+                    "esq2",
+                    "comercial",
+                    f"""SELECT TO_CHAR(DATE_TRUNC('month', o.ordered_at), 'YYYY-MM') AS mes,
+                               ROUND(100.0 * SUM({_NETO})
+                                     / NULLIF(SUM({_VENDA}), 0), 1) AS neto
+                        {_MARGEM} GROUP BY 1 ORDER BY 1""",
+                    variante="line",
+                    x="mes",
+                    y="neto",
+                ),
+                grafico(
+                    "Margen neto por familia",
+                    "dir2",
+                    "catalogo",
+                    f"""SELECT p.family AS familia,
+                               ROUND(100.0 * SUM({_NETO})
+                                     / NULLIF(SUM({_VENDA}), 0), 1) AS neto
+                        {_MARGEM} GROUP BY p.family ORDER BY neto DESC""",
+                    variante="column",
+                    x="familia",
+                    y="neto",
+                ),
+                tabela(
+                    "Rappel por cliente",
+                    "larga3",
+                    "comercial",
+                    f"""SELECT c.name AS "Cliente",
+                               c.channel AS "Canal",
+                               ROUND(100.0 * c.rebate_pct, 2) AS "Rappel contratado (%)",
+                               COUNT(DISTINCT o.id) AS "Pedidos",
+                               ROUND(SUM({_VENDA})) AS "Facturado (€)",
+                               ROUND(SUM({_BRUTO}) - SUM({_NETO})) AS "Rappel (€)",
+                               ROUND(100.0 * SUM({_NETO})
+                                     / NULLIF(SUM({_VENDA}), 0), 1) AS "Neto (%)"
+                        {_MARGEM} GROUP BY c.id, c.name, c.channel, c.rebate_pct
+                        ORDER BY 6 DESC""",
                 ),
             ],
         ),
@@ -328,6 +545,140 @@ SECTOR = Sector(
                        GROUP BY p.id, p.sku, p.name, p.family, p.is_vintage
                        ORDER BY 6 DESC LIMIT 40""",
                 ),
+                texto(
+                    "Las dos líneas que son iguales",
+                    "terco1a",
+                    "almacen",
+                    """SELECT ROUND(SUM(s.quantity * p.unit_cost)) AS total,
+                              ROUND(SUM(s.quantity * p.unit_cost)
+                                    FILTER (WHERE p.is_vintage)) AS guarda,
+                              ROUND(SUM(s.quantity * p.unit_cost)
+                                    FILTER (WHERE NOT p.is_vintage)) AS resto
+                       FROM warehouse.stock s
+                       JOIN warehouse.lots l ON l.id = s.lot_id
+                       JOIN assortment.products p ON p.id = l.product_id
+                       WHERE s.quantity > 0""",
+                    corpo=lambda r: paragrafos(
+                        "PARADO A PROPÓSITO, O PARADO",
+                        f"{eur(r[0]['total'])} en almacén: {eur(r[0]['guarda'])} de "
+                        f"guarda y {eur(r[0]['resto'])} que no lo son.",
+                        "El vino de guarda está ahí porque tiene que estar. El resto está "
+                        "ahí porque no se vendió. En su hoja de stock son la misma línea, "
+                        "y por eso el segundo nunca se discute.",
+                    ),
+                    cor=AMBAR,
+                ),
+                texto(
+                    "Lo que nadie volvió a mirar",
+                    "terco1b",
+                    "catalogo",
+                    """WITH sin_venta AS (
+                           SELECT p.id, p.name,
+                                  COALESCE(SUM(s.quantity * p.unit_cost), 0) AS capital
+                           FROM assortment.products p
+                           LEFT JOIN warehouse.lots l ON l.product_id = p.id
+                           LEFT JOIN warehouse.stock s ON s.lot_id = l.id
+                           WHERE NOT EXISTS (
+                               SELECT 1 FROM trade.order_lines ol
+                               JOIN warehouse.lots l2 ON l2.id = ol.lot_id
+                               WHERE l2.product_id = p.id)
+                           GROUP BY p.id, p.name
+                       )
+                       SELECT COUNT(*) AS refs,
+                              ROUND(SUM(capital)) AS capital,
+                              (SELECT name FROM sin_venta ORDER BY capital DESC LIMIT 1)
+                                AS peor
+                       FROM sin_venta""",
+                    corpo=lambda r: paragrafos(
+                        "SE COMPRARON Y SE QUEDARON",
+                        f"{r[0]['refs']} referencias no han tenido ni una sola venta, con "
+                        f"{eur(r[0]['capital'])} inmovilizados.",
+                        f"La que más pesa: {r[0]['peor']}. Nadie decidió quedarse con "
+                        "ellas — simplemente nadie volvió a mirar.",
+                    ),
+                    cor=AZUL,
+                ),
+                texto(
+                    "Lo que rota bien",
+                    "terco1c",
+                    "catalogo",
+                    """WITH rota AS (
+                           SELECT p.family,
+                                  SUM(ol.quantity) AS vendido,
+                                  COALESCE((SELECT SUM(s.quantity)
+                                            FROM warehouse.stock s
+                                            JOIN warehouse.lots l2 ON l2.id = s.lot_id
+                                            JOIN assortment.products p2
+                                              ON p2.id = l2.product_id
+                                            WHERE p2.family = p.family), 0) AS en_stock
+                           FROM trade.order_lines ol
+                           JOIN warehouse.lots l ON l.id = ol.lot_id
+                           JOIN assortment.products p ON p.id = l.product_id
+                           GROUP BY p.family
+                       )
+                       SELECT family AS familia,
+                              ROUND(vendido::NUMERIC / NULLIF(en_stock, 0), 1) AS vueltas
+                       FROM rota
+                       WHERE en_stock > 0
+                       ORDER BY vendido::NUMERIC / NULLIF(en_stock, 0) DESC
+                       LIMIT 1""",
+                    corpo=lambda r: paragrafos(
+                        "LA QUE SÍ SE MUEVE",
+                        f"{r[0]['familia']} rota {r[0]['vueltas']} veces lo que tiene en "
+                        "almacén.",
+                        "Es el contrapeso de esta página: el capital parado no es un "
+                        "problema del almacén, es un problema de algunas referencias.",
+                    ),
+                    cor=VERDE,
+                ),
+                grafico(
+                    "Capital por zona",
+                    "esq2",
+                    "almacen",
+                    """SELECT s.zone AS zona,
+                              ROUND(SUM(s.quantity * p.unit_cost)) AS capital
+                       FROM warehouse.stock s
+                       JOIN warehouse.lots l ON l.id = s.lot_id
+                       JOIN assortment.products p ON p.id = l.product_id
+                       WHERE s.quantity > 0
+                       GROUP BY s.zone ORDER BY capital DESC""",
+                    variante="pie",
+                    x="zona",
+                    y="capital",
+                ),
+                grafico(
+                    "Antigüedad del lote en almacén",
+                    "dir2",
+                    "almacen",
+                    """SELECT TO_CHAR(DATE_TRUNC('month', l.received_on), 'YYYY-MM') AS mes,
+                              ROUND(SUM(s.quantity * p.unit_cost)) AS capital
+                       FROM warehouse.stock s
+                       JOIN warehouse.lots l ON l.id = s.lot_id
+                       JOIN assortment.products p ON p.id = l.product_id
+                       WHERE s.quantity > 0
+                       GROUP BY 1 ORDER BY 1""",
+                    variante="area",
+                    x="mes",
+                    y="capital",
+                ),
+                tabela(
+                    "Capital y rotación por familia",
+                    "larga3",
+                    "catalogo",
+                    """SELECT p.family AS "Familia",
+                              COUNT(DISTINCT p.id) AS "Referencias",
+                              SUM(s.quantity) AS "Unidades",
+                              ROUND(SUM(s.quantity * p.unit_cost)) AS "Capital (€)",
+                              COUNT(DISTINCT p.id) FILTER (WHERE p.is_vintage)
+                                AS "De guarda",
+                              ROUND(AVG(CURRENT_DATE - l.received_on))
+                                AS "Días en almacén"
+                       FROM warehouse.stock s
+                       JOIN warehouse.lots l ON l.id = s.lot_id
+                       JOIN assortment.products p ON p.id = l.product_id
+                       WHERE s.quantity > 0
+                       GROUP BY p.family ORDER BY 4 DESC""",
+                ),
             ],
         ),
         # ─────────────────────────────────────────────────────────────
@@ -397,6 +748,110 @@ SECTOR = Sector(
                         {_MARGEM}
                         GROUP BY c.id, c.name, c.channel, c.city, c.rebate_pct
                         ORDER BY 5 DESC LIMIT 40""",
+                ),
+                texto(
+                    "Facturar mucho y dejar poco",
+                    "terco1a",
+                    "comercial",
+                    f"""WITH cliente AS (
+                            SELECT c.name,
+                                   SUM({_VENDA}) AS factura,
+                                   100.0 * SUM({_NETO})
+                                     / NULLIF(SUM({_VENDA}), 0) AS neto
+                            {_MARGEM} GROUP BY c.id, c.name
+                        )
+                        SELECT (SELECT name FROM cliente ORDER BY factura DESC LIMIT 1)
+                                 AS top_factura,
+                               (SELECT ROUND(neto, 1) FROM cliente
+                                  ORDER BY factura DESC LIMIT 1) AS top_neto,
+                               ROUND(AVG(neto), 1) AS neto_medio,
+                               COUNT(*) FILTER (WHERE neto < (SELECT AVG(neto) FROM cliente))
+                                 AS bajo_media
+                        FROM cliente""",
+                    corpo=lambda r: paragrafos(
+                        "EL QUE MÁS FACTURA NO ES EL MEJOR",
+                        f"{r[0]['top_factura']} es el primero por importe y deja "
+                        f"{pct(r[0]['top_neto'])}, contra una media de "
+                        f"{pct(r[0]['neto_medio'])}.",
+                        f"{r[0]['bajo_media']} clientes están por debajo de la media. El "
+                        "ranking por facturación es el que todo el mundo mira y el que "
+                        "menos dice.",
+                    ),
+                    cor=AMBAR,
+                ),
+                texto(
+                    "La plaza no es el canal",
+                    "terco1b",
+                    "comercial",
+                    f"""SELECT COUNT(DISTINCT c.city) AS plazas,
+                               COUNT(DISTINCT c.channel) AS canales,
+                               COUNT(DISTINCT c.id) AS clientes
+                        {_MARGEM}""",
+                    corpo=lambda r: paragrafos(
+                        "DOS FORMAS DE CORTAR LO MISMO",
+                        f"{r[0]['clientes']} clientes en {r[0]['plazas']} plazas y "
+                        f"{r[0]['canales']} canales.",
+                        "La plaza dice dónde está el comercial; el canal dice cómo se "
+                        "vende. Mezclarlas en un solo informe es lo que hace que ninguna "
+                        "de las dos decisiones se pueda tomar.",
+                    ),
+                    cor=AZUL,
+                ),
+                texto(
+                    "Dónde crecer",
+                    "terco1c",
+                    "comercial",
+                    f"""SELECT c.city AS plaza,
+                               ROUND(100.0 * SUM({_NETO})
+                                     / NULLIF(SUM({_VENDA}), 0), 1) AS neto,
+                               ROUND(SUM({_VENDA})) AS facturado
+                        {_MARGEM} GROUP BY c.city
+                        ORDER BY SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0) DESC
+                        LIMIT 1""",
+                    corpo=lambda r: paragrafos(
+                        "LA PLAZA QUE MEJOR DEJA",
+                        f"{r[0]['plaza']}: {pct(r[0]['neto'])} de margen neto sobre "
+                        f"{eur(r[0]['facturado'])} facturados.",
+                        "Si hay que meter un comercial más, es aquí — y esta es la única "
+                        "página que lo dice sin pedirle que lo intuya.",
+                    ),
+                    cor=VERDE,
+                ),
+                grafico(
+                    "Margen neto por plaza",
+                    "esq2",
+                    "comercial",
+                    f"""SELECT c.city AS plaza,
+                               ROUND(100.0 * SUM({_NETO})
+                                     / NULLIF(SUM({_VENDA}), 0), 1) AS neto
+                        {_MARGEM} GROUP BY c.city ORDER BY neto DESC""",
+                    variante="column",
+                    x="plaza",
+                    y="neto",
+                ),
+                grafico(
+                    "Reparto de la facturación por canal",
+                    "dir2",
+                    "comercial",
+                    f"""SELECT c.channel AS canal, ROUND(SUM({_VENDA})) AS facturado
+                        {_MARGEM} GROUP BY c.channel ORDER BY facturado DESC""",
+                    variante="pie",
+                    x="canal",
+                    y="facturado",
+                ),
+                tabela(
+                    "Plazas: importe, ticket y margen",
+                    "larga3",
+                    "comercial",
+                    f"""SELECT c.city AS "Plaza",
+                               COUNT(DISTINCT c.id) AS "Clientes",
+                               COUNT(DISTINCT o.id) AS "Pedidos",
+                               ROUND(SUM({_VENDA})) AS "Facturado (€)",
+                               ROUND(SUM({_VENDA})
+                                     / NULLIF(COUNT(DISTINCT o.id), 0)) AS "Ticket (€)",
+                               ROUND(100.0 * SUM({_NETO})
+                                     / NULLIF(SUM({_VENDA}), 0), 1) AS "Neto (%)"
+                        {_MARGEM} GROUP BY c.city ORDER BY 4 DESC""",
                 ),
             ],
         ),
@@ -482,7 +937,7 @@ SECTOR = Sector(
 # Cinco fios já respondidos. A resposta é função do resultado da
 # consulta, não texto escrito à mão — ver `pecas.Pergunta`.
 
-from scripts.demo_sectorial.formato import eur, n, pct  # noqa: E402
+# (o `formato` já vem importado no topo do ficheiro)
 from scripts.demo_sectorial.pecas import Pergunta  # noqa: E402
 
 P_CADUCA = """SELECT p.family AS familia,
