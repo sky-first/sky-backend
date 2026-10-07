@@ -74,6 +74,16 @@ class MessageResponse(BaseModel):
     # when no one reacted. FE derives counts and "did I react?" from
     # this shape.
     reactions: Dict[str, List[str]] = Field(default_factory=dict)
+    # Quantas corridas seguidas do agente disseram exactamente isto, e
+    # quando foi a última. Uma mensagem normal é 1 / None. Ver a nota no
+    # modelo: o cliente mostra «30 vezes, a última às 15:40» em vez de
+    # trinta cartões iguais.
+    repeticoes: int = 1
+    ultima_repeticao_em: Optional[datetime] = None
+    # A chave do catálogo de textos, quando o texto veio de lá. O
+    # cliente que a reconheça mostra-a na língua de quem lê; os outros
+    # mostram o `content`, que continua a ser escrito.
+    chave_de_texto: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

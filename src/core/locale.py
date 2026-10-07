@@ -140,6 +140,59 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "en": "the run produced no output",
         "es": "la ejecución no ha devuelto nada",
     },
+    # ── O que o agente diz quando não tem nada a dizer ──────────────
+    #
+    # Estavam cravadas em português no `agent_worker`, como constantes.
+    # Um agente corre sozinho e não sabe quem o vai ler — e o mesmo
+    # agente é lido pelo Lucas em português e por um cliente de Badajoz
+    # em castelhano. O worker continua a escrever o texto no `content`
+    # (é o que se vê sem mais nada), mas guarda a chave ao lado para o
+    # cliente poder trocar a língua na altura de mostrar.
+    "agent_nothing_to_report": {
+        "pt": (
+            "Olhei agora e não há nada a assinalar. Volto a olhar na próxima "
+            "corrida e só falo se encontrar alguma coisa que valha a pena."
+        ),
+        "en": (
+            "I've just looked and there's nothing to flag. I'll look again on "
+            "the next run and will only speak up if I find something worth it."
+        ),
+        "es": (
+            "Acabo de mirar y no hay nada que señalar. Volveré a mirar en la "
+            "próxima ejecución y solo hablaré si encuentro algo que merezca la pena."
+        ),
+    },
+    "agent_could_not_run": {
+        "pt": (
+            "Não consegui responder desta vez — foi um problema nosso, não dos "
+            "seus dados. Vou tentar outra vez na próxima corrida."
+        ),
+        "en": (
+            "I couldn't answer this time — that was a problem on our side, not "
+            "with your data. I'll try again on the next run."
+        ),
+        "es": (
+            "No he podido responder esta vez — ha sido un problema nuestro, no "
+            "de sus datos. Lo intentaré de nuevo en la próxima ejecución."
+        ),
+    },
+    # O corpo do achado de uma corrida vazia. O título já vinha do
+    # catálogo (`agent_run_no_output`) e a descrição ao lado estava
+    # cravada em inglês — a mesma falha, na linha seguinte à correcção.
+    "agent_run_no_output_body": {
+        "pt": (
+            "O motor não devolveu conteúdo nesta corrida. Reveja o foco do "
+            "agente e as fontes de dados, ou repita."
+        ),
+        "en": (
+            "The AI service returned no content for this run. Check the agent's "
+            "focus prompt, data sources, or retry."
+        ),
+        "es": (
+            "El motor no ha devuelto contenido en esta ejecución. Revise el foco "
+            "del agente y las fuentes de datos, o reinténtelo."
+        ),
+    },
     "chat_error_generic": {
         "pt": "A Sky não conseguiu responder agora. Tente outra vez.",
         "en": "Sky couldn't answer right now. Please try again.",
