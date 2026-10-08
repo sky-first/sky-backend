@@ -225,13 +225,160 @@ Perguntas longas custam ~150 ms a mais do que a curta (891–929 ms contra
 
 | risco | como se fecha |
 |---|---|
-| Sessões longas: a entrada é recobrada a cada turno | medir uma conversa de 10 turnos e ver a curva do `usageEvent` |
+| Sessões longas: a entrada é recobrada a cada turno | medir uma conversa de 10 turnos e ver a curva do `usageEvent` (nota: o silêncio entre turnos **não** conta — medido em S1) |
 | O que acontece quando o SQL falha | hoje o turno cala-se (corrigido em parte no #713). Com o Sonic, o `toolResult` tem de levar o erro em texto para ele poder DIZER que falhou |
 | Residência dos dados | eu-north-1 é UE. Confirmar que o Bedrock não retém, e que não precisamos de novo texto no RGPD |
 
 ---
 
-## 5. A recomendação
+## 5. Stress do desenho — onde é que isto parte
+
+O que está em cima é a parte boa. Esta secção é o contrário: cada caso é
+uma forma de o desenho falhar em produção, e o que fazer. Vem antes de
+código de propósito.
+
+A base é o `voice.py` de hoje. Trocar o motor **não** troca o protocolo
+que o `voice_session_ws` fala com a web e com a app — e são dois clientes
+que partem ao mesmo tempo se o protocolo mudar de baixo.
+
+### 🔴 S1 — Silenciar o microfone mata a sessão
+
+O `muted` de hoje para de alimentar o STT, e com o Transcribe isso está
+certo. O Sonic desliga com `ValidationException` depois de **55 s** sem
+áudio nem conteúdo interactivo — medido, com essas palavras na mensagem.
+
+Quem silencia e vai beber um café volta a uma sessão morta. O `muted`
+tem de passar a alimentar **silêncio**, não a parar de alimentar — é a
+inversão exacta do que o código faz hoje.
+
+**E o silêncio é de graça.** Medido: 90 segundos de silêncio (2812
+pedaços de 32 ms), muito acima dos 55 do limite:
+
+```
+contador antes   input 279 voz / 840 texto   output 60 voz / 31 texto
+contador depois  input 279 voz / 840 texto   output 60 voz / 31 texto
+o silencio custou NADA
+```
+
+Nem um token. Ele tem o seu próprio VAD à entrada e descarta o silêncio
+antes de contar. Isto fecha S1 e S9 ao mesmo tempo: a correcção é
+alimentar silêncio, e não custa nada fazê-lo.
+
+### 🔴 S2 — O contexto do cliente dentro do callback da ferramenta
+
+**É a sétima vez deste defeito.** O `current_tenant()` é uma variável de
+contexto posta pelo middleware por PEDIDO. O callback da ferramenta corre
+dentro de um WebSocket de vida longa e, pior, provavelmente dentro de uma
+task — e uma task que nasce fora do pedido **não herda** o contexto.
+
+Falha silenciosa e da pior espécie: o SQL corre na base da PLATAFORMA e
+responde dados de outro cliente, ou nada. Já aconteceu em
+`core/ingestion/service.py`, no `worker/scan_tasks.py`, nos agentes, no
+mapa semântico, nas descobertas e na própria voz.
+
+Antes de escrever o callback: o contexto resolve-se **uma vez**, à
+entrada do WS, e passa-se por ARGUMENTO. Nunca lido de uma variável de
+contexto lá dentro.
+
+### 🟠 S3 — Uma consulta longa mata o turno a meio
+
+Os 55 s valem para a sessão inteira, não só para o arranque. O nosso SQL
+leva 2 a 15 s e cabe. Um que leve 60 não cabe — e morre com a pessoa à
+espera, o que é pior do que uma resposta lenta.
+
+Enquanto a ferramenta corre, alguém tem de continuar a alimentar áudio
+(é o que a app faz naturalmente, se não a mandarmos parar). Mas há um
+tecto duro: **o timeout do nosso SQL tem de ficar abaixo de 55 s**, e
+hoje o cliente HTTP tem 120.
+
+### 🟠 S4 — Push-to-talk e o endpointing dele discordam
+
+Em `ptt` o turno fecha quando a pessoa larga o botão. O Sonic decide
+sozinho que a pessoa acabou de falar — e responde a meio do botão
+premido. Os dois modos não podem coexistir sem se escolher um dono.
+
+A resposta provável: em `ptt`, não abrir o bloco de áudio até ao
+`start`, e fechá-lo no `stop`. Mas é uma decisão, não um detalhe, e tem
+de ser tomada antes e não descoberta.
+
+### 🟠 S5 — A interrupção nativa não tem como chegar ao cliente
+
+A interrupção é um evento do protocolo (`{"interrupted": true}`), e é
+ótimo. Mas o áudio que o cliente já recebeu está em buffer e vai tocar
+de qualquer maneira: a Sky é interrompida no servidor e continua a falar
+no auscultador.
+
+Falta um evento `descarta_o_que_tens` no nosso protocolo, e um `flush` no
+lado do cliente. **Nos dois clientes.** Sem isso, o barge-in que ganhámos
+de graça ouve-se pior do que não o ter.
+
+### 🟡 S6 — Quando o nosso SQL falha, ele fica pendurado
+
+Hoje uma falha do motor vira `turn_failed` e a voz cala-se (metade
+corrigido no #713). Com o Sonic, se a ferramenta não responder, ele
+espera — até aos 55 s, e depois a sessão morre.
+
+O erro tem de ir no `toolResult` **em texto**, para ele poder DIZER que
+falhou: «não consegui chegar aos dados». Que é, aliás, melhor do que o
+silêncio de hoje.
+
+### 🟡 S7 — Ele reescreve a pergunta antes de nos chegar
+
+Nas medições, o argumento que ele passou à ferramenta **não era o que a
+pessoa disse**:
+
+```
+ouviu         '...e quala rota pior?'
+passou ao SQL '...e qual a rota pior?'          (corrigiu o ASR — bom)
+
+disse         '...y cumple el plazo del cliente?'
+passou ao SQL '...y si cumple el plazo del cliente'   (parafraseou)
+```
+
+Nos dois casos saiu melhor ou igual. Mas é uma camada de reescrita nova
+entre a pessoa e o nosso SQL, que antes não existia — o Transcribe
+entregava o que ouvia e mais nada. Uma paráfrase que deixe cair uma
+condição («só os de Janeiro») é uma resposta certa à pergunta errada, e
+não há como dar por isso.
+
+Mitigação: guardar os dois — o que ele ouviu e o que passou — e mostrar
+o que ele ouviu no ecrã. Já temos `partial_transcript`.
+
+### 🟡 S8 — A língua está presa no arranque da sessão
+
+O `voiceId` e a configuração de saída vão no `promptStart`. Mudar de
+língua a meio da conversa exige **sessão nova**. Hoje o `locale` é lido
+por turno.
+
+Não é grave — ninguém muda de língua a meio — mas o ecrã das Definições
+permite-o, e a sessão aberta tem de ser reciclada quando isso acontece.
+
+### ✅ S9 — Uma sessão esquecida: medida, e não custa
+
+Era o risco de factura. **Não existe**: o silêncio não é facturado (ver
+S1), e uma sessão parada não consome nada.
+
+Fica ainda assim a valer um prazo nosso — fechar a sessão depois de N
+minutos sem fala — mas por causa da quota de sessões concorrentes (S10),
+não do custo.
+
+### ⚪ S10 — Concorrência e quota
+
+Uma sessão bidireccional por pessoa a falar, não por pedido. Vinte
+pessoas em Live Talk são vinte sessões abertas contra a nossa quota em
+eu-north-1, que não foi verificada. Para 20 clientes de ~450 €/mês isto
+tem de ser medido antes de prometer.
+
+### ⚪ S11 — O áudio atravessa uma região
+
+Cluster em eu-west-1, modelo em eu-north-1. Está dentro da UE, e por
+isso não é um problema de RGPD — mas é uma travessia nova que o texto de
+privacidade não menciona, e um cliente que pergunte merece a resposta
+certa.
+
+---
+
+## 6. A recomendação
 
 Trocar. Não pela latência — pela latência também — mas porque os dois
 defeitos de natureza (turno a cronómetro, impossibilidade de
@@ -248,5 +395,25 @@ mesmo avariada.
 
 *Sondas: `sonda.py` (base), `sonda_lenta.py` (ferramenta a 4 s),
 `sonda_duas.py` (duas ferramentas), `sonda_empurra.py` (recado
-imediato), `sonda_lingua.py` (pt-PT e vocabulário). Descartáveis — o que
-fica é este documento.*
+imediato), `sonda_lingua.py` (pt-PT e vocabulário), `sonda_parada.py`
+(sessão parada 90 s). Descartáveis — o que fica é este documento.*
+
+---
+
+## 7. A ordem de trabalho que sai disto
+
+Nada aqui é código ainda, de propósito: a regra é validar → documentar →
+stress → código, e o stress mudou a ordem.
+
+| # | o quê | porquê primeiro |
+|---|---|---|
+| 1 | `awscrt` na imagem do backend, e o `boto3` a subir | sem isto não há chamada nenhuma; e é a alteração que mexe no `Dockerfile`, que é o que mais tarde dói |
+| 2 | Medir a latência **de dentro do cluster** (eu-west-1 → eu-north-1) | os 766 ms foram do meu portátil. Se de dentro der muito pior, o plano muda |
+| 3 | O contexto do cliente por ARGUMENTO, antes de existir callback | S2 — sétima vez do mesmo defeito. Escrever a assinatura certa antes de haver o que a violar |
+| 4 | Eventos novos no protocolo do WS: `a_pensar` e `descarta_o_que_tens` | S5 e o recado do cliente. São dois clientes, e é melhor que o protocolo esteja pronto antes do motor |
+| 5 | O motor novo atrás de uma bandeira, com o antigo intacto | o Live Talk é demonstrado a clientes. Não se troca o motor sem poder voltar atrás numa variável de ambiente |
+| 6 | `muted` a alimentar silêncio; prazo de sessão; timeout do SQL < 55 s | S1, S3, S10 |
+| 7 | Decidir o `ptt` | S4 — é uma decisão de produto, não de código |
+
+O passo 2 é o que pode matar isto, e é por isso que vem antes de se
+escrever a peça grande.
