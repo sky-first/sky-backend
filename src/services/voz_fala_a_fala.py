@@ -634,18 +634,76 @@ class SessaoFalada:
         )
 
 
+def _credenciais_pelo_boto3() -> Dict[str, str]:
+    """As credenciais, resolvidas pelo caminho que JÁ funciona aqui.
+
+    ── Porque não se usa a cadeia do SDK novo ──────────────────────
+
+    Porque ela não sabe usar a IRSA. Medido **dentro do pod de
+    produção**, antes de se ligar a bandeira:
+
+        WebIdentityTokenEnv credential source was detected but no
+        provider claims it; install 'aws-credentials-sts'.
+
+    A mensagem aponta para um pacote, e **o pacote não resolve**: o
+    `smithy_aws_core` 0.11 anuncia que o slot `WebIdentityTokenEnv` vem
+    do `aws-credentials-sts`, mas nenhuma versão lançada (0.1 a 0.4)
+    registra esse provedor — só o `ProfileAssumeRole`. O ecossistema
+    anuncia uma peça que ainda não existe.
+
+    Localmente nada disto se nota: as credenciais vêm do SSO em
+    variáveis de ambiente e essas ele sabe ler. Era um defeito que só
+    aparecia em produção, à primeira pessoa que falasse com a Sky.
+
+    O `boto3` sabe. É o que o Transcribe e o Polly usam aqui todos os
+    dias, com a mesma IRSA. Então resolve-se por ele e passa-se o
+    resultado ao SDK — explícito em vez de adivinhado.
+
+    ── O que isto NÃO resolve, e fica dito ────────────────────────
+
+    As credenciais da IRSA rodam. Estas são lidas **ao abrir a sessão**,
+    que é quando a assinatura é feita; o canal depois vive com a
+    assinatura que tem. Uma conversa mais longa do que a validade do
+    token não é um problema hoje (o token do EKS dura uma hora), mas é
+    aqui que se vai ver se algum dia for.
+    """
+    try:
+        import boto3
+
+        bruto = boto3.Session().get_credentials()
+        if bruto is None:
+            return {}
+        c = bruto.get_frozen_credentials()
+        fora = {"aws_access_key_id": c.access_key, "aws_secret_access_key": c.secret_key}
+        if c.token:
+            fora["aws_session_token"] = c.token
+        return fora
+    except Exception:
+        # Sem isto cai-se na cadeia do SDK, que funciona localmente.
+        # Melhor do que não abrir nada.
+        logger.warning("voz: nao resolvi credenciais pelo boto3", exc_info=True)
+        return {}
+
+
 async def abrir_cliente() -> Any:
-    """O cliente do Bedrock, com o transporte que isto exige.
+    """O cliente do Bedrock, com o transporte e as credenciais que exige.
 
     **O transporte tem de ser o CRT.** O `aws-sdk-bedrock-runtime` usa
     `aiohttp` por omissão, e o `aiohttp` não faz event streaming
     bidireccional — a chamada é recusada com `UnsupportedTransportError`.
+
+    **E as credenciais vão explícitas**, pela razão que está no
+    `_credenciais_pelo_boto3`: a cadeia do SDK não sabe usar a IRSA.
     """
     from aws_sdk_bedrock_runtime.client import AsyncBedrockRuntimeClient, AsyncBedrockRuntimeConfig
     from smithy_http.aio.crt import AWSCRTHTTPClient
 
     return AsyncBedrockRuntimeClient(
-        config=await AsyncBedrockRuntimeConfig.resolve(region=REGIAO, transport=AWSCRTHTTPClient())
+        config=await AsyncBedrockRuntimeConfig.resolve(
+            region=REGIAO,
+            transport=AWSCRTHTTPClient(),
+            **_credenciais_pelo_boto3(),
+        )
     )
 
 
