@@ -556,9 +556,36 @@ stress → código, e o stress mudou a ordem.
 | 2 | ~~Medir a latência de dentro do cluster~~ | ✅ **feito** — o pod está 34 ms mais perto de Estocolmo do que o portátil. Os 766 ms são um tecto |
 | 3 | O contexto do cliente por ARGUMENTO, antes de existir callback | S2 — sétima vez do mesmo defeito. Escrever a assinatura certa antes de haver o que a violar |
 | 4 | Eventos novos no protocolo do WS: `a_pensar` e `descarta_o_que_tens` | S5 e o recado do cliente. São dois clientes, e é melhor que o protocolo esteja pronto antes do motor |
-| 5 | O motor novo atrás de uma bandeira, com o antigo intacto | o Live Talk é demonstrado a clientes. Não se troca o motor sem poder voltar atrás numa variável de ambiente |
+| 5 | O motor novo atrás de uma bandeira **por CLIENTE**, com o antigo intacto | ver em baixo — escrevi isto como «uma variável de ambiente» e estava errado |
 | 6 | `muted` a alimentar silêncio; prazo de sessão; timeout do SQL < 55 s | S1, S3, S10 |
-| 7 | Decidir o `ptt` | S4 — é uma decisão de produto, não de código |
+| 7 | Decidir o `ptt` | S4 — decidido 08/10: sai, fica só mãos-livres |
+
+### A bandeira tem de ser por cliente, porque NÃO HÁ STAGING
+
+Escrevi o passo 5 como «não se troca o motor sem poder voltar atrás numa
+variável de ambiente», e implementei-o assim. **Está errado, e a razão
+estava à mão:** as máquinas de staging foram desligadas a 18/08 — a conta
+ficou só para o ECR e o DNS de produção. O único ambiente a correr é
+**produção**.
+
+Uma bandeira por processo em produção é tudo-ou-nada. Ligá-la para
+experimentar punha o motor novo em cima dos clientes — num produto que é
+demonstrado a clientes. Era pedir para se testar com eles.
+
+A correcção usa o `feature_flags` do registo, que o `auth.py` já lê:
+
+```
+tenant_registry.feature_flags = {"voice_engine": "sonic"}   -> só esse cliente
+VOICE_ENGINE=sonic                                          -> todos
+VOICE_ENGINE=cascata                                        -> travão geral
+```
+
+Liga-se no `sandbox`, ouve-se com a app na mão, e nenhum cliente nota. É
+o degrau de teste que o ambiente não tem.
+
+A ordem importa: a variável `cascata` ganha à bandeira do cliente. Uma
+variável de ambiente mexe-se mais depressa do que uma linha numa base de
+dados, e numa avaria é isso que conta.
 
 O passo 2 era o que podia matar isto, e é por isso que foi feito
 primeiro. Saiu a favor: **nada aqui está dependente de uma medição que

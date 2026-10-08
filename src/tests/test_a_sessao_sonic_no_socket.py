@@ -177,7 +177,7 @@ class TestACascataNaoEToacada:
         from src.api.v1 import voice
 
         fonte = inspect.getsource(voice.voice_session_ws)
-        i = fonte.index("esta_ligada()")
+        i = fonte.index("esta_ligada(")
         # Depois do `accept` (já há socket) e antes de a cascata ARRANCAR
         # o seu provedor, que é o que não deve acontecer.
         #
@@ -194,7 +194,7 @@ class TestACascataNaoEToacada:
         from src.api.v1 import voice
 
         fonte = inspect.getsource(voice.voice_session_ws)
-        i = fonte.index("esta_ligada()")
+        i = fonte.index("esta_ligada(")
         bloco = fonte[i : fonte.index("async def send", i)]
         assert "return" in bloco, (
             "sem o `return`, a cascata corre DEPOIS do Sonic no mesmo "

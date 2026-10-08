@@ -611,21 +611,65 @@ class TestOSilencio:
 # ── A bandeira ──────────────────────────────────────────────────────
 
 
-class TestABandeira:
-    def test_desligada_por_omissao(self, monkeypatch):
-        """O Live Talk é demonstrado a clientes.
+def _cliente_com(bandeiras: dict):
+    return TenantContext(
+        slug="um-cliente",
+        id=uuid4(),
+        tier="pro",
+        display_name="Um",
+        feature_flags=bandeiras,
+    )
 
-        Não se troca o motor sem poder voltar atrás numa variável de
-        ambiente — e sem que o estado por omissão seja o que já funciona.
-        """
+
+class TestABandeira:
+    """Por CLIENTE, e não por processo — porque não há staging.
+
+    As máquinas de staging foram desligadas a 18/08; o único ambiente a
+    correr é produção. Uma bandeira por processo em produção é
+    tudo-ou-nada, e ligá-la para experimentar punha o motor novo em cima
+    dos clientes — num produto que é demonstrado a clientes.
+
+    Com o `feature_flags` do registo liga-se no `sandbox` e mais nada
+    muda. É o degrau de teste que o ambiente não tem.
+    """
+
+    def test_desligada_por_omissao(self, monkeypatch):
         monkeypatch.delenv("VOICE_ENGINE", raising=False)
         assert voz.esta_ligada() is False
+        assert voz.esta_ligada(_cliente_com({})) is False
+
+    def test_liga_SO_no_cliente_que_a_tem(self, monkeypatch):
+        """O que permite testar em produção sem tocar em clientes."""
+        monkeypatch.delenv("VOICE_ENGINE", raising=False)
+        assert voz.esta_ligada(_cliente_com({"voice_engine": "sonic"})) is True
+        assert voz.esta_ligada(_cliente_com({"voice_engine": "cascata"})) is False
+        assert voz.esta_ligada(_cliente_com({"outra_coisa": "sonic"})) is False
 
     @pytest.mark.parametrize("valor", ["sonic", "SONIC", " sonic "])
-    def test_liga_com_sonic(self, monkeypatch, valor):
+    def test_a_variavel_liga_para_TODOS(self, monkeypatch, valor):
+        """Para o dia em que for o motor de omissão."""
         monkeypatch.setenv("VOICE_ENGINE", valor)
         assert voz.esta_ligada() is True
+        assert voz.esta_ligada(_cliente_com({})) is True
 
-    def test_e_nao_liga_com_outra_coisa(self, monkeypatch):
+    def test_e_desliga_para_todos_MESMO_com_o_cliente_ligado(self, monkeypatch):
+        """O travão de emergência, e a ordem importa.
+
+        Uma variável de ambiente mexe-se mais depressa do que uma linha
+        numa base de dados. Numa avaria é isso que conta — e se a
+        bandeira do cliente ganhasse a esta, o travão não travava nada.
+        """
         monkeypatch.setenv("VOICE_ENGINE", "cascata")
-        assert voz.esta_ligada() is False
+        assert voz.esta_ligada(_cliente_com({"voice_engine": "sonic"})) is False
+
+    def test_um_feature_flags_estranho_nao_derruba_a_voz(self, monkeypatch):
+        """Cai no caminho que funciona hoje, com uma linha nos registos."""
+        monkeypatch.delenv("VOICE_ENGINE", raising=False)
+
+        class _Mau:
+            @property
+            def feature_flags(self):
+                raise RuntimeError("coluna corrompida")
+
+        assert voz.esta_ligada(_Mau()) is False
+        assert voz.esta_ligada("isto nem é um contexto") is False

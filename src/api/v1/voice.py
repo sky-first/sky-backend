@@ -617,7 +617,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     # Ver `docs/a-voz-medida-nova-sonic.md`.
     from src.services import voz_fala_a_fala as _falada
 
-    if _falada.esta_ligada():
+    if _falada.esta_ligada(ctx):
         from src.services import voz_sessao_sonic as _sonic
 
         try:
