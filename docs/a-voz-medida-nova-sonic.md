@@ -355,21 +355,40 @@ Nem um token. Ele tem o seu próprio VAD à entrada e descarta o silêncio
 antes de contar. Isto fecha S1 e S9 ao mesmo tempo: a correcção é
 alimentar silêncio, e não custa nada fazê-lo.
 
-### 🔴 S2 — O contexto do cliente dentro do callback da ferramenta
+### 🟠 S2 — O contexto do cliente dentro do callback da ferramenta
 
-**É a sétima vez deste defeito.** O `current_tenant()` é uma variável de
-contexto posta pelo middleware por PEDIDO. O callback da ferramenta corre
-dentro de um WebSocket de vida longa e, pior, provavelmente dentro de uma
-task — e uma task que nasce fora do pedido **não herda** o contexto.
+Escrevi primeiro que uma task «não herda» o contexto, e **isso está
+errado**. Fui medir:
 
-Falha silenciosa e da pior espécie: o SQL corre na base da PLATAFORMA e
-responde dados de outro cliente, ou nada. Já aconteceu em
-`core/ingestion/service.py`, no `worker/scan_tasks.py`, nos agentes, no
-mapa semântico, nas descobertas e na própria voz.
+```
+tarefa criada ANTES  do set_current_tenant  ->  default      <-- a PLATAFORMA
+tarefa criada DEPOIS do set_current_tenant  ->  gbtsolutions
+neta, criada dentro da tarefa               ->  gbtsolutions
+no próprio handler                          ->  gbtsolutions
+```
 
-Antes de escrever o callback: o contexto resolve-se **uma vez**, à
-entrada do WS, e passa-se por ARGUMENTO. Nunca lido de uma variável de
-contexto lá dentro.
+As tasks herdam, e as netas também — é o PEP 567 a funcionar. O risco é
+mais estreito **e mais traiçoeiro**: é de ORDEM. Uma task criada uma
+linha antes do `set_current_tenant` fica presa ao `default` para toda a
+vida, e o `default` é a base da PLATAFORMA.
+
+E não há erro nenhum: o `_current_tenant` tem
+`default=DEFAULT_TENANT_CONTEXT`, portanto `current_tenant()` devolve a
+plataforma em silêncio. É exactamente assim que este defeito voltou sete
+vezes — em `core/ingestion/service.py`, no `worker/scan_tasks.py`, nos
+agentes, no mapa semântico, nas descobertas e na própria voz.
+
+Para o Sonic isto é concreto: o ciclo de escuta é **uma** task criada uma
+vez por sessão, e é dela que saem os callbacks das ferramentas. Nasce do
+lado errado do `set_current_tenant` e a sessão inteira consulta a base
+errada, sem uma linha nos registos.
+
+**A boa notícia é que o padrão certo já existe no nosso código.** O
+`voice.py` passa o `ctx` por ARGUMENTO ao `_voice_answer`, e só usa o
+`set_current_tenant` como reforço para os serviços a jusante. O Sonic faz
+igual: o `ctx` entra no objecto da sessão à entrada do WS, e o callback
+usa o argumento. Assim a ordem deixa de poder estragar nada — em vez de
+ter de estar certa.
 
 ### 🟠 S3 — Uma consulta longa mata o turno a meio
 
