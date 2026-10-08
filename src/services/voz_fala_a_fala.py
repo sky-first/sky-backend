@@ -649,10 +649,45 @@ async def abrir_cliente() -> Any:
     )
 
 
-def esta_ligada() -> bool:
+def esta_ligada(ctx: Any = None) -> bool:
     """A bandeira. Desligada por omissão — a cascata fica intacta.
 
-    O Live Talk é demonstrado a clientes: não se troca o motor sem poder
-    voltar atrás numa variável de ambiente.
+    ── Por CLIENTE, e não por processo ─────────────────────────────
+
+    A primeira versão lia só a variável de ambiente, e isso era a
+    granularidade errada: **não há staging.** As máquinas foram
+    desligadas a 18/08 e a conta ficou só para o ECR e o DNS; o único
+    ambiente a correr é produção.
+
+    Uma bandeira por processo em produção é tudo-ou-nada — ligá-la para
+    experimentar punha o motor novo em cima dos clientes, num produto que
+    é demonstrado a clientes. Era pedir para se testar com eles.
+
+    Com o `feature_flags` do registo (que o `auth.py` já usa), liga-se no
+    `sandbox` e mais nada muda. É o degrau de teste que o ambiente não
+    tem.
+
+    ── E a variável continua a existir, como interruptor geral ─────
+
+    Dois valores, dois usos diferentes:
+
+      * `VOICE_ENGINE=sonic`     → liga para TODOS, ignorando o registo.
+        Serve para o dia em que for o motor de omissão.
+      * `VOICE_ENGINE=cascata`   → DESLIGA para todos, mesmo com a
+        bandeira do cliente ligada. É o travão de emergência: uma
+        variável de ambiente mexe-se mais depressa do que uma linha numa
+        base de dados, e numa avaria é isso que conta.
     """
-    return os.getenv("VOICE_ENGINE", "").strip().lower() == "sonic"
+    geral = os.getenv("VOICE_ENGINE", "").strip().lower()
+    if geral == "cascata":
+        return False  # travão de emergência, acima de tudo
+    if geral == "sonic":
+        return True
+    try:
+        bandeiras = getattr(ctx, "feature_flags", None) or {}
+        return str(bandeiras.get("voice_engine", "")).strip().lower() == "sonic"
+    except Exception:
+        # Um `feature_flags` estranho não pode derrubar a voz — cai no
+        # caminho que funciona hoje.
+        logger.warning("voz: feature_flags ilegível; fica a cascata", exc_info=True)
+        return False
