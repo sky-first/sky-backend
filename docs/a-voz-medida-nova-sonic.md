@@ -165,10 +165,24 @@ bidireccional** — a chamada é recusada com
 imagem do backend, e o `boto3` 1.34.28 que lá está não serve para nada
 disto: não tem a operação.
 
-**Duas regiões.** O cluster está em eu-west-1 e o modelo em eu-north-1.
-A sonda correu do meu portátil em Portugal, por isso os 766 ms incluem
-mais salto do que produção terá — mas é ruído do mesmo lado da conta, não
-a favor. Falta medir de dentro do cluster.
+**Duas regiões — medido, e a favor.** O cluster está em eu-west-1
+(Irlanda) e o modelo em eu-north-1 (Estocolmo). A sonda correu do meu
+portátil em Portugal, por isso a pergunta era se produção seria pior.
+
+Aperto de mão TLS completo, mediana de 7, dos dois sítios:
+
+| de | → eu-west-1 | → eu-north-1 |
+|---|---|---|
+| pod de produção (Irlanda) | 5,5 ms tcp / 19,8 ms tls | **40,0 ms tcp** / 87,7 ms tls |
+| o meu portátil (Portugal) | 66,2 ms tcp / 188,4 ms tls | **74,3 ms tcp** / 212,7 ms tls |
+
+**O pod está 34 ms mais PERTO de Estocolmo do que o meu portátil.** Os
+735–766 ms medidos são, portanto, um tecto: em produção devem descer
+umas dezenas de milissegundos, não subir.
+
+Fica dito o que a travessia custa de verdade: ~35 ms de ida e volta a
+mais do que se o modelo estivesse na Irlanda. Num turno de 750 ms, é 5%
+— e não há alternativa na UE.
 
 ### Dois riscos já fechados: a língua e o vocabulário
 
@@ -408,12 +422,13 @@ stress → código, e o stress mudou a ordem.
 | # | o quê | porquê primeiro |
 |---|---|---|
 | 1 | `awscrt` na imagem do backend, e o `boto3` a subir | sem isto não há chamada nenhuma; e é a alteração que mexe no `Dockerfile`, que é o que mais tarde dói |
-| 2 | Medir a latência **de dentro do cluster** (eu-west-1 → eu-north-1) | os 766 ms foram do meu portátil. Se de dentro der muito pior, o plano muda |
+| 2 | ~~Medir a latência de dentro do cluster~~ | ✅ **feito** — o pod está 34 ms mais perto de Estocolmo do que o portátil. Os 766 ms são um tecto |
 | 3 | O contexto do cliente por ARGUMENTO, antes de existir callback | S2 — sétima vez do mesmo defeito. Escrever a assinatura certa antes de haver o que a violar |
 | 4 | Eventos novos no protocolo do WS: `a_pensar` e `descarta_o_que_tens` | S5 e o recado do cliente. São dois clientes, e é melhor que o protocolo esteja pronto antes do motor |
 | 5 | O motor novo atrás de uma bandeira, com o antigo intacto | o Live Talk é demonstrado a clientes. Não se troca o motor sem poder voltar atrás numa variável de ambiente |
 | 6 | `muted` a alimentar silêncio; prazo de sessão; timeout do SQL < 55 s | S1, S3, S10 |
 | 7 | Decidir o `ptt` | S4 — é uma decisão de produto, não de código |
 
-O passo 2 é o que pode matar isto, e é por isso que vem antes de se
-escrever a peça grande.
+O passo 2 era o que podia matar isto, e é por isso que foi feito
+primeiro. Saiu a favor: **nada aqui está dependente de uma medição que
+falte.** O que sobra é trabalho, e decisões de produto (o `ptt`).
