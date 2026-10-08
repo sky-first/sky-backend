@@ -332,6 +332,22 @@ async def _voice_answer(
             connection_ids=todas or None,
             instructions=instrucoes or None,
             is_personal=not space_id,
+            # O TOM vai; o ESTILO não, e de propósito.
+            #
+            # O tom («casual», «profissional») é uma escolha sobre como
+            # a pessoa quer ser tratada, e isso vale falado como escrito.
+            #
+            # O estilo é sobre a FORMA do texto: o `step-by-step` manda o
+            # formatador numerar «1., 2., 3.» e o `detailed` pede
+            # cabeçalho e ressalvas. Ditos em voz alta, os dois ficam
+            # péssimos — um lê números soltos, o outro faz um discurso.
+            # A voz já tem o seu próprio formato, que é falar curto.
+            #
+            # `getattr` e não `user.preferences`: o tom é um reforço, e
+            # a regra desta função é que nenhum reforço cala o turno. A
+            # primeira versão disto rebentou com `AttributeError` e a
+            # voz ficou muda — por causa de uma preferência.
+            ai_tone=(getattr(user, "preferences", None) or {}).get("ai_tone"),
         ):
             line = line.strip()
             if not line.startswith("data:"):

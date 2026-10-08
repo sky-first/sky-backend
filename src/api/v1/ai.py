@@ -1020,6 +1020,8 @@ async def send_chat_message_stream(
                     resolved_all_connection_ids if len(resolved_all_connection_ids) > 1 else None
                 ),
                 locale=message_data.locale,
+                ai_tone=message_data.ai_tone,
+                ai_style=message_data.ai_style,
             ):
                 event = normalize_event(parse_sse_data_line(line))
                 if event is not None:
