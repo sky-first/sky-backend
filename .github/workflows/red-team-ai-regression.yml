@@ -87,6 +87,9 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
+          # `--no-deps`: ver requirements-voz.txt (conflito do awscrt
+          # entre o Transcribe e o Nova Sonic).
+          pip install --no-deps -r requirements-voz.txt
 
       - name: Install sky-security deps
         if: steps.check_security.outputs.available == 'true'

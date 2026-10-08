@@ -191,6 +191,41 @@ de CI gastos.
 Sobra o mecânico: duas linhas no `Dockerfile` e quatro
 `python-version: '3.11'` nos workflows.
 
+### 🔴 E os dois motores discordam sobre o `awscrt`
+
+Este só apareceu quando a CI o apanhou — o levantamento das rodas foi
+com `--no-deps` e, por construção, não podia ver conflitos entre
+dependências.
+
+```
+amazon-transcribe 0.6.3/0.6.4  ->  awscrt~=0.26.1      (a voz de HOJE)
+smithy-http[awscrt]            ->  awscrt~=0.32.0      (o Sonic)
+```
+
+Do lado do Sonic é real: o `smithy_http.aio.crt` importa
+`awscrt.aio.http`, um módulo que **não existe** no 0.26.1. Com o CRT
+antigo o cliente morre a ser construído, e com uma mensagem enganadora —
+«awscrt is not installed», quando está.
+
+Isto ameaçava o passo 5 da ordem de trabalho (o motor novo atrás de uma
+bandeira, com o antigo intacto): sem conviverem no mesmo processo, não há
+bandeira — e sem bandeira a passagem é uma porta de sentido único, num
+produto que é demonstrado a clientes.
+
+**Resolvido, e medido.** O pino do `amazon-transcribe` é conservadorismo
+do empacotador: com `awscrt==0.37.0` ele faz uma transcrição em streaming
+de verdade contra eu-west-1, em espanhol, e devolve o texto certo. Os
+dois convivem — só o resolvedor do pip é que não deixa, porque lê o que
+está declarado e não o que funciona.
+
+Daí o `requirements-voz.txt`, instalado com `--no-deps` nos três sítios
+que instalam (imagem, CI, red-team). A bandeira sobrevive.
+
+Um efeito lateral que vale a pena: o `--no-deps` torna estruturalmente
+impossível o acidente que o próprio `ci-pr-gate.yml` avisa — um `pip
+install` sem versão depois do `requirements.txt` que actualizou o pytest
+e rebentou a recolha dos testes. Nada mais no ambiente pode ser tocado.
+
 **(b) Um serviço só para a ponte, em 3.12.** Isola a versão, mas é mais
 uma imagem, mais uma aplicação no ArgoCD e um salto extra no caminho do
 áudio (~1 ms dentro do cluster, irrelevante). Troca um dia de trabalho

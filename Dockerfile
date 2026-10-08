@@ -19,8 +19,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 # broke 7 consecutive staging deploys. Warehouse drivers are
 # intentionally NOT in requirements.txt — see requirements-warehouse.txt
 # for that opt-in.
-COPY requirements.txt .
+COPY requirements.txt requirements-voz.txt ./
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
+# Em passo próprio e com `--no-deps`, de propósito: o
+# `amazon-transcribe` prende o `awscrt` a ~=0.26.1 e o Nova Sonic
+# precisa de >=0.32. O ficheiro explica, e o pino é exacto.
+RUN pip install --no-cache-dir --no-deps -r requirements-voz.txt
 
 # Production stage
 FROM python:3.12-slim
