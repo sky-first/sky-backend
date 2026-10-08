@@ -67,7 +67,8 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     import src.models  # noqa: F401
     import src.models.workspace  # noqa: F401
     from src.ai.http_client import AIServiceHTTPClient
-    from src.config.database import AsyncSessionLocal
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.tenant_context import current_tenant
     from src.models.page_build_job import PageBuildJob
     from src.models.notification import NotificationType
     from src.repositories.base import BaseRepository
@@ -78,7 +79,10 @@ async def _build_dashboard_job_async(job_id: str) -> None:
     from src.services.widget_service import WidgetService
     from src.services.notification_service import NotificationService
 
-    async with AsyncSessionLocal() as db:
+    # A base do cliente: o `PageBuildJob`, os widgets e as notificações
+    # são dele. Com a sessão global o worker não encontrava sequer o
+    # trabalho — «Construir dashboard» ficava eternamente em curso.
+    async with tenant_connection_manager.session_for(current_tenant()) as db:
         # Renamed in PR0a from DashboardBuildJob → PageBuildJob.
         repo = BaseRepository(db, PageBuildJob)
 

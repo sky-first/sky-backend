@@ -894,9 +894,28 @@ async def run_agent_stream(
         # least.
         saved_finding_id: Optional[UUID] = None
         try:
-            from src.config.database import AsyncSessionLocal
+            # ⚠️ A BASE DO CLIENTE, não a da plataforma.
+            #
+            # O `db` do pedido já fechou — isto corre dentro do gerador do
+            # SSE, depois da resposta — por isso é preciso abrir uma
+            # sessão nova. A que aqui estava era a GLOBAL.
+            #
+            # Resultado: carregar em «Run» num agente escrevia o achado na
+            # base da plataforma. O stream aparecia todo no ecrã e o
+            # separador de descobertas ficava vazio, sem erro nenhum. Na
+            # base da plataforma há 122 achados assim, de clientes.
+            #
+            # O `get_db_session_for_context` existe exactamente para isto:
+            # lê o `current_tenant()` e, no contexto por omissão, devolve
+            # a ligação global na mesma.
+            from src.config.tenant_connection_manager import (
+                tenant_connection_manager,
+            )
+            from src.core.tenant_context import current_tenant
 
-            async with AsyncSessionLocal() as save_db:
+            async with tenant_connection_manager.session_for(
+                current_tenant()
+            ) as save_db:
                 has_answer = bool(collected_answer and collected_answer.strip())
                 # Finding type is always a member of the FindingType enum
                 # ("insight", "opportunity", "risk"). A run that produced no
