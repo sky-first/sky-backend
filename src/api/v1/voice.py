@@ -570,6 +570,20 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     async def state(value: str) -> None:
         await send({"type": "state", "value": value})
 
+    async def descartar_audio() -> None:
+        """«Deita fora o áudio que tens, toda a resposta é nula.»
+
+        O cliente já sabe limpar a reprodução — fá-lo sozinho quando a
+        pessoa interrompe. O que não tinha era maneira de o SERVIDOR lhe
+        pedir isso, e há dois sítios onde faz falta: o áudio que já ia a
+        caminho quando a pessoa interrompeu, e a interrupção que o Nova
+        Sonic detecta por si (S5 do `docs/a-voz-medida-nova-sonic.md`).
+
+        Um cliente mais antigo ignora um `type` que não conhece, por isso
+        isto não parte nada — simplesmente continua a tocar como hoje.
+        """
+        await send({"type": "discard_audio"})
+
     provider = build_voice_provider()
     try:
         await provider.start("en-US")
@@ -954,6 +968,23 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             elif action == "unmute":
                 muted = False
             elif action == "barge_in":
+                # ── O áudio que já ia a caminho ─────────────────────
+                #
+                # O cliente limpa a sua reprodução antes de mandar isto,
+                # e isso não chega: os pedaços de TTS que já saíram do
+                # servidor continuam a chegar DEPOIS, e tocam. Numa
+                # ligação lenta, interromper a Sky e ouvi-la acabar a
+                # frase é o que acontece hoje.
+                #
+                # O `discard_audio` vai pelo mesmo socket, logo **atrás**
+                # desses pedaços — o WebSocket garante a ordem. Quando
+                # ele chega, já chegou tudo o que havia para descartar.
+                #
+                # É também a peça que o Nova Sonic exige: lá a
+                # interrupção é detectada pelo MODELO, não pelo
+                # utilizador, e sem isto não há forma de o dizer ao
+                # cliente. Ver `docs/a-voz-medida-nova-sonic.md`, S5.
+                await descartar_audio()
                 await state("user_speaking")
             elif action in ("stop", "end_turn"):
                 # Push-to-talk release: commit what was transcribed as the turn.
