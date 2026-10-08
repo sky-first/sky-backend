@@ -114,7 +114,14 @@ async def _embed_batch(texts: List[str], ai_service_url: str) -> List[List[float
     import httpx
 
     url = f"{ai_service_url.rstrip('/')}/embeddings/batch"
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    # Sem o cabeçalho o `sky-ai` embute o documento contra a base da
+    # plataforma: volta vector, o ficheiro «processa», e a pesquisa
+    # semântica do cliente nunca o encontra.
+    from src.ai.http_client import cabecalhos_do_cliente
+
+    async with httpx.AsyncClient(
+        timeout=120.0, headers=cabecalhos_do_cliente()
+    ) as client:
         resp = await client.post(url, json={"texts": texts})
         resp.raise_for_status()
         return resp.json()["embeddings"]
@@ -126,13 +133,17 @@ async def _process(file_id: str) -> None:
     from sqlalchemy import select, update
 
     from src.azure.blob_helper import download_blob_stream
-    from src.config.database import AsyncSessionLocal
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.core.tenant_context import current_tenant
     from src.config.settings import settings
     from src.models.knowledge import KnowledgeFile, KnowledgeFileChunk
 
     ai_url = getattr(settings, "AI_SERVICE_URL", "http://localhost:8001")
 
-    async with AsyncSessionLocal() as db:
+    # A base DESTE cliente. Com a global o `KnowledgeFile` não existe:
+    # o worker regista «file not found or deleted» — um aviso, não um
+    # erro — e o documento fica «a processar» para sempre.
+    async with tenant_connection_manager.session_for(current_tenant()) as db:
         result = await db.execute(
             select(KnowledgeFile).where(KnowledgeFile.id == uuid.UUID(file_id))
         )
@@ -256,10 +267,14 @@ def delete_file_and_chunks(self, file_id: str) -> None:
         from sqlalchemy import delete, select
 
         from src.azure.blob_helper import delete_blob
-        from src.config.database import AsyncSessionLocal
+        from src.config.tenant_connection_manager import tenant_connection_manager
+        from src.core.tenant_context import current_tenant
         from src.models.knowledge import KnowledgeFile, KnowledgeFileChunk
 
-        async with AsyncSessionLocal() as db:
+        # E no apagar, pela mesma razão: sem isto apagavam-se os pedaços
+        # da plataforma e os do cliente ficavam, com a IA a continuar a
+        # citar um documento que o ecrã já não mostra.
+        async with tenant_connection_manager.session_for(current_tenant()) as db:
             result = await db.execute(
                 select(KnowledgeFile).where(KnowledgeFile.id == uuid.UUID(file_id))
             )
