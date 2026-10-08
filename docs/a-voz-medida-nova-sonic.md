@@ -422,6 +422,41 @@ Falta um evento `descarta_o_que_tens` no nosso protocolo, e um `flush` no
 lado do cliente. **Nos dois clientes.** Sem isso, o barge-in que ganhámos
 de graça ouve-se pior do que não o ter.
 
+✅ **Feito** (#717 / sky-mobile#74): o `discard_audio` vai pelo mesmo
+socket, logo atrás dos pedaços que já lá estavam, e o cliente limpa. Como
+efeito lateral corrigiu um defeito de hoje — o áudio que já ia a caminho
+quando a pessoa interrompia chegava depois e tocava.
+
+### 🔴 S5-b — E não se pode ouvir enquanto ele pensa
+
+Descoberto a correr a classe de produção contra o modelo, não nas sondas:
+**mandar `audioInput` enquanto o modelo espera por um `toolResult`
+invalida a sessão.** O erro é um `ValidationException: Invalid input
+request, please fix your input and try again` que não diz qual é o
+problema, e a sessão morre com a pessoa à espera.
+
+Não vem em documentação nenhuma. As sondas não o apanharam **por sorte**:
+nelas o envio de áudio acabava poucas centenas de milissegundos depois do
+pedido. A classe alimentava silêncio durante a consulta inteira — que é o
+que o produto faz — e partiu à primeira.
+
+A consequência de produto é dura e vale a pena dizê-la antes de alguém a
+prometer: **não há barge-in durante o «a pensar»**. Enquanto o nosso SQL
+corre, a Sky está surda. Interromper só funciona enquanto ela fala.
+
+É uma limitação do modelo, não uma escolha nossa — e é mais uma razão
+para o prazo da ferramenta ser curto.
+
+### 🟡 S5-c — A mesma frase chega duas vezes
+
+Medido: o mesmo `content`, palavra por palavra, em dois eventos com
+`contentId` diferente. Um é a legenda da fala, o outro a saída de texto,
+e **não há campo que diga qual é qual**.
+
+Sem tratamento, a legenda aparece a dobrar no ecrã. Comparar com a frase
+anterior resolve-o sem falsos positivos: ninguém diz a mesma frase
+inteira duas vezes de seguida dentro de um turno.
+
 ### 🟡 S6 — Quando o nosso SQL falha, ele fica pendurado
 
 Hoje uma falha do motor vira `turn_failed` e a voz cala-se (metade
