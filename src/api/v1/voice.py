@@ -35,7 +35,28 @@ from src.services.voice_session_service import VoiceSessionService
 #:
 #: Ao nível do módulo para os testes o poderem encurtar: um teste que espera
 #: 1,6 s de verdade é um teste que alguém acaba por apagar.
-SILENCIO_QUE_FECHA_O_TURNO = 1.6
+#:
+#: ── 1,6 → 2,5 ───────────────────────────────────────────────────────
+#:
+#: > «em quase todas as vezes não está encontrando dados, apenas para
+#: >  perguntas muito básicas» — Lucas, 08/10/2026
+#:
+#: Parte disso era isto. Quem pensa dois segundos a meio de uma pergunta
+#: analítica — «quanto gastámos em… gasóleo, no trimestre passado?» — via
+#: o turno fechar com metade da frase. As perguntas curtas cabiam em
+#: 1,6 s; as que valem a pena, não.
+#:
+#: 2,5 s é o tecto que a literatura de 2026 usa para endpointing dinâmico
+#: (mínimo ~0,3 s, máximo ~2,5 s). É um remendo honesto: o certo é
+#: decidir pelo FIM DA FRASE e não pelo cronómetro — um modelo de fim de
+#: turno semântico, que é o pacote a seguir. Até lá, 2,5 s erra menos
+#: vezes do que 1,6.
+#:
+#: O que isto custa: uma pausa de novecentos milissegundos a mais entre
+#: a pessoa acabar e a Sky começar. Vale a troca enquanto a Sky demora
+#: segundos a responder; deixa de valer quando ela responder em 300 ms,
+#: e aí este número tem de descer com o resto.
+SILENCIO_QUE_FECHA_O_TURNO = 2.5
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +198,7 @@ async def _voice_answer(
     from src.config.tenant_connection_manager import tenant_connection_manager
     from src.services.ai_service import AIService
 
+    todas: list = []
     try:
         async with tenant_connection_manager.session_for(ctx) as db:
             servico = AIService(db)
@@ -219,10 +241,36 @@ async def _voice_answer(
                 # não encontra nada no projeto — a mesma fuga por outro nome.
                 # Só se aceita o que estiver no conjunto permitido.
                 conn_id = escolhida if escolhida in permitidas else None
+                # ⚠️ E se a escolhida ficou de fora, fica a primeira do
+                # conjunto — não o silêncio.
+                #
+                # O ajudante acima cai na «primeira ligação do
+                # utilizador» quando não encontra nada no projeto, e
+                # essa pode estar fora dele. Para um membro que só
+                # pertence a uma EQUIPA (e não ao projeto), o
+                # repositório não a encontrava — resultado: turno mudo
+                # garantido, enquanto o chat escrito respondia à mesma
+                # pessoa.
+                if conn_id is None:
+                    conn_id = sorted(permitidas)[0]
+                todas = sorted(permitidas)
             else:
                 # Sem projeto: é o modo pessoal, onde a primeira ligação da
                 # própria pessoa é o âmbito certo.
                 conn_id = await servico._get_first_active_connection(user.id)  # noqa: SLF001
+                todas = [conn_id] if conn_id else []
+                # Modo pessoal: o chat escrito pede TODAS as ligações de
+                # demonstração (`_get_user_dataset_connection_ids`) e a
+                # voz pedia uma. Cinco esquemas contra um.
+                try:
+                    do_utilizador = await servico._get_user_dataset_connection_ids(  # noqa: SLF001
+                        user.id
+                    )
+                    if do_utilizador:
+                        todas = list(do_utilizador)
+                        conn_id = conn_id or todas[0]
+                except Exception:  # noqa: BLE001
+                    pass
         if not conn_id:
             # Também silêncio legítimo: há ligações no projeto, mas nenhuma
             # que sirva esta pergunta.
@@ -232,8 +280,45 @@ async def _voice_answer(
                 user.id,
             )
             return SEM_DADOS_PARA_RESPONDER
-        # Use the same streaming path as /ai/chat/stream — the non-streaming
-        # /query rejects space_id="default" (UserContext UUID validation).
+        # ── O MESMO CONTEXTO QUE O CHAT ESCRITO ─────────────────────
+        #
+        # > «em quase todas as vezes não está encontrando dados, apenas
+        # >  para perguntas muito básicas» — Lucas, 08/10/2026
+        #
+        # A voz mandava ao motor 5 campos; o chat manda 11. As duas
+        # diferenças que doem:
+        #
+        #   `connection_ids` — o chat manda TODAS as ligações do
+        #     projeto e o `sky-ai` funde os catálogos num só. A voz
+        #     mandava uma. Com Flota, Operaciones e Carga, uma pergunta
+        #     que atravesse duas não tem tabela onde aterrar: o
+        #     orquestrador devolve IMPOSSIBLE e o formatador diz «não
+        #     encontrei dados» — palavra por palavra o que se ouve.
+        #
+        #   `instructions` — o glossário e as métricas certificadas.
+        #     Entram no prompt de ESCOLHA DE TABELAS. Sem eles o motor
+        #     não sabe que «vacío de retorno» é uma coisa, e só acerta
+        #     quando a pergunta calha usar o nome físico da coluna. É
+        #     exactamente «apenas para perguntas muito básicas».
+        #
+        # O conjunto `todas` já estava calculado aqui em cima — e era
+        # deitado fora.
+        instrucoes = ""
+        try:
+            from src.services.knowledge_context_loader import (
+                load_knowledge_context_for_user,
+                render_knowledge_for_prompt,
+            )
+
+            async with tenant_connection_manager.session_for(ctx) as db2:
+                instrucoes = render_knowledge_for_prompt(
+                    await load_knowledge_context_for_user(db2, user)
+                )
+        except Exception as exc:  # noqa: BLE001
+            # O glossário é um reforço, não um requisito: sem ele a
+            # resposta é pior, não inexistente.
+            logger.warning("voice: glossário não carregado: %s", exc)
+
         answer = ""
         async for line in AIServiceHTTPClient().stream_query_connection(
             connection_id=conn_id,
@@ -244,6 +329,9 @@ async def _voice_answer(
             # dizia ao motor "responde do que quiseres".
             space_id=space_id or "default",
             locale=locale,
+            connection_ids=todas or None,
+            instructions=instrucoes or None,
+            is_personal=not space_id,
         ):
             line = line.strip()
             if not line.startswith("data:"):
