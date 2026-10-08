@@ -114,9 +114,21 @@ async def test_projeto_sem_ligacoes_nao_responde(montar):
 
 @pytest.mark.asyncio
 async def test_ligacao_de_fora_do_projeto_e_recusada(montar):
-    """O ajudante que escolhe a ligação **cai na primeira do utilizador** quando
-    não encontra nada no projeto. Isso é a mesma fuga com outro nome, por isso
-    só se aceita o que estiver no conjunto alcançável.
+    """O ajudante que escolhe a ligação **cai na primeira do utilizador**
+    quando não encontra nada no projeto — e essa pode estar fora dele.
+
+    ── O que mudou a 08/10, e o que NÃO mudou ──────────────────────
+
+    A garantia é a mesma e é esta: **nunca se usa uma ligação de fora
+    do projeto.** Isso continua a ser afirmado abaixo.
+
+    O que mudou foi a consequência. Até hoje a voz anulava a escolha e
+    devolvia silêncio — e para quem pertence só a uma EQUIPA (e não ao
+    projeto) o repositório nunca encontra a ligação, por isso o turno
+    era mudo SEMPRE, enquanto o chat escrito respondia à mesma pessoa.
+
+    Agora cai na primeira do conjunto alcançável. A fuga continua
+    fechada; o silêncio é que deixou de ser a resposta.
     """
     servico = _ServicoFalso(
         permitidas=["conn-do-projeto"],
@@ -129,8 +141,11 @@ async def test_ligacao_de_fora_do_projeto_e_recusada(montar):
         locale="pt", space_id="projeto-1",
     )
 
-    assert resposta == ""
-    assert chamadas == []
+    # A GARANTIA: a de fora não foi usada.
+    usadas = [c.get("connection_id") for c in chamadas]
+    assert "conn-de-outro-projeto" not in usadas
+    # E o turno deixou de ser mudo: perguntou-se, com uma ligação do projeto.
+    assert usadas == ["conn-do-projeto"]
 
 
 @pytest.mark.asyncio
