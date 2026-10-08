@@ -1,5 +1,5 @@
 # Multi-stage build for production-optimized Python FastAPI application
-FROM python:3.11-slim as builder
+FROM python:3.12-slim as builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -23,7 +23,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Production stage
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \

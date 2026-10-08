@@ -26,7 +26,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
 
       - name: Install dependencies
@@ -50,7 +50,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Static Analysis (Bandit)
         continue-on-error: true  # Zero-Interference: Block only if security regressions are critical
@@ -80,7 +80,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
   unit-tests:
-    name: Unit Tests (Python 3.11)
+    name: Unit Tests (Python 3.12)
     runs-on: ubuntu-latest
     services:
       # Zero-Interference: Providing Redis to stabilize AI tests without mocking code
@@ -115,10 +115,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python 3.11
+      - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
 
       - name: Install dependencies

@@ -162,8 +162,50 @@ O desenho que sai disto:
 `aiohttp` por omissão e o `aiohttp` **não faz event streaming
 bidireccional** — a chamada é recusada com
 `UnsupportedTransportError`. Exige `awscrt` (uma extensão compilada) na
-imagem do backend, e o `boto3` 1.34.28 que lá está não serve para nada
-disto: não tem a operação.
+imagem, e o `boto3` 1.34.28 que lá está não serve para nada disto: não
+tem a operação.
+
+### 🔴 E o SDK exige Python ≥ 3.12. Os dois serviços estão em 3.11.
+
+Este é o obstáculo real, e não se vê na documentação do modelo.
+
+```
+aws-sdk-bedrock-runtime  TODAS as versões (0.0.1 → 0.11.0): Requires-Python >=3.12
+sky-poc-backend          FROM python:3.11-slim   (CI: python-version '3.11')
+sky-poc-ai               FROM python:3.11-slim   (CI: python-version '3.11')
+```
+
+O `awscrt` em si tem roda `cp311` e instalaria. O que não instala é o
+SDK — e é ele que traz a operação bidireccional.
+
+Três saídas, e a terceira é pior do que parece:
+
+**(a) Subir o backend a 3.12.** O caminho honesto — e **medido**: os
+**52 pinos exactos do `requirements.txt` têm todos roda para
+`cp312`/`manylinux`**, verificados um a um com `pip download
+--python-version 3.12 --only-binary=:all:`. Zero precisam de ser
+levantados, o que mata o risco que havia aqui: o comentário no ficheiro
+avisa que o resolvedor do pip já explodiu uma vez com intervalos, 53 min
+de CI gastos.
+
+Sobra o mecânico: duas linhas no `Dockerfile` e quatro
+`python-version: '3.11'` nos workflows.
+
+**(b) Um serviço só para a ponte, em 3.12.** Isola a versão, mas é mais
+uma imagem, mais uma aplicação no ArgoCD e um salto extra no caminho do
+áudio (~1 ms dentro do cluster, irrelevante). Troca um dia de trabalho
+por uma peça de infra para sempre. Não vale.
+
+**(c) Sem SDK, só com `awscrt`.** Tentador, porque o `amazon-transcribe`
+que já enviamos faz exactamente isto — event-stream da AWS, SigV4 e
+HTTP/2 bidireccional, em Python 3.8+. A máquina existe no nosso
+`requirements.txt`. Mas seria escrever à mão o enquadramento de um
+protocolo que não controlamos, para poupar um `apt` de Python. É a opção
+que parece esperta em Outubro e custa caro em Janeiro.
+
+**Recomendação: (a).** E fazê-la **sozinha**, no seu próprio PR, antes
+de qualquer código de voz — um salto de Python misturado com um motor
+novo dá uma avaria que ninguém sabe de quem é.
 
 **Duas regiões — medido, e a favor.** O cluster está em eu-west-1
 (Irlanda) e o modelo em eu-north-1 (Estocolmo). A sonda correu do meu
