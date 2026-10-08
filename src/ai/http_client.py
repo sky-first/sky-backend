@@ -230,6 +230,8 @@ class AIServiceHTTPClient:
         selected_datasets: Optional[List[str]] = None,
         sql_instructions: Optional[str] = None,
         locale: Optional[str] = None,
+        ai_tone: Optional[str] = None,
+        ai_style: Optional[str] = None,
     ) -> AsyncIterator[str]:
         """
         Stream a query to the AI service via SSE.
@@ -277,6 +279,19 @@ class AIServiceHTTPClient:
             payload["sql_instructions"] = sql_instructions
         if locale:
             payload["locale"] = locale
+        # O tom e o estilo são escolhas das Definições da pessoa, e o
+        # `/chat` não-streaming manda-os desde sempre. Aqui não iam: a
+        # rota resolvia-os das preferências e este cliente não tinha
+        # sítio onde os pôr, por isso morriam no chão.
+        #
+        # Efeito prático: quem escolheu «directo» ou «formal» tinha-o em
+        # `/chat` e não no chat a sério, que é streaming. O `sky-ai`
+        # sempre os aceitou neste endpoint (`QueryRequest.ai_tone`) e
+        # usa-os no formatador — faltava só mandá-los.
+        if ai_tone:
+            payload["ai_tone"] = ai_tone
+        if ai_style:
+            payload["ai_style"] = ai_style
 
         async with httpx.AsyncClient(timeout=120.0, headers=self._tenant_headers()) as client:
             logger.info(f"Streaming AI service: {url} for connection {connection_id}")
