@@ -397,6 +397,43 @@ async def _voice_answer(
         return FALHOU_A_RESPOSTA
 
 
+async def _guardar_a_conversa(
+    *,
+    user,
+    ctx,
+    page_id,
+    conversation_id,
+    turnos,
+    duracao_ms: int,
+):
+    """Guarda os turnos falados como uma conversa. Devolve o id, ou `None`.
+
+    Existe à parte para o handler do Sonic a poder receber por argumento
+    — e assim ser verificável sem base de dados. A cascata usa o
+    `finalize` dela, que faz o mesmo com a sua própria contabilidade de
+    estado.
+    """
+    # Os dois dentro da função, como no resto deste ficheiro: o
+    # `UserRepository` não está no âmbito do módulo, e a primeira versão
+    # disto rebentava com `NameError` **no fecho da sessão** — o sítio
+    # onde um erro significa a conversa perdida.
+    from src.config.tenant_connection_manager import tenant_connection_manager
+    from src.repositories.user import UserRepository
+
+    async with tenant_connection_manager.session_for(ctx) as db:
+        u = await UserRepository(db).get_by_id(str(user.id))
+        conv_id, _title, _n = await VoiceSessionService(db).persist(
+            u,
+            VoiceSessionCreate(
+                page_id=page_id,
+                turns=[VoiceTurn(role=papel, text=texto) for papel, texto in turnos],
+                duration_ms=duracao_ms,
+                conversation_id=conversation_id,
+            ),
+        )
+        return str(conv_id)
+
+
 @router.post(
     "/sessions",
     response_model=VoiceSessionResponse,
@@ -563,6 +600,37 @@ async def voice_session_ws(websocket: WebSocket) -> None:
 
     tenant_reset = set_current_tenant(ctx)  # downstream services route to ctx
     await websocket.accept(subprotocol=VOICE_SUBPROTOCOL)
+
+    # ── A bifurcação ────────────────────────────────────────────────
+    #
+    # Com a bandeira ligada, a sessão é servida pelo Nova Sonic e **nada
+    # do que vem a seguir corre**. O protocolo com a app é o mesmo — ela
+    # não sabe que o motor por baixo é outro.
+    #
+    # Aqui e não lá dentro: o resto desta função é uma máquina de estados
+    # da cascata (cronómetro de fim de turno, segmentos, descarte durante
+    # o turno, reabertura da transcrição por língua) e nada disso existe
+    # no Sonic, porque o modelo faz tudo. Um `if` por cada uma dessas
+    # peças fazia a cascata — que é o que funciona hoje e o que é
+    # demonstrado a clientes — pagar o preço de uma experiência.
+    #
+    # Ver `docs/a-voz-medida-nova-sonic.md`.
+    from src.services import voz_fala_a_fala as _falada
+
+    if _falada.esta_ligada():
+        from src.services import voz_sessao_sonic as _sonic
+
+        try:
+            await _sonic.servir(
+                websocket,
+                user=user,
+                ctx=ctx,
+                responder=_voice_answer,
+                persistir=_guardar_a_conversa,
+            )
+        finally:
+            reset_current_tenant(tenant_reset)
+        return
 
     async def send(obj: dict) -> None:
         await websocket.send_text(_json.dumps(obj))
