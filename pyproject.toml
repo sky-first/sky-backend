@@ -1,6 +1,6 @@
 [tool.black]
 line-length = 100
-target-version = ['py311']
+target-version = ['py312']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -27,7 +27,7 @@ skip_gitignore = true
 known_first_party = ["src"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
@@ -58,6 +58,11 @@ addopts = [
     # coverage measures ~0.7% lower than 3.13 (62.97% vs 63.65%) due to
     # version differences in asyncio internals. Ratchet back up once
     # Redis-relay WS endpoint tests reach full branch coverage.
+    #
+    # Nota, 08/10/2026: a CI passou a correr em 3.12 (o SDK do Nova
+    # Sonic exige >=3.12). Pela nota acima, 3.12 deve medir ENTRE os
+    # dois valores — a margem contra o limite de 62 só pode crescer. Se
+    # algum dia encolher, é aqui que se vai ver porquê.
     "--cov-fail-under=62",
     "--cov-config=pyproject.toml",
 ]

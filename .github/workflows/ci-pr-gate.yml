@@ -26,7 +26,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
 
       - name: Install dependencies
@@ -50,7 +50,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Static Analysis (Bandit)
         continue-on-error: true  # Zero-Interference: Block only if security regressions are critical
@@ -80,7 +80,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
   unit-tests:
-    name: Unit Tests (Python 3.11)
+    name: Unit Tests (Python 3.12)
     runs-on: ubuntu-latest
     services:
       # Zero-Interference: Providing Redis to stabilize AI tests without mocking code
@@ -115,15 +115,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python 3.11
+      - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
 
       - name: Install dependencies
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Em passo próprio e com `--no-deps`: o `amazon-transcribe`
+          # prende o `awscrt` a ~=0.26.1 e o Nova Sonic precisa de
+          # >=0.32. O `requirements-voz.txt` explica, e o `--no-deps`
+          # garante que isto não pode tocar em mais nada — o acidente
+          # do aviso que vem a seguir é impossível aqui.
+          if [ -f requirements-voz.txt ]; then pip install --no-deps -r requirements-voz.txt; fi
           # pytest-testmon → test impact analysis. On the second and
           # subsequent runs of the same branch, it skips tests whose
           # covered code didn't change since the last run. Combined with

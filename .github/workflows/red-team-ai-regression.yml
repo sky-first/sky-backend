@@ -75,7 +75,7 @@ jobs:
         if: steps.check_security.outputs.available == 'true'
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: |
             sky-poc-backend/requirements.txt
@@ -87,6 +87,9 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
+          # `--no-deps`: ver requirements-voz.txt (conflito do awscrt
+          # entre o Transcribe e o Nova Sonic).
+          pip install --no-deps -r requirements-voz.txt
 
       - name: Install sky-security deps
         if: steps.check_security.outputs.available == 'true'
