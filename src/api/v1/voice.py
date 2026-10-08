@@ -617,8 +617,24 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     persisted = False
     turn_active = False
     barge = _asyncio.Event()
-    ptt = False       # push-to-talk: the user's release ends the turn, not VAD
-    last_partial = ""  # latest transcript, committed on a push-to-talk release
+    #: O turno fecha quando o CLIENTE disser, não por deteção de pausa.
+    #:
+    #: O valor no fio ainda se chama `push-to-talk`, e o nome mente: o
+    #: premir-para-falar deixou de existir como modo de conversa
+    #: (decisão do Lucas, 08/10/2026 — ver `a-voz-medida-nova-sonic.md`,
+    #: caso S4). Existia porque o fim de turno fechava a cronómetro e um
+    #: cronómetro corta quem hesita; com fim de turno semântico perde a
+    #: razão de ser, e os dois modos discordavam sobre quem manda.
+    #:
+    #: Quem continua a mandar este modo é o **DITADO**, e por uma razão
+    #: diferente: ele quer tudo o que a pessoa disser, num bloco, e um
+    #: fecho por deteção de pausa partia-lhe a frase ao meio.
+    #:
+    #: O nome do valor fica como está de propósito: mudá-lo partia os
+    #: clientes já instalados, e sem OTA eles ficam por aí até à próxima
+    #: build nativa.
+    ptt = False
+    last_partial = ""  # latest transcript, committed on the client's `stop`
 
     # ── Uma frase nao acaba na primeira pausa ────────────────────────────────
     #
