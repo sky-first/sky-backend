@@ -285,7 +285,10 @@ class TestAFerramenta:
 
         async def consultar(pergunta: str) -> str:
             vistas.append(pergunta)
-            return json.dumps({"rutas": 2})
+            # PROSA, que e o que o `_voice_answer` devolve a serio. O duplo
+            # devolvia JSON e por isso este teste passava enquanto a
+            # producao morria — ver o teste a seguir.
+            return "Temos 2 rotas activas."
 
         s, cliente = await _sessao(
             [
@@ -313,7 +316,66 @@ class TestAFerramenta:
             if "toolResult" in (e.get("event") or {})
         ]
         assert resultados, "o resultado não foi entregue — o modelo fica à espera"
-        assert json.loads(resultados[0]["content"]) == {"rutas": 2}
+        assert json.loads(resultados[0]["content"]) == {"resultado": "Temos 2 rotas activas."}
+
+    @pytest.mark.asyncio
+    async def test_o_resultado_da_ferramenta_e_sempre_json(self):
+        """O `content` do `toolResult` tem de ser JSON. Sempre.
+
+        ── O que aconteceu em producao ─────────────────────────────
+
+        A 09/10/2026, no telemovel do Lucas, **todas** as sessoes de voz
+        morriam depois da primeira pergunta respondida:
+
+            ValidationException: ... Tool Response parsing error
+            voz/sonic: sessao fechada (..., turnos=1, ...)
+
+        O Bedrock recusa o `toolResult` e FECHA o canal. A app reabria o
+        socket, e por isso cada pergunta aparecia como uma conversa
+        separada na lista dele.
+
+        A causa era o `content` ir em prosa. Os caminhos de ERRO ja
+        usavam `json.dumps` e passavam; o caminho que funciona mandava o
+        texto tal e qual. E o teste de cima nao apanhava nada, porque o
+        duplo devolvia JSON — fixava o codigo, nao o comportamento.
+
+        Aqui a assercao e a garantia: **seja o que for que a ferramenta
+        devolva**, o que sai pelo canal tem de ser JSON valido.
+        """
+
+        async def consultar(pergunta: str) -> str:
+            # O pior caso realista: prosa com acentos, aspas e chavetas.
+            return 'Sao 2 rotas: a "Norte" e a {Sul}, com 14% de atraso.'
+
+        s, cliente = await _sessao(
+            [
+                {
+                    "event": {
+                        "toolUse": {
+                            "toolUseId": "tu-1",
+                            "toolName": "consultar_dados",
+                            "content": json.dumps({"pergunta": "quantas rotas?"}),
+                        }
+                    }
+                }
+            ],
+            ferramenta=consultar,
+        )
+        await s.escutar()
+        [_ async for _ in s.eventos()]
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        resultados = [
+            e["event"]["toolResult"]
+            for e in cliente.fluxo.input_stream.enviados
+            if "toolResult" in (e.get("event") or {})
+        ]
+        assert resultados, "o resultado não foi entregue — o modelo fica à espera"
+        # Isto levanta se nao for JSON, que e exactamente o que o Bedrock faz.
+        corpo = json.loads(resultados[0]["content"])
+        assert isinstance(corpo, dict)
+        assert 'Sao 2 rotas: a "Norte" e a {Sul}, com 14% de atraso.' in corpo.values()
 
     @pytest.mark.asyncio
     async def test_anuncia_que_esta_a_pensar(self):
