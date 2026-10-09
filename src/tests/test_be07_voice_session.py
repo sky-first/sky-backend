@@ -115,9 +115,7 @@ async def test_voice_session_appends_to_existing_conversation(
     assert r2.json()["conversation_id"] == conv_id  # appended, not a new thread
 
     # The thread now holds all four turns, in order.
-    rmsg = await async_client.get(
-        f"/api/v1/conversations/{conv_id}/messages", headers=hdr
-    )
+    rmsg = await async_client.get(f"/api/v1/conversations/{conv_id}/messages", headers=hdr)
     contents = [m["content"] for m in rmsg.json()["items"]]
     assert contents == [
         "how many clients?",
@@ -127,7 +125,85 @@ async def test_voice_session_appends_to_existing_conversation(
     ]
 
     # And only ONE conversation exists on the page.
-    rconv = await async_client.get(
-        f"/api/v1/pages/{page_id}/conversations", headers=hdr
-    )
+    rconv = await async_client.get(f"/api/v1/pages/{page_id}/conversations", headers=hdr)
     assert len(rconv.json()["items"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_conversa_falada_herda_o_projeto_e_a_equipa_da_pagina(
+    async_client, test_user, valid_access_token, db_session
+):
+    """A web lista por PROJETO; a app lista por PAGINA.
+
+    A conversa falada nascia so com a pagina, e ficava com
+    `space_id = NULL`. Medido em producao a 09/10/2026: **todas** as
+    conversas faladas do Lucas estavam assim, com a pagina certa ao lado:
+
+        qual que foi a faturacao   sp=None      pg=79a23caf
+        quantos clientes (escrita) sp=9fcef9d6  pg=79a23caf
+
+    O mesmo utilizador, no mesmo projeto, via listas diferentes nos dois
+    lados — e parecia que a web e o telemovel eram sitios diferentes.
+    Nao eram: eram conversas orfas.
+    """
+    import uuid as _uuid
+
+    from sqlalchemy import select
+
+    from src.models.conversation import Conversation
+
+    espaco = _uuid.uuid4()
+    equipa = _uuid.uuid4()
+    pid = _uuid.uuid4()
+    db_session.add(
+        Page(
+            id=pid,
+            name="Velocidad de servicio",
+            type="personal",
+            color="#FAB721",
+            owner_id=test_user["user"].id,
+            space_id=espaco,
+            crew_id=equipa,
+        )
+    )
+    await db_session.commit()
+
+    r = await async_client.post(
+        "/api/v1/voice/sessions",
+        json={
+            "page_id": str(pid),
+            "turns": [{"role": "user", "text": "cuantos clientes tengo?"}],
+            "duration_ms": 3200,
+        },
+        headers=bearer(valid_access_token),
+    )
+    assert r.status_code == 201, r.text
+
+    conv = (
+        await db_session.execute(
+            select(Conversation).where(Conversation.id == _uuid.UUID(r.json()["conversation_id"]))
+        )
+    ).scalar_one()
+
+    # A garantia: nao fica orfa.
+    assert conv.space_id == espaco, "a conversa falada ficou sem projeto"
+    assert conv.crew_id == equipa, "a conversa falada ficou sem equipa"
+
+
+@pytest.mark.asyncio
+async def test_uma_pagina_sem_projeto_continua_a_funcionar(
+    async_client, test_user, valid_access_token, db_session
+):
+    """O modo pessoal nao tem projeto, e isso e legitimo.
+
+    Herdar da pagina nao pode passar a EXIGIR um projeto: quem fala em
+    modo pessoal ficaria sem conversa nenhuma.
+    """
+    page_id = await _make_page(db_session, test_user["user"].id)
+
+    r = await async_client.post(
+        "/api/v1/voice/sessions",
+        json={"page_id": str(page_id), "turns": [{"role": "user", "text": "ola"}]},
+        headers=bearer(valid_access_token),
+    )
+    assert r.status_code == 201, r.text

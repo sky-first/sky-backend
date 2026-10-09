@@ -32,7 +32,10 @@ class VoiceSessionService:
 
     async def persist(self, user: User, payload: VoiceSessionCreate) -> Tuple[UUID, str, int]:
         # Gate on real page access — same rule the conversation endpoints use.
-        await PageService(self.db).get_page(payload.page_id, user)
+        #
+        # A página também diz o PROJETO e a EQUIPA, e isso é preciso mais
+        # abaixo — ver o comentário em `Conversation(...)`.
+        pagina = await PageService(self.db).get_page(payload.page_id, user)
 
         now = datetime.now(timezone.utc)
         title = _title_from(payload.turns)
@@ -46,8 +49,29 @@ class VoiceSessionService:
                 conv = existing
                 conv.updated_at = now  # bump recency so it surfaces in "Today"
         if conv is None:
+            # ── O PROJETO e a EQUIPA, que faltavam ──────────────────
+            #
+            # A conversa nascia só com a página. Resultado medido em
+            # produção a 09/10/2026: **todas** as conversas faladas do
+            # Lucas tinham `space_id = NULL` e `crew_id = NULL`, com a
+            # página certa ao lado:
+            #
+            #   qual que foi a faturacao  sp=None     pg=79a23caf
+            #   quantos clientes (escrita) sp=9fcef9d6 pg=79a23caf
+            #
+            # A web lista as conversas POR PROJETO e a app lista-as por
+            # página. Por isso o mesmo utilizador, no mesmo projeto, via
+            # listas diferentes nos dois lados — e parecia que eram dois
+            # sítios. Não eram: eram conversas órfãs.
+            #
+            # Vem da PÁGINA e não do cliente, de propósito: a página já
+            # foi verificada contra as permissões dele na linha de cima,
+            # e o projeto dela é um facto, não algo que o cliente possa
+            # afirmar.
             conv = Conversation(
                 page_id=payload.page_id,
+                space_id=getattr(pagina, "space_id", None),
+                crew_id=getattr(pagina, "crew_id", None),
                 created_by=user.id,
                 title=title,
                 created_at=now,
