@@ -135,6 +135,10 @@ class MessageService:
         consulta = await self.db.get(AIQuery, msg.query_id)
         if consulta is None:
             raise NotFoundError("Esta resposta nao tem fonte")
+        from src.services.a_fonte_da_resposta import fonte_para_mostrar, tem_o_que_mostrar
+
+        if not tem_o_que_mostrar(fonte_para_mostrar(consulta)):
+            raise NotFoundError("Esta resposta nao tem fonte")
         return consulta
 
     async def _attach_author_names(self, messages: List[Message]) -> None:
@@ -471,6 +475,12 @@ class MessageService:
                 message_ids=[c.id for c in pending],
                 ai_response_id=ai_response.id,
             )
+
+        # O nome da conversa sai da primeira pergunta — tambem aqui. So o
+        # comentario o fazia, e a web pergunta por este caminho: a conversa
+        # ficava sem titulo e acabava com o nome da SEGUNDA coisa escrita.
+        if not (conv.title or "").strip():
+            conv.title = _titulo_a_partir_de(question_content)
 
         conv.updated_at = datetime.utcnow()
         await self.db.commit()

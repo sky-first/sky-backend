@@ -852,3 +852,27 @@ async def test_pending_comments_resets_after_ai_response(
     items = r.json()["items"]
     assert len(items) == 1
     assert items[0]["content"] == "round-2 comment"
+
+
+@pytest.mark.asyncio
+async def test_ask_ai_names_the_conversation_after_the_first_question(
+    async_client: AsyncClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    """A web pergunta pelo ask-ai. So o comentario dava nome a conversa, e
+    ela acabava com o nome da SEGUNDA coisa escrita."""
+    owner = test_user_with_tokens["user"]
+    page, _ = await create_page_with_dashboard(db_session, owner.id)
+    headers = get_auth_headers(test_user_with_tokens["access_token"])
+    conv = await make_conversation(async_client, page.id, headers)
+
+    for pergunta in ("Quanto facturamos por regiao?", "E o Norte?"):
+        r = await async_client.post(
+            f"/api/v1/conversations/{conv['id']}/ask-ai",
+            json={"question": pergunta, "ai_answer": "..."},
+            headers=headers,
+        )
+        assert r.status_code == 201, r.text
+
+    lista = await async_client.get(f"/api/v1/pages/{page.id}/conversations", headers=headers)
+    titulo = next(c["title"] for c in lista.json()["items"] if c["id"] == conv["id"])
+    assert titulo.startswith("Quanto facturamos")

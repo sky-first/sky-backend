@@ -117,20 +117,59 @@ async def _guardar_a_fonte(
     return consulta.id
 
 
+def _colunas_e_linhas(fonte: Dict[str, Any], amostra: Any) -> tuple:
+    """As linhas como listas e as colunas por ordem, venham de onde vierem.
+
+    Ha dois caminhos que gravam respostas, e cada um guarda as linhas a sua
+    maneira:
+
+    * o stream (telemovel, voz) guarda-as como o motor as manda: colunas a
+      parte, em ``configure_data.fonte``, e cada linha como lista;
+    * o ``/ai/query`` (a web) guarda-as como objectos ``{coluna: valor}`` e
+      nao escreve ``fonte`` nenhuma.
+
+    Ler so a primeira forma deixava a fonte de uma resposta da web sem
+    tabela de linhas — precisamente o que a pessoa quer cruzar.
+    """
+    linhas = amostra or []
+    colunas = list(fonte.get("colunas") or [])
+    if linhas and isinstance(linhas[0], dict):
+        if not colunas:
+            # Todas as chaves, pela ordem em que aparecem: uma linha com
+            # um valor nulo omitido nao pode encolher a tabela.
+            for linha in linhas:
+                for chave in linha:
+                    if chave not in colunas:
+                        colunas.append(chave)
+        linhas = [[linha.get(c) for c in colunas] for linha in linhas]
+    return colunas, linhas
+
+
 def fonte_para_mostrar(consulta: Any) -> Dict[str, Any]:
     """A fonte no formato que os clientes desenham."""
-    fonte = ((consulta.configure_data or {}).get("fonte")) or {}
-    linhas = consulta.data_sample or []
+    config = consulta.configure_data or {}
+    fonte = config.get("fonte") or {}
+    colunas, linhas = _colunas_e_linhas(fonte, consulta.data_sample)
+    # As tabelas: a fonte do stream, ou o que o /ai/query deixou na
+    # configuracao da consulta.
+    tabelas = fonte.get("tabelas") or _tabelas(config)
     return {
-        "tabelas": fonte.get("tabelas") or [],
+        "tabelas": tabelas,
         "sql": consulta.sql,
-        "colunas": fonte.get("colunas") or [],
+        "colunas": colunas,
         "linhas": linhas,
         # O total do motor, quando o deu; senão, o que temos. Os dois
         # diferem quando o motor cortou — e é isso que o `truncado` diz.
         "total_linhas": fonte.get("total_linhas") or len(linhas),
         "truncado": bool(fonte.get("truncado")),
     }
+
+
+def tem_o_que_mostrar(f: Dict[str, Any]) -> bool:
+    """Uma consulta sem tabelas, sem SQL e sem linhas (uma saudacao, um
+    «nao sei») nao tem fonte. O /ai/query cria a linha em ``ai_queries``
+    para TODAS as perguntas; sem isto, o botao abria um painel vazio."""
+    return bool(f["tabelas"] or f["sql"] or f["linhas"])
 
 
 def fonte_em_csv(consulta: Any) -> str:

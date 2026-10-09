@@ -194,3 +194,75 @@ async def test_quem_nao_pode_ler_a_conversa_nao_ve_de_onde_ela_veio(
     for rota in (f"/api/v1/messages/{msg.id}/fonte", f"/api/v1/messages/{msg.id}/fonte.csv"):
         r = await async_client.get(rota, headers=bearer(valid_access_token))
         assert r.status_code == 404, (rota, r.status_code)
+
+
+# ── O caminho da web (/ai/query) ─────────────────────────────────────
+
+
+class _ConsultaDaWeb:
+    """Como o /ai/query deixa a consulta: linhas como objectos, tabelas em
+    configure_data.chosen_datasets, e nenhuma chave `fonte`."""
+
+    def __init__(self, sql, linhas, config):
+        self.sql = sql
+        self.data_sample = linhas
+        self.configure_data = config
+
+
+class TestOCaminhoDaWeb:
+    def test_linhas_em_objectos_viram_tabela(self):
+        """Sem isto a fonte de uma resposta da web nao tinha linhas — o que
+        a pessoa quer cruzar."""
+        c = _ConsultaDaWeb(
+            "SELECT region, ingresos FROM facturacion",
+            [{"region": "Sur", "ingresos": 214300}, {"region": "Norte", "ingresos": 79600}],
+            {"chosen_datasets": ["facturacion"]},
+        )
+        f = fonte_para_mostrar(c)
+        assert f["colunas"] == ["region", "ingresos"]
+        assert f["linhas"] == [["Sur", 214300], ["Norte", 79600]]
+        assert f["tabelas"] == ["facturacion"]
+        assert f["total_linhas"] == 2
+
+    def test_uma_coluna_que_falta_numa_linha_nao_encolhe_a_tabela(self):
+        c = _ConsultaDaWeb("SELECT 1", [{"a": 1}, {"a": 2, "b": 3}], {})
+        f = fonte_para_mostrar(c)
+        assert f["colunas"] == ["a", "b"]
+        assert f["linhas"] == [[1, None], [2, 3]]
+
+    def test_o_csv_de_uma_resposta_da_web_leva_as_linhas(self):
+        c = _ConsultaDaWeb("SELECT 1", [{"region": "Sur", "ingresos": 1}], {})
+        csv = fonte_em_csv(c)
+        assert "region;ingresos" in csv
+        assert "Sur;1" in csv
+
+
+@pytest.mark.asyncio
+async def test_uma_saudacao_nao_tem_fonte_mesmo_com_consulta(
+    async_client, test_user, valid_access_token, db_session
+):
+    """O /ai/query cria uma linha em ai_queries para TODAS as perguntas, e a
+    web liga-a a resposta. Sem tabelas, SQL nem linhas, a fonte e 404 — e o
+    painel diz que nao ha fonte, em vez de abrir vazio."""
+    from src.models.ai import AIQuery
+    from src.models.conversation import Conversation, Message
+
+    user = test_user["user"]
+    page_id = await _pagina(db_session, user.id)
+    conv = Conversation(page_id=page_id, created_by=user.id, title="ola")
+    db_session.add(conv)
+    await db_session.flush()
+    q = AIQuery(
+        user_id=user.id, page_id=page_id, question="ola", answer="Ola!",
+        configure_data={}, data_sample=[], status="completed",
+    )
+    db_session.add(q)
+    await db_session.flush()
+    msg = Message(
+        conversation_id=conv.id, role="assistant", kind="ai_response", content="Ola!", query_id=q.id
+    )
+    db_session.add(msg)
+    await db_session.commit()
+
+    r = await async_client.get(f"/api/v1/messages/{msg.id}/fonte", headers=bearer(valid_access_token))
+    assert r.status_code == 404
