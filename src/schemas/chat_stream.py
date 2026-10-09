@@ -12,6 +12,7 @@ Locked client event types (each is a ``data: {...}`` SSE frame with ``type``)
 - ``progress`` ``{stage: str, message: str}``     pipeline stage (spinner/label)
 - ``chunk``    ``{content: str}``                  a piece of the answer, streaming
 - ``meta``     ``{meta: dict, data_sample: list}`` post-answer metadata (charts, lang…)
+- ``rows``     ``{columns: list, rows: list, truncated: bool}`` the result set (<= 200 rows)
 - ``error``    ``{message: str}``                  failure; the stream ends after it
 - ``done``     ``{}``                              terminal marker; nothing follows
 
@@ -29,10 +30,13 @@ from typing import Any, AsyncIterator, Dict, Optional
 EVENT_PROGRESS = "progress"
 EVENT_CHUNK = "chunk"
 EVENT_META = "meta"
+EVENT_ROWS = "rows"
 EVENT_ERROR = "error"
 EVENT_DONE = "done"
 
-CLIENT_EVENT_TYPES = frozenset({EVENT_PROGRESS, EVENT_CHUNK, EVENT_META, EVENT_ERROR, EVENT_DONE})
+CLIENT_EVENT_TYPES = frozenset(
+    {EVENT_PROGRESS, EVENT_CHUNK, EVENT_META, EVENT_ROWS, EVENT_ERROR, EVENT_DONE}
+)
 
 # Heartbeat — carrier/NAT timeouts reap idle SSE sockets on mobile networks.
 # A line starting with ':' is an SSE comment (ignored by every compliant
@@ -88,6 +92,25 @@ def meta_event(meta: Optional[dict] = None, data_sample: Optional[list] = None) 
     return {"type": EVENT_META, "meta": meta, "data_sample": data_sample or []}
 
 
+def rows_event(columns: Any, rows: Any, truncated: Any) -> Dict[str, Any]:
+    """O resultado da consulta: de onde a resposta saiu.
+
+    O motor ja o emitia (ate 200 linhas, cada celula cortada aos 2 kB) e
+    este portao deitava-o fora por nao estar no contrato. Sem ele nao ha
+    «ver a fonte»: quem le uma resposta nao tem como confirmar que os
+    numeros batem.
+
+    A forma fica fechada aqui, como as outras: listas sempre listas, e o
+    `truncated` sempre booleano, para o cliente nao ter de adivinhar.
+    """
+    return {
+        "type": EVENT_ROWS,
+        "columns": list(columns) if isinstance(columns, list) else [],
+        "rows": list(rows) if isinstance(rows, list) else [],
+        "truncated": bool(truncated),
+    }
+
+
 def error_event(message: str, code: str = "stream_error") -> Dict[str, Any]:
     # BE-08 (T-08.5) — errors always carry a machine-readable ``code`` so the
     # client can branch without string-matching the human message.
@@ -140,6 +163,8 @@ def normalize_event(raw: Any) -> Optional[Dict[str, Any]]:
         return chunk_event(str(raw.get("text", "")))
     if etype == EVENT_META:
         return meta_event(raw.get("meta"), raw.get("data_sample"))
+    if etype == EVENT_ROWS:
+        return rows_event(raw.get("columns"), raw.get("rows"), raw.get("truncated"))
     if etype == EVENT_ERROR:
         return error_event(str(raw.get("message", "")), str(raw.get("code") or "stream_error"))
     # done / datasets_selected / sql_generated / anything unknown → dropped
