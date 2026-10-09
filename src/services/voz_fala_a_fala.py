@@ -517,19 +517,46 @@ class SessaoFalada:
             # 55 s — e a sessão morre com a pessoa à espera. Mandar o
             # erro deixa-o DIZER que não conseguiu, que é melhor do que
             # o silêncio que a voz tem hoje.
-            resposta = json.dumps({"erro": "A consulta demorou demasiado e foi cancelada."})
+            resposta = {"erro": "A consulta demorou demasiado e foi cancelada."}
             logger.warning(
                 "voz: ferramenta esgotou o prazo (cliente=%s, pergunta=%r)",
                 getattr(self.ctx, "slug", "?"),
                 pergunta[:120],
             )
         except Exception as exc:
-            resposta = json.dumps({"erro": "Não consegui chegar aos dados neste momento."})
+            resposta = {"erro": "Não consegui chegar aos dados neste momento."}
             logger.exception(
                 "voz: ferramenta falhou (cliente=%s): %s",
                 getattr(self.ctx, "slug", "?"),
                 exc,
             )
+
+        # ── O resultado vai em JSON. Sempre. ────────────────────────
+        #
+        # Medido em producao a 09/10/2026: **todas** as sessoes morriam
+        # aqui, com
+        #
+        #     ValidationException: Tool Response parsing error
+        #
+        # e `turnos=1`. O Bedrock recusa o `toolResult` e FECHA o canal,
+        # por isso cada pergunta do Lucas virou uma conversa separada —
+        # a app reabria o socket porque o anterior tinha morrido.
+        #
+        # A causa: o `content` ia em PROSA. Os dois caminhos de erro aqui
+        # em cima ja usavam `json.dumps` e passavam; o caminho que
+        # FUNCIONA mandava o texto da resposta tal e qual, e esse nao e
+        # JSON. O erro so aparece depois da primeira pergunta
+        # RESPONDIDA, que e a razao de ter passado em todas as medicoes
+        # — nenhuma delas chegou a chamar a ferramenta a serio.
+        #
+        # Embrulha-se sempre, e nao so quando parece que falta: adivinhar
+        # se uma resposta «ja e JSON» e como se volta a partir isto no
+        # dia em que os dados trouxerem uma chaveta.
+        # Os dois caminhos de erro acima ja deixam um dicionario; o
+        # caminho bom deixa texto. Aqui ficam os dois na mesma forma, e
+        # ha UM so sitio a serializar.
+        corpo = resposta if isinstance(resposta, dict) else {"resultado": resposta}
+        resposta = json.dumps(corpo, ensure_ascii=False)
 
         nome = str(uuid.uuid4())
         try:
