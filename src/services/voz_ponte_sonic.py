@@ -193,13 +193,21 @@ def para_o_protocolo(evento: falada.Evento) -> List[Dict[str, Any]]:
     # A razão fica nos registos, não no ouvido de quem está do outro
     # lado.
     if isinstance(evento, falada.Falhou):
-        return [
-            {
-                "type": "error",
-                "code": "turn_failed",
-                "message": "Não consegui responder a isso.",
-            }
-        ]
+        # ── SÓ o código. Sem `message`. ─────────────────────────────
+        #
+        # A app faz `onError(e.message || e.code)` e depois escolhe a
+        # frase pelo CÓDIGO — tem a tradução nas três línguas. Mandar uma
+        # `message` atropela isso: ela ganha ao código e vai para o ecrã
+        # tal e qual.
+        #
+        # Foi o que aconteceu. A minha primeira versão mandava «Não
+        # consegui responder a isso.» cravado em português, e o Lucas
+        # viu-o **por cima de uma app em espanhol**.
+        #
+        # A cascata já fazia isto bem, e tinha-o escrito ao lado: «a
+        # frase escolhe-se na app, na língua de quem lê». Eu li e não
+        # segui.
+        return [{"type": "error", "code": "turn_failed"}]
 
     return []
 

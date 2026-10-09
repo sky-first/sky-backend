@@ -179,13 +179,32 @@ class TestAAvaria:
         assert m["type"] == "error"
         assert m["code"] == "turn_failed"
 
+    def test_e_NAO_manda_frase_nenhuma(self):
+        """A frase escolhe-se na app, na língua de quem lê.
+
+        A app faz `onError(e.message || e.code)` e só traduz quando a
+        `message` vem vazia. Mandar uma frase atropela a tradução.
+
+        Foi o que aconteceu: a minha primeira versão mandava «Não
+        consegui responder a isso.» cravado em português, e apareceu
+        **por cima de uma app em espanhol**. A cascata já fazia isto
+        bem — eu li o comentário dela e não o segui.
+        """
+        [m] = ponte.para_o_protocolo(
+            falada.Falhou(porque="ValidationException: Invalid input request")
+        )
+        assert "message" not in m, (
+            f"mandou uma frase ({m.get('message')!r}) — a app vai "
+            "mostrá-la tal e qual, na língua em que estiver escrita"
+        )
+
     def test_e_a_razao_NAO_vai_para_o_ouvido(self):
         """Quem está do outro lado não quer ouvir o nome da excepção."""
         [m] = ponte.para_o_protocolo(
             falada.Falhou(porque="ValidationException: Invalid input request")
         )
-        assert "ValidationException" not in m["message"]
-        assert "Invalid input" not in m["message"]
+        assert "ValidationException" not in str(m)
+        assert "Invalid input" not in str(m)
 
 
 # ── A ferramenta ────────────────────────────────────────────────────

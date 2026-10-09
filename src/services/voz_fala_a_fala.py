@@ -409,10 +409,24 @@ class SessaoFalada:
                     break
                 await self._traduzir(json.loads(res.value.bytes_.decode("utf-8")).get("event", {}))
         except Exception as exc:
+            # ── O TIPO, e a pilha ───────────────────────────────────
+            #
+            # A primeira versão registava só `exc`. O Bedrock devolve
+            # `AccessDeniedException` com **mensagem vazia**, portanto a
+            # linha saía assim:
+            #
+            #     voz: sessão caiu (cliente=skyfirstlabs):
+            #
+            # Uma avaria de permissões, em produção, sem uma palavra
+            # sobre o que faltava. Levou-me uma hora a chegar lá, e a
+            # informação estava ali o tempo todo — na classe da
+            # excepção, que eu não imprimi.
             logger.warning(
-                "voz: sessão caiu (cliente=%s): %s",
+                "voz: sessão caiu (cliente=%s): %s: %s",
                 getattr(self.ctx, "slug", "?"),
-                exc,
+                type(exc).__name__,
+                exc or "(sem mensagem)",
+                exc_info=True,
             )
             await self._eventos.put(Falhou(porque=f"{type(exc).__name__}: {exc}"))
         finally:
