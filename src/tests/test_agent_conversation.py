@@ -29,15 +29,11 @@ def test_without_a_chosen_hour_it_behaves_as_before():
 def test_a_daily_agent_aligns_to_the_chosen_hour():
     """Um agente diário criado às 15h47 respondia todos os dias às 15h47 — que
     não interessa a ninguém. Com hora escolhida, alinha."""
-    assert next_run_at(NOW, "daily", hour=8) == datetime(
-        2026, 8, 15, 8, 0, tzinfo=timezone.utc
-    )
+    assert next_run_at(NOW, "daily", hour=8) == datetime(2026, 8, 15, 8, 0, tzinfo=timezone.utc)
 
 
 def test_the_chosen_hour_later_today_is_still_today():
-    assert next_run_at(NOW, "daily", hour=20) == datetime(
-        2026, 8, 14, 20, 0, tzinfo=timezone.utc
-    )
+    assert next_run_at(NOW, "daily", hour=20) == datetime(2026, 8, 14, 20, 0, tzinfo=timezone.utc)
 
 
 def test_it_never_schedules_in_the_past_or_on_itself():
@@ -222,9 +218,7 @@ def _linhas_do_worker() -> str:
     from src.workers import agent_worker
 
     return "\n".join(
-        l
-        for l in inspect.getsource(agent_worker).splitlines()
-        if not l.lstrip().startswith("#")
+        l for l in inspect.getsource(agent_worker).splitlines() if not l.lstrip().startswith("#")
     )
 
 
@@ -242,8 +236,21 @@ def _linhas_do_worker() -> str:
 
 
 def test_todas_as_ligacoes_falhadas_marcam_a_corrida_como_falhada():
+    """A condição mudou de forma; a garantia é a mesma.
+
+    Estes dois testes fixavam a LINHA
+    `if ligacoes_falhadas and not respostas_por_ligacao:` e ficaram
+    vermelhos quando ela passou a uma variável — `falhou_por_completo`
+    — para que a mensagem no fio e o estado da execução não pudessem
+    divergir. Era precisamente a divergência entre os dois que mentia
+    ao utilizador.
+
+    É o mesmo defeito que este ficheiro já apanhou noutro teste mais
+    abaixo: fixar a palavra em vez do comportamento. Reescritos para a
+    garantia.
+    """
     fonte = _linhas_do_worker()
-    assert 'if ligacoes_falhadas and not respostas_por_ligacao:' in fonte
+    assert "falhou_por_completo = " in fonte
     assert 'execution.status = "failed"' in fonte
 
 
@@ -255,10 +262,24 @@ def test_uma_ligacao_que_respondeu_salva_a_corrida():
     três passaria a parecer avariado.
     """
     fonte = _linhas_do_worker()
-    i = fonte.index("if ligacoes_falhadas and not respostas_por_ligacao:")
-    # A condição exige as duas coisas na mesma linha: falhas E nenhuma
-    # resposta. Um `if ligacoes_falhadas:` sozinho seria o outro extremo.
-    assert "and not respostas_por_ligacao" in fonte[i : i + 120]
+    i = fonte.index("falhou_por_completo = ")
+    # A condição exige as duas coisas: falhas E nenhuma resposta. Um
+    # `bool(ligacoes_falhadas)` sozinho seria o outro extremo.
+    linha = fonte[i : fonte.index(chr(10), i)]
+    assert "ligacoes_falhadas" in linha
+    assert "not respostas_por_ligacao" in linha
+
+
+def test_e_a_decisao_e_UMA_so_para_a_mensagem_e_para_o_estado():
+    """O que impede a próxima divergência.
+
+    Visto em produção a 09/10: a execução ficava `failed` e o fio dizia
+    «olhei e não há nada a assinalar». Duas leituras da mesma condição,
+    em sítios diferentes, a discordar.
+    """
+    fonte = _linhas_do_worker()
+    assert fonte.count("falhou_por_completo") >= 3
+    assert "if ligacoes_falhadas and not respostas_por_ligacao:" not in fonte
 
 
 def test_a_razao_da_falha_fica_gravada():
@@ -372,7 +393,12 @@ def test_o_titulo_da_IA_ganha_ao_nome_da_ligacao():
 
     out = _juntar_respostas(
         [
-            {"conn_id": "c1", "conn_nome": "Demo — Sales", "answer": "a", "title": "Margem em queda"},
+            {
+                "conn_id": "c1",
+                "conn_nome": "Demo — Sales",
+                "answer": "a",
+                "title": "Margem em queda",
+            },
             {"conn_id": "c2", "conn_nome": "Demo — Finance", "answer": "b", "title": ""},
         ]
     )

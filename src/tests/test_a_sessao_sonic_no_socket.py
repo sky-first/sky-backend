@@ -331,6 +331,89 @@ class TestOsControlesQueOsClientesAntIGOSMandam:
         assert sessao.fechada
 
 
+# ── O ditado ────────────────────────────────────────────────────────
+
+
+class TestODitadoNaoEUmaConversa:
+    """> «El dictado se detuvo» — Lucas, 09/10/2026, ao ligar isto.
+
+    O ditado usa o MESMO WebSocket e só consome `partial_transcript`:
+    quer o texto do que a pessoa disse, para o pôr na caixa de escrita.
+    Nunca pediu resposta a ninguém.
+
+    Sem esta distinção, ditar passava a chamar o nosso SQL (custo e
+    demora por nada), gerar uma resposta falada, e **o telemóvel dizia-a
+    em voz alta por cima de quem está a ditar**.
+    """
+
+    @staticmethod
+    def _ditado(**kw):
+        return _start(mode="push-to-talk", **kw)
+
+    @pytest.mark.asyncio
+    async def test_a_transcricao_chega(self, monkeypatch):
+        """É a única coisa que o ditado quer."""
+        sessao = _SessaoFalsa([falada.Ouvido(texto="comprar leite")])
+        s = await _servir(monkeypatch, [self._ditado()], sessao)
+        textos = [m for m in s.texto if m["type"] == "partial_transcript"]
+        assert textos and textos[0]["text"] == "comprar leite"
+
+    @pytest.mark.asyncio
+    async def test_mas_a_resposta_da_sky_NAO(self, monkeypatch):
+        sessao = _SessaoFalsa(
+            [
+                falada.Ouvido(texto="comprar leite"),
+                falada.Dito(texto="Tens 3 clientes."),
+                falada.Audio(pcm=b""),
+            ]
+        )
+        s = await _servir(monkeypatch, [self._ditado()], sessao)
+        assert s.binario == [], (
+            "mandou áudio para um ditado — o telemóvel ia falar por cima " "de quem está a ditar"
+        )
+        assert not [m for m in s.texto if m["type"] == "sky_text"]
+
+    @pytest.mark.asyncio
+    async def test_e_o_nosso_SQL_nao_corre(self, monkeypatch):
+        """O que custa dinheiro e tempo por nada."""
+        correu = False
+
+        async def responder(*_a, **_k):
+            nonlocal correu
+            correu = True
+            return "x"
+
+        sessao = _SessaoFalsa()
+        await _servir(monkeypatch, [self._ditado()], sessao, responder=responder)
+        # A ferramenta do ditado nem sequer é a que fala com o motor.
+        import inspect
+
+        fonte = inspect.getsource(sonic.servir)
+        assert "nao_consultar" in fonte
+        assert "if e_ditado" in fonte
+        assert not correu
+
+    @pytest.mark.asyncio
+    async def test_mas_uma_avaria_continua_a_chegar(self, monkeypatch):
+        """Calar a resposta não pode calar o erro.
+
+        Se a sessão cair a meio de um ditado, quem está a ditar tem de
+        saber — senão fala para o boneco.
+        """
+        sessao = _SessaoFalsa([falada.Falhou(porque="x")])
+        s = await _servir(monkeypatch, [self._ditado()], sessao)
+        erros = [m for m in s.texto if m["type"] == "error"]
+        assert erros and erros[0]["code"] == "turn_failed"
+
+    @pytest.mark.asyncio
+    async def test_e_uma_conversa_normal_continua_a_falar(self, monkeypatch):
+        """O contrapeso: sem `mode`, tudo passa."""
+        sessao = _SessaoFalsa([falada.Dito(texto="São duas."), falada.Audio(pcm=b"")])
+        s = await _servir(monkeypatch, [_start()], sessao)
+        assert s.binario == [b""]
+        assert [m for m in s.texto if m["type"] == "sky_text"]
+
+
 # ── O que sai para a app ────────────────────────────────────────────
 
 

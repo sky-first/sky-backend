@@ -37,6 +37,8 @@ from __future__ import annotations
 
 import inspect
 
+from datetime import datetime
+
 from src.workers import agent_worker
 
 
@@ -88,3 +90,203 @@ class TestUmaAvariaNaoSeDisfarcaDeSilencio:
         fonte = _fonte()
         i = fonte.index("if finding_da_corrida is not None:")
         assert "_looks_like_orchestrator_error(answer)" in fonte[i : i + 2500]
+
+
+class TestUmaCorridaQueFALHOUNaoDizQueNaoEncontrouNada:
+    """A mentira tranquilizadora, outra vez — e vista em produção.
+
+    > «a mensagem que está dando é que analisou e não encontrou nada?
+    >  ... eu acho que realmente deu algum erro, porque se há dados
+    >  deveria retornar não?»
+    > — Lucas, 09/10/2026
+
+    Tinha razão. No fio dele, na base de produção:
+
+        14:41 → 15:06, de 5 em 5 min, SEIS corridas
+        agent_executions.status  = failed
+        agent_executions.error   = «1 ligação(ões) sem resposta … HTTPStatus»
+        e no fio: «Olhei agora e não há nada a assinalar.»
+
+    A verificação de «falharam TODAS as ligações» **existia** — mas vinte
+    linhas DEPOIS da escrita no fio. O fio dizia que tinha olhado e não
+    havia nada, e só a seguir é que a execução era marcada `failed`.
+
+    O comentário dessa verificação já dizia, desde 22/08, que isto não
+    podia acontecer: «é uma frase tranquilizadora para dizer que nem uma
+    consulta chegou a ser feita». Estava certo e no sítio errado.
+    """
+
+    def test_decide_se_falhou_ANTES_de_escrever_no_fio(self):
+        fonte = _fonte()
+        decide = fonte.index("falhou_por_completo = ")
+        escreve = fonte.index(
+            "if falhou_por_completo:\n                    await post_agent_answer"
+        )
+        assert decide < escreve, (
+            "a decisão tem de vir antes da escrita — ao contrário, o fio "
+            "diz «não há nada» e só depois se descobre que falhou tudo"
+        )
+
+    def test_e_a_mensagem_e_a_da_AVARIA(self):
+        """E a função que a constrói começa pela frase da avaria.
+
+        Deixou de ser a constante directamente — passou a
+        `mensagem_de_avaria`, que lhe cola a última leitura boa por
+        baixo. A garantia é a mesma: o que sai daqui diz que FALHOU, e
+        nunca «não há nada a assinalar».
+        """
+        fonte = _fonte()
+        i = fonte.index("if falhou_por_completo:")
+        bloco = fonte[i : i + 500]
+        assert "mensagem_de_avaria(agent)" in bloco
+        assert "NADA_A_ASSINALAR" not in bloco
+
+        class _SemHistorico:
+            last_answer = None
+            last_execution_at = None
+
+        assert agent_worker.mensagem_de_avaria(_SemHistorico()).startswith(
+            agent_worker.NAO_CONSEGUI
+        )
+
+    def test_e_leva_chave_para_as_repetidas_se_juntarem(self):
+        """Seis falhas seguidas passam a ler-se «6 vezes», numa mensagem.
+
+        Foi a outra queixa: «as várias mensagens repetidas? deveria
+        agrupá-las». A `chave_de_texto` é o que faz a colagem — e o
+        caminho da avaria não a tinha.
+        """
+        fonte = _fonte()
+        i = fonte.index("if falhou_por_completo:")
+        assert 'chave_de_texto="agent_could_not_run"' in fonte[i : i + 400]
+
+    def test_as_duas_decisoes_usam_a_MESMA_variavel(self):
+        """O que impede a próxima divergência.
+
+        Era precisamente a divergência entre as duas — a mensagem a dizer
+        uma coisa e a execução outra — que mentia.
+        """
+        fonte = _fonte()
+        assert fonte.count("falhou_por_completo") >= 3
+        assert "if ligacoes_falhadas and not respostas_por_ligacao:" not in fonte, (
+            "a condição voltou a estar escrita duas vezes — e duas cópias "
+            "divergem à primeira mudança"
+        )
+
+
+class TestUmaCorridaFalhadaNaoCorreDeCincoEmCincoMinutos:
+    """O agendador reenfileirava o mesmo agente para sempre.
+
+    > «corrige o agendador» — Lucas, 09/10/2026
+
+    Medido na base de produção: **111 corridas por agente em 9 horas**,
+    em seis agentes — 666 chamadas ao motor que ninguém pediu. Os
+    agentes que COMPLETAVAM tinham 2 a 4 corridas no mesmo período.
+
+    A causa: a saída antecipada de «nenhuma ligação respondeu» marcava a
+    execução como falhada e devolvia **sem tocar no
+    `next_execution_at`**. O agente ficava eternamente em atraso, e o
+    Beat — que corre de 5 em 5 minutos — reenfileirava-o em cada
+    passagem.
+
+    É o mesmo defeito da mensagem que mentia, na mesma saída: um
+    `return` que salta a arrumação que todos os outros caminhos fazem.
+    """
+
+    @staticmethod
+    def _bloco() -> str:
+        """A pernada que marca a execução falhada, do `if` ao `return`.
+
+        Ancorada no SEGUNDO `if falhou_por_completo:` — o primeiro é o
+        que escreve no fio, este é o que arruma a execução. A primeira
+        versão deste recorte procurou a frase do registo e apanhou um
+        docstring lá em cima.
+        """
+        fonte = _fonte()
+        primeiro = fonte.index("if falhou_por_completo:")
+        i = fonte.index("if falhou_por_completo:", primeiro + 5)
+        return fonte[i : fonte.index("# 5. Update execution", i)]
+
+    def test_a_saida_antecipada_avanca_o_relogio(self):
+        bloco = self._bloco()
+        assert "next_execution_at" in bloco, (
+            "a saída por falha não mexe no relógio — o agente fica em "
+            "atraso para sempre e o Beat reenfileira-o de 5 em 5 minutos"
+        )
+
+    def test_e_conta_a_falha(self):
+        """Sem isto o travão das três falhas nunca dispara.
+
+        Ele existe precisamente para «parar de comer orçamento».
+        """
+        bloco = self._bloco()
+        assert "consecutive_failures" in bloco
+
+    def test_e_pausa_ao_fim_de_tres(self):
+        bloco = self._bloco()
+        assert "MAX_CONSECUTIVE_FAILURES" in bloco
+        assert 'agent.status = "paused"' in bloco
+
+    def test_e_regista_a_ultima_corrida(self):
+        """Senão o `last_execution_at` mente sobre quando ele correu."""
+        assert "last_execution_at" in self._bloco()
+
+
+class TestAUltimaLeituraBoaVaiJuntoComAAvaria:
+    """> «devemos ser inteligentes e talvez mostrar o primeiro resultado…
+    >  como podemos melhorar essa experiência?» — Lucas, 09/10/2026
+
+    Uma avaria que só diz «não consegui» deixa quem lê sem nada. Mas
+    repetir o último número **sem dizer que é antigo** era trocar uma
+    frase inútil por uma enganadora — da mesma família da que se
+    acabou de corrigir neste ficheiro.
+
+    As duas coisas, por esta ordem: primeiro que falhou, depois o que
+    ainda se sabe, com a data colada.
+    """
+
+    class _Agente:
+        last_answer = "O tempo médio de entrega foi 34 minutos."
+        last_execution_at = datetime(2026, 10, 7, 15, 6)
+
+    def test_sem_leitura_anterior_diz_so_que_falhou(self):
+        class _Novo:
+            last_answer = None
+            last_execution_at = None
+
+        assert agent_worker.mensagem_de_avaria(_Novo()) == agent_worker.NAO_CONSEGUI
+
+    def test_com_leitura_anterior_diz_as_DUAS_coisas(self):
+        texto = agent_worker.mensagem_de_avaria(self._Agente())
+        assert agent_worker.NAO_CONSEGUI in texto, "deixou de dizer que falhou"
+        assert "34 minutos" in texto, "não mostrou o que ainda se sabe"
+
+    def test_e_a_avaria_vem_PRIMEIRO(self):
+        """Quem lê tem de saber que isto é velho antes de o ler."""
+        texto = agent_worker.mensagem_de_avaria(self._Agente())
+        assert texto.index(agent_worker.NAO_CONSEGUI) < texto.index("34 minutos")
+
+    def test_e_a_leitura_vem_DATADA(self):
+        texto = agent_worker.mensagem_de_avaria(self._Agente())
+        assert "07/10 15:06" in texto, (
+            "um número antigo sem data lê-se como um número de agora — "
+            "é a mentira tranquilizadora outra vez"
+        )
+
+    def test_uma_leitura_enorme_e_cortada(self):
+        """Vai para um cartão no fio, não é onde se repete uma análise."""
+
+        class _Longo:
+            last_answer = "x" * 2000
+            last_execution_at = datetime(2026, 10, 7, 15, 6)
+
+        texto = agent_worker.mensagem_de_avaria(_Longo())
+        assert len(texto) < 900
+        assert texto.rstrip().endswith("»")
+
+    def test_e_nada_disto_rebenta_sem_data(self):
+        class _SemData:
+            last_answer = "alguma coisa"
+            last_execution_at = None
+
+        assert "alguma coisa" in agent_worker.mensagem_de_avaria(_SemData())

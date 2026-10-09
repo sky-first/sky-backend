@@ -176,6 +176,23 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "de sus datos. Lo intentaré de nuevo en la próxima ejecución."
         ),
     },
+    # A última leitura boa, quando a de agora falhou.
+    #
+    # > «devemos ser inteligentes e talvez mostrar o primeiro resultado»
+    # > — Lucas, 09/10/2026
+    #
+    # O `{data}` não é decoração: é o que impede isto de ser outra
+    # mentira tranquilizadora. Repetir um número antigo sem dizer que é
+    # antigo é pior do que não o mostrar — quem lê decide com ele como
+    # se fosse de hoje.
+    #
+    # Fica a seguir à frase da avaria, não no lugar dela: primeiro
+    # dizer que falhou, depois o que ainda se sabe.
+    "agent_last_known_reading": {
+        "pt": "A última leitura que consegui foi a de {data}:",
+        "en": "The last reading I managed was from {data}:",
+        "es": "La última lectura que conseguí fue la de {data}:",
+    },
     # O corpo do achado de uma corrida vazia. O título já vinha do
     # catálogo (`agent_run_no_output`) e a descrição ao lado estava
     # cravada em inglês — a mesma falha, na linha seguinte à correcção.

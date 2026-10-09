@@ -32,6 +32,42 @@ NAO_CONSEGUI = get_message("agent_could_not_run")
 NADA_A_ASSINALAR = get_message("agent_nothing_to_report")
 
 
+def mensagem_de_avaria(agente) -> str:
+    """«Não consegui» — e, se houver, a última leitura boa, datada.
+
+    > «devemos ser inteligentes e talvez mostrar o primeiro resultado…
+    >  como podemos melhorar essa experiência?»
+    > — Lucas, 09/10/2026
+
+    Uma avaria que só diz «não consegui» deixa quem lê sem nada. Mas
+    repetir o último número **sem dizer que é antigo** era trocar uma
+    frase inútil por uma frase enganadora — da mesma família da que
+    acabámos de corrigir.
+
+    Então as duas coisas, por esta ordem: primeiro que falhou, depois o
+    que ainda se sabe, com a data colada. Quem lê decide se aquilo
+    ainda serve.
+
+    O `last_answer` é seguro para isto: o worker tem o cuidado,
+    explícito desde sempre, de **nunca** lá guardar um erro do
+    orquestrador — senão a corrida seguinte pedia ao modelo para
+    comparar com uma mensagem de erro.
+    """
+    base = NAO_CONSEGUI
+    ultima = (getattr(agente, "last_answer", None) or "").strip()
+    if not ultima:
+        return base
+    quando = getattr(agente, "last_execution_at", None)
+    etiqueta = get_message("agent_last_known_reading").format(
+        data=quando.strftime("%d/%m %H:%M") if quando else "?"
+    )
+    # Cortada: isto vai para um cartão no fio, não é o sítio de repetir
+    # uma análise inteira.
+    if len(ultima) > 400:
+        ultima = ultima[:400].rstrip() + "…"
+    return f"{base}\n\n{etiqueta}\n«{ultima}»"
+
+
 def _extract_tables_from_sql(sql: str) -> List[str]:
     """Extract table names from a SQL query to guide the orchestrator's table selection."""
     if not sql:
@@ -976,12 +1012,48 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             # sempre resposta.** «Olhei e nao ha nada a assinalar» e uma
             # resposta; silencio nao e. E o silencio nao se distingue de uma
             # avaria — foi exactamente essa a leitura dele.
+            # ── MAS primeiro: a corrida falhou? ────────────────────────
+            #
+            # > «a mensagem que está dando é que analisou e não encontrou
+            # >  nada? ... eu acho que realmente deu algum erro, porque se
+            # >  há dados deveria retornar não?»
+            # > — Lucas, 09/10/2026
+            #
+            # Tinha razão. Visto na base de produção, no fio dele:
+            #
+            #   14:41 → 15:06, de 5 em 5 min, SEIS corridas
+            #   status = failed
+            #   error  = «1 ligação(ões) sem resposta. A primeira: … HTTPStatus»
+            #   e no fio: «Olhei agora e não há nada a assinalar.»
+            #
+            # A verificação de «falharam TODAS as ligações» existia — mas
+            # **vinte linhas DEPOIS desta escrita**. O fio dizia que tinha
+            # olhado e não havia nada, e só a seguir é que a execução era
+            # marcada `failed`. Uma mentira tranquilizadora, que é
+            # exactamente o que o comentário dessa verificação diz que não
+            # pode acontecer.
+            #
+            # A ordem passa a ser a certa: decidir se falhou, e só depois
+            # escrever. Como `NAO_CONSEGUI` leva `chave_de_texto`, seis
+            # falhas seguidas passam também a ler-se «6 vezes» numa
+            # mensagem só, em vez de seis cartões iguais.
+            falhou_por_completo = bool(ligacoes_falhadas) and not respostas_por_ligacao
+
             try:
                 from src.services.agent_conversation_service import (
                     post_agent_answer,
                 )
 
-                if finding_da_corrida is not None:
+                if falhou_por_completo:
+                    await post_agent_answer(
+                        db,
+                        agent=agent,
+                        # Com a última leitura boa colada por baixo, se
+                        # houver — ver `mensagem_de_avaria`.
+                        answer=mensagem_de_avaria(agent),
+                        chave_de_texto="agent_could_not_run",
+                    )
+                elif finding_da_corrida is not None:
                     await post_agent_answer(
                         db,
                         agent=agent,
@@ -1021,9 +1093,7 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         # devolveu um texto seu, é uma resposta e vale
                         # uma mensagem — mesmo que saia igual à de
                         # ontem, porque aí a igualdade é o facto.
-                        chave_de_texto=(
-                            None if tem_texto_proprio else "agent_nothing_to_report"
-                        ),
+                        chave_de_texto=(None if tem_texto_proprio else "agent_nothing_to_report"),
                     )
             except Exception as _post_err:  # noqa: BLE001
                 logger.warning(
@@ -1045,7 +1115,12 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             # Só quando falham TODAS: se uma respondeu, houve resposta, e
             # marcar a corrida como falhada por causa de outra seria enganar
             # ao contrário.
-            if ligacoes_falhadas and not respostas_por_ligacao:
+            # A mesma condição, agora guardada em `falhou_por_completo` lá
+            # em cima — onde é decidida ANTES de se escrever no fio. Aqui
+            # usa-se a variável para as duas não poderem divergir: era
+            # precisamente a divergência entre as duas (a mensagem dizia
+            # uma coisa, a execução outra) que mentia ao Lucas.
+            if falhou_por_completo:
                 execution.status = "failed"
                 primeira = ligacoes_falhadas[0]
                 execution.error_message = (
@@ -1054,11 +1129,54 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                 )[:2000]
                 execution.findings_count = 0
                 execution.finished_at = datetime.now(timezone.utc)
+
+                # ── E o RELÓGIO tem de avançar. ────────────────────────
+                #
+                # > «corrige o agendador» — Lucas, 09/10/2026
+                #
+                # Esta saída antecipada marcava a execução como falhada e
+                # devolvia — **sem tocar no `next_execution_at`**. O
+                # agente ficava eternamente «em atraso», e o Beat, que
+                # corre de 5 em 5 minutos, reenfileirava-o em cada
+                # passagem. Para sempre.
+                #
+                # Medido na base de produção: **111 corridas por agente
+                # em 9 horas**, em seis agentes — 666 chamadas ao motor
+                # que ninguém pediu. Os agentes que completavam tinham 2
+                # a 4 corridas no mesmo período, porque esses passavam
+                # pela arrumação lá em baixo.
+                #
+                # E o contador de falhas também não subia, por isso o
+                # travão das três falhas seguidas — que existe
+                # precisamente para «parar de comer orçamento» — nunca
+                # chegava a disparar.
+                agent.last_execution_at = datetime.now(timezone.utc)
+                agent.consecutive_failures = (agent.consecutive_failures or 0) + 1
+                if agent.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    agent.status = "paused"
+                    agent.next_execution_at = None
+                    logger.warning(
+                        "Agent %s auto-paused after %d consecutive failures "
+                        "(nenhuma ligação respondeu)",
+                        agent_id,
+                        agent.consecutive_failures,
+                    )
+                else:
+                    _h, _m = scheduled_hour(agent)
+                    agent.next_execution_at = next_run_at(
+                        datetime.now(timezone.utc),
+                        agent.frequency,
+                        hour=_h,
+                        minute=_m,
+                    )
                 await db.commit()
                 logger.error(
-                    "Agent %s: nenhuma ligação respondeu (%d falharam)",
+                    "Agent %s: nenhuma ligação respondeu (%d falharam); "
+                    "falha %d, próxima corrida %s",
                     agent_id,
                     len(ligacoes_falhadas),
+                    agent.consecutive_failures,
+                    agent.next_execution_at,
                 )
                 return
 

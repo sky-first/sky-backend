@@ -177,17 +177,54 @@ async def servir(
     locale = (inicio.get("locale") or "en")[:2]
     voz = voz_do_locale(locale, inicio.get("voice"))
 
+    # ── O ditado NÃO é uma conversa ─────────────────────────────────
+    #
+    # > «El dictado se detuvo» — Lucas, 09/10/2026, com o ditado a
+    # > rebentar logo a seguir a ligar isto.
+    #
+    # O ditado usa o MESMO WebSocket e só consome `partial_transcript`:
+    # quer o texto do que a pessoa disse, para o pôr na caixa de
+    # escrita. Nunca pediu uma resposta a ninguém.
+    #
+    # Sem esta distinção, ditar passava a: chamar o nosso SQL (custo e
+    # demora por nada), gerar uma resposta falada, e **o telemóvel
+    # dizia-a em voz alta por cima de quem está a ditar**.
+    #
+    # Hoje o único cliente que manda `push-to-talk` é o ditado — o
+    # premir-para-falar saiu como modo de conversa (sky-mobile#75). Um
+    # cliente antigo em premir-para-falar também cai aqui, e também
+    # fica melhor servido: transcrição é o que ele espera do gesto.
+    e_ditado = inicio.get("mode") == "push-to-talk"
+
+    async def nao_consultar(_pergunta: str) -> str:
+        """A ditar, o nosso SQL não corre.
+
+        Tem de devolver ALGUMA coisa — um `toolResult` que não chega
+        deixa o modelo à espera até aos 55 s e mata a sessão. Devolve
+        uma instrução para ele não dizer nada de útil, e o que ele disser
+        não sai daqui de qualquer maneira.
+        """
+        logger.info(
+            "voz/sonic: ditado — consulta ignorada (cliente=%s)",
+            getattr(ctx, "slug", "?"),
+        )
+        return "Modo de ditado: não respondas, limita-te a ouvir."
+
     try:
         cliente = await abrir_cliente()
         sessao = falada.SessaoFalada(
             ctx=ctx,
-            ferramenta=ponte.ferramenta_do_cliente(
-                responder,
-                user=user,
-                page_id=page_id,
-                ctx=ctx,
-                locale=locale,
-                space_id=space_id,
+            ferramenta=(
+                nao_consultar
+                if e_ditado
+                else ponte.ferramenta_do_cliente(
+                    responder,
+                    user=user,
+                    page_id=page_id,
+                    ctx=ctx,
+                    locale=locale,
+                    space_id=space_id,
+                )
             ),
             instrucao=instrucao_de_sistema(locale),
             voz=voz,
@@ -230,6 +267,11 @@ async def servir(
                 turnos.append(("user", ev.texto.strip()))
             elif isinstance(ev, falada.Dito) and ev.texto.strip():
                 turnos.append(("sky", ev.texto.strip()))
+            # A ditar, só o que a PESSOA disse atravessa. A resposta da
+            # Sky — texto e som — fica aqui: ninguém a pediu, e o
+            # telemóvel diria-a em voz alta por cima de quem dita.
+            if e_ditado and not isinstance(ev, (falada.Ouvido, falada.Falhou)):
+                continue
             for m in ponte.para_o_protocolo(ev):
                 try:
                     await mandar(m)
