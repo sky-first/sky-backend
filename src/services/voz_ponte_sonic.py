@@ -259,6 +259,15 @@ def para_o_protocolo(evento: falada.Evento) -> List[Dict[str, Any]]:
             {"type": "state", "value": "user_speaking"},
         ]
 
+    # ── A vez volta à pessoa ────────────────────────────────────────
+    #
+    # Sem isto a app ficava em `speaking` depois da primeira resposta e
+    # nunca mais mandava o microfone. A app só o aplica depois de acabar
+    # de TOCAR o que recebeu (o som chega mais depressa do que se ouve), e
+    # por isso mandá-lo aqui, ainda com áudio em viagem, é seguro.
+    if isinstance(evento, falada.VezDaPessoa):
+        return [{"type": "state", "value": "user_speaking"}]
+
     # ── A avaria ────────────────────────────────────────────────────
     #
     # `turn_failed` e não um erro qualquer: a app distingue-os pelo

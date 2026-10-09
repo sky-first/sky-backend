@@ -150,13 +150,28 @@ class APensar:
 
 
 @dataclass(frozen=True)
+class VezDaPessoa:
+    """A Sky acabou de falar: a vez é da pessoa.
+
+    **Faltava, e era o defeito mais grave da voz.** A app só manda o
+    microfone em `user_speaking`, e esse estado só voltava numa
+    interrupção. Depois da primeira resposta a app ficava em `speaking`
+    para sempre e deitava fora tudo o que a pessoa dizia — «eu pergunto
+    em vários idiomas, ele não responde» (Lucas, 09/10).
+
+    Vem do `contentEnd` do áudio da Sky com `stopReason: END_TURN`. Um
+    `INTERRUPTED` não conta: esse já tem o `Interrompido`.
+    """
+
+
+@dataclass(frozen=True)
 class Falhou:
     """A sessão morreu. `porque` vai para os registos, não para o ouvido."""
 
     porque: str
 
 
-Evento = Ouvido | Dito | Audio | FalaAcabou | Interrompido | APensar | Falhou
+Evento = Ouvido | Dito | Audio | FalaAcabou | Interrompido | APensar | VezDaPessoa | Falhou
 
 #: A ferramenta: recebe a pergunta em linguagem natural, devolve o que
 #: encontrou. No produto é o nosso motor de SQL; nos testes é uma função.
@@ -478,6 +493,12 @@ class SessaoFalada:
 
         if "userSpeechEnd" in ev:
             await self._eventos.put(FalaAcabou())
+
+        if "contentEnd" in ev:
+            fim = ev["contentEnd"] or {}
+            if (fim.get("type") == "AUDIO" and fim.get("role", "ASSISTANT") != "USER"
+                    and fim.get("stopReason") == "END_TURN"):
+                await self._eventos.put(VezDaPessoa())
 
         if ev.get("interrupted") or "interruption" in ev:
             await self._eventos.put(Interrompido())
