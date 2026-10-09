@@ -976,12 +976,46 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             # sempre resposta.** «Olhei e nao ha nada a assinalar» e uma
             # resposta; silencio nao e. E o silencio nao se distingue de uma
             # avaria — foi exactamente essa a leitura dele.
+            # ── MAS primeiro: a corrida falhou? ────────────────────────
+            #
+            # > «a mensagem que está dando é que analisou e não encontrou
+            # >  nada? ... eu acho que realmente deu algum erro, porque se
+            # >  há dados deveria retornar não?»
+            # > — Lucas, 09/10/2026
+            #
+            # Tinha razão. Visto na base de produção, no fio dele:
+            #
+            #   14:41 → 15:06, de 5 em 5 min, SEIS corridas
+            #   status = failed
+            #   error  = «1 ligação(ões) sem resposta. A primeira: … HTTPStatus»
+            #   e no fio: «Olhei agora e não há nada a assinalar.»
+            #
+            # A verificação de «falharam TODAS as ligações» existia — mas
+            # **vinte linhas DEPOIS desta escrita**. O fio dizia que tinha
+            # olhado e não havia nada, e só a seguir é que a execução era
+            # marcada `failed`. Uma mentira tranquilizadora, que é
+            # exactamente o que o comentário dessa verificação diz que não
+            # pode acontecer.
+            #
+            # A ordem passa a ser a certa: decidir se falhou, e só depois
+            # escrever. Como `NAO_CONSEGUI` leva `chave_de_texto`, seis
+            # falhas seguidas passam também a ler-se «6 vezes» numa
+            # mensagem só, em vez de seis cartões iguais.
+            falhou_por_completo = bool(ligacoes_falhadas) and not respostas_por_ligacao
+
             try:
                 from src.services.agent_conversation_service import (
                     post_agent_answer,
                 )
 
-                if finding_da_corrida is not None:
+                if falhou_por_completo:
+                    await post_agent_answer(
+                        db,
+                        agent=agent,
+                        answer=NAO_CONSEGUI,
+                        chave_de_texto="agent_could_not_run",
+                    )
+                elif finding_da_corrida is not None:
                     await post_agent_answer(
                         db,
                         agent=agent,
@@ -1021,9 +1055,7 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         # devolveu um texto seu, é uma resposta e vale
                         # uma mensagem — mesmo que saia igual à de
                         # ontem, porque aí a igualdade é o facto.
-                        chave_de_texto=(
-                            None if tem_texto_proprio else "agent_nothing_to_report"
-                        ),
+                        chave_de_texto=(None if tem_texto_proprio else "agent_nothing_to_report"),
                     )
             except Exception as _post_err:  # noqa: BLE001
                 logger.warning(
@@ -1045,7 +1077,12 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             # Só quando falham TODAS: se uma respondeu, houve resposta, e
             # marcar a corrida como falhada por causa de outra seria enganar
             # ao contrário.
-            if ligacoes_falhadas and not respostas_por_ligacao:
+            # A mesma condição, agora guardada em `falhou_por_completo` lá
+            # em cima — onde é decidida ANTES de se escrever no fio. Aqui
+            # usa-se a variável para as duas não poderem divergir: era
+            # precisamente a divergência entre as duas (a mensagem dizia
+            # uma coisa, a execução outra) que mentia ao Lucas.
+            if falhou_por_completo:
                 execution.status = "failed"
                 primeira = ligacoes_falhadas[0]
                 execution.error_message = (

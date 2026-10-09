@@ -88,3 +88,70 @@ class TestUmaAvariaNaoSeDisfarcaDeSilencio:
         fonte = _fonte()
         i = fonte.index("if finding_da_corrida is not None:")
         assert "_looks_like_orchestrator_error(answer)" in fonte[i : i + 2500]
+
+
+class TestUmaCorridaQueFALHOUNaoDizQueNaoEncontrouNada:
+    """A mentira tranquilizadora, outra vez — e vista em produção.
+
+    > «a mensagem que está dando é que analisou e não encontrou nada?
+    >  ... eu acho que realmente deu algum erro, porque se há dados
+    >  deveria retornar não?»
+    > — Lucas, 09/10/2026
+
+    Tinha razão. No fio dele, na base de produção:
+
+        14:41 → 15:06, de 5 em 5 min, SEIS corridas
+        agent_executions.status  = failed
+        agent_executions.error   = «1 ligação(ões) sem resposta … HTTPStatus»
+        e no fio: «Olhei agora e não há nada a assinalar.»
+
+    A verificação de «falharam TODAS as ligações» **existia** — mas vinte
+    linhas DEPOIS da escrita no fio. O fio dizia que tinha olhado e não
+    havia nada, e só a seguir é que a execução era marcada `failed`.
+
+    O comentário dessa verificação já dizia, desde 22/08, que isto não
+    podia acontecer: «é uma frase tranquilizadora para dizer que nem uma
+    consulta chegou a ser feita». Estava certo e no sítio errado.
+    """
+
+    def test_decide_se_falhou_ANTES_de_escrever_no_fio(self):
+        fonte = _fonte()
+        decide = fonte.index("falhou_por_completo = ")
+        escreve = fonte.index(
+            "if falhou_por_completo:\n                    await post_agent_answer"
+        )
+        assert decide < escreve, (
+            "a decisão tem de vir antes da escrita — ao contrário, o fio "
+            "diz «não há nada» e só depois se descobre que falhou tudo"
+        )
+
+    def test_e_a_mensagem_e_a_da_AVARIA(self):
+        fonte = _fonte()
+        i = fonte.index("if falhou_por_completo:")
+        bloco = fonte[i : i + 400]
+        assert "NAO_CONSEGUI" in bloco
+        assert "NADA_A_ASSINALAR" not in bloco
+
+    def test_e_leva_chave_para_as_repetidas_se_juntarem(self):
+        """Seis falhas seguidas passam a ler-se «6 vezes», numa mensagem.
+
+        Foi a outra queixa: «as várias mensagens repetidas? deveria
+        agrupá-las». A `chave_de_texto` é o que faz a colagem — e o
+        caminho da avaria não a tinha.
+        """
+        fonte = _fonte()
+        i = fonte.index("if falhou_por_completo:")
+        assert 'chave_de_texto="agent_could_not_run"' in fonte[i : i + 400]
+
+    def test_as_duas_decisoes_usam_a_MESMA_variavel(self):
+        """O que impede a próxima divergência.
+
+        Era precisamente a divergência entre as duas — a mensagem a dizer
+        uma coisa e a execução outra — que mentia.
+        """
+        fonte = _fonte()
+        assert fonte.count("falhou_por_completo") >= 3
+        assert "if ligacoes_falhadas and not respostas_por_ligacao:" not in fonte, (
+            "a condição voltou a estar escrita duas vezes — e duas cópias "
+            "divergem à primeira mudança"
+        )
