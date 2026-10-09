@@ -31,6 +31,14 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+#: Um pedaco de fala plausivel. **Nao bytes ao calhas.**
+#:
+#: Entre a sessao e a app ha uma conversao de 24 kHz para 16 kHz (ver
+#: a ParaORitmoDaApp, na ponte): um byte solto nao chega sequer para
+#: uma amostra de saida, e estes testes mediam a conta em vez da
+#: garantia.
+_FALA = bytes(120)  # 60 amostras PCM16 mono
+
 from src.services import voz_fala_a_fala as falada
 from src.services import voz_sessao_sonic as sonic
 
@@ -408,9 +416,12 @@ class TestODitadoNaoEUmaConversa:
     @pytest.mark.asyncio
     async def test_e_uma_conversa_normal_continua_a_falar(self, monkeypatch):
         """O contrapeso: sem `mode`, tudo passa."""
-        sessao = _SessaoFalsa([falada.Dito(texto="São duas."), falada.Audio(pcm=b"")])
+        sessao = _SessaoFalsa([falada.Dito(texto="São duas."), falada.Audio(pcm=_FALA)])
         s = await _servir(monkeypatch, [_start()], sessao)
-        assert s.binario == [b""]
+        # Que CHEGOU audio, e nao quais os bytes: entre aqui e a app ha
+        # uma conversao de 24 kHz para 16 kHz, e fixar os bytes era fixar
+        # a conta em vez da garantia.
+        assert sum(len(x) for x in s.binario) > 0
         assert [m for m in s.texto if m["type"] == "sky_text"]
 
 
@@ -434,9 +445,13 @@ class TestOQueAAppRecebe:
     @pytest.mark.asyncio
     async def test_o_audio_vai_em_BINARIO(self, monkeypatch):
         """Em base64 num JSON era inflá-lo por nada."""
-        sessao = _SessaoFalsa([falada.Audio(pcm=b"\x01\x02\x03")])
+        sessao = _SessaoFalsa([falada.Audio(pcm=_FALA)])
         s = await _servir(monkeypatch, [_start()], sessao)
-        assert s.binario == [b"\x01\x02\x03"]
+        # A garantia e o TRANSPORTE: sai em quadros binarios e nao em
+        # JSON. Os bytes mudam de proposito pelo caminho (24k -> 16k), e
+        # disso trata o test_a_voz_nao_sai_arrastada.
+        assert sum(len(x) for x in s.binario) > 0
+        assert not [m for m in s.texto if m.get("type") == "tts_audio"]
 
     @pytest.mark.asyncio
     async def test_e_acaba_sempre_com_final_e_ended(self, monkeypatch):

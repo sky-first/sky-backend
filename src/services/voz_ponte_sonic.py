@@ -24,6 +24,7 @@ Ver `docs/a-voz-medida-nova-sonic.md`.
 from __future__ import annotations
 
 import logging
+from array import array
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from src.services import voz_fala_a_fala as falada
@@ -50,6 +51,80 @@ AVARIOU = (
 SEM_RESPOSTA = (
     "Os dados não têm resposta para essa pergunta. Diz isso à pessoa, sem " "inventar números."
 )
+
+
+#: A frequencia que o PROTOCOLO leva. Nao e a do modelo.
+#:
+#: Todas as apps ja instaladas tocam o audio a 16 kHz — o `SAMPLE_RATE`
+#: do `WsSpeechAdapter.ts`, com o comentario «what Transcribe wants and
+#: Polly emits». Era verdade na cascata: o Polly saia a 16000.
+#:
+#: O Sonic sai a **24000**. Mandar-lhe 24 kHz embrulhado num cabecalho
+#: que diz 16 kHz faz a fala sair **1,5x mais lenta e mais grave** — o
+#: «MEGA robotizada» que o Lucas ouviu a 09/10/2026. Nao era a voz
+#: escolhida: era a mesma voz, arrastada.
+#:
+#: Converte-se AQUI, no servidor, e nao na app, por uma razao pratica: o
+#: telemovel dele tem uma build nativa de ha semanas, e uma correccao no
+#: cliente so la chegaria com outra. Esta apanha tudo o que ja esta
+#: instalado, com um deploy do backend.
+HZ_DO_PROTOCOLO = 16000
+
+
+class ParaORitmoDaApp:
+    """Reamostra PCM16 mono do ritmo do modelo para o do protocolo.
+
+    **Tem estado de proposito.** O audio chega em centenas de pedacos por
+    turno, e 24000/16000 = 1,5 — a cada 3 amostras de entrada saem 2. Um
+    pedaco cujo tamanho nao seja multiplo de 3 deixa resto, e tratar cada
+    pedaco isoladamente punha um salto na emenda. Em fala continua isso
+    ouve-se como estalidos, que e trocar um defeito por outro mais
+    dificil de explicar.
+
+    Por isso guarda-se o resto e a fase entre pedacos.
+    """
+
+    def __init__(self, de_hz: int, para_hz: int = HZ_DO_PROTOCOLO) -> None:
+        self.passo = de_hz / float(para_hz)
+        self._resto: List[int] = []
+        self._fase = 0.0
+        #: Meia amostra que sobrou de um pedaço com número ímpar de bytes.
+        self._meio_byte = b""
+
+    def alimentar(self, pcm: bytes) -> bytes:
+        if self.passo == 1.0:
+            return pcm
+        # ── Um byte a mais não pode matar a sessão ──────────────────
+        #
+        # Uma amostra PCM16 são dois bytes, mas nada garante que cada
+        # pedaço que chega do socket acabe numa fronteira de amostra. O
+        # `array.frombytes` levanta com um número ímpar — e aqui uma
+        # excepção é a pessoa a ficar sem voz a meio da frase.
+        #
+        # Guarda-se o byte solto e junta-se ao pedaço seguinte, que é o
+        # que ele é: a primeira metade da amostra que vem a caminho.
+        bruto = self._meio_byte + pcm
+        if len(bruto) % 2:
+            bruto, self._meio_byte = bruto[:-1], bruto[-1:]
+        else:
+            self._meio_byte = b""
+        entrada = array("h")
+        entrada.frombytes(bruto)
+        buf = self._resto + list(entrada)
+        saida = array("h")
+        pos = self._fase
+        # Interpolacao linear. Para 3:2 chega bem — a diferenca para um
+        # filtro a serio nao se ouve em fala, e um filtro a serio aqui
+        # era latencia a mais num caminho que vive de ser rapido.
+        while pos + 1 < len(buf):
+            i = int(pos)
+            f = pos - i
+            saida.append(int(buf[i] * (1.0 - f) + buf[i + 1] * f))
+            pos += self.passo
+        consumidos = int(pos)
+        self._resto = buf[consumidos:]
+        self._fase = pos - consumidos
+        return saida.tobytes()
 
 
 def ferramenta_do_cliente(

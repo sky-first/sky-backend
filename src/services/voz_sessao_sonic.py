@@ -153,9 +153,15 @@ async def servir(
     turnos: List[Any] = []
     sessao: Optional[falada.SessaoFalada] = None
 
+    # O modelo fala a 24 kHz; o protocolo leva 16 kHz, que é o que todas
+    # as apps instaladas tocam. Sem isto a fala sai 1,5x mais lenta e
+    # mais grave — ver `ParaORitmoDaApp`, na ponte. Um por sessão: ele
+    # guarda a emenda entre pedaços.
+    ritmo = ponte.ParaORitmoDaApp(falada.SAIDA_HZ)
+
     async def mandar(m: Dict[str, Any]) -> None:
         if ponte.e_audio(m):
-            await websocket.send_bytes(m["pcm"])
+            await websocket.send_bytes(ritmo.alimentar(m["pcm"]))
         else:
             await websocket.send_text(_json.dumps(m))
 
