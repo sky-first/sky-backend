@@ -590,3 +590,71 @@ dados, e numa avaria é isso que conta.
 O passo 2 era o que podia matar isto, e é por isso que foi feito
 primeiro. Saiu a favor: **nada aqui está dependente de uma medição que
 falte.** O que sobra é trabalho, e decisões de produto (o `ptt`).
+
+---
+
+## Adenda de 09/10/2026 — o que só se viu com a voz a correr
+
+O documento acima foi escrito com medições feitas a mandar **texto** ao
+modelo. Esse foi o seu limite, e custou dois defeitos que só apareceram
+com o Lucas a falar para o telemóvel. Ficam aqui, porque a lição não é
+sobre o Sonic — é sobre o que uma medição prova.
+
+### 1. O `toolResult` tem de ser JSON, ou o canal FECHA
+
+Nos registos de produção, **todas** as sessões:
+
+```
+ValidationException: ... Tool Response parsing error
+voz/sonic: sessao fechada (cliente=skyfirstlabs, turnos=1, ...)
+```
+
+`turnos=1` em todas. O Bedrock recusa o `toolResult` e fecha o canal; a
+app reabre o socket à pergunta seguinte, e por isso **cada pergunta
+aparecia como uma conversa separada** na lista do Lucas. O
+`Attempted to write to closed stream` que vinha a seguir era o eco disto,
+não uma causa — e eu quase o persegui como se fosse.
+
+A causa: o `content` ia em prosa. Os dois caminhos de **erro** já usavam
+`json.dumps` e passavam; só o caminho bom mandava o texto tal e qual.
+
+**Porque é que nenhuma medição o apanhou:** nenhuma delas chegou a chamar
+a ferramenta a sério. O erro só acontece *depois* de uma primeira
+pergunta respondida. Uma sessão que abre, troca duas frases e fecha
+nunca lá chega — e foi exactamente isso que eu medi, três vezes, e dei
+por bom.
+
+### 2. Não há transcrição parcial
+
+Medido com voz a sério (Polly → Sonic, `scripts/sonda_a_voz_a_serio.py`),
+duas falas na mesma sessão:
+
+```
+ 7,395 s  Ouvido   'quantos clientes temos?'
+ 7,916 s  Dito     'Temos cento e vinte e oito clientes activos.'
+28,695 s  Ouvido   'e qual foi a faturação do mês passado?'
+29,235 s  Dito     'Desculpe, não consegui encontrar...'
+```
+
+Duas falas → **exactamente dois** `Ouvido`, cada um no fim da frase. O
+`textOutput` com `role: USER` chega uma vez por elocução, e não por
+pedaços.
+
+É isto que põe «...» no ecrã enquanto a pessoa fala: não há nada para
+escrever. O vão dura o tempo da frase — 2 a 4 s numa pergunta curta, mais
+de 10 s numa longa.
+
+**A decisão em aberto:** para haver legenda ao vivo é preciso desdobrar o
+PCM do microfone também para o Transcribe (~0,024 €/min), e deixar o
+Sonic só com a conversa. O cliente de streaming já existe, do caminho da
+cascata (`src/services/voice_aws.py`) — o trabalho é a bifurcação do
+áudio, não um ASR novo. Degrada em segurança: se o Transcribe falhar,
+perde-se a legenda e não a conversa.
+
+### A lição
+
+«Abri o canal em 3 ms» não provava que a voz funcionava, e eu escrevi-o
+como se provasse. Uma medição só vale o caminho que percorre: para dizer
+que a voz funciona, é preciso **falar, deixar o modelo chamar a
+ferramenta, e falar outra vez**. É o que a sonda faz, e é por isso que
+ela vive no repositório em vez de ter sido um comando descartável.
