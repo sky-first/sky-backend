@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
@@ -24,7 +24,6 @@ from src.rate_limit.core import (
 )
 from src.repositories.conversation import ConversationRepository
 from src.repositories.message import MessageRepository
-from src.services.message_service import MessageService
 from src.repositories.page import PageRepository
 from src.repositories.space import SpaceRepository
 from src.schemas.ai import (
@@ -65,8 +64,10 @@ from src.schemas.chat_stream import (
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.scan_insight import ScanInsightNotifyRequest, ScanInsightNotifyResponse
 from src.services import pricing_service
+from src.services.a_fonte_da_resposta import _guardar_a_fonte
 from src.services.ai_service import AIService
 from src.services.beats_service import BeatsService
+from src.services.message_service import MessageService
 from src.services.rbac_service import RBACService
 from src.services.scan_insight_service import record_scan_finding
 
@@ -1008,6 +1009,11 @@ async def send_chat_message_stream(
                     logger.debug("[chat/stream] comment bundle skipped: %s", _bundle_err)
 
             answer_parts: List[str] = []
+            # A fonte da resposta — o que o motor consultou. Apanhada aqui
+            # de passagem e guardada com a resposta, para o «ver a fonte»
+            # funcionar também depois, ao reabrir a conversa.
+            fonte_meta: Dict[str, Any] = {}
+            fonte_linhas: Dict[str, Any] = {}
             async for line in ai_client.stream_query_connection(
                 connection_id=str(resolved_connection_id),
                 question=question_for_ai,
@@ -1027,6 +1033,10 @@ async def send_chat_message_stream(
                 if event is not None:
                     if persist_turn and event.get("type") == "chunk":
                         answer_parts.append(event.get("content") or "")
+                    elif event.get("type") == "meta":
+                        fonte_meta = event.get("meta") or {}
+                    elif event.get("type") == "rows":
+                        fonte_linhas = event
                     yield sse(event)
 
             # Save the completed turn and hand the conversation id back so the
@@ -1075,6 +1085,28 @@ async def send_chat_message_stream(
                         await msg_repo.mark_incorporated(
                             message_ids=bundled_comment_ids, ai_response_id=answer_msg.id
                         )
+                    # ── A fonte, guardada com a resposta ─────────────────
+                    #
+                    # «Toda resposta é preciso a gente ter ali um botão…
+                    # para a gente entender de onde veio os dados» — Lucas.
+                    #
+                    # Vai para a `ai_queries`, que já existia para isto e
+                    # que o chat nunca preenchia. Nunca rebenta o turno:
+                    # uma resposta sem fonte é pior do que com fonte, mas
+                    # melhor do que resposta nenhuma.
+                    try:
+                        await _guardar_a_fonte(
+                            db,
+                            utilizador=current_user,
+                            mensagem=answer_msg,
+                            pergunta=message_data.message,
+                            resposta="".join(answer_parts),
+                            meta=fonte_meta,
+                            linhas=fonte_linhas,
+                            page_id=message_data.page_id,
+                        )
+                    except Exception as _ferr:  # noqa: BLE001
+                        logger.warning("[chat/stream] fonte não guardada: %s", _ferr)
                     await conv_repo.update(conv_id, updated_at=_dt.utcnow())
                     await db.commit()
                 except Exception as _perr:  # persistence must never break the stream

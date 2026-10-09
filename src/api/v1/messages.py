@@ -12,6 +12,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,8 +32,8 @@ from src.schemas.message import (
     PinRequest,
     ReactionToggleRequest,
 )
+from src.services.a_fonte_da_resposta import fonte_em_csv, fonte_para_mostrar
 from src.services.message_service import MessageService
-
 
 # ─── /conversations/{id}/messages and /fork ───────────────────────────────
 
@@ -248,6 +249,53 @@ async def apagar_mensagem(
     except NotFoundError as erro:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(erro))
     return {"apagadas": quantas}
+
+
+@router.get(
+    "/{message_id}/fonte",
+    summary="De onde veio esta resposta",
+    description=(
+        "As tabelas consultadas, o SQL e as linhas que o motor devolveu. "
+        "Para quem lê poder confirmar que os números batem. **Não reexecuta "
+        "nada**: é o resultado do momento em que a resposta foi dada."
+    ),
+    responses={404: {"model": ErrorResponse}},
+)
+async def a_fonte(
+    message_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    try:
+        consulta = await MessageService(db).a_fonte_de(message_id, current_user)
+    except NotFoundError as erro:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(erro))
+    return fonte_para_mostrar(consulta)
+
+
+@router.get(
+    "/{message_id}/fonte.csv",
+    summary="As linhas da fonte, em CSV",
+    description=(
+        "Separador `;` e com BOM, para abrir certo no Excel em Portugal e "
+        "Espanha — onde a vírgula é o separador decimal."
+    ),
+    responses={404: {"model": ErrorResponse}},
+)
+async def a_fonte_em_csv(
+    message_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> Response:
+    try:
+        consulta = await MessageService(db).a_fonte_de(message_id, current_user)
+    except NotFoundError as erro:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(erro))
+    return Response(
+        content=fonte_em_csv(consulta),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="fonte-{message_id}.csv"'},
+    )
 
 
 @router.patch(

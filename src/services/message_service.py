@@ -11,6 +11,7 @@ widgets.pinned_message_id: the second concurrent INSERT hits the
 constraint and we return the pre-existing widget instead of raising.
 """
 
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
@@ -29,8 +30,6 @@ from src.repositories.conversation import ConversationRepository
 from src.repositories.message import MessageRepository
 from src.schemas.message import ForkRequest, MessageCreate, MessageResponse, PinRequest
 from src.services.conversation_service import ConversationService
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +112,34 @@ class MessageService:
             # Hide existence.
             raise NotFoundError("Conversation not found")
         return conv
+
+    async def a_fonte_de(self, message_id: UUID, user: User):
+        """A consulta que deu origem a uma resposta, se a pessoa a pode ver.
+
+        **A mesma porta que a lista de mensagens** (`_load_viewable_
+        conversation`), e nao uma verificacao nova: a fonte e conteudo da
+        conversa, e quem nao pode ler a conversa nao pode ler de onde ela
+        veio. Repetir a regra noutro sitio era como ela se perdia.
+
+        Inexistente e proibido dao o mesmo `NotFoundError`, para nao se
+        poder adivinhar que uma mensagem existe.
+        """
+        from src.models.ai import AIQuery
+
+        msg = await self.db.get(Message, message_id)
+        if msg is None or msg.deleted_at is not None:
+            raise NotFoundError("Message not found")
+        await self._load_viewable_conversation(msg.conversation_id, user)
+        if msg.query_id is None:
+            raise NotFoundError("Esta resposta nao tem fonte")
+        consulta = await self.db.get(AIQuery, msg.query_id)
+        if consulta is None:
+            raise NotFoundError("Esta resposta nao tem fonte")
+        from src.services.a_fonte_da_resposta import fonte_para_mostrar, tem_o_que_mostrar
+
+        if not tem_o_que_mostrar(fonte_para_mostrar(consulta)):
+            raise NotFoundError("Esta resposta nao tem fonte")
+        return consulta
 
     async def _attach_author_names(self, messages: List[Message]) -> None:
         """Resolve each message author's display name and attach it as the
@@ -448,6 +475,12 @@ class MessageService:
                 message_ids=[c.id for c in pending],
                 ai_response_id=ai_response.id,
             )
+
+        # O nome da conversa sai da primeira pergunta — tambem aqui. So o
+        # comentario o fazia, e a web pergunta por este caminho: a conversa
+        # ficava sem titulo e acabava com o nome da SEGUNDA coisa escrita.
+        if not (conv.title or "").strip():
+            conv.title = _titulo_a_partir_de(question_content)
 
         conv.updated_at = datetime.utcnow()
         await self.db.commit()
@@ -806,9 +839,9 @@ class MessageService:
                         title=get_message("notif_conversation_reply_title", locale).format(
                             **params_titulo
                         ),
-                        description=get_message(
-                            "notif_conversation_reply_desc", locale
-                        ).format(snippet=excerto),
+                        description=get_message("notif_conversation_reply_desc", locale).format(
+                            snippet=excerto
+                        ),
                         entity_type="conversation",
                         entity_id=str(conv.id),
                         deep_link=f"/page?id={conv.page_id}&conversation={conv.id}",
