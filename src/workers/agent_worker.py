@@ -32,6 +32,42 @@ NAO_CONSEGUI = get_message("agent_could_not_run")
 NADA_A_ASSINALAR = get_message("agent_nothing_to_report")
 
 
+def mensagem_de_avaria(agente) -> str:
+    """«Não consegui» — e, se houver, a última leitura boa, datada.
+
+    > «devemos ser inteligentes e talvez mostrar o primeiro resultado…
+    >  como podemos melhorar essa experiência?»
+    > — Lucas, 09/10/2026
+
+    Uma avaria que só diz «não consegui» deixa quem lê sem nada. Mas
+    repetir o último número **sem dizer que é antigo** era trocar uma
+    frase inútil por uma frase enganadora — da mesma família da que
+    acabámos de corrigir.
+
+    Então as duas coisas, por esta ordem: primeiro que falhou, depois o
+    que ainda se sabe, com a data colada. Quem lê decide se aquilo
+    ainda serve.
+
+    O `last_answer` é seguro para isto: o worker tem o cuidado,
+    explícito desde sempre, de **nunca** lá guardar um erro do
+    orquestrador — senão a corrida seguinte pedia ao modelo para
+    comparar com uma mensagem de erro.
+    """
+    base = NAO_CONSEGUI
+    ultima = (getattr(agente, "last_answer", None) or "").strip()
+    if not ultima:
+        return base
+    quando = getattr(agente, "last_execution_at", None)
+    etiqueta = get_message("agent_last_known_reading").format(
+        data=quando.strftime("%d/%m %H:%M") if quando else "?"
+    )
+    # Cortada: isto vai para um cartão no fio, não é o sítio de repetir
+    # uma análise inteira.
+    if len(ultima) > 400:
+        ultima = ultima[:400].rstrip() + "…"
+    return f"{base}\n\n{etiqueta}\n«{ultima}»"
+
+
 def _extract_tables_from_sql(sql: str) -> List[str]:
     """Extract table names from a SQL query to guide the orchestrator's table selection."""
     if not sql:
@@ -1012,7 +1048,9 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                     await post_agent_answer(
                         db,
                         agent=agent,
-                        answer=NAO_CONSEGUI,
+                        # Com a última leitura boa colada por baixo, se
+                        # houver — ver `mensagem_de_avaria`.
+                        answer=mensagem_de_avaria(agent),
                         chave_de_texto="agent_could_not_run",
                     )
                 elif finding_da_corrida is not None:

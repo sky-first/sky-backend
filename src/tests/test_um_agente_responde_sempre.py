@@ -37,6 +37,8 @@ from __future__ import annotations
 
 import inspect
 
+from datetime import datetime
+
 from src.workers import agent_worker
 
 
@@ -126,11 +128,26 @@ class TestUmaCorridaQueFALHOUNaoDizQueNaoEncontrouNada:
         )
 
     def test_e_a_mensagem_e_a_da_AVARIA(self):
+        """E a função que a constrói começa pela frase da avaria.
+
+        Deixou de ser a constante directamente — passou a
+        `mensagem_de_avaria`, que lhe cola a última leitura boa por
+        baixo. A garantia é a mesma: o que sai daqui diz que FALHOU, e
+        nunca «não há nada a assinalar».
+        """
         fonte = _fonte()
         i = fonte.index("if falhou_por_completo:")
-        bloco = fonte[i : i + 400]
-        assert "NAO_CONSEGUI" in bloco
+        bloco = fonte[i : i + 500]
+        assert "mensagem_de_avaria(agent)" in bloco
         assert "NADA_A_ASSINALAR" not in bloco
+
+        class _SemHistorico:
+            last_answer = None
+            last_execution_at = None
+
+        assert agent_worker.mensagem_de_avaria(_SemHistorico()).startswith(
+            agent_worker.NAO_CONSEGUI
+        )
 
     def test_e_leva_chave_para_as_repetidas_se_juntarem(self):
         """Seis falhas seguidas passam a ler-se «6 vezes», numa mensagem.
@@ -213,3 +230,63 @@ class TestUmaCorridaFalhadaNaoCorreDeCincoEmCincoMinutos:
     def test_e_regista_a_ultima_corrida(self):
         """Senão o `last_execution_at` mente sobre quando ele correu."""
         assert "last_execution_at" in self._bloco()
+
+
+class TestAUltimaLeituraBoaVaiJuntoComAAvaria:
+    """> «devemos ser inteligentes e talvez mostrar o primeiro resultado…
+    >  como podemos melhorar essa experiência?» — Lucas, 09/10/2026
+
+    Uma avaria que só diz «não consegui» deixa quem lê sem nada. Mas
+    repetir o último número **sem dizer que é antigo** era trocar uma
+    frase inútil por uma enganadora — da mesma família da que se
+    acabou de corrigir neste ficheiro.
+
+    As duas coisas, por esta ordem: primeiro que falhou, depois o que
+    ainda se sabe, com a data colada.
+    """
+
+    class _Agente:
+        last_answer = "O tempo médio de entrega foi 34 minutos."
+        last_execution_at = datetime(2026, 10, 7, 15, 6)
+
+    def test_sem_leitura_anterior_diz_so_que_falhou(self):
+        class _Novo:
+            last_answer = None
+            last_execution_at = None
+
+        assert agent_worker.mensagem_de_avaria(_Novo()) == agent_worker.NAO_CONSEGUI
+
+    def test_com_leitura_anterior_diz_as_DUAS_coisas(self):
+        texto = agent_worker.mensagem_de_avaria(self._Agente())
+        assert agent_worker.NAO_CONSEGUI in texto, "deixou de dizer que falhou"
+        assert "34 minutos" in texto, "não mostrou o que ainda se sabe"
+
+    def test_e_a_avaria_vem_PRIMEIRO(self):
+        """Quem lê tem de saber que isto é velho antes de o ler."""
+        texto = agent_worker.mensagem_de_avaria(self._Agente())
+        assert texto.index(agent_worker.NAO_CONSEGUI) < texto.index("34 minutos")
+
+    def test_e_a_leitura_vem_DATADA(self):
+        texto = agent_worker.mensagem_de_avaria(self._Agente())
+        assert "07/10 15:06" in texto, (
+            "um número antigo sem data lê-se como um número de agora — "
+            "é a mentira tranquilizadora outra vez"
+        )
+
+    def test_uma_leitura_enorme_e_cortada(self):
+        """Vai para um cartão no fio, não é onde se repete uma análise."""
+
+        class _Longo:
+            last_answer = "x" * 2000
+            last_execution_at = datetime(2026, 10, 7, 15, 6)
+
+        texto = agent_worker.mensagem_de_avaria(_Longo())
+        assert len(texto) < 900
+        assert texto.rstrip().endswith("»")
+
+    def test_e_nada_disto_rebenta_sem_data(self):
+        class _SemData:
+            last_answer = "alguma coisa"
+            last_execution_at = None
+
+        assert "alguma coisa" in agent_worker.mensagem_de_avaria(_SemData())
