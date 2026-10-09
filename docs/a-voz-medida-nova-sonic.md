@@ -658,3 +658,75 @@ como se provasse. Uma medição só vale o caminho que percorre: para dizer
 que a voz funciona, é preciso **falar, deixar o modelo chamar a
 ferramenta, e falar outra vez**. É o que a sonda faz, e é por isso que
 ela vive no repositório em vez de ter sido um comando descartável.
+
+---
+
+## Adenda 2 de 09/10/2026 — a equipa, e a legenda
+
+### 3. A voz não dizia a que EQUIPAS a pessoa pertence
+
+> «Perguntei: ¿Cuántos clientes tengo? Resposta: Lo siento, no he podido
+>  encontrar esa información.»
+
+Nos registos do `sky-ai`, para essa pergunta:
+
+```
+crew_role: "guest"   rag_chunks: 0   num_tables: 0
+schema 0 · metrics 0 · questions 0 · glossary 0 · catalog 0
+orchestrator_out_of_scope -> OUT_OF_SCOPE
+```
+
+Não era falta de dados. O motor não tinha **como os encontrar**: o
+esquema, as métricas e o glossário vivem todos atrás da equipa, e o
+`_voice_answer` não mandava `crew_ids`.
+
+Está escrito no próprio cliente HTTP, e eu li-o ao contrário:
+
+> `crew_ids` … Omitting it means "user is not in any crew"
+
+O pior é que havia **uma decisão escrita** a justificar a omissão, no
+`test_a_voz_recebe_o_mesmo_contexto_que_o_chat.py`:
+
+```
+"crew_ids": "o sky-ai recalcula-os e sem eles fica mais LARGO,
+             não mais estreito"
+```
+
+Era o contrário. Sem eles fica *vazio*. A linha foi movida para a lista
+da PARIDADE, com a correcção escrita onde a suposição estava.
+
+A correcção usa **o mesmo ajudante que o chat escrito** usa quando não
+há equipa activa (`_get_user_crew_ids`). Não alarga o acesso a ninguém:
+as equipas são as da própria pessoa, e a voz passa a alcançar o que a
+escrita já lhe dava.
+
+### 4. A legenda ao vivo vem do Transcribe
+
+Como o §2 mostrou que o Sonic não dá parciais, a legenda tem de vir de
+outro lado. O mesmo PCM do microfone vai também para o Transcribe
+(`src/services/voz_legenda_ao_vivo.py`), que devolve parciais em ~300 ms.
+
+A transcrição que **conta** continua a ser a do Sonic: é essa que ele
+ouviu, é sobre essa que respondeu, e é essa que fica guardada. A legenda
+é substituída por ela assim que chega (`final: true`, que a app já trata).
+
+Três regras, e as três estão em testes:
+
+* **uma avaria aqui não cala a conversa** — se não abrir, ou rebentar a
+  meio, perde-se a legenda e mais nada;
+* **só vai o que vem do microfone** — a batida de silêncio que mantém a
+  sessão do Sonic viva não passa por lá, senão pagava-se a sessão
+  inteira em vez da fala;
+* **no ditado não há legenda** — lá a transcrição do Sonic já é a
+  resposta.
+
+O custo, pela API de preços da AWS no dia: `EU-StreamingAudio` na
+Irlanda a **0,0001667 USD/s = 0,010 USD/min**, sem escalões. Uma pergunta
+falada tem 3–5 s; 500 perguntas por mês dão ~0,42 USD. (O valor de 0,024
+que eu andei a citar era um escalão que já não existe.)
+
+Estocolmo, onde vive o Sonic, **não serve streaming de STT** — só lote.
+A legenda vem da Irlanda, e há um teste a fixar isso, porque a avaria
+seria silenciosa.
+
+Desliga-se com `VOICE_LIVE_CAPTION=0`, sem entrega.
