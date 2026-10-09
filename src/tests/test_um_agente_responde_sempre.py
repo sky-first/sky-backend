@@ -155,3 +155,61 @@ class TestUmaCorridaQueFALHOUNaoDizQueNaoEncontrouNada:
             "a condição voltou a estar escrita duas vezes — e duas cópias "
             "divergem à primeira mudança"
         )
+
+
+class TestUmaCorridaFalhadaNaoCorreDeCincoEmCincoMinutos:
+    """O agendador reenfileirava o mesmo agente para sempre.
+
+    > «corrige o agendador» — Lucas, 09/10/2026
+
+    Medido na base de produção: **111 corridas por agente em 9 horas**,
+    em seis agentes — 666 chamadas ao motor que ninguém pediu. Os
+    agentes que COMPLETAVAM tinham 2 a 4 corridas no mesmo período.
+
+    A causa: a saída antecipada de «nenhuma ligação respondeu» marcava a
+    execução como falhada e devolvia **sem tocar no
+    `next_execution_at`**. O agente ficava eternamente em atraso, e o
+    Beat — que corre de 5 em 5 minutos — reenfileirava-o em cada
+    passagem.
+
+    É o mesmo defeito da mensagem que mentia, na mesma saída: um
+    `return` que salta a arrumação que todos os outros caminhos fazem.
+    """
+
+    @staticmethod
+    def _bloco() -> str:
+        """A pernada que marca a execução falhada, do `if` ao `return`.
+
+        Ancorada no SEGUNDO `if falhou_por_completo:` — o primeiro é o
+        que escreve no fio, este é o que arruma a execução. A primeira
+        versão deste recorte procurou a frase do registo e apanhou um
+        docstring lá em cima.
+        """
+        fonte = _fonte()
+        primeiro = fonte.index("if falhou_por_completo:")
+        i = fonte.index("if falhou_por_completo:", primeiro + 5)
+        return fonte[i : fonte.index("# 5. Update execution", i)]
+
+    def test_a_saida_antecipada_avanca_o_relogio(self):
+        bloco = self._bloco()
+        assert "next_execution_at" in bloco, (
+            "a saída por falha não mexe no relógio — o agente fica em "
+            "atraso para sempre e o Beat reenfileira-o de 5 em 5 minutos"
+        )
+
+    def test_e_conta_a_falha(self):
+        """Sem isto o travão das três falhas nunca dispara.
+
+        Ele existe precisamente para «parar de comer orçamento».
+        """
+        bloco = self._bloco()
+        assert "consecutive_failures" in bloco
+
+    def test_e_pausa_ao_fim_de_tres(self):
+        bloco = self._bloco()
+        assert "MAX_CONSECUTIVE_FAILURES" in bloco
+        assert 'agent.status = "paused"' in bloco
+
+    def test_e_regista_a_ultima_corrida(self):
+        """Senão o `last_execution_at` mente sobre quando ele correu."""
+        assert "last_execution_at" in self._bloco()

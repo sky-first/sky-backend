@@ -1091,11 +1091,54 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                 )[:2000]
                 execution.findings_count = 0
                 execution.finished_at = datetime.now(timezone.utc)
+
+                # ── E o RELÓGIO tem de avançar. ────────────────────────
+                #
+                # > «corrige o agendador» — Lucas, 09/10/2026
+                #
+                # Esta saída antecipada marcava a execução como falhada e
+                # devolvia — **sem tocar no `next_execution_at`**. O
+                # agente ficava eternamente «em atraso», e o Beat, que
+                # corre de 5 em 5 minutos, reenfileirava-o em cada
+                # passagem. Para sempre.
+                #
+                # Medido na base de produção: **111 corridas por agente
+                # em 9 horas**, em seis agentes — 666 chamadas ao motor
+                # que ninguém pediu. Os agentes que completavam tinham 2
+                # a 4 corridas no mesmo período, porque esses passavam
+                # pela arrumação lá em baixo.
+                #
+                # E o contador de falhas também não subia, por isso o
+                # travão das três falhas seguidas — que existe
+                # precisamente para «parar de comer orçamento» — nunca
+                # chegava a disparar.
+                agent.last_execution_at = datetime.now(timezone.utc)
+                agent.consecutive_failures = (agent.consecutive_failures or 0) + 1
+                if agent.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    agent.status = "paused"
+                    agent.next_execution_at = None
+                    logger.warning(
+                        "Agent %s auto-paused after %d consecutive failures "
+                        "(nenhuma ligação respondeu)",
+                        agent_id,
+                        agent.consecutive_failures,
+                    )
+                else:
+                    _h, _m = scheduled_hour(agent)
+                    agent.next_execution_at = next_run_at(
+                        datetime.now(timezone.utc),
+                        agent.frequency,
+                        hour=_h,
+                        minute=_m,
+                    )
                 await db.commit()
                 logger.error(
-                    "Agent %s: nenhuma ligação respondeu (%d falharam)",
+                    "Agent %s: nenhuma ligação respondeu (%d falharam); "
+                    "falha %d, próxima corrida %s",
                     agent_id,
                     len(ligacoes_falhadas),
+                    agent.consecutive_failures,
+                    agent.next_execution_at,
                 )
                 return
 
