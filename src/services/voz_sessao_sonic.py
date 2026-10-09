@@ -32,6 +32,7 @@ import time as _time
 from typing import Any, Callable, Dict, List, Optional
 
 from src.services import voz_fala_a_fala as falada
+from src.services import voz_legenda_ao_vivo as legenda_viva
 from src.services import voz_ponte_sonic as ponte
 
 logger = logging.getLogger(__name__)
@@ -307,8 +308,41 @@ async def servir(
                     return
 
     escuta = asyncio.create_task(sessao.escutar())
+    # ── A legenda que aparece ENQUANTO se fala ──────────────────────
+    #
+    # O Sonic so manda a transcricao no FIM da frase (medido), e por
+    # isso o ecra ficava com tres pontinhos a girar durante toda a
+    # fala. O mesmo PCM vai tambem para o Transcribe, que devolve
+    # parciais em ~300 ms.
+    #
+    # A do Sonic continua a ser a que conta: chega a seguir, com
+    # `final: true`, e substitui a legenda no ecra. Ver
+    # `voz_legenda_ao_vivo`.
+    legenda = None
+    if legenda_viva.esta_ligada() and not e_ditado:
+        # No ditado nao: la a transcricao do Sonic JA e a resposta, e
+        # pagar um segundo servico para escrever o mesmo duas vezes
+        # nao tem onde se agarrar.
+        legenda = legenda_viva.LegendaAoVivo(locale)
+        await legenda.abrir()
+
+    async def reencaminhar_a_legenda() -> None:
+        """Os parciais do Transcribe, no formato que a app ja entende.
+
+        `final: false` de proposito: quem fecha a frase e o Sonic.
+        """
+        if legenda is None:
+            return
+        try:
+            async for texto in legenda.parciais():
+                await mandar({"type": "partial_transcript", "text": texto, "final": False})
+        except Exception:  # noqa: BLE001
+            # A legenda nunca pode levar a conversa atras dela.
+            logger.debug("voz/sonic: legenda parou", exc_info=True)
+
     envio = asyncio.create_task(reencaminhar())
     batida = asyncio.create_task(manter_viva())
+    legendagem = asyncio.create_task(reencaminhar_a_legenda())
 
     try:
         while not fim.is_set():
@@ -319,6 +353,12 @@ async def servir(
                 if not silenciado:
                     ultimo_audio = _time.monotonic()
                     await sessao.ouvir_microfone(msg["bytes"])
+                    # So o que vem do MICROFONE. A batida de silencio
+                    # que mantem a sessao do Sonic viva nao passa por
+                    # aqui: paga-la era pagar a sessao inteira em vez
+                    # da fala.
+                    if legenda is not None:
+                        await legenda.ouvir(msg["bytes"])
                 continue
             texto = msg.get("text")
             if not texto:
@@ -375,6 +415,9 @@ async def servir(
         #
         # Com prazo, porque um socket já morto não pode pendurar o fecho.
         batida.cancel()
+        legendagem.cancel()
+        if legenda is not None:
+            await legenda.fechar()
         try:
             await sessao.fechar()
         except Exception:

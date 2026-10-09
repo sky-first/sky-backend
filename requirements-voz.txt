@@ -33,8 +33,13 @@
 #
 # ── Quando apagar isto ──────────────────────────────────────────────
 #
-# Quando o Sonic substituir a cascata e o `amazon-transcribe` sair de
-# vez. Até lá os dois têm de caber no mesmo processo, senão a bandeira
-# de funcionalidade não existe — e sem bandeira a passagem é uma porta
-# de sentido único, num produto que é demonstrado a clientes.
+# **Já não é quando o Sonic substituir a cascata.** Isso era o plano a
+# 08/10; a 09/10 mediu-se que o Sonic NÃO manda transcrição parcial, e
+# a legenda que aparece enquanto a pessoa fala passou a vir daqui —
+# ver `src/services/voz_legenda_ao_vivo.py`.
+#
+# Ou seja: o `amazon-transcribe` fica mesmo depois de a cascata sair.
+# Até lá os dois motores têm de caber no mesmo processo, senão a
+# bandeira de funcionalidade não existe — e sem bandeira a passagem é
+# uma porta de sentido único, num produto que é demonstrado a clientes.
 amazon-transcribe==0.6.4

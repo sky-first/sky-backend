@@ -8,14 +8,7 @@ here becomes its on-close handler.
 import logging
 from typing import Optional
 
-from fastapi import (
-    APIRouter,
-    Depends,
-    HTTPException,
-    WebSocket,
-    WebSocketDisconnect,
-    status,
-)
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
@@ -25,7 +18,6 @@ from src.schemas.common import ErrorResponse
 from src.schemas.voice import VoiceSessionCreate, VoiceSessionResponse, VoiceTurn
 from src.services.speech_text import speech_text
 from src.services.voice_session_service import VoiceSessionService
-
 
 #: Quanto silêncio conta como «acabei de falar», em segundos.
 #:
@@ -199,6 +191,9 @@ async def _voice_answer(
     from src.services.ai_service import AIService
 
     todas: list = []
+    #: As equipas da pessoa NESTE projeto. Vazio em modo pessoal, onde
+    #: nao ha equipas — e onde o motor ja sabe que e so dela.
+    equipas: list = []
     try:
         async with tenant_connection_manager.session_for(ctx) as db:
             servico = AIService(db)
@@ -220,9 +215,7 @@ async def _voice_answer(
                 # quê (dono, membro do projeto, ou membro de uma equipa lá
                 # dentro). Só se escolhe DENTRO desse conjunto.
                 permitidas = set(
-                    await servico._get_all_connections_for_space(  # noqa: SLF001
-                        user.id, space_id
-                    )
+                    await servico._get_all_connections_for_space(user.id, space_id)  # noqa: SLF001
                 )
                 if not permitidas:
                     # **Calar é a resposta certa.** O projeto não tem dados
@@ -254,6 +247,37 @@ async def _voice_answer(
                 if conn_id is None:
                     conn_id = sorted(permitidas)[0]
                 todas = sorted(permitidas)
+                # ── A QUE EQUIPAS a pessoa pertence ────────────────────────
+                #
+                # Sem isto o motor trata-a como nao pertencendo a nenhuma —
+                # esta escrito no `stream_query_connection`: «omitting it
+                # means the user is not in any crew». E a RAG fica vazia.
+                #
+                # Medido em producao a 09/10/2026, numa pergunta do Lucas
+                # («cuantos clientes tiene la empresa»):
+                #
+                #     crew_role: "guest"   rag_chunks: 0   num_tables: 0
+                #     schema 0 · metrics 0 · glossary 0 · questions 0
+                #     orchestrator_out_of_scope -> OUT_OF_SCOPE
+                #
+                # Do lado de ca parecia que nao havia dados. Havia: o motor
+                # e que nao tinha como os encontrar, porque o esquema, as
+                # metricas e o glossario vivem todos atras da equipa.
+                #
+                # **O MESMO ajudante que o chat escrito usa** quando nao ha
+                # equipa activa (`ai.py`, «Resolve crew_ids for this user in
+                # this space»). Isto nao alarga o acesso a ninguem: as
+                # equipas sao as DELA, e o que a voz passa a alcancar e o
+                # que a escrita ja lhe dava. Passar de «nenhuma» para «as
+                # suas» e estreitar a pesquisa, nao abri-la.
+                try:
+                    equipas = await servico._get_user_crew_ids(user.id, space_id)  # noqa: SLF001
+                except Exception as exc:  # noqa: BLE001
+                    # Como o glossario: e um reforco, e nenhum reforco pode
+                    # calar o turno. Sem ele volta-se ao comportamento de
+                    # antes, que e pior mas nao e mudo.
+                    logger.warning("voice: equipas nao resolvidas: %s", exc)
+                    equipas = []
             else:
                 # Sem projeto: é o modo pessoal, onde a primeira ligação da
                 # própria pessoa é o âmbito certo.
@@ -330,6 +354,9 @@ async def _voice_answer(
             space_id=space_id or "default",
             locale=locale,
             connection_ids=todas or None,
+            # Ver a nota em cima: sem isto a RAG volta vazia e a resposta
+            # e «nao encontrei essa informacao» com os dados ali ao lado.
+            crew_ids=equipas or None,
             instructions=instrucoes or None,
             is_personal=not space_id,
             # O TOM vai; o ESTILO não, e de propósito.
@@ -507,9 +534,7 @@ async def ouvir_voz(
     def _sintetizar() -> bytes:
         import boto3
 
-        polly = boto3.client(
-            "polly", region_name=_os.getenv("AWS_REGION", "eu-west-1")
-        )
+        polly = boto3.client("polly", region_name=_os.getenv("AWS_REGION", "eu-west-1"))
         r = polly.synthesize_speech(
             Text=texto,
             OutputFormat="mp3",
@@ -524,9 +549,7 @@ async def ouvir_voz(
         # Sem Polly (local, ou permissoes em falta) nao ha amostra. 503 e nao
         # 500: nao esta partido, esta indisponivel — e a app sabe distinguir
         # «nao deu para ouvir» de «esta avariado».
-        raise HTTPException(
-            status_code=503, detail=f"Voice preview unavailable: {exc}"
-        )
+        raise HTTPException(status_code=503, detail=f"Voice preview unavailable: {exc}")
 
     return Response(
         content=audio,
@@ -659,8 +682,13 @@ async def voice_session_ws(websocket: WebSocket) -> None:
         # STT couldn't start (e.g. expired AWS creds) — tell the client instead
         # of leaving it stuck in "listening" forever, then close.
         try:
-            await send({"type": "error", "code": "voice_unavailable",
-                        "message": "Voice is temporarily unavailable."})
+            await send(
+                {
+                    "type": "error",
+                    "code": "voice_unavailable",
+                    "message": "Voice is temporarily unavailable.",
+                }
+            )
         except Exception:
             pass
         await websocket.close(code=1011)
@@ -783,9 +811,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             # antes de este parâmetro existir — e o efeito não era um erro
             # visível, era a sessão a ficar muda: o telemóvel com o microfone
             # aberto e nada a acontecer, para sempre. Ver o `except` abaixo.
-            resposta = await _voice_answer(
-                user, page_id, user_text, ctx, locale, space_id=space_id
-            )
+            resposta = await _voice_answer(user, page_id, user_text, ctx, locale, space_id=space_id)
             if resposta is FALHOU_A_RESPOSTA:
                 # **Avariou, e diz-se.**
                 #

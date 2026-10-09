@@ -124,12 +124,30 @@ class TestAParidadeComOChat:
     """
 
     #: Campos que o chat manda e a voz também tem de mandar.
-    PARIDADE = ("connection_ids", "instructions", "is_personal")
+    PARIDADE = ("connection_ids", "instructions", "is_personal", "crew_ids")
+
+    # ── Uma suposição escrita aqui, e ao contrário ──────────────────
+    #
+    # O `crew_ids` esteve nesta lista com esta razão:
+    #
+    #     «o sky-ai recalcula-os e sem eles fica mais LARGO, não mais
+    #      estreito»
+    #
+    # Era o contrário, e estava escrito no próprio cliente HTTP:
+    # «omitting it means the user is not in any crew». Sem eles a RAG
+    # não devolve nada — nem esquema, nem métricas, nem glossário.
+    #
+    # Medido em produção a 09/10/2026, numa pergunta do Lucas:
+    #
+    #     crew_role: "guest"   rag_chunks: 0   num_tables: 0
+    #     orchestrator_out_of_scope -> OUT_OF_SCOPE
+    #
+    # A resposta foi «no he podido encontrar esa información», com os
+    # dados ali ao lado. Passou a estar na PARIDADE.
 
     #: Campos que o chat manda e a voz NÃO manda, com a razão.
     SO_DO_CHAT = {
         "selected_context": "a voz não tem selector de contexto no ecrã",
-        "crew_ids": "o sky-ai recalcula-os e sem eles fica mais LARGO, não mais estreito",
         "agent_mode": "a voz não corre dentro de um fio de agente",
         "selected_datasets": "não há escolha de conjuntos na voz",
         "sql_instructions": "é do modo SQL dos agentes",

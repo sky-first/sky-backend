@@ -30,10 +30,11 @@ from src.api.v1 import voice as voice_module
 class _ServicoFalso:
     """O AIService, reduzido às três perguntas que a voz lhe faz."""
 
-    def __init__(self, permitidas, escolhida, primeira="conn-de-outro-projeto"):
+    def __init__(self, permitidas, escolhida, primeira="conn-de-outro-projeto", equipas=()):
         self._permitidas = permitidas
         self._escolhida = escolhida
         self._primeira = primeira
+        self._equipas = list(equipas)
         self.pediu_a_primeira = False
 
     async def _get_all_connections_for_space(self, user_id, space_id):
@@ -45,6 +46,9 @@ class _ServicoFalso:
     async def _get_first_active_connection(self, user_id):
         self.pediu_a_primeira = True
         return self._primeira
+
+    async def _get_user_crew_ids(self, user_id, space_id=None, *, all_spaces=False):
+        return list(self._equipas)
 
 
 class _Utilizador:
@@ -101,8 +105,12 @@ async def test_projeto_sem_ligacoes_nao_responde(montar):
     chamadas = montar(servico)
 
     resposta = await voice_module._voice_answer(
-        _Utilizador(), "pagina-1", "Quantos clientes temos?", ctx=object(),
-        locale="pt", space_id="projeto-vazio",
+        _Utilizador(),
+        "pagina-1",
+        "Quantos clientes temos?",
+        ctx=object(),
+        locale="pt",
+        space_id="projeto-vazio",
     )
 
     assert resposta == ""
@@ -137,8 +145,12 @@ async def test_ligacao_de_fora_do_projeto_e_recusada(montar):
     chamadas = montar(servico)
 
     resposta = await voice_module._voice_answer(
-        _Utilizador(), "pagina-1", "Quantos clientes temos?", ctx=object(),
-        locale="pt", space_id="projeto-1",
+        _Utilizador(),
+        "pagina-1",
+        "Quantos clientes temos?",
+        ctx=object(),
+        locale="pt",
+        space_id="projeto-1",
     )
 
     # A GARANTIA: a de fora não foi usada.
@@ -161,8 +173,12 @@ async def test_o_projeto_vai_ao_motor(montar):
     chamadas = montar(servico)
 
     await voice_module._voice_answer(
-        _Utilizador(), "pagina-1", "Quantos clientes temos?", ctx=object(),
-        locale="pt", space_id="projeto-1",
+        _Utilizador(),
+        "pagina-1",
+        "Quantos clientes temos?",
+        ctx=object(),
+        locale="pt",
+        space_id="projeto-1",
     )
 
     assert len(chamadas) == 1
@@ -180,11 +196,88 @@ async def test_sem_projeto_continua_a_ser_o_modo_pessoal(montar):
     chamadas = montar(servico)
 
     await voice_module._voice_answer(
-        _Utilizador(), "pagina-1", "Quantos clientes temos?", ctx=object(),
-        locale="pt", space_id=None,
+        _Utilizador(),
+        "pagina-1",
+        "Quantos clientes temos?",
+        ctx=object(),
+        locale="pt",
+        space_id=None,
     )
 
     assert servico.pediu_a_primeira is True
     assert len(chamadas) == 1
     assert chamadas[0]["connection_id"] == "conn-pessoal"
     assert chamadas[0]["space_id"] == "default"
+
+
+# ── As equipas ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_as_equipas_da_pessoa_chegam_ao_motor(montar):
+    """Sem elas o motor trata-a como nao pertencendo a nenhuma.
+
+    Esta escrito no `stream_query_connection`: «omitting it means the
+    user is not in any crew». E a RAG devolve vazio — nem esquema, nem
+    metricas, nem glossario.
+
+    Medido em producao a 09/10/2026, numa pergunta do Lucas:
+
+        crew_role: "guest"   rag_chunks: 0   num_tables: 0
+        orchestrator_out_of_scope -> OUT_OF_SCOPE
+
+    Do lado dele: «no he podido encontrar esa informacion», com os
+    dados ali ao lado.
+
+    O teste da PARIDADE, ao lado, le a fonte. Este corre a funcao e
+    olha para o que saiu — que e o que o motor recebe de verdade.
+    """
+    servico = _ServicoFalso(permitidas=["conn-a"], escolhida="conn-a", equipas=["crew-1", "crew-2"])
+    chamadas = montar(servico)
+
+    await voice_module._voice_answer(
+        _Utilizador(), "pg-1", "cuantos clientes tengo?", object(), "es", space_id="sp-1"
+    )
+
+    assert chamadas, "o motor nao chegou a ser chamado"
+    assert chamadas[0]["crew_ids"] == ["crew-1", "crew-2"]
+
+
+@pytest.mark.asyncio
+async def test_sem_equipas_nao_se_manda_lista_vazia(montar):
+    """Uma lista vazia e `None` nao dizem o mesmo ao motor.
+
+    `[]` arriscava ser lido como «restringe a nada»; `None` e o que o
+    chat manda quando nao ha equipas, e e esse o comportamento conhecido.
+    """
+    servico = _ServicoFalso(permitidas=["conn-a"], escolhida="conn-a", equipas=[])
+    chamadas = montar(servico)
+
+    await voice_module._voice_answer(
+        _Utilizador(), "pg-1", "quantos?", object(), "pt", space_id="sp-1"
+    )
+
+    assert chamadas[0]["crew_ids"] is None
+
+
+@pytest.mark.asyncio
+async def test_se_a_pergunta_das_equipas_rebentar_o_turno_continua(montar):
+    """Nenhum reforco pode calar o turno.
+
+    A mesma regra do glossario, e pela mesma razao: ja houve uma versao
+    desta funcao que ficou muda por causa de uma preferencia.
+    """
+
+    class _ServicoQueRebenta(_ServicoFalso):
+        async def _get_user_crew_ids(self, user_id, space_id=None, *, all_spaces=False):
+            raise RuntimeError("a base nao respondeu")
+
+    servico = _ServicoQueRebenta(permitidas=["conn-a"], escolhida="conn-a")
+    chamadas = montar(servico)
+
+    await voice_module._voice_answer(
+        _Utilizador(), "pg-1", "quantos?", object(), "pt", space_id="sp-1"
+    )
+
+    assert chamadas, "rebentou o turno por causa de um reforco"
+    assert chamadas[0]["crew_ids"] is None

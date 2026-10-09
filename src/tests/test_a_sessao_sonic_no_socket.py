@@ -543,3 +543,119 @@ class TestAVozEALingua:
         assert "consultar_dados" in texto
         assert "listas" in texto or "lists" in texto
         assert "invent" in texto.lower()
+
+
+# ── A legenda que aparece enquanto se fala ──────────────────────────
+
+
+class _LegendaFalsa:
+    """Uma legenda de mentira, para medir o que a sessao lhe manda."""
+
+    def __init__(self, locale: str) -> None:
+        self.locale = locale
+        self.ouviu: List[bytes] = []
+        self.aberta = False
+        self.fechada = False
+        self._fila: asyncio.Queue = asyncio.Queue()
+
+    async def abrir(self) -> None:
+        self.aberta = True
+
+    @property
+    def viva(self) -> bool:
+        return self.aberta and not self.fechada
+
+    async def ouvir(self, pcm: bytes) -> None:
+        self.ouviu.append(pcm)
+
+    async def parciais(self):
+        while True:
+            t = await self._fila.get()
+            if t is None:
+                break
+            yield t
+
+    async def fechar(self) -> None:
+        self.fechada = True
+        await self._fila.put(None)
+
+
+class TestALegendaAoVivo:
+    """O Sonic so transcreve no FIM da frase — medido a 09/10/2026.
+
+    Enquanto a pessoa fala o ecra ficava com tres pontinhos. A legenda
+    vem do Transcribe, a correr ao lado com o mesmo audio.
+    """
+
+    def _com_legenda(self, monkeypatch):
+        criadas = []
+
+        def _criar(locale):
+            leg = _LegendaFalsa(locale)
+            criadas.append(leg)
+            return leg
+
+        monkeypatch.setattr(sonic.legenda_viva, "LegendaAoVivo", _criar)
+        monkeypatch.setattr(sonic.legenda_viva, "esta_ligada", lambda: True)
+        return criadas
+
+    @pytest.mark.asyncio
+    async def test_o_audio_do_microfone_vai_tambem_para_a_legenda(self, monkeypatch):
+        criadas = self._com_legenda(monkeypatch)
+        fala = bytes(320)
+        s = await _servir(monkeypatch, [_start(), {"bytes": fala}], _SessaoFalsa())
+        assert s is not None
+        assert criadas, "a legenda nao chegou a ser criada"
+        assert criadas[0].ouviu == [fala]
+
+    @pytest.mark.asyncio
+    async def test_a_batida_de_silencio_NAO_vai(self, monkeypatch):
+        """Senao pagava-se a sessao inteira em vez da fala.
+
+        A sessao do Sonic morre aos 55 s sem audio, por isso mandamos-lhe
+        silencio. Esse silencio e nosso e nao e fala de ninguem.
+        """
+        criadas = self._com_legenda(monkeypatch)
+        sessao = _SessaoFalsa()
+        await _servir(monkeypatch, [_start()], sessao)
+        # A sessao recebeu silencio nosso...
+        assert criadas, "a legenda nao chegou a ser criada"
+        # ...e a legenda nao recebeu nada.
+        assert criadas[0].ouviu == []
+
+    @pytest.mark.asyncio
+    async def test_a_legenda_e_fechada_no_fim(self, monkeypatch):
+        """Um fluxo do Transcribe deixado aberto continua a contar."""
+        criadas = self._com_legenda(monkeypatch)
+        await _servir(monkeypatch, [_start()], _SessaoFalsa())
+        assert criadas[0].fechada
+
+    @pytest.mark.asyncio
+    async def test_segue_a_lingua_da_sessao(self, monkeypatch):
+        criadas = self._com_legenda(monkeypatch)
+        await _servir(monkeypatch, [_start(locale="es")], _SessaoFalsa())
+        assert criadas[0].locale == "es"
+
+    @pytest.mark.asyncio
+    async def test_desligada_nao_se_cria_nada(self, monkeypatch):
+        """O interruptor tem de tirar isto do caminho por inteiro."""
+        criadas = self._com_legenda(monkeypatch)
+        monkeypatch.setattr(sonic.legenda_viva, "esta_ligada", lambda: False)
+        s = await _servir(monkeypatch, [_start(), {"bytes": bytes(320)}], _SessaoFalsa())
+        assert s is not None
+        assert criadas == []
+
+    @pytest.mark.asyncio
+    async def test_no_ditado_nao_ha_legenda(self, monkeypatch):
+        """La a transcricao do Sonic JA e a resposta.
+
+        Pagar um segundo servico para escrever o mesmo duas vezes nao
+        tem onde se agarrar.
+        """
+        criadas = self._com_legenda(monkeypatch)
+        await _servir(
+            monkeypatch,
+            [_start(mode="push-to-talk"), {"bytes": bytes(320)}],
+            _SessaoFalsa(),
+        )
+        assert criadas == []
