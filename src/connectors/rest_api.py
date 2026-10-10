@@ -13,9 +13,16 @@ Contract:
                   "token": "...",          # bearer / apikey
                   "username": "...",       # basic
                   "password": "...",       # basic
-                  "header_name": "X-API-Key" },  # apikey
+                  "header_name": "X-API-Key",    # apikey
+                  "in": "header" | "query", "param_name": "key" },
+        # What the web form saves (same meaning, see _api_payload.resolve_auth):
+        "auth_type": "none" | "api_key" | "bearer_token" | "basic_auth",
+        "auth_header": "X-API-Key" | "?key",   # "?key" = query string
+        "auth_value": "...",
+        "records_path": "ListaEESSPrecio",     # optional, where the list is
         "endpoints": [
-            { "name": "orders", "path": "/orders", "method": "GET" }
+            { "name": "orders", "path": "/orders", "method": "GET",
+              "records_path": "data.items" }   # optional per endpoint
         ]   # optional — acts as the "tables" list
     }
 
@@ -33,6 +40,13 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from src.connectors._api_payload import (
+    json_records,
+    parse_records,
+    records_path_for,
+    redact,
+    resolve_auth,
+)
 from src.connectors.base import BaseConnector
 from src.security.url_allowlist import UnsafeURLError, validate_outbound_url
 
@@ -44,24 +58,20 @@ DEFAULT_TIMEOUT = 15.0
 
 def _build_auth_headers(config: Dict[str, Any]) -> Dict[str, str]:
     """Normalise the auth config into a request header dict."""
-    headers: Dict[str, str] = dict(config.get("headers") or {})
-    auth = config.get("auth") or {}
-    atype = (auth.get("type") or "none").lower()
-    if atype == "bearer" and auth.get("token"):
-        headers["Authorization"] = f"Bearer {auth['token']}"
-    elif atype == "apikey" and auth.get("token"):
-        header_name = auth.get("header_name") or "X-API-Key"
-        headers[header_name] = auth["token"]
-    # basic auth is handled via httpx's `auth` arg, not headers — see
-    # _request() below.
-    return headers
+    return resolve_auth(config)[0]
+
+
+def _auth_params(config: Dict[str, Any]) -> Dict[str, str]:
+    """API key that goes in the query string (TomTom ``?key=``)."""
+    return resolve_auth(config)[1]
 
 
 def _basic_auth_tuple(config: Dict[str, Any]) -> Optional[tuple[str, str]]:
-    auth = config.get("auth") or {}
-    if (auth.get("type") or "").lower() == "basic" and auth.get("username"):
-        return (auth["username"], auth.get("password") or "")
-    return None
+    return resolve_auth(config)[2]
+
+
+def _secrets(config: Dict[str, Any]) -> List[str]:
+    return resolve_auth(config)[3]
 
 
 async def _request(
@@ -102,19 +112,44 @@ class RestAPIConnector(BaseConnector):
         except UnsafeURLError as exc:
             logger.warning("rest_api blocked unsafe base_url %s: %s", base_url, exc)
             return False
+        secrets = _secrets(config)
+        has_credentials = bool(secrets or _basic_auth_tuple(config))
+        # Sonda-se o primeiro endpoint GET declarado sem {marcadores}: é lá
+        # que a chave é verificada (a raiz do AEMET responde sem chave; a do
+        # DGT dá 403 a qualquer um porque não lista a pasta).
+        probe_url = base_url
+        for ep in config.get("endpoints") or []:
+            path = str(ep.get("path") or "")
+            if path and "{" not in path and (ep.get("method") or "GET").upper() == "GET":
+                probe_url = f"{base_url}{path if path.startswith('/') else '/' + path}"
+                break
         try:
             resp = await _request(
                 "GET",
-                base_url,
+                probe_url,
                 headers=_build_auth_headers(config),
                 basic=_basic_auth_tuple(config),
+                params=_auth_params(config) or None,
             )
-            # 2xx / 3xx / even 401 all mean "reachable" — we don't
-            # require 200 because many API roots redirect or require
-            # auth. 5xx is what we treat as "server is sick".
-            return resp.status_code < 500
+            code = resp.status_code
+            # 401 = credenciais recusadas (antes contava como «acessível» e o
+            # AEMET sem chave passava — Anexo C, D6). 403 também, quando se sondou um
+            # endpoint ou há credenciais; na raiz nua, sem credenciais, é só
+            # «não se lista esta pasta».
+            refused = code == 401 or (code == 403 and (probe_url != base_url or has_credentials))
+            if refused:
+                logger.info(
+                    "rest_api test_connection: %s recusou as credenciais (%s)", base_url, code
+                )
+                return False
+            # 2xx / 3xx / 400 / 404 mean "reachable" — many API roots
+            # redirect, have nothing at "/" or want parameters. 5xx is what
+            # we treat as "server is sick".
+            return code < 500
         except Exception as exc:
-            logger.info("rest_api test_connection failed for %s: %s", base_url, exc)
+            logger.info(
+                "rest_api test_connection failed for %s: %s", base_url, redact(exc, secrets)
+            )
             return False
 
     async def get_metadata(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -129,21 +164,22 @@ class RestAPIConnector(BaseConnector):
         tables: List[Dict[str, Any]] = []
         for ep in endpoints:
             name = ep.get("name") or ep.get("path") or "endpoint"
-            tables.append({
-                "name": name,
-                "columns": [],  # unknown until first response; RAG will learn.
-                "kind": "rest_endpoint",
-                "metadata": {
-                    "path": ep.get("path") or "/",
-                    "method": (ep.get("method") or "GET").upper(),
-                    "description": ep.get("description") or "",
-                },
-            })
+            tables.append(
+                {
+                    "name": name,
+                    "columns": [],  # unknown until first response; RAG will learn.
+                    "kind": "rest_endpoint",
+                    "metadata": {
+                        "path": ep.get("path") or "/",
+                        "method": (ep.get("method") or "GET").upper(),
+                        "description": ep.get("description") or "",
+                        **({"records_path": ep["records_path"]} if ep.get("records_path") else {}),
+                    },
+                }
+            )
         return {"tables": tables, "schemas": []}
 
-    async def execute_query(
-        self, config: Dict[str, Any], query: str
-    ) -> List[Dict[str, Any]]:
+    async def execute_query(self, config: Dict[str, Any], query: str) -> List[Dict[str, Any]]:
         """Run the query.
 
         `query` may be:
@@ -183,6 +219,12 @@ class RestAPIConnector(BaseConnector):
 
         url = f"{base_url}{path if path.startswith('/') else '/' + path}" if path else base_url
 
+        auth_params = _auth_params(config)
+        if auth_params:
+            # A chave da ligação ganha a qualquer valor vindo da pergunta.
+            params = {**(params or {}), **auth_params}
+        secrets = _secrets(config)
+
         resp = await _request(
             method,
             url,
@@ -191,26 +233,41 @@ class RestAPIConnector(BaseConnector):
             params=params,
             body=body,
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if secrets and any(sec in str(exc) for sec in secrets):
+                # O httpx põe o URL (com ``?key=``) na mensagem.
+                raise ValueError(redact(exc, secrets)) from None
+            raise
 
+        # JSON, XML (DGT DATEX2) e CSV (BCE SDMX) viram linhas; a lista
+        # principal é encontrada sozinha (MITECO ``ListaEESSPrecio``) ou
+        # indicada por ``records_path`` (Anexo C, D3).
         content_type = (resp.headers.get("content-type") or "").lower()
-        if "application/json" not in content_type:
-            return [{"text": resp.text[:2000]}]
-
-        data = resp.json()
-        if isinstance(data, list):
-            # Ensure every item is a dict-like row; wrap scalars.
-            return [item if isinstance(item, dict) else {"value": item} for item in data]
-        if isinstance(data, dict):
-            return [data]
-        return [{"value": data}]
+        rp = records_path_for(config, path)
+        if "json" in content_type:
+            try:
+                return json_records(resp.json(), rp)
+            except json.JSONDecodeError:
+                pass  # Content-Type a mentir: decide pelo conteúdo.
+        raw = getattr(resp, "content", None)
+        if not isinstance(raw, (bytes, str)) or not raw:
+            raw = resp.text or ""
+        return parse_records(raw, content_type, rp)
 
     async def sync_data(
         self, config: Dict[str, Any], options: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """For APIs, sync == ping every declared endpoint and surface
         row counts. Keeps the same contract as SQL connectors so the
-        scheduler doesn't need to special-case REST."""
+        scheduler doesn't need to special-case REST.
+
+        Nota (Anexo C, D5): ``connections.sync_frequency`` é gravado e o
+        ``next_sync`` calculado, mas nenhuma tarefa do Beat o lê — este
+        método só corre a pedido e não guarda linhas. As respostas às
+        perguntas são sempre ao vivo.
+        """
         rows_by_endpoint: Dict[str, int] = {}
         for ep in config.get("endpoints") or []:
             try:
