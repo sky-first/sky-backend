@@ -254,42 +254,97 @@ def _ler_numero(tokens: List[str], i: int, lingua: str) -> Tuple[Optional[int], 
     return total + grupo, fim, palavras
 
 
+def _saltar_espacos(tokens: List[str], k: int) -> int:
+    while k < len(tokens) and tokens[k].isspace():
+        k += 1
+    return k
+
+
+def _ler_decimais(tokens: List[str], k: int, lingua: str) -> Tuple[Optional[str], int]:
+    """Os decimais depois de «coma»/«vírgula»/«point». Devolve (dígitos, fim).
+
+    Dois jeitos de os dizer, e os dois aparecem: «setenta y dos» (um número)
+    e «seven two» (dígito a dígito, como se diz em inglês). O segundo lia-se
+    como «7» e deixava o «two» solto na legenda.
+    """
+    dec, fim, palavras = _ler_numero(tokens, k, lingua)
+    if dec is None:
+        return None, k
+    digitos = str(dec)
+    if palavras == 1 and dec < 10:
+        while True:
+            j = _saltar_espacos(tokens, fim)
+            if j >= len(tokens) or tokens[j].lower() not in _UNIDADES[lingua]:
+                break
+            mais, fim2, p2 = _ler_numero(tokens, j, lingua)
+            if mais is None or p2 != 1 or mais >= 10:
+                break
+            digitos += str(mais)
+            fim = fim2
+    return digitos, fim
+
+
 def em_algarismos(texto: str, lingua: str = "es") -> str:
-    """«veintisiete mil personas» → «27.000 personas». Nunca rebenta."""
+    """«veintisiete mil personas» → «27.000 personas». Nunca rebenta.
+
+    ── Lê as três línguas, escreve na da conversa ──────────────────────
+
+    > «Has facturado un total de six million one hundred fifty three
+    >  thousand one hundred eighty five point seventy two.» — legenda vista
+    >  pelo Lucas a 10/10, numa conversa em castelhano.
+
+    O Sonic às vezes diz os números NOUTRA língua (leu um 6153185.72 cru em
+    inglês). Só se tentava a língua da conversa, e o inglês passava tal e
+    qual para o ecrã. Agora, em cada posição, tenta-se a língua da conversa
+    e as outras, e fica a leitura que apanha mais palavras. O número sai
+    sempre no formato da conversa: «6.153.185,72».
+
+    Uma palavra SOLTA de outra língua nunca muda: «ten en cuenta» é
+    castelhano, não um 10.
+    """
     lingua = (lingua or "es")[:2]
     if lingua not in _UNIDADES or not texto:
         return texto
+    linguas = [lingua] + [x for x in _UNIDADES if x != lingua]
     try:
         # «por cento» antes de tudo: senão o «cento» lia-se como 100.
-        for p in _PORCENTO[lingua]:
-            texto = re.sub(r"\s+" + p + r"\b", " %", texto, flags=re.I)
+        for lg in linguas:
+            for p in _PORCENTO[lg]:
+                texto = re.sub(r"\s+" + p + r"\b", " %", texto, flags=re.I)
         tokens = _PALAVRA.findall(texto)
         out: List[str] = []
         i = 0
         while i < len(tokens):
-            valor, fim, palavras = _ler_numero(tokens, i, lingua)
+            # A leitura que apanha mais palavras; num empate, a da conversa.
+            valor, fim, palavras, lg = None, i, 0, lingua
+            for cand in linguas:
+                v, f, p = _ler_numero(tokens, i, cand)
+                if v is None or p <= palavras:
+                    continue
+                if cand != lingua and p < 2:
+                    # Uma palavra solta de outra língua fica como está — a
+                    # menos que traga decimais: «four point five».
+                    k = _saltar_espacos(tokens, f)
+                    if not (k < len(tokens) and tokens[k].lower() in _VIRGULA[cand]):
+                        continue
+                valor, fim, palavras, lg = v, f, p, cand
             if valor is None:
                 out.append(tokens[i])
                 i += 1
                 continue
-            # Decimais: «cuatro coma cinco».
+            # Decimais: «cuatro coma cinco», «point seventy two».
             decimal = None
-            k = fim
-            while k < len(tokens) and tokens[k].isspace():
-                k += 1
-            if k < len(tokens) and tokens[k].lower() in _VIRGULA[lingua]:
-                k += 1
-                while k < len(tokens) and tokens[k].isspace():
-                    k += 1
-                dec, fim2, _ = _ler_numero(tokens, k, lingua) if k < len(tokens) else (None, k, 0)
-                if dec is not None:
-                    decimal, fim = dec, fim2
+            k = _saltar_espacos(tokens, fim)
+            if k < len(tokens) and tokens[k].lower() in _VIRGULA[lg]:
+                k = _saltar_espacos(tokens, k + 1)
+                if k < len(tokens):
+                    dec, fim2 = _ler_decimais(tokens, k, lg)
+                    if dec is not None:
+                        decimal, fim = dec, fim2
             # Uma palavra só («uno», «um», «one») é quase sempre artigo ou
             # pronome. Só mudam os de duas ou mais palavras, ≥ 10, com
             # decimais, ou seguidos de «%».
-            k = fim
-            while k < len(tokens) and tokens[k].isspace():
-                k += 1
+            k = _saltar_espacos(tokens, fim)
             percentagem = k < len(tokens) and tokens[k] == "%"
             if palavras == 1 and valor < 10 and decimal is None and not percentagem:
                 out.extend(tokens[i:fim])
@@ -297,9 +352,102 @@ def em_algarismos(texto: str, lingua: str = "es") -> str:
                 continue
             numero = _formatar(valor, lingua)
             if decimal is not None:
-                numero += ("." if lingua == "en" else ",") + str(decimal)
+                numero += ("." if lingua == "en" else ",") + decimal
             out.append(numero)
             i = fim
         return "".join(out)
     except Exception:  # noqa: BLE001 — uma legenda nunca pode partir a voz
+        return texto
+
+
+# ── Os números que vão PARA o modelo ────────────────────────────────────
+#
+# O contrário do de cima. O motor de SQL devolve números crus — «6153185.72»
+# — e o Sonic, sem saber em que língua ler um número sem formato, leu-o em
+# inglês numa conversa em castelhano. Formatado como se escreve na língua da
+# conversa («6.153.185,72 €»), lê-o nessa língua.
+
+#: Um número cru: sem separadores de milhar, com ou sem decimais com ponto.
+#: Não apanha datas (2026-08-01), horas (10:30), versões (1.2.3) nem números
+#: já formatados (6.153.185,72 / 6,153,185.72).
+_NUMERO_CRU = re.compile(r"(?<![\w.,:/-])(\d+)(?:\.(\d+))?(?![\w]|[.,:/-]\d)")
+
+#: Já com moeda ao lado — então é dinheiro, e a moeda passa a «€».
+_EURO_ANTES = re.compile(r"(?:€|EUR)\s*$", re.I)
+_EURO_DEPOIS = re.compile(r"^\s*(?:€|EUR\b|euros?\b)", re.I)
+
+#: Palavras que fazem de um número com dois decimais um montante.
+_DINHEIRO = re.compile(
+    r"\b(factur\w*|fatur\w*|ventas?|vendas?|ingres\w*|receitas?|revenue|sales|"
+    r"cost\w*|cust\w*|gast\w*|import\w*|pre[cç]\w*|precio\w*|price\w*|amount|"
+    r"montante\w*|valor\w*|value|lucro\w*|beneficio\w*|profit\w*|margem|margen|"
+    r"margin|ticket|sald\w*|balance|pag\w*|paid|cobr\w*)\b",
+    re.I,
+)
+
+
+def _agrupar(inteiro: str, lingua: str) -> str:
+    n = int(inteiro)
+    if n < 10000:
+        return str(n) if not inteiro.startswith("0") else inteiro
+    s = f"{n:,}"
+    return s if lingua == "en" else s.replace(",", ".")
+
+
+def numeros_no_formato(texto: str, lingua: str = "es") -> str:
+    """«6153185.72» → «6.153.185,72 €» (es/pt) ou «€6,153,185.72» (en).
+
+    * Inteiros com 5+ algarismos ganham separador de milhar; com 4 ficam
+      (é um ano, quase sempre — «2026»).
+    * Decimais com ponto passam a vírgula em es/pt.
+    * Um número é dinheiro se já tiver moeda ao lado (€/EUR/euros) ou se
+      tiver dois decimais numa frase que fala de dinheiro. Dinheiro leva
+      sempre «€»: os clientes são europeus.
+
+    Nunca rebenta: devolve o texto como veio.
+    """
+    lingua = (lingua or "es")[:2].lower()
+    if not texto or lingua not in ("es", "pt", "en"):
+        return texto
+    try:
+        fala_de_dinheiro = bool(_DINHEIRO.search(texto))
+        out: List[str] = []
+        pos = 0
+        for m in _NUMERO_CRU.finditer(texto):
+            inteiro, decimais = m.group(1), m.group(2)
+            # «1.250» já pode ser mil duzentos e cinquenta formatado: três
+            # decimais num inteiro curto é ambíguo, e fica.
+            if decimais is not None and len(decimais) == 3 and len(inteiro) <= 3:
+                continue
+            if decimais is None and len(inteiro) < 5:
+                # Nada a agrupar — só interessa se for dinheiro já marcado.
+                antes, depois = texto[: m.start()], texto[m.end() :]
+                if not (_EURO_ANTES.search(antes) or _EURO_DEPOIS.match(depois)):
+                    continue
+            antes, depois = texto[pos : m.start()], texto[m.end() :]
+            com_euro_antes = _EURO_ANTES.search(texto[: m.start()])
+            com_euro_depois = _EURO_DEPOIS.match(depois)
+            dinheiro = bool(com_euro_antes or com_euro_depois) or (
+                decimais is not None and len(decimais) == 2 and fala_de_dinheiro
+            )
+            numero = _agrupar(inteiro, lingua)
+            if decimais is not None:
+                numero += ("." if lingua == "en" else ",") + decimais
+            if com_euro_antes:
+                # Tira o «€»/«EUR» de antes: volta a pôr-se no sítio certo.
+                antes = antes[: len(antes) - len(com_euro_antes.group(0))]
+            out.append(antes)
+            if dinheiro:
+                numero = f"€{numero}" if lingua == "en" else f"{numero} €"
+                fim = m.end()
+                if com_euro_depois:
+                    fim += len(com_euro_depois.group(0))
+                out.append(numero)
+                pos = fim
+            else:
+                out.append(numero)
+                pos = m.end()
+        out.append(texto[pos:])
+        return "".join(out)
+    except Exception:  # noqa: BLE001 — o resultado chega ao modelo de qualquer maneira
         return texto

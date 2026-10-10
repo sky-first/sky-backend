@@ -88,6 +88,17 @@ LIMITE_SEM_AUDIO = 55.0
 PRAZO_DA_FERRAMENTA = float(os.getenv("SONIC_TOOL_TIMEOUT", "30"))
 
 
+def _e_marca_de_interrupcao(texto: str) -> bool:
+    """`{ "interrupted" : true }` — a forma como o Sonic diz «cortaram-me»."""
+    t = (texto or "").strip()
+    if not (t.startswith("{") and "interrupted" in t):
+        return False
+    try:
+        return bool(json.loads(t).get("interrupted"))
+    except Exception:
+        return '"interrupted"' in t and "true" in t
+
+
 # ── O que sai daqui ─────────────────────────────────────────────────
 #
 # Eventos no nosso vocabulário, não no da AWS. O `voice.py` traduz estes
@@ -272,6 +283,11 @@ class SessaoFalada:
     _consultas: set = field(default_factory=set)
     #: A última frase que a Sky disse, para não a repetir no ecrã.
     _ultimo_dito: str = ""
+    #: `contentId` → `generationStage` (SPECULATIVE | FINAL) dos blocos de
+    #: texto da Sky. Ver `_traduzir`.
+    _estagios: Dict[str, str] = field(default_factory=dict)
+    #: Já chegou algum texto SPECULATIVE nesta sessão?
+    _ha_especulativo: bool = False
 
     # ── Abrir e fechar ──────────────────────────────────────────────
 
@@ -479,14 +495,45 @@ class SessaoFalada:
     # ── Tradução dos eventos da AWS para os nossos ──────────────────
 
     async def _traduzir(self, ev: Dict[str, Any]) -> None:
+        if "contentStart" in ev:
+            # O estágio do texto vem no `contentStart`, não no `textOutput`.
+            inicio = ev["contentStart"] or {}
+            try:
+                extra = json.loads(inicio.get("additionalModelFields") or "{}")
+            except Exception:
+                extra = {}
+            estagio = (extra or {}).get("generationStage")
+            if estagio and inicio.get("contentId"):
+                self._estagios[inicio["contentId"]] = str(estagio).upper()
+
         if "textOutput" in ev:
             texto = ev["textOutput"].get("content", "") or ""
+            estagio = self._estagios.pop(ev["textOutput"].get("contentId") or "", "")
+            # ── A interrupção vem DENTRO do texto ─────────────────────
+            #
+            # O Sonic marca a interrupção com um `textOutput` cujo conteúdo
+            # é `{ "interrupted" : true }`. Tratado como fala, aparecia na
+            # legenda como JSON e o áudio a caminho não era descartado.
+            if _e_marca_de_interrupcao(texto):
+                await self._eventos.put(Interrompido())
+                return
             # O papel decide o que isto é: `USER` é a TRANSCRIÇÃO da
             # pergunta (o ASR que hoje pagamos ao Transcribe), qualquer
             # outro é a Sky a falar.
             if ev["textOutput"].get("role") == "USER":
                 await self._eventos.put(Ouvido(texto=texto))
+            elif estagio == "FINAL" and self._ha_especulativo:
+                # ── Cada frase chega duas vezes: antes e depois de dita ──
+                #
+                # SPECULATIVE chega ANTES do áudio — é a legenda. FINAL
+                # chega DEPOIS, com o que foi mesmo dito, e às vezes com
+                # outras palavras («El usuario ha…» → «Has…»). A app junta
+                # as legendas de um turno umas às outras, e as duas versões
+                # escreviam a resposta duas vezes — uma delas sem voz.
+                pass
             elif texto and texto != self._ultimo_dito:
+                if estagio == "SPECULATIVE":
+                    self._ha_especulativo = True
                 # ── A mesma frase chega DUAS vezes ────────────────────
                 #
                 # Medido numa chamada real: o mesmo `content`, palavra por
@@ -606,7 +653,13 @@ class SessaoFalada:
             "como_dizer",
             "Diz o campo «resultado» ao utilizador TAL E QUAL, palavra por palavra. "
             "Não resumas, não troques por «não encontrei», não acrescentes nada. "
-            "Se diz o que falta nos dados e oferece uma alternativa, diz as duas.",
+            "Se diz o que falta nos dados e oferece uma alternativa, diz as duas. "
+            # Visto a 10/10: «six million one hundred…» numa conversa em
+            # castelhano. Os números já vêm no formato da língua da conversa
+            # (`numeros_no_formato`); isto diz como os LER.
+            "Lê os números e os montantes NA LÍNGUA DA CONVERSA, nunca em inglês "
+            "se a conversa não for em inglês; um montante com «€» diz-se com a "
+            "moeda (euros).",
         )
         resposta = json.dumps(corpo, ensure_ascii=False)
 
