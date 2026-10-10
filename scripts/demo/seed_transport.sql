@@ -166,31 +166,40 @@ SELECT
     -- 72 km/h de média mais 45 min de carga e descarga. É optimista de
     -- propósito: um padrão que ninguém falha não mede nada.
     (r.km * 60 / 72 + 45)::INT,
-    (r.km * 0.072)::NUMERIC(8,2)
+    -- Portagem = só os km PAGOS em Portugal × 0,18 €/km (ordem de grandeza
+    -- da classe 4, pesado de 4+ eixos). Em Espanha a A-5, a A-66 e a A-62
+    -- são autovías do Estado, sem portagem: as rotas inteiramente
+    -- espanholas pagam 0 €. A A23, a A24 e a A25 são ex-SCUT, livres
+    -- desde 01/01/2025 (Lei n.º 37/2024).
+    --
+    -- A primeira versão fazia km × 0,072 para TODAS as rotas, e
+    -- Badajoz–Madrid pela A-5 aparecia com 28,80 € de portagem. Um
+    -- transportista da Extremadura vê isso no primeiro minuto.
+    (r.km_pagos_pt * 0.18)::NUMERIC(8,2)
 FROM (VALUES
-    ( 1, 'Lisboa',       'Badajoz',      230),
-    ( 2, 'Lisboa',       'Porto',        315),
-    ( 3, 'Badajoz',      'Mérida',        65),
+    ( 1, 'Lisboa',       'Badajoz',      230, 220),
+    ( 2, 'Lisboa',       'Porto',        315, 300),
+    ( 3, 'Badajoz',      'Mérida',        65,   0),
     -- A 4 e a 11 são as duas ligações longas a Madrid. São elas que
     -- chegam sistematicamente fora do tempo padrão, mais abaixo.
-    ( 4, 'Lisboa',       'Madrid',       625),
-    ( 5, 'Porto',        'Braga',         55),
-    ( 6, 'Badajoz',      'Sevilla',      220),
-    ( 7, 'Mérida',       'Almendralejo',  30),
-    ( 8, 'Lisboa',       'Sevilla',      460),
-    ( 9, 'Porto',        'Coimbra',      120),
-    (10, 'Almendralejo', 'Sevilla',      170),
-    (11, 'Porto',        'Madrid',       560),
-    (12, 'Coimbra',      'Lisboa',       200),
-    (13, 'Badajoz',      'Almendralejo',  55),
-    (14, 'Mérida',       'Sevilla',      195),
-    (15, 'Porto',        'Viseu',        130),
-    (16, 'Badajoz',      'Madrid',       400),
-    (17, 'Braga',        'Coimbra',      175),
-    (18, 'Lisboa',       'Mérida',       300),
-    (19, 'Porto',        'Badajoz',      400),
-    (20, 'Coimbra',      'Badajoz',      310)
-) AS r(ord, origem, destino, km)
+    ( 4, 'Lisboa',       'Madrid',       625, 220),
+    ( 5, 'Porto',        'Braga',         55,  50),
+    ( 6, 'Badajoz',      'Sevilla',      220,   0),
+    ( 7, 'Mérida',       'Almendralejo',  30,   0),
+    ( 8, 'Lisboa',       'Sevilla',      460, 220),
+    ( 9, 'Porto',        'Coimbra',      120, 115),
+    (10, 'Almendralejo', 'Sevilla',      170,   0),
+    (11, 'Porto',        'Madrid',       560,  70),
+    (12, 'Coimbra',      'Lisboa',       200, 195),
+    (13, 'Badajoz',      'Almendralejo',  55,   0),
+    (14, 'Mérida',       'Sevilla',      195,   0),
+    (15, 'Porto',        'Viseu',        130,  50),
+    (16, 'Badajoz',      'Madrid',       400,   0),
+    (17, 'Braga',        'Coimbra',      175, 170),
+    (18, 'Lisboa',       'Mérida',       300, 220),
+    (19, 'Porto',        'Badajoz',      400, 190),
+    (20, 'Coimbra',      'Badajoz',      310,  60)
+) AS r(ord, origem, destino, km, km_pagos_pt)
 ORDER BY r.ord;
 
 INSERT INTO freight.clients (name, sector, sla_minutes)
