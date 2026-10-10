@@ -291,10 +291,24 @@ async def servir(
     silenciado = False
     ultimo_audio = _time.monotonic()
     fim = asyncio.Event()
+    # A pessoa interrompeu (tocou na bola) e a resposta em curso já não
+    # interessa: o resto do som e da legenda dela vai para o lixo até ela
+    # acabar ou até a pessoa voltar a falar. Ver o `barge_in` em baixo.
+    a_descartar = False
 
     async def reencaminhar() -> None:
         """Eventos da sessão → mensagens para a app."""
+        nonlocal a_descartar
         async for ev in sessao.eventos():
+            if a_descartar:
+                if isinstance(ev, (falada.Ouvido, falada.FalaAcabou, falada.VezDaPessoa)):
+                    # A resposta interrompida acabou, ou a pessoa já está a
+                    # falar outra vez: a partir daqui tudo conta.
+                    a_descartar = False
+                    if isinstance(ev, falada.VezDaPessoa):
+                        continue  # a app já tem a vez desde o `barge_in`
+                elif isinstance(ev, (falada.Audio, falada.Dito)):
+                    continue
             # Os turnos guardam-se aqui porque é aqui que passam os dois
             # lados da conversa.
             if isinstance(ev, falada.Ouvido) and ev.texto.strip():
@@ -405,11 +419,20 @@ async def servir(
             elif accao == "unmute":
                 silenciado = False
             elif accao == "barge_in":
-                # O cliente ainda o manda, e aqui não é preciso: a
-                # interrupção é detectada pelo MODELO e volta como
-                # evento. Reencaminhá-la seria dizer-lhe uma coisa que
-                # ele já sabe.
-                pass
+                # Tocar na bola enquanto a Sky fala: pára JÁ e ouve.
+                #
+                # Durante a resposta o telemóvel desliga o microfone (para
+                # não se ouvir a si própria), por isso o modelo nunca chega
+                # a detectar a interrupção sozinho. Sem isto o resto da
+                # resposta antiga continuava a chegar e a tocar por cima da
+                # pergunta nova — o contrário do que o Gemini e o ChatGPT
+                # fazem.
+                a_descartar = True
+                try:
+                    await mandar({"type": "discard_audio"})
+                    await mandar({"type": "state", "value": "user_speaking"})
+                except Exception:  # noqa: BLE001
+                    pass
             elif accao in ("end", "stop", "end_turn"):
                 # `stop`/`end_turn` eram o fim de turno do
                 # premir-para-falar, que já não existe como modo de

@@ -577,6 +577,21 @@ class SessaoFalada:
         # caminho bom deixa texto. Aqui ficam os dois na mesma forma, e
         # ha UM so sitio a serializar.
         corpo = resposta if isinstance(resposta, dict) else {"resultado": resposta}
+        # ── Dizer o que veio, e não o resumo do modelo ──────────────
+        #
+        # Visto a 10/10: o motor respondeu «Los datos… no registran datos
+        # de clientes; lo más parecido es el número de pedidos» e o Sonic
+        # disse «Lo siento, no he podido encontrar esa información». A
+        # instrução de sistema já pedia para responder só com o que a
+        # ferramenta devolve; o modelo resumiu à sua maneira e perdeu a
+        # parte útil. Dito também aqui, junto do resultado, que é o sítio
+        # que ele lê no momento de falar.
+        corpo.setdefault(
+            "como_dizer",
+            "Diz este resultado ao utilizador, fiel ao texto, de forma curta e falada. "
+            "Se o resultado diz o que falta nos dados e oferece uma alternativa, "
+            "diz isso — nunca respondas apenas que não encontraste a informação.",
+        )
         resposta = json.dumps(corpo, ensure_ascii=False)
 
         nome = str(uuid.uuid4())

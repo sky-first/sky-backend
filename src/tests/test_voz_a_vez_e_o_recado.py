@@ -63,7 +63,7 @@ class TestAFraseDoRecado:
             ("Quantos clientes temos?", "pt", "Quer saber quantos clientes temos — vou ver."),
             ("qual foi a faturação de julho", "pt", "Quer saber qual foi a faturação de julho — vou ver."),
             ("¿Cuántos pedidos hubo ayer?", "es", "Quiere saber cuántos pedidos hubo ayer; déjeme mirarlo."),
-            ("How many stores do we have?", "en", "You want to know how many stores do we have — let me check."),
+            ("How many stores do we have?", "en", "Let me check that."),
         ],
     )
     def test_repete_a_pergunta_que_vai_responder(self, pergunta, locale, frase):
@@ -185,3 +185,70 @@ async def test_desligado_e_so_a_consulta(monkeypatch):
     assert "12 lojas" in await ferramenta("Quantas lojas temos?")
     assert chamado == []
     assert not any(m.get("type") == "sky_text" for m in s.texto)
+
+
+# ── Interromper ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_tocar_na_bola_corta_a_resposta_e_devolve_a_vez(monkeypatch):
+    """O resto da resposta antiga não pode tocar por cima da pergunta nova."""
+    import json as _j
+
+    sessao = _SessaoFalsa([])
+    eventos = [
+        falada.Dito(texto="Julio cerró un 4% por encima."),
+        falada.Audio(pcm=b"\x00\x01" * 60),
+        falada.Audio(pcm=b"\x00\x02" * 60),  # já depois do toque: fora
+        falada.Dito(texto="Y el Sur explica casi todo."),  # fora
+        falada.VezDaPessoa(),  # a resposta antiga acabou
+        falada.Ouvido(texto="¿Y el Norte?"),  # a pergunta nova conta
+    ]
+
+    async def escutar_devagar():
+        # O toque chega depois dos dois primeiros eventos.
+        for i, ev in enumerate(eventos):
+            await sessao._fila.put(ev)
+            await asyncio.sleep(0.05 if i == 1 else 0)
+        await sessao._fila.put(None)
+
+    sessao.escutar = escutar_devagar
+    monkeypatch.setattr(sonic.falada, "SessaoFalada", lambda **_kw: sessao, raising=True)
+
+    class _SocketComToque(_Socket):
+        async def receive(self):
+            if self._entrada:
+                return self._entrada.pop(0)
+            await asyncio.sleep(0.3)
+            return {"type": "websocket.disconnect"}
+
+    s = _SocketComToque([_start()])
+    s._entrada.append({"text": _j.dumps({"type": "control", "action": "barge_in"})})
+
+    async def nada(**_k):
+        return None
+
+    async def cliente():
+        return object()
+
+    # Entrega o toque só depois do 1.º pedaço de áudio.
+    original = s.receive
+
+    async def receive():
+        if s._entrada and "barge_in" in (s._entrada[0].get("text") or ""):
+            await asyncio.sleep(0.03)
+        return await original()
+
+    s.receive = receive
+
+    async def responder(*_a, **_k):
+        return "x"
+
+    await asyncio.wait_for(
+        sonic.servir(s, user=_User(), ctx=_Ctx(), responder=responder, persistir=nada, abrir_cliente=cliente),
+        timeout=5,
+    )
+    textos = [m.get("text") for m in s.texto if m.get("type") == "sky_text"]
+    assert "Y el Sur explica casi todo." not in textos
+    assert {"type": "discard_audio"} in s.texto
+    assert any(m.get("type") == "partial_transcript" and m.get("text") == "¿Y el Norte?" for m in s.texto)
