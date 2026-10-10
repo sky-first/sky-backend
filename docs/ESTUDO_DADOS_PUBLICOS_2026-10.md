@@ -450,3 +450,218 @@ Projecto já semeado no `skyfirstlabs` e no `sandbox` pelo Job 17: **"Logística
 | **«Coste real por ruta»** | Peaje imputado vs tarifa pública · €/km total (gasóleo a precio real + peaje + horas de conductor) · margen por cliente recalculado |
 
 **Regras de apresentação:** mostrar sempre fonte e hora do dado; "precio de surtidor publicado", não "precio de la flota"; testar cada pergunta 2× seguidas na web **e** na app antes de gravar; dados de demo recalculados a partir da data da sementeira (04/10/2026).
+
+
+---
+
+## Anexo D — Carregador «mundo» (prova)
+
+Data: 10/10/2026, 22:27–22:35 (hora de Madrid). Passo 1 do §C.5 construído e corrido a sério contra as fontes reais, em modo SQLite (não há Docker nem Postgres local). Sem git, sem escrita em produção, sem alterações ao código da aplicação. Licenças revistas com `DADOS_EXTERNOS_COMERCIAL_2026-10.md`.
+
+### D.1 O que existe
+
+| Ficheiro | Papel |
+|---|---|
+| `scripts/dados_publicos/carregar_mundo.py` | Ponto de entrada (`--dsn` / `MUNDO_DSN`, `--sqlite`, `--so`, `--dias-historico`, `--semanas-ue`, `--festivos-nager`) |
+| `scripts/dados_publicos/mundo/esquema.py` | 12 tabelas SQLAlchemy no esquema `mundo`, com `COMMENT` por coluna (o conector Postgres lê-os como descrições) |
+| `scripts/dados_publicos/mundo/transformar.py` | Transformações puras (JSON/XML/XLSX → linhas): MITECO, DATEX II (iterparse, independente de prefixos), Nager, Frankfurter, Open-Meteo, AEMET, OSRM, WOB (XLSX só com stdlib), regra 561/2006, postos perto da rota (grelha 0,05°, sem PostGIS) |
+| `scripts/dados_publicos/mundo/referencia.py` | Tabelas manuais: portagens 2026, restrições DGT 2026 (A-5), feriados oficiais BOE/Código do Trabalho |
+| `scripts/dados_publicos/mundo/carregar.py` | Pedidos com *timeout* e 3 tentativas (429/5xx), *upsert* `ON CONFLICT` (Postgres e SQLite), isolamento por fonte, registo em `mundo.fontes`, resumo |
+| `scripts/dados_publicos/mundo/README.md` | Como correr, cadências, licenças/atribuição, CronJob proposto (não aplicado) |
+| `scripts/dados_publicos/mundo/fixtures/` | Respostas reais gravadas a 10/10 (cortadas) + 1 fixture AEMET **sintética** |
+| `src/tests/test_mundo_*.py` (5 ficheiros) | 25 testes sem rede |
+
+Decisões de licença aplicadas (o vídeo de vendas é uso comercial):
+- **Feriados:** tabela própria a partir do BOE-A-2025-21667 (ES 2026: nacionais + Extremadura, Madrid, Andalucía, com as trasladações de 02/11 e 07/12) e do art. 234.º do Código do Trabalho (PT 2026–2027). ES 2027 só com as nacionais não substituíveis, marcado provisório: a resolução de 2027 ainda não saiu. Nager.Date só com `--festivos-nager`, linhas `licenca = nao-comercial`.
+- **OSRM:** `rotas_referencia.licenca = demo-nao-comercial`, nota a apontar TomTom (perfil camião, 20.000 rotas/mês grátis).
+- **Open-Meteo:** `tempo_cidades.licenca = nao-comercial (Open-Meteo Standard ~29€/mês para uso comercial)`. Adaptador **AEMET** pronto: corre só com `AEMET_API_KEY` e substitui as 5 cidades espanholas. Não testado contra a API real (sem chave); testado com fixture sintética.
+- **BCE/Frankfurter, MITECO, DGT, WOB, BOE:** atribuição obrigatória escrita em `mundo.fontes.atribuicao`; DGT com nota «confirmar por email ao NAP».
+
+### D.2 Corrida real (SQLite, `--dias-historico 30`)
+
+| Fonte (`--so`) | Estado | Linhas | Tempo | Hora do dado (fonte) | Frescura medida |
+|---|---|---|---|---|---|
+| rotas (OSRM) | ✅ | 20 | 24,0 s (1 pedido/s) | pedido 22:28 | ao vivo; sem carimbo na resposta |
+| gasolineras (MITECO) | ✅ | 11.514 postos + 1.976 ligações posto–rota | 19,8–21,0 s | `Fecha` 22:33:xx = hora do pedido | preço da última meia hora; o MITECO não publica a hora do preço |
+| gasoleo_historico | ✅ | 1.590 (30 dias × ~53 províncias) + 53 da fotografia de hoje | 160 s (30 × ~5 s) | último dia fechado 09/10 00:00 | D-1 |
+| gasoleo_ue (WOB) | ✅ | 156 (52 semanas × ES/PT/UE) | 2,8 s | semana de 05/10/2026 | 5 dias (boletim semanal) |
+| incidencias (DGT) | ✅ | 649 → 665 após 2.ª corrida (654 activas, 11 saídas do feed) | 1,6–2,8 s | `publicationTime` 22:33 | < 1 min |
+| festivos | ✅ | 57 (ES 31, PT 26) | 15 ms | tabela 2026 | anual |
+| cambio (BCE) | ✅ | 1.914 (63 fixings × 30 moedas) | 1,0 s | fixing de 09/10 (16:00 CET) | D-1 útil (sábado sem fixing) |
+| tempo (Open-Meteo) | ✅ | 70 (10 cidades × 7 dias) | 1,0 s | pedido 22:33 | modelo de 6 em 6 h |
+| portagens | ✅ | 114 | 32 ms | tarifas 2026 | anual |
+| restricoes | ✅ | 12 | 14 ms | resolução de 14/01/2026 | anual |
+
+**Idempotência verificada:** 2.ª corrida de `gasolineras incidencias tempo festivos portagens` manteve as contagens (11.513 → 11.514 por 1 posto novo no MITECO; 57, 70, 114 iguais); nos testes, duas corridas seguidas dão contagens idênticas. **Isolamento verificado** em teste: DGT simulada em baixo → `fontes.estado = erro`, as outras 4 fontes carregam.
+
+**Postgres:** não houve base local. O DDL das 12 tabelas e o `INSERT … ON CONFLICT (…) DO UPDATE` compilam para o dialecto `postgresql` (verificado); falta a corrida real contra um Postgres. Comando:
+
+```bash
+cd sky-poc-backend
+MUNDO_DSN=postgresql://USER:PASS@HOST:5432/BASE .venv/Scripts/python.exe scripts/dados_publicos/carregar_mundo.py --dias-historico 90
+```
+
+### D.3 Perguntas do Anexo C respondidas em SQL (saída real)
+
+Consultas em SQLite (sem o prefixo `mundo.`; em Postgres acrescenta-se `mundo.`). Horas em UTC (+2 h para Madrid).
+
+### Q1 Gasóleo A mais barato a ≤3 km da rota Badajoz→Madrid (A-5)
+
+| eur_l | rotulo | municipio | provincia | km_rota | dist_km | carretera | horario | actualizado_utc |
+|---|---|---|---|---|---|---|---|---|
+| 1.689 | PETROPRIX | Móstoles | MADRID | 376.9 | 1.33 |  | L-D: 24H | 2026-10-10 20:33 |
+| 1.689 | BALLENOIL | Móstoles | MADRID | 376.9 | 1.32 |  | L-D: 24H | 2026-10-10 20:33 |
+| 1.699 | BALLENOIL | Móstoles | MADRID | 377.4 | 0.32 |  | L-D: 24H | 2026-10-10 20:33 |
+| 1.709 | PLENERGY | Alcorcón | MADRID | 377.4 | 2.43 | M-506 | L-D: 24H | 2026-10-10 20:33 |
+| 1.709 | PLENERGY | Alcorcón | MADRID | 377.4 | 2.3 |  | L-D: 24H | 2026-10-10 20:33 |
+
+### Q2 Mais barato por troço de 100 km (Badajoz→Madrid, ≤3 km) e spread
+
+| troco_km | postos | min_eur_l | max_eur_l | dif_600l_eur |
+|---|---|---|---|---|
+| 0 | 62 | 1.72 | 2.169 | 269.0 |
+| 100 | 20 | 1.74 | 2.029 | 173.0 |
+| 200 | 36 | 1.769 | 2.02 | 151.0 |
+| 300 | 153 | 1.689 | 2.069 | 228.0 |
+
+### Q3 Incidências DGT activas agora na A-5
+
+| carretera | pk | pk_fim | sentido | causa | subtipo | municipio | provincia | inicio_utc | gravidade | feed_utc |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A-5 | 39.064 |  | positive | vehicleObstruction | vehicleStuck | Casarrubios del Monte | Toledo | 2026-10-10 20:32 |  | 2026-10-10 20:33 |
+| A-5 | 209.035 |  | positive | vehicleObstruction | vehicleStuck | Romangordo | Cáceres | 2026-10-10 20:30 |  | 2026-10-10 20:33 |
+
+### Q4 Próximo feriado em ES-EX / ES-MD (desde 10/10/2026) e restrição a pesados na A-5
+
+| data | nome | ambito | dia_semana | restricao_a5 |
+|---|---|---|---|---|
+| 2026-10-12 | Fiesta Nacional de España | nacional | seg | Salida Madrid 16:00-24:00 PK 15.6→126.0 | Entrada Madrid 16:00-24:00 PK 126.0→11.8 |
+| 2026-11-02 | Lunes siguiente a Todos los Santos | ES-EX | seg | Salida Madrid 16:00-24:00 PK 15.6→126.0 | Entrada Madrid 16:00-24:00 PK 126.0→11.8 |
+| 2026-11-02 | Lunes siguiente a Todos los Santos | ES-MD | seg | Salida Madrid 16:00-24:00 PK 15.6→126.0 | Entrada Madrid 16:00-24:00 PK 126.0→11.8 |
+| 2026-12-07 | Lunes siguiente al Día de la Constitución | ES-EX | seg | sem restrição Anexo II na A-5 |
+
+### Q5 Restrições A-5 na véspera/ponte do 12/10 (sexta 09 a segunda 12)
+
+| data | sentido | hora_inicio | hora_fim | troco | confianca |
+|---|---|---|---|---|---|
+| 2026-10-09 | Ambos sentidos | 16:00 | 22:00 | Madrid (enlace M-50, PK 15,6) – Talavera de la Reina (PK 106) | inferido_do_padrao |
+| 2026-10-10 | Ambos sentidos | 08:00 | 15:00 | Madrid (enlace M-50, PK 15,6) – Talavera de la Reina (PK 106) | lido_no_pdf |
+| 2026-10-12 | Entrada Madrid | 16:00 | 24:00 | Talavera de la Reina (PK 126) – Madrid (enlace M-40, PK 11,8) | lido_no_pdf |
+| 2026-10-12 | Salida Madrid | 16:00 | 24:00 | Madrid (enlace M-50, PK 15,6) – Talavera de la Reina (PK 126) | lido_no_pdf |
+
+### Q6 Espanha vs Portugal: gasóleo em Badajoz (MITECO hoje) vs médias nacionais WOB
+
+| onde | n | min | media | semana |
+|---|---|---|---|---|
+| Badajoz cidade (MITECO, agora) | 39 | 1.78 | 1.887 |  |
+| Média nacional ES (WOB) |  |  | 1.918 | 2026-10-05 |
+| Média nacional PT (WOB) |  |  | 2.155 | 2026-10-05 |
+
+### Q7 Gasóleo A, província de Badajoz: 30 dias (MITECO histórico)
+
+| data | n_postos | minimo | mediana | media | maximo | origem |
+|---|---|---|---|---|---|---|
+| 2026-09-10 | 275 | 1.654 | 1.839 | 1.82 | 2.129 | historico |
+| 2026-10-07 | 276 | 1.694 | 1.899 | 1.894 | 2.169 | historico |
+| 2026-10-08 | 278 | 1.694 | 1.899 | 1.889 | 2.169 | historico |
+| 2026-10-09 | 277 | 1.694 | 1.899 | 1.889 | 2.169 | historico |
+| 2026-10-10 | 277 | 1.694 | 1.905 | 1.895 | 2.169 | actual |
+
+### Q8 Portagem imputada na demo (km×0,072) vs tarifa pública (classe 4+ eixos)
+
+| rota | corredor | km | imputado_demo | tarifa_publica | nota |
+|---|---|---|---|---|---|
+| Badajoz - Madrid | A-5 | 400.0 | 28.8 | 0 | sem portagem |
+| Badajoz - Sevilla | A-66 | 220.0 | 15.84 | 0 | sem portagem |
+| Mérida - Sevilla | A-66 | 195.0 | 14.04 | 0 | sem portagem |
+| Almendralejo - Sevilla | A-66 | 170.0 | 12.24 | 0 | sem portagem |
+| Badajoz - Mérida | A-5 | 65.0 | 4.68 | 0 | sem portagem |
+| Badajoz - Almendralejo | A-5/EX-A3 | 55.0 | 3.96 | 0 | sem portagem |
+| Mérida - Almendralejo | A-66 | 30.0 | 2.16 | 0 | sem portagem |
+| Lisboa - Madrid | A2/A6 + A-5 | 625.0 | 45.0 |  | Parte PT como Lisboa–Caia (parcial: 15,40 € classe 1 Maratec |
+| Porto - Madrid | A1/A25 + A-62 | 560.0 | 40.32 |  | A25 é ex-SCUT sem portagem desde 2025; troço A1/A29 até à A2 |
+| Lisboa - Sevilla | A2/A6 + A-66 | 460.0 | 33.12 |  | Itinerário depende (A6+A-66 vs A22/A-49); parte ES sem porta |
+| Porto - Badajoz | A1/A23 + A6 | 400.0 | 28.8 |  | Inclui troços A1 (pagos) e A23 (livre desde 2025); total não |
+| Coimbra - Badajoz | A23 + A6 | 310.0 | 22.32 |  | A23 ex-SCUT sem portagem desde 2025; percurso exacto até Cai |
+| Lisboa - Porto | A1 | 300.0 | 21.6 |  | Classe 1 = 25,05 € (2026, +0,45 €). Classes 2–4 não publicad |
+| Lisboa - Mérida | A2/A6 + A-66 | 300.0 | 21.6 |  | Parte PT como Lisboa–Caia; parte ES (A-5) = 0 €. |
+| Lisboa - Badajoz | A2/A6 | 230.0 | 16.56 |  | Inclui Marateca–Caia (15,40 € classe 1) + Ponte 25 de Abril/ |
+| Coimbra - Lisboa | A1 | 200.0 | 14.4 |  | A1 Coimbra–Lisboa: preço 2026 não verificado. |
+| Braga - Coimbra | A3/A1 | 175.0 | 12.6 |  | A3 + A1: preço 2026 não verificado. |
+| Porto - Viseu | A1/A25/A24 | 130.0 | 9.36 |  | A25 e A24 ex-SCUT sem portagem desde 2025 (Lei n.º 37/2024 ( |
+| Porto - Coimbra | A1 | 120.0 | 8.64 |  | A1 Porto–Coimbra: preço 2026 não verificado. |
+| Porto - Braga | A3 | 55.0 | 3.96 |  | A3 Porto–Braga (Brisa): preço 2026 não verificado. |
+
+### Q9 Rotas da demo: carro (OSRM) vs camião estimado (80 km/h + 45 min/4h30)
+
+| origem | destino | km | carro_min | conducao_min | pausas_45min | camiao_min | licenca |
+|---|---|---|---|---|---|---|---|
+| Lisboa | Madrid | 629.4 | 410.6 | 472.0 | 1 | 517.0 | demo-nao-comercial |
+| Porto | Madrid | 555.3 | 379.2 | 416.5 | 1 | 461.5 | demo-nao-comercial |
+| Badajoz | Madrid | 402.8 | 268.4 | 302.1 | 1 | 347.1 | demo-nao-comercial |
+| Lisboa | Porto | 314.2 | 206.3 | 235.7 | 0 | 235.7 | demo-nao-comercial |
+
+### Q10 Tempo: cidades com chuva ≥1 mm ou rajada ≥50 km/h nos próximos 7 dias
+
+| cidade | data | temp_min | temp_max | precipitacao_mm | rajada_max_kmh | descricao |
+|---|---|---|---|---|---|---|
+| (sem linhas) |
+
+### Q11 12.000 USD em EUR ao último fixing BCE
+
+| data | taxa | eur |
+|---|---|---|
+| 2026-10-09 | 1.1206 | 10708.55 |
+
+### Q12 Frescura por fonte (mundo.fontes)
+
+| nome | estado | linhas | dado_de_utc | carregado_utc | duracao_ms | uso_comercial |
+|---|---|---|---|---|---|---|
+| cambio | ok | 1914 | 2026-10-09 14:00 | 2026-10-10 20:32 | 1008 | 1 |
+| festivos | ok | 57 |  | 2026-10-10 20:33 | 15 | 1 |
+| gasoleo_historico | ok | 1590 | 2026-10-08 22:00 | 2026-10-10 20:31 | 160419 | 1 |
+| gasoleo_ue | ok | 156 | 2026-10-05 00:00 | 2026-10-10 20:31 | 2757 | 1 |
+| gasolineras | ok | 11514 | 2026-10-10 20:33 | 2026-10-10 20:33 | 19771 | 1 |
+| incidencias | ok | 654 | 2026-10-10 20:33 | 2026-10-10 20:33 | 1551 | 1 |
+| portagens | ok | 114 | 2026-10-10 00:00 | 2026-10-10 20:33 | 32 | 1 |
+| restricoes | ok | 12 | 2026-01-14 00:00 | 2026-10-10 20:32 | 14 | 1 |
+| rotas | ok | 20 | 2026-10-10 20:28 | 2026-10-10 20:28 | 24020 | 0 |
+| tempo | ok | 70 | 2026-10-10 20:33 | 2026-10-10 20:33 | 961 | 0 |
+
+SQL de duas delas (as outras seguem o mesmo padrão):
+
+```sql
+-- Q1: mais barato a ≤3 km da A-5 entre Badajoz e Madrid
+SELECT g.precio_gasoleo_a, g.rotulo, g.municipio, r.km_desde_origem, r.dist_km, g.actualizado_em
+FROM mundo.gasolineras_rota r JOIN mundo.gasolineras_precio g USING (id_estacion)
+WHERE r.origem = 'Badajoz' AND r.destino = 'Madrid' AND r.dist_km <= 3
+ORDER BY g.precio_gasoleo_a LIMIT 5;
+
+-- Q4: próximo feriado em Extremadura/Madrid e se restringe pesados na A-5
+SELECT f.data, f.nome, COALESCE(f.regiao, 'nacional'), r.sentido, r.hora_inicio, r.hora_fim
+FROM mundo.festivos f
+LEFT JOIN mundo.restricoes_pesados r ON r.data = f.data AND r.carretera = 'A-5'
+WHERE f.pais = 'ES' AND f.data >= CURRENT_DATE AND (f.regiao IS NULL OR f.regiao IN ('ES-EX', 'ES-MD'))
+ORDER BY f.data LIMIT 4;
+```
+
+**Leitura para a demo:**
+- Q1/Q2 reproduzem o Anexo A (1,689 €/l em Móstoles) mas agora em milissegundos e cruzáveis com `ops.routes` pelo par origem/destino. Diferença máxima num troço de 100 km: 269 € em 600 l.
+- Q4/Q5: o 12/10 (segunda) restringe a A-5 entre Madrid e Talavera de 16:00 a 24:00 nos dois sentidos; na sexta 09/10 e sábado 10/10 também. Um semirreboque Badajoz→Madrid no 12/10 que chegue a Talavera antes das 16:00 passa; depois das 16:00 não.
+- Q6: em Badajoz o gasóleo está a 1,887 €/l (média, 39 postos), 27 cênt./l abaixo da média nacional portuguesa da semana (2,155 €/l, WOB). Abastecer depois da fronteira poupa ~160 € em 600 l. Comparação local ES vs nacional PT: não há preço por posto em Portugal (DGEG sem API).
+- Q8 dá a pergunta 4 do Anexo C: as 7 rotas espanholas imputam 81,72 € por viagem a portagens que são 0 €.
+
+### D.4 Limitações
+
+| # | Limitação | Impacto | Próximo passo |
+|---|---|---|---|
+| L1 | Não corrido contra Postgres (sem Docker local) | DDL e *upsert* compilam, mas falta prova real, incl. `COMMENT ON` e permissões | Correr o comando de D.2 contra a base da demo |
+| L2 | `actualizado_em` do MITECO é a hora do pedido, não a do preço | «Actualizado 22:33» é verdade para a carga, não para o preço | Dizer «precios publicados en el Geoportal, consulta de las 22:33» |
+| L3 | Proximidade posto–rota usa traçado OSRM de **automóvel** e distância a vértices (0,5 km) | Pode incluir postos de vias paralelas (ex.: Alcorcón, M-506) | Em Postgres, PostGIS `ST_DWithin` + filtro por `carretera`; traçado TomTom camião |
+| L4 | `carretera` dos postos é heurística sobre a morada: 2.874 de 11.514 têm estrada | Filtrar por estrada perde postos | Usar `gasolineras_rota` (geometria), não `carretera` |
+| L5 | Portagens: só A1 Lisboa–Porto (25,05 €) e Marateca–Caia (15,40 €) em classe 1 verificados; classes de pesados PT e autopistas ES 2026 ficam NULL | A pergunta «quanto pago com 5 eixos em Portugal» não tem resposta | Calculador Brisa/IP à mão (1×/ano) ou HERE/TollGuru |
+| L6 | Restrições DGT: só o corredor A-5 e as pontes Out.–Dez.; 5 das 12 linhas são `inferido_do_padrao` (a extracção do PDF desalinhou a coluna da estrada) | Informativo; pode falhar uma linha | Rever as 5 linhas no PDF original; alargar a A-66/A-2/A-4 |
+| L7 | Feriados ES 2027 sem regionais; sem municipais | «É feriado em Badajoz?» só para nacionais/regionais | Carregar a resolução BOE 2027 quando sair (fim de Outubro) |
+| L8 | `rotas_referencia` e `tempo_cidades` vêm de fontes **não-comerciais** | Não podem aparecer num vídeo de vendas | Open-Meteo Standard ou `AEMET_API_KEY`; TomTom para rotas |
+| L9 | Adaptador AEMET não provado contra a API real; a previsão municipal diária não dá mm de chuva | `precipitacao_mm` NULL nas cidades ES com AEMET | Pedir chave e gravar fixture real |
+| L10 | Histórico MITECO: 1 pedido de 4,4 MB por dia (~5 s) | 365 dias ≈ 30 min na 1.ª carga | Carga inicial única; depois só D-1 |

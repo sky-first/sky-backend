@@ -44,19 +44,32 @@ def e_feriado(dia, pais, regiao=None):
 
 
 def main():
-    alvo = (dt.date.fromisoformat(sys.argv[1]) if len(sys.argv) > 1
-            else dt.date.today() + dt.timedelta(days=1))
+    alvo = (
+        dt.date.fromisoformat(sys.argv[1])
+        if len(sys.argv) > 1
+        else dt.date.today() + dt.timedelta(days=1)
+    )
     ano = alvo.year
     es, ms_es = feriados(ano, "ES")
     pt, ms_pt = feriados(ano, "PT")
     print(f"Nager.Date: ES {len(es)} entradas ({ms_es} ms) · PT {len(pt)} entradas ({ms_pt} ms)")
 
-    print(f"\n== {alvo:%d/%m/%Y} ({['seg','ter','qua','qui','sex','sáb','dom'][alvo.weekday()]}) ==")
-    for nome, pais, reg in [("Espanha nacional", "ES", None), ("Extremadura", "ES", "ES-EX"),
-                            ("Madrid", "ES", "ES-MD"), ("Portugal", "PT", None)]:
+    print(
+        f"\n== {alvo:%d/%m/%Y} ({['seg','ter','qua','qui','sex','sáb','dom'][alvo.weekday()]}) =="
+    )
+    for nome, pais, reg in [
+        ("Espanha nacional", "ES", None),
+        ("Extremadura", "ES", "ES-EX"),
+        ("Madrid", "ES", "ES-MD"),
+        ("Portugal", "PT", None),
+    ]:
         lst = es if pais == "ES" else pt
-        hits = [h["localName"] for h in lst if h["date"] == alvo.isoformat()
-                and (h.get("global") if reg is None else aplica(h, reg))]
+        hits = [
+            h["localName"]
+            for h in lst
+            if h["date"] == alvo.isoformat()
+            and (h.get("global") if reg is None else aplica(h, reg))
+        ]
         print(f"  {nome:17}: {', '.join(hits) if hits else 'não é feriado'}")
     seguinte = (alvo + dt.timedelta(days=1)).isoformat()
     for pais, lst in (("ES", es), ("PT", pt)):
@@ -75,10 +88,16 @@ def main():
             if regs and not any(r in REGIOES for r in regs):
                 continue
             ambito = "nacional" if not regs else "/".join(REGIOES[r] for r in regs if r in REGIOES)
-            dom = "  ⚠ cai a DOMINGO: verificar trasladação no BOE/CCAA" if d.weekday() == 6 and pais == "ES" else ""
+            dom = (
+                "  ⚠ cai a DOMINGO: verificar trasladação no BOE/CCAA"
+                if d.weekday() == 6 and pais == "ES"
+                else ""
+            )
             print(f"  {pais} {d:%d/%m/%Y} {h['localName'][:38]:38} [{ambito}]{dom}")
 
-    print("\nNota: sem feriados municipais. Restrições DGT a pesados aplicam-se também a domingos e véspera de feriado.")
+    print(
+        "\nNota: sem feriados municipais. Restrições DGT a pesados aplicam-se também a domingos e véspera de feriado."
+    )
 
 
 if __name__ == "__main__":

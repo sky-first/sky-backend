@@ -43,7 +43,10 @@ A5_PONTOS = [
 def haversine_km(a, b):
     lat1, lon1 = map(math.radians, a)
     lat2, lon2 = map(math.radians, b)
-    d = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    d = (
+        math.sin((lat2 - lat1) / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    )
     return 2 * 6371.0 * math.asin(math.sqrt(d))
 
 
@@ -75,11 +78,19 @@ def rota_osrm(origem=BADAJOZ, destino=MADRID, timeout=30):
             r.raise_for_status()
             rt = r.json()["routes"][0]
             coords = [(lat, lon) for lon, lat in rt["geometry"]["coordinates"]]
-            res = dict(distancia_km=rt["distance"] / 1000, duracao_min=rt["duration"] / 60,
-                       coords=coords, fonte="OSRM demo (perfil automóvel)")
+            res = dict(
+                distancia_km=rt["distance"] / 1000,
+                duracao_min=rt["duration"] / 60,
+                coords=coords,
+                fonte="OSRM demo (perfil automóvel)",
+            )
         except Exception as e:  # fallback: pontos fixos
-            res = dict(distancia_km=None, duracao_min=None,
-                       coords=[(a, b) for a, b, _ in A5_PONTOS], fonte=f"pontos fixos A-5 (OSRM falhou: {e})")
+            res = dict(
+                distancia_km=None,
+                duracao_min=None,
+                coords=[(a, b) for a, b, _ in A5_PONTOS],
+                fonte=f"pontos fixos A-5 (OSRM falhou: {e})",
+            )
     res["ms"] = c.ms
     return res
 

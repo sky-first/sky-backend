@@ -23,10 +23,29 @@ from _comum import UA, Cronometro, amostrar, rota_osrm
 URL = "https://api.open-meteo.com/v1/forecast"
 VARS = "temperature_2m,precipitation,precipitation_probability,wind_speed_10m,wind_gusts_10m,visibility,weather_code"
 VEL_CAMIAO_KMH = 78
-WMO = {0: "limpo", 1: "pouco nublado", 2: "parcialmente nublado", 3: "encoberto", 45: "nevoeiro",
-       48: "nevoeiro c/ geada", 51: "chuvisco", 53: "chuvisco", 55: "chuvisco forte", 61: "chuva fraca",
-       63: "chuva", 65: "chuva forte", 71: "neve fraca", 73: "neve", 75: "neve forte", 80: "aguaceiros",
-       81: "aguaceiros", 82: "aguaceiros fortes", 95: "trovoada", 96: "trovoada c/ granizo", 99: "trovoada c/ granizo"}
+WMO = {
+    0: "limpo",
+    1: "pouco nublado",
+    2: "parcialmente nublado",
+    3: "encoberto",
+    45: "nevoeiro",
+    48: "nevoeiro c/ geada",
+    51: "chuvisco",
+    53: "chuvisco",
+    55: "chuvisco forte",
+    61: "chuva fraca",
+    63: "chuva",
+    65: "chuva forte",
+    71: "neve fraca",
+    73: "neve",
+    75: "neve forte",
+    80: "aguaceiros",
+    81: "aguaceiros",
+    82: "aguaceiros fortes",
+    95: "trovoada",
+    96: "trovoada c/ granizo",
+    99: "trovoada c/ granizo",
+}
 
 
 def tempo_na_rota(coords, partida, cada_km=60):
@@ -34,9 +53,14 @@ def tempo_na_rota(coords, partida, cada_km=60):
     amostra = amostrar(coords, cada_km)
     pts = [p for p, _ in amostra]
     kms = [k for _, k in amostra]
-    params = dict(latitude=",".join(f"{p[0]:.4f}" for p in pts),
-                  longitude=",".join(f"{p[1]:.4f}" for p in pts),
-                  hourly=VARS, timezone="Europe/Madrid", forecast_days=3, wind_speed_unit="kmh")
+    params = dict(
+        latitude=",".join(f"{p[0]:.4f}" for p in pts),
+        longitude=",".join(f"{p[1]:.4f}" for p in pts),
+        hourly=VARS,
+        timezone="Europe/Madrid",
+        forecast_days=3,
+        wind_speed_unit="kmh",
+    )
     with Cronometro("open-meteo") as c:
         r = requests.get(URL, params=params, headers=UA, timeout=30)
         r.raise_for_status()
@@ -50,10 +74,21 @@ def tempo_na_rota(coords, partida, cada_km=60):
         if chave not in h["time"]:
             continue
         i = h["time"].index(chave)
-        out.append(dict(km=km, hora=hora, lat=p[0], lon=p[1], temp=h["temperature_2m"][i],
-                        chuva=h["precipitation"][i], prob=h["precipitation_probability"][i],
-                        vento=h["wind_speed_10m"][i], rajada=h["wind_gusts_10m"][i],
-                        visib=h["visibility"][i], ceu=WMO.get(h["weather_code"][i], str(h["weather_code"][i]))))
+        out.append(
+            dict(
+                km=km,
+                hora=hora,
+                lat=p[0],
+                lon=p[1],
+                temp=h["temperature_2m"][i],
+                chuva=h["precipitation"][i],
+                prob=h["precipitation_probability"][i],
+                vento=h["wind_speed_10m"][i],
+                rajada=h["wind_gusts_10m"][i],
+                visib=h["visibility"][i],
+                ceu=WMO.get(h["weather_code"][i], str(h["weather_code"][i])),
+            )
+        )
     return out, c.ms
 
 
@@ -70,19 +105,29 @@ def alertas(linhas):
 
 
 def main():
-    partida = (dt.datetime.fromisoformat(sys.argv[1]) if len(sys.argv) > 1 else
-               dt.datetime.combine(dt.date.today() + dt.timedelta(days=1), dt.time(6, 0)))
+    partida = (
+        dt.datetime.fromisoformat(sys.argv[1])
+        if len(sys.argv) > 1
+        else dt.datetime.combine(dt.date.today() + dt.timedelta(days=1), dt.time(6, 0))
+    )
     rota = rota_osrm()
     linhas, ms = tempo_na_rota(rota["coords"], partida)
     print(f"Open-Meteo · {len(linhas)} pontos num só pedido · {ms} ms · rota: {rota['fonte']}")
     print(f"Partida {partida:%d/%m/%Y %H:%M} (Europe/Madrid), camião a ~{VEL_CAMIAO_KMH} km/h:")
     for l in linhas:
-        print(f"  km {l['km']:5.0f}  {l['hora']:%H:%M}  {l['temp']:5.1f}°C  {l['ceu']:20} "
-              f"chuva {l['chuva']:.1f} mm ({l['prob']}%)  vento {l['vento']:.0f}/{l['rajada']:.0f} km/h  "
-              f"visib {l['visib']/1000:.1f} km")
+        print(
+            f"  km {l['km']:5.0f}  {l['hora']:%H:%M}  {l['temp']:5.1f}°C  {l['ceu']:20} "
+            f"chuva {l['chuva']:.1f} mm ({l['prob']}%)  vento {l['vento']:.0f}/{l['rajada']:.0f} km/h  "
+            f"visib {l['visib']/1000:.1f} km"
+        )
     al = alertas(linhas)
-    print("Alertas: " + ("; ".join(al) if al else "nenhum (sem chuva forte, rajadas ≥60 km/h ou nevoeiro)"))
-    print("Licença: Open-Meteo grátis = só não-comercial. Avisos oficiais: AEMET Meteoalerta (chave).")
+    print(
+        "Alertas: "
+        + ("; ".join(al) if al else "nenhum (sem chuva forte, rajadas ≥60 km/h ou nevoeiro)")
+    )
+    print(
+        "Licença: Open-Meteo grátis = só não-comercial. Avisos oficiais: AEMET Meteoalerta (chave)."
+    )
 
 
 if __name__ == "__main__":

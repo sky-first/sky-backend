@@ -49,51 +49,90 @@ def main():
     with Cronometro("calculo") as calc:
         top, todas = mais_baratas_na_rota(lista, rota["coords"], 3.0, n=3)
         densa = densificar(rota["coords"], 1.0)
-        inc = [i for i in dgt if i["estado"] in (None, "active") and i["coord"]
-               and dist_a_rota_km(i["coord"], densa) <= 1.0]
+        inc = [
+            i
+            for i in dgt
+            if i["estado"] in (None, "active")
+            and i["coord"]
+            and dist_a_rota_km(i["coord"], densa) <= 1.0
+        ]
     lat["cálculo local"] = calc.ms
     total_ms = int((time.perf_counter() - t0) * 1000)
 
     dia, seguinte = partida.date().isoformat(), (partida.date() + dt.timedelta(days=1)).isoformat()
-    fest_hoje = [h["localName"] for h in fer_es if h["date"] == dia
-                 and (h.get("global") or set(h.get("counties") or []) & {"ES-EX", "ES-MD"})]
+    fest_hoje = [
+        h["localName"]
+        for h in fer_es
+        if h["date"] == dia
+        and (h.get("global") or set(h.get("counties") or []) & {"ES-EX", "ES-MD"})
+    ]
     fest_amanha = [h["localName"] for h in fer_es if h["date"] == seguinte and h.get("global")]
 
     print("=" * 78)
     dias = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
-    print(f"Pergunta: Badajoz → Madrid, {dias[partida.weekday()]} {partida:%d/%m/%Y} às {partida:%H:%M}, camião")
+    print(
+        f"Pergunta: Badajoz → Madrid, {dias[partida.weekday()]} {partida:%d/%m/%Y} às {partida:%H:%M}, camião"
+    )
     print("=" * 78)
     if rota["distancia_km"]:
         cond, pausas, tot = estimativa_camiao(rota["distancia_km"])
         cheg = partida + dt.timedelta(minutes=tot)
-        print(f"🚛 Tempo: {rota['distancia_km']:.0f} km pela A-5 (sem portagens). Ligeiro: {hhmm(rota['duracao_min'])}. "
-              f"Camião (estimativa): {hhmm(cond)} de condução + {pausas}×45 min de pausa → chegada ~{cheg:%H:%M}.")
+        print(
+            f"🚛 Tempo: {rota['distancia_km']:.0f} km pela A-5 (sem portagens). Ligeiro: {hhmm(rota['duracao_min'])}. "
+            f"Camião (estimativa): {hhmm(cond)} de condução + {pausas}×45 min de pausa → chegada ~{cheg:%H:%M}."
+        )
     print(f"⛽ Gasóleo A mais barato a ≤3 km da rota ({len(todas)} postos; MITECO {fecha_miteco}):")
     for e in top:
-        print(f"     {e['preco']:.3f} €/l  {e['nome'][:26]} — {e['localidade'].title()[:24]} ({e['horario']})")
+        print(
+            f"     {e['preco']:.3f} €/l  {e['nome'][:26]} — {e['localidade'].title()[:24]} ({e['horario']})"
+        )
     if todas:
         p = [e["preco"] for e in todas]
-        print(f"     Diferença mais barato/mais caro na rota: {100*(max(p)-min(p)):.0f} cênt./l "
-              f"(≈ {600*(max(p)-min(p)):.0f} € num depósito de 600 l).")
+        print(
+            f"     Diferença mais barato/mais caro na rota: {100*(max(p)-min(p)):.0f} cênt./l "
+            f"(≈ {600*(max(p)-min(p)):.0f} € num depósito de 600 l)."
+        )
     print("🌦  Tempo à hora de passagem (Open-Meteo):")
     if tempo:
         tmin, tmax = min(l["temp"] for l in tempo), max(l["temp"] for l in tempo)
         ceus = sorted({l["ceu"] for l in tempo})
         al = alertas(tempo)
-        print(f"     {tmin:.0f}–{tmax:.0f} °C, {', '.join(ceus)}; chuva máx {max(l['chuva'] for l in tempo):.1f} mm/h; "
-              f"rajada máx {max(l['rajada'] for l in tempo):.0f} km/h. "
-              f"{'Alertas: ' + '; '.join(al) if al else 'Sem alertas.'}")
-    print("📅 Feriados:", ", ".join(fest_hoje) if fest_hoje else f"{partida:%d/%m} não é feriado (ES/Extremadura/Madrid).",
-          f"⚠ Véspera de feriado nacional: {', '.join(fest_amanha)} — confirmar restrições DGT a pesados." if fest_amanha else "")
+        print(
+            f"     {tmin:.0f}–{tmax:.0f} °C, {', '.join(ceus)}; chuva máx {max(l['chuva'] for l in tempo):.1f} mm/h; "
+            f"rajada máx {max(l['rajada'] for l in tempo):.0f} km/h. "
+            f"{'Alertas: ' + '; '.join(al) if al else 'Sem alertas.'}"
+        )
+    print(
+        "📅 Feriados:",
+        (
+            ", ".join(fest_hoje)
+            if fest_hoje
+            else f"{partida:%d/%m} não é feriado (ES/Extremadura/Madrid)."
+        ),
+        (
+            f"⚠ Véspera de feriado nacional: {', '.join(fest_amanha)} — confirmar restrições DGT a pesados."
+            if fest_amanha
+            else ""
+        ),
+    )
     if partida.weekday() == 6:
-        print("     ⚠ É domingo: a DGT restringe pesados em certos troços/horas (resolução 2026, ainda não carregada).")
+        print(
+            "     ⚠ É domingo: a DGT restringe pesados em certos troços/horas (resolução 2026, ainda não carregada)."
+        )
     print(f"🚧 Incidências DGT ativas a ≤1 km da rota agora: {len(inc)}")
     for i in inc[:5]:
-        print(f"     {i['estrada']} PK {i['pk']} {i['municipio']} — {i['causa'] or i['tipo']} (desde {(i['inicio'] or '')[11:16]})")
+        print(
+            f"     {i['estrada']} PK {i['pk']} {i['municipio']} — {i['causa'] or i['tipo']} (desde {(i['inicio'] or '')[11:16]})"
+        )
     print("-" * 78)
-    print("Latência por fonte (ms): " + " · ".join(f"{k} {v}" for k, v in lat.items())
-          + f"  →  total em paralelo {total_ms} ms")
-    print("Fontes: OSRM/OSM (ODbL), MITECO, Open-Meteo (CC BY, não-comercial), Nager.Date, DGT NAP.")
+    print(
+        "Latência por fonte (ms): "
+        + " · ".join(f"{k} {v}" for k, v in lat.items())
+        + f"  →  total em paralelo {total_ms} ms"
+    )
+    print(
+        "Fontes: OSRM/OSM (ODbL), MITECO, Open-Meteo (CC BY, não-comercial), Nager.Date, DGT NAP."
+    )
 
 
 if __name__ == "__main__":

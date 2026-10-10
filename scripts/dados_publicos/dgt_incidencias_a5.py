@@ -46,14 +46,19 @@ def incidencias():
         if _local(rec.tag) != "situationRecord":
             continue
         lat, lon = _primeiro(rec, "latitude"), _primeiro(rec, "longitude")
-        out.append(dict(
-            tipo=(rec.get(XSI_TYPE) or "").split(":")[-1],
-            causa=_primeiro(rec, "causeType"), estado=_primeiro(rec, "validityStatus"),
-            estrada=_primeiro(rec, "roadName"), provincia=_primeiro(rec, "province"),
-            municipio=_primeiro(rec, "municipality"), pk=_primeiro(rec, "kilometerPoint"),
-            inicio=_primeiro(rec, "overallStartTime"),
-            coord=(float(lat), float(lon)) if lat and lon else None,
-        ))
+        out.append(
+            dict(
+                tipo=(rec.get(XSI_TYPE) or "").split(":")[-1],
+                causa=_primeiro(rec, "causeType"),
+                estado=_primeiro(rec, "validityStatus"),
+                estrada=_primeiro(rec, "roadName"),
+                provincia=_primeiro(rec, "province"),
+                municipio=_primeiro(rec, "municipality"),
+                pk=_primeiro(rec, "kilometerPoint"),
+                inicio=_primeiro(rec, "overallStartTime"),
+                coord=(float(lat), float(lon)) if lat and lon else None,
+            )
+        )
     return out, c.ms
 
 
@@ -63,8 +68,10 @@ def resumo(lista, titulo, n=6):
     for k, v in cont.most_common():
         print(f"  {v:3d} × {k}")
     for i in lista[:n]:
-        print(f"  · {i['estrada'] or '?':7} PK {i['pk'] or '?':>6}  {i['municipio'] or '?'} ({i['provincia'] or '?'})"
-              f"  {i['causa'] or i['tipo']}  desde {(i['inicio'] or '')[:16]}")
+        print(
+            f"  · {i['estrada'] or '?':7} PK {i['pk'] or '?':>6}  {i['municipio'] or '?'} ({i['provincia'] or '?'})"
+            f"  {i['causa'] or i['tipo']}  desde {(i['inicio'] or '')[:16]}"
+        )
 
 
 def main():
@@ -72,7 +79,10 @@ def main():
     ativas = [i for i in todas if i["estado"] in (None, "active")]
     print(f"DGT DATEX2 v3.7 · {len(todas)} registos ({len(ativas)} ativos) em Espanha · {ms} ms")
     resumo([i for i in ativas if i["estrada"] == "A-5"], "Ativas na A-5")
-    resumo([i for i in ativas if (i["provincia"] or "").lower() == "badajoz"], "Ativas na província de Badajoz")
+    resumo(
+        [i for i in ativas if (i["provincia"] or "").lower() == "badajoz"],
+        "Ativas na província de Badajoz",
+    )
     rota = rota_osrm()
     densa = densificar(rota["coords"], 1.0)
     junto = [i for i in ativas if i["coord"] and dist_a_rota_km(i["coord"], densa) <= 1.0]
