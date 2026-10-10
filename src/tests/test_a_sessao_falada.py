@@ -316,7 +316,11 @@ class TestAFerramenta:
             if "toolResult" in (e.get("event") or {})
         ]
         assert resultados, "o resultado não foi entregue — o modelo fica à espera"
-        assert json.loads(resultados[0]["content"]) == {"resultado": "Temos 2 rotas activas."}
+        corpo = json.loads(resultados[0]["content"])
+        assert corpo["resultado"] == "Temos 2 rotas activas."
+        # E a instrução para o dizer tal e qual — sem ela o Sonic resumia um
+        # «não existe X; o mais próximo é Y» em «não encontrei» (10/10).
+        assert "fiel" in corpo["como_dizer"]
 
     @pytest.mark.asyncio
     async def test_o_resultado_da_ferramenta_e_sempre_json(self):
