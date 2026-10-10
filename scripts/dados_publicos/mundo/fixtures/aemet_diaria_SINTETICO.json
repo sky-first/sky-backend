@@ -1,0 +1,31 @@
+[
+ {
+  "_nota": "SINTÉTICO: escrito à mão segundo o formato documentado da AEMET OpenData (sem chave não foi possível gravar uma resposta real)",
+  "origen": {"productor": "Agencia Estatal de Meteorología - AEMET. Gobierno de España", "copyright": "© AEMET."},
+  "elaborado": "2026-10-10T10:12:43",
+  "nombre": "Badajoz",
+  "provincia": "Badajoz",
+  "prediccion": {
+   "dia": [
+    {
+     "probPrecipitacion": [{"value": 0, "periodo": "00-24"}],
+     "estadoCielo": [{"value": "", "periodo": "00-24", "descripcion": ""}, {"value": "12", "periodo": "00-12", "descripcion": "Poco nuboso"}],
+     "viento": [{"direccion": "C", "velocidad": 0, "periodo": "00-24"}, {"direccion": "NE", "velocidad": 15, "periodo": "00-12"}, {"direccion": "E", "velocidad": 10, "periodo": "12-24"}],
+     "rachaMax": [{"value": "", "periodo": "00-24"}, {"value": "30", "periodo": "00-12"}],
+     "temperatura": {"maxima": 27, "minima": 11, "dato": []},
+     "fecha": "2026-10-11T00:00:00"
+    },
+    {
+     "probPrecipitacion": [{"value": 40}],
+     "estadoCielo": [{"value": "15", "descripcion": "Muy nuboso"}],
+     "viento": [{"direccion": "SO", "velocidad": 20}],
+     "rachaMax": [{"value": ""}],
+     "temperatura": {"maxima": 22, "minima": 13},
+     "fecha": "2026-10-12T00:00:00"
+    }
+   ]
+  },
+  "id": "06015",
+  "version": "1.0"
+ }
+]

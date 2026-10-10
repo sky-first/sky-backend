@@ -22,8 +22,10 @@ import requests
 
 from _comum import UA, Cronometro
 
-URL = ("https://data-api.ecb.europa.eu/service/data/EXR/D.{moedas}.EUR.SP00.A"
-       "?lastNObservations=1&format=csvdata")
+URL = (
+    "https://data-api.ecb.europa.eu/service/data/EXR/D.{moedas}.EUR.SP00.A"
+    "?lastNObservations=1&format=csvdata"
+)
 MAX_DIAS = 5  # mais velho do que isto = série parada
 
 
@@ -34,8 +36,11 @@ def cambios(moedas=("USD", "GBP", "MAD")):
         r.raise_for_status()
     out = {}
     for row in csv.DictReader(io.StringIO(r.text)):
-        out[row["CURRENCY"]] = (float(row["OBS_VALUE"]), dt.date.fromisoformat(row["TIME_PERIOD"]),
-                                row.get("OBS_COM", ""))
+        out[row["CURRENCY"]] = (
+            float(row["OBS_VALUE"]),
+            dt.date.fromisoformat(row["TIME_PERIOD"]),
+            row.get("OBS_COM", ""),
+        )
     return out, c.ms
 
 
@@ -54,7 +59,11 @@ def main():
             continue
         taxa, data, com = taxas[moeda]
         idade = (hoje - data).days
-        aviso = f"  ⚠ SÉRIE PARADA há {idade} dias ({com or 'sem comentário'}) — não usar" if idade > MAX_DIAS else ""
+        aviso = (
+            f"  ⚠ SÉRIE PARADA há {idade} dias ({com or 'sem comentário'}) — não usar"
+            if idade > MAX_DIAS
+            else ""
+        )
         print(f"  1 EUR = {taxa:.4f} {moeda}  (referência de {data:%d/%m/%Y}){aviso}")
     if "USD" in taxas:
         usd, data, _ = taxas["USD"]
