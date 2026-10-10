@@ -51,11 +51,12 @@ async def test_test_connection_returns_true_on_2xx():
 
 
 @pytest.mark.asyncio
-async def test_test_connection_accepts_401_since_endpoint_is_reachable():
-    # 401 means "alive but needs auth" — still reachable, not a server failure.
+async def test_test_connection_rejects_401_credentials_refused():
+    # 401 = a API recusou as credenciais. Antes contava como «acessível» e o
+    # AEMET sem chave passava no teste (Anexo C, D6).
     conn = RestAPIConnector()
     with patch("src.connectors.rest_api._request", new=AsyncMock(return_value=_MockResp(401))):
-        assert await conn.test_connection({"base_url": "https://api.example.com"}) is True
+        assert await conn.test_connection({"base_url": "https://api.example.com"}) is False
 
 
 @pytest.mark.asyncio
