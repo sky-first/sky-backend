@@ -608,11 +608,22 @@ async def _saltar_sem_perguntas(db, agent, execution, erro, lingua: str) -> None
 
         mensagens = getattr(erro, "messages", None) or {}
         frase_do_plano = mensagens.get(lingua) or mensagens.get("pt") or ""
+        # As perguntas do mês têm frase própria (e chave, para a app a dizer
+        # na língua de quem lê). Outro tecto — o armazenamento cheio, desde
+        # o #743 — diz a frase do plano tal e qual: a das perguntas mentia.
+        das_perguntas = getattr(erro, "resource", "max_queries_per_month") in (
+            None,
+            "max_queries_per_month",
+        )
         await post_agent_answer(
             db,
             agent=agent,
-            answer=(get_message("agent_skipped_plan_quota", lingua) + " " + frase_do_plano).strip(),
-            chave_de_texto="agent_skipped_plan_quota",
+            answer=(
+                (get_message("agent_skipped_plan_quota", lingua) + " " + frase_do_plano).strip()
+                if das_perguntas
+                else frase_do_plano or get_message("agent_skipped_plan_quota", lingua)
+            ),
+            chave_de_texto="agent_skipped_plan_quota" if das_perguntas else None,
         )
     except Exception as _post_err:  # noqa: BLE001
         logger.warning("Agent %s: could not post the quota notice: %s", agent.id, _post_err)
