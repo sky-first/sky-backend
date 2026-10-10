@@ -219,3 +219,74 @@ def test_a_sincronizacao_exige_que_lhe_digam_a_base():
 
     p = inspect.signature(sincronizar_metadados).parameters["url"]
     assert p.default is inspect.Parameter.empty
+
+
+# ── O cliente tem de ir no pedido ao sky-ai ──────────────────────────
+#
+# Abrir a sessão na base do cliente não chega: o `sky-ai` escolhe a base
+# pelo `X-Tenant-Slug`, e o cliente HTTP só o envia se houver cliente em
+# contexto. Sem ele, em produção, «DataConnection not found» em todas.
+
+
+@pytest.mark.asyncio
+async def test_com_tenant_slug_a_sincronizacao_corre_com_o_cliente_em_contexto(cli, monkeypatch):
+    import contextlib
+
+    from src.core.tenant_context import TenantContext, current_tenant, set_current_tenant
+    from src.workers import por_cada_cliente
+
+    chamadas = _montar(cli, monkeypatch, _SessaoFalsa())
+    visto: dict = {}
+
+    async def _sincronizar(ids, url, email=None):
+        visto["slug"] = current_tenant().slug
+        return len(ids)
+
+    @contextlib.asynccontextmanager
+    async def _contexto(slug):
+        import uuid
+
+        token = set_current_tenant(
+            TenantContext(slug=slug, id=uuid.uuid4(), tier="core", display_name=slug)
+        )
+        try:
+            yield True
+        finally:
+            from src.core.tenant_context import reset_current_tenant
+
+            reset_current_tenant(token)
+
+    monkeypatch.setattr(cli, "sincronizar_metadados", _sincronizar)
+    monkeypatch.setattr(por_cada_cliente, "contexto_do_cliente", _contexto)
+    monkeypatch.setenv("TENANT_SLUG", "sandbox")
+
+    assert await cli.principal(_args(aplicar=True)) == 0
+    assert visto.get("slug") == "sandbox"
+    assert current_tenant().is_default  # e sai do contexto no fim
+    assert chamadas == {}  # o falso de `_montar` foi substituído
+
+
+@pytest.mark.asyncio
+async def test_cliente_que_nao_resolve_nao_sincroniza_na_plataforma(cli, monkeypatch):
+    import contextlib
+
+    from src.workers import por_cada_cliente
+
+    _montar(cli, monkeypatch, _SessaoFalsa())
+    chamou = []
+
+    async def _sincronizar(ids, url, email=None):
+        chamou.append(ids)
+        return len(ids)
+
+    @contextlib.asynccontextmanager
+    async def _contexto(slug):
+        yield False
+
+    monkeypatch.setattr(cli, "sincronizar_metadados", _sincronizar)
+    monkeypatch.setattr(por_cada_cliente, "contexto_do_cliente", _contexto)
+    monkeypatch.setenv("TENANT_SLUG", "fantasma")
+
+    with pytest.raises(RuntimeError):
+        await cli.principal(_args(aplicar=True))
+    assert chamou == []

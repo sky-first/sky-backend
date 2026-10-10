@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -73,6 +74,35 @@ async def _sessao():
     print(f"cliente {slug!r}: base dedicada resolvida a partir do registo")
     motor = create_async_engine(url, pool_pre_ping=True)
     return async_sessionmaker(motor, expire_on_commit=False)(), url
+
+
+@contextlib.asynccontextmanager
+async def _no_cliente(slug: str):
+    """Põe o cliente em contexto enquanto se sincroniza.
+
+    A sincronização chama o `sky-ai`, e o `sky-ai` escolhe a base pelo
+    `X-Tenant-Slug` — que o cliente HTTP só envia se houver cliente em
+    contexto. Abrir a sessão na base do cliente não chega: o semeador
+    fazia isso e o `sky-ai` recebia o pedido sem cabeçalho, procurava a
+    ligação na base da PLATAFORMA e falhava em silêncio
+    («discover_auto_embed_error … DataConnection not found», 10/10/2026,
+    em todas as ligações). O catálogo da IA ficava com as tabelas antigas.
+
+    Sem `TENANT_SLUG` (modo de uma só base) não há cliente a pôr.
+    """
+    slug = slug.strip()
+    if not slug:
+        yield
+        return
+    from src.workers.por_cada_cliente import contexto_do_cliente
+
+    async with contexto_do_cliente(slug) as resolvido:
+        if not resolvido:
+            raise RuntimeError(
+                f"cliente {slug!r} não resolveu no registo — a sincronização "
+                "iria para a base da plataforma"
+            )
+        yield
 
 
 SECTORES = {
@@ -133,7 +163,8 @@ async def principal(args) -> int:
     ids = resumo.pop("ligacoes_criadas", [])
     if args.aplicar:
         print(f"\na sincronizar metadados de {len(ids)} ligações…")
-        feitas = await sincronizar_metadados(ids, url, args.dono)
+        async with _no_cliente(os.environ.get("TENANT_SLUG") or ""):
+            feitas = await sincronizar_metadados(ids, url, args.dono)
         resumo["metadados"] = f"{feitas}/{len(ids)} ligações"
         if feitas < len(ids):
             print(
