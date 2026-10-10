@@ -65,6 +65,8 @@ logger = logging.getLogger(__name__)
 REGIAO = os.getenv("SONIC_REGION", "eu-north-1")
 
 MODELO = os.getenv("SONIC_MODEL", "amazon.nova-2-5-sonic")
+#: HIGH | MEDIUM | LOW — LOW é o que mais espera. Ver `abrir`.
+SENSIBILIDADE_DO_FIM_DE_TURNO = os.getenv("SONIC_ENDPOINTING", "LOW")
 
 #: 16 kHz, 16 bit, mono à entrada — o que o cliente já manda hoje para o
 #: Transcribe, portanto a app não muda.
@@ -296,7 +298,18 @@ class SessaoFalada:
                             "maxTokens": 1024,
                             "topP": 0.9,
                             "temperature": 0.7,
-                        }
+                        },
+                        # ── Quanto silêncio é «acabei de falar» ──────────
+                        #
+                        # > «eu mal acabo de falar, e ele até cortou ali» —
+                        # > Lucas, 10/10. Por omissão (MEDIUM) o modelo
+                        # responde a ~1,75 s de pausa; LOW espera ~2 s, que é
+                        # o tempo de quem pensa a meio de uma pergunta sobre
+                        # números. Ver a doc da AWS «Turn-taking
+                        # controllability».
+                        "turnDetectionConfiguration": {
+                            "endpointingSensitivity": SENSIBILIDADE_DO_FIM_DE_TURNO,
+                        },
                     }
                 }
             }
@@ -496,8 +509,11 @@ class SessaoFalada:
 
         if "contentEnd" in ev:
             fim = ev["contentEnd"] or {}
-            if (fim.get("type") == "AUDIO" and fim.get("role", "ASSISTANT") != "USER"
-                    and fim.get("stopReason") == "END_TURN"):
+            if (
+                fim.get("type") == "AUDIO"
+                and fim.get("role", "ASSISTANT") != "USER"
+                and fim.get("stopReason") == "END_TURN"
+            ):
                 await self._eventos.put(VezDaPessoa())
 
         if ev.get("interrupted") or "interruption" in ev:
@@ -588,9 +604,9 @@ class SessaoFalada:
         # que ele lê no momento de falar.
         corpo.setdefault(
             "como_dizer",
-            "Diz este resultado ao utilizador, fiel ao texto, de forma curta e falada. "
-            "Se o resultado diz o que falta nos dados e oferece uma alternativa, "
-            "diz isso — nunca respondas apenas que não encontraste a informação.",
+            "Diz o campo «resultado» ao utilizador TAL E QUAL, palavra por palavra. "
+            "Não resumas, não troques por «não encontrei», não acrescentes nada. "
+            "Se diz o que falta nos dados e oferece uma alternativa, diz as duas.",
         )
         resposta = json.dumps(corpo, ensure_ascii=False)
 

@@ -482,7 +482,7 @@ class TestGuardarAConversa:
             ]
         )
         s = await _servir(monkeypatch, [_start()], sessao, persistir=guardar)
-        assert guardados == [[("user", "quantas rotas?"), ("sky", "São duas.")]]
+        assert guardados == [[("user", "Quantas rotas?"), ("sky", "São duas.")]]
         final = [m for m in s.texto if m["type"] == "final"][0]
         assert final["message_id"] == "conv-9"
 
