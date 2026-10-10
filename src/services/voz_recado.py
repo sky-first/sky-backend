@@ -75,6 +75,11 @@ def recado_de_espera(pergunta: str, locale: str) -> str:
     if lingua not in _FRASES:
         lingua = "en"
     com_pergunta, curto = _FRASES[lingua]
+    # Em inglês a pergunta não encaixa tal e qual: «you want to know how
+    # many stores DO WE HAVE» (ouvido em produção a 10/10). Em português e
+    # castelhano a ordem das palavras não muda entre a pergunta e a frase.
+    if lingua == "en":
+        return curto
     q = " ".join((pergunta or "").split()).strip().strip("¿?¡!.;: ")
     if not q or len(q.split()) > _MAX_PALAVRAS:
         return curto
