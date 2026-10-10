@@ -35,6 +35,8 @@ from src.services import voz_fala_a_fala as falada
 from src.services import voz_legenda_ao_vivo as legenda_viva
 from src.services import voz_ponte_sonic as ponte
 from src.services import voz_recado as recado
+from src.services.numeros_falados import em_algarismos
+from src.services.pontuacao import pontuar_pergunta
 
 logger = logging.getLogger(__name__)
 
@@ -68,25 +70,69 @@ PRAZO_DO_START = 10.0
 
 
 def voz_do_locale(locale: str, escolhida: Optional[str] = None) -> str:
-    """A voz do modelo. A escolha da pessoa só vale se existir no catálogo.
+    """A voz do modelo: a ESCOLHIDA nas definições, se o Sonic a tiver.
 
-    O ecrã de definições guarda nomes do catálogo do **Polly** («Inês»,
-    «Lúcia»). Mandá-los ao Sonic faz a abertura falhar, e o sintoma seria
-    «a voz não funciona» sem nada que o explique. Por isso só se aceita
-    um id que esteja aqui.
+    O catálogo do ecrã é o do Sonic desde 10/10 (`vozes.py`). Escolhas
+    antigas (vozes do Polly: «lucia», «sergio») passam à voz do Sonic do
+    mesmo género; um id desconhecido cai na voz da língua — nunca num id que
+    o Sonic recuse, porque isso faz a abertura falhar.
     """
+    from src.services.vozes import voz_sonic
+
+    lingua = {"pt": "Portuguese", "es": "Español", "en": "English"}.get(
+        (locale or "")[:2], "English"
+    )
     if escolhida and escolhida in VOZES.values():
         return escolhida
-    return VOZES.get((locale or "")[:2], VOZ_DE_RECURSO)
+    return voz_sonic(lingua, escolhida)
 
 
-def instrucao_de_sistema(locale: str) -> str:
-    """O que a Sky é, em três linhas, na língua de quem fala.
+#: O fuso de cada língua, quando a app não manda o seu.
+FUSO_DA_LINGUA = {"pt": "Europe/Lisbon", "es": "Europe/Madrid"}
+
+_DIAS = [
+    "segunda-feira",
+    "terça-feira",
+    "quarta-feira",
+    "quinta-feira",
+    "sexta-feira",
+    "sábado",
+    "domingo",
+]
+
+
+def agora_em(locale: str, fuso: Optional[str] = None) -> str:
+    """«sábado, 10/10/2026, 15:20 (Europe/Madrid)» — o que a Sky sabe do relógio.
+
+    > «pergunto que dia é hoje. E ele não tem essa informação… isso é muito
+    >  prejudicial» — Lucas, 10/10
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    nome = fuso or FUSO_DA_LINGUA.get((locale or "")[:2], "UTC")
+    try:
+        zona = ZoneInfo(nome)
+    except Exception:  # noqa: BLE001 — um fuso inválido da app não parte a voz
+        nome, zona = "UTC", ZoneInfo("UTC")
+    t = datetime.now(zona)
+    return f"{_DIAS[t.weekday()]}, {t:%d/%m/%Y}, {t:%H:%M} ({nome})"
+
+
+def instrucao_de_sistema(locale: str, fuso: Optional[str] = None) -> str:
+    """O que a Sky é, na língua de quem fala.
 
     Curto de propósito. O glossário e as métricas **não** entram aqui:
     entram pelo motor de SQL, que é quem sabe o que fazer com eles — e
     repeti-los no prompt de voz era pagar tokens de entrada em cada turno
     por contexto que já viaja no sítio certo.
+
+    Três regras novas a 10/10, todas pedidas pelo Lucas a testar:
+      * a data e a hora — «no tengo acceso a la fecha actual»;
+      * números em algarismos — a legenda dizia «veintisiete mil»;
+      * o resultado da ferramenta dito tal e qual — o sky-ai respondia
+        «não há dados de clientes; o mais próximo são os pedidos» e o
+        Sonic resumia-o em «não encontrei, reformula».
     """
     lingua = {
         "pt": "português de Portugal",
@@ -96,10 +142,15 @@ def instrucao_de_sistema(locale: str) -> str:
     return (
         f"És a Sky, a analista de dados da empresa. Responde SEMPRE em "
         f"{lingua}, em uma ou duas frases curtas, como numa conversa — "
-        f"nunca em listas nem com números enumerados, porque isto é "
-        f"falado. Para qualquer pergunta sobre números, clientes, vendas, "
-        f"custos ou prazos usa SEMPRE a ferramenta consultar_dados, e "
-        f"responde só com o que ela devolver. Nunca inventes números."
+        f"nunca em listas. Agora é {agora_em(locale, fuso)}; usa isto para "
+        f"«hoje», «ontem», «este mês» e para dizer a data ou a hora. "
+        f"Escreve SEMPRE os números com algarismos (27.000, 4,5 %, 1.250 €), "
+        f"nunca por extenso. Para qualquer pergunta sobre números, clientes, "
+        f"vendas, custos, pessoas ou prazos usa SEMPRE a ferramenta "
+        f"consultar_dados. Quando ela devolver um resultado, diz o campo "
+        f"«resultado» TAL E QUAL, palavra por palavra, traduzido só se vier "
+        f"noutra língua: não o resumas, não o troques por «não encontrei», não "
+        f"acrescentes conselhos. Nunca inventes números."
     )
 
 
@@ -260,7 +311,7 @@ async def servir(
         sessao = falada.SessaoFalada(
             ctx=ctx,
             ferramenta=(nao_consultar if e_ditado else consulta_com_recado),
-            instrucao=instrucao_de_sistema(locale),
+            instrucao=instrucao_de_sistema(locale, inicio.get("timezone")),
             voz=voz,
         )
         await sessao.abrir(cliente)
@@ -309,6 +360,14 @@ async def servir(
                         continue  # a app já tem a vez desde o `barge_in`
                 elif isinstance(ev, (falada.Audio, falada.Dito)):
                     continue
+            # O que se lê — no ecrã de voz e no fio — arrumado aqui, uma vez:
+            # a pergunta com «¿…?», e os números ditos em algarismos (o texto
+            # do Sonic é o que ele DIZ, e vem sempre por extenso).
+            if not e_ditado:
+                if isinstance(ev, falada.Ouvido):
+                    ev = falada.Ouvido(texto=pontuar_pergunta(ev.texto, locale))
+                elif isinstance(ev, falada.Dito):
+                    ev = falada.Dito(texto=em_algarismos(ev.texto, locale))
             # Os turnos guardam-se aqui porque é aqui que passam os dois
             # lados da conversa.
             if isinstance(ev, falada.Ouvido) and ev.texto.strip():

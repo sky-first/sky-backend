@@ -99,7 +99,12 @@ async def sintetizar(texto: str, voz: str) -> AsyncIterator[bytes]:
     """PCM 16 kHz mono, em pedaços, com a voz do Polly que tem o nome da do Sonic."""
     import boto3
 
-    voice_id = _POLLY.get((voz or "").lower(), "Matthew")
+    from src.services.vozes import polly_da_sonic
+
+    # A voz do Polly mais parecida com a do Sonic que vai responder: a
+    # `carlos` não existe no Polly, e um recado de mulher antes de uma
+    # resposta de homem soava a duas pessoas.
+    voice_id = polly_da_sonic((voz or "").lower()) or _POLLY.get((voz or "").lower(), "Matthew")
     cliente = boto3.client("polly", region_name=REGIAO)
 
     def _pedir():

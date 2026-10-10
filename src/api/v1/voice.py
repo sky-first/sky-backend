@@ -526,7 +526,24 @@ async def ouvir_voz(
 
     from fastapi.responses import Response
 
-    from src.services.vozes import AMOSTRA, voz_polly
+    from src.services.vozes import AMOSTRA, _escolhida, voz_polly
+
+    # ── A gravação do próprio Sonic, quando existe ──────────────────
+    #
+    # A pré-escuta era o Polly, e quem responde é o Sonic: a pessoa
+    # escolhia «Lucía» e ouvia outra (Lucas, 10/10). As amostras são
+    # gravadas com o Sonic por `scripts/gravar_amostras_das_vozes.py`.
+    escolhida = _escolhida(language, voice)
+    gravada = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "assets", "vozes", f"{escolhida.id}.wav"
+    )
+    if _os.path.exists(gravada):
+        with open(gravada, "rb") as f:
+            return Response(
+                content=f.read(),
+                media_type="audio/wav",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
 
     texto = AMOSTRA.get(language) or AMOSTRA["English"]
     voice_id = voz_polly(language, voice)

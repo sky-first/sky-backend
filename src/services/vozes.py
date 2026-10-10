@@ -42,31 +42,44 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-#: Uma voz, como o ecrã a mostra e como o Polly a conhece.
+
+#: Uma voz, como o ecrã a mostra, como o Sonic a conhece, e o Polly mais
+#: parecido.
 #:
-#: `id` é o que viaja entre a app e o servidor — nunca o nome do Polly, para
-#: se poder trocar a voz subjacente sem partir as preferências já guardadas.
+#: ── 10/10: o catálogo passou a ser o do SONIC ────────────────────────────
+#:
+#: > «tem duas vozes, Lucía e Sérgio. Mas nenhuma das duas é a que está a
+#: >  ser usada… parece que existe uma terceira voz» — Lucas
+#:
+#: Tinha razão. O ecrã oferecia vozes do Polly (Lucía, Sergio), a pré-escuta
+#: tocava o Polly, e quem respondia era o Sonic — que não as conhece e caía
+#: sempre na `lupe`. Agora as vozes do ecrã SÃO as do Sonic; o Polly fica só
+#: para o recado de espera, com a voz dele que mais se parece.
+#:
+#: `id` é o que viaja entre a app e o servidor.
 class Voz:
-    __slots__ = ("id", "nome", "gene", "polly", "lingua", "sotaque")
+    __slots__ = ("id", "nome", "gene", "sonic", "polly", "lingua", "sotaque")
 
     def __init__(
         self,
         id: str,
         nome: str,
         gene: str,
+        sonic: str,
         polly: str,
         lingua: str,
         sotaque: str = "",
     ):
         self.id = id
         self.nome = nome
-        #: "f" | "m". No ecrã aparece por extenso e traduzido; aqui fica curto
-        #: porque é uma chave, não um rótulo.
+        #: "f" | "m". No ecrã aparece por extenso e traduzido.
         self.gene = gene
+        #: O `voiceId` do Nova Sonic — a voz que responde.
+        self.sonic = sonic
+        #: A voz do Polly mais parecida, para o recado de espera.
         self.polly = polly
         self.lingua = lingua
-        #: "Portugal" | "Brasil" | "". Só se mostra quando a língua tem vozes
-        #: de sotaques diferentes — ver a nota sobre o português.
+        #: Mostra-se quando o sotaque não é o óbvio para a língua.
         self.sotaque = sotaque
 
     def como_json(self) -> dict:
@@ -78,37 +91,39 @@ class Voz:
 
 #: O catálogo, por língua. A PRIMEIRA de cada língua é a de omissão.
 #:
-#: Duas por língua e não seis: uma lista longa num ecrã de telemóvel é uma
-#: lista que ninguém percorre, e o que falta mesmo é poder escolher entre uma
-#: voz de mulher e uma de homem.
+#: As vozes que o Sonic tem (doc da AWS «Language support», Nova 2):
+#: es-US lupe/carlos, pt-BR carolina/leo, en-US tiffany/matthew. A `ines`
+#: (pt-PT) não está na tabela, mas responde — verificada numa chamada real.
+#: Não há voz masculina de Portugal: o par português é Portugal + Brasil, e
+#: o sotaque diz-se. O castelhano do Sonic é latino-americano (as duas vozes,
+#: por isso não se mostra — só se diz onde muda dentro da língua).
 CATALOGO: Dict[str, List[Voz]] = {
-    # ⚠️ **NÃO EXISTE VOZ MASCULINA PORTUGUESA EM MODO NEURAL.**
-    #
-    # Escolhi o `Cristiano` a olhar para uma lista de cabeça, e ele é
-    # standard-only. O Polly recusou com «This voice does not support the
-    # selected engine: neural» — um 503 na pré-escuta, apanhado a carregar
-    # no botão em produção.
-    #
-    # Perguntei à AWS em vez de adivinhar (`aws polly describe-voices`), e em
-    # eu-west-1 o português neural são exactamente três: `Ines` (pt-PT, F),
-    # `Camila` e `Vitoria` (pt-BR, F), `Thiago` (pt-BR, M).
-    #
-    # Então o par português é Portugal + Brasil, e o sotaque **diz-se**. Ficar
-    # só com vozes femininas para não misturar sotaques resolvia o problema
-    # errado; esconder a mistura seria pior do que a mistura.
     "Portuguese": [
-        Voz("ines", "Inês", "f", "Ines", "pt-PT", "Portugal"),
-        Voz("thiago", "Thiago", "m", "Thiago", "pt-BR", "Brasil"),
+        Voz("ines", "Inês", "f", "ines", "Ines", "pt-PT", "Portugal"),
+        Voz("leo", "Leo", "m", "leo", "Thiago", "pt-BR", "Brasil"),
     ],
     "Español": [
-        Voz("lucia", "Lucía", "f", "Lucia", "es-ES"),
-        Voz("sergio", "Sergio", "m", "Sergio", "es-ES"),
+        Voz("lupe", "Lupe", "f", "lupe", "Lupe", "es-US"),
+        Voz("carlos", "Carlos", "m", "carlos", "Pedro", "es-US"),
     ],
     "English": [
-        Voz("ruth", "Ruth", "f", "Ruth", "en-US"),
-        Voz("matthew", "Matthew", "m", "Matthew", "en-US"),
+        # Matthew primeiro: era a voz inglesa de omissão e continua a ser.
+        Voz("matthew", "Matthew", "m", "matthew", "Matthew", "en-US"),
+        Voz("tiffany", "Tiffany", "f", "tiffany", "Ruth", "en-US"),
     ],
 }
+
+#: Escolhas guardadas antes de 10/10 (vozes do Polly) → a voz do Sonic do
+#: mesmo género. Sem isto quem tinha escolhido «Sergio» ouvia uma mulher.
+ANTIGAS = {
+    "lucia": "lupe",
+    "sergio": "carlos",
+    "thiago": "leo",
+    "ruth": "tiffany",
+    "clara": "",
+    "suave": "",
+}
+
 
 #: A frase que se ouve ao escolher uma voz. Curta de propósito: o que se está
 #: a avaliar é o timbre, e ninguém quer ouvir um parágrafo duas vezes seguidas.
@@ -123,23 +138,39 @@ def vozes_de(lingua: str) -> List[Voz]:
     return CATALOGO.get(lingua) or CATALOGO["English"]
 
 
+def _escolhida(lingua: str, voz_id: Optional[str]) -> Voz:
+    lista = vozes_de(lingua)
+    pedido = (voz_id or "").lower()
+    pedido = ANTIGAS.get(pedido, pedido)
+    for v in lista:
+        if pedido in (v.id, v.sonic):
+            return v
+    return lista[0]
+
+
 def voz_polly(lingua: str, voz_id: Optional[str]) -> str:
     """O nome Polly a usar. Uma escolha desconhecida cai na omissão da língua.
 
-    Nunca rebenta: uma preferência antiga («Clara», «Suave») ou de uma versão
-    futura tem de continuar a dar voz a alguém. Ficar sem som porque a
-    definição envelheceu seria pior do que a voz não ser a preferida.
+    Nunca rebenta: uma preferência antiga ou de uma versão futura tem de
+    continuar a dar voz a alguém.
     """
-    lista = vozes_de(lingua)
-    for v in lista:
-        if v.id == (voz_id or "").lower():
-            return v.polly
-    return lista[0].polly
+    return _escolhida(lingua, voz_id).polly
+
+
+def voz_sonic(lingua: str, voz_id: Optional[str]) -> str:
+    """O `voiceId` do Sonic para esta escolha — a voz que responde."""
+    return _escolhida(lingua, voz_id).sonic
+
+
+def polly_da_sonic(sonic_id: str) -> Optional[str]:
+    """O Polly mais parecido com uma voz do Sonic (para o recado)."""
+    for vozes in CATALOGO.values():
+        for v in vozes:
+            if v.sonic == sonic_id:
+                return v.polly
+    return None
 
 
 def catalogo_como_json() -> dict:
     """O catálogo inteiro, para a app desenhar o ecrã a partir do servidor."""
-    return {
-        lingua: [v.como_json() for v in vozes]
-        for lingua, vozes in CATALOGO.items()
-    }
+    return {lingua: [v.como_json() for v in vozes] for lingua, vozes in CATALOGO.items()}
