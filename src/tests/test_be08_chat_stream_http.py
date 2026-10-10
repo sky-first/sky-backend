@@ -236,3 +236,39 @@ async def test_no_persist_stays_stateless(async_client, test_user_with_tokens, d
     db_session.expire_all()
     after = (await db_session.execute(select(func.count(Conversation.id)))).scalar()
     assert after == before
+
+
+# ─── A conversa ganha nome também por aqui ──────────────────────────────────
+@pytest.mark.asyncio
+async def test_a_conversa_criada_vazia_ganha_o_nome_da_primeira_pergunta(
+    async_client, test_user_with_tokens, db_session
+):
+    """A app cria a conversa VAZIA e só depois pergunta por este caminho. Só o
+    comentário e o ask-ai davam nome, e ela ficava «Sem título» para sempre
+    (Lucas, 09/10, com a lista a dizer «Nova conversa»)."""
+    from src.models.conversation import Conversation
+    from src.models.page import Page
+
+    user = test_user_with_tokens["user"]
+    page = Page(id=uuid4(), name="Chats", type="personal", color="#FAB721", owner_id=user.id)
+    db_session.add(page)
+    await db_session.flush()
+    conv = Conversation(page_id=page.id, created_by=user.id, title=None)
+    db_session.add(conv)
+    await db_session.commit()
+
+    engine = ['data: {"type": "chunk", "content": "Temos 12."}', 'data: {"type": "done"}']
+    for pergunta in ("Quantos clientes temos?", "E em Lisboa?"):
+        await _drain(
+            async_client,
+            bearer(test_user_with_tokens["access_token"]),
+            {"message": pergunta, "widget_id": str(uuid4()), "persist": True,
+             "conversation_id": str(conv.id), "page_id": str(page.id)},
+            lambda *a, **k: _aiter(engine),
+        )
+
+    db_session.expire_all()
+    await db_session.refresh(conv)
+    # A primeira pergunta, e não a última: um nome que muda a cada pergunta
+    # não serve para encontrar a conversa na lista.
+    assert conv.title == "Quantos clientes temos?"

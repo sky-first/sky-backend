@@ -34,6 +34,7 @@ from typing import Any, Callable, Dict, List, Optional
 from src.services import voz_fala_a_fala as falada
 from src.services import voz_legenda_ao_vivo as legenda_viva
 from src.services import voz_ponte_sonic as ponte
+from src.services import voz_recado as recado
 
 logger = logging.getLogger(__name__)
 
@@ -217,22 +218,48 @@ async def servir(
         )
         return "Modo de ditado: não respondas, limita-te a ouvir."
 
+    consulta = ponte.ferramenta_do_cliente(
+        responder,
+        user=user,
+        page_id=page_id,
+        ctx=ctx,
+        locale=locale,
+        space_id=space_id,
+    )
+
+    async def consulta_com_recado(pergunta: str) -> str:
+        """A consulta, com a Sky a dizer o que vai procurar enquanto procura.
+
+        Ver `voz_recado`. O recado corre EM PARALELO com a consulta — não
+        lhe acrescenta tempo nenhum — e o resultado só segue para o modelo
+        depois de o recado ter saído: o WebSocket garante a ordem, e assim
+        a resposta nunca fala por cima do «vou ver».
+        """
+        if not recado.ligado():
+            return await consulta(pergunta)
+        texto = recado.recado_de_espera(pergunta, locale)
+
+        async def _dizer() -> None:
+            try:
+                await mandar({"type": "sky_text", "text": texto})
+            except Exception:  # noqa: BLE001
+                return
+            await recado.dizer(websocket.send_bytes, texto, voz)
+
+        tarefa = asyncio.create_task(_dizer())
+        try:
+            return await consulta(pergunta)
+        finally:
+            try:
+                await asyncio.wait_for(asyncio.shield(tarefa), timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
+
     try:
         cliente = await abrir_cliente()
         sessao = falada.SessaoFalada(
             ctx=ctx,
-            ferramenta=(
-                nao_consultar
-                if e_ditado
-                else ponte.ferramenta_do_cliente(
-                    responder,
-                    user=user,
-                    page_id=page_id,
-                    ctx=ctx,
-                    locale=locale,
-                    space_id=space_id,
-                )
-            ),
+            ferramenta=(nao_consultar if e_ditado else consulta_com_recado),
             instrucao=instrucao_de_sistema(locale),
             voz=voz,
         )

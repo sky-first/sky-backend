@@ -1077,6 +1077,17 @@ async def send_chat_message_stream(
                             scope_is_personal and settings.DATA_BOUNDARY == "project"
                         ),
                     )
+                    # A conversa ganha nome na primeira pergunta — também por
+                    # aqui. Este é o caminho por onde a app e a web perguntam à
+                    # Sky, e era o único que não o fazia: a app cria a conversa
+                    # vazia e só depois pergunta, e ela ficava «Sem título» para
+                    # sempre (Lucas, 09/10). A mesma regra do comentário e do
+                    # ask-ai, e o mesmo cuidado: nunca pisa um nome que já lá está.
+                    _conv_row = await conv_repo.get_by_id(conv_id)
+                    if _conv_row is not None and not (_conv_row.title or "").strip():
+                        from src.services.message_service import _titulo_a_partir_de
+
+                        _conv_row.title = _titulo_a_partir_de(message_data.message or "")
                     # Mark the comments this answer took in, so the next
                     # question doesn't carry them again — otherwise the same
                     # discussion is re-sent on every turn, growing the prompt
