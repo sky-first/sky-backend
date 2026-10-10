@@ -198,7 +198,16 @@ def criar_esquema(eng):
             destino = (c.get_execution_options().get("schema_translate_map") or {}).get(
                 E.ESQUEMA, E.ESQUEMA
             )
-            c.execute(text(f"CREATE SCHEMA IF NOT EXISTS {destino}"))
+            # Só se não existir: o utilizador da demo pode criar tabelas no
+            # `ops` mas não esquemas na base, e o Postgres verifica o
+            # privilégio mesmo com IF NOT EXISTS («permission denied for
+            # database skydemo», primeira carga em produção, 10/10).
+            existe = c.execute(
+                text("SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"),
+                {"s": destino},
+            ).first()
+            if not existe:
+                c.execute(text(f"CREATE SCHEMA {destino}"))
         E.meta.create_all(c)
 
 
