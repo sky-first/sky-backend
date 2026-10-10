@@ -183,6 +183,74 @@ async def test_um_ficheiro_que_passa_os_gb_e_recusado(cliente):
         await lim.verificar_armazenamento(cliente, 2 * 1024**3)
 
 
+@pytest.fixture
+def base_cheia(cliente, monkeypatch):
+    """A base do cliente a ocupar `bytes`; medida pelo caminho real."""
+    import src.api.deps as deps
+
+    estado = {"bytes": 0, "medicoes": 0}
+
+    async def _sessao(ctx=None):
+        yield cliente
+
+    async def _medir(db):
+        estado["medicoes"] += 1
+        return estado["bytes"]
+
+    monkeypatch.setattr(deps, "get_db_session_for_context", _sessao)
+    monkeypatch.setattr(lim, "armazenamento_usado_bytes", _medir)
+    lim._usado_em_cache.clear()
+    yield estado
+    lim._usado_em_cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_com_os_gb_cheios_a_pergunta_e_recusada(cliente, base_cheia):
+    await _plano(cliente, "starter", max_storage_gb=1)
+    base_cheia["bytes"] = 1024**3
+    with pytest.raises(lim.LimiteDoPlanoError) as e:
+        await lim.reservar_pergunta_se_conta()
+    assert e.value.resource == "max_storage_gb"
+    with pytest.raises(lim.LimiteDoPlanoError):
+        await lim.verificar_saldo()
+    row = (await cliente.execute(select(TenantPlanLimits))).scalar_one()
+    await cliente.refresh(row)
+    assert row.current_queries_this_month == 0  # recusada antes de gastar
+
+
+@pytest.mark.asyncio
+async def test_com_os_gb_cheios_nem_ligacao_nem_agente(cliente, base_cheia):
+    await _plano(cliente, "core", max_storage_gb=1)
+    base_cheia["bytes"] = 2 * 1024**3
+    for recurso in ("max_connections", "max_agents"):
+        with pytest.raises(lim.LimiteDoPlanoError) as e:
+            await lim.verificar_criacao(cliente, recurso)
+        assert e.value.resource == "max_storage_gb"
+
+
+@pytest.mark.asyncio
+async def test_abaixo_dos_gb_a_pergunta_passa_e_a_medicao_fica_60s(cliente, base_cheia):
+    await _plano(cliente, "starter", max_storage_gb=1)
+    base_cheia["bytes"] = 500 * 1024**2
+    assert await lim.reservar_pergunta_se_conta() is True
+    assert await lim.reservar_pergunta_se_conta() is True
+    assert base_cheia["medicoes"] == 1  # a 2.ª pergunta não volta a medir
+
+
+@pytest.mark.asyncio
+async def test_sem_medicao_nao_se_bloqueia_por_gb(cliente, monkeypatch):
+    import src.api.deps as deps
+
+    async def _avaria(ctx=None):
+        raise RuntimeError("base do cliente indisponível")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(deps, "get_db_session_for_context", _avaria)
+    lim._usado_em_cache.clear()
+    await _plano(cliente, "starter", max_storage_gb=1)
+    assert await lim.reservar_pergunta_se_conta() is True
+
+
 # ── 14-16. De onde vem o plano ─────────────────────────────────────────
 
 

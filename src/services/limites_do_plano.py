@@ -236,6 +236,8 @@ async def verificar_criacao(db_cliente: AsyncSession, recurso: str) -> None:
     atual = await _contar(db_cliente, recurso)
     if atual >= limite:
         raise LimiteDoPlanoError(recurso=recurso, limite=limite, atual=atual, plano=plano)
+    # Com a base cheia, nem mais uma ligação ou agente — ambos a fazem crescer.
+    await verificar_armazenamento(db_cliente, 0)
 
 
 # ── Perguntas: reservar antes, devolver se falhar ──────────────────────
@@ -376,6 +378,63 @@ async def verificar_armazenamento(db_cliente: AsyncSession, bytes_novos: int) ->
         )
 
 
+# ── Base cheia: nada que a faça crescer passa ───────────────────────────
+#
+# Os GB são a pegada TODA do cliente — a base dele (perguntas, conversas,
+# utilizadores, projectos, embeddings, execuções de agentes, auditoria) e
+# os ficheiros (Lucas, 10/10: «os gigas é a plataforma… tudo daquele
+# usuário»). Bloquear só o upload deixava a base crescer sem tecto pelas
+# perguntas e pelos agentes. Com a base cheia, pergunta, corrida de
+# agente, ligação e agente novos recebem o mesmo 402.
+#
+# O `pg_database_size` é barato, mas a porta das perguntas é o caminho
+# mais quente da aplicação: o valor fica 60 s em memória por cliente.
+
+_USADO_TTL_S = 60.0
+_usado_em_cache: Dict[UUID, tuple] = {}
+
+
+async def _usado_do_cliente(tid: UUID) -> Optional[int]:
+    import time
+
+    agora = time.monotonic()
+    guardado = _usado_em_cache.get(tid)
+    if guardado and agora - guardado[0] < _USADO_TTL_S:
+        return guardado[1]
+    from src.api.deps import get_db_session_for_context
+
+    try:
+        gerador = get_db_session_for_context()
+        db = await gerador.__anext__()
+        try:
+            usado = await armazenamento_usado_bytes(db)
+        finally:
+            await gerador.aclose()
+    except Exception:  # noqa: BLE001 — sem medição não se bloqueia por GB
+        logger.warning("planos: não consegui medir o armazenamento de %s", tid, exc_info=True)
+        return None
+    _usado_em_cache[tid] = (agora, usado)
+    return usado
+
+
+async def verificar_armazenamento_cheio() -> None:
+    """402 se o cliente já ocupa os GB todos do plano."""
+    tid = _cliente()
+    if tid is None:
+        return
+    async with _sessao_da_plataforma() as s:
+        row = await _linha(s, tid)
+        await s.commit()
+        limite_gb, plano = row.max_storage_gb, row.tier
+    if limite_gb is None:
+        return
+    usado = await _usado_do_cliente(tid)
+    if usado is not None and usado >= limite_gb * 1024**3:
+        raise LimiteDoPlanoError(
+            recurso="max_storage_gb", limite=limite_gb, atual=int(usado / 1024**3), plano=plano
+        )
+
+
 # ── Só a Consola muda o plano ──────────────────────────────────────────
 
 
@@ -441,6 +500,7 @@ def sem_contar():
 async def reservar_pergunta_se_conta() -> bool:
     if _NAO_CONTA.get():
         return False
+    await verificar_armazenamento_cheio()
     return await reservar_pergunta()
 
 
@@ -473,6 +533,7 @@ async def verificar_saldo() -> None:
         raise LimiteDoPlanoError(
             recurso="max_queries_per_month", limite=limite, atual=usadas, plano=plano
         )
+    await verificar_armazenamento_cheio()
 
 
 # ── O que a Consola mostra ──────────────────────────────────────────────
