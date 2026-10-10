@@ -28,6 +28,7 @@ from array import array
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from src.services import voz_fala_a_fala as falada
+from src.services.numeros_falados import numeros_no_formato
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +183,10 @@ def ferramenta_do_cliente(
             return AVARIOU
         if not resposta.strip():
             return SEM_RESPOSTA
-        return resposta
+        # Os números no formato da conversa: «6.153.185,72 €», não
+        # «6153185.72». Um número cru, o Sonic lia-o em inglês numa conversa
+        # em castelhano («six million one hundred…», Lucas, 10/10).
+        return numeros_no_formato(resposta, locale)
 
     return consultar
 

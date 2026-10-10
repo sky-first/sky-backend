@@ -61,6 +61,10 @@ VOZ_DE_RECURSO = "matthew"
 #: ser avarento.
 BATIDA_DO_SILENCIO = 2.0
 
+#: De quanto em quanto tempo o socket leva alguma coisa, mesmo calado.
+#: Abaixo dos 60 s de inactividade que os proxies costumam tolerar.
+BATIDA_DO_SOCKET = 15.0
+
 #: Quanto tempo se espera pelo `start` do cliente antes de desistir.
 #:
 #: Sem o `start` não se sabe o projecto nem a língua, e abrir a sessão
@@ -145,7 +149,8 @@ def instrucao_de_sistema(locale: str, fuso: Optional[str] = None) -> str:
         f"nunca em listas. Agora é {agora_em(locale, fuso)}; usa isto para "
         f"«hoje», «ontem», «este mês» e para dizer a data ou a hora. "
         f"Escreve SEMPRE os números com algarismos (27.000, 4,5 %, 1.250 €), "
-        f"nunca por extenso. Para qualquer pergunta sobre números, clientes, "
+        f"nunca por extenso, e di-los em voz alta em {lingua}, nunca noutra "
+        f"língua. Os montantes são em euros: diz sempre a moeda. Para qualquer pergunta sobre números, clientes, "
         f"vendas, custos, pessoas ou prazos usa SEMPRE a ferramenta "
         f"consultar_dados. Quando ela devolver um resultado, diz o campo "
         f"«resultado» TAL E QUAL, palavra por palavra, traduzido só se vier "
@@ -212,7 +217,11 @@ async def servir(
     # guarda a emenda entre pedaços.
     ritmo = ponte.ParaORitmoDaApp(falada.SAIDA_HZ)
 
+    ultimo_envio = _time.monotonic()
+
     async def mandar(m: Dict[str, Any]) -> None:
+        nonlocal ultimo_envio
+        ultimo_envio = _time.monotonic()
         if ponte.e_audio(m):
             await websocket.send_bytes(ritmo.alimentar(m["pcm"]))
         else:
@@ -425,6 +434,18 @@ async def servir(
             if _time.monotonic() - ultimo_audio >= BATIDA_DO_SILENCIO:
                 try:
                     await sessao.silencio(BATIDA_DO_SILENCIO)
+                except Exception:
+                    return
+            # ── E o SOCKET também tem de ver tráfego ─────────────────
+            #
+            # Com o microfone silenciado a app não manda nada, e sem
+            # ninguém a falar o servidor também não. Um proxy pelo
+            # caminho fecha uma ligação parada, e a app via-o como
+            # `ws_error` (Lucas, 10/10, depois de silenciar). Uma
+            # mensagem pequena que as apps ignoram mantém-na viva.
+            if _time.monotonic() - ultimo_envio >= BATIDA_DO_SOCKET:
+                try:
+                    await mandar({"type": "keepalive"})
                 except Exception:
                     return
 
