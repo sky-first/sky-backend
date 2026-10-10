@@ -46,10 +46,9 @@ class TenantTier(str, Enum):
     """Pricing tiers — see ``01-customer-facing/04-pricing-model.md``."""
 
     STARTER = "starter"
-    FOUNDATION = "foundation"
     CORE = "core"
-    ADVANCED = "advanced"
-    STRATEGIC = "strategic"
+    PLUS = "plus"
+    ENTERPRISE = "enterprise"
 
 
 # Coarse default capacity shape — every row is created with these keys so
@@ -163,9 +162,7 @@ class Tenant(Base):
     # means "blocked on billing or compliance hold". The check
     # constraint forbids the contradictory state
     # ``is_active=true AND suspended_at IS NOT NULL``.
-    is_active = Column(
-        Boolean, nullable=False, server_default=text("true"), default=True
-    )
+    is_active = Column(Boolean, nullable=False, server_default=text("true"), default=True)
     suspended_at = Column(DateTime(timezone=True), nullable=True)
 
     # ── SSO ──────────────────────────────────────────────────────
@@ -202,9 +199,7 @@ class Tenant(Base):
     )
 
     # ── Audit ────────────────────────────────────────────────────
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -216,7 +211,7 @@ class Tenant(Base):
         UniqueConstraint("slug", name="uq_tenant_registry_slug"),
         UniqueConstraint("custom_domain", name="uq_tenant_registry_custom_domain"),
         CheckConstraint(
-            "tier IN ('starter', 'foundation', 'core', 'advanced', 'strategic')",
+            "tier IN ('starter', 'core', 'plus', 'enterprise')",
             name="tenant_registry_tier_check",
         ),
         # Stated as "if active, must not be suspended" — equivalent to

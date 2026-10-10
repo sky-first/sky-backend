@@ -103,9 +103,7 @@ class AIServiceHTTPClient:
         # agente com um 500. Ver `_gravidade_valida` no `agent_worker`.
         de_omissao = {"type": "insight", "severity": "medium", "classified": False}
         try:
-            async with httpx.AsyncClient(
-                timeout=20.0, headers=self._tenant_headers()
-            ) as client:
+            async with httpx.AsyncClient(timeout=20.0, headers=self._tenant_headers()) as client:
                 r = await client.post(
                     f"{self.base_url}/findings/classify",
                     json={"answer": answer, "title": title, "question": question},
@@ -203,16 +201,30 @@ class AIServiceHTTPClient:
             # orchestrator can build cross-schema queries (multi-source path).
             payload["connection_ids"] = connection_ids
 
-        async with httpx.AsyncClient(
-            timeout=self.timeout, headers=self._tenant_headers()
-        ) as client:
-            logger.info(
-                f"Calling AI service: {url} with connection_id={connection_id}, "
-                f"space_id={space_id}, extra_connection_ids={connection_ids}"
-            )
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            return response.json()  # type: ignore
+        # ── Cada pergunta gasta uma do plano — aqui, a porta de todas ──
+        #
+        # Web, chat, app, voz e corridas de agentes chegam ao sky-ai por
+        # este método ou pelo `stream_query_connection`. Reservar aqui é a
+        # única maneira de nenhum caminho ficar de fora (Lucas, 10/10:
+        # «o chat conta as perguntas»). Uma falha do nosso lado devolve-a.
+        from src.services import limites_do_plano
+
+        reservada = await limites_do_plano.reservar_pergunta_se_conta()
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=self._tenant_headers()
+            ) as client:
+                logger.info(
+                    f"Calling AI service: {url} with connection_id={connection_id}, "
+                    f"space_id={space_id}, extra_connection_ids={connection_ids}"
+                )
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                return response.json()  # type: ignore
+        except Exception:
+            if reservada:
+                await limites_do_plano.devolver_pergunta()
+            raise
 
     async def stream_query_connection(
         self,
@@ -293,13 +305,25 @@ class AIServiceHTTPClient:
         if ai_style:
             payload["ai_style"] = ai_style
 
-        async with httpx.AsyncClient(timeout=120.0, headers=self._tenant_headers()) as client:
-            logger.info(f"Streaming AI service: {url} for connection {connection_id}")
-            async with client.stream("POST", url, json=payload) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if line.strip():
-                        yield line
+        from src.services import limites_do_plano
+
+        reservada = await limites_do_plano.reservar_pergunta_se_conta()
+        recebeu_algo = False
+        try:
+            async with httpx.AsyncClient(timeout=120.0, headers=self._tenant_headers()) as client:
+                logger.info(f"Streaming AI service: {url} for connection {connection_id}")
+                async with client.stream("POST", url, json=payload) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if line.strip():
+                            recebeu_algo = True
+                            yield line
+        except Exception:
+            # Só se devolve se nada chegou: uma resposta interrompida a meio
+            # já custou o modelo.
+            if reservada and not recebeu_algo:
+                await limites_do_plano.devolver_pergunta()
+            raise
 
     # Sentinel for shared/global indexing. Use this instead of None
     # so a forgotten kwarg can't silently turn a tenant-private

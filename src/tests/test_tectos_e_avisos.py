@@ -24,7 +24,7 @@ from src.services.tectos_do_plano import A_CONFIRMAR, ROTULO_APLICADO, TECTOS, t
 
 
 class TestTodosOsPlanosLimitam:
-    @pytest.mark.parametrize("plano", ["starter", "foundation", "scale"])
+    @pytest.mark.parametrize("plano", ["starter", "core", "plus"])
     def test_os_planos_pagos_TEM_tecto_de_agentes(self, plano):
         """**O defeito exacto.**
 
@@ -35,15 +35,16 @@ class TestTodosOsPlanosLimitam:
         assert conhecido
         assert tectos["max_agents"] is not None, f"{plano} sem tecto de agentes"
 
-    def test_so_o_enterprise_e_mesmo_sem_tecto(self):
-        # E negociado por contrato, caso a caso. E o unico.
+    def test_nem_o_enterprise_e_sem_tecto(self):
+        # 10/10/2026: «tudo isso tem que bloquear». O Enterprise tem os tectos
+        # que a Consola lhe der; os da tabela são o ponto de partida.
         _r, t, _c = tectos_de("enterprise")
-        assert t["max_agents"] is None
+        assert t["max_agents"] is not None
 
     def test_os_tectos_sobem_com_o_preco(self):
         # Um plano mais caro que limitasse mais seria um erro de copiar e
         # colar, e ninguem daria por ele ate um cliente reclamar.
-        escada = ["starter", "foundation", "scale"]
+        escada = ["starter", "core", "plus"]
         agentes = [TECTOS[p]["max_agents"] for p in escada]
         assert agentes == sorted(agentes)
         assert len(set(agentes)) == len(agentes)
@@ -55,10 +56,11 @@ class TestTodosOsPlanosLimitam:
         apontam — um cliente com um nome antigo continua limitado.
         """
         for antigo, esperado_tem_tecto in (
-            ("core", True),
+            ("foundation", True),
+            ("scale", True),
             ("pilot", True),
-            ("advanced", False),
-            ("strategic", False),
+            ("advanced", True),
+            ("strategic", True),
         ):
             _r, t, conhecido = tectos_de(antigo)
             assert conhecido, antigo
@@ -81,7 +83,7 @@ class TestTodosOsPlanosLimitam:
         Escrever `core` la rebenta a gravacao — e o cliente ficava sem linha
         de limites nenhuma, ou seja, outra vez sem tecto.
         """
-        permitidos = {"starter", "foundation", "scale", "enterprise"}
+        permitidos = {"starter", "core", "plus", "enterprise"}
         for plano in TECTOS:
             assert ROTULO_APLICADO[plano] in permitidos
 
@@ -112,8 +114,8 @@ class TestOQueEuNaoDecidi:
         mesmo que nao existir — que e precisamente o que aconteceu com a
         «Fase 2».
         """
-        assert "armazenamento" in A_CONFIRMAR
-        assert "utilizadores" in A_CONFIRMAR
+        # 10/10/2026: os GB e os utilizadores ficaram decididos (proposta
+        # comercial + docs/PLANOS_E_LIMITES_2026-10.md). Fica a medição.
         # E a maior de todas: o custo por pergunta e uma ESTIMATIVA. A medicao
         # real esta na `tenant_llm_daily_snapshots` e ainda nao foi usada.
         assert "medicao_real_dos_tokens" in A_CONFIRMAR
@@ -138,12 +140,10 @@ class TestOAvisoChegaAAlguem:
         # assim que este teste falhou a primeira vez, e e a prova de que o
         # registo de aviso naquele `except` faz falta.
         admins = [uuid4(), uuid4()]
-        with patch.object(
-            avisos, "_admins_do_cliente", AsyncMock(return_value=admins)
-        ), patch(
-            "src.services.notification_service.NotificationService", _Servico
-        ), patch.object(
-            avisos, "operadores_da_plataforma", lambda: []
+        with (
+            patch.object(avisos, "_admins_do_cliente", AsyncMock(return_value=admins)),
+            patch("src.services.notification_service.NotificationService", _Servico),
+            patch.object(avisos, "operadores_da_plataforma", lambda: []),
         ):
             await avisos.avisar(
                 db,
@@ -170,10 +170,10 @@ class TestOAvisoChegaAAlguem:
                 enviados.append((to_email, subject))
                 return True
 
-        with patch.object(
-            avisos, "_admins_do_cliente", AsyncMock(return_value=[])
-        ), patch("src.services.email_service.EmailService", _Email), patch.object(
-            avisos, "operadores_da_plataforma", lambda: ["ops@skyfirstlabs.com"]
+        with (
+            patch.object(avisos, "_admins_do_cliente", AsyncMock(return_value=[])),
+            patch("src.services.email_service.EmailService", _Email),
+            patch.object(avisos, "operadores_da_plataforma", lambda: ["ops@skyfirstlabs.com"]),
         ):
             await avisos.avisar(
                 db,
@@ -199,9 +199,10 @@ class TestOAvisoChegaAAlguem:
         import logging
 
         db = AsyncMock()
-        with patch.object(
-            avisos, "_admins_do_cliente", AsyncMock(return_value=[])
-        ), patch.object(avisos, "operadores_da_plataforma", lambda: []):
+        with (
+            patch.object(avisos, "_admins_do_cliente", AsyncMock(return_value=[])),
+            patch.object(avisos, "operadores_da_plataforma", lambda: []),
+        ):
             with caplog.at_level(logging.WARNING):
                 await avisos.avisar(
                     db,
@@ -227,10 +228,10 @@ class TestOAvisoChegaAAlguem:
             def send_email(self, **kw):
                 raise RuntimeError("SMTP em baixo")
 
-        with patch.object(
-            avisos, "_admins_do_cliente", AsyncMock(return_value=[])
-        ), patch("src.services.email_service.EmailService", _EmailQuebrado), patch.object(
-            avisos, "operadores_da_plataforma", lambda: ["ops@skyfirstlabs.com"]
+        with (
+            patch.object(avisos, "_admins_do_cliente", AsyncMock(return_value=[])),
+            patch("src.services.email_service.EmailService", _EmailQuebrado),
+            patch.object(avisos, "operadores_da_plataforma", lambda: ["ops@skyfirstlabs.com"]),
         ):
             await avisos.avisar(
                 db,
@@ -274,7 +275,7 @@ class TestAsContasFecham:
             assert TECTOS[slug]["max_queries_per_month"] == plano.perguntas_por_mes, slug
             assert TECTOS[slug]["max_agents"] == plano.agentes, slug
 
-    @pytest.mark.parametrize("plano", ["starter", "foundation", "scale"])
+    @pytest.mark.parametrize("plano", ["starter", "core", "plus"])
     def test_cada_plano_chega_aos_80_por_cento_com_clientes_a_serio(self, plano):
         """Um plano que nem com muitos clientes da margem esta mal desenhado.
 
@@ -316,18 +317,16 @@ class TestOCodigoBateCertoComAPaginaComercial:
     outra.
     """
 
-    #: Copiado da pagina comercial a 24/08/2026.
+    #: Copiado da proposta comercial oficial (Mopa, 10/10/2026, pág. 13).
     #: nome, preco/mes, fontes, perguntas/mes
     PAGINA = [
-        ("starter", "Sky Start", 490, 1, 500),
-        ("foundation", "Sky Core", 900, 2, 2_000),
-        ("scale", "Sky Plus", 1_800, 5, 8_000),
+        ("starter", "Starter", 490, 1, 500),
+        ("core", "Core", 900, 2, 2_000),
+        ("plus", "Plus", 1_800, 5, 8_000),
     ]
 
     @pytest.mark.parametrize("slug,nome,preco,fontes,perguntas", PAGINA)
-    def test_o_preco_e_o_nome_sao_os_da_pagina(
-        self, slug, nome, preco, fontes, perguntas
-    ):
+    def test_o_preco_e_o_nome_sao_os_da_pagina(self, slug, nome, preco, fontes, perguntas):
         from src.services.pricing_tiers import TIER_REGISTRY
 
         t = TIER_REGISTRY[slug]
@@ -337,9 +336,7 @@ class TestOCodigoBateCertoComAPaginaComercial:
         assert t.capacity_limits["sources"] == fontes
 
     @pytest.mark.parametrize("slug,nome,preco,fontes,perguntas", PAGINA)
-    def test_as_perguntas_sao_as_da_pagina(
-        self, slug, nome, preco, fontes, perguntas
-    ):
+    def test_as_perguntas_sao_as_da_pagina(self, slug, nome, preco, fontes, perguntas):
         assert TECTOS[slug]["max_queries_per_month"] == perguntas
 
     def test_os_utilizadores_sao_MESMO_ilimitados(self):
@@ -362,7 +359,7 @@ class TestOCodigoBateCertoComAPaginaComercial:
         """
         from src.services.pricing_tiers import TIER_REGISTRY
 
-        assert set(TIER_REGISTRY) == {"starter", "foundation", "scale", "enterprise"}
-        for antigo in ("core", "advanced", "strategic"):
+        assert set(TIER_REGISTRY) == {"starter", "core", "plus", "enterprise"}
+        for antigo in ("foundation", "scale", "advanced", "strategic"):
             assert antigo not in TIER_REGISTRY, f"{antigo} ainda se vende"
             assert antigo in ROTULO_APLICADO, f"{antigo} deixou de ser reconhecido"

@@ -32,6 +32,7 @@ def _svc(db: AsyncSession) -> KnowledgeService:
 
 # ── Upload flow ────────────────────────────────────────────────────────────────
 
+
 @router.post("/upload-url", response_model=UploadUrlResponse)
 async def request_upload_url(
     body: UploadUrlRequest,
@@ -39,6 +40,10 @@ async def request_upload_url(
     db: AsyncSession = Depends(get_db_session),
 ) -> UploadUrlResponse:
     """Pre-flight: validate quota, create DB record, return signed upload URL."""
+    # Os GB do plano do cliente, antes de qualquer byte subir (10/10/2026).
+    from src.services import limites_do_plano
+
+    await limites_do_plano.verificar_armazenamento(db, body.size_bytes or 0)
     return await _svc(db).request_upload_url(
         user=current_user,
         filename=body.filename,
@@ -74,6 +79,7 @@ from src.azure.blob_helper import _USE_LOCAL  # re-import flag for guard
 def _assert_local_mode() -> None:
     if not _USE_LOCAL:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Not found")
 
 
@@ -94,14 +100,17 @@ async def local_download(blob_path: str) -> Response:
     """Dev-only: serve local blob for preview."""
     _assert_local_mode()
     from src.azure.blob_helper import _local_path
+
     p = _local_path(blob_path)
     if not p.exists():
         from src.core.exceptions import NotFoundError
+
         raise NotFoundError("Blob not found.")
     return Response(content=p.read_bytes(), media_type="application/octet-stream")
 
 
 # ── Read ──────────────────────────────────────────────────────────────────────
+
 
 @router.get("", response_model=KnowledgeFileListResponse)
 async def list_files(
@@ -167,6 +176,7 @@ async def get_preview_url(
 
 
 # ── Mutate ────────────────────────────────────────────────────────────────────
+
 
 @router.delete("/{file_id}", status_code=204)
 async def delete_file(

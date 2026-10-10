@@ -96,11 +96,8 @@ async def _compute_storage_usage_async() -> int:
         total_bytes = 0
         try:
             from sqlalchemy import text
-            r = await session.execute(
-                text(
-                    "SELECT COALESCE(SUM(size_bytes), 0) FROM file_uploads"
-                )
-            )
+
+            r = await session.execute(text("SELECT COALESCE(SUM(size), 0) FROM file_uploads"))
             total_bytes = int(r.scalar() or 0)
         except Exception:
             # Table or column missing — keep going with 0.

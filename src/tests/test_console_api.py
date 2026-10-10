@@ -38,6 +38,7 @@ def sky_team_dev_bypass(monkeypatch):
     # to the original URL at import time. Patch it to a no-op so
     # create_tenant / suspend / destroy return immediately without any I/O.
     import src.workers.celery_app as _celery_mod
+
     monkeypatch.setattr(_celery_mod.celery_app, "send_task", lambda *a, **kw: None)
     # rate_limit_middleware imports get_redis at module level; with REDIS_HOST=""
     # init_redis() falls back to redis://localhost:6379/0 (lazy pool, no ping).
@@ -261,7 +262,7 @@ async def test_dashboard_summary(authed_client):
     await authed_client.post("/api/console/v1/tenants", json=_registry_payload("alpha"))
     await authed_client.post(
         "/api/console/v1/tenants",
-        json=_registry_payload("beta", tier="foundation"),
+        json=_registry_payload("beta", tier="core"),
     )
     await authed_client.post("/api/console/v1/tenants/alpha/suspend", json={})
 
@@ -272,7 +273,7 @@ async def test_dashboard_summary(authed_client):
     assert body["active_tenants"] == 1
     assert body["suspended_tenants"] == 1
     assert body["tenants_by_tier"]["starter"] == 1
-    assert body["tenants_by_tier"]["foundation"] == 1
+    assert body["tenants_by_tier"]["core"] == 1
 
 
 # ── Audit log ──────────────────────────────────────────────────────
@@ -358,6 +359,7 @@ async def test_non_sky_team_is_403(console_async_client, monkeypatch):
 
     monkeypatch.delenv("CONSOLE_ALLOWED_HOSTS", raising=False)
     from src.api import console_auth as _ca
+
     monkeypatch.setattr(_ca, "get_current_user", _fake_get_current_user)
     res = await console_async_client.get("/api/console/v1/me")
     assert res.status_code == 403
@@ -532,7 +534,7 @@ async def test_tenant_list_capacity_reflects_plan_counters(authed_client, db_ses
     tenant = Tenant(
         slug="withplan",
         display_name="With Plan Co.",
-        tier="foundation",
+        tier="core",
         db_host="pg.local",
         db_name="tenant_withplan",
         db_credentials_secret_arn="arn:secret:withplan:db",
@@ -545,7 +547,7 @@ async def test_tenant_list_capacity_reflects_plan_counters(authed_client, db_ses
 
     plan = TenantPlanLimits(
         tenant_id=tenant.id,
-        tier="foundation",
+        tier="core",
         max_agents=10,
         max_users=25,
         max_storage_gb=50,
@@ -561,8 +563,8 @@ async def test_tenant_list_capacity_reflects_plan_counters(authed_client, db_ses
     res = await authed_client.get("/api/console/v1/tenants")
     assert res.status_code == 200
     t = next(i for i in res.json()["items"] if i["slug"] == "withplan")
-    assert t["capacity_pct_agents"] == 50.0      # 5/10
-    assert t["capacity_pct_sources"] == 40.0     # 10/25
+    assert t["capacity_pct_agents"] == 50.0  # 5/10
+    assert t["capacity_pct_sources"] == 40.0  # 10/25
     assert t["capacity_pct_indexed_gb"] == 10.0  # 5/50
     # health_score: 40% * (5/10) + 60% * (6000/10000) = 20 + 36 = 56
     assert t["health_score"] == 56
@@ -573,7 +575,7 @@ async def test_tenant_list_health_score_unlimited_tier(authed_client, db_session
     tenant = Tenant(
         slug="enterprise",
         display_name="Enterprise Co.",
-        tier="strategic",
+        tier="enterprise",
         db_host="pg.local",
         db_name="tenant_enterprise",
         db_credentials_secret_arn="arn:secret:enterprise:db",

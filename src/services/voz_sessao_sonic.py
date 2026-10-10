@@ -269,7 +269,7 @@ async def servir(
         )
         return "Modo de ditado: não respondas, limita-te a ouvir."
 
-    consulta = ponte.ferramenta_do_cliente(
+    _consulta = ponte.ferramenta_do_cliente(
         responder,
         user=user,
         page_id=page_id,
@@ -277,6 +277,20 @@ async def servir(
         locale=locale,
         space_id=space_id,
     )
+
+    async def consulta(pergunta: str) -> str:
+        """A consulta, dentro do plano do cliente (10/10/2026).
+
+        Sem perguntas no mês, a Sky DIZ-O — em vez de ficar calada ou
+        dizer «não encontrei», que fazia parecer uma avaria.
+        """
+        from src.services import limites_do_plano
+
+        try:
+            await limites_do_plano.verificar_saldo()
+            return await _consulta(pergunta)
+        except limites_do_plano.LimiteDoPlanoError as e:
+            return e.messages.get((locale or "pt")[:2], e.messages["pt"])
 
     async def consulta_com_recado(pergunta: str) -> str:
         """A consulta, com a Sky a dizer o que vai procurar enquanto procura.
@@ -288,6 +302,13 @@ async def servir(
         """
         if not recado.ligado():
             return await consulta(pergunta)
+        # Sem perguntas no mês, nada de «vou ver» antes de «acabaram-se».
+        from src.services import limites_do_plano
+
+        try:
+            await limites_do_plano.verificar_saldo()
+        except limites_do_plano.LimiteDoPlanoError as e:
+            return e.messages.get((locale or "pt")[:2], e.messages["pt"])
         texto = recado.recado_de_espera(pergunta, locale)
 
         async def _dizer() -> None:

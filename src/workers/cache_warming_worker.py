@@ -114,6 +114,11 @@ async def _warm_ai_response_cache_async() -> Dict[str, Any]:
 
                     # Execute the query via Real AI Service and cache result.
                     thread_id = f"warm:{c.space_id}:{c.connection_id}:{cache_key[-12:]}"
+                    # Aquecer a cache é trabalho nosso, não uma pergunta do
+                    # cliente: não gasta o plano dele (limites_do_plano).
+                    from src.services.limites_do_plano import _NAO_CONTA
+
+                    _NAO_CONTA.set(True)
                     result = await real_ai.process_query(
                         connection_id=c.connection_id,
                         question=c.question,

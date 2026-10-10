@@ -151,6 +151,19 @@ def register_exception_handlers(app: FastAPI):
         details = None
         if isinstance(exc, PaymentRequiredError):
             details = {"upgrade_cta": exc.upgrade_cta}
+            # Limites do plano (10/10/2026): a frase pronta nas três
+            # línguas e o que bateu no tecto — a web e a app escolhem a
+            # língua de quem lê, sem frases cravadas do lado delas.
+            for campo, chave in (
+                ("messages", "messages"),
+                ("resource", "resource"),
+                ("limit", "limit"),
+                ("tier", "plan"),
+                ("upgrade_hint", "next_plan"),
+            ):
+                valor = getattr(exc, campo, None)
+                if valor is not None:
+                    details[chave] = valor
 
         return _json_response(
             request=request,

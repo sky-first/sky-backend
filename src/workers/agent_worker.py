@@ -777,6 +777,37 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                 for conn_id in connection_ids:
                     await _record_beats_safely(db, agent_user, kind="agent_l1", source_id=conn_id)
 
+            # ── O plano do cliente (10/10/2026) ───────────────────────────
+            #
+            # Uma corrida de agente é uma pergunta. Sem perguntas no mês,
+            # o agente SALTA esta corrida — sem contar como falha (senão
+            # auto-pausava-se como se estivesse avariado) e com o motivo
+            # gravado na execução.
+            if l1_should_run:
+                from src.services import limites_do_plano
+
+                try:
+                    await limites_do_plano.verificar_saldo()
+                except limites_do_plano.LimiteDoPlanoError as _sem_saldo:
+                    execution.status = "skipped_plan_quota"
+                    execution.cycles_consumed = 0
+                    execution.findings_count = 0
+                    execution.finished_at = datetime.now(timezone.utc)
+                    try:
+                        execution.error_message = _sem_saldo.messages.get("pt")
+                    except Exception:  # noqa: BLE001 — coluna ausente numa base antiga
+                        pass
+                    agent.last_execution_at = datetime.now(timezone.utc)
+                    _h, _m = scheduled_hour(agent)
+                    agent.next_execution_at = next_run_at(
+                        datetime.now(timezone.utc), agent.frequency, hour=_h, minute=_m
+                    )
+                    await db.commit()
+                    logger.info(
+                        "Agent %s: sem perguntas no plano este mês — corrida saltada", agent_id
+                    )
+                    return
+
             if not l1_should_run:
                 # Short-circuit: nothing to look at. Mark the execution
                 # as skipped (cycles=0, findings=0) and reschedule on
@@ -1260,6 +1291,23 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         base_hours,
                         hours,
                     )
+
+            # Nunca mais depressa do que o plano deixa («avisos diários» no
+            # Starter). Um agente agendado antes do plano existir, ou por uma
+            # via que não passou pela verificação, é travado aqui.
+            try:
+                from src.services import limites_do_plano
+
+                _plano = await limites_do_plano.plano_do_cliente()
+                _minimo = (_plano or {}).get("min_agent_interval_minutes")
+                if _minimo and agent.next_execution_at is not None:
+                    _mais_cedo = datetime.now(timezone.utc) + timedelta(minutes=int(_minimo))
+                    if agent.next_execution_at < _mais_cedo:
+                        agent.next_execution_at = _mais_cedo
+            except Exception:  # noqa: BLE001 — o agendamento normal continua
+                logger.warning(
+                    "Agent %s: não consegui aplicar o intervalo do plano", agent_id, exc_info=True
+                )
 
             await db.commit()
 

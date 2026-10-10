@@ -54,6 +54,12 @@ class FileUploadService:
         self.storage_type = settings.STORAGE_TYPE
         self.upload_dir = Path("uploads")
 
+    async def _dentro_do_plano(self, size: int) -> None:
+        """Os GB do plano do cliente (10/10/2026): 402 se este ficheiro os passa."""
+        from src.services import limites_do_plano
+
+        await limites_do_plano.verificar_armazenamento(self.db, size)
+
     def _validate_file_size(self, size: int) -> None:
         """
         Validate file size.
@@ -183,6 +189,7 @@ class FileUploadService:
         file_content = await file.read()
         file_size = len(file_content)
         self._validate_file_size(file_size)
+        await self._dentro_do_plano(file_size)
 
         # Reset file pointer
         await file.seek(0)
@@ -230,6 +237,7 @@ class FileUploadService:
         file_content = await file.read()
         file_size = len(file_content)
         self._validate_file_size(file_size)
+        await self._dentro_do_plano(file_size)
 
         # Validate file type
         mime_type = file.content_type or "text/csv"
@@ -295,6 +303,7 @@ class FileUploadService:
         file_content = await file.read()
         file_size = len(file_content)
         self._validate_file_size(file_size)
+        await self._dentro_do_plano(file_size)
 
         # Validate file type
         mime_type = file.content_type or "application/vnd.ms-excel"
@@ -369,6 +378,7 @@ class FileUploadService:
         file_content = await file.read()
         file_size = len(file_content)
         self._validate_file_size(file_size)
+        await self._dentro_do_plano(file_size)
 
         # Validate file type
         mime_type = file.content_type or "image/jpeg"
@@ -421,6 +431,7 @@ class FileUploadService:
         file_content = await file.read()
         file_size = len(file_content)
         self._validate_file_size(file_size)
+        await self._dentro_do_plano(file_size)
 
         # Validate file type
         mime_type = file.content_type or "application/pdf"

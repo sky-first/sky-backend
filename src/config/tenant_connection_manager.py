@@ -46,11 +46,16 @@ logger = logging.getLogger(__name__)
 # A starter tenant tops out at 15 simultaneous connections — comfortably
 # below Postgres's default 100 even with 5 tenants on a shared pod.
 TIER_POOL_SIZES = {
+    # Os planos de 10/10/2026 (src/services/planos.py).
     "starter": (5, 10),
+    "core": (10, 20),
+    "plus": (20, 40),
+    "enterprise": (40, 80),
+    # Nomes antigos que ainda possam chegar de uma cache.
     "foundation": (10, 20),
-    "core": (20, 40),
+    "scale": (20, 40),
     "advanced": (40, 80),
-    "strategic": (80, 160),
+    "strategic": (40, 80),
 }
 
 
@@ -311,8 +316,7 @@ def _fetch_secret(arn: str) -> tuple[str, str]:
         if parsed.username and parsed.password is not None:
             return unquote(parsed.username), unquote(parsed.password)
     raise KeyError(
-        f"tenant DB secret {arn!r} has neither "
-        f"username/password nor a parseable url field"
+        f"tenant DB secret {arn!r} has neither " f"username/password nor a parseable url field"
     )
 
 
@@ -348,9 +352,7 @@ async def get_tenant_db(request: Optional["Request"] = None):  # type: ignore[na
     from fastapi import Request  # local import for type-only use
 
     if request is not None and isinstance(request, Request):
-        ctx: TenantContext = getattr(
-            request.state, "tenant_context", None
-        ) or _fallback_default()
+        ctx: TenantContext = getattr(request.state, "tenant_context", None) or _fallback_default()
     else:
         from src.core.tenant_context import current_tenant
 

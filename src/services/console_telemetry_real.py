@@ -96,9 +96,7 @@ class KubernetesInfraProvider:
             config.load_kube_config(config_file=prd_path)
             self._prd_client = client.CoreV1Api()
         except Exception as exc:  # noqa: BLE001
-            raise TelemetryUnavailable(
-                f"Failed to load kubeconfigs: {exc}"
-            ) from exc
+            raise TelemetryUnavailable(f"Failed to load kubeconfigs: {exc}") from exc
 
     def platform_health(self) -> PlatformHealth:
         self._ensure_clients()
@@ -118,15 +116,12 @@ class KubernetesInfraProvider:
                         if (
                             st.state
                             and st.state.waiting
-                            and (st.state.waiting.reason or "").lower()
-                            == "crashloopbackoff"
+                            and (st.state.waiting.reason or "").lower() == "crashloopbackoff"
                         ):
                             crash += 1
                             break
         except Exception as exc:  # noqa: BLE001
-            raise TelemetryUnavailable(
-                f"kubernetes platform_health failed: {exc}"
-            ) from exc
+            raise TelemetryUnavailable(f"kubernetes platform_health failed: {exc}") from exc
         # Latency / uptime / error_rate come from Prometheus — TODO
         # (use ``prometheus_api_client``). Until then, surface only
         # the pod counts; the rest is N/A.
@@ -161,9 +156,7 @@ class KubernetesInfraProvider:
                     )
                     continue
                 for p in items:
-                    container = (
-                        p.spec.containers[0] if p.spec and p.spec.containers else None
-                    )
+                    container = p.spec.containers[0] if p.spec and p.spec.containers else None
                     component = (
                         p.metadata.labels.get("app.kubernetes.io/component")
                         or p.metadata.labels.get("component")
@@ -171,9 +164,7 @@ class KubernetesInfraProvider:
                         if p.metadata and p.metadata.labels
                         else "unknown"
                     )
-                    restarts = sum(
-                        s.restart_count for s in (p.status.container_statuses or [])
-                    )
+                    restarts = sum(s.restart_count for s in (p.status.container_statuses or []))
                     image_sha = (
                         container.image.rsplit("@sha256:", 1)[-1][:12]
                         if container and container.image and "@sha256:" in container.image
@@ -201,9 +192,7 @@ class KubernetesInfraProvider:
                         )
                     )
         except Exception as exc:  # noqa: BLE001
-            raise TelemetryUnavailable(
-                f"kubernetes tenant_health failed: {exc}"
-            ) from exc
+            raise TelemetryUnavailable(f"kubernetes tenant_health failed: {exc}") from exc
         return TenantHealth(
             pods=pods,
             last_deploy_at=datetime.now(timezone.utc).isoformat(),
@@ -258,9 +247,7 @@ class KubernetesInfraProvider:
                         )
                     )
         except Exception as exc:  # noqa: BLE001
-            raise TelemetryUnavailable(
-                f"kubernetes cluster_nodes failed: {exc}"
-            ) from exc
+            raise TelemetryUnavailable(f"kubernetes cluster_nodes failed: {exc}") from exc
         return out
 
 
@@ -287,16 +274,12 @@ class AwsCostProvider:
         try:
             import boto3  # type: ignore[import-untyped]
         except ImportError as exc:
-            raise TelemetryUnavailable(
-                "boto3 not installed — pip install boto3"
-            ) from exc
+            raise TelemetryUnavailable("boto3 not installed — pip install boto3") from exc
         region = os.getenv("AWS_REGION") or "eu-west-1"
         try:
             self._client = boto3.client("ce", region_name=region)
         except Exception as exc:  # noqa: BLE001
-            raise TelemetryUnavailable(
-                f"AWS Cost Explorer client init failed: {exc}"
-            ) from exc
+            raise TelemetryUnavailable(f"AWS Cost Explorer client init failed: {exc}") from exc
         return self._client
 
     @staticmethod
@@ -322,9 +305,7 @@ class AwsCostProvider:
         try:
             resp = client.get_cost_and_usage(**params)
         except Exception as exc:  # noqa: BLE001
-            raise TelemetryUnavailable(
-                f"Cost Explorer query failed: {exc}"
-            ) from exc
+            raise TelemetryUnavailable(f"Cost Explorer query failed: {exc}") from exc
 
         daily: List[TimeseriesPoint] = []
         totals_by_service: Dict[str, float] = {}
@@ -337,9 +318,7 @@ class AwsCostProvider:
                 # the cost-mix breakdown), but only count positive amounts
                 # toward the daily spend bar so data-transfer credits don't
                 # cancel out compute charges on the chart.
-                totals_by_service[service] = (
-                    totals_by_service.get(service, 0) + amt
-                )
+                totals_by_service[service] = totals_by_service.get(service, 0) + amt
                 if amt > 0:
                     day_total += amt
             daily.append(
@@ -406,9 +385,7 @@ class MoloniBillingProvider:
         try:
             import requests  # type: ignore[import-untyped]
         except ImportError as exc:
-            raise TelemetryUnavailable(
-                "requests not installed — pip install requests"
-            ) from exc
+            raise TelemetryUnavailable("requests not installed — pip install requests") from exc
         if self._token and self._token_exp and self._token_exp > datetime.now(timezone.utc):
             return self._token
         api_key = os.getenv("MOLONI_API_KEY")
@@ -435,9 +412,12 @@ class MoloniBillingProvider:
     @staticmethod
     def _moloni_tier_price_eur(tier: str) -> float:
         prices = {
-            "starter": 1250.0,
+            # Planos de 10/10/2026 (preço de tabela, sem IVA).
+            "plus": 1800.0,
+            "enterprise": 1800.0,
+            "starter": 490.0,
             "foundation": 3500.0,
-            "core": 7500.0,
+            "core": 900.0,
             "advanced": 15000.0,
             "strategic": 35000.0,
         }
@@ -573,9 +553,7 @@ class MoloniBillingProvider:
             from src.models.tenant import Tenant
             from sqlalchemy import create_engine, select, func
         except Exception as exc:  # pragma: no cover — import guard
-            raise TelemetryUnavailable(
-                f"revenue_summary import failed: {exc}"
-            ) from exc
+            raise TelemetryUnavailable(f"revenue_summary import failed: {exc}") from exc
 
         # Build a one-shot sync engine off the same DB URL.
         # render_as_string(hide_password=False) is required — str(url)
@@ -587,22 +565,20 @@ class MoloniBillingProvider:
             raise TelemetryUnavailable(f"revenue_summary: failed to build DB URL: {exc}") from exc
         sync_url = raw_url.replace("+asyncpg", "")
         sync_engine = create_engine(
-            sync_url, pool_pre_ping=True, future=True,
+            sync_url,
+            pool_pre_ping=True,
+            future=True,
             connect_args={"sslmode": "require"},
         )
         try:
             with sync_engine.connect() as conn:
-                rows = conn.execute(
-                    select(Tenant.tier).where(Tenant.is_active.is_(True))
-                ).all()
+                rows = conn.execute(select(Tenant.tier).where(Tenant.is_active.is_(True))).all()
         except Exception as exc:
             raise TelemetryUnavailable(f"revenue_summary: DB query failed: {exc}") from exc
         finally:
             sync_engine.dispose()
 
-        mrr_eur = sum(
-            self._moloni_tier_price_eur((tier or "starter")) for (tier,) in rows
-        )
+        mrr_eur = sum(self._moloni_tier_price_eur((tier or "starter")) for (tier,) in rows)
         return {
             "mrr_eur": round(mrr_eur, 2),
             "this_month_spend_usd": 0.0,
@@ -628,13 +604,24 @@ class MoloniBillingProvider:
         does not prevent the Console from loading.
         """
         _SKIP_NS = {
-            "kube-system", "kube-public", "kube-node-lease",
-            "velero", "cert-manager", "ingress-nginx",
+            "kube-system",
+            "kube-public",
+            "kube-node-lease",
+            "velero",
+            "cert-manager",
+            "ingress-nginx",
         }
         _RELEVANT_REASONS = {
-            "backoff", "crashloopbackoff", "failed", "failedmount",
-            "failedscheduling", "unhealthy", "imagepullbackoff",
-            "errimagepull", "oomkilled", "failedcreate",
+            "backoff",
+            "crashloopbackoff",
+            "failed",
+            "failedmount",
+            "failedscheduling",
+            "unhealthy",
+            "imagepullbackoff",
+            "errimagepull",
+            "oomkilled",
+            "failedcreate",
         }
         try:
             from kubernetes import client as _k8s, config as _cfg  # type: ignore[import-not-found]
@@ -652,6 +639,7 @@ class MoloniBillingProvider:
 
         since = datetime.now(timezone.utc) - timedelta(days=30)
         import re
+
         _numeric_suffix = re.compile(r"-\d+$")
 
         # Group: (reason, namespace, base-name) → latest event + first seen
@@ -690,20 +678,22 @@ class MoloniBillingProvider:
             groups.items(), key=lambda x: x[1]["last_ts"], reverse=True
         )[:20]:
             severity = (
-                "critical" if reason.lower() in {"oomkilled", "crashloopbackoff"}
-                else "warning"
+                "critical" if reason.lower() in {"oomkilled", "crashloopbackoff"} else "warning"
             )
             first_ts = g["ts"]
             if first_ts and first_ts.tzinfo is None:
                 first_ts = first_ts.replace(tzinfo=timezone.utc)
-            out.append(IncidentEntry(
-                id=f"k8s-{ns}-{base_name}-{reason}",
-                severity=severity,
-                title=f"{reason}: {base_name}" + (f" (×{g['count']})" if g["count"] > 1 else ""),
-                started_at=first_ts.isoformat() if first_ts else g["last_ts"].isoformat(),
-                resolved_at=None,
-                affected_tenants=[],
-            ))
+            out.append(
+                IncidentEntry(
+                    id=f"k8s-{ns}-{base_name}-{reason}",
+                    severity=severity,
+                    title=f"{reason}: {base_name}"
+                    + (f" (×{g['count']})" if g["count"] > 1 else ""),
+                    started_at=first_ts.isoformat() if first_ts else g["last_ts"].isoformat(),
+                    resolved_at=None,
+                    affected_tenants=[],
+                )
+            )
         return out
 
 
@@ -729,12 +719,8 @@ class PrometheusActivityProvider:
     catches that and renders a 503 banner.
     """
 
-    DEFAULT_PLATFORM_24H = (
-        'sum by (tenant) (rate(sky_ai_requests_total{tenant!=""}[5m]))'
-    )
-    DEFAULT_TENANT_7D = (
-        'sum(rate(sky_ai_requests_total{tenant="__SLUG__"}[1h]))'
-    )
+    DEFAULT_PLATFORM_24H = 'sum by (tenant) (rate(sky_ai_requests_total{tenant!=""}[5m]))'
+    DEFAULT_TENANT_7D = 'sum(rate(sky_ai_requests_total{tenant="__SLUG__"}[1h]))'
     DEFAULT_TOP_TENANTS = (
         'topk(10, sum by (tenant) (increase(sky_ai_requests_total{tenant!=""}[24h])))'
     )
@@ -747,9 +733,7 @@ class PrometheusActivityProvider:
         self, query: str, start: datetime, end: datetime, step_seconds: int
     ) -> List[Dict[str, Any]]:
         if not self._base:
-            raise TelemetryUnavailable(
-                "PROMETHEUS_URL env var required to enable real activity"
-            )
+            raise TelemetryUnavailable("PROMETHEUS_URL env var required to enable real activity")
         try:
             import requests  # type: ignore[import-untyped]
         except ImportError as exc:
@@ -794,14 +778,10 @@ class PrometheusActivityProvider:
             raise TelemetryUnavailable(f"Prometheus query failed: {exc}") from exc
         return body.get("data", {}).get("result", []) or []
 
-    def platform_activity_24h(
-        self, tenant_slugs: Sequence[str]
-    ) -> List[TimeseriesPoint]:
+    def platform_activity_24h(self, tenant_slugs: Sequence[str]) -> List[TimeseriesPoint]:
         end = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
         start = end - timedelta(hours=24)
-        query = os.getenv(
-            "PROMETHEUS_QUERY_PLATFORM_24H", self.DEFAULT_PLATFORM_24H
-        )
+        query = os.getenv("PROMETHEUS_QUERY_PLATFORM_24H", self.DEFAULT_PLATFORM_24H)
         series = self._query_range(query, start, end, step_seconds=3600)
         wanted = set(tenant_slugs)
         out: List[TimeseriesPoint] = []
@@ -824,13 +804,9 @@ class PrometheusActivityProvider:
         return out
 
     def tenant_activity_7d(self, slug: str) -> List[TimeseriesPoint]:
-        end = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        end = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         start = end - timedelta(days=7)
-        query_template = os.getenv(
-            "PROMETHEUS_QUERY_TENANT_7D", self.DEFAULT_TENANT_7D
-        )
+        query_template = os.getenv("PROMETHEUS_QUERY_TENANT_7D", self.DEFAULT_TENANT_7D)
         query = query_template.replace("__SLUG__", slug)
         series = self._query_range(query, start, end, step_seconds=86400)
         out: List[TimeseriesPoint] = []
@@ -849,9 +825,7 @@ class PrometheusActivityProvider:
         return out
 
     def top_tenants_by_queries(self) -> List[Dict[str, Any]]:
-        query = os.getenv(
-            "PROMETHEUS_QUERY_TOP_TENANTS", self.DEFAULT_TOP_TENANTS
-        )
+        query = os.getenv("PROMETHEUS_QUERY_TOP_TENANTS", self.DEFAULT_TOP_TENANTS)
         series = self._query_instant(query)
         rows: List[Dict[str, Any]] = []
         for ser in series:

@@ -60,15 +60,11 @@ async def resolve_metadata_space_id(
             if crew_space_id:
                 return str(crew_space_id)
         except Exception as e:  # noqa: BLE001 - non-fatal; fall through to conn lookup
-            logger.warning(
-                "Could not resolve crew.space_id for agent %s: %s", agent.id, e
-            )
+            logger.warning("Could not resolve crew.space_id for agent %s: %s", agent.id, e)
 
     # personal (or a crew whose parent space could not be resolved):
     # use the space that owns the target connection.
-    target_conn = connection_id or (
-        str(agent.connection_ids[0]) if agent.connection_ids else None
-    )
+    target_conn = connection_id or (str(agent.connection_ids[0]) if agent.connection_ids else None)
     if target_conn:
         try:
             from src.models.space import SpaceConnection
@@ -82,11 +78,10 @@ async def resolve_metadata_space_id(
             if owning_space_id:
                 return str(owning_space_id)
         except Exception as e:  # noqa: BLE001 - non-fatal
-            logger.warning(
-                "Could not resolve owning space for connection %s: %s", target_conn, e
-            )
+            logger.warning("Could not resolve owning space for connection %s: %s", target_conn, e)
 
     return None
+
 
 # Coarse buckets — fine-grained cadence lives in schedule_jsonb.
 # `once` and `manual` deliberately map to "no next run" — the scheduler
@@ -101,7 +96,9 @@ FREQUENCY_HOURS = {
 }
 
 
-def _compute_next_execution(frequency: str, schedule_jsonb: Optional[dict] = None) -> Optional[datetime]:
+def _compute_next_execution(
+    frequency: str, schedule_jsonb: Optional[dict] = None
+) -> Optional[datetime]:
     """Next-run timestamp for the scheduler. `once` and `manual` return None
     so the agent never auto-fires. `schedule_jsonb.interval_value` lets
     the user express "every 3 hours" or "every 15 minutes" without a new
@@ -117,6 +114,8 @@ def _compute_next_execution(frequency: str, schedule_jsonb: Optional[dict] = Non
         except (TypeError, ValueError):
             pass
     return datetime.now(timezone.utc) + timedelta(hours=hours)
+
+
 DEPTH_CYCLES = {"quick": 1, "standard": 3, "deep": 5}
 
 
@@ -146,6 +145,14 @@ class AgentService:
         return await self.repo.get_by_id(agent_id)
 
     async def create_agent(self, data: AgentCreate, user_id: UUID) -> Agent:
+        # O plano do cliente (10/10/2026): quantas áreas vigiadas e de
+        # quanto em quanto tempo. No serviço, para nenhuma rota o saltar.
+        from src.services import limites_do_plano
+
+        await limites_do_plano.verificar_criacao(self.db, "max_agents")
+        await limites_do_plano.verificar_intervalo(
+            getattr(data, "schedule_jsonb", None), getattr(data, "frequency", None)
+        )
         next_run = _compute_next_execution(
             data.frequency,
             getattr(data, "schedule_jsonb", None),
@@ -161,7 +168,9 @@ class AgentService:
         # makes the creation path tolerant: scope=personal ALWAYS sets
         # scope_id to the creator's id so the resulting row is internally
         # consistent regardless of what the client posted.
-        scope_lower = (data.scope.value if hasattr(data.scope, "value") else str(data.scope)).lower()
+        scope_lower = (
+            data.scope.value if hasattr(data.scope, "value") else str(data.scope)
+        ).lower()
         resolved_scope_id = str(user_id) if scope_lower == "personal" else data.scope_id
 
         agent = Agent(
@@ -194,19 +203,25 @@ class AgentService:
         # doesn't hold open the HTTP connection past the frontend's 60s timeout.
         try:
             import asyncio
+
             space_id = str(data.scope_id) if data.scope == "space" and data.scope_id else None
             crew_id = str(data.scope_id) if data.scope == "crew" and data.scope_id else None
             await asyncio.wait_for(
-                self.ai_client.ingest_knowledge_graph({
-                    "id": str(agent.id),
-                    "entity_type": "agent",
-                    "name": agent.name,
-                    "scope": agent.scope,
-                    "space_id": space_id,
-                    "crew_id": crew_id,
-                    "owner_user_id": str(user_id),
-                    "entity_details": {"monitor_type": agent.monitor_type, "focus": agent.focus},
-                }),
+                self.ai_client.ingest_knowledge_graph(
+                    {
+                        "id": str(agent.id),
+                        "entity_type": "agent",
+                        "name": agent.name,
+                        "scope": agent.scope,
+                        "space_id": space_id,
+                        "crew_id": crew_id,
+                        "owner_user_id": str(user_id),
+                        "entity_details": {
+                            "monitor_type": agent.monitor_type,
+                            "focus": agent.focus,
+                        },
+                    }
+                ),
                 timeout=5.0,
             )
         except Exception as exc:
@@ -219,7 +234,9 @@ class AgentService:
         # lazy-loads in the async session.
         return await self.repo.get_with_findings(agent.id)
 
-    async def _require_can_mutate(self, agent: Agent, user: User, action: str = "agents.delete") -> None:
+    async def _require_can_mutate(
+        self, agent: Agent, user: User, action: str = "agents.delete"
+    ) -> None:
         """Apply the same policy we use for every other mutable entity:
 
         1. Personal agent: only the owner (=``scope_id``) may touch it.
@@ -273,9 +290,8 @@ class AgentService:
                 space_id = None
 
         from src.services.rbac_service import RBACService
-        await RBACService(self.db).assert_permission(
-            user, action, space_id=space_id
-        )
+
+        await RBACService(self.db).assert_permission(user, action, space_id=space_id)
 
     async def update_agent(self, agent_id: UUID, data: AgentUpdate, user: User) -> Agent:
         # Load with findings eager-loaded. AgentListResponse no longer
@@ -289,6 +305,15 @@ class AgentService:
         await self._require_can_mutate(agent, user, action="agents.edit")
 
         update_data = data.model_dump(exclude_unset=True)
+        # Mudar o agendamento também respeita o plano: senão, criava-se
+        # diário e editava-se para de 5 em 5 minutos.
+        if "schedule_jsonb" in update_data or "frequency" in update_data:
+            from src.services import limites_do_plano
+
+            await limites_do_plano.verificar_intervalo(
+                update_data.get("schedule_jsonb", getattr(agent, "schedule_jsonb", None)),
+                update_data.get("frequency", getattr(agent, "frequency", None)),
+            )
         for key, value in update_data.items():
             setattr(agent, key, value)
 
@@ -360,9 +385,7 @@ class AgentService:
         if not viz_kind:
             return "insight"
         kind = viz_kind.strip().lower()
-        chart_kinds = {
-            "bar", "line", "donut", "pie", "heatmap", "sparkline", "range", "area"
-        }
+        chart_kinds = {"bar", "line", "donut", "pie", "heatmap", "sparkline", "range", "area"}
         if kind in chart_kinds:
             return "chart"
         if kind in ("kpi", "big_number", "delta"):
@@ -410,27 +433,17 @@ class AgentService:
         )
         finding = finding_q.scalar_one_or_none()
         if finding is None or finding.agent_id != agent_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
 
-        agent_q = await self.db.execute(
-            _select(Agent).where(Agent.id == agent_id)
-        )
+        agent_q = await self.db.execute(_select(Agent).where(Agent.id == agent_id))
         agent = agent_q.scalar_one_or_none()
         if agent is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
-        page_q = await self.db.execute(
-            _select(Page).where(Page.id == page_id)
-        )
+        page_q = await self.db.execute(_select(Page).where(Page.id == page_id))
         page = page_q.scalar_one_or_none()
         if page is None or page.deleted_at:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Page not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
 
         widget_type = self._viz_kind_to_widget_type(finding.viz_kind)
 

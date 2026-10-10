@@ -57,7 +57,16 @@ from src.models.tenant_plan_limits import (
 
 # Product tiers (tenant_registry.tier) that don't exist in TIER_LIMITS
 # are treated as enterprise/unlimited — they pre-date the pricing model.
-_ENTERPRISE_CAPS = TIER_LIMITS["enterprise"]
+# Sem tecto: só para o pedido sem cliente resolvido (contexto da plataforma),
+# que vive no pedido e nunca é gravado. O Enterprise de 10/10/2026 tem tectos.
+_ENTERPRISE_CAPS = {
+    "max_agents": None,
+    "max_users": None,
+    "max_storage_gb": None,
+    "max_queries_per_month": None,
+    "max_connections": None,
+    "min_agent_interval_minutes": None,
+}
 _SENTINEL_UUID_STR = "00000000-0000-0000-0000-000000000000"
 
 
@@ -97,17 +106,10 @@ class TierLimitExceededError(PaymentRequiredError):
         self.current = current
         self.tier = tier
         self.upgrade_hint = upgrade_hint
-        message = (
-            f"Tier limit exceeded for {resource}: "
-            f"{current}/{limit} on tier {tier!r}"
-        )
+        message = f"Tier limit exceeded for {resource}: " f"{current}/{limit} on tier {tier!r}"
         super().__init__(
             message,
-            upgrade_cta=(
-                f"Upgrade to {upgrade_hint}"
-                if upgrade_hint
-                else "Contact sales"
-            ),
+            upgrade_cta=(f"Upgrade to {upgrade_hint}" if upgrade_hint else "Contact sales"),
         )
 
 
@@ -174,9 +176,7 @@ async def _log_threshold_crossings(
     failures are swallowed so a logging hiccup never blocks the hot
     path.
     """
-    already = list(
-        (row.last_threshold_alerted or {}).get(resource, [])
-    )
+    already = list((row.last_threshold_alerted or {}).get(resource, []))
     crossings = _crossed_thresholds(previous_percent, current_percent, already)
     if not crossings:
         return []
@@ -263,9 +263,9 @@ def _limit_for(row: TenantPlanLimits, resource: str) -> int | None:
     mapping = {
         "agents": row.max_agents,
         "users": row.max_users,
-        "storage": (row.max_storage_gb * 1024 * 1024 * 1024)
-        if row.max_storage_gb is not None
-        else None,
+        "storage": (
+            (row.max_storage_gb * 1024 * 1024 * 1024) if row.max_storage_gb is not None else None
+        ),
         "queries": row.max_queries_per_month,
     }
     return mapping.get(resource)
@@ -292,9 +292,7 @@ async def get_limits(
     row = await db.get(TenantPlanLimits, tid)
     if row is None:
         # Look up the tenant's product tier to pick the right caps.
-        tenant_row = (
-            await db.execute(select(Tenant).where(Tenant.id == tid))
-        ).scalar_one_or_none()
+        tenant_row = (await db.execute(select(Tenant).where(Tenant.id == tid))).scalar_one_or_none()
 
         # ── Não se inventa um plano para um cliente que não se sabe
         #    qual é. ──────────────────────────────────────────────────
@@ -403,9 +401,7 @@ async def contar_agentes(db: AsyncSession) -> int:
     número que pode estar errado. A coluna fica onde está; deixa é de ser
     lida, para não haver duas respostas à mesma pergunta.
     """
-    return int(
-        (await db.execute(select(func.count()).select_from(Agent))).scalar() or 0
-    )
+    return int((await db.execute(select(func.count()).select_from(Agent))).scalar() or 0)
 
 
 async def check_can_create_agent(
@@ -524,9 +520,7 @@ async def record_query_usage(
         await db.flush()
         await db.refresh(row)
 
-    await _bump_counter(
-        db, tid, "current_queries_this_month", 1, resource="queries"
-    )
+    await _bump_counter(db, tid, "current_queries_this_month", 1, resource="queries")
 
 
 async def record_storage_usage(
@@ -650,13 +644,9 @@ async def usage_percent(
         "users": _percent(row.current_users, row.max_users),
         "storage": _percent(
             row.current_storage_bytes,
-            (row.max_storage_gb * 1024 * 1024 * 1024)
-            if row.max_storage_gb is not None
-            else None,
+            (row.max_storage_gb * 1024 * 1024 * 1024) if row.max_storage_gb is not None else None,
         ),
-        "queries": _percent(
-            row.current_queries_this_month, row.max_queries_per_month
-        ),
+        "queries": _percent(row.current_queries_this_month, row.max_queries_per_month),
     }
 
 
@@ -696,21 +686,22 @@ async def set_tier(
     quotas. Counters are NOT reset — the customer's existing
     consumption carries over.
     """
-    if tier not in TIER_LIMITS:
+    from src.services import planos as _planos
+
+    slug = _planos.normalizar(tier)
+    if slug is None:
         raise ValueError(f"unknown tier: {tier!r}")
     tid = _resolve_tenant_id(tenant_id)
     row = await get_limits(db, tid)
-    limits = TIER_LIMITS[tier]
     await db.execute(
         update(TenantPlanLimits)
         .where(TenantPlanLimits.tenant_id == tid)
         .values(
-            tier=tier,
-            max_agents=limits["max_agents"],
-            max_users=limits["max_users"],
-            max_storage_gb=limits["max_storage_gb"],
-            max_queries_per_month=limits["max_queries_per_month"],
+            tier=slug,
+            max_users=None,
+            personalizado=False,
             last_threshold_alerted={},
+            **_planos.tectos(slug),
         )
     )
     await db.flush()
