@@ -506,6 +506,16 @@ async def run_agent_now(
         permission="agents.run",
     )
 
+    # SEM PERGUNTAS NO MÊS, diz-se JÁ — com o 402 e a frase do plano.
+    #
+    # Uma corrida pedida gasta uma pergunta como outra qualquer. Sem esta
+    # verificação, o botão respondia 200, levava ao fio, e a corrida saltava
+    # lá dentro: quem carregou ficava a ver a barra «a trabalhar» até
+    # desistir. O worker volta a verificar (o saldo pode acabar entretanto).
+    from src.services import limites_do_plano
+
+    await limites_do_plano.verificar_saldo()
+
     # Uma falha a pôr na fila é uma FALHA, e diz-se.
     #
     # Isto engolia a excepção e respondia 200 na mesma. Com o worker em baixo,

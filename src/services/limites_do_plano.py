@@ -298,29 +298,19 @@ async def devolver_pergunta(tenant_id: Optional[UUID] = None) -> None:
 
 # ── Agentes: de quanto em quanto tempo ─────────────────────────────────
 
-_UNIDADE_MIN = {"minute": 1, "hour": 60, "day": 1440, "week": 10080}
-_FREQUENCIA_MIN = {
-    "hourly": 60,
-    "daily": 1440,
-    "weekly": 10080,
-    "monthly": 43200,
-    "realtime": 1,
-    "continuous": 1,
-}
-
 
 def intervalo_em_minutos(
     schedule: Optional[dict], frequency: Optional[str] = None
 ) -> Optional[int]:
-    if (
-        schedule
-        and schedule.get("interval_value")
-        and schedule.get("interval_unit") in _UNIDADE_MIN
-    ):
-        return int(schedule["interval_value"]) * _UNIDADE_MIN[schedule["interval_unit"]]
-    if frequency:
-        return _FREQUENCIA_MIN.get(str(frequency).lower())
-    return None
+    """O intervalo mais curto do agente, em minutos — ver `cadencia_do_agente`.
+
+    Vivia aqui uma cópia própria que não conhecia `minutely` nem dias da
+    semana: um agente `minutely` sem unidade passava o portão de qualquer
+    plano. A regra é agora uma só, a mesma que o agendador usa.
+    """
+    from src.services.cadencia_do_agente import intervalo_em_minutos as _intervalo
+
+    return _intervalo(schedule, frequency)
 
 
 async def verificar_intervalo(schedule: Optional[dict], frequency: Optional[str] = None) -> None:

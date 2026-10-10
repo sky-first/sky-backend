@@ -176,6 +176,38 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "de sus datos. Lo intentaré de nuevo en la próxima ejecución."
         ),
     },
+    # Uma corrida sem fonte nenhuma a quem perguntar. Antes dizia «olhei
+    # e não há nada a assinalar» — sobre zero perguntas feitas.
+    "agent_no_data_source": {
+        "pt": (
+            "Não tenho nenhuma fonte de dados a que perguntar neste projeto. "
+            "Assim que houver uma ligação, volto a olhar na próxima corrida."
+        ),
+        "en": (
+            "I don't have any data source to ask in this project. As soon as "
+            "there's a connection, I'll look again on the next run."
+        ),
+        "es": (
+            "No tengo ninguna fuente de datos a la que preguntar en este "
+            "proyecto. En cuanto haya una conexión, volveré a mirar en la "
+            "próxima ejecución."
+        ),
+    },
+    # Sem perguntas no mês: a corrida salta. Diz-se, senão lê-se como avaria.
+    "agent_skipped_plan_quota": {
+        "pt": (
+            "Saltei esta corrida: as perguntas do plano deste mês acabaram. "
+            "Volto a olhar quando renovarem."
+        ),
+        "en": (
+            "I skipped this run: this month's plan questions have run out. "
+            "I'll look again when they renew."
+        ),
+        "es": (
+            "Me he saltado esta ejecución: se han agotado las preguntas del "
+            "plan de este mes. Volveré a mirar cuando se renueven."
+        ),
+    },
     # A última leitura boa, quando a de agora falhou.
     #
     # > «devemos ser inteligentes e talvez mostrar o primeiro resultado»

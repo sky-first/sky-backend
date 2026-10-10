@@ -30,6 +30,7 @@ Se fosse inferido, duas descobertas iguais em dias diferentes
 fundiam-se numa — e aí sim perdia-se um facto, que é exactamente o que
 um agente existe para dar.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -42,7 +43,6 @@ import pytest
 from src.core.locale import get_message
 from src.services import agent_conversation_service as svc
 from src.workers import agent_worker
-
 
 # ── As frases ───────────────────────────────────────────────────────
 
@@ -97,7 +97,7 @@ class TestOWorkerPedeOColapso:
         """
         fonte = inspect.getsource(agent_worker)
         i = fonte.index("tem_texto_proprio")
-        bloco = fonte[i : i + 900]
+        bloco = fonte[i : i + 1500]
         assert "None if tem_texto_proprio" in bloco
 
 

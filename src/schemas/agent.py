@@ -4,8 +4,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from src.models.agent import AgentArchetype, AgentFrequency, AgentScope, AgentStatus, FindingSeverity, FindingType
-
+from src.models.agent import (
+    AgentArchetype,
+    AgentFrequency,
+    AgentScope,
+    AgentStatus,
+    FindingSeverity,
+    FindingType,
+)
 
 # Phase 4.2: explicit set of agent monitor types the platform supports.
 # Kept as a tuple (not an Enum) because `datasource` is a legacy alias
@@ -27,13 +33,12 @@ def _validate_monitor_type(v: Optional[str]) -> Optional[str]:
         return None
     s = str(v).strip().lower()
     if s not in MONITOR_TYPE_VALUES:
-        raise ValueError(
-            f"monitor_type must be one of {MONITOR_TYPE_VALUES}, got {v!r}"
-        )
+        raise ValueError(f"monitor_type must be one of {MONITOR_TYPE_VALUES}, got {v!r}")
     return s
 
 
 # ─── Agent schemas ───
+
 
 class AgentCreate(BaseModel):
     name: str = Field(..., max_length=255)
@@ -49,6 +54,10 @@ class AgentCreate(BaseModel):
     focus: Optional[str] = None  # The question or instructions
     custom_sql: Optional[str] = None  # For sql monitor_type
     frequency: AgentFrequency = AgentFrequency.DAILY
+    # A cadência fina — ver `src/services/cadencia_do_agente.py`. Faltava na
+    # CRIAÇÃO: só se podia afinar depois, a editar, e a app não tinha como
+    # criar «de 15 em 15 minutos» ou «segunda, quarta e sexta às 9h».
+    schedule_jsonb: Optional[Dict[str, Any]] = None
     depth: Optional[str] = Field("standard", max_length=20)
     connection_ids: List[UUID] = []
     table_ids: Optional[List[str]] = None  # Granular table selection
@@ -88,7 +97,8 @@ class AgentUpdate(BaseModel):
     selected_context: Optional[Dict[str, List[str]]] = None
     # Flexible schedule — supersedes `frequency` when present.
     # Shape: {interval_value: int, interval_unit: minute|hour|day|week|month,
-    #         end: {type: forever|once|n_runs|until_date, value: int|iso?}}
+    #         weekdays?: [0..6] (0 = segunda), hour?, minute?, timezone?}
+    # Ver `src/services/cadencia_do_agente.py`.
     schedule_jsonb: Optional[Dict[str, Any]] = None
     # Phase 6 — auditable_only toggle. See AgentCreate for semantics.
     auditable_only: Optional[bool] = None
@@ -123,6 +133,7 @@ class AgentFindingResponse(BaseModel):
     @classmethod
     def _gravidade_antiga(cls, v):
         return _GRAVIDADES_ANTIGAS.get(str(v).lower().strip(), v)
+
     title: str
     description: str
     confidence: Optional[float] = None
@@ -182,6 +193,8 @@ class AgentResponse(BaseModel):
     custom_sql: Optional[str] = None
     chat_context: Optional[str] = None
     frequency: str
+    #: A cadência fina — a app precisa dela para mostrar «L, X, V · 09:00».
+    schedule_jsonb: Optional[Dict[str, Any]] = None
     depth: Optional[str] = None
     connection_ids: List[UUID] = []
     table_ids: Optional[List[str]] = None
@@ -276,6 +289,7 @@ class AgentListResponse(BaseModel):
     Callers that need findings should use ``GET /api/v1/agents/{agent_id}``
     (``AgentResponse``), which goes through ``get_with_findings``.
     """
+
     id: UUID
     name: str
     archetype: str
@@ -288,6 +302,8 @@ class AgentListResponse(BaseModel):
     custom_sql: Optional[str] = None
     chat_context: Optional[str] = None
     frequency: str
+    #: A cadência fina — a app precisa dela para mostrar «L, X, V · 09:00».
+    schedule_jsonb: Optional[Dict[str, Any]] = None
     depth: Optional[str] = None
     connection_ids: List[UUID] = []
     table_ids: Optional[List[str]] = None
