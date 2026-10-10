@@ -42,9 +42,13 @@ PADRAO = re.compile(r"\bAsyncSessionLocal\s*\(\s*\)")
 #: (resolução de quem é), ou operar sobre dados que vivem mesmo na
 #: plataforma (registo, provisionamento, facturação, métricas).
 DA_PLATAFORMA: dict[str, str] = {
-    "config/database.py": (
-        "a fábrica. É aqui que a sessão global é definida."
+    "services/limites_do_plano.py": (
+        "o PLANO de cada cliente vive na base da plataforma, onde só a "
+        "Consola escreve (10/10/2026). Lê-lo na base do cliente foi o "
+        "defeito: lá nascia «enterprise sem tecto» e nenhum cliente tinha "
+        "limites."
     ),
+    "config/database.py": ("a fábrica. É aqui que a sessão global é definida."),
     "config/tenant_connection_manager.py": (
         "o recurso do próprio gestor quando não há cliente. É o desenho."
     ),
@@ -56,9 +60,7 @@ DA_PLATAFORMA: dict[str, str] = {
         "descobre o cliente pelo domínio do email, no registo da "
         "plataforma. Mesma razão do resolvedor."
     ),
-    "services/rbac_service.py": (
-        "o portão de consentimento compara o domínio contra o registo."
-    ),
+    "services/rbac_service.py": ("o portão de consentimento compara o domínio contra o registo."),
     "workers/provisioning_worker.py": (
         "cria e destrói clientes. O `ProvisioningJob` é da plataforma — "
         "a base do cliente pode ainda não existir."
@@ -67,19 +69,13 @@ DA_PLATAFORMA: dict[str, str] = {
         "os limites de plano e os contadores por cliente vivem na "
         "plataforma, de propósito: é ela que cobra."
     ),
-    "workers/llm_metrics_worker.py": (
-        "percorre o registo e grava instantâneos agregados."
-    ),
-    "workers/por_cada_cliente.py": (
-        "lê a tabela de clientes. É a peça que os DESCOBRE."
-    ),
+    "workers/llm_metrics_worker.py": ("percorre o registo e grava instantâneos agregados."),
+    "workers/por_cada_cliente.py": ("lê a tabela de clientes. É a peça que os DESCOBRE."),
     "workers/agent_worker.py": (
         "o laço de topo lê o registo para saber por que clientes passar; "
         "o trabalho de cada um já abre a sessão dele."
     ),
-    "workers/insight_agent_worker.py": (
-        "mesmo laço de topo, mesma razão."
-    ),
+    "workers/insight_agent_worker.py": ("mesmo laço de topo, mesma razão."),
     # ── Por rever. Não são «OK»: são «ainda não investigados». ───────
     #
     # Entraram aqui para o teste poder passar hoje sem fingir que estão
@@ -90,8 +86,7 @@ DA_PLATAFORMA: dict[str, str] = {
         "socket fecha e ninguém aparece online."
     ),
     "api/deps.py": (
-        "POR REVER — `_track_activity` escreve `last_active_at`. Baixa "
-        "gravidade, mesma raiz."
+        "POR REVER — `_track_activity` escreve `last_active_at`. Baixa " "gravidade, mesma raiz."
     ),
     "api/v1/console.py": (
         "POR REVER — a Console é plano de plataforma, mas desde 16/08 a "
@@ -152,9 +147,7 @@ def test_a_lista_nao_tem_ficheiros_que_ja_nao_existem():
     """
     atuais = _ficheiros_com_sessao_global()
     mortos = sorted(f for f in DA_PLATAFORMA if f not in atuais)
-    assert not mortos, (
-        f"já não abrem a sessão global, tire-os da lista: {mortos}"
-    )
+    assert not mortos, f"já não abrem a sessão global, tire-os da lista: {mortos}"
 
 
 def test_cada_excepcao_tem_razao_escrita():

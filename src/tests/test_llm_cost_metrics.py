@@ -21,6 +21,7 @@ Five scenarios pin the contract the rest of the platform relies on:
    populated when the provider returns ``available=True`` and
    stays ``None`` on failure.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -123,9 +124,7 @@ def test_aggregates_tokens_cost_and_models():
     )
     payload = _sample_daily_payload()
 
-    with patch.object(
-        provider, "_fetch_daily_metrics", return_value=payload
-    ):
+    with patch.object(provider, "_fetch_daily_metrics", return_value=payload):
         out = provider.get_tenant_llm_metrics("gbt", days=30)
 
     # 5_000 + 800 + 2_000 = 7_800 input tokens.
@@ -144,9 +143,7 @@ def test_aggregates_tokens_cost_and_models():
     # qwen got 5000+2000 input across both days.
     assert out.by_model["qwen2.5-coder:32b"]["input_tokens"] == 7_000
     # qwen cost = 0.012 + 0.005 = 0.017.
-    assert out.by_model["qwen2.5-coder:32b"]["cost_usd"] == pytest.approx(
-        0.017, rel=0.001
-    )
+    assert out.by_model["qwen2.5-coder:32b"]["cost_usd"] == pytest.approx(0.017, rel=0.001)
 
 
 # ─── 3. Network failure → unavailable, no exception ──────────────────
@@ -214,7 +211,7 @@ async def _seed_tenant(db_session, slug, *, is_active=True):
         id=uuid.uuid4(),
         slug=slug,
         display_name=slug.title(),
-        tier="foundation",
+        tier="core",
         is_active=is_active,
         db_host="x",
         db_port=5432,
