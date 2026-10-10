@@ -38,13 +38,15 @@ from src.schemas.insight_agent import (
 
 _UNIT_TO_DELTA = {
     "minute": lambda n: timedelta(minutes=n),
-    "hour":   lambda n: timedelta(hours=n),
-    "day":    lambda n: timedelta(days=n),
-    "week":   lambda n: timedelta(weeks=n),
+    "hour": lambda n: timedelta(hours=n),
+    "day": lambda n: timedelta(days=n),
+    "week": lambda n: timedelta(weeks=n),
 }
 
 
-def _compute_next_run(schedule: AgentScheduleConfig, from_time: Optional[datetime] = None) -> datetime:
+def _compute_next_run(
+    schedule: AgentScheduleConfig, from_time: Optional[datetime] = None
+) -> datetime:
     base = from_time or datetime.utcnow()
     return base + _UNIT_TO_DELTA[schedule.interval_unit](schedule.interval_value)
 
@@ -92,6 +94,11 @@ class InsightAgentService:
         The identity is resolved from the widget's page; the caller's user
         id is always recorded as `created_by` / `attributed_to_user`.
         """
+        # O limite de áreas vigiadas vale também aqui: esta rota criava
+        # agentes sem passar por ele (auditoria de 10/10/2026).
+        from src.services import limites_do_plano
+
+        await limites_do_plano.verificar_criacao(self.db, "max_agents")
         widget, page = await self._load_widget_with_page(payload.widget_id)
         resolved = await resolve_identity_for_page(
             db=self.db,
@@ -104,10 +111,7 @@ class InsightAgentService:
             name=payload.name or f"Insight agent for {widget.title or widget.id}",
             archetype="custom",
             monitor_type="insight",
-            scope=(
-                "crew" if resolved.crew_id
-                else ("space" if resolved.space_id else "personal")
-            ),
+            scope=("crew" if resolved.crew_id else ("space" if resolved.space_id else "personal")),
             scope_id=str(resolved.crew_id or resolved.space_id or user.id),
             status="active",
             frequency="daily",  # legacy column; schedule_jsonb is the truth
@@ -155,18 +159,18 @@ class InsightAgentService:
     async def list_for_user(self, user: User) -> List[Agent]:
         """Return every insight agent the user can view — today, only their own."""
         result = await self.db.execute(
-            select(Agent).where(
+            select(Agent)
+            .where(
                 Agent.monitor_type == "insight",
                 Agent.created_by == user.id,
-            ).order_by(Agent.created_at.desc())
+            )
+            .order_by(Agent.created_at.desc())
         )
         return list(result.scalars().all())
 
     # ── update / lifecycle ──
 
-    async def update(
-        self, agent_id: UUID, user: User, payload: InsightAgentUpdate
-    ) -> Agent:
+    async def update(self, agent_id: UUID, user: User, payload: InsightAgentUpdate) -> Agent:
         agent = await self.get(agent_id, user)
         if not self._can_mutate(agent, user):
             raise ForbiddenError("Only the agent creator can update it")

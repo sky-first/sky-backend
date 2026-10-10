@@ -69,9 +69,9 @@ async def test_nao_serve_o_tecto_de_10_agentes_a_quem_nao_se_conhece(
     """
     row = await pricing_service.get_limits(db_session, tenant_id=SEM_CLIENTE)
 
-    assert row.max_agents is None, (
-        f"serviu um tecto de {row.max_agents} agentes a um pedido sem cliente"
-    )
+    assert (
+        row.max_agents is None
+    ), f"serviu um tecto de {row.max_agents} agentes a um pedido sem cliente"
     assert row.max_users is None
     assert row.max_storage_gb is None
 
@@ -111,7 +111,7 @@ async def test_um_cliente_conhecido_continua_a_receber_o_plano_dele(
     tid = uuid4()
     esperada = TenantPlanLimits(
         tenant_id=tid,
-        tier="foundation",
+        tier="core",
         **TIER_LIMITS["foundation"],
         current_agents=0,
         current_users=0,

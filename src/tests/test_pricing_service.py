@@ -47,8 +47,15 @@ def foundation_row_factory(db_session: AsyncSession):
     async def _make(**overrides) -> TenantPlanLimits:
         defaults = dict(
             tenant_id=_TID,
-            tier="foundation",
-            **TIER_LIMITS["foundation"],
+            tier="core",
+            # Números fixos deste ficheiro (o caminho antigo do
+            # `pricing_service`): o que se testa aqui é a lógica de
+            # comparação e de avisos, não a tabela de planos — essa vive em
+            # `planos.py` e testa-se em `test_planos_bloqueiam.py`.
+            max_agents=10,
+            max_users=25,
+            max_storage_gb=50,
+            max_queries_per_month=10_000,
             current_agents=0,
             current_users=0,
             current_storage_bytes=0,
@@ -95,9 +102,7 @@ async def _semear_agentes(db: AsyncSession, quantos: int) -> None:
 
 
 @pytest.mark.asyncio
-async def test_check_can_create_agent_under_cap(
-    db_session: AsyncSession, foundation_row_factory
-):
+async def test_check_can_create_agent_under_cap(db_session: AsyncSession, foundation_row_factory):
     await foundation_row_factory()
     await _semear_agentes(db_session, 5)
     # Foundation cap is 10 — under cap returns True without raising.
@@ -116,8 +121,8 @@ async def test_check_can_create_agent_at_cap_raises(
     assert err.resource == "agents"
     assert err.limit == 10
     assert err.current == 10
-    assert err.tier == "foundation"
-    assert err.upgrade_hint == "scale"
+    assert err.tier == "core"
+    assert err.upgrade_hint == "plus"
     assert err.status_code == 402
 
 
@@ -138,9 +143,7 @@ async def test_contador_desactualizado_nao_manda_no_portao(
 
 
 @pytest.mark.asyncio
-async def test_contador_a_zero_nao_abre_a_porta(
-    db_session: AsyncSession, foundation_row_factory
-):
+async def test_contador_a_zero_nao_abre_a_porta(db_session: AsyncSession, foundation_row_factory):
     """O outro sentido da mesma avaria, visto no sandbox: coluna a 0 com
     agentes a mais na base. Se o portão lesse a coluna, deixava passar."""
     await foundation_row_factory(current_agents=0)
@@ -171,9 +174,7 @@ async def test_check_can_create_agent_enterprise_is_unlimited(
 
 
 @pytest.mark.asyncio
-async def test_record_query_usage_increments(
-    db_session: AsyncSession, foundation_row_factory
-):
+async def test_record_query_usage_increments(db_session: AsyncSession, foundation_row_factory):
     row = await foundation_row_factory(current_queries_this_month=42)
     await pricing_service.record_query_usage(db_session, _TID)
     await db_session.refresh(row)
@@ -206,9 +207,7 @@ async def test_record_query_usage_rolls_over_on_new_month(
 
 
 @pytest.mark.asyncio
-async def test_usage_percent_calculation(
-    db_session: AsyncSession, foundation_row_factory
-):
+async def test_usage_percent_calculation(db_session: AsyncSession, foundation_row_factory):
     await foundation_row_factory(
         current_agents=5,  # 50%
         current_users=20,  # 80%
@@ -257,9 +256,7 @@ async def test_should_alert_returns_uncrossed_thresholds(
 
 
 @pytest.mark.asyncio
-async def test_should_alert_skips_already_alerted(
-    db_session: AsyncSession, foundation_row_factory
-):
+async def test_should_alert_skips_already_alerted(db_session: AsyncSession, foundation_row_factory):
     await foundation_row_factory(
         current_agents=8,  # 80%
         last_threshold_alerted={"agents": ["80"]},

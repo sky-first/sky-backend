@@ -135,13 +135,11 @@ def test_moloni_tenant_billing_resolves_customer_and_invoice(
             return grant_resp
         raise AssertionError(f"unexpected POST {url}")
 
-    with patch("requests.get", side_effect=fake_get), patch(
-        "requests.post", side_effect=fake_post
-    ):
+    with patch("requests.get", side_effect=fake_get), patch("requests.post", side_effect=fake_post):
         billing = MoloniBillingProvider().tenant_billing("gbt", tier="core")
 
     assert billing.tier == "core"
-    assert billing.monthly_amount_eur == 7500.0
+    assert billing.monthly_amount_eur == 900.0  # Core, proposta de 10/10/2026
     assert billing.payment_status == "paid"
     assert billing.last_invoice_at == "2026-05-20"
     assert billing.next_invoice_at == "2026-06-20"
@@ -154,10 +152,13 @@ def test_moloni_tenant_billing_unknown_customer_surfaces_error(
     from src.services.console_telemetry import TelemetryUnavailable
     from src.services.console_telemetry_real import MoloniBillingProvider
 
-    with patch(
-        "requests.post",
-        return_value=DummyResp({"access_token": "tok", "expires_in": 60}),
-    ), patch("requests.get", return_value=DummyResp([])):
+    with (
+        patch(
+            "requests.post",
+            return_value=DummyResp({"access_token": "tok", "expires_in": 60}),
+        ),
+        patch("requests.get", return_value=DummyResp([])),
+    ):
         with pytest.raises(TelemetryUnavailable):
             MoloniBillingProvider().tenant_billing("missing", tier="starter")
 

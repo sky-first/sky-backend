@@ -65,73 +65,23 @@ from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-#: Rótulo permitido pela restrição da base, por plano. Hoje é a identidade
-#: para os quatro — mas os nomes antigos continuam a mapear, para as linhas
-#: que já estão gravadas não ficarem órfãs.
-ROTULO_APLICADO: Dict[str, str] = {
-    "starter": "starter",
-    "foundation": "foundation",
-    "scale": "scale",
-    "enterprise": "enterprise",
-    # Nomes do catálogo anterior. Um cliente gravado com um destes continua a
-    # ser limitado — antes caía em «ilimitado».
-    "core": "scale",
-    "advanced": "enterprise",
-    "strategic": "enterprise",
-    "pilot": "starter",  # nome do starter antes de 30/05
-}
+# ── 10/10/2026: os números vêm de `planos.py`, a tabela única ──────────────
+from src.services import planos as _planos  # noqa: E402
 
-#: Os tectos. `None` = sem tecto.
-#:
-#: `max_queries_per_month` conta as perguntas E as corridas dos agentes — ver
-#: a nota no topo. Os valores saem de `economia_dos_planos`.
+#: Nome gravado na base, por plano (incluindo os nomes antigos).
+ROTULO_APLICADO: Dict[str, str] = {s: s for s in _planos.PLANOS}
+ROTULO_APLICADO.update(_planos.ANTIGOS)
+
+#: Os tectos, por plano. Utilizadores: ilimitados em todos (a proposta
+#: promete-o).
 TECTOS: Dict[str, Dict[str, Optional[int]]] = {
-    "starter": {  # Sky Start — 490 €/mês
-        "max_agents": 3,
-        # A página promete «utilizadores ilimitados». Uma promessa na página é
-        # um contrato: cobra-se pelo que se vigia, não por quem olha.
-        "max_users": None,
-        "max_storage_gb": 50,
-        "max_queries_per_month": 500,
-    },
-    "foundation": {  # Sky Core — 900 €/mês
-        "max_agents": 10,
-        "max_users": None,
-        "max_storage_gb": 200,
-        "max_queries_per_month": 2_000,
-    },
-    "scale": {  # Sky Plus — 1800 €/mês
-        "max_agents": 30,
-        "max_users": None,
-        "max_storage_gb": 500,
-        "max_queries_per_month": 8_000,
-    },
-    "enterprise": {
-        # Negociado por contrato, caso a caso. É o único sem tecto.
-        "max_agents": None,
-        "max_users": None,
-        "max_storage_gb": None,
-        "max_queries_per_month": None,
-    },
+    s: {**p.tectos, "max_users": None} for s, p in _planos.PLANOS.items()
 }
-# Os nomes antigos herdam os tectos do plano para onde apontam.
-for _antigo, _novo in (("core", "scale"), ("advanced", "enterprise"),
-                       ("strategic", "enterprise"), ("pilot", "starter")):
+for _antigo, _novo in _planos.ANTIGOS.items():
     TECTOS[_antigo] = dict(TECTOS[_novo])
 
-#: Decisões que eu não podia tomar. Lidas por um teste, para não ficarem
-#: esquecidas num comentário que ninguém abre — que foi exactamente o destino
-#: da «Fase 2» dos avisos.
+#: Decisões que eu não podia tomar. Lidas por um teste.
 A_CONFIRMAR: Dict[str, str] = {
-    "armazenamento": (
-        "Os GB de cada plano não vieram de nenhuma conta — herdei-os do "
-        "catálogo anterior. O custo de armazenamento é pequeno ao pé dos "
-        "tokens, mas os números merecem uma olhada."
-    ),
-    "utilizadores": (
-        "Idem. O número de utilizadores não custa tokens directamente, mas "
-        "mais gente faz mais perguntas — e essas contam."
-    ),
     "medicao_real_dos_tokens": (
         "O custo por pergunta (0,03 €) é uma estimativa da forma dos pedidos, "
         "não uma medição. A medição existe na `tenant_llm_daily_snapshots` "
@@ -149,7 +99,7 @@ def tectos_de(plano: str) -> Tuple[str, Dict[str, Optional[int]], bool]:
     """
     p = (plano or "").strip().lower()
     if p in TECTOS:
-        return ROTULO_APLICADO.get(p, "enterprise"), dict(TECTOS[p]), True
+        return ROTULO_APLICADO.get(p, p), dict(TECTOS[p]), True
 
     logger.warning(
         "tectos_do_plano: plano desconhecido %r — a servir SEM TECTO. "
@@ -157,4 +107,6 @@ def tectos_de(plano: str) -> Tuple[str, Dict[str, Optional[int]], bool]:
         "o registo do cliente tem um valor que ninguém escreveu.",
         plano,
     )
-    return "enterprise", dict(TECTOS["enterprise"]), False
+    # Caminho antigo (`pricing_service`): sem tecto e a gritar. O caminho
+    # novo (`limites_do_plano`) recusa um plano desconhecido.
+    return "enterprise", {k: None for k in TECTOS["enterprise"]}, False

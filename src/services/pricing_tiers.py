@@ -84,7 +84,7 @@ class TierPreset:
 TIER_REGISTRY: Dict[str, TierPreset] = {
     "starter": TierPreset(
         slug="starter",
-        display_name="Sky Start",
+        display_name="Starter",
         headline_price_eur=490,
         setup_fee_eur=0,
         pricing_unit="month",
@@ -113,9 +113,9 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
             "Quarterly review call",
         ],
     ),
-    "foundation": TierPreset(
-        slug="foundation",
-        display_name="Sky Core",
+    "core": TierPreset(
+        slug="core",
+        display_name="Core",
         headline_price_eur=900,
         setup_fee_eur=5_000,
         pricing_unit="month",
@@ -154,9 +154,9 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
     # Continuam a ser reconhecidos como nomes ANTIGOS no
     # `tectos_do_plano.ROTULO_APLICADO`, para os clientes gravados com
     # eles nao ficarem sem tecto. Mas ja nao se vendem.
-    "scale": TierPreset(
-        slug="scale",
-        display_name="Sky Plus",
+    "plus": TierPreset(
+        slug="plus",
+        display_name="Plus",
         headline_price_eur=1_800,
         setup_fee_eur=10_000,
         pricing_unit="month",
@@ -175,9 +175,7 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
             "Organisations structuring their collective intelligence "
             "layer with operational maturity."
         ),
-        onboarding_scope=(
-            "White-glove provisioning (1-week setup + integration support)"
-        ),
+        onboarding_scope=("White-glove provisioning (1-week setup + integration support)"),
         support_sla="Dedicated CSM · 4h response · 99.5% uptime",
         bedrock_dedicated_profile=True,
         inclusions=[
@@ -190,7 +188,7 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
     ),
     "enterprise": TierPreset(
         slug="enterprise",
-        display_name="Sky Max",
+        display_name="Enterprise",
         headline_price_eur=None,
         setup_fee_eur=None,
         pricing_unit="custom",
@@ -208,8 +206,7 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
         monitored_entities_cap=None,
         concurrent_sessions_cap=None,
         target_audience=(
-            "Organisations where collective intelligence is mission-"
-            "critical infrastructure."
+            "Organisations where collective intelligence is mission-" "critical infrastructure."
         ),
         onboarding_scope="Custom — negotiated per contract",
         support_sla="24/7 priority · named on-call engineers",
@@ -231,9 +228,39 @@ TIER_REGISTRY: Dict[str, TierPreset] = {
 }
 
 
+# ── Os números vêm da tabela única (10/10/2026) ─────────────────────────
+#
+# Estes presets guardam o resto do pacote (SLA, inclusões, rate limit). Os
+# TECTOS saem de `planos.py` — antes cada tabela tinha os seus, e nenhuma
+# batia com a proposta comercial.
+def _alinhar_com_planos() -> None:
+    from src.services import planos as _planos
+
+    from dataclasses import replace
+
+    for slug, preset in list(TIER_REGISTRY.items()):
+        p = _planos.PLANOS[slug]
+        t = p.tectos
+        TIER_REGISTRY[slug] = replace(
+            preset,
+            capacity_limits={
+                "agents": t["max_agents"],
+                "sources": t["max_connections"],
+                "indexed_gb": t["max_storage_gb"],
+            },
+            headline_price_eur=p.preco_mensal_eur,
+            display_name=p.nome,
+        )
+
+
+_alinhar_com_planos()
+
+
 def get_tier(slug: str) -> Optional[TierPreset]:
-    """Lookup. Returns None for unknown slugs."""
-    return TIER_REGISTRY.get(slug.lower())
+    """Lookup — aceita os nomes antigos (foundation, scale, …)."""
+    from src.services import planos as _planos
+
+    return TIER_REGISTRY.get(_planos.normalizar(slug) or (slug or "").lower())
 
 
 def list_tiers() -> List[TierPreset]:

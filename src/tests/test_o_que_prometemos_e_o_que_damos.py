@@ -40,7 +40,12 @@ TIERS = [t.slug for t in pricing_tiers.list_tiers()]
 
 
 def test_os_dois_sitios_conhecem_os_mesmos_planos():
-    assert set(TIERS) == set(TIER_LIMITS), (
+    # TIER_LIMITS também responde aos nomes antigos (foundation, scale…),
+    # que mapeiam; o que se vende tem de estar todo lá.
+    from src.services import planos
+
+    assert set(TIERS) == set(planos.PLANOS)
+    assert set(TIERS) <= set(TIER_LIMITS), (
         "um plano existe num sitio e nao no outro — o Console vende o que "
         "a plataforma nao sabe impor, ou ao contrario"
     )
@@ -52,9 +57,9 @@ def test_os_agentes_prometidos_sao_os_impostos(slug):
     impoe = TIER_LIMITS[slug]["max_agents"]
     if impoe is None:
         return  # ilimitado: o catalogo usa um numero grande de propósito
-    assert mostra == impoe, (
-        f"{slug}: o Console mostra {mostra} agentes e a plataforma deixa {impoe}"
-    )
+    assert (
+        mostra == impoe
+    ), f"{slug}: o Console mostra {mostra} agentes e a plataforma deixa {impoe}"
 
 
 @pytest.mark.parametrize("slug", TIERS)
@@ -64,37 +69,33 @@ def test_o_espaco_prometido_e_o_imposto(slug):
     impoe = TIER_LIMITS[slug]["max_storage_gb"]
     if impoe is None:
         return
-    assert mostra == impoe, (
-        f"{slug}: o Console promete {mostra} GB e a plataforma deixa {impoe} GB"
-    )
+    assert mostra == impoe, f"{slug}: o Console promete {mostra} GB e a plataforma deixa {impoe} GB"
 
 
 def test_os_numeros_sao_os_que_o_lucas_decidiu():
-    """3/5 · 10/50 · 50/200, decidido a 02/10/2026.
+    """Áreas vigiadas e GB da proposta oficial (10/10/2026).
 
     Fixado por extenso porque sao numeros comerciais: se alguem os mudar,
     foi uma decisao de preco e nao um acaso de codigo.
     """
     esperado = {
-        "starter": (3, 5),
-        "foundation": (10, 50),
-        "scale": (50, 200),
+        "starter": (10, 10),
+        "core": (30, 50),
+        "plus": (100, 200),
     }
     for slug, (agentes, gb) in esperado.items():
         c = pricing_tiers.get_tier(slug).capacity_limits
         assert (c["agents"], c["indexed_gb"]) == (agentes, gb), f"{slug} mudou"
 
 
-def test_o_quarto_plano_nao_se_chama_enterprise():
-    """«Enterprise» e ingles num produto que vende em PT e ES — e todas as
-    clientes sao empresas, por isso o nome nao distingue nada.
-
-    «Max» le-se igual nas tres linguas e fecha a escada:
-    Start -> Core -> Plus -> Max.
-    """
-    nome = pricing_tiers.get_tier("enterprise").display_name
-    assert nome == "Sky Max", nome
-    assert "Enterprise" not in nome
+def test_os_nomes_sao_os_da_proposta_oficial():
+    """Starter · Core · Plus · Enterprise — como na proposta enviada aos
+    clientes (10/10/2026). A 02/10 tinha-se decidido «Sky Start/Core/Plus/
+    Max»; o documento oficial ganhou («segue os dados do documento»)."""
+    nomes = [
+        pricing_tiers.get_tier(s).display_name for s in ("starter", "core", "plus", "enterprise")
+    ]
+    assert nomes == ["Starter", "Core", "Plus", "Enterprise"]
 
 
 def test_os_nomes_nao_se_traduzem():
@@ -106,7 +107,6 @@ def test_os_nomes_nao_se_traduzem():
     """
     for slug in TIERS:
         nome = pricing_tiers.get_tier(slug).display_name
-        assert nome.startswith("Sky "), f"{slug}: {nome!r} foge ao padrao"
         assert nome.isascii(), f"{slug}: {nome!r} tem acentos — nao e marca"
 
 
@@ -130,7 +130,7 @@ def test_os_nomes_nao_se_traduzem():
 
 def test_os_precos_sao_mensais():
     """O documento comercial: 490 / 900 / 1.800 por MES."""
-    esperado = {"starter": 490, "foundation": 900, "scale": 1_800}
+    esperado = {"starter": 490, "core": 900, "plus": 1_800}
     for slug, preco in esperado.items():
         t = pricing_tiers.get_tier(slug)
         assert t.headline_price_eur == preco, slug

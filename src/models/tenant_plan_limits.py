@@ -31,6 +31,7 @@ from enum import Enum
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -67,48 +68,28 @@ class PricingTier(str, Enum):
     """
 
     STARTER = "starter"
-    FOUNDATION = "foundation"
-    SCALE = "scale"
+    CORE = "core"
+    PLUS = "plus"
     ENTERPRISE = "enterprise"
 
 
-# Per-tier ceilings — single source of truth used by the seed in the
-# migration AND by the service's tier-change helper. NULL = unlimited.
+# Os tectos vêm de `src/services/planos.py` — a ÚNICA tabela (10/10/2026).
+# Mantidos com os nomes antigos para quem ainda os importa.
+from src.services.planos import PLANOS as _PLANOS  # noqa: E402
+
 TIER_LIMITS: dict[str, dict[str, int | None]] = {
-    "starter": {
-        "max_agents": 3,
-        "max_users": 5,
-        "max_storage_gb": 5,
-        "max_queries_per_month": 1_000,
-    },
-    "foundation": {
-        "max_agents": 10,
-        "max_users": 25,
-        "max_storage_gb": 50,
-        "max_queries_per_month": 10_000,
-    },
-    "scale": {
-        "max_agents": 50,
-        "max_users": 100,
-        "max_storage_gb": 200,
-        "max_queries_per_month": 50_000,
-    },
-    "enterprise": {
-        "max_agents": None,
-        "max_users": None,
-        "max_storage_gb": None,
-        "max_queries_per_month": None,
-    },
+    slug: dict(p.tectos) for slug, p in _PLANOS.items()
 }
 
+UPGRADE_HINT: dict[str, str | None] = {slug: p.seguinte for slug, p in _PLANOS.items()}
 
-# Suggested upgrade target per tier — surfaced in 402 payloads.
-UPGRADE_HINT: dict[str, str | None] = {
-    "starter": "foundation",
-    "foundation": "scale",
-    "scale": "enterprise",
-    "enterprise": None,
-}
+# Os nomes antigos (foundation, scale, …) continuam a responder, com os
+# números do plano para onde apontam.
+from src.services.planos import ANTIGOS as _ANTIGOS  # noqa: E402
+
+for _antigo, _novo in _ANTIGOS.items():
+    TIER_LIMITS[_antigo] = dict(TIER_LIMITS[_novo])
+    UPGRADE_HINT[_antigo] = UPGRADE_HINT[_novo]
 
 
 class TenantPlanLimits(Base):
@@ -124,8 +105,8 @@ class TenantPlanLimits(Base):
     tier = Column(
         String(32),
         nullable=False,
-        server_default="foundation",
-        default="foundation",
+        server_default="starter",
+        default="starter",
     )
 
     # Ceilings — NULL means "no limit" (Enterprise contract).
@@ -133,20 +114,20 @@ class TenantPlanLimits(Base):
     max_users = Column(Integer, nullable=True)
     max_storage_gb = Column(Integer, nullable=True)
     max_queries_per_month = Column(Integer, nullable=True)
+    #: Fontes de dados ligadas (10/10/2026).
+    max_connections = Column(Integer, nullable=True)
+    #: O intervalo mínimo entre corridas de um agente: «avisos diários» no
+    #: Starter, «imediatos» no Core, «contínuos» no Plus.
+    min_agent_interval_minutes = Column(Integer, nullable=True)
+    #: A Consola mexeu nos números deste cliente à mão («plano especial»).
+    #: Mudar de plano com o preset volta a pô-lo a falso.
+    personalizado = Column(Boolean, nullable=False, server_default="false", default=False)
 
     # Live counters — updated by hot-path hooks and the daily storage job.
-    current_agents = Column(
-        Integer, nullable=False, server_default="0", default=0
-    )
-    current_users = Column(
-        Integer, nullable=False, server_default="0", default=0
-    )
-    current_storage_bytes = Column(
-        BigInteger, nullable=False, server_default="0", default=0
-    )
-    current_queries_this_month = Column(
-        Integer, nullable=False, server_default="0", default=0
-    )
+    current_agents = Column(Integer, nullable=False, server_default="0", default=0)
+    current_users = Column(Integer, nullable=False, server_default="0", default=0)
+    current_storage_bytes = Column(BigInteger, nullable=False, server_default="0", default=0)
+    current_queries_this_month = Column(Integer, nullable=False, server_default="0", default=0)
 
     # When the current monthly window opened — pricing_worker rolls
     # this over once a calendar month elapses.
@@ -180,15 +161,11 @@ class TenantPlanLimits(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "tier IN ('starter', 'foundation', 'scale', 'enterprise')",
+            "tier IN ('starter', 'core', 'plus', 'enterprise')",
             name="tenant_plan_limits_tier_check",
         ),
-        CheckConstraint(
-            "current_agents >= 0", name="tenant_plan_limits_agents_nonneg"
-        ),
-        CheckConstraint(
-            "current_users >= 0", name="tenant_plan_limits_users_nonneg"
-        ),
+        CheckConstraint("current_agents >= 0", name="tenant_plan_limits_agents_nonneg"),
+        CheckConstraint("current_users >= 0", name="tenant_plan_limits_users_nonneg"),
         CheckConstraint(
             "current_storage_bytes >= 0",
             name="tenant_plan_limits_storage_nonneg",

@@ -32,37 +32,18 @@ para a corrigir.
 
 from __future__ import annotations
 
-# Registo → comercial.
+# ── 10/10/2026: um vocabulário só ────────────────────────────────────────
 #
-# `core` e `advanced` caem os dois em `scale`: comercialmente é o mesmo
-# plano, a diferença entre eles é de infraestrutura.
-REGISTO_PARA_COMERCIAL: dict[str, str] = {
-    "starter": "starter",
-    "foundation": "foundation",
-    "core": "scale",
-    "advanced": "scale",
-    "strategic": "enterprise",
-}
+# O registo e os limites passaram a usar os mesmos quatro nomes da proposta
+# comercial (starter · core · plus · enterprise) — ver `planos.py` e a
+# migração `planos_uma_tabela_20261010`. Estes mapas ficam como identidade,
+# mais os nomes antigos, para quem ainda os importa.
+from src.services import planos as _planos  # noqa: E402
 
-# Comercial → registo. Não é a inversa exacta: `scale` tem de escolher
-# um dos dois, e escolhe o mais baixo. Promover de `core` para
-# `advanced` é uma decisão de infraestrutura e não se faz a partir de um
-# cartão de preço.
-COMERCIAL_PARA_REGISTO: dict[str, str] = {
-    "starter": "starter",
-    "foundation": "foundation",
-    "scale": "core",
-    "enterprise": "strategic",
-}
-
-# O nome que uma pessoa lê. O selo mostrava `strategic`, que não é um
-# produto que exista em lado nenhum — nem no site, nem numa proposta.
-NOME_COMERCIAL: dict[str, str] = {
-    "starter": "Sky Start",
-    "foundation": "Sky Core",
-    "scale": "Sky Plus",
-    "enterprise": "Sky Max",
-}
+REGISTO_PARA_COMERCIAL: dict[str, str] = {s: s for s in _planos.PLANOS}
+REGISTO_PARA_COMERCIAL.update(_planos.ANTIGOS)
+COMERCIAL_PARA_REGISTO: dict[str, str] = dict(REGISTO_PARA_COMERCIAL)
+NOME_COMERCIAL: dict[str, str] = {s: p.nome for s, p in _planos.PLANOS.items()}
 
 
 def comercial_de(tier_do_registo: str | None) -> str | None:

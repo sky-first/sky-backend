@@ -171,6 +171,9 @@ _SRC_ROOT = _PROJECT_ROOT / "src"
 # entry from this set — the test fails loudly the day someone adds a
 # NEW direct caller without justification.
 _ALLOWED_REFS = {
+    # O plano de cada cliente vive na base da PLATAFORMA, onde só a Consola
+    # escreve (10/10/2026). Ver services/limites_do_plano.py.
+    str((_SRC_ROOT / "services" / "limites_do_plano.py").resolve()),
     str((_SRC_ROOT / "config" / "database.py").resolve()),
     str((_SRC_ROOT / "config" / "tenant_connection_manager.py").resolve()),
     str((_SRC_ROOT / "api" / "middleware" / "tenant_resolver.py").resolve()),

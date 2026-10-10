@@ -13,7 +13,7 @@ PlanTierLiteral = Literal["demo", "free", "starter", "pro", "enterprise"]
 # Enforced commercial tier — distinct from the legacy product tiers
 # above. The Pricing Fase 2 customer-facing /usage endpoint speaks this
 # vocabulary because it mirrors what tenant_plan_limits.tier stores.
-PricingTierLiteral = Literal["starter", "foundation", "scale", "enterprise"]
+PricingTierLiteral = Literal["starter", "core", "plus", "enterprise"]
 
 
 class TenantPlanResponse(BaseModel):
@@ -66,6 +66,11 @@ class TenantUsageResponse(BaseModel):
     current_storage_bytes: int
     max_queries_per_month: Optional[int] = None
     current_queries_this_month: int
+    # Plano de 10/10/2026: fontes de dados e intervalo mínimo dos agentes.
+    max_connections: Optional[int] = None
+    current_connections: int = 0
+    min_agent_interval_minutes: Optional[int] = None
+    personalizado: bool = False
     usage_percent: UsagePercent
     queries_period_start: datetime
     updated_at: datetime

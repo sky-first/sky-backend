@@ -344,9 +344,7 @@ class MockCostProvider:
 
 
 class MockActivityProvider:
-    def platform_activity_24h(
-        self, tenant_slugs: Sequence[str]
-    ) -> List[TimeseriesPoint]:
+    def platform_activity_24h(self, tenant_slugs: Sequence[str]) -> List[TimeseriesPoint]:
         # 24 hourly buckets, with one point per (hour, tenant).
         end = _now().replace(minute=0, second=0, microsecond=0)
         out: List[TimeseriesPoint] = []
@@ -393,9 +391,12 @@ class MockActivityProvider:
 
 class MockBillingProvider:
     _PRICE_BY_TIER = {
-        "starter": 1250.0,
+        # Planos de 10/10/2026 (preço de tabela, sem IVA).
+        "plus": 1800.0,
+        "enterprise": 1800.0,
+        "starter": 490.0,
         "foundation": 3500.0,
-        "core": 7500.0,
+        "core": 900.0,
         "advanced": 15000.0,
         "strategic": 35000.0,
     }

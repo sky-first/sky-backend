@@ -220,6 +220,13 @@ class ConnectionService:
         except Exception:
             raise BadRequestError(f"Invalid connector_id: {connection_data.connector_id}")
 
+        # O plano do cliente: Starter 1 fonte, Core 2, Plus 5 (10/10/2026).
+        # No serviço e não na rota — qualquer caminho que crie uma ligação
+        # passa por aqui. Ver docs/PLANOS_E_LIMITES_2026-10.md.
+        from src.services import limites_do_plano
+
+        await limites_do_plano.verificar_criacao(self.db, "max_connections")
+
         # Encrypt config before storing (uses ENCRYPTION_KEY env if set)
         from src.utils.encryption import encrypt_dict
 

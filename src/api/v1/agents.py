@@ -311,9 +311,8 @@ async def create_agent(
     # service confirms the insert; if anything between here and the
     # bump fails, the row is gone (transaction rollback) and the
     # counter stays consistent.
-    await pricing_service.check_can_create_agent(db)
+    # O limite do plano é verificado dentro do serviço (limites_do_plano).
     agent = await service.create_agent(data, user_id=current_user.id)
-    await pricing_service.record_agent_created(db)
 
     # ── A PRIMEIRA CORRIDA É AGORA ───────────────────────────────────────
     #
@@ -913,9 +912,7 @@ async def run_agent_stream(
             )
             from src.core.tenant_context import current_tenant
 
-            async with tenant_connection_manager.session_for(
-                current_tenant()
-            ) as save_db:
+            async with tenant_connection_manager.session_for(current_tenant()) as save_db:
                 has_answer = bool(collected_answer and collected_answer.strip())
                 # Finding type is always a member of the FindingType enum
                 # ("insight", "opportunity", "risk"). A run that produced no

@@ -63,10 +63,8 @@ from src.schemas.chat_stream import (
 )
 from src.schemas.common import ErrorResponse, SuccessResponse
 from src.schemas.scan_insight import ScanInsightNotifyRequest, ScanInsightNotifyResponse
-from src.services import pricing_service
 from src.services.a_fonte_da_resposta import _guardar_a_fonte
 from src.services.ai_service import AIService
-from src.services.beats_service import BeatsService
 from src.services.message_service import MessageService
 from src.services.rbac_service import RBACService
 from src.services.scan_insight_service import record_scan_finding
@@ -247,11 +245,12 @@ async def process_query(
     # anyway. Raises 402 PaymentRequiredError before the LLM runs;
     # records 20 beats on success. Demo: 500 beats / 7d. Starter:
     # 5K / 30d. See src/config/plan_quotas.py.
-    await BeatsService(db).check_and_record(
-        current_user,
-        kind="chat",
-        source_id=None,
-    )
+    # O plano do cliente (10/10/2026): 402 com a frase do plano se as
+    # perguntas do mês acabaram. Substitui os «beats» por utilizador, que
+    # tinham números próprios. A pergunta gasta-se na porta do sky-ai.
+    from src.services import limites_do_plano
+
+    await limites_do_plano.verificar_saldo()
 
     try:
         response = await ai_service.process_query(current_user.id, query_data)
@@ -289,10 +288,7 @@ async def process_query(
     # Pricing Fase 1 — bump the monthly query counter at the end of
     # the request so failed queries (LLM error, etc.) don't get
     # charged against the tenant's quota.
-    try:
-        await pricing_service.record_query_usage(db)
-    except Exception:  # pragma: no cover — accounting failure is non-fatal
-        logger.exception("pricing_record_query_usage_failed")
+    # A pergunta já foi contada na porta do sky-ai (limites_do_plano).
     return response
 
 
@@ -630,13 +626,13 @@ async def send_chat_message(
     if getattr(message_data, "locale", None) == "auto":
         message_data.locale = None
 
+    from src.services import limites_do_plano
+
+    await limites_do_plano.verificar_saldo()
     ai_service = AIService(db)
     response = await ai_service.send_chat_message(current_user.id, message_data)
     # Pricing Fase 1 — counter bump on success only.
-    try:
-        await pricing_service.record_query_usage(db)
-    except Exception:  # pragma: no cover — accounting failure is non-fatal
-        logger.exception("pricing_record_query_usage_failed")
+    # A pergunta já foi contada na porta do sky-ai (limites_do_plano).
     return response
 
 
@@ -699,6 +695,9 @@ async def upload_chat_file(
     if len(data) > max_bytes:
         raise HTTPException(status_code=413, detail="File too large (max 10 MB).")
 
+    from src.services import limites_do_plano
+
+    await limites_do_plano.verificar_armazenamento(db, len(data))
     text = extract_text(file.filename, file.content_type, data)
     fid = _uuid.uuid4()
     row = FileUpload(
@@ -752,6 +751,9 @@ async def send_chat_message_stream(
     service's streaming endpoint (stream_query_connection) line-by-line
     instead of waiting for the final JSON.
     """
+    from src.services import limites_do_plano
+
+    await limites_do_plano.verificar_saldo()
     # Page resolution — same as /chat.
     if not message_data.page_id:
         page_repo = PageRepository(db)
@@ -1976,11 +1978,7 @@ async def suggest_widget_title(
     # cap aren't charged when 429 would have rejected anyway.
     # suggest_title is 5 beats (single gpt-4o-mini call, much cheaper
     # than the L3 chat path).
-    await BeatsService(db).check_and_record(
-        current_user,
-        kind="suggest_title",
-        source_id=None,
-    )
+    # Sugerir um título não é uma pergunta do cliente: não gasta plano.
 
     client = AIServiceHTTPClient()
     suggested = await client.suggest_widget_title(

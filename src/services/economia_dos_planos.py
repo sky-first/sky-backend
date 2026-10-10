@@ -118,13 +118,25 @@ class Plano:
 #: uma promessa na página é um contrato.
 #:
 #: As perguntas incluem as corridas dos agentes — ver a nota no topo.
-PLANOS: Dict[str, Plano] = {
-    "starter": Plano("starter", "Sky Start", 490, 3, 500, 1, None),
-    "foundation": Plano("foundation", "Sky Core", 900, 10, 2_000, 2, None),
-    "scale": Plano("scale", "Sky Plus", 1_800, 30, 8_000, 5, None),
-    # Negociado caso a caso. Sem tectos na plataforma: o contrato é que manda.
-    "enterprise": Plano("enterprise", "Sky Enterprise", None, None, None, None, None),
-}
+# 10/10/2026: lidos da tabela única (`planos.py`), em vez de cravados aqui.
+def _da_tabela_unica() -> Dict[str, Plano]:
+    from src.services import planos as _planos
+
+    return {
+        slug: Plano(
+            slug,
+            p.nome,
+            p.preco_mensal_eur,
+            p.tectos["max_agents"],
+            p.tectos["max_queries_per_month"],
+            p.tectos["max_connections"],
+            None,
+        )
+        for slug, p in _planos.PLANOS.items()
+    }
+
+
+PLANOS: Dict[str, Plano] = _da_tabela_unica()
 
 
 def custo_de_tokens_no_limite_eur(slug: str) -> float:

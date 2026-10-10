@@ -15,7 +15,9 @@ Pydantic body inspection (the wrapper hides the original signature).
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Dict, List, Optional
+
+from pydantic import BaseModel
 
 from datetime import datetime, timezone
 
@@ -293,9 +295,7 @@ async def create_tenant(
     db: AsyncSession = Depends(get_db_session),
 ) -> ConsoleTenantDetail:
     try:
-        detail, _job = await console_service.create_tenant(
-            db, payload, actor_email=user.email
-        )
+        detail, _job = await console_service.create_tenant(db, payload, actor_email=user.email)
     except ValueError as exc:
         if str(exc) == "slug_taken":
             await audit_action(
@@ -384,20 +384,26 @@ async def suspend_tenant(
     db: AsyncSession = Depends(get_db_session),
     payload: SuspendTenantRequest = Body(default_factory=SuspendTenantRequest),
 ) -> ProvisioningJobRead:
-    job = await console_service.suspend_tenant(
-        db, slug, payload, actor_email=user.email
-    )
+    job = await console_service.suspend_tenant(db, slug, payload, actor_email=user.email)
     if job is None:
         await audit_action(
-            db, actor=user, action=AuditAction.SUSPEND_TENANT,
-            tenant_slug=slug, result=AuditResult.FAILURE,
-            result_details={"reason": "not_found"}, actor_ip=_ip(request),
+            db,
+            actor=user,
+            action=AuditAction.SUSPEND_TENANT,
+            tenant_slug=slug,
+            result=AuditResult.FAILURE,
+            result_details={"reason": "not_found"},
+            actor_ip=_ip(request),
         )
         raise HTTPException(status_code=404, detail="Tenant not found")
     await audit_action(
-        db, actor=user, action=AuditAction.SUSPEND_TENANT,
-        tenant_slug=slug, result=AuditResult.SUCCESS,
-        request_payload=payload.model_dump(), actor_ip=_ip(request),
+        db,
+        actor=user,
+        action=AuditAction.SUSPEND_TENANT,
+        tenant_slug=slug,
+        result=AuditResult.SUCCESS,
+        request_payload=payload.model_dump(),
+        actor_ip=_ip(request),
     )
     return ProvisioningJobRead.model_validate(job)
 
@@ -415,14 +421,22 @@ async def resume_tenant(
     job = await console_service.resume_tenant(db, slug, actor_email=user.email)
     if job is None:
         await audit_action(
-            db, actor=user, action=AuditAction.RESUME_TENANT,
-            tenant_slug=slug, result=AuditResult.FAILURE,
-            result_details={"reason": "not_found"}, actor_ip=_ip(request),
+            db,
+            actor=user,
+            action=AuditAction.RESUME_TENANT,
+            tenant_slug=slug,
+            result=AuditResult.FAILURE,
+            result_details={"reason": "not_found"},
+            actor_ip=_ip(request),
         )
         raise HTTPException(status_code=404, detail="Tenant not found")
     await audit_action(
-        db, actor=user, action=AuditAction.RESUME_TENANT,
-        tenant_slug=slug, result=AuditResult.SUCCESS, actor_ip=_ip(request),
+        db,
+        actor=user,
+        action=AuditAction.RESUME_TENANT,
+        tenant_slug=slug,
+        result=AuditResult.SUCCESS,
+        actor_ip=_ip(request),
     )
     return ProvisioningJobRead.model_validate(job)
 
@@ -439,14 +453,15 @@ async def destroy_tenant(
     db: AsyncSession = Depends(get_db_session),
 ) -> ProvisioningJobRead:
     try:
-        job = await console_service.destroy_tenant(
-            db, slug, payload, actor_email=user.email
-        )
+        job = await console_service.destroy_tenant(db, slug, payload, actor_email=user.email)
     except ValueError as exc:
         if str(exc) == "confirmation_failed":
             await audit_action(
-                db, actor=user, action=AuditAction.DESTROY_TENANT,
-                tenant_slug=slug, result=AuditResult.FAILURE,
+                db,
+                actor=user,
+                action=AuditAction.DESTROY_TENANT,
+                tenant_slug=slug,
+                result=AuditResult.FAILURE,
                 result_details={"reason": "confirmation_failed"},
                 actor_ip=_ip(request),
             )
@@ -463,14 +478,21 @@ async def destroy_tenant(
         raise
     if job is None:
         await audit_action(
-            db, actor=user, action=AuditAction.DESTROY_TENANT,
-            tenant_slug=slug, result=AuditResult.FAILURE,
-            result_details={"reason": "not_found"}, actor_ip=_ip(request),
+            db,
+            actor=user,
+            action=AuditAction.DESTROY_TENANT,
+            tenant_slug=slug,
+            result=AuditResult.FAILURE,
+            result_details={"reason": "not_found"},
+            actor_ip=_ip(request),
         )
         raise HTTPException(status_code=404, detail="Tenant not found")
     await audit_action(
-        db, actor=user, action=AuditAction.DESTROY_TENANT,
-        tenant_slug=slug, result=AuditResult.SUCCESS,
+        db,
+        actor=user,
+        action=AuditAction.DESTROY_TENANT,
+        tenant_slug=slug,
+        result=AuditResult.SUCCESS,
         actor_ip=_ip(request),
     )
     return ProvisioningJobRead.model_validate(job)
@@ -613,9 +635,7 @@ async def mark_job_operational(
     db: AsyncSession = Depends(get_db_session),
 ) -> ProvisioningJobRead:
     try:
-        job = await console_service.mark_job_operational(
-            db, job_id, actor_email=user.email
-        )
+        job = await console_service.mark_job_operational(db, job_id, actor_email=user.email)
     except ValueError as exc:
         msg = str(exc)
         if msg == "not_found":
@@ -633,10 +653,7 @@ _REDACT_KEYS = {"password", "secret", "token", "authorization"}
 
 
 def _redact(payload: dict) -> dict:
-    return {
-        k: ("***REDACTED***" if k.lower() in _REDACT_KEYS else v)
-        for k, v in payload.items()
-    }
+    return {k: ("***REDACTED***" if k.lower() in _REDACT_KEYS else v) for k, v in payload.items()}
 
 
 # ── Pricing tiers (B#16) ───────────────────────────────────────────
@@ -766,158 +783,67 @@ async def change_tenant_tier(
     user: User = Depends(require_sky_team),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConsoleTenantDetail:
-    """Move a tenant to a different pricing tier.
+    """Muda o plano de um cliente — a rota antiga, agora com a tabela única.
 
-    Downgrade safety: when ``apply_preset`` is true and the new tier's
-    preset caps would be lower than what the tenant currently
-    consumes, we refuse with 422 and return a per-dimension breakdown
-    of which resources exceed the target. The operator can either:
-
-      * free capacity on the tenant side (delete agents/sources) and
-        retry, or
-      * pass ``apply_preset=false`` to flip the label only, leaving the
-        existing ``capacity_limits`` intact (the contractual-override
-        path — used when a customer pays Starter but has a carved-out
-        higher cap negotiated in the contract).
-
-    Idempotency: setting the tier to the value it already has is a
-    no-op for the audit log but still re-applies the preset caps when
-    ``apply_preset`` is true, so the operator can use this endpoint as
-    "reset capacity limits to preset" too.
-
-    Gap #4 (2026-05-30): the downgrade check now consults BOTH
-    ``Tenant.capacity_used`` (legacy bookkeeping JSONB) and
-    ``tenant_plan_limits.current_*`` (canonical Fase-1 enforcement
-    counters). Either source over the new cap → 422. On success we
-    also push the new tier into ``tenant_plan_limits`` so the hot-path
-    hooks pick up the new ceilings.
+    Aceita os nomes de hoje (starter/core/plus/enterprise) e os antigos
+    (foundation/scale/…), que mapeiam. `apply_preset=false` muda só o nome
+    e mantém os tectos que o cliente tem (o «plano especial» de antes). O
+    caminho completo, com tectos à medida, é `PUT /tenants/{slug}/plano`.
+    Ver docs/PLANOS_E_LIMITES_2026-10.md.
     """
-    preset = pricing_tiers.get_tier(payload.tier)
-    if preset is None:
+    from src.services import limites_do_plano, planos as _planos
+
+    slug_plano = _planos.normalizar(payload.tier)
+    if slug_plano is None:
         raise HTTPException(status_code=400, detail="Unknown tier")
-    row = (
-        await db.execute(select(Tenant).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    row = (await db.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    # ── Downgrade safety check (Gap #4, 2026-05-30) ────────────────
-    # Only enforce when the operator asked us to apply the preset;
-    # ``apply_preset=false`` is the explicit "keep contractual
-    # override" path and bypasses the check on purpose.
-    #
-    # We now consult TWO sources and merge their breaches:
-    #
-    #   1. ``Tenant.capacity_used`` — legacy JSONB updated by a daily
-    #      bookkeeping job. Keyed by ``agents``/``sources``/``indexed_gb``
-    #      and compared against ``preset.capacity_limits`` (registry
-    #      side, product tier).
-    #
-    #   2. ``tenant_plan_limits.current_*`` — Fase 1 canonical counters
-    #      bumped atomically from the hot paths (every agent/user
-    #      create, every AI query). Compared against ``TIER_LIMITS``
-    #      for the mapped commercial tier.
-    #
-    # Either source over the new cap → 422. Each breach carries a
-    # ``source`` field so the operator can tell which counter tripped
-    # and (if needed) reconcile a desync between the two.
-    new_commercial_tier = _REGISTRY_TO_COMMERCIAL_TIER.get(preset.slug)
+    antes = await limites_do_plano.plano_do_cliente(row.id)
     if payload.apply_preset:
-        used = row.capacity_used or {}
-        breaches: list[dict] = []
-        for dim, new_cap in preset.capacity_limits.items():
-            current_used = int(used.get(dim, 0) or 0)
-            if current_used > int(new_cap):
-                breaches.append(
-                    {
-                        "dimension": dim,
-                        "used": current_used,
-                        "new_cap": int(new_cap),
-                        "excess": current_used - int(new_cap),
-                        "source": "capacity_used",
-                    }
-                )
+        tectos_novos = None
+        alvo = _planos.tectos(slug_plano)
+    else:
+        tectos_novos = {r: antes[r] for r in _planos.RECURSOS}
+        alvo = dict(tectos_novos)
 
-        # Plan-limits source. Skipped when the registry tier doesn't
-        # have a commercial mapping (defensive — every tier in
-        # TIER_REGISTRY is mapped above, but keep the guard so a future
-        # tier add doesn't accidentally bypass enforcement).
-        if new_commercial_tier is not None:
-            breaches.extend(
-                await _plan_limits_breaches(
-                    db, row.id, new_commercial_tier
-                )
-            )
-
-        if breaches:
-            await audit_action(
-                db,
-                actor=user,
-                action=AuditAction.CHANGE_TIER,
-                tenant_slug=slug,
-                result=AuditResult.FAILURE,
-                request_payload={
-                    "from": row.tier,
-                    "to": preset.slug,
-                    "apply_preset": True,
-                    "reason": "downgrade_exceeds_new_caps",
-                    "breaches": breaches,
-                    "intent": "tier_change_with_plan_limits",
-                },
-                actor_ip=_ip(request),
-            )
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error": "tier_change_breach",
-                    "message": (
-                        f"Tenant {slug!r} currently consumes more than the "
-                        f"{preset.slug!r} tier allows. Free capacity or pass "
-                        f"apply_preset=false to keep the override."
-                    ),
-                    "from_tier": row.tier,
-                    "to_tier": preset.slug,
-                    "breaches": breaches,
-                },
-            )
-
-    # O que vai para a coluna é o nome do REGISTO. Ver
-    # `_COMMERCIAL_TO_REGISTRY_TIER` — gravar o nome comercial aqui dava
-    # 500 em `scale` e em `enterprise`.
-    tier_do_registo = _COMMERCIAL_TO_REGISTRY_TIER.get(preset.slug, preset.slug)
-    old_tier = row.tier
-    tier_actually_changed = old_tier != tier_do_registo
-    row.tier = tier_do_registo
-    row.rate_limit_rpm = preset.rate_limit_rpm
-    row.rate_limit_tpm = preset.rate_limit_tpm
-    if payload.apply_preset:
-        row.capacity_limits = dict(preset.capacity_limits)
-    await db.flush()
-
-    # ── Sync tenant_plan_limits (Gap #4, 2026-05-30) ───────────────
-    # After a successful tier change with ``apply_preset=true``, update
-    # the Fase-1 plan-limits row so the hot-path enforcement hooks
-    # (agents/users/storage/queries) see the new ceilings. We call
-    # ``pricing_service.set_tier`` rather than UPDATE'ing the row by
-    # hand — it owns the threshold-alert reset semantics. Counters
-    # carry over by design (the customer's existing consumption isn't
-    # zeroed when they switch tier).
-    #
-    # ``apply_preset=false`` keeps the existing plan-limits row
-    # untouched: that path is the "contractual override" — the operator
-    # is flipping the label only.
-    if payload.apply_preset and new_commercial_tier is not None:
-        await pricing_service.set_tier(
-            db, new_commercial_tier, tenant_id=row.id
+    uso = await limites_do_plano.uso_do_cliente(slug, row.id)
+    fora = limites_do_plano.excessos(alvo, uso)
+    if fora:
+        await audit_action(
+            db,
+            actor=user,
+            action=AuditAction.CHANGE_TIER,
+            tenant_slug=slug,
+            result=AuditResult.FAILURE,
+            request_payload={"from": antes["plano"], "to": slug_plano, "excessos": fora},
+            actor_ip=_ip(request),
         )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "tier_change_breach",
+                "message": "O cliente já usa mais do que este plano permite. Nada foi alterado.",
+                "from_tier": antes["plano"],
+                "to_tier": slug_plano,
+                "breaches": fora,
+            },
+        )
+
+    await limites_do_plano.mudar_plano(db, row.id, slug_plano, tectos_novos)
+    preset = pricing_tiers.get_tier(slug_plano)
+    if preset is not None:
+        row.rate_limit_rpm = preset.rate_limit_rpm
+        row.rate_limit_tpm = preset.rate_limit_tpm
+        if payload.apply_preset:
+            row.capacity_limits = dict(preset.capacity_limits)
+    await db.flush()
 
     from src.api.middleware.tenant_resolver import clear_tenant_cache
 
     clear_tenant_cache()
-
-    # Only audit a real tier change. Re-applying the preset onto the
-    # same tier doesn't add value to the CHANGE_TIER feed.
-    if tier_actually_changed:
+    if antes["plano"] != slug_plano:
         await audit_action(
             db,
             actor=user,
@@ -925,11 +851,10 @@ async def change_tenant_tier(
             tenant_slug=slug,
             result=AuditResult.SUCCESS,
             request_payload={
-                "from": old_tier,
-                "to": preset.slug,
+                "from": antes["plano"],
+                "to": slug_plano,
                 "apply_preset": payload.apply_preset,
-                "intent": "tier_change_with_plan_limits",
-                "commercial_tier": new_commercial_tier,
+                "intent": "plano_10_10",
             },
             actor_ip=_ip(request),
         )
@@ -950,9 +875,7 @@ async def update_capacity_limits(
     user: User = Depends(require_sky_team),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConsoleTenantDetail:
-    row = (
-        await db.execute(select(Tenant).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    row = (await db.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
     row.capacity_limits = {
@@ -1020,9 +943,7 @@ async def get_tenant_db_config(
 
     Read-only; no audit entry (parent ``/tenants/{slug}`` GET writes one).
     """
-    row = (
-        await db.execute(select(Tenant).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    row = (await db.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
     return TenantDbConfigRead.model_validate(row)
@@ -1062,9 +983,7 @@ async def update_tenant_db_config(
             },
         )
 
-    row = (
-        await db.execute(select(Tenant).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    row = (await db.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
     if row is None:
         await audit_action(
             db,
@@ -1129,9 +1048,7 @@ async def test_tenant_db_config(
     )
     from src.core.tenant_context import TenantContext
 
-    row = (
-        await db.execute(select(Tenant).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    row = (await db.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
@@ -1207,9 +1124,7 @@ async def test_tenant_db_config(
     if not ok:
         from fastapi.responses import JSONResponse
 
-        return JSONResponse(
-            status_code=503, content=result_payload.model_dump()
-        )
+        return JSONResponse(status_code=503, content=result_payload.model_dump())
     return result_payload
 
 
@@ -1242,9 +1157,7 @@ async def update_csm_notes(
     user: User = Depends(require_sky_team),
     db: AsyncSession = Depends(get_db_session),
 ) -> CSMNotesRead:
-    exists = (
-        await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    exists = (await db.execute(select(Tenant.slug).where(Tenant.slug == slug))).scalar_one_or_none()
     if exists is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
     await csm_service.update_notes(db, slug, payload, actor_email=user.email)
@@ -1434,9 +1347,7 @@ async def update_support_ticket(
     my_roles = await console_rbac.load_active_roles(db, user.email)
     console_rbac.assert_permission(my_roles, "support.write")
     row = (
-        await db.execute(
-            select(ConsoleSupportTicket).where(ConsoleSupportTicket.id == ticket_id)
-        )
+        await db.execute(select(ConsoleSupportTicket).where(ConsoleSupportTicket.id == ticket_id))
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -1493,8 +1404,11 @@ async def start_impersonation(
     db.add(session_row)
     await db.flush()
     await audit_action(
-        db, actor=user, action=AuditAction.GRANT_ROLE,  # closest enum value
-        tenant_slug=slug, result=AuditResult.SUCCESS,
+        db,
+        actor=user,
+        action=AuditAction.GRANT_ROLE,  # closest enum value
+        tenant_slug=slug,
+        result=AuditResult.SUCCESS,
         request_payload={
             "impersonation_start": True,
             "target": payload.target_user_email,
@@ -1518,9 +1432,7 @@ async def end_impersonation(
 ) -> ImpersonationSessionRead:
     row = (
         await db.execute(
-            select(ConsoleImpersonationSession).where(
-                ConsoleImpersonationSession.id == session_id
-            )
+            select(ConsoleImpersonationSession).where(ConsoleImpersonationSession.id == session_id)
         )
     ).scalar_one_or_none()
     if row is None:
@@ -1551,21 +1463,23 @@ async def list_impersonation_sessions(
     # Everyone with audit.read can see the impersonation log
     console_rbac.assert_permission(my_roles, "audit.read")
     rows = (
-        await db.execute(
-            select(ConsoleImpersonationSession)
-            .order_by(ConsoleImpersonationSession.started_at.desc())
-            .limit(limit)
+        (
+            await db.execute(
+                select(ConsoleImpersonationSession)
+                .order_by(ConsoleImpersonationSession.started_at.desc())
+                .limit(limit)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [_impersonation_read(r) for r in rows]
 
 
 # ── Compliance / DPO (It6) ─────────────────────────────────────────
 
 
-async def _get_or_create_compliance(
-    db: AsyncSession, tenant_slug: str
-) -> ConsoleTenantCompliance:
+async def _get_or_create_compliance(db: AsyncSession, tenant_slug: str) -> ConsoleTenantCompliance:
     row = (
         await db.execute(
             select(ConsoleTenantCompliance).where(
@@ -1631,8 +1545,11 @@ async def update_tenant_compliance(
     row.updated_by = user.email
     await db.flush()
     await audit_action(
-        db, actor=user, action=AuditAction.UPDATE_TENANT,
-        tenant_slug=slug, result=AuditResult.SUCCESS,
+        db,
+        actor=user,
+        action=AuditAction.UPDATE_TENANT,
+        tenant_slug=slug,
+        result=AuditResult.SUCCESS,
         request_payload={"compliance_update": list(changes.keys())},
         actor_ip=_ip(request),
     )
@@ -1691,16 +1608,23 @@ async def export_dsar(
     if tenant_exists is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
     audit_rows = (
-        await db.execute(
-            select(InternalConsoleAudit)
-            .where(InternalConsoleAudit.tenant_slug == slug)
-            .order_by(InternalConsoleAudit.timestamp.desc())
+        (
+            await db.execute(
+                select(InternalConsoleAudit)
+                .where(InternalConsoleAudit.tenant_slug == slug)
+                .order_by(InternalConsoleAudit.timestamp.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     compliance = await _get_or_create_compliance(db, slug)
     await audit_action(
-        db, actor=user, action=AuditAction.VIEW_AUDIT,
-        tenant_slug=slug, result=AuditResult.SUCCESS,
+        db,
+        actor=user,
+        action=AuditAction.VIEW_AUDIT,
+        tenant_slug=slug,
+        result=AuditResult.SUCCESS,
         request_payload={"dsar_export": True, "rows": len(audit_rows)},
         actor_ip=_ip(request),
     )
@@ -1775,8 +1699,10 @@ async def get_dashboard_activity(
     db: AsyncSession = Depends(get_db_session),
 ) -> DashboardActivityResponse:
     slugs = (
-        await db.execute(select(Tenant.slug).where(Tenant.is_active == True))  # noqa: E712
-    ).scalars().all()
+        (await db.execute(select(Tenant.slug).where(Tenant.is_active == True)))  # noqa: E712
+        .scalars()
+        .all()
+    )
     points = activity_provider().platform_activity_24h(slugs)
     return DashboardActivityResponse(
         points=[p.__dict__ for p in points],
@@ -1804,9 +1730,7 @@ async def get_platform_cost(
     )
 
 
-def _month_to_date_and_projection(
-    daily: List, now: datetime
-) -> tuple[float, float]:
+def _month_to_date_and_projection(daily: List, now: datetime) -> tuple[float, float]:
     """Derive month-to-date spend and a linear end-of-month projection
     from a daily cost series.
 
@@ -1823,8 +1747,11 @@ def _month_to_date_and_projection(
 
     ym = now.strftime("%Y-%m")
     mtd = round(
-        sum(float(getattr(p, "value", 0.0)) for p in daily
-            if str(getattr(p, "t", "")).startswith(ym)),
+        sum(
+            float(getattr(p, "value", 0.0))
+            for p in daily
+            if str(getattr(p, "t", "")).startswith(ym)
+        ),
         2,
     )
     days_in_month = calendar.monthrange(now.year, now.month)[1]
@@ -1852,8 +1779,7 @@ async def get_revenue_summary(
         # spend (apples-to-apples — both are month-scale), not the raw 30d
         # or partial MTD figure.
         gross_margin_pct = (
-            round((mrr_usd - projection_eom_usd) / mrr_usd * 100, 1)
-            if mrr_usd > 0 else 0.0
+            round((mrr_usd - projection_eom_usd) / mrr_usd * 100, 1) if mrr_usd > 0 else 0.0
         )
         data = {
             "mrr_eur": billing["mrr_eur"],
@@ -1873,11 +1799,7 @@ async def get_alerts(
 ) -> AlertsResponse:
     """Return the alerts list filtered to tenants that actually exist."""
     raw = billing_provider().alerts()
-    valid_slugs = set(
-        (
-            await db.execute(select(Tenant.slug))
-        ).scalars().all()
-    )
+    valid_slugs = set((await db.execute(select(Tenant.slug))).scalars().all())
     items = [a for a in raw if a.tenant_slug is None or a.tenant_slug in valid_slugs]
     return AlertsResponse(items=[a.__dict__ for a in items])
 
@@ -1894,9 +1816,7 @@ async def get_tenant_health(
     user: User = Depends(require_sky_team),
     db: AsyncSession = Depends(get_db_session),
 ) -> TenantHealthResponse:
-    exists = (
-        await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    exists = (await db.execute(select(Tenant.slug).where(Tenant.slug == slug))).scalar_one_or_none()
     if exists is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
     try:
@@ -1921,9 +1841,7 @@ async def get_tenant_activity(
     user: User = Depends(require_sky_team),
     db: AsyncSession = Depends(get_db_session),
 ) -> TenantActivityResponse:
-    exists = (
-        await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    exists = (await db.execute(select(Tenant.slug).where(Tenant.slug == slug))).scalar_one_or_none()
     if exists is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
     points = activity_provider().tenant_activity_7d(slug)
@@ -1944,9 +1862,7 @@ async def get_tenant_cost(
     user: User = Depends(require_sky_team),
     db: AsyncSession = Depends(get_db_session),
 ) -> CostBreakdownModel:
-    exists = (
-        await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    exists = (await db.execute(select(Tenant.slug).where(Tenant.slug == slug))).scalar_one_or_none()
     if exists is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
     try:
@@ -1974,9 +1890,7 @@ async def get_tenant_billing(
     user: User = Depends(require_sky_team),
     db: AsyncSession = Depends(get_db_session),
 ) -> TenantBillingResponse:
-    row = (
-        await db.execute(select(Tenant).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    row = (await db.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
     data = billing_provider().tenant_billing(slug, row.tier)
@@ -2038,9 +1952,7 @@ async def get_tenant_llm_metrics(
     db: AsyncSession = Depends(get_db_session),
     days: int = Query(30, ge=1, le=365),
 ) -> LlmMetricsResponse:
-    exists = (
-        await db.execute(select(Tenant.slug).where(Tenant.slug == slug))
-    ).scalar_one_or_none()
+    exists = (await db.execute(select(Tenant.slug).where(Tenant.slug == slug))).scalar_one_or_none()
     if exists is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
@@ -2048,9 +1960,7 @@ async def get_tenant_llm_metrics(
 
     # Langfuse trace tags use the tenant slug (matches the
     # ``tenant:<slug>`` convention emitted by the sky-poc-ai callback).
-    metrics = llm_cost_metrics_provider().get_tenant_llm_metrics(
-        tenant_id=slug, days=days
-    )
+    metrics = llm_cost_metrics_provider().get_tenant_llm_metrics(tenant_id=slug, days=days)
     return _llm_metrics_to_response(metrics)
 
 
@@ -2219,9 +2129,7 @@ async def get_notifications(
 
     # 1. Alerts
     alerts_raw = billing_provider().alerts()
-    valid_slugs = set(
-        (await db.execute(select(Tenant.slug))).scalars().all()
-    )
+    valid_slugs = set((await db.execute(select(Tenant.slug))).scalars().all())
     for a in alerts_raw:
         if a.tenant_slug and a.tenant_slug not in valid_slugs:
             continue
@@ -2234,9 +2142,7 @@ async def get_notifications(
                 detail=a.detail,
                 tenant_slug=a.tenant_slug,
                 href=(
-                    f"/console/tenants/{a.tenant_slug}"
-                    if a.tenant_slug
-                    else "/console/incidents"
+                    f"/console/tenants/{a.tenant_slug}" if a.tenant_slug else "/console/incidents"
                 ),
                 timestamp=datetime.fromisoformat(a.fired_at.replace("Z", "+00:00")),
             )
@@ -2244,13 +2150,17 @@ async def get_notifications(
 
     # 2. Open tickets
     open_tickets = (
-        await db.execute(
-            select(ConsoleSupportTicket)
-            .where(ConsoleSupportTicket.status.in_(["open", "in_progress"]))
-            .order_by(ConsoleSupportTicket.created_at.desc())
-            .limit(20)
+        (
+            await db.execute(
+                select(ConsoleSupportTicket)
+                .where(ConsoleSupportTicket.status.in_(["open", "in_progress"]))
+                .order_by(ConsoleSupportTicket.created_at.desc())
+                .limit(20)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for t in open_tickets:
         items.append(
             Notification(
@@ -2259,9 +2169,7 @@ async def get_notifications(
                 severity=(
                     "critical"
                     if t.severity == "critical"
-                    else "warning"
-                    if t.severity == "high"
-                    else "info"
+                    else "warning" if t.severity == "high" else "info"
                 ),
                 title=f"Support · {t.title}",
                 detail=f"{t.tenant_slug} · {t.severity}",
@@ -2273,13 +2181,17 @@ async def get_notifications(
 
     # 3. Recent failed jobs
     failed_jobs = (
-        await db.execute(
-            select(ProvisioningJob)
-            .where(ProvisioningJob.status == "failed")
-            .order_by(ProvisioningJob.started_at.desc())
-            .limit(10)
+        (
+            await db.execute(
+                select(ProvisioningJob)
+                .where(ProvisioningJob.status == "failed")
+                .order_by(ProvisioningJob.started_at.desc())
+                .limit(10)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for j in failed_jobs:
         items.append(
             Notification(
@@ -2312,9 +2224,7 @@ async def compare_tenants(
 
     items: List[TenantCompareEntry] = []
     for slug in slug_list:
-        t = (
-            await db.execute(select(Tenant).where(Tenant.slug == slug))
-        ).scalar_one_or_none()
+        t = (await db.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
         if t is None:
             continue
         csm_resp = await csm_service.build_csm_response(db, slug)
@@ -2329,9 +2239,7 @@ async def compare_tenants(
                 capacity_limits=t.capacity_limits or {},
                 health_score=csm_resp.health_score if csm_resp else 0,
                 health_breakdown=csm_resp.health_breakdown if csm_resp else {},
-                queries_7d=int(
-                    sum(p.value for p in activity_provider().tenant_activity_7d(slug))
-                ),
+                queries_7d=int(sum(p.value for p in activity_provider().tenant_activity_7d(slug))),
                 # O preco de tabela JA e mensal — dividi-lo por 12
                 # mostrava o Sky Start a 40,83 EUR/mes. Ver a nota em
                 # `TierPreset.headline_price_eur`.
@@ -2361,22 +2269,21 @@ async def get_board_pack(
     tenants = (await db.execute(select(Tenant))).scalars().all()
 
     mrr_usd = revenue["mrr_eur"] * 1.08  # EUR→USD (same conversion as revenue_summary route)
-    gross_margin_pct = (
-        round((mrr_usd - cost.total_usd) / mrr_usd * 100, 1)
-        if mrr_usd > 0 else 0.0
-    )
+    gross_margin_pct = round((mrr_usd - cost.total_usd) / mrr_usd * 100, 1) if mrr_usd > 0 else 0.0
 
     # Customers at risk
     at_risk: list[dict] = []
     for t in tenants:
         csm_resp = await csm_service.build_csm_response(db, t.slug)
         if csm_resp and csm_resp.health_score < 70:
-            at_risk.append({
-                "slug": t.slug,
-                "display_name": t.display_name,
-                "tier": t.tier,
-                "health_score": csm_resp.health_score,
-            })
+            at_risk.append(
+                {
+                    "slug": t.slug,
+                    "display_name": t.display_name,
+                    "tier": t.tier,
+                    "health_score": csm_resp.health_score,
+                }
+            )
 
     renewals = await csm_service.upcoming_renewals(db, days_ahead=90)
 
@@ -2519,3 +2426,112 @@ async def get_unit_economics(
         curve=[c.__dict__ for c in data.curve],
         weighted_fell_back_to_equal=data.weighted_fell_back_to_equal,
     )
+
+
+# ── O plano de um cliente (10/10/2026) ────────────────────────────────────
+#
+# > «Um plano foi estabelecido, tem que ser trocado só na consola. E também
+# >  podemos trocar valores diferentes, dependendo se o cliente pagar.»
+# >  — Lucas
+#
+# GET mostra o plano, os tectos, os do plano de base e o uso CONTADO agora.
+# PUT muda o plano; com `tectos`, grava um «plano especial» (p.ex. Starter
+# com 2 ligações). Baixar abaixo do que o cliente já usa dá 422 com o quê.
+
+
+class PlanoDoClienteRequest(BaseModel):
+    plano: str
+    #: Só os que mudam em relação ao plano. `null` = sem tecto (só Enterprise).
+    tectos: Optional[Dict[str, Optional[int]]] = None
+
+
+@router.get("/planos")
+async def listar_planos(user: User = Depends(require_sky_team)) -> dict:
+    """A tabela oficial — para o seletor da Consola não ter os números cravados."""
+    from src.services import planos as _planos
+
+    return {
+        "recursos": list(_planos.RECURSOS),
+        "planos": [
+            {
+                "slug": p.slug,
+                "nome": p.nome,
+                "preco_mensal_eur": p.preco_mensal_eur,
+                "tectos": p.tectos,
+            }
+            for p in _planos.PLANOS.values()
+        ],
+    }
+
+
+@router.get("/tenants/{slug}/plano")
+async def ver_plano_do_cliente(
+    slug: str,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    from src.services import limites_do_plano, planos as _planos
+
+    tenant = (await db.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    plano = await limites_do_plano.plano_do_cliente(tenant.id)
+    uso = await limites_do_plano.uso_do_cliente(slug, tenant.id)
+    return {
+        "tenant_slug": slug,
+        "plano": plano["plano"],
+        "personalizado": plano["personalizado"],
+        "tectos": {r: plano[r] for r in _planos.RECURSOS},
+        "tectos_do_plano": _planos.tectos(plano["plano"]),
+        "uso": uso,
+    }
+
+
+@router.put("/tenants/{slug}/plano")
+async def mudar_plano_do_cliente(
+    slug: str,
+    payload: PlanoDoClienteRequest,
+    request: Request,
+    user: User = Depends(require_sky_team),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    from src.services import limites_do_plano, planos as _planos
+
+    tenant = (await db.execute(select(Tenant).where(Tenant.slug == slug))).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    if _planos.normalizar(payload.plano) is None:
+        raise HTTPException(status_code=400, detail=f"Plano desconhecido: {payload.plano!r}")
+
+    alvo = _planos.tectos(payload.plano)
+    alvo.update(payload.tectos or {})
+    uso = await limites_do_plano.uso_do_cliente(slug, tenant.id)
+    fora = limites_do_plano.excessos(alvo, uso)
+    if fora:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "plano_abaixo_do_uso",
+                "message": "O cliente já usa mais do que este plano permite. Nada foi alterado.",
+                "excessos": fora,
+            },
+        )
+    antes = await limites_do_plano.plano_do_cliente(tenant.id)
+    try:
+        await limites_do_plano.mudar_plano(db, tenant.id, payload.plano, payload.tectos)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    from src.api.middleware.tenant_resolver import clear_tenant_cache
+
+    clear_tenant_cache()
+    await audit_action(
+        db,
+        actor=user,
+        action=AuditAction.CHANGE_TIER,
+        tenant_slug=slug,
+        result=AuditResult.SUCCESS,
+        request_payload={"de": antes, "para": payload.model_dump(), "intent": "plano_10_10"},
+        actor_ip=_ip(request),
+    )
+    await db.commit()
+    return await ver_plano_do_cliente(slug, user, db)

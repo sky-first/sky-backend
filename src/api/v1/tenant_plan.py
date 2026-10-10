@@ -18,6 +18,8 @@ can read their own tenant's usage.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,12 +101,16 @@ async def update_tenant_plan(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> TenantPlanResponse:
-    if current_user.role not in ("super_admin", "owner"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the tenant SuperAdmin can change the plan tier.",
-        )
-    row = await TenantPlanService(db).set_tier(
+    # ── Só a Consola muda o plano (Lucas, 10/10/2026) ───────────────
+    #
+    # Isto deixava o super_admin do CLIENTE escolher o próprio plano —
+    # incluindo «enterprise». O plano é contrato: muda-se na Consola, pela
+    # equipa SkyFirst (`/console/tenants/{slug}/plano`).
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="O plano só se muda na Consola da SkyFirst.",
+    )
+    row = await TenantPlanService(db).set_tier(  # pragma: no cover — inalcançável
         plan_tier=patch.plan_tier,
         updated_by_user_id=str(current_user.id),
     )
@@ -134,6 +140,44 @@ async def get_my_tenant_usage(
     current_user: User = Depends(get_current_user),  # noqa: ARG001
     db: AsyncSession = Depends(get_db_session),
 ) -> TenantUsageResponse:
+    # ── O plano verdadeiro, da base da plataforma (10/10/2026) ──────
+    from src.services import limites_do_plano
+
+    plano = await limites_do_plano.plano_do_cliente()
+    if plano is not None:
+        ligacoes = await limites_do_plano._contar(db, "max_connections")  # noqa: SLF001
+        agentes = await limites_do_plano._contar(db, "max_agents")  # noqa: SLF001
+        armazenado = await limites_do_plano.armazenamento_usado_bytes(db)
+        perguntas = plano["perguntas_usadas"] or 0
+
+        def _pct(atual, tecto, escala=1):
+            return None if not tecto else round(100.0 * atual / (tecto * escala), 1)
+
+        agora = datetime.now(timezone.utc)
+        return TenantUsageResponse(
+            tier=plano["plano"],
+            max_agents=plano["max_agents"],
+            current_agents=agentes,
+            max_users=None,
+            current_users=0,
+            max_storage_gb=plano["max_storage_gb"],
+            current_storage_bytes=armazenado,
+            max_queries_per_month=plano["max_queries_per_month"],
+            current_queries_this_month=perguntas,
+            max_connections=plano["max_connections"],
+            current_connections=ligacoes,
+            min_agent_interval_minutes=plano["min_agent_interval_minutes"],
+            personalizado=plano["personalizado"],
+            usage_percent=UsagePercent(
+                agents=_pct(agentes, plano["max_agents"]),
+                users=None,
+                storage=_pct(armazenado, plano["max_storage_gb"], 1024**3),
+                queries=_pct(perguntas, plano["max_queries_per_month"]),
+            ),
+            queries_period_start=agora,
+            updated_at=agora,
+        )
+
     row = await pricing_service.get_limits(db)
     percent = await pricing_service.usage_percent(db)
 
@@ -156,9 +200,7 @@ async def get_my_tenant_usage(
             agents=_coerce_unlimited(percent["agents"], row.max_agents),
             users=_coerce_unlimited(percent["users"], row.max_users),
             storage=_coerce_unlimited(percent["storage"], row.max_storage_gb),
-            queries=_coerce_unlimited(
-                percent["queries"], row.max_queries_per_month
-            ),
+            queries=_coerce_unlimited(percent["queries"], row.max_queries_per_month),
         ),
         queries_period_start=row.queries_period_start,
         updated_at=row.updated_at,

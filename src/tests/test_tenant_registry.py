@@ -113,7 +113,7 @@ class TestTenantCreate:
 
     def test_rejects_invalid_tier(self):
         with pytest.raises(ValidationError):
-            TenantCreate(**_valid_tenant_payload(tier="enterprise"))
+            TenantCreate(**_valid_tenant_payload(tier="strategic"))  # nome antigo, já não aceite
 
     def test_db_port_clamped_to_tcp_range(self):
         with pytest.raises(ValidationError):
@@ -149,7 +149,7 @@ class TestCreateTenantRequestAutoDerive:
         req = CreateTenantRequest(
             slug="test-1",
             display_name="Test 1",
-            tier=TenantTier.FOUNDATION,
+            tier=TenantTier.CORE,
             auth_methods={"password": True},
         )
         assert req.db_host == "shared.rds"
@@ -183,7 +183,7 @@ class TestCreateTenantRequestAutoDerive:
         req = CreateTenantRequest(
             slug="big-customer",
             display_name="Big",
-            tier=TenantTier.STRATEGIC,
+            tier=TenantTier.ENTERPRISE,
             db_host="dedicated.rds.example.com",
             db_credentials_secret_arn="arn:aws:secretsmanager:eu-west-1:741375879811:secret:sky/prd/bigco/db",
             auth_methods={"password": True},
@@ -206,7 +206,7 @@ class TestCreateTenantRequestAutoDerive:
             CreateTenantRequest(
                 slug="x1",
                 display_name="X",
-                tier=TenantTier.FOUNDATION,
+                tier=TenantTier.CORE,
                 auth_methods={"password": True},
             )
 

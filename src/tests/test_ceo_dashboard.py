@@ -10,6 +10,7 @@ should surface a partial view (margin=None) rather than 500 when the
 telemetry stack is unavailable. ``test_compute_summary_handles_cost_provider_failure``
 guards that contract.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -26,7 +27,7 @@ async def _seed_tenant(
     db_session: AsyncSession,
     slug: str,
     *,
-    tier: str = "foundation",
+    tier: str = "core",
     is_active: bool = True,
 ) -> Tenant:
     t = Tenant(
@@ -76,13 +77,13 @@ async def test_compute_summary_counts_active_vs_suspended(db_session: AsyncSessi
 async def test_compute_summary_rolls_up_mrr_per_tier(db_session: AsyncSession):
     """When the tier has a headline price, the row should contribute
     (annual_price / 12) * count to the MRR total."""
-    await _seed_tenant(db_session, "alpha", tier="foundation")
-    await _seed_tenant(db_session, "beta", tier="foundation")
+    await _seed_tenant(db_session, "alpha", tier="core")
+    await _seed_tenant(db_session, "beta", tier="core")
 
     summary = await compute_ceo_summary(db_session)
     # Foundation's headline price may be None in tests with an empty
     # registry — assert structural invariants instead of magic numbers.
-    row = next((t for t in summary.tiers if t.tier == "foundation"), None)
+    row = next((t for t in summary.tiers if t.tier == "core"), None)
     assert row is not None
     assert row.active_tenants == 2
     if row.annual_price_eur is not None:
@@ -112,9 +113,7 @@ async def test_compute_summary_handles_cost_provider_failure(db_session: AsyncSe
         def platform_cost_breakdown(self, days=30):  # noqa: D401
             raise RuntimeError("cost telemetry offline")
 
-    with patch(
-        "src.services.ceo_dashboard.cost_provider", return_value=_Boom()
-    ):
+    with patch("src.services.ceo_dashboard.cost_provider", return_value=_Boom()):
         summary = await compute_ceo_summary(db_session)
     assert summary.last_month_cost_eur == 0.0
     assert summary.gross_margin_pct is None
