@@ -17,7 +17,7 @@ Env vars (all required unless marked optional):
     TENANT_SEED_SLUG             — e.g. "gbt"
     TENANT_SEED_ID               — UUID of the platform row (so FKs match)
     TENANT_SEED_DISPLAY_NAME
-    TENANT_SEED_TIER             — starter / foundation / core / advanced / strategic
+    TENANT_SEED_TIER             — starter / core / plus / enterprise (nomes antigos mapeiam)
     TENANT_SEED_DB_HOST
     TENANT_SEED_DB_PORT          — optional, default 5432
     TENANT_SEED_DB_NAME
@@ -121,6 +121,13 @@ async def main() -> int:
 
     display_name = _require("TENANT_SEED_DISPLAY_NAME")
     tier = _require("TENANT_SEED_TIER")
+    # Os planos passaram a quatro nomes (10/10/2026): starter · core · plus
+    # · enterprise. Os valores de ambiente antigos («strategic»,
+    # «foundation»…) traduzem-se aqui — gravá-los tal e qual violava a
+    # restrição nova e partia o hook de migração do deploy.
+    from src.services.planos import normalizar
+
+    tier = normalizar(tier) or tier
     db_host = _require("TENANT_SEED_DB_HOST")
     db_port = int(_opt("TENANT_SEED_DB_PORT", "5432"))
     db_name = _require("TENANT_SEED_DB_NAME")
