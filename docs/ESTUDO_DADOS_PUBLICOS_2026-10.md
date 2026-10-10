@@ -320,3 +320,133 @@ A 390 €: margem bruta **58–73 %**, a subir com escala (Open-Meteo e free tie
 5. Preço EcoTransIT API (info@ecotransit.world) e TollGuru para camião na Europa.
 
 Fontes do Anexo B (consultadas a 10/10/2026): https://docs.tomtom.com/pricing · https://docs.tomtom.com/pricing/price-announcement · https://developers.here.com/plans · https://www.ptvlogistics.com/en/product_description_ptv_developer · https://tollguru.mapup.ai/toll-api-pricing-plans · https://www.repsol.es/autonomos-y-empresas/solred/mi-solred/api-movimientos/ · https://www.repsol.es/autonomos-y-empresas/asesoramiento/apis-de-solred/ · https://web.uta.com/en/fuel-card · https://starressa.moeveglobal.com/en/products-and-services/starressa-cards · https://www.webfleet.com/webfleet/partners/integration · https://www.geotab.com/uk/fleet-management-solutions/software-integration/ · https://supergood.ai/docs/verizon-connect-api · https://www.ccjdigital.com/business/article/14936351/verizon-telematics-acquires-movildata-to-expand-in-europe · https://www.frotcom.com/blog/2021/07/jani-co-logistic-optimizes-fleet-productivity-using-frotcoms-api · https://developers.samsara.com/changelog/new-endpoint-level-rate-limits-starting-october-23rd · https://teltonika-gps.com/solutions/tachosync · https://continental.com/en/press/press-releases/vdo-tis · https://blog.wtransnet.com/en/?p=126 · https://www.timocom.co.uk/api-integration-guide · https://www.alpegagroup.com/de-de/unternehmen/neuigkeiten/teleroute-launches-an-api-new-mobile-app/ · https://www.project44.com/carriers/ · https://www.g2.com/products/shippeo/pricing · https://netzerocompare.com/software/ecotransit-world · https://datos.gob.es/es/catalogo/e0dat0002-servicio-rest-de-geocodificacion-de-espana-cartociudad
+
+---
+
+## Anexo C — Ligar as APIs públicas à plataforma (prova)
+
+Data: 10/10/2026, 21:10–21:15 (hora de Madrid). Sem escrita em produção, sem alterações ao código da aplicação. Scripts descartáveis fora do repositório (`prova_be_rest.py` com o `.venv` do backend; `prova_ai_apisource.py` com o `venv` do sky-ai), só pedidos GET.
+
+Modelo comercial assumido: cada fonte pública ligada conta como uma das "fontes de dados" do plano (Starter 1 · Core 2 · Plus 5). Não é add-on.
+
+### C.1 Como uma API chega hoje a uma resposta (cadeia real)
+
+| Passo | Onde | O que acontece | Consequência |
+|---|---|---|---|
+| 1. Criar ligação | Web: `studio-create-panel.tsx` (tipo `rest-api`; campos `base_url`, `auth_type`, `auth_header`, `auth_value` + editor de *endpoints* `{name, method, path, description}`) | Config gravada cifrada | ⚠ ver defeito D1 (autenticação) |
+| 2. Testar | BE `RestAPIConnector.test_connection` | GET ao `base_url`; aceita qualquer código < 500 | Passa mesmo com 401 |
+| 3. Metadados | BE `get_metadata` | Cada *endpoint* declarado vira uma "tabela" **sem colunas** | Nada é descoberto da resposta |
+| 4. Descoberta | sky-ai `core/ingestion/db_metadata.py` | Grava 1 linha âncora `column_name="*"` com a descrição; o caminho vai para `extra.endpoint`, **que ninguém lê** | ⚠ D2: o modelo só vê nome + descrição |
+| 5. Pergunta | sky-ai `core/data_sources/factory.py` (`rest-api` → `api`) → `specialist.py` ramo NoSQL | O LLM escreve `{"endpoint": "...", "params": {...}}`; o `APISource` faz o pedido **ao vivo**, em cada pergunta | Frescura = a da API. Não há cópia nem histórico |
+| 6. Normalização | `APISource.run_query` | Lista → linhas. Objecto → procura `data/items/results/records/users/orders`; senão **1 linha com tudo aninhado**. Não-JSON → **erro** | ⚠ D3 |
+| 7. Resposta | `core/llm/formatter.py` | Só as **primeiras 15 linhas** entram no prompt (`data[:15]`), serializadas com `indent=2`. Nenhuma agregação sobre o resto | ⚠ D4 |
+| 8. Refresco | `connections.sync_frequency` (cron) | Gravado e `next_sync` calculado, mas **nenhuma tarefa do Beat o lê**; e o `sync_data` REST só conta linhas, não guarda nada | Não há materialização em lado nenhum |
+
+Conclusão: o `rest-api` é **chamada ao vivo, sem materialização**. Serve para APIs pequenas, JSON, sem chave, com parâmetros que o LLM consiga preencher. Não serve para conjuntos grandes, XML/CSV, ou fontes com chave.
+
+Web e app usam o mesmo motor (`/ai/query`, *stream*), por isso o veredicto vale para os dois. A ligação Open-Meteo já foi provada até ao motor a 31/08 (`{"temperature_2m": 25.4}`); o passo da frase final não corre em local (fornecedor LLM local devolve 404).
+
+### C.2 Prova contra as APIs reais
+
+**Backend (`RestAPIConnector`: test → metadata → execute_query):**
+
+| Fonte / pedido | test | Resultado | Tamanho | Tempo |
+|---|---|---|---|---|
+| MITECO, Espanha inteira `/EstacionesTerrestres/` | ✅ | 1 linha: `Fecha`, `ListaEESSPrecio` = **11.512 postos** aninhados, preços em texto com vírgula (`"1,749"`) | **12,8 MB** | 15,3 s |
+| MITECO, Badajoz + Gasóleo A `/FiltroProvinciaProducto/06/4` | ✅ | 1 linha com **277 postos** aninhados | 112 KB | 1,7 s |
+| Open-Meteo `/forecast` (lat/lon/hourly) | ✅ | 1 linha; `hourly` em colunas (`time[]`, `temperature_2m[]`…) | 2 KB | 1,7 s |
+| OSRM `/route/v1/driving/{lon,lat;lon,lat}` | ✅ | 1 linha: `routes[1]` com `distance` (m) e `duration` (s) | 1 KB | 1,7 s |
+| Nager `/PublicHolidays/2026/ES` | ✅ | **32 linhas** limpas (`date`, `localName`, `counties`) | 7 KB | 1,5 s |
+| Frankfurter (dados BCE) `/latest` | ✅ | 1 linha, `rates{29}`, `date=2026-10-09` | <1 KB | 1,4 s |
+| BCE SDMX (`jsondata` / `csvdata`) | ✅ | `[{"text": …}]` — o tipo `application/vnd.sdmx…` não é `application/json` | — | 1,8 s |
+| DGT DATEX2 v3.7 (XML) | ✅ | `[{"text": "<?xml…"}]` cortado a 2.000 caracteres | 2,97 MB na origem | 1,7 s |
+| AEMET sem chave | ✅ (401 conta como "acessível") | `[{"text": ""}]` | — | 1,6 s |
+
+**Motor (`APISource` do sky-ai, com o JSON que o especialista geraria) — o que chega ao prompt da resposta:**
+
+| Fonte | Resultado | Prompt do formatter |
+|---|---|---|
+| MITECO Badajoz Gasóleo A | 1 linha com 277 postos | **≈153 KB ≈ 39.000 tokens** — e o LLM teria de ordenar preços em texto |
+| Open-Meteo diário (3 dias, Madrid) | 1 linha | ≈185 tokens ✅ |
+| OSRM Badajoz→Madrid | 1 linha | ≈250 tokens ✅ |
+| Nager `/PublicHolidays/2026/ES` | 32 linhas → **só as 15 primeiras** (até 04/06/2026) | O 12/10 **não chega ao modelo** ❌ |
+| Nager `/NextPublicHolidays/ES` | 32 linhas, a começar em 12/10/2026 | ✅ (contorna o corte) |
+| Frankfurter `/latest?symbols=USD,GBP` | 1 linha | ≈35 tokens ✅ |
+| DGT DATEX2 (XML) | **`JSONDecodeError`** | ❌ |
+| BCE `csvdata` | **`JSONDecodeError`** | ❌ |
+| AEMET com chave em `headers` | 401 com chave falsa (o caminho do cabeçalho funciona); o 2.º passo (`datos` → URL) não é seguido | ❌ |
+
+### C.3 Veredicto por fonte
+
+| Fonte | Hoje com `rest-api` (zero código) | Falta | Frescura medida | Licença / limites / custo | Refresco necessário |
+|---|---|---|---|---|---|
+| **Open-Meteo** (tempo) | ✅ Funciona, se a descrição levar o caminho e os parâmetros (D2) | Coordenadas: o LLM tem de as saber (capitais ok). Uso comercial exige chave paga (`&apikey=` na query → D1) | ECMWF IFS 0,25°: corrida 06 UTC disponível 13:06 UTC; ICON e ARPEGE: corrida 12 UTC disponível ~15:31 UTC; `update_interval` 6 h | Grátis só não-comercial; 10.000/dia. **Um vídeo de vendas é uso comercial** → plano Standard antes de gravar | Ao vivo serve. Para cruzar com rotas: grelha por cidade, 1×/h |
+| **OSRM** (rota) | ✅ Funciona (coordenadas no caminho) | Perfil **automóvel**, não camião; servidor demo sem SLA nem uso comercial | Dados OSM; sem carimbo na resposta | Demo: uso leve, ~1 pedido/s; produção → self-host ou TomTom | Ao vivo |
+| **Nager.Date** (feriados) | ✅ com `/NextPublicHolidays/{país}`; ❌ com `/PublicHolidays/{ano}` (corte das 15 linhas) | Trasladações e municipais em falta (Anexo A) | Anual | Grátis, sem chave | Tabela anual corrigida pelo BOE/DRE é melhor |
+| **Frankfurter / BCE** (câmbio) | ✅ Frankfurter. ❌ SDMX directo (não-JSON / JSON aninhado) | MAD não existe (Anexo A) | `date=2026-10-09` (sexta; fixing ~16:00 CET, sem fim-de-semana) | Grátis, sem chave | Diário, 16:30 CET |
+| **MITECO** (gasóleo) | ❌ Ao vivo não serve: 277 postos por província = 39k tokens; Espanha = 12,8 MB; o formatter só vê 15 linhas | Materializar em tabela (preço numérico, coordenadas, distância ao corredor) | O campo `Fecha` é **a hora do pedido**, não do preço (21:11:35 e 21:12:41 em pedidos com 66 s de intervalo). Histórico diário existe: `/EstacionesTerrestresHist/FiltroProvinciaProducto/01-10-2026/06/4` → `Fecha 01/10/2026 0:00` | Dados abertos, uso comercial; sem limite publicado | Actual: 30 min. Histórico: 1×/dia (dá "tendência" e cruza com viagens passadas) |
+| **DGT DATEX2 v3.7** (incidências) | ❌ XML | Parser + tabela | `publicationTime` avança a cada minuto (21:11:10 → 21:12:10); 692 registos activos | Gratuita (Reg. UE 886/2013) | 5 min; guardar activos + 30 dias |
+| **AEMET** (avisos) | ❌ | Chave (D1) + pedido em 2 passos | n/d (sem chave) | Comercial permitido com atribuição | 1 h |
+| **Portagens ES/PT** | ❌ **Não há API pública gratuita** em nenhum dos países | Tabela manual: ES a partir da Ordem anual do Ministério (subidas 3,64–4,68 % em 2026; SEITT +2 %); PT a partir dos tarifários das concessionárias (Brisa +2,29 % médio em 2026; **pesados classes 3–4 isentos na A41/CREP, A19 e A8 desde 01/01/2026**, Lei 6/2026) | Anual + leis avulsas | Público | Anual. API paga só se necessário (TollGuru/HERE, Anexo B) |
+| **DGT restrições a pesados** | ❌ PDF/BOE | Tabela manual (dias × horas × troços × tipo de veículo) | Página DGT actualizada a 31/07/2026 | Público | Anual + resoluções avulsas |
+| **Histórico de combustível** | ❌ ao vivo | MITECO histórico (acima) e Weekly Oil Bulletin (XLSX, ES vs PT) para tabela | Semanal (WOB) | Aberta | Semanal |
+| **TomTom** (camião + trânsito) | ❌ | Chave na query string (`?key=`) — D1; o LLM não pode ver a chave | — | Freemium comercial, 20.000 rotas/mês | Ao vivo |
+| **APIs do cliente** (Solred, telemática) | ⚠ Só se JSON pequeno e com Bearer configurado por API, não pela web (D1) | OAuth2 (Solred), paginação, envelopes | — | BYO | Ao vivo ou materializado |
+
+### C.4 Defeitos encontrados no caminho `rest-api`
+
+| # | Defeito | Evidência | Esforço |
+|---|---|---|---|
+| D1 | **A autenticação escrita pela web não é lida por ninguém.** A web grava `auth_type/auth_header/auth_value`; o backend lê `config["auth"]` (`type/token/header_name`); o sky-ai lê `api_key` (vira `Bearer`) ou `headers`. Nenhum lê os campos da web. Não há chave na query string (TomTom, Open-Meteo pago) | `studio-create-panel.tsx` l. 381–386 · `rest_api.py` `_build_auth_headers` · `api_source.py` `__init__` | 0,5–1 dia |
+| D2 | O caminho do *endpoint* não chega ao LLM se houver descrição: vai para `extra.endpoint`, que nenhum código lê | `db_metadata.py` l. 440–468 | 0,5 dia |
+| D3 | Respostas não-JSON rebentam (XML, CSV); envelopes fora da lista fixa (`ListaEESSPrecio`, `routes`) ficam numa linha aninhada | `api_source.py` | 0,5 dia (`records_path` configurável) + 1–2 dias (CSV/XML) |
+| D4 | O formatter só vê 15 linhas e não agrega: "o mais barato", "o próximo feriado" ou "quantos" sobre listas grandes ficam errados sem aviso | `formatter.py` `data[:15]` | 1–2 dias (passar linhas da API pelo DuckDB que o merger já usa) |
+| D5 | `sync_frequency` é gravado e nunca executado; o `sync_data` REST não guarda dados | `connection_service.py` `_calculate_next_sync`; `celery_app.py` sem tarefa | Ver C.5 |
+| D6 | `test_connection` dá ✅ com 401 (AEMET sem chave) | `rest_api.py` `< 500` | 0,5 h |
+
+### C.5 Caminho mínimo para a demonstração
+
+**Princípio:** o que é pequeno e depende da pergunta fica ao vivo (`rest-api`); o que é grande, XML ou precisa de histórico vai para **tabelas Postgres**, ligadas com o conector Postgres que já funciona de ponta a ponta (descoberta de colunas, SQL, gráficos, widgets).
+
+| Passo | O quê | Código da aplicação | Esforço |
+|---|---|---|---|
+| **0 — zero código** | 4 ligações `rest-api` no projecto "Logística y Transporte": Open-Meteo `/forecast`, OSRM `/route/v1/driving/{coords}`, Nager `/NextPublicHolidays/{país}`, Frankfurter `/latest`. **Regra:** nome do endpoint = caminho, e a descrição leva caminho + parâmetros + unidades (ex.: *"GET /forecast?latitude=&longitude=&daily=temperature_2m_max,precipitation_sum,wind_gusts_10m_max&timezone=Europe/Madrid — previsión por coordenada, 16 días"*). Testar 5 perguntas por fonte na web e na app | Nenhum | 2–3 h |
+| **1 — carregador "Datos públicos"** | Estender `scripts/dados_publicos/` com `carregar_mundo.py` → esquema `mundo` na base de demonstração: `gasolineras` (MITECO actual, preço numérico, lat/lon, `dist_a5_km` / `corredor`), `gasoleo_hist` (MITECO diário, 4 províncias × 365 dias — os dados de demo cobrem os últimos 12 meses desde a sementeira de 04/10), `incidencias_dgt` (DATEX2 → linhas, filtrada por estrada), `feriados` (Nager + correcções BOE/DRE), `peajes` (manual: corredores da demo, A-5 = 0 €), `restricciones_dgt` (manual), `wob_gasoleo` (ES vs PT semanal), `tiempo_ciudades` (Open-Meteo, 20 cidades das rotas). Comentários `COMMENT ON` em todas as colunas (o conector Postgres lê-os como descrições). CronJob no `sky-infra`: MITECO 30 min, DGT 5 min, tempo 1 h, histórico/câmbio diário | Nenhum (script + manifest) | **3–4 dias** |
+| **2 — corrigir `rest-api`** | D1, D2, D3 (`records_path`), D6 → ligar APIs de clientes (Solred, telemática) sem engenharia por cliente | Sim | **3–4 dias** |
+| **3 — produto** | Tipo de ligação **"Datos públicos"** gerido por nós: catálogo de conjuntos, base partilhada `sky_world` (§2), refresco por Celery Beat a honrar `sync_frequency`, ligação de sistema só-leitura. D4 (DuckDB sobre linhas da API) | Sim | 1,5–2 semanas (= Fase 1 do §4) |
+
+**Recomendação:** passos 0 + 1 para gravar os vídeos (≈1 semana, zero código da aplicação); passo 2 antes do primeiro cliente com API própria; passo 3 quando houver o 2.º cliente de logística.
+
+**Decisões para o Lucas:**
+1. **Perguntas mistas (cliente + público).** O motor tem caminho multi-ligação (`dispatch_map` + merger DuckDB, `connection_query.py` l. 4345), mas a sementeira sectorial evita de propósito junções ao vivo entre ligações ("prometer uma junção ao vivo que o produto hoje não faz…", `transportes.py`). Opções: (A) ligação separada "Datos públicos" e validar o merger pergunta a pergunta; (B) escrever as tabelas `mundo` também no esquema `ops` da demo, para cada pergunta mista correr numa só ligação. **Recomendo B para os vídeos, A para o produto.**
+2. **Contagem de fontes.** Se o carregador junta 8 conjuntos numa ligação Postgres, conta como 1 fonte ou 8? Com "1 por conjunto", o Starter (1 fonte) não chega para nenhuma demo mista.
+3. **Licença Open-Meteo** para gravar: pagar o Standard (chave na query → passo 1 ou D1) ou usar os dados já materializados.
+
+### C.6 Conteúdo para os vídeos (tenant `skyfirstlabs`)
+
+Projecto já semeado no `skyfirstlabs` e no `sandbox` pelo Job 17: **"Logística y Transporte"**, com as ligações **Flota** (`fleet`), **Operaciones** (`ops`) e **Carga** (`freight`). Rotas da demo: Lisboa, Porto, Coimbra, Braga, Viseu ↔ Badajoz, Mérida, Almendralejo, Sevilla, Madrid. 18 viaturas (semirremolque, frigorífico, ligero), 280 viagens/veículo em 12 meses. Acrescentar a ligação **"Datos públicos"** (C.5 passo 1) e as 4 `rest-api` (passo 0).
+
+⚠ Os dados sintéticos imputam portagem a todas as rotas (`toll_cost = km × 0,072`): Badajoz–Madrid aparece com 28,80 € e a A-5 não tem portagem. Ou se corrige na sementeira, ou se transforma na pergunta 4.
+
+| # | Pregunta (ES) | Datos del cliente | Datos públicos | Estilo de respuesta esperado (números **ilustrativos** — recalcular com os dados reais antes de gravar) | Nota PT |
+|---|---|---|---|---|---|
+| 1 | «¿Cuánto nos habríamos ahorrado en septiembre en Badajoz–Madrid repostando en el surtidor más barato a menos de 3 km de la A-5?» | `ops.trips` (litros) + `ops.routes` | `mundo.gasoleo_hist` + `gasolineras` | «Septiembre: 14 viajes, 4.120 l. A la media de Badajoz (1,82 €/l) = 7.498 €; en el más barato del corredor (1,69 €/l, Móstoles) = 6.963 €. **Ahorro: 535 €/mes.** Fuente: MITECO, 01–30/09.» | Pergunta-estrela. Mista → decisão 1 |
+| 2 | «¿Dónde reposto hoy más barato entre Mérida y Madrid sin salir de la A-5?» | — | `mundo.gasolineras` | Top 3 con municipio, €/l, horario y «actualizado 21:10» | Só pública; funciona com 1 ligação |
+| 3 | «¿Qué rutas de esta semana tienen lluvia o rachas de más de 50 km/h en origen o destino?» | `ops.routes` | `mundo.tiempo_ciudades` / Open-Meteo | Tabla ruta × día con semáforo | Ao vivo só para 1 cidade; para todas → tabela |
+| 4 | «¿Estamos imputando peajes que no existen?» | `ops.routes.toll_cost` | `mundo.peajes` | «Badajoz–Madrid (A-5): imputamos 28,80 €, la tarifa pública es 0 €. 6 rutas sin peaje real: 1.940 €/año sobrevalorados.» | Usa o defeito dos dados a favor |
+| 5 | «¿Hay ahora incidencias de la DGT en las carreteras de nuestras rutas a Madrid y Sevilla?» | `ops.routes` (+ tabla ruta→carreteras) | `mundo.incidencias_dgt` | Lista: carretera, PK, tipo, desde qué hora | Refresco 5 min; dizer a hora do dado |
+| 6 | «¿Cuántos viajes hicimos en festivo el último año y cuánto nos costaron en horas de conductor?» | `ops.trips` + `fleet.drivers.cost_per_hour` | `mundo.feriados` (nacionales + regionales) | «23 viajes en festivo, 212 h, 4.030 €. Más en Extremadura (8 sep.).» | Mista |
+| 7 | «¿Puede salir un semirremolque de Badajoz a Madrid el próximo festivo nacional por la mañana?» | `fleet.vehicles.class` | Nager `/NextPublicHolidays/ES` + `mundo.restricciones_dgt` | «Próximo festivo: 01/11 (domingo). La DGT restringe >7,5 t en … de 8:00 a 15:00. Salir antes de las 8:00 o por la tarde.» + aviso «informativo» | Texto legal curado (§1.7) |
+| 8 | «¿Cuánto ha subido el gasóleo en Extremadura en 3 meses y cuánto nos cuesta al mes?» | `ops.trips` (litros/mes) | `mundo.gasoleo_hist` | Gráfico de línea + «+6,1 cént./l ≈ +1.150 €/mes en la flota» | Widget candidato |
+| 9 | «¿Cuántos km y horas hay de Porto a Madrid, y cumplimos ese tiempo?» | `ops.routes.standard_minutes` + `ops.trips` | OSRM ao vivo | «560 km; turismo 5h20; camión estimado ~6h40 + pausa 45 min. Nuestro estándar: 8h12; llegamos tarde en el 31 % de los viajes.» | OSRM é perfil automóvel — dizer «estimado» |
+| 10 | «¿Repostar en Portugal o en España en Lisboa–Madrid?» | `ops.trips` (rutas transfronterizas) | `mundo.wob_gasoleo` (ES vs PT) | «Esta semana el gasóleo es 0,21 €/l más barato en España: repostar después de Badajoz ahorra ~126 € por depósito de 600 l.» | Muito ibérico; WOB é semanal |
+
+**Páginas / widgets (2–3):**
+
+| Página | Widgets |
+|---|---|
+| **«Gasóleo en ruta»** | KPI precio medio hoy (Badajoz, Madrid) · KPI «ahorro posible este mes» · tabla top 10 surtidores ≤3 km de la A-5 · línea 90 días España vs Portugal (MITECO + WOB) · coste de gasóleo de la flota a precio real |
+| **«Riesgos de hoy en nuestras rutas»** | Tabla ruta × (tiempo mañana, incidencias DGT activas, festivo/restricción) con semáforo · KPI rutas en rojo · texto «actualizado HH:MM, fuentes» |
+| **«Coste real por ruta»** | Peaje imputado vs tarifa pública · €/km total (gasóleo a precio real + peaje + horas de conductor) · margen por cliente recalculado |
+
+**Regras de apresentação:** mostrar sempre fonte e hora do dado; "precio de surtidor publicado", não "precio de la flota"; testar cada pergunta 2× seguidas na web **e** na app antes de gravar; dados de demo recalculados a partir da data da sementeira (04/10/2026).
