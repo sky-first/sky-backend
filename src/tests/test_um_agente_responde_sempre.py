@@ -33,6 +33,7 @@ devolvido um erro — uma frase tranquilizadora a dizer que os dados não tinham
 nada, quando o que houve foi uma avaria nossa. Manda a pessoa procurar no
 sítio errado. São duas frases porque são duas coisas.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -138,7 +139,8 @@ class TestUmaCorridaQueFALHOUNaoDizQueNaoEncontrouNada:
         fonte = _fonte()
         i = fonte.index("if falhou_por_completo:")
         bloco = fonte[i : i + 500]
-        assert "mensagem_de_avaria(agent)" in bloco
+        # Na língua do dono (10/10/2026) — mas sempre a frase da avaria.
+        assert "mensagem_de_avaria(agent, lingua)" in bloco
         assert "NADA_A_ASSINALAR" not in bloco
 
         class _SemHistorico:

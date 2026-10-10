@@ -25,11 +25,16 @@ from uuid import UUID
 from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.agent import Agent, AgentFinding
+from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.crew import Crew, CrewMember
 from src.models.insight_state import InsightState
 from src.models.space import SpaceMember
-from src.schemas.insight_feed import InsightDetail, InsightFeedResponse, InsightItem
+from src.schemas.insight_feed import (
+    AgenteNoFeed,
+    InsightDetail,
+    InsightFeedResponse,
+    InsightItem,
+)
 
 # A scan finding is "live" while it is recent (scans run every 1-24h); an agent
 # finding is "live" while its agent is active + recently executed. Honest: this
@@ -248,7 +253,129 @@ class InsightFeedService:
         # As contagens seguem o mesmo âmbito da lista: senão a pastilha
         # «Todos 12» ficava por cima de uma lista de três.
         counts = await self._counts(user_id, space_ids, crew_ids, space_id)
-        return InsightFeedResponse(items=items, next_cursor=next_cursor, counts=counts)
+        agentes: List[AgenteNoFeed] = []
+        if not cursor and not (q or "").strip() and filter_ in ("all", "latest"):
+            agentes = await self.agentes(user_id, space_ids, crew_ids, space_id)
+        return InsightFeedResponse(
+            items=items, next_cursor=next_cursor, counts=counts, agentes=agentes
+        )
+
+    # --- Os agentes e a ultima corrida de cada ---------------------------
+
+    #: Quantos agentes no maximo. A lista e um resumo, nao um ecra de gestao.
+    MAX_AGENTES = 50
+
+    async def agentes(
+        self,
+        user_id: UUID,
+        space_ids: List[UUID],
+        crew_ids: List[UUID],
+        space_id: Optional[UUID] = None,
+    ) -> List[AgenteNoFeed]:
+        """Cada agente visivel e o que ele disse da ultima vez.
+
+        O ambito e o MESMO dos achados (`_scope_where`), lido do lado do
+        agente: num projeto, os agentes do projeto e das equipas dele; sem
+        projeto, os meus e os dos projetos/equipas de que sou membro.
+        """
+        if space_id is not None:
+            crews_do_projeto = select(cast(Crew.id, String)).where(Crew.space_id == space_id)
+            ambito = or_(
+                and_(Agent.scope == "space", Agent.scope_id == str(space_id)),
+                and_(Agent.scope == "crew", Agent.scope_id.in_(crews_do_projeto)),
+            )
+        else:
+            clausulas = [Agent.created_by == user_id]
+            if space_ids:
+                clausulas.append(
+                    and_(Agent.scope == "space", Agent.scope_id.in_([str(s) for s in space_ids]))
+                )
+            if crew_ids:
+                clausulas.append(
+                    and_(Agent.scope == "crew", Agent.scope_id.in_([str(c) for c in crew_ids]))
+                )
+            ambito = or_(*clausulas)
+
+        lista = list(
+            (
+                await self.db.execute(
+                    select(Agent)
+                    .where(ambito)
+                    .where(Agent.monitor_type != "insight")
+                    .order_by(Agent.last_execution_at.desc().nullslast(), Agent.name)
+                    .limit(self.MAX_AGENTES)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not lista:
+            return []
+
+        ids = [a.id for a in lista]
+        ultimas = (
+            select(
+                AgentExecution.agent_id.label("agent_id"),
+                func.max(AgentExecution.started_at).label("quando"),
+            )
+            .where(AgentExecution.agent_id.in_(ids))
+            .group_by(AgentExecution.agent_id)
+            .subquery()
+        )
+        execucoes = {
+            e.agent_id: e
+            for e in (
+                await self.db.execute(
+                    select(AgentExecution).join(
+                        ultimas,
+                        and_(
+                            AgentExecution.agent_id == ultimas.c.agent_id,
+                            AgentExecution.started_at == ultimas.c.quando,
+                        ),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        }
+        return [self._agente_no_feed(a, execucoes.get(a.id)) for a in lista]
+
+    @staticmethod
+    def _agente_no_feed(agent: Agent, ex: Optional[AgentExecution]) -> AgenteNoFeed:
+        estado = ex.status if ex is not None else None
+        resposta: Optional[str] = None
+        chave: Optional[str] = None
+        encontrou = bool(ex is not None and (ex.findings_count or 0) > 0)
+        if estado == "completed":
+            resposta = (ex.answer or "").strip() or None
+            if resposta is None:
+                chave = "agent_nothing_to_report"
+        elif estado == "failed":
+            erro = (ex.error_message or "").lower()
+            chave = "agent_no_data_source" if "sem fontes" in erro else "agent_could_not_run"
+        elif estado == "skipped_plan_quota":
+            chave = "agent_skipped_plan_quota"
+        elif estado == "skipped_no_delta":
+            # Os dados nao mudaram: a ultima leitura continua a valer.
+            resposta = (agent.last_answer or "").strip() or None
+            if resposta is None:
+                chave = "agent_nothing_to_report"
+        if resposta and len(resposta) > 280:
+            resposta = resposta[:280].rstrip() + "…"
+        return AgenteNoFeed(
+            id=str(agent.id),
+            nome=agent.name,
+            conversation_id=str(agent.conversation_id) if agent.conversation_id else None,
+            status=agent.status,
+            frequency=agent.frequency,
+            schedule_jsonb=getattr(agent, "schedule_jsonb", None),
+            next_execution_at=agent.next_execution_at,
+            ultima_corrida_em=(ex.finished_at or ex.started_at) if ex is not None else None,
+            ultima_corrida_estado=estado,
+            ultima_resposta=resposta,
+            chave_de_texto=chave,
+            encontrou=encontrou,
+        )
 
     async def _counts(
         self,
@@ -478,9 +605,7 @@ class InsightFeedService:
             # O fio onde este achado foi publicado. Tocar no insight abre a
             # conversa do agente, e nao uma pagina sem saida.
             conversation_id=(
-                str(agent.conversation_id)
-                if agent is not None and agent.conversation_id
-                else None
+                str(agent.conversation_id) if agent is not None and agent.conversation_id else None
             ),
         )
 

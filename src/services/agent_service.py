@@ -99,21 +99,27 @@ FREQUENCY_HOURS = {
 def _compute_next_execution(
     frequency: str, schedule_jsonb: Optional[dict] = None
 ) -> Optional[datetime]:
-    """Next-run timestamp for the scheduler. `once` and `manual` return None
-    so the agent never auto-fires. `schedule_jsonb.interval_value` lets
-    the user express "every 3 hours" or "every 15 minutes" without a new
-    enum bucket — defaults to 1 when absent."""
-    if frequency in ("once", "manual"):
-        return None
-    hours = FREQUENCY_HOURS.get(frequency, 24)
-    if schedule_jsonb and isinstance(schedule_jsonb, dict):
-        try:
-            multiplier = int(schedule_jsonb.get("interval_value") or 1)
-            if multiplier > 1:
-                hours = hours * multiplier
-        except (TypeError, ValueError):
-            pass
-    return datetime.now(timezone.utc) + timedelta(hours=hours)
+    """Next-run timestamp for the scheduler — ver `cadencia_do_agente`.
+
+    `once` e `manual` sem cadência própria devolvem None (o agente não corre
+    sozinho). A regra é a MESMA que o worker usa depois de cada corrida:
+    eram duas cópias, e a do worker não conhecia `minutely` nem o
+    `interval_value` — um agente «de 15 em 15 minutos» passava a correr uma
+    vez por dia a partir da segunda corrida.
+    """
+    from src.services.cadencia_do_agente import proxima_corrida
+
+    return proxima_corrida(datetime.now(timezone.utc), frequency, schedule_jsonb)
+
+
+def _schedule_valido(schedule: Optional[dict]) -> Optional[dict]:
+    """Valida o `schedule_jsonb` que chega da API — 422 se for ilegível."""
+    from src.services.cadencia_do_agente import CadenciaInvalida, normalizar
+
+    try:
+        return normalizar(schedule)
+    except CadenciaInvalida as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
 
 DEPTH_CYCLES = {"quick": 1, "standard": 3, "deep": 5}
@@ -149,14 +155,11 @@ class AgentService:
         # quanto em quanto tempo. No serviço, para nenhuma rota o saltar.
         from src.services import limites_do_plano
 
+        schedule = _schedule_valido(getattr(data, "schedule_jsonb", None))
+        frequency = data.frequency.value if hasattr(data.frequency, "value") else data.frequency
         await limites_do_plano.verificar_criacao(self.db, "max_agents")
-        await limites_do_plano.verificar_intervalo(
-            getattr(data, "schedule_jsonb", None), getattr(data, "frequency", None)
-        )
-        next_run = _compute_next_execution(
-            data.frequency,
-            getattr(data, "schedule_jsonb", None),
-        )
+        await limites_do_plano.verificar_intervalo(schedule, frequency)
+        next_run = _compute_next_execution(frequency, schedule)
         now = datetime.now(timezone.utc)  # noqa: F841 — kept for future audit fields
 
         # Personal mode invariant: a personal agent is owned by its creator.
@@ -185,6 +188,7 @@ class AgentService:
             custom_sql=data.custom_sql,
             chat_context=data.chat_context,
             frequency=data.frequency,
+            schedule_jsonb=schedule,
             depth=data.depth or "standard",
             connection_ids=data.connection_ids,
             table_ids=data.table_ids,
@@ -307,15 +311,33 @@ class AgentService:
         update_data = data.model_dump(exclude_unset=True)
         # Mudar o agendamento também respeita o plano: senão, criava-se
         # diário e editava-se para de 5 em 5 minutos.
-        if "schedule_jsonb" in update_data or "frequency" in update_data:
+        mudou_a_cadencia = "schedule_jsonb" in update_data or "frequency" in update_data
+        if mudou_a_cadencia:
             from src.services import limites_do_plano
 
+            if "schedule_jsonb" in update_data:
+                update_data["schedule_jsonb"] = _schedule_valido(update_data["schedule_jsonb"])
+            freq = update_data.get("frequency", getattr(agent, "frequency", None))
+            freq = freq.value if hasattr(freq, "value") else freq
+            if "frequency" in update_data:
+                update_data["frequency"] = freq
             await limites_do_plano.verificar_intervalo(
                 update_data.get("schedule_jsonb", getattr(agent, "schedule_jsonb", None)),
-                update_data.get("frequency", getattr(agent, "frequency", None)),
+                freq,
             )
         for key, value in update_data.items():
             setattr(agent, key, value)
+
+        # A PRÓXIMA CORRIDA segue a cadência nova — já.
+        #
+        # Mudar de «diário» para «de hora a hora» guardava a cadência nova e
+        # deixava o `next_execution_at` antigo: a mudança só se notava depois
+        # da próxima corrida, que podia ser amanhã. Um agente em pausa fica
+        # sem próxima corrida, como estava.
+        if mudou_a_cadencia and agent.status == "active":
+            agent.next_execution_at = _compute_next_execution(
+                agent.frequency, getattr(agent, "schedule_jsonb", None)
+            )
 
         await self.db.commit()
         # Re-fetch with findings so the response still has them populated
@@ -347,6 +369,10 @@ class AgentService:
         if not agent:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
         agent.status = "active"
+        # Retomar é começar do zero. Sem isto, um agente auto-pausado por três
+        # falhas seguidas voltava com o contador a 3 — e a PRIMEIRA falha
+        # seguinte pausava-o outra vez, sem as três tentativas prometidas.
+        agent.consecutive_failures = 0
         agent.next_execution_at = _compute_next_execution(
             agent.frequency,
             getattr(agent, "schedule_jsonb", None),

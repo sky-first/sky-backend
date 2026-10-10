@@ -32,7 +32,7 @@ NAO_CONSEGUI = get_message("agent_could_not_run")
 NADA_A_ASSINALAR = get_message("agent_nothing_to_report")
 
 
-def mensagem_de_avaria(agente) -> str:
+def mensagem_de_avaria(agente, lingua: Optional[str] = None) -> str:
     """«Não consegui» — e, se houver, a última leitura boa, datada.
 
     > «devemos ser inteligentes e talvez mostrar o primeiro resultado…
@@ -53,12 +53,12 @@ def mensagem_de_avaria(agente) -> str:
     orquestrador — senão a corrida seguinte pedia ao modelo para
     comparar com uma mensagem de erro.
     """
-    base = NAO_CONSEGUI
+    base = get_message("agent_could_not_run", lingua) if lingua else NAO_CONSEGUI
     ultima = (getattr(agente, "last_answer", None) or "").strip()
     if not ultima:
         return base
     quando = getattr(agente, "last_execution_at", None)
-    etiqueta = get_message("agent_last_known_reading").format(
+    etiqueta = get_message("agent_last_known_reading", lingua).format(
         data=quando.strftime("%d/%m %H:%M") if quando else "?"
     )
     # Cortada: isto vai para um cartão no fio, não é o sítio de repetir
@@ -83,7 +83,6 @@ def _extract_tables_from_sql(sql: str) -> List[str]:
 
 
 DEPTH_CYCLES = {"quick": 1, "standard": 3, "deep": 5}
-FREQUENCY_HOURS = {"hourly": 1, "daily": 24, "weekly": 168}
 
 # After this many consecutive scheduled-run failures, the agent is auto-paused
 # (status="paused"). Prevents a misconfigured / broken agent from burning LLM
@@ -98,50 +97,138 @@ def next_run_at(
     hour: "int | None" = None,
     minute: int = 0,
 ) -> "datetime":
-    """Quando e que este agente volta a correr.
+    """Quando e que este agente volta a correr (frequencia + hora opcional).
 
-    Sem hora escolhida mantem-se o que sempre houve: agora + o intervalo da
-    frequencia. E previsivel, mas nao serve para o que as pessoas realmente
-    querem — "todos os dias as 8h", para o resultado estar em cima da mesa
-    quando o dia comeca. Um agente diario criado as 15h47 respondia todos os
-    dias as 15h47, que nao interessa a ninguem.
-
-    Com hora escolhida, alinha-se: o proximo instante nessa hora que ainda
-    esteja no futuro. Para semanal, mantem-se o mesmo dia da semana.
+    Mantido pela assinatura antiga; a regra vive em `cadencia_do_agente`,
+    que e a mesma usada na criacao, no retomar e no portao do plano.
     """
-    from datetime import timedelta
+    from src.services.cadencia_do_agente import proxima_corrida
 
-    hours = FREQUENCY_HOURS.get(frequency, 24)
-    if hour is None:
-        return now + timedelta(hours=hours)
-
-    hour = max(0, min(23, int(hour)))
-    minute = max(0, min(59, int(minute)))
-    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    # Alinhar sempre para a frente. `<=` e nao `<`: correr agora e voltar a
-    # agendar para este mesmo instante poe o agente num ciclo apertado.
-    while candidate <= now:
-        candidate += timedelta(hours=hours)
-    return candidate
+    cfg = {"hour": hour, "minute": minute} if hour is not None else None
+    return proxima_corrida(now, frequency, cfg) or now + timedelta(hours=24)
 
 
 def scheduled_hour(agent) -> "tuple[int | None, int]":
     """A hora escolhida para este agente, se houver.
 
-    Vive em `schedule_jsonb` (`{"hour": 8, "minute": 0}`) porque a coluna
-    `frequency` so sabe de intervalos. Ausente ou ilegivel -> None, e o
-    agendamento fica como sempre esteve.
+    Vive em `schedule_jsonb` (`{"hour": 8, "minute": 0}` ou `{"time": "08:00"}`,
+    que e como a web a grava). Ausente ou ilegivel -> None.
     """
-    cfg = getattr(agent, "schedule_jsonb", None) or {}
-    if not isinstance(cfg, dict):
-        return None, 0
-    raw = cfg.get("hour")
-    if raw is None:
-        return None, 0
-    try:
-        return int(raw), int(cfg.get("minute") or 0)
-    except (TypeError, ValueError):
-        return None, 0
+    from src.services.cadencia_do_agente import hora_escolhida
+
+    return hora_escolhida(getattr(agent, "schedule_jsonb", None))
+
+
+def _reagendar(agent, agora: "datetime | None" = None) -> None:
+    """Poe o `next_execution_at` na proxima corrida da cadencia do agente.
+
+    UM sitio so. Havia quatro saidas a calcular isto a mao com a tabela de
+    frequencias do worker — que nao conhecia `minutely` nem o
+    `interval_value`, e por isso um agente «de 15 em 15 minutos» passava a
+    correr uma vez por dia depois da primeira corrida. E nenhuma lia os dias
+    da semana, que agora existem.
+    """
+    from src.services.cadencia_do_agente import proxima_corrida_do_agente
+
+    agent.next_execution_at = proxima_corrida_do_agente(agent, agora)
+
+
+def _lingua_de(user) -> str:
+    """A lingua de quem le as respostas deste agente — a do dono.
+
+    A preferencia das RESPOSTAS (`answer_language`) quando existe; senao a da
+    interface. Era o portugues por omissao, cravado: o Lucas, com a app em
+    castelhano, lia «Olhei agora e nao ha nada a assinalar».
+    """
+    from src.core.locale import normalize_locale, resolve_locale
+
+    prefs = getattr(user, "preferences", None) or {}
+    if isinstance(prefs, dict):
+        escolhida = str(prefs.get("answer_language") or "").strip().lower()
+        if escolhida and escolhida != "auto":
+            return normalize_locale(escolhida)
+    return resolve_locale(None, user)
+
+
+def _uuids(ids) -> List[uuid.UUID]:
+    fora: List[uuid.UUID] = []
+    for i in ids or []:
+        try:
+            fora.append(i if isinstance(i, uuid.UUID) else uuid.UUID(str(i)))
+        except (ValueError, TypeError):
+            continue
+    return list(dict.fromkeys(fora))
+
+
+async def _ligacoes_do_ambito(db, agent) -> List[uuid.UUID]:
+    """As fontes que o agente alcanca quando ninguem escolheu nenhuma.
+
+    > «Criei um agente a perguntar quanto faturei. Correu, diz que nao ha
+    > nada a assinalar, e nas Descobertas nao aparece nada.» — Lucas, 10/10/2026
+
+    Os agentes criados na app em «Tudo o que este projeto ve» ou «Uma pergunta
+    minha» nao levam `connection_ids` — e o worker so perguntava as ligacoes
+    da lista. Lista vazia, ciclo vazio: **nenhuma pergunta chegava a ser
+    feita**, e o fio dizia «olhei e nao ha nada». A frase era falsa; nao se
+    tinha olhado para nada.
+
+    A resposta e a mesma que o chat da: as ligacoes do PROJETO a que o dono do
+    agente tem acesso (pelo mesmo `AIService`, que ja faz a verificacao de
+    pertenca); num agente de equipa, so as da equipa se a equipa as tiver
+    restringido; num agente pessoal, as ligacoes do proprio.
+    """
+    if not agent.created_by:
+        return []
+    from sqlalchemy import select
+
+    from src.services.ai_service import AIService
+
+    svc = AIService(db)
+    ambito = (agent.scope or "").lower()
+    projeto: Optional[str] = None
+    if ambito == "space" and agent.scope_id:
+        projeto = str(agent.scope_id)
+    elif ambito == "crew" and agent.scope_id:
+        from src.models.crew import Crew
+
+        try:
+            projeto_id = (
+                await db.execute(
+                    select(Crew.space_id).where(Crew.id == uuid.UUID(str(agent.scope_id)))
+                )
+            ).scalar_one_or_none()
+        except (ValueError, TypeError):
+            projeto_id = None
+        projeto = str(projeto_id) if projeto_id else None
+
+    if projeto:
+        ids = await svc._get_all_connections_for_space(agent.created_by, projeto)  # noqa: SLF001
+        if ambito == "crew" and ids:
+            from src.models.crew import CrewConnection
+
+            da_equipa = {
+                str(c)
+                for c in (
+                    await db.execute(
+                        select(CrewConnection.connection_id).where(
+                            CrewConnection.crew_id == uuid.UUID(str(agent.scope_id))
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            }
+            # Uma equipa sem ligacoes proprias ve as do projeto todo — e a
+            # mesma regra do chat (ver o `CrewCreate.connection_ids`).
+            if da_equipa:
+                ids = [i for i in ids if str(i) in da_equipa]
+        return _uuids(ids)
+
+    ids = await svc._get_user_dataset_connection_ids(agent.created_by)  # noqa: SLF001
+    if not ids:
+        primeira = await svc._get_first_active_connection(agent.created_by)  # noqa: SLF001
+        ids = [primeira] if primeira else []
+    return _uuids(ids)
 
 
 # Phase 3 tier-router — when L1 (delta check, no LLM) detects no change in
@@ -269,7 +356,10 @@ async def _adaptive_interval_hours(db, agent_id, base_hours: int, current_findin
 
     # streak == THRESHOLD → 2x; +1 → 4x; capped by MAX_HOURS.
     multiplier = 2 ** (streak - ADAPTIVE_BACKOFF_THRESHOLD + 1)
-    return min(base_hours * multiplier, ADAPTIVE_BACKOFF_MAX_HOURS)
+    # O tecto nunca ENCURTA: um agente mensal com o recuo aplicado passava a
+    # correr de 7 em 7 dias — mais vezes por estar calado, o contrário do
+    # que o recuo existe para fazer.
+    return min(base_hours * multiplier, max(base_hours, ADAPTIVE_BACKOFF_MAX_HOURS))
 
 
 def _run_async(coro):
@@ -290,7 +380,6 @@ def _run_async(coro):
 # autonomous agent run carries an authoritative viz hint the Pulse FE
 # can render without guessing.
 import re as _re_viz
-
 
 _PERCENT_DELTA_RE = _re_viz.compile(r"[+\-]?\s?\d+(?:\.\d+)?\s?%")
 _NUMERIC_RE = _re_viz.compile(r"\d+(?:\.\d+)?")
@@ -459,6 +548,76 @@ def _infer_viz_kind(response, answer: str) -> str:
         return "kpi"
 
     return "callout"
+
+
+async def _registar_excepcao(db, id_do_agente, erro) -> None:
+    """Grava uma corrida que rebentou como falha — e reagenda o agente."""
+    try:
+        await db.rollback()
+    except Exception:  # noqa: BLE001
+        pass
+    # O rollback apagou a execução que ia a meio; grava-se uma nova, já
+    # fechada, para a falha ficar à vista de quem abre o agente.
+    from src.models.agent import Agent, AgentExecution
+    from sqlalchemy import select
+
+    agora = datetime.now(timezone.utc)
+    fresco = (await db.execute(select(Agent).where(Agent.id == id_do_agente))).scalar_one_or_none()
+    if fresco is None:
+        return
+    db.add(
+        AgentExecution(
+            agent_id=fresco.id,
+            status="failed",
+            error_message=f"{type(erro).__name__}: {erro}"[:1000],
+            cycles_consumed=0,
+            findings_count=0,
+            finished_at=agora,
+        )
+    )
+    fresco.last_execution_at = agora
+    fresco.consecutive_failures = (fresco.consecutive_failures or 0) + 1
+    if fresco.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+        fresco.status = "paused"
+        fresco.next_execution_at = None
+    elif fresco.status == "active":
+        _reagendar(fresco, agora)
+    await db.commit()
+
+
+async def _saltar_sem_perguntas(db, agent, execution, erro, lingua: str) -> None:
+    """Sem perguntas no mês: a corrida SALTA, diz-se porquê, e não é falha.
+
+    Saltar calado era o mesmo silêncio que se lê como avaria. E contar como
+    falha auto-pausava o agente ao terceiro salto — e ninguém o retomava
+    quando o mês virasse.
+    """
+    agora = datetime.now(timezone.utc)
+    execution.status = "skipped_plan_quota"
+    execution.cycles_consumed = 0
+    execution.findings_count = 0
+    execution.finished_at = agora
+    try:
+        execution.error_message = (getattr(erro, "messages", None) or {}).get("pt") or str(erro)
+    except Exception:  # noqa: BLE001 — coluna ausente numa base antiga
+        pass
+    agent.last_execution_at = agora
+    _reagendar(agent, agora)
+    try:
+        from src.services.agent_conversation_service import post_agent_answer
+
+        mensagens = getattr(erro, "messages", None) or {}
+        frase_do_plano = mensagens.get(lingua) or mensagens.get("pt") or ""
+        await post_agent_answer(
+            db,
+            agent=agent,
+            answer=(get_message("agent_skipped_plan_quota", lingua) + " " + frase_do_plano).strip(),
+            chave_de_texto="agent_skipped_plan_quota",
+        )
+    except Exception as _post_err:  # noqa: BLE001
+        logger.warning("Agent %s: could not post the quota notice: %s", agent.id, _post_err)
+    await db.commit()
+    logger.info("Agent %s: sem perguntas no plano este mês — corrida saltada", agent.id)
 
 
 async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
@@ -673,7 +832,21 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             # tier is more sensitive than 'internal' before the agent
             # issues a query. We resolve tiers in one round-trip then
             # iterate the allowed subset.
-            connection_ids = list(agent.connection_ids or [])
+            connection_ids = _uuids(agent.connection_ids)
+            # Sem fontes escolhidas, as do ÂMBITO — ver `_ligacoes_do_ambito`.
+            # Numa só pergunta: o motor junta-as (como no chat), e o plano
+            # conta uma pergunta por corrida e não uma por ligação.
+            fontes_do_ambito = not connection_ids
+            if fontes_do_ambito:
+                try:
+                    connection_ids = await _ligacoes_do_ambito(db, agent)
+                except Exception as _amb_err:  # noqa: BLE001
+                    logger.warning(
+                        "Agent %s: could not resolve its scope's connections: %s",
+                        agent_id,
+                        _amb_err,
+                    )
+                    connection_ids = []
             if getattr(agent, "auditable_only", False) and connection_ids:
                 from sqlalchemy import select
                 from src.models.connection import DataConnection
@@ -770,8 +943,57 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             #
             # E a mesma distincao da pausa: o que vale para quem corre sozinho
             # nao vale para quem foi perguntado directamente.
+            lingua = _lingua_de(agent_user)
+
+            # ── SEM FONTES, NÃO SE DIZ QUE SE OLHOU ─────────────────────────
+            #
+            # Nem as escolhidas nem as do âmbito: não há a quem perguntar. Era
+            # aqui que o fio dizia «olhei e não há nada a assinalar» — sobre
+            # zero perguntas feitas. Diz-se o que é, e NÃO conta como falha:
+            # um agente sem fontes não está avariado, está à espera de uma, e
+            # auto-pausá-lo obrigava alguém a lembrar-se de o retomar quando a
+            # fonte chegasse.
+            if not connection_ids:
+                agora = datetime.now(timezone.utc)
+                execution.status = "failed"
+                execution.cycles_consumed = 0
+                execution.findings_count = 0
+                execution.finished_at = agora
+                execution.error_message = "sem fontes de dados no âmbito do agente"
+                agent.last_execution_at = agora
+                _reagendar(agent, agora)
+                try:
+                    from src.services.agent_conversation_service import post_agent_answer
+
+                    await post_agent_answer(
+                        db,
+                        agent=agent,
+                        answer=get_message("agent_no_data_source", lingua),
+                        chave_de_texto="agent_no_data_source",
+                    )
+                except Exception as _post_err:  # noqa: BLE001
+                    logger.warning("Agent %s: could not post: %s", agent_id, _post_err)
+                await db.commit()
+                logger.warning("Agent %s: no data source in its scope — nothing asked", agent_id)
+                return
+
+            # Comparado com a última corrida que CORREU BEM — e não com a
+            # última tentativa. Com `last_execution_at`, uma corrida que falhou
+            # (ou que saltou por falta de perguntas) contava como «já olhei»:
+            # a seguinte via os dados iguais e saltava, e a seguinte também,
+            # e o agente ficava calado até alguém mexer nos dados.
+            from sqlalchemy import func as _func
+
+            ultima_boa = (
+                await db.execute(
+                    select(_func.max(AgentExecution.finished_at)).where(
+                        AgentExecution.agent_id == agent.id,
+                        AgentExecution.status == "completed",
+                    )
+                )
+            ).scalar_one_or_none()
             l1_should_run = a_pedido or await _connections_changed_since(
-                db, connection_ids, agent.last_execution_at
+                db, connection_ids, ultima_boa
             )
             if agent_user is not None:
                 for conn_id in connection_ids:
@@ -789,23 +1011,7 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                 try:
                     await limites_do_plano.verificar_saldo()
                 except limites_do_plano.LimiteDoPlanoError as _sem_saldo:
-                    execution.status = "skipped_plan_quota"
-                    execution.cycles_consumed = 0
-                    execution.findings_count = 0
-                    execution.finished_at = datetime.now(timezone.utc)
-                    try:
-                        execution.error_message = _sem_saldo.messages.get("pt")
-                    except Exception:  # noqa: BLE001 — coluna ausente numa base antiga
-                        pass
-                    agent.last_execution_at = datetime.now(timezone.utc)
-                    _h, _m = scheduled_hour(agent)
-                    agent.next_execution_at = next_run_at(
-                        datetime.now(timezone.utc), agent.frequency, hour=_h, minute=_m
-                    )
-                    await db.commit()
-                    logger.info(
-                        "Agent %s: sem perguntas no plano este mês — corrida saltada", agent_id
-                    )
+                    await _saltar_sem_perguntas(db, agent, execution, _sem_saldo, lingua)
                     return
 
             if not l1_should_run:
@@ -825,13 +1031,7 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                 except Exception:
                     pass
                 agent.last_execution_at = datetime.now(timezone.utc)
-                _h, _m = scheduled_hour(agent)
-                agent.next_execution_at = next_run_at(
-                    datetime.now(timezone.utc),
-                    agent.frequency,
-                    hour=_h,
-                    minute=_m,
-                )
+                _reagendar(agent)
                 await db.commit()
                 logger.info(
                     "Agent %s: L1 delta-check found no new data across "
@@ -841,7 +1041,19 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                 )
                 return
 
-            for conn_id in connection_ids:
+            # Fontes do âmbito: UMA pergunta com todas (a primeira é a
+            # principal, as outras vão como extra para o motor as juntar — é o
+            # que o chat faz). Fontes escolhidas: uma pergunta por fonte, como
+            # sempre foi.
+            if fontes_do_ambito:
+                chamadas = [
+                    (connection_ids[0], connection_ids if len(connection_ids) > 1 else None)
+                ]
+            else:
+                chamadas = [(c, None) for c in connection_ids]
+            sem_perguntas = None
+
+            for conn_id, extras in chamadas:
                 try:
                     # Pass table_ids as selected_datasets if specified.
                     # For SQL mode, prefer names extracted from custom_sql — the
@@ -875,7 +1087,6 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                             db, agent_user, kind="agent_l3", source_id=conn_id
                         )
 
-                    from src.core.locale import resolve_locale
                     from src.services.agent_service import resolve_metadata_space_id
 
                     # Resolve the REAL owning space - sending the raw scope_id is
@@ -891,7 +1102,16 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         instructions=agent_instructions,
                         agent_mode=monitor_type,
                         sql_instructions=sql_instructions,
-                        locale=resolve_locale(None, agent_user),
+                        locale=lingua,
+                        connection_ids=[str(c) for c in extras] if extras else None,
+                        # Num agente de equipa, as tabelas são as da equipa —
+                        # como no chat. Só no caminho do âmbito: os agentes
+                        # com fontes escolhidas ficam exactamente como estavam.
+                        crew_ids=(
+                            [str(agent.scope_id)]
+                            if fontes_do_ambito and (agent.scope or "").lower() == "crew"
+                            else None
+                        ),
                     )
 
                     answer = (
@@ -938,11 +1158,24 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         )
 
                 except Exception as e:
+                    # Acabaram as perguntas do mês A MEIO da corrida (a
+                    # reserva é feita à porta do sky-ai, pergunta a pergunta).
+                    # Não é uma ligação avariada: contá-la como falha
+                    # auto-pausava o agente por causa do plano.
+                    from src.services.limites_do_plano import LimiteDoPlanoError
+
+                    if isinstance(e, LimiteDoPlanoError):
+                        sem_perguntas = e
+                        break
                     logger.warning(f"Agent {agent_id}: failed to query connection {conn_id}: {e}")
                     # Guarda-se a razão da PRIMEIRA que falhou. Se falharem
                     # todas, é isto que a corrida vai dizer — ver o 5c.
                     ligacoes_falhadas.append((conn_id, f"{type(e).__name__}: {e}"))
                     continue
+
+            if sem_perguntas is not None and not respostas_por_ligacao:
+                await _saltar_sem_perguntas(db, agent, execution, sem_perguntas, lingua)
+                return
 
             # 5a. UM achado por corrida, com o que todas as ligações disseram.
             #
@@ -1081,7 +1314,7 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         agent=agent,
                         # Com a última leitura boa colada por baixo, se
                         # houver — ver `mensagem_de_avaria`.
-                        answer=mensagem_de_avaria(agent),
+                        answer=mensagem_de_avaria(agent, lingua),
                         chave_de_texto="agent_could_not_run",
                     )
                 elif finding_da_corrida is not None:
@@ -1103,7 +1336,7 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                     await post_agent_answer(
                         db,
                         agent=agent,
-                        answer=NAO_CONSEGUI,
+                        answer=get_message("agent_could_not_run", lingua),
                         # A chave faz duas coisas: deixa o cliente mostrar
                         # isto na língua de quem lê, e faz a 2.ª falha
                         # seguida contar-se na primeira em vez de abrir
@@ -1119,7 +1352,14 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                     await post_agent_answer(
                         db,
                         agent=agent,
-                        answer=(answer.strip() if tem_texto_proprio else NADA_A_ASSINALAR),
+                        # Na língua de quem lê — o `NADA_A_ASSINALAR` era
+                        # sempre o português, e o Lucas com a app em
+                        # castelhano lia «Olhei agora…».
+                        answer=(
+                            answer.strip()
+                            if tem_texto_proprio
+                            else get_message("agent_nothing_to_report", lingua)
+                        ),
                         # Só a frase do catálogo se colapsa. Se o motor
                         # devolveu um texto seu, é uma resposta e vale
                         # uma mensagem — mesmo que saia igual à de
@@ -1192,14 +1432,10 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         agent_id,
                         agent.consecutive_failures,
                     )
-                else:
-                    _h, _m = scheduled_hour(agent)
-                    agent.next_execution_at = next_run_at(
-                        datetime.now(timezone.utc),
-                        agent.frequency,
-                        hour=_h,
-                        minute=_m,
-                    )
+                elif agent.status == "active":
+                    # Só um agente ACTIVO ganha próxima corrida: um em pausa a
+                    # quem se perguntou directamente continua em pausa.
+                    _reagendar(agent)
                 await db.commit()
                 logger.error(
                     "Agent %s: nenhuma ligação respondeu (%d falharam); "
@@ -1251,9 +1487,14 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             if answer_is_real:
                 agent.last_answer = answer[:2000]
                 agent.consecutive_failures = 0
-            else:
+            elif answer:
                 # Bump the failure counter; pause the agent if it's been
                 # failing repeatedly so it stops eating LLM budget.
+                #
+                # SÓ quando houve mesmo um erro do orquestrador. Uma resposta
+                # VAZIA não é uma avaria — é o motor a dizer que não tinha nada
+                # — e contá-la como falha auto-pausava ao fim de três corridas
+                # caladas um agente que estava bom.
                 agent.consecutive_failures = (agent.consecutive_failures or 0) + 1
                 if agent.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                     agent.status = "paused"
@@ -1267,30 +1508,32 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
 
             # Schedule next execution (skip if we just auto-paused above).
             # Adaptive backoff stretches the interval when recent runs have
-            # been empty — see _adaptive_interval_hours.
+            # been empty — see _adaptive_interval_hours. Só para intervalos
+            # simples: quem escolheu «às 9h» ou «segunda e quinta» escolheu
+            # QUANDO, e esticar isso mudava a hora sem ninguém pedir.
             if agent.status == "active":
-                base_hours = FREQUENCY_HOURS.get(agent.frequency, 24)
-                hours = await _adaptive_interval_hours(
-                    db, agent.id, base_hours, current_findings=findings_created
+                from src.services.cadencia_do_agente import (
+                    alinhado_a_hora,
+                    intervalo_em_minutos,
                 )
-                _h, _m = scheduled_hour(agent)
-                agent.next_execution_at = (
-                    next_run_at(
-                        datetime.now(timezone.utc),
-                        agent.frequency,
-                        hour=_h,
-                        minute=_m,
+
+                cfg = getattr(agent, "schedule_jsonb", None)
+                base_min = intervalo_em_minutos(cfg, agent.frequency)
+                if alinhado_a_hora(cfg) or base_min is None:
+                    _reagendar(agent)
+                else:
+                    base_hours = base_min / 60
+                    hours = await _adaptive_interval_hours(
+                        db, agent.id, base_hours, current_findings=findings_created
                     )
-                    if _h is not None
-                    else datetime.now(timezone.utc) + timedelta(hours=hours)
-                )
-                if hours != base_hours:
-                    logger.info(
-                        "Agent %s: adaptive backoff applied (%dh base → %dh next)",
-                        agent_id,
-                        base_hours,
-                        hours,
-                    )
+                    agent.next_execution_at = datetime.now(timezone.utc) + timedelta(hours=hours)
+                    if hours != base_hours:
+                        logger.info(
+                            "Agent %s: adaptive backoff applied (%.2fh base → %.2fh next)",
+                            agent_id,
+                            base_hours,
+                            hours,
+                        )
 
             # Nunca mais depressa do que o plano deixa («avisos diários» no
             # Starter). Um agente agendado antes do plano existir, ou por uma
@@ -1402,17 +1645,24 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             )
 
         except Exception as e:
-            execution.status = "failed"
-            execution.error_message = str(e)[:1000]
+            # ── Uma excepção é UMA falha, não o fim do agente. ─────────────
+            #
+            # Isto punha `agent.status = "error"` e relançava. O agendador só
+            # olha para agentes `active`, por isso UMA excepção qualquer — a
+            # base a piscar, um timeout — parava o agente PARA SEMPRE, sem
+            # próxima corrida e sem ninguém avisado. E o relançar fazia o
+            # Celery repetir a corrida inteira dois minutos depois: outra
+            # execução, outra pergunta gasta do plano, e — com o agente já em
+            # `error` — saltada logo à entrada.
+            #
+            # Agora conta como as outras falhas: soma ao contador, pausa ao
+            # fim de três seguidas (o travão que existe para não comer
+            # orçamento) e, até lá, volta a tentar na cadência normal.
+            logger.error(f"Agent {agent_id} execution failed: {e}", exc_info=True)
             try:
-                execution.tier = "l1"
-            except Exception:
-                pass
-            execution.finished_at = datetime.now(timezone.utc)
-            agent.status = "error"
-            await db.commit()
-            logger.error(f"Agent {agent_id} execution failed: {e}")
-            raise
+                await _registar_excepcao(db, uuid.UUID(agent_id), e)
+            except Exception as _reg_err:  # noqa: BLE001
+                logger.error("Agent %s: could not record the failure: %s", agent_id, _reg_err)
 
 
 @celery_app.task(bind=True, max_retries=2)
@@ -1443,7 +1693,7 @@ async def _schedule_agents_async():
     from src.config.tenant_connection_manager import tenant_connection_manager
     from src.core.tenant_context import current_tenant
     from src.models.agent import Agent
-    from src.services.agent_service import FREQUENCY_HOURS
+    from src.services.cadencia_do_agente import intervalo_em_minutos
     from sqlalchemy import or_, select
 
     # A base DESTE cliente, e nao a da plataforma.
@@ -1479,7 +1729,12 @@ async def _schedule_agents_async():
         candidates = result.scalars().all()
 
         due_agents = [a for a in candidates if a.next_execution_at is not None]
-        orphans = [a for a in candidates if a.next_execution_at is None]
+        orphans = [
+            a
+            for a in candidates
+            if a.next_execution_at is None
+            and intervalo_em_minutos(getattr(a, "schedule_jsonb", None), a.frequency) is not None
+        ]
 
         # Heal the orphans instead of running them. Firing every
         # recovered agent at once would stampede the AI service and
@@ -1487,9 +1742,14 @@ async def _schedule_agents_async():
         # deterministically across their own frequency window gets them
         # back on cadence without a thundering herd.
         for idx, agent in enumerate(orphans):
-            hours = FREQUENCY_HOURS.get(agent.frequency, 24)
+            minutos = intervalo_em_minutos(getattr(agent, "schedule_jsonb", None), agent.frequency)
+            if minutos is None:
+                # Manual / uma só vez: não corre sozinho, e não se lhe inventa
+                # uma cadência. Sai da lista de órfãos por ter o campo vazio
+                # de propósito.
+                continue
             share = (idx + 1) / (len(orphans) + 1)
-            agent.next_execution_at = now + timedelta(hours=hours * share)
+            agent.next_execution_at = now + timedelta(minutes=minutos * share)
         if orphans:
             await db.commit()
             logger.warning(
@@ -1499,11 +1759,38 @@ async def _schedule_agents_async():
                 len(orphans),
             )
 
+        # ── Os agentes presos em `error` voltam ao activo. ──────────────────
+        #
+        # Até 10/10/2026 qualquer excepção numa corrida punha o agente em
+        # `error` — e este agendador só olha para `active`, por isso ficavam
+        # parados para sempre, sem próxima corrida e sem ninguém saber. O
+        # worker já não o faz (ver `_registar_excepcao`); isto devolve os que
+        # ficaram presos, espalhados pela cadência de cada um para não
+        # correrem todos no mesmo minuto.
+        presos = (
+            (
+                await db.execute(
+                    select(Agent).where(Agent.status == "error", Agent.monitor_type != "insight")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for idx, agent in enumerate(presos):
+            minutos = intervalo_em_minutos(getattr(agent, "schedule_jsonb", None), agent.frequency)
+            agent.status = "active"
+            if minutos is not None:
+                share = (idx + 1) / (len(presos) + 1)
+                agent.next_execution_at = now + timedelta(minutes=minutos * share)
+        if presos:
+            await db.commit()
+            logger.warning("Agent scheduler: %d agent(s) stuck in 'error' reactivated", len(presos))
+
         for agent in due_agents:
             logger.info(f"Scheduling agent {agent.id} ({agent.name}) for execution")
             execute_agent.delay(str(agent.id))
 
-        return len(due_agents), len(orphans)
+        return len(due_agents), len(orphans) + len(presos)
 
 
 @celery_app.task
