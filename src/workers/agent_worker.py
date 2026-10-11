@@ -158,6 +158,14 @@ _FOCOS_DE_OMISSAO = {
 }
 
 
+def _objetivo_escrito(agent) -> Optional[str]:
+    """O objectivo que alguém ESCREVEU — ou `None` (vazio ou a frase de omissão)."""
+    escrito = (agent.focus or "").strip()
+    if escrito and escrito.lower() not in _FOCOS_DE_OMISSAO:
+        return escrito
+    return None
+
+
 async def _objetivo_do_agente(db, agent) -> str:
     """O que a IA deve procurar nos modos «projeto todo» e «uma fonte».
 
@@ -169,8 +177,8 @@ async def _objetivo_do_agente(db, agent) -> str:
     dá o objectivo por omissão, na língua do dono: olhar para o negócio pelos
     dados do projeto e trazer melhorias, alertas, ameaças e oportunidades.
     """
-    escrito = (agent.focus or "").strip()
-    if escrito and escrito.lower() not in _FOCOS_DE_OMISSAO:
+    escrito = _objetivo_escrito(agent)
+    if escrito:
         return escrito
     dono = None
     if agent.created_by:
@@ -722,6 +730,59 @@ def _juntar_respostas(por_ligacao: list[dict]) -> dict | None:
     }
 
 
+def _sintese_do_plano(
+    respostas_do_plano: list,
+    por_ligacao: list[dict],
+    lingua: str,
+    objetivo_escrito: Optional[str],
+) -> "tuple[dict | None, str]":
+    """O plano do modo «contexto» numa resposta só — e o texto para o fio.
+
+    Devolve `(resposta_da_corrida, answer)` no formato do `_juntar_respostas`.
+    Sem evidência nenhuma: `(None, "")`, e o fio diz «nada a assinalar». Se
+    TODAS as respostas foram erros do orquestrador, o `answer` é o erro — o
+    resto do worker trata-o como avaria e não como «não há nada».
+    """
+    from src.services.analise_do_negocio import sintetizar, tem_evidencia
+    from src.workers.uma_recusa_nao_e_um_achado import e_uma_recusa
+
+    validas = [
+        (p, r)
+        for p, r in respostas_do_plano
+        if r and not e_uma_recusa(r) and not _looks_like_orchestrator_error(r)
+    ]
+    sintese = sintetizar(validas, lingua, objetivo_escrito)
+    if sintese is None:
+        respondidas = [r for _, r in respostas_do_plano if (r or "").strip()]
+        erros = [r for r in respondidas if _looks_like_orchestrator_error(r)]
+        if respondidas and len(erros) == len(respondidas):
+            return None, erros[0]
+        return None, ""
+
+    com_evidencia = [r for _, r in validas if tem_evidencia(r)]
+    fontes: list[str] = []
+    for d in por_ligacao:
+        fontes.extend(d.get("table_ids") or [str(d["conn_id"])])
+    resposta = {
+        "answer": sintese.texto,
+        "title": sintese.titulo,
+        "conn_id": por_ligacao[0]["conn_id"] if por_ligacao else None,
+        # Várias secções: uma lista. Um gráfico de UMA das perguntas por
+        # cima de quatro secções diria que a análise é só aquilo.
+        "viz_kind": "bullet_list",
+        "rows": None,
+        "data_sources": list(dict.fromkeys(fontes)),
+    }
+    if len(com_evidencia) == 1:
+        # Uma só pergunta com evidência: o gráfico dela vale para a mensagem.
+        origem = next((d for d in por_ligacao if d.get("answer") == com_evidencia[0]), None)
+        if origem is not None:
+            resposta["viz_kind"] = origem.get("viz_kind") or "bullet_list"
+            resposta["rows"] = origem.get("rows")
+            resposta["conn_id"] = origem["conn_id"]
+    return resposta, sintese.texto
+
+
 def _normalize_rows(rows):
     if not rows:
         return None, None
@@ -1017,23 +1078,19 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                 )
                 agent_instructions = await _objetivo_do_agente(db, agent)
             elif monitor_type == "context":
+                # «Todo lo que ve este proyecto» — um PLANO de perguntas.
+                #
+                # Era uma pergunta só, com `sql_instructions` a obrigar o motor
+                # a contar as linhas de cada tabela. O que chegava ao fio era
+                # «tabla_x_count: 1204»: nada sobre o negócio. As perguntas
+                # agora saem de `analise_do_negocio.plano_de_analise`, depois
+                # de se saber que fontes e que catálogo o dono alcança (lá em
+                # baixo). Esta `question` é só o resumo que fica no achado.
                 question = (
-                    "What are the latest trends and key metrics in the available data? "
-                    "Show record counts, recent activity, and flag any anomalies or significant changes."
+                    "Business analysis of the project's data: opportunities, alerts, "
+                    "threats and improvements, with concrete figures and next steps."
                 )
                 agent_instructions = await _objetivo_do_agente(db, agent)
-                sql_instructions = (
-                    "Generate a single SELECT statement that returns exactly one row "
-                    "with the record count of every available table as a separate column. "
-                    "Use scalar subqueries, one per table. Example pattern:\n"
-                    "SELECT\n"
-                    "  (SELECT COUNT(*) FROM schema.table1) AS table1_count,\n"
-                    "  (SELECT COUNT(*) FROM schema.table2) AS table2_count,\n"
-                    "  ...\n"
-                    "Replace schema.tableN with the actual physical table names from the schema. "
-                    "Do NOT use UNION, JOIN, WHERE, or HAVING clauses. "
-                    "This must return exactly one row."
-                )
             else:
                 question = (
                     f"You are an autonomous {agent.archetype or 'custom'} agent. "
@@ -1051,7 +1108,14 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             # which the orchestrator could not satisfy, retrying up to the
             # langgraph recursion limit each tick. With an hourly Pulse and 3
             # connections, that drained €15+ in 5 hours of OpenAI tokens.
-            if agent.last_answer and not _looks_like_orchestrator_error(agent.last_answer):
+            # No plano do modo «contexto» a comparação vai nas instruções de
+            # cada pergunta (ver `instrucoes_da_pergunta`): colada a quatro
+            # perguntas, mudava-as todas e repetia-se quatro vezes.
+            if (
+                monitor_type != "context"
+                and agent.last_answer
+                and not _looks_like_orchestrator_error(agent.last_answer)
+            ):
                 question += (
                     f"\n\nIMPORTANT: In the previous analysis, the result was:\n"
                     f'"{agent.last_answer[:500]}"\n\n'
@@ -1319,15 +1383,58 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             # principal, as outras vão como extra para o motor as juntar — é o
             # que o chat faz). Fontes escolhidas: uma pergunta por fonte, como
             # sempre foi.
+            todas_juntas = (
+                connection_ids[0],
+                connection_ids if len(connection_ids) > 1 else None,
+            )
             if fontes_do_ambito:
-                chamadas = [
-                    (connection_ids[0], connection_ids if len(connection_ids) > 1 else None)
-                ]
+                chamadas = [todas_juntas]
             else:
                 chamadas = [(c, None) for c in connection_ids]
+
+            # Cada chamada leva a SUA pergunta (e um ângulo, no plano do modo
+            # «contexto»). Fora desse modo é a pergunta do agente, como sempre.
+            pedidos: list = [(c, extras, question, None) for c, extras in chamadas]
+            # O que cada pergunta do plano respondeu: (Pergunta, texto).
+            respostas_do_plano: list = []
+            instrucoes_do_plano = ""
+            if monitor_type == "context":
+                from src.services import analise_do_negocio as _analise
+
+                # Temas só do que o dono alcança neste âmbito — ver
+                # `catalogo_do_ambito`. Falha → perguntas genéricas.
+                _tabelas = await _analise.catalogo_do_ambito(
+                    db, agent, connection_ids, crew_ids_do_agente, agente_pessoal
+                )
+                plano = _analise.plano_de_analise(
+                    _objetivo_escrito(agent),
+                    lingua,
+                    _tabelas,
+                    maximo=_analise.MAX_PERGUNTAS_POR_CORRIDA,
+                )
+                # Todas as fontes juntas em cada pergunta, como o chat: um
+                # ângulo pode precisar de cruzar duas fontes, e o plano gasta
+                # uma pergunta por ângulo e não uma por fonte.
+                pedidos = [(todas_juntas[0], todas_juntas[1], p.texto, p) for p in plano]
+                instrucoes_do_plano = _analise.instrucoes_da_pergunta(
+                    lingua,
+                    (
+                        agent.last_answer
+                        if agent.last_answer
+                        and not _looks_like_orchestrator_error(agent.last_answer)
+                        else None
+                    ),
+                )
+                question = "\n".join(f"- {p.texto}" for p in plano) or question
+                logger.info(
+                    "Agent %s: plano de análise com %d pergunta(s) (%d tabelas no catálogo)",
+                    agent_id,
+                    len(plano),
+                    len(_tabelas),
+                )
             sem_perguntas = None
 
-            for conn_id, extras in chamadas:
+            for conn_id, extras, pergunta_do_pedido, pergunta_do_plano in pedidos:
                 try:
                     # Pass table_ids as selected_datasets if specified.
                     # For SQL mode, prefer names extracted from custom_sql — the
@@ -1369,11 +1476,14 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                     _effective_space_id = await resolve_metadata_space_id(db, agent, str(conn_id))
                     response = await ai_client.query_connection(
                         connection_id=str(conn_id),
-                        question=question,
+                        question=pergunta_do_pedido,
                         user_id=str(agent.created_by) if agent.created_by else "system",
                         space_id=_effective_space_id or agent.scope_id or "default",
                         selected_datasets=effective_datasets,
-                        instructions=agent_instructions,
+                        instructions=(
+                            "\n\n".join(x for x in (agent_instructions, instrucoes_do_plano) if x)
+                            or None
+                        ),
                         agent_mode=monitor_type,
                         sql_instructions=sql_instructions,
                         locale=lingua,
@@ -1389,6 +1499,8 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         response.get("answer", "") if isinstance(response, dict) else str(response)
                     )
                     sql_used = response.get("sql", "") if isinstance(response, dict) else ""
+                    if pergunta_do_plano is not None:
+                        respostas_do_plano.append((pergunta_do_plano, answer or ""))
 
                     if answer:
                         # Sprint 1.17 round 5 — viz_kind is picked by a
@@ -1453,7 +1565,12 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
             # A pergunta é uma; a resposta é uma. As ligações são por onde se
             # foi buscar a resposta — detalhe do caminho, não descobertas
             # separadas. Ver a nota no `respostas_por_ligacao`.
-            resposta_da_corrida = _juntar_respostas(respostas_por_ligacao)
+            if monitor_type == "context":
+                resposta_da_corrida, answer = _sintese_do_plano(
+                    respostas_do_plano, respostas_por_ligacao, lingua, _objetivo_escrito(agent)
+                )
+            else:
+                resposta_da_corrida = _juntar_respostas(respostas_por_ligacao)
             finding_da_corrida = None
             if resposta_da_corrida:
                 # A SKY CLASSIFICA O QUE ENCONTROU.
