@@ -355,6 +355,8 @@ class InsightFeedService:
             chave = "agent_no_data_source" if "sem fontes" in erro else "agent_could_not_run"
         elif estado == "skipped_plan_quota":
             chave = "agent_skipped_plan_quota"
+        elif estado == "refused_no_access":
+            chave = "agent_no_access"
         elif estado == "skipped_no_delta":
             # Os dados nao mudaram: a ultima leitura continua a valer.
             resposta = (agent.last_answer or "").strip() or None

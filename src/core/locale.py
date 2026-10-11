@@ -193,6 +193,50 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "próxima ejecución."
         ),
     },
+    # As fontes ESCOLHIDAS já não estão ao alcance do dono do agente (saiu do
+    # projeto ou da equipa). Não se pergunta — e diz-se porquê.
+    "agent_no_access": {
+        "pt": (
+            "Não perguntei nada: já não tem acesso às fontes de dados que "
+            "escolheu para este agente. Peça acesso ao projeto ou escolha "
+            "outra fonte."
+        ),
+        "en": (
+            "I didn't ask anything: you no longer have access to the data "
+            "sources chosen for this agent. Ask for access to the project or "
+            "choose another source."
+        ),
+        "es": (
+            "No he preguntado nada: ya no tiene acceso a las fuentes de datos "
+            "que eligió para este agente. Pida acceso al proyecto o elija otra "
+            "fuente."
+        ),
+    },
+    # O objectivo por omissão dos modos «Tudo o que este projeto vê» e «Uma
+    # fonte» quando ninguém escreveu o que procurar. Vai à IA como instrução.
+    "agent_default_objective": {
+        "pt": (
+            "Olha para o negócio através dos dados deste projeto e diz-me o que "
+            "importa: oportunidades de negócio, falhas na operação, formas "
+            "concretas de melhorar, ameaças e alertas. Prioriza o que tem mais "
+            "impacto, com números concretos, e diz o que fazer a seguir. Se não "
+            "houver nada relevante, diz isso em vez de inventar."
+        ),
+        "en": (
+            "Look at the business through this project's data and tell me what "
+            "matters: business opportunities, failures in the operation, "
+            "concrete ways to improve, threats and alerts. Prioritise what has "
+            "the most impact, with concrete numbers, and say what to do next. "
+            "If there is nothing relevant, say so instead of making it up."
+        ),
+        "es": (
+            "Mira el negocio a través de los datos de este proyecto y dime lo "
+            "que importa: oportunidades de negocio, fallos en la operación, "
+            "formas concretas de mejorar, amenazas y alertas. Prioriza lo que "
+            "tiene más impacto, con números concretos, y di qué hacer a "
+            "continuación. Si no hay nada relevante, dilo en lugar de inventar."
+        ),
+    },
     # Sem perguntas no mês: a corrida salta. Diz-se, senão lê-se como avaria.
     "agent_skipped_plan_quota": {
         "pt": (
