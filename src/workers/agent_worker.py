@@ -150,6 +150,40 @@ def _lingua_de(user) -> str:
     return resolve_locale(None, user)
 
 
+#: As frases que os clientes gravavam no `focus` quando ninguém escrevia
+#: objectivo nenhum (a web e a app, modo «Tudo o que este projeto vê»). Não
+#: são um objectivo de quem criou o agente — contam como vazio.
+_FOCOS_DE_OMISSAO = {
+    "scan all data for anomalies, trends, risks, and opportunities.",
+}
+
+
+async def _objetivo_do_agente(db, agent) -> str:
+    """O que a IA deve procurar nos modos «projeto todo» e «uma fonte».
+
+    > «¿Qué debe buscar la IA?» — o campo opcional, com sugestões
+    > («Oportunidades de negocio», «Amenazas y alertas»…). — Lucas, 11/10/2026
+
+    Vive no `focus` do agente (o campo que já leva «a pergunta ou as
+    instruções»). Vazio — ou a frase que os clientes gravavam por omissão —
+    dá o objectivo por omissão, na língua do dono: olhar para o negócio pelos
+    dados do projeto e trazer melhorias, alertas, ameaças e oportunidades.
+    """
+    escrito = (agent.focus or "").strip()
+    if escrito and escrito.lower() not in _FOCOS_DE_OMISSAO:
+        return escrito
+    dono = None
+    if agent.created_by:
+        from sqlalchemy import select
+
+        from src.models.user import User
+
+        dono = (
+            await db.execute(select(User).where(User.id == agent.created_by))
+        ).scalar_one_or_none()
+    return get_message("agent_default_objective", _lingua_de(dono))
+
+
 def _uuids(ids) -> List[uuid.UUID]:
     fora: List[uuid.UUID] = []
     for i in ids or []:
@@ -229,6 +263,209 @@ async def _ligacoes_do_ambito(db, agent) -> List[uuid.UUID]:
         primeira = await svc._get_first_active_connection(agent.created_by)  # noqa: SLF001
         ids = [primeira] if primeira else []
     return _uuids(ids)
+
+
+async def _recorte_de_dados(db, agent) -> "tuple[Optional[List[str]], bool]":
+    """As equipas (`crew_ids`) e o modo pessoal com que o agente pergunta.
+
+    E a MESMA regra do «Executar» interactivo (`agents.py`, o stream) e do
+    chat, decidida aqui pelo dono do agente:
+
+    * equipa   → a equipa do agente, `[scope_id]`
+    * projeto  → as equipas do dono nesse projeto (modelo antigo e
+                 `space_crews`, via `acesso_ao_projeto`)
+    * pessoal  → sem equipa, `is_personal=True`
+
+    **Vale para as fontes escolhidas e para as do ambito.** Antes so o
+    caminho do ambito mandava `crew_ids`; um agente com fontes escolhidas
+    perguntava sem equipa, e o `sky-ai` resolvia-a sozinho pelo modelo
+    antigo (`crews.space_id`) — o recorte por equipa que o chat aplica
+    ficava de fora.
+    """
+    ambito = (agent.scope or "").lower()
+    if ambito == "personal":
+        return None, True
+    if ambito == "crew" and agent.scope_id:
+        return [str(agent.scope_id)], False
+    if ambito == "space" and agent.scope_id and agent.created_by:
+        from src.services.ai_service import AIService
+
+        ids = await AIService(db)._get_user_crew_ids(  # noqa: SLF001
+            agent.created_by, str(agent.scope_id)
+        )
+        return (ids or None), False
+    return None, False
+
+
+async def _projetos_da_equipa(db, crew_id: uuid.UUID) -> set:
+    """Os projetos a que uma equipa chega: o de origem e os que a convidaram."""
+    from sqlalchemy import select
+
+    from src.models.crew import Crew
+    from src.models.space_crew import SpaceCrew
+
+    projetos = set()
+    origem = (
+        await db.execute(select(Crew.space_id).where(Crew.id == crew_id, Crew.deleted_at.is_(None)))
+    ).scalar_one_or_none()
+    if origem:
+        projetos.add(origem)
+    for (sid,) in (
+        await db.execute(select(SpaceCrew.space_id).where(SpaceCrew.crew_id == crew_id))
+    ).all():
+        projetos.add(sid)
+    return projetos
+
+
+async def _ligacoes_que_o_dono_alcanca(db, agent, pedidas: List[uuid.UUID]) -> set:
+    """Das fontes ESCOLHIDAS, as que o dono do agente ainda alcanca hoje.
+
+    > Um agente corre sozinho, dias depois de ser criado. Entretanto o dono
+    > pode ter saido do projeto ou da equipa — e o agente continuava a
+    > perguntar as fontes que escolheu, com a identidade dele.
+
+    A verificacao e feita a cada corrida, sobre o ambito do agente:
+
+    * equipa  — o dono tem de ser MEMBRO da equipa; valem as ligacoes dos
+                projetos a que a equipa chega (e so as da equipa, se ela as
+                restringiu). E o caso das demonstracoes: a ligacao e do
+                projeto (`space_connections`), o dono do agente esta na
+                equipa e nao a criou.
+    * projeto — o dono tem de ter papel no projeto (`papel_no_projeto`);
+                valem as ligacoes do projeto.
+    * pessoal — as ligacoes ligadas a um projeto onde o dono tem papel.
+
+    Em qualquer ambito, uma ligacao que o proprio dono criou e dele.
+
+    Nao se olha ao `status` da ligacao: uma ligacao inactiva nao e uma
+    ligacao a que se perdeu o acesso, e a corrida trata-a como sempre tratou.
+    """
+    from sqlalchemy import select
+
+    from src.models.connection import DataConnection
+    from src.models.space import SpaceConnection
+    from src.services.acesso_ao_projeto import papel_no_projeto
+
+    dono = agent.created_by
+    if not dono or not pedidas:
+        return set()
+
+    vivas = {
+        cid: criador
+        for cid, criador in (
+            await db.execute(
+                select(DataConnection.id, DataConnection.created_by).where(
+                    DataConnection.id.in_(pedidas), DataConnection.deleted_at.is_(None)
+                )
+            )
+        ).all()
+    }
+    if not vivas:
+        return set()
+
+    ambito = (agent.scope or "").lower()
+    projetos_validos: set = set()
+    so_da_equipa: Optional[set] = None
+
+    if ambito == "crew":
+        from src.models.crew import CrewConnection, CrewMember
+
+        try:
+            equipa = uuid.UUID(str(agent.scope_id))
+        except (ValueError, TypeError):
+            return set()
+        membro = (
+            await db.execute(
+                select(CrewMember.id).where(
+                    CrewMember.crew_id == equipa, CrewMember.user_id == dono
+                )
+            )
+        ).first()
+        if membro is None:
+            return set()
+        projetos_validos = await _projetos_da_equipa(db, equipa)
+        da_equipa = {
+            c
+            for (c,) in (
+                await db.execute(
+                    select(CrewConnection.connection_id).where(CrewConnection.crew_id == equipa)
+                )
+            ).all()
+        }
+        so_da_equipa = da_equipa or None
+    elif ambito == "space":
+        try:
+            projeto = uuid.UUID(str(agent.scope_id))
+        except (ValueError, TypeError):
+            return set()
+        if await papel_no_projeto(db, dono, projeto) is None:
+            return set()
+        projetos_validos = {projeto}
+
+    ligadas: dict = {}
+    for cid, sid in (
+        await db.execute(
+            select(SpaceConnection.connection_id, SpaceConnection.space_id).where(
+                SpaceConnection.connection_id.in_(list(vivas))
+            )
+        )
+    ).all():
+        ligadas.setdefault(cid, set()).add(sid)
+
+    if ambito not in ("crew", "space"):
+        # Pessoal (e organizacao): qualquer projeto onde o dono tenha papel.
+        candidatos = set().union(*ligadas.values()) if ligadas else set()
+        for sid in candidatos:
+            if await papel_no_projeto(db, dono, sid) is not None:
+                projetos_validos.add(sid)
+
+    alcancadas = set()
+    for cid, criador in vivas.items():
+        if criador == dono:
+            alcancadas.add(cid)
+            continue
+        if not (ligadas.get(cid, set()) & projetos_validos):
+            continue
+        if so_da_equipa is not None and cid not in so_da_equipa:
+            continue
+        alcancadas.add(cid)
+    return alcancadas
+
+
+async def _recusar_sem_acesso(db, agent, execution, recusadas, lingua: str) -> None:
+    """O dono ja nao alcanca nenhuma das fontes escolhidas: diz-se, e nao se pergunta.
+
+    NAO conta como falha — tal como a falta de fontes: auto-pausar obrigava
+    alguem a lembrar-se de o retomar quando o acesso voltasse.
+    """
+    agora = datetime.now(timezone.utc)
+    execution.status = "refused_no_access"
+    execution.cycles_consumed = 0
+    execution.findings_count = 0
+    execution.finished_at = agora
+    execution.error_message = (
+        "sem acesso: o dono do agente já não alcança as fontes escolhidas "
+        f"({', '.join(str(c) for c in recusadas)})"
+    )[:1000]
+    agent.last_execution_at = agora
+    _reagendar(agent, agora)
+    try:
+        from src.services.agent_conversation_service import post_agent_answer
+
+        await post_agent_answer(
+            db,
+            agent=agent,
+            answer=get_message("agent_no_access", lingua),
+            chave_de_texto="agent_no_access",
+        )
+    except Exception as _post_err:  # noqa: BLE001
+        logger.warning("Agent %s: could not post the no-access notice: %s", agent.id, _post_err)
+    await db.commit()
+    logger.warning(
+        "Agent %s: owner can no longer reach its chosen sources %s — nothing asked",
+        agent.id,
+        [str(c) for c in recusadas],
+    )
 
 
 # Phase 3 tier-router — when L1 (delta check, no LLM) detects no change in
@@ -778,13 +1015,13 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                     "What are the most recent records and key aggregate metrics in this dataset? "
                     "Highlight any notable changes, outliers, or patterns compared to typical values."
                 )
-                agent_instructions = agent.focus or None
+                agent_instructions = await _objetivo_do_agente(db, agent)
             elif monitor_type == "context":
                 question = (
                     "What are the latest trends and key metrics in the available data? "
                     "Show record counts, recent activity, and flag any anomalies or significant changes."
                 )
-                agent_instructions = agent.focus or None
+                agent_instructions = await _objetivo_do_agente(db, agent)
                 sql_instructions = (
                     "Generate a single SELECT statement that returns exactly one row "
                     "with the record count of every available table as a separate column. "
@@ -858,6 +1095,32 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         _amb_err,
                     )
                     connection_ids = []
+            else:
+                # Fontes ESCOLHIDAS: so as que o dono ainda alcanca hoje — ver
+                # `_ligacoes_que_o_dono_alcanca`. Nenhuma: a corrida e recusada
+                # e diz-se porque; nao se pergunta com a identidade de quem
+                # ja la nao esta.
+                alcancadas = await _ligacoes_que_o_dono_alcanca(db, agent, connection_ids)
+                recusadas = [c for c in connection_ids if c not in alcancadas]
+                if recusadas:
+                    logger.warning(
+                        "Agent %s: owner cannot reach %d chosen source(s): %s",
+                        agent_id,
+                        len(recusadas),
+                        [str(c) for c in recusadas],
+                    )
+                connection_ids = [c for c in connection_ids if c in alcancadas]
+                if not connection_ids:
+                    from src.models.user import User as _U
+
+                    _dono = None
+                    if agent.created_by:
+                        _dono = (
+                            await db.execute(select(_U).where(_U.id == agent.created_by))
+                        ).scalar_one_or_none()
+                    await _recusar_sem_acesso(db, agent, execution, recusadas, _lingua_de(_dono))
+                    return
+            crew_ids_do_agente, agente_pessoal = await _recorte_de_dados(db, agent)
             if getattr(agent, "auditable_only", False) and connection_ids:
                 from sqlalchemy import select
                 from src.models.connection import DataConnection
@@ -1115,14 +1378,11 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         sql_instructions=sql_instructions,
                         locale=lingua,
                         connection_ids=[str(c) for c in extras] if extras else None,
-                        # Num agente de equipa, as tabelas são as da equipa —
-                        # como no chat. Só no caminho do âmbito: os agentes
-                        # com fontes escolhidas ficam exactamente como estavam.
-                        crew_ids=(
-                            [str(agent.scope_id)]
-                            if fontes_do_ambito and (agent.scope or "").lower() == "crew"
-                            else None
-                        ),
+                        # As tabelas são as que o chat daria ao dono neste
+                        # âmbito — com fontes escolhidas OU do âmbito. Ver
+                        # `_recorte_de_dados`.
+                        crew_ids=crew_ids_do_agente,
+                        is_personal=agente_pessoal,
                     )
 
                     answer = (
