@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.core.permissions import validar_atribuicao_de_papel, check_permission, get_user_permissions, is_tenant_admin
+from src.core.preferences import deep_merge_preferences
 from src.core.security import get_password_hash
 from src.models.user import User
 from src.repositories.user import UserRepository
@@ -318,7 +319,7 @@ class UserService:
         has_ai_updates = any(field in update_data for field in ai_fields)
 
         if has_ai_updates or "preferences" in update_data:
-            current_preferences = user.preferences or {}
+            current_preferences = dict(user.preferences or {})
 
             # Merge explicit AI fields
             for field in ai_fields:
@@ -329,7 +330,10 @@ class UserService:
             if "preferences" in update_data:
                 prefs_to_merge = update_data.pop("preferences")
                 if isinstance(prefs_to_merge, dict):
-                    current_preferences.update(prefs_to_merge)
+                    # Em profundidade: a web e a app gravam no mesmo campo.
+                    current_preferences = deep_merge_preferences(
+                        current_preferences, prefs_to_merge
+                    )
 
             user.preferences = current_preferences
             from sqlalchemy.orm.attributes import flag_modified

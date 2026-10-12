@@ -2000,28 +2000,36 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                     # A audiência vem do mesmo sítio que decide o acesso aos
                     # dados (`acesso_ao_projeto`), para não haver duas
                     # definições de "quem está no projeto" a divergir.
-                    if agent.scope == "space" and agent.scope_id:
-                        try:
-                            from uuid import UUID as _UUID
+                    #
+                    # Corria só com `scope == "space"`, e todos os agentes
+                    # nascem `crew`: na prática o achado nunca saía de quem o
+                    # criou. A audiência é agora quem VÊ os dados do agente
+                    # (a equipa; o projeto para agentes de projeto), pela
+                    # mesma regra da lista de agentes. Um admin de fora da
+                    # equipa não recebe conteúdo que a máscara lhe esconde.
+                    # As preferências (silenciar, categoria, concentração)
+                    # aplicam-se no `create_notification`.
+                    try:
+                        from src.services.notificar_o_projeto import (
+                            notificar_quem_ve_o_agente,
+                        )
 
-                            from src.services.notificar_o_projeto import notificar_o_projeto
-
-                            await notificar_o_projeto(
-                                db,
-                                _UUID(str(agent.scope_id)),
-                                tipo="agent_finding",
-                                title_key="notif_agent_findings_title",
-                                title_params={"agent": agent.name, "count": findings_created},
-                                entity_type="agent",
-                                entity_id=str(agent.id),
-                                # Quem criou recebe pela via de baixo, com o
-                                # `deep_link` e a descrição. Aqui evita-se o
-                                # duplicado.
-                                excepto=agent.created_by,
-                                push_data=_push_do_achado,
-                            )
-                        except Exception as exc:
-                            logger.warning("fan-out do achado falhou: %s", exc)
+                        await notificar_quem_ve_o_agente(
+                            db,
+                            agent,
+                            tipo="agent_finding",
+                            title_key="notif_agent_findings_title",
+                            title_params={"agent": agent.name, "count": findings_created},
+                            entity_type="agent",
+                            entity_id=str(agent.id),
+                            # Quem criou recebe pela via de baixo, com o
+                            # `deep_link` e a descrição. Aqui evita-se o
+                            # duplicado.
+                            excepto=agent.created_by,
+                            push_data=_push_do_achado,
+                        )
+                    except Exception as exc:
+                        logger.warning("fan-out do achado falhou: %s", exc)
 
                     await notif_svc.create(
                         NotificationCreate(
