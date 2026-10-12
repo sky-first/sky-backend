@@ -398,3 +398,16 @@ async def test_a_paciencia_viaja_no_start(monkeypatch):
     await _servir(monkeypatch, {"mode": "hands-free", "patience": "normal"}, _fala(0.2))
     await _servir(monkeypatch, {"mode": "hands-free"}, _fala(0.2))
     assert [p.paciencia for p in criados] == [vp.PACIENCIAS["normal"], vp.PACIENCIAS["patient"]]
+
+
+def test_sem_patience_no_start_vale_a_gravada_na_conta():
+    """A web não tem o ecrã das definições: segue a escolha feita no telemóvel."""
+
+    class _U:
+        preferences = {"voice": {"language": "Español", "patience": "normal"}}
+
+    assert vp.paciencia_pedida({}, _U()) == "normal"
+    assert vp.paciencia_pedida({"patience": "patient"}, _U()) == "patient"
+    assert vp.paciencia_pedida({}, object()) is None
+    assert vp.paciencia_pedida({}, type("U", (), {"preferences": {"voice": "x"}})()) is None
+    assert vp.paciencia_de(vp.paciencia_pedida({}, object())) == vp.PACIENCIAS["patient"]

@@ -292,7 +292,9 @@ async def servir(
     portao = (
         None
         if e_ditado
-        else paciencia.PortaoDaVez(paciencia=paciencia.paciencia_de(inicio.get("patience")))
+        else paciencia.PortaoDaVez(
+            paciencia=paciencia.paciencia_de(paciencia.paciencia_pedida(inicio, user))
+        )
     )
 
     async def para_o_sonic(pedacos: List[bytes]) -> None:

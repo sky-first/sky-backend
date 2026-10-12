@@ -80,7 +80,7 @@ import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Any, Dict, List
 
 HZ = 16000
 #: 20 ms por janela — 320 amostras PCM16.
@@ -125,6 +125,25 @@ PACIENCIAS: Dict[str, Paciencia] = {
     "patient": Paciencia(base_s=1.4, hesitacao_s=2.4),
 }
 PACIENCIA_POR_OMISSAO = "patient"
+
+
+def paciencia_pedida(inicio: Dict[str, Any], user: Any) -> object:
+    """A paciência desta sessão: a do `start`, ou a gravada na conta.
+
+    A app manda-a no `start`. A web não tem o ecrã das definições de voz,
+    e uma app antiga não a manda — as duas ficam com a que a pessoa
+    escolheu no telemóvel (`preferences.voice.patience`, onde a app a
+    grava). `getattr` e tudo defensivo: uma preferência nunca pode impedir
+    a voz de abrir.
+    """
+    if inicio.get("patience"):
+        return inicio.get("patience")
+    try:
+        prefs = getattr(user, "preferences", None) or {}
+        voz = prefs.get("voice") if isinstance(prefs, dict) else None
+        return voz.get("patience") if isinstance(voz, dict) else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def paciencia_de(valor: object) -> Paciencia:
