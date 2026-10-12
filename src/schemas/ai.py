@@ -112,6 +112,24 @@ class AIQueryRequest(BaseModel):
         if str(v).strip().lower() == "auto":
             return "auto"
         from src.core.locale import normalize_locale
+
+        return normalize_locale(str(v))
+
+    # A língua da APP de quem pergunta (Definições › Idioma). Só para o texto
+    # de interface — etapas do stream, avisos, erros. A língua da RESPOSTA é o
+    # `locale` acima. Ausente → `preferences.language`.
+    ui_locale: Optional[str] = Field(
+        default=None,
+        description="Language of the client's UI ('en' | 'pt' | 'es'). Used only for status/progress/error texts, never for the answer.",
+    )
+
+    @field_validator("ui_locale", mode="before")
+    @classmethod
+    def _normalize_ui_locale(cls, v: object) -> object:
+        if v is None or not str(v).strip():
+            return None
+        from src.core.locale import normalize_locale
+
         return normalize_locale(str(v))
 
 
@@ -235,6 +253,24 @@ class ChatMessageRequest(BaseModel):
         if str(v).strip().lower() == "auto":
             return "auto"
         from src.core.locale import normalize_locale
+
+        return normalize_locale(str(v))
+
+    # A língua da APP de quem pergunta (Definições › Idioma). Só para o texto
+    # de interface — etapas do stream, avisos, erros. A língua da RESPOSTA é o
+    # `locale` acima. Ausente → `preferences.language`.
+    ui_locale: Optional[str] = Field(
+        default=None,
+        description="Language of the client's UI ('en' | 'pt' | 'es'). Used only for status/progress/error texts, never for the answer.",
+    )
+
+    @field_validator("ui_locale", mode="before")
+    @classmethod
+    def _normalize_ui_locale(cls, v: object) -> object:
+        if v is None or not str(v).strip():
+            return None
+        from src.core.locale import normalize_locale
+
         return normalize_locale(str(v))
 
 
@@ -347,6 +383,7 @@ class GenerateSQLRequest(BaseModel):
         if str(v).strip().lower() == "auto":
             return "auto"
         from src.core.locale import normalize_locale
+
         return normalize_locale(str(v))
 
 
