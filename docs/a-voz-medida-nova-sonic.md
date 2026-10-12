@@ -730,3 +730,36 @@ A legenda vem da Irlanda, e há um teste a fixar isso, porque a avaria
 seria silenciosa.
 
 Desliga-se com `VOICE_LIVE_CAPTION=0`, sem entrega.
+
+### 5. A Sky cortava a pergunta numa pausa — e o LOW não chegava
+
+> «¿Cuál es el precio del gasoil…» — e a Sky responde antes de ele
+> acabar, numa pausa curta. — Lucas, 12/10/2026 (segunda vez).
+
+O `endpointingSensitivity: LOW` ia no `sessionStart`, na forma que a AWS
+documenta (HIGH 1,5 s · MEDIUM 1,75 s · LOW 2 s). Não servia porque o
+fim de turno do Sonic é **semântico**: uma frase que já soa acabada
+fecha muito antes dos 2 s. Medido com `scripts/sonda_a_paciencia.py`
+(Polly «Lucía», ruído de sala na pausa, silêncios do Polly aparados):
+
+| pausa a meio | sem portão | portão `normal` (1,0 s) | portão `patient` (1,4 s) |
+|---|---|---|---|
+| 0,7 s | **cortou** — 2 turnos | 1 turno, som a +2,65 s | 1 turno, som a +3,2 s |
+| 1,2 s | **cortou** — 2 turnos | 2 turnos (passou a paciência) | 1 turno, som a +3,2 s |
+
+Sem portão o primeiro som vinha a ~+1,3 s — da pergunta cortada.
+
+O portão (`src/services/voz_paciencia.py`) retém as pausas a meio da fala
+e só deixa o Sonic ouvir o silêncio que fecha o turno quando a paciência
+acaba; uma palavra de hesitação no fim da legenda ao vivo («eh», «o
+sea», «pues», «de», «el»…) estica-a. Duas coisas medidas que decidiram o
+desenho:
+
+* **só abrir o portão não chega** — com silêncio de sala a passar ao
+  vivo, o Sonic fechou entre 0,3 s e 2,7 s depois, ao acaso;
+* **uma descarga de zeros fecha-o em ~1 s, sempre** — e o tamanho dela
+  (0,6, 1,2 ou 2,2 s) não muda nada: ele consome o áudio ao ritmo real.
+
+A paciência escolhe-se nas definições de voz da app («Esperar antes de
+responder»: Normal / Más paciente) e viaja no `start` como `patience`;
+sem ela, vale a paciente. O ditado não passa pelo portão.
