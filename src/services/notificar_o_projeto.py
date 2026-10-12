@@ -22,13 +22,13 @@ escolhida quando se lê, na língua de quem lê, e não quando se escreve.
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.crew import CrewMember
+from src.models.crew import Crew, CrewMember
 from src.models.space import Space, SpaceMember
 from src.schemas.notification import NotificationCreate
 from src.services.acesso_ao_projeto import equipas_que_alcancam
@@ -45,9 +45,7 @@ async def quem_esta_no_projeto(db: AsyncSession, space_id: UUID) -> List[UUID]:
     ids = {
         linha[0]
         for linha in (
-            await db.execute(
-                select(SpaceMember.user_id).where(SpaceMember.space_id == space_id)
-            )
+            await db.execute(select(SpaceMember.user_id).where(SpaceMember.space_id == space_id))
         ).all()
     }
 
@@ -57,16 +55,12 @@ async def quem_esta_no_projeto(db: AsyncSession, space_id: UUID) -> List[UUID]:
             linha[0]
             for linha in (
                 await db.execute(
-                    select(CrewMember.user_id).where(
-                        CrewMember.crew_id.in_(list(alcancam.keys()))
-                    )
+                    select(CrewMember.user_id).where(CrewMember.crew_id.in_(list(alcancam.keys())))
                 )
             ).all()
         }
 
-    espaco = (
-        await db.execute(select(Space).where(Space.id == space_id))
-    ).scalar_one_or_none()
+    espaco = (await db.execute(select(Space).where(Space.id == space_id))).scalar_one_or_none()
     if espaco is not None:
         # Quem criou não depende de haver linha em `space_members` — ver
         # `acesso_ao_projeto.papel_no_projeto`.
@@ -99,13 +93,53 @@ async def notificar_o_projeto(
     aconteceu; falhar aqui não pode desfazer a acção nem devolver um erro a
     quem a fez. Regista-se e segue.
     """
-    from src.services.notification_service import NotificationService
-
     try:
         pessoas = await quem_esta_no_projeto(db, space_id)
     except Exception as exc:  # pragma: no cover - defensivo
         logger.warning("notificar_o_projeto: não consegui a audiência de %s: %s", space_id, exc)
         return 0
+
+    return await _escrever_para(
+        db,
+        pessoas,
+        origem=f"space={space_id}",
+        tipo=tipo,
+        title_key=title_key,
+        title_params=title_params,
+        description_key=description_key,
+        description_params=description_params,
+        # Por omissão a entidade é o PROJETO. `entity_type` e `entity_id` são
+        # obrigatórios no esquema, e sem um valor honesto por omissão cada
+        # chamador teria de os inventar — e inventá-los-ia de forma diferente.
+        entity_type=entity_type or "space",
+        entity_id=entity_id or str(space_id),
+        excepto=excepto,
+        push_data=push_data,
+    )
+
+
+async def _escrever_para(
+    db: AsyncSession,
+    pessoas: List[UUID],
+    *,
+    origem: str,
+    tipo: str,
+    title_key: str,
+    title_params: Optional[Dict[str, Any]],
+    description_key: Optional[str],
+    description_params: Optional[Dict[str, Any]],
+    entity_type: str,
+    entity_id: str,
+    excepto: Optional[UUID],
+    push_data: Optional[Dict[str, Any]],
+) -> int:
+    """Uma notificação por pessoa, pelo ``create_notification``.
+
+    É o ``create_notification`` que respeita as preferências (silenciar o
+    agente, a categoria, o modo concentração): uma notificação silenciada
+    devolve ``None`` e não chega ao push.
+    """
+    from src.services.notification_service import NotificationService
 
     servico = NotificationService(db)
     escritas = 0
@@ -125,12 +159,8 @@ async def notificar_o_projeto(
                     title_params=title_params or {},
                     description_key=description_key,
                     description_params=description_params or {},
-                    # Por omissão a entidade é o PROJETO. `entity_type` e
-                    # `entity_id` são obrigatórios no esquema, e sem um valor
-                    # honesto por omissão cada chamador teria de os inventar —
-                    # e inventá-los-ia de forma diferente.
-                    entity_type=entity_type or "space",
-                    entity_id=entity_id or str(space_id),
+                    entity_type=entity_type,
+                    entity_id=entity_id,
                     push_data=push_data,
                 )
             )
@@ -138,13 +168,109 @@ async def notificar_o_projeto(
                 escritas += 1
         except Exception as exc:  # pragma: no cover - defensivo
             # Uma pessoa com preferências estranhas não pode calar as outras.
-            logger.warning("notificar_o_projeto: falhou para %s: %s", uid, exc)
+            logger.warning("notificar: falhou para %s: %s", uid, exc)
 
     logger.info(
-        "notificar_o_projeto: space=%s tipo=%s audiencia=%d escritas=%d",
-        space_id,
+        "notificar: %s tipo=%s audiencia=%d escritas=%d",
+        origem,
         tipo,
         len(pessoas),
         escritas,
     )
     return escritas
+
+
+async def quem_ve_o_agente(db: AsyncSession, agent: Any) -> List[UUID]:
+    """Quem pode ver os dados de um agente — e só essas pessoas.
+
+    O aviso de um achado leva o nome do agente e, no push, o caminho para o
+    achado: é conteúdo. Vai para quem o pode abrir, pela mesma regra que
+    decide a lista de agentes (``api/v1/agents.py``):
+
+    * agente de **equipa** (``scope="crew"``, como nascem todos hoje): os
+      membros dessa equipa. Um administrador que não é da equipa não vê os
+      dados dela (a máscara de conteúdo), por isso também não é avisado.
+      Com ``DATA_BOUNDARY=project`` os dados são do projeto, e a audiência
+      passa a ser o projeto da equipa (se a equipa tiver projeto).
+    * agente de **projeto** (``scope="space"``): toda a gente do projeto.
+    * pessoal: ninguém além de quem o criou (que é avisado à parte).
+
+    Contas apagadas ficam de fora.
+    """
+    from src.config.settings import settings
+    from src.models.user import User
+
+    scope = (getattr(agent, "scope", None) or "").lower()
+    scope_id = getattr(agent, "scope_id", None)
+    if not scope_id or scope not in ("crew", "space"):
+        return []
+    alvo = UUID(str(scope_id))
+
+    if scope == "space":
+        pessoas = await quem_esta_no_projeto(db, alvo)
+    else:
+        projeto = None
+        if settings.DATA_BOUNDARY == "project":
+            projeto = (
+                await db.execute(select(Crew.space_id).where(Crew.id == alvo))
+            ).scalar_one_or_none()
+        if projeto is not None:
+            pessoas = await quem_esta_no_projeto(db, projeto)
+        else:
+            pessoas = [
+                linha[0]
+                for linha in (
+                    await db.execute(select(CrewMember.user_id).where(CrewMember.crew_id == alvo))
+                ).all()
+            ]
+
+    if not pessoas:
+        return []
+    vivas = {
+        linha[0]
+        for linha in (
+            await db.execute(
+                select(User.id).where(User.id.in_(list(pessoas)), User.deleted_at.is_(None))
+            )
+        ).all()
+    }
+    return [p for p in pessoas if p in vivas]
+
+
+async def notificar_quem_ve_o_agente(
+    db: AsyncSession,
+    agent: Any,
+    *,
+    tipo: str,
+    title_key: str,
+    title_params: Optional[Dict[str, Any]] = None,
+    entity_type: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    excepto: Optional[UUID] = None,
+    push_data: Optional[Dict[str, Any]] = None,
+) -> int:
+    """Avisa quem vê os dados do agente (``quem_ve_o_agente``). Devolve quantas.
+
+    Como ``notificar_o_projeto``: nunca rebenta quem a chamou.
+    """
+    agent_id = getattr(agent, "id", None)
+    try:
+        pessoas = await quem_ve_o_agente(db, agent)
+    except Exception as exc:  # pragma: no cover - defensivo
+        logger.warning("notificar_quem_ve_o_agente: sem audiência para %s: %s", agent_id, exc)
+        return 0
+
+    return await _escrever_para(
+        db,
+        pessoas,
+        origem=f"agent={agent_id} scope={getattr(agent, 'scope', None)}",
+        tipo=tipo,
+        title_key=title_key,
+        title_params=title_params,
+        description_key=None,
+        description_params=None,
+        entity_type=entity_type or "agent",
+        entity_id=entity_id or str(agent_id),
+        excepto=excepto,
+        push_data=push_data,
+    )

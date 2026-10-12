@@ -153,13 +153,17 @@ def test_as_notificacoes_vao_TRADUZIVEIS_e_nao_em_ingles():
 
 
 def test_o_achado_de_um_agente_chega_ao_projeto():
-    """Ia só para quem criou o agente. Agora vai para o projeto todo."""
+    """Ia só para quem criou o agente. Agora vai para quem vê os dados dele.
+
+    O comportamento está provado com a base em
+    ``test_achado_avisa_quem_ve_o_agente.py``.
+    """
     import inspect
 
     from src.workers import agent_worker
 
     fonte = inspect.getsource(agent_worker)
-    assert "notificar_o_projeto" in fonte
+    assert "notificar_quem_ve_o_agente" in fonte
     # E não duplica para quem criou, que recebe pela via com `deep_link`.
-    i = fonte.index("notificar_o_projeto(")
+    i = fonte.index("notificar_quem_ve_o_agente(")
     assert "excepto=agent.created_by" in fonte[i : i + 1200]

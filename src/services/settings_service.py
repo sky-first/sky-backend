@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.core.locale import DEFAULT_LOCALE
 from src.core.permissions import check_permission
+from src.core.preferences import deep_merge_preferences
 from src.core.security import get_password_hash
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
@@ -107,8 +108,8 @@ class SettingsService:
         Returns:
             SettingsResponse: Updated settings
         """
-        # Get existing preferences or initialize empty
-        current_preferences = user.preferences or {}
+        # Cópia: nunca mexer no dicionário que o SQLAlchemy tem carregado
+        current_preferences = dict(user.preferences or {})
 
         # Update with new data
         update_data = settings_data.model_dump(exclude_unset=True)
@@ -127,9 +128,12 @@ class SettingsService:
                 **update_data["notifications"],
             }
 
-        # For the generic 'preferences' field, deep merge is tricky, but let's do shallow merge for now
+        # Fusão em profundidade: {"voice": {"voice": x}} não apaga voice.patience
+        # gravado pelo outro aparelho; uma chave a null apaga-a.
         if "preferences" in update_data and update_data["preferences"]:
-            current_preferences.update(update_data["preferences"])
+            current_preferences = deep_merge_preferences(
+                current_preferences, update_data["preferences"]
+            )
 
         # Update user object
         user.preferences = current_preferences
