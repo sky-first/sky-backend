@@ -1969,6 +1969,27 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                         f"{agent.name} found {findings_created} new insight"
                         f"{'s' if findings_created > 1 else ''}"
                     )
+                    # O que o push leva para a app abrir o achado ao tocar.
+                    #
+                    # A notificação aponta o AGENTE (é o que o «silenciar este
+                    # agente» usa) e um link da web; nenhum dos dois é
+                    # navegável na app, e tocar no push não abria nada. O id do
+                    # achado e o fio do agente vão só no push — não se gravam.
+                    _push_do_achado = {
+                        "agent_id": str(agent.id),
+                        "conversation_id": (
+                            str(agent.conversation_id) if agent.conversation_id else None
+                        ),
+                    }
+                    if finding_da_corrida is not None:
+                        _push_do_achado.update(
+                            {
+                                "entity_type": "agent_finding",
+                                "entity_id": str(finding_da_corrida.id),
+                                "finding_id": str(finding_da_corrida.id),
+                                "deep_link": f"sky://insights/{finding_da_corrida.id}",
+                            }
+                        )
                     # **E TODA A GENTE DO PROJETO.**
                     #
                     # Isto ia só para quem criou o agente. Um achado sobre os
@@ -1997,6 +2018,7 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                                 # `deep_link` e a descrição. Aqui evita-se o
                                 # duplicado.
                                 excepto=agent.created_by,
+                                push_data=_push_do_achado,
                             )
                         except Exception as exc:
                             logger.warning("fan-out do achado falhou: %s", exc)
@@ -2020,6 +2042,7 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                             # here so existing notifications stop
                             # dead-ending users.
                             deep_link=f"/dashboard/universe-intelligence?agent={agent.id}",
+                            push_data=_push_do_achado,
                         )
                     )
                 except Exception as notif_err:

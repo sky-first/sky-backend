@@ -87,6 +87,7 @@ async def notificar_o_projeto(
     entity_type: Optional[str] = None,
     entity_id: Optional[str] = None,
     excepto: Optional[UUID] = None,
+    push_data: Optional[Dict[str, str]] = None,
 ) -> int:
     """Escreve a notificação para toda a gente do projeto. Devolve quantas.
 
@@ -130,6 +131,7 @@ async def notificar_o_projeto(
                     # e inventá-los-ia de forma diferente.
                     entity_type=entity_type or "space",
                     entity_id=entity_id or str(space_id),
+                    push_data=push_data,
                 )
             )
             if criada is not None:

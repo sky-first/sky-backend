@@ -42,16 +42,18 @@ class NotificationService:
             return None
         created = await self.repository.create(notification_in)
         if created is not None:
-            await self._dispatch_push(created)
+            await self._dispatch_push(created, notification_in.push_data)
         return created
 
-    async def _dispatch_push(self, notif: NotificationResponse) -> None:
+    async def _dispatch_push(self, notif: NotificationResponse, extra=None) -> None:
         """Best-effort push fan-out. A transport failure must never break
         notification creation, so any error is swallowed and logged."""
         try:
             from src.services.push_dispatcher import PushDispatcher
 
-            await PushDispatcher(self.db).dispatch(notif)
+            await PushDispatcher(self.db).dispatch(
+                NotificationResponse.model_validate(notif), extra
+            )
         except Exception as exc:
             logger.warning("push dispatch failed for %s: %s", notif.id, exc)
 

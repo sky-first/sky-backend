@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NotificationBase(BaseModel):
@@ -27,6 +27,10 @@ class NotificationCreate(NotificationBase):
     """Schema for creating a Notification."""
 
     user_id: UUID
+    #: Só para o push — NÃO é gravado (``exclude``). Ids que a app precisa
+    #: para abrir o sítio certo ao tocar (``finding_id``, ``agent_id``,
+    #: ``conversation_id``…). Ver ``services/push_dispatcher.py``.
+    push_data: Optional[Dict[str, Any]] = Field(default=None, exclude=True)
 
 
 class NotificationUpdate(BaseModel):
