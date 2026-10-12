@@ -43,6 +43,7 @@ from src.api.console_auth import require_sky_team
 from src.api.deps import get_db_session
 from src.models.internal_console import ProvisioningJob
 from src.models.user import User
+from src.schemas.chat_stream import SSE_HEADERS
 from src.services.provisioning_workflow import (
     SSE_HEARTBEAT_SECONDS,
     WEBHOOK_SIGNATURE_HEADER,
@@ -237,11 +238,7 @@ async def provisioning_events_stream(
     return StreamingResponse(
         event_gen(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=dict(SSE_HEADERS),
     )
 
 

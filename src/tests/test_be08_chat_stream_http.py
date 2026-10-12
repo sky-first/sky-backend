@@ -272,3 +272,112 @@ async def test_a_conversa_criada_vazia_ganha_o_nome_da_primeira_pergunta(
     # A primeira pergunta, e não a última: um nome que muda a cada pergunta
     # não serve para encontrar a conversa na lista.
     assert conv.title == "Quantos clientes temos?"
+
+
+# ─── Turno falhado · a pergunta fica, a Sky não «responde» vazio ────────────
+async def _mensagens_do_turno(async_client, test_user_with_tokens, db_session, engine):
+    """Corre um turno persistido e devolve as mensagens gravadas na conversa."""
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from src.models.conversation import Message
+
+    body = await _drain(
+        async_client,
+        bearer(test_user_with_tokens["access_token"]),
+        {"message": "quantos clientes?", "widget_id": str(uuid4()), "persist": True},
+        lambda *a, **k: _aiter(engine),
+    )
+    eventos = _events(body)
+    meta = [e for e in eventos if e["type"] == "meta" and e.get("meta", {}).get("conversation_id")]
+    assert meta, "a conversa continua a ser devolvida ao cliente"
+    conv_id = UUID(meta[-1]["meta"]["conversation_id"])
+    db_session.expire_all()
+    rows = (
+        (
+            await db_session.execute(
+                select(Message)
+                .where(Message.conversation_id == conv_id)
+                .order_by(Message.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return eventos, rows
+
+
+@pytest.mark.asyncio
+async def test_erro_do_motor_a_meio_nao_grava_resposta_da_sky(
+    async_client, test_user_with_tokens, db_session
+):
+    """O motor manda um bocado de texto e depois `error`: o cliente vê o erro,
+    a pergunta fica guardada, mas nenhuma mensagem da Sky (nem meia) é gravada."""
+    engine = [
+        'data: {"type": "chunk", "content": "Tem "}',
+        'data: {"type": "error", "message": "engine down", "code": "engine_failed"}',
+    ]
+    eventos, rows = await _mensagens_do_turno(
+        async_client, test_user_with_tokens, db_session, engine
+    )
+    assert any(e["type"] == "error" for e in eventos)
+    assert [m.role for m in rows] == ["user"]
+    assert rows[0].content == "quantos clientes?"
+
+
+@pytest.mark.asyncio
+async def test_motor_sem_texto_nao_grava_resposta_vazia(
+    async_client, test_user_with_tokens, db_session
+):
+    """O motor acaba sem nenhum texto de resposta: nada de bolha vazia da Sky."""
+    engine = [
+        'data: {"type": "progress", "stage": "specialist"}',
+        'data: {"type": "chunk", "content": "   "}',
+        'data: {"type": "done"}',
+    ]
+    _eventos, rows = await _mensagens_do_turno(
+        async_client, test_user_with_tokens, db_session, engine
+    )
+    assert [m.role for m in rows] == ["user"]
+
+
+@pytest.mark.asyncio
+async def test_resposta_normal_continua_a_ser_gravada(
+    async_client, test_user_with_tokens, db_session
+):
+    engine = [
+        'data: {"type": "chunk", "content": "São "}',
+        'data: {"type": "chunk", "content": "12."}',
+        'data: {"type": "done"}',
+    ]
+    _eventos, rows = await _mensagens_do_turno(
+        async_client, test_user_with_tokens, db_session, engine
+    )
+    assert [m.role for m in rows] == ["user", "assistant"]
+    assert rows[1].content == "São 12."
+
+
+# ─── Proxies não podem comprimir nem acumular o SSE ─────────────────────────
+@pytest.mark.asyncio
+async def test_chat_stream_manda_cabecalhos_anti_buffer(async_client, test_user_with_tokens):
+    with (
+        patch(_CONN, new=AsyncMock(return_value=str(uuid4()))),
+        patch(
+            _STREAM,
+            side_effect=lambda *a, **k: _aiter(['data: {"type": "chunk", "content": "ok"}']),
+        ),
+    ):
+        async with async_client.stream(
+            "POST",
+            "/api/v1/ai/chat/stream",
+            json={"message": "olá", "widget_id": str(uuid4())},
+            headers=bearer(test_user_with_tokens["access_token"]),
+        ) as resp:
+            assert resp.status_code == 200
+            cache = resp.headers.get("cache-control", "")
+            assert "no-cache" in cache and "no-transform" in cache
+            assert resp.headers.get("x-accel-buffering") == "no"
+            assert "content-encoding" not in resp.headers
+            async for _ in resp.aiter_bytes():
+                pass

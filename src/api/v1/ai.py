@@ -57,6 +57,7 @@ from src.schemas.ai import (
     ValidateSQLResponse,
 )
 from src.schemas.chat_stream import (
+    SSE_HEADERS,
     done_event,
     error_event,
     meta_event,
@@ -1042,6 +1043,12 @@ async def send_chat_message_stream(
             # funcionar também depois, ao reabrir a conversa.
             fonte_meta: Dict[str, Any] = {}
             fonte_linhas: Dict[str, Any] = {}
+            # O motor pode mandar um `error` a meio e acabar sem resposta.
+            # Nesse caso a pergunta fica guardada, mas NÃO se grava uma
+            # mensagem da Sky vazia (ou meia) — as apps mostram o erro só
+            # localmente, e uma bolha vazia ao reabrir a conversa parecia
+            # uma resposta que não disse nada.
+            motor_falhou = False
             async for line in ai_client.stream_query_connection(
                 connection_id=str(resolved_connection_id),
                 question=question_for_ai,
@@ -1067,6 +1074,8 @@ async def send_chat_message_stream(
                         fonte_meta = event.get("meta") or {}
                     elif event.get("type") == "rows":
                         fonte_linhas = event
+                    elif event.get("type") == "error":
+                        motor_falhou = True
                     yield sse(event)
 
             # Save the completed turn and hand the conversation id back so the
@@ -1085,28 +1094,32 @@ async def send_chat_message_stream(
                         content=message_data.message,
                         user_id=current_user.id,
                     )
-                    answer_msg = await msg_repo.create(
-                        conversation_id=conv_id,
-                        role="assistant",
-                        kind="ai_response",
-                        content="".join(answer_parts),
-                        parent_message_id=question_msg.id,
-                        # A marca que trava a publicação de uma resposta cruzada.
-                        #
-                        # O modo pessoal com a fronteira no projeto soma os dados
-                        # de TODOS os projetos onde a pessoa está — é o
-                        # cross-project (opção C do modelo). Quem cruzou tinha
-                        # acesso a cada peça; o que ninguém aprovou foi a
-                        # combinação, e por isso a resposta não se fixa numa
-                        # página.
-                        #
-                        # Sem esta linha a coluna existia e ficava sempre falsa:
-                        # o travão do `pin_message` nunca dispararia, e a opção C
-                        # era a B com outro nome.
-                        cruzou_projetos=bool(
-                            scope_is_personal and settings.DATA_BOUNDARY == "project"
-                        ),
-                    )
+                    resposta_texto = "".join(answer_parts)
+                    tem_resposta = not motor_falhou and bool(resposta_texto.strip())
+                    answer_msg = None
+                    if tem_resposta:
+                        answer_msg = await msg_repo.create(
+                            conversation_id=conv_id,
+                            role="assistant",
+                            kind="ai_response",
+                            content=resposta_texto,
+                            parent_message_id=question_msg.id,
+                            # A marca que trava a publicação de uma resposta cruzada.
+                            #
+                            # O modo pessoal com a fronteira no projeto soma os dados
+                            # de TODOS os projetos onde a pessoa está — é o
+                            # cross-project (opção C do modelo). Quem cruzou tinha
+                            # acesso a cada peça; o que ninguém aprovou foi a
+                            # combinação, e por isso a resposta não se fixa numa
+                            # página.
+                            #
+                            # Sem esta linha a coluna existia e ficava sempre falsa:
+                            # o travão do `pin_message` nunca dispararia, e a opção C
+                            # era a B com outro nome.
+                            cruzou_projetos=bool(
+                                scope_is_personal and settings.DATA_BOUNDARY == "project"
+                            ),
+                        )
                     # A conversa ganha nome na primeira pergunta — também por
                     # aqui. Este é o caminho por onde a app e a web perguntam à
                     # Sky, e era o único que não o fazia: a app cria a conversa
@@ -1122,7 +1135,9 @@ async def send_chat_message_stream(
                     # question doesn't carry them again — otherwise the same
                     # discussion is re-sent on every turn, growing the prompt
                     # and paying for it each time.
-                    if bundled_comment_ids:
+                    # Sem resposta, os comentários continuam por responder e
+                    # seguem com a próxima pergunta.
+                    if bundled_comment_ids and answer_msg is not None:
                         await msg_repo.mark_incorporated(
                             message_ids=bundled_comment_ids, ai_response_id=answer_msg.id
                         )
@@ -1135,19 +1150,20 @@ async def send_chat_message_stream(
                     # que o chat nunca preenchia. Nunca rebenta o turno:
                     # uma resposta sem fonte é pior do que com fonte, mas
                     # melhor do que resposta nenhuma.
-                    try:
-                        await _guardar_a_fonte(
-                            db,
-                            utilizador=current_user,
-                            mensagem=answer_msg,
-                            pergunta=message_data.message,
-                            resposta="".join(answer_parts),
-                            meta=fonte_meta,
-                            linhas=fonte_linhas,
-                            page_id=message_data.page_id,
-                        )
-                    except Exception as _ferr:  # noqa: BLE001
-                        logger.warning("[chat/stream] fonte não guardada: %s", _ferr)
+                    if answer_msg is not None:
+                        try:
+                            await _guardar_a_fonte(
+                                db,
+                                utilizador=current_user,
+                                mensagem=answer_msg,
+                                pergunta=message_data.message,
+                                resposta=resposta_texto,
+                                meta=fonte_meta,
+                                linhas=fonte_linhas,
+                                page_id=message_data.page_id,
+                            )
+                        except Exception as _ferr:  # noqa: BLE001
+                            logger.warning("[chat/stream] fonte não guardada: %s", _ferr)
                     await conv_repo.update(conv_id, updated_at=_dt.utcnow())
                     await db.commit()
                     # Avisar quem foi mencionado na pergunta — o mesmo
@@ -1183,7 +1199,13 @@ async def send_chat_message_stream(
                 )
 
     # Wrap with a heartbeat so idle mobile SSE connections aren't reaped.
-    return StreamingResponse(with_heartbeat(event_stream()), media_type="text/event-stream")
+    # Os cabeçalhos SSE impedem o rewrite do Next.js e o nginx de comprimir
+    # ou acumular o fluxo (ver `SSE_HEADERS`).
+    return StreamingResponse(
+        with_heartbeat(event_stream()),
+        media_type="text/event-stream",
+        headers=dict(SSE_HEADERS),
+    )
 
 
 @router.get(

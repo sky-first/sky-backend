@@ -46,6 +46,18 @@ CLIENT_EVENT_TYPES = frozenset(
 HEARTBEAT_COMMENT = ": keepalive\n\n"
 HEARTBEAT_INTERVAL_SECONDS = 15
 
+# Cabeçalhos de qualquer resposta SSE. Sem eles, um proxy no caminho (o
+# rewrite do Next.js, o nginx do ingress) pode comprimir ou acumular o
+# fluxo e entregá-lo de uma vez no fim — o utilizador vê a resposta toda
+# aparecer de repente em vez de a ver a ser escrita.
+#   no-transform        → proíbe o proxy de comprimir/alterar o corpo
+#   X-Accel-Buffering   → desliga o buffer do nginx para esta resposta
+SSE_HEADERS: Dict[str, str] = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
 
 # ─── Frame builders (the only place client events are constructed) ──────────
 def sse(event: Dict[str, Any]) -> str:
