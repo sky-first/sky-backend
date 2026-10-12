@@ -102,7 +102,7 @@ def perguntas_recebidas(monkeypatch):
     # quando o `_voice_answer` ganhou o `space_id` — e o efeito não foi uma
     # falha: foi o teste a ficar à espera de tramas que nunca chegavam, e a
     # suíte encravada nele. Ver `test_voz_nao_fica_muda`.
-    async def _resposta(user, page_id, text, ctx, locale="en", space_id=None):
+    async def _resposta(user, page_id, text, ctx, locale="en", space_id=None, thread_id=None):
         recebidas.append(text)
         return "Foram 1.234,00 €."
 

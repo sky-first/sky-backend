@@ -982,6 +982,18 @@ async def send_chat_message_stream(
         except Exception as _agent_err:  # noqa: BLE001
             logger.debug("[chat/stream] agent context skipped: %s", _agent_err)
 
+    # A memória da conversa — uma conversa, uma memória. Sem fio, o `sky-ai`
+    # guardava o histórico por pessoa + ligação e uma conversa nova herdava o
+    # contexto de outra. Ver `services/fio_da_conversa.py`.
+    from src.services.fio_da_conversa import resolver_fio
+
+    fio_da_ia = await resolver_fio(
+        db,
+        current_user,
+        conversation_id=conv_id or message_data.conversation_id,
+        thread_id=message_data.thread_id,
+    )
+
     async def event_stream():
         """Normalize AI-engine SSE events onto the locked mobile contract
         (src/schemas/chat_stream.py) and forward only those. The backend owns
@@ -1045,6 +1057,7 @@ async def send_chat_message_stream(
                 ai_tone=message_data.ai_tone,
                 ai_style=message_data.ai_style,
                 ui_locale=ui_lang,
+                thread_id=fio_da_ia,
             ):
                 event = normalize_event(parse_sse_data_line(line), ui_locale=ui_lang)
                 if event is not None:

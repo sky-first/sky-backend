@@ -245,6 +245,7 @@ class AIServiceHTTPClient:
         ai_tone: Optional[str] = None,
         ai_style: Optional[str] = None,
         ui_locale: Optional[str] = None,
+        thread_id: Optional[str] = None,
     ) -> AsyncIterator[str]:
         """
         Stream a query to the AI service via SSE.
@@ -305,6 +306,11 @@ class AIServiceHTTPClient:
             payload["ai_tone"] = ai_tone
         if ai_style:
             payload["ai_style"] = ai_style
+        # A memória da conversa. Sem isto o `sky-ai` guarda o histórico por
+        # pessoa + ligação, e todas as conversas dessa pessoa nessa ligação
+        # partilham contexto. Ver `services/fio_da_conversa.py`.
+        if thread_id:
+            payload["thread_id"] = thread_id
         # A língua da app, só para as frases de estado do motor. Um motor
         # antigo ignora o campo; o backend traduz pela etapa na mesma.
         if ui_locale:
