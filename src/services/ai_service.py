@@ -803,6 +803,23 @@ class AIService:
             )
             return False
 
+    async def _com_preferencias_de_resposta(self, user_id: UUID, instrucoes: Optional[str]) -> str:
+        """Junta o apelido e as preferências de resposta do Perfil às
+        ``instructions`` do motor. Nunca rebenta a pergunta."""
+        try:
+            from sqlalchemy import select as _select
+
+            from src.models.user import User as _User
+            from src.services.preferencias_de_resposta import juntar
+
+            prefs = (
+                await self.db.execute(_select(_User.preferences).where(_User.id == user_id))
+            ).scalar_one_or_none()
+            return juntar(instrucoes, prefs)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("preferencias de resposta ignoradas: %s", exc)
+            return instrucoes or ""
+
     async def process_query(self, user_id: UUID, query_data: AIQueryRequest) -> AIQueryResponse:
         """
         Process AI query.
@@ -1411,6 +1428,12 @@ class AIService:
                         caller_space_ids: Optional[List[str]] = None
                         if is_personal:
                             caller_space_ids = await self._get_user_space_ids(user_id)
+
+                        # Perfil → «como o tratar» e «que preferências ter em
+                        # conta». Ver `services/preferencias_de_resposta.py`.
+                        merged_instructions = await self._com_preferencias_de_resposta(
+                            user_id, merged_instructions
+                        )
 
                         result = await self.real_ai.process_query(
                             connection_id=connection_id,
@@ -2111,6 +2134,12 @@ class AIService:
                         caller_space_ids: Optional[List[str]] = None
                         if is_personal:
                             caller_space_ids = await self._get_user_space_ids(user_id)
+
+                        # Perfil → «como o tratar» e «que preferências ter em
+                        # conta». Ver `services/preferencias_de_resposta.py`.
+                        merged_instructions = await self._com_preferencias_de_resposta(
+                            user_id, merged_instructions
+                        )
 
                         result = await self.real_ai.process_query(
                             connection_id=connection_id,

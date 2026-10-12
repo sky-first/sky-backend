@@ -43,6 +43,7 @@ from src.schemas.user import (
     MFAFinalizeEnrollmentRequest,
     MFAFinalizeEnrollmentResponse,
     MFALoginRequest,
+    LogoutRequest,
     RefreshTokenRequest,
     RefreshTokenResponse,
     RegisterRequest,
@@ -569,7 +570,7 @@ async def sso_handoff_exchange(body: SSOHandoffRequest) -> LoginResponse:
     description="Logout user by revoking refresh token",
 )
 async def logout(
-    refresh_token_data: RefreshTokenRequest,
+    refresh_token_data: LogoutRequest,
     db: AsyncSession = Depends(get_db_session),
 ) -> SuccessResponse:
     """
@@ -584,27 +585,48 @@ async def logout(
     Red-team HI (2026-04-23): before this change, a stolen access
     token kept working until its JWT exp (15 min) regardless of
     logout.
+
+    Corpo: ``{"refresh_token": "...", "push_token": "ExponentPushToken[...]"}``.
+    ``push_token`` é opcional: quando vem, o aparelho deixa de receber
+    pushes desta pessoa (o mesmo que ``DELETE /devices/{token}``, mas sem
+    depender de um access token ainda válido).
+
+    Identidade: este endpoint não tem bearer. O dono é quem o refresh
+    token diz — mas só depois de **provado**: ou a linha existe na base, ou
+    a assinatura do JWT confere. Antes lia-se o ``sub`` sem verificar, e um
+    refresh token forjado com o ``sub`` de outra pessoa revogava as sessões
+    dela.
     """
     import time
 
-    from jose import jwt as _jwt
+    from src.core.security import verify_token
 
     auth_service = AuthenticationService(db)
-    await auth_service.logout(refresh_token_data.refresh_token)
+    user_id = await auth_service.logout(refresh_token_data.refresh_token)
 
-    # Decode the refresh to get `sub` (user id) so we can revoke all
-    # the access tokens for the SAME user. We only need the sub
-    # claim; signature was checked inside auth_service.logout above.
-    try:
-        claims = _jwt.get_unverified_claims(refresh_token_data.refresh_token)
-        user_id = claims.get("sub")
-    except Exception:
-        user_id = None
+    if not user_id:
+        try:
+            claims = verify_token(refresh_token_data.refresh_token, token_type="refresh")
+            user_id = claims.get("sub")
+        except Exception:
+            user_id = None
 
     if user_id:
         from src.core.token_blocklist import revoke_user_tokens
 
-        await revoke_user_tokens(user_id, issued_before_epoch=int(time.time()))
+        await revoke_user_tokens(str(user_id), issued_before_epoch=int(time.time()))
+
+        if refresh_token_data.push_token:
+            try:
+                from uuid import UUID as _UUID
+
+                from src.repositories.device_repository import DeviceRepository
+
+                await DeviceRepository(db).delete_by_token(
+                    _UUID(str(user_id)), refresh_token_data.push_token
+                )
+            except Exception as exc:  # noqa: BLE001 — sair nunca falha por isto
+                logging.getLogger(__name__).warning("logout: push token not removed: %s", exc)
 
     return SuccessResponse(message="Logged out successfully")
 
@@ -1235,7 +1257,9 @@ async def generate_invite(
         token=token,
         email=invite_data.email,
         expires_at=expires_at.isoformat(),
-        email_sent=email_sent,
+        email_sent=bool(email_sent),
+        email_enviado=bool(email_sent),
+        access_email_sent=bool(email_sent),
         message=f"Invite token generated successfully. Expires in {invite_data.expires_days} days.",
     )
 

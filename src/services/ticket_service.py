@@ -343,7 +343,18 @@ class TicketService:
         payload: TicketEscalateRequest,
     ) -> TicketResponse:
         ticket = await self._load_or_404(ticket_id)
-        self._assert_can_admin(ticket, user)
+        # Quem abriu o pedido pode escalá-lo — é dele, e é quem sabe que
+        # está a doer. Só admin escalava, e o botão aparecia a todos: um
+        # membro levava sempre 403 (auditoria da app, 12/10/2026). Os
+        # pedidos dos OUTROS continuam só para admin/owner.
+        self._assert_can_view(ticket, user)
+        if not _is_admin_like(user) and ticket.status in (
+            TicketStatus.RESOLVED.value,
+            TicketStatus.CLOSED.value,
+        ):
+            # Um pedido fechado reabre-se primeiro (`/reopen`); escalar algo
+            # que já foi dado por resolvido sem o reabrir saltava um passo.
+            raise ValidationError("Reopen the ticket before escalating it")
 
         if ticket.status == TicketStatus.ESCALATED.value:
             return TicketResponse.model_validate(ticket)

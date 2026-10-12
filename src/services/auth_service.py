@@ -884,12 +884,17 @@ class AuthenticationService:
                 exc,
             )
 
-    async def logout(self, refresh_token: str) -> None:
+    async def logout(self, refresh_token: str) -> Optional[UUID]:
         """
         Logout user by revoking refresh token and marking them offline.
 
         Args:
             refresh_token: Refresh token to revoke
+
+        Returns:
+            O id do dono do refresh token quando ele existe na base — a única
+            prova de identidade que este endpoint (sem bearer) tem. ``None``
+            para um token desconhecido.
         """
         from sqlalchemy import select, update
 
@@ -909,6 +914,7 @@ class AuthenticationService:
             await self.db.execute(update(User).where(User.id == user_id).values(status="offline"))
 
         await self.db.commit()
+        return user_id
 
     async def revoke_all_tokens(self, user_id: UUID) -> None:
         """

@@ -266,6 +266,28 @@ async def get_crew_members(
     return await crew_service.get_crew_members(crew_id, current_user)
 
 
+@router.get(
+    "/{crew_id}/pessoas-para-acrescentar",
+    summary="Procurar gente na empresa para acrescentar a esta equipa",
+    description=(
+        "Por nome ou email; esconde quem já está na equipa. Serve as equipas "
+        "do cliente (sem projeto), onde não há projeto onde procurar. Devolve "
+        "`[{id, name, email, avatar}]`."
+    ),
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def pessoas_para_acrescentar(
+    crew_id: UUID,
+    procura: str = Query("", max_length=120),
+    limite: int = Query(20, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await CrewService(db).pessoas_para_acrescentar(
+        crew_id, current_user, procura=procura, limite=limite
+    )
+
+
 @router.post(
     "/{crew_id}/members",
     response_model=CrewMemberResponse,

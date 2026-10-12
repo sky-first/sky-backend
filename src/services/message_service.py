@@ -237,7 +237,9 @@ class MessageService:
         # Vem por id, do selector da app. Adivinhar a partir do texto era
         # arriscar mandar a notificação à pessoa errada — pior do que não
         # mandar nenhuma.
-        await self._notificar_mencionados(payload.mentions, user, conv, payload.content)
+        avisados = await self._notificar_mencionados(
+            payload.mentions, user, conv, payload.content
+        )
 
         # E avisar quem já participou na conversa.
         #
@@ -249,7 +251,7 @@ class MessageService:
         # Depois dos mencionados e a saber quem eles são, para ninguém receber
         # dois avisos da mesma mensagem.
         await self._notificar_participantes(
-            user, conv, payload.content, ja_avisados=set(payload.mentions or [])
+            user, conv, payload.content, ja_avisados=avisados | set(payload.mentions or [])
         )
 
         # The writer is the caller — stamp their display name so the
@@ -731,7 +733,7 @@ class MessageService:
 
         return msg
 
-    async def _notificar_mencionados(self, mentions, autor, conv, conteudo: str) -> None:
+    async def _notificar_mencionados(self, mentions, autor, conv, conteudo: str) -> set:
         """Uma notificação por pessoa mencionada, na língua dela.
 
         Nunca notifica o próprio: mencionar-se a si mesmo acontece ao
@@ -742,9 +744,18 @@ class MessageService:
         perder o texto por causa de um aviso seria trocar o essencial pelo
         acessório.
         """
-        destinatarios = [m for m in (mentions or []) if m != autor.id]
+        # Os ids do cliente ganham; o `@nome` do texto (com acentos, sem
+        # maiúsculas) completa — ver `services/mencoes.py`.
+        try:
+            from src.services.mencoes import resolver_mencoes
+
+            todos = await resolver_mencoes(self.db, conv, conteudo, mentions)
+        except Exception as exc:  # noqa: BLE001 — na dúvida, só os ids
+            logger.warning("mencoes_por_nome_falharam: %s", exc)
+            todos = list(mentions or [])
+        destinatarios = [m for m in todos if m != autor.id]
         if not destinatarios:
-            return
+            return set()
         try:
             from src.core.locale import get_message, normalize_locale
             from src.models.notification import NotificationType
@@ -781,6 +792,7 @@ class MessageService:
             logger.warning(
                 "mencao_nao_notificada", extra={"conversa": str(conv.id), "erro": str(exc)}
             )
+        return set(destinatarios)
 
     async def _notificar_participantes(
         self, autor, conv, conteudo: str, *, ja_avisados: set

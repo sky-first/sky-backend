@@ -86,7 +86,9 @@ class SpaceService:
         if member_rank < min_rank:
             raise ForbiddenError(f"Requires space role '{min_role}' (you have '{member.role}')")
 
-    async def list_spaces(self, user: User, skip: int = 0, limit: int = 100) -> List[SpaceResponse]:
+    async def list_spaces(
+        self, user: User, skip: int = 0, limit: int = 100, arquivados: bool = False
+    ) -> List[SpaceResponse]:
         """
         List spaces.
 
@@ -128,7 +130,7 @@ class SpaceService:
         """
         try:
             spaces_data = await self.space_repo.get_by_user_with_stats(
-                user.id, skip=skip, limit=limit
+                user.id, skip=skip, limit=limit, arquivados=arquivados
             )
             result = []
             for space_data in spaces_data:

@@ -212,6 +212,12 @@ class ChatMessageRequest(BaseModel):
     persist: Optional[bool] = Field(
         False, description="Persist the turn as a Conversation/Message thread (mobile)."
     )
+    # Pessoas mencionadas na pergunta (ids do selector do `@`). Avisadas
+    # quando o turno é gravado — a mesma regra dos comentários. O `@nome` do
+    # texto também é resolvido no servidor (sem acentos/maiúsculas).
+    mentions: List[UUID] = Field(
+        default_factory=list, description="User ids @-mentioned in this question."
+    )
     # Explicit collaborative context fields (preferred over context dict)
     space_id: Optional[str] = Field(None, description="Space ID for context")
     crew_id: Optional[str] = Field(None, description="Active crew ID (collaborative mode)")

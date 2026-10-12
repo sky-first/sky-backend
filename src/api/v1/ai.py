@@ -916,6 +916,13 @@ async def send_chat_message_stream(
         await leads_dos_anexos(db, _ctx, current_user), stream_instructions
     )
 
+    # Perfil → «como o tratar» e «que preferências ter em conta» (nickname,
+    # response_preferences). Gravava-se e ninguém lia. O motor já aceita
+    # `instructions`; ver `services/preferencias_de_resposta.py`.
+    from src.services.preferencias_de_resposta import juntar as _juntar_preferencias
+
+    stream_instructions = _juntar_preferencias(stream_instructions, prefs)
+
     # Multi-turn threading (mobile, opt-in). Resolve or create the conversation
     # up front so its id is stable; the turn's messages are saved once the
     # answer has fully streamed. Web callers set neither flag and skip all this.
@@ -1130,6 +1137,21 @@ async def send_chat_message_stream(
                         logger.warning("[chat/stream] fonte não guardada: %s", _ferr)
                     await conv_repo.update(conv_id, updated_at=_dt.utcnow())
                     await db.commit()
+                    # Avisar quem foi mencionado na pergunta — o mesmo
+                    # caminho dos comentários (ids do cliente + `@nome` do
+                    # texto). Antes, uma pergunta à Sky com «@Ángela» não
+                    # avisava ninguém.
+                    try:
+                        _conv_mencoes = await conv_repo.get_by_id(conv_id)
+                        if _conv_mencoes is not None:
+                            await MessageService(db)._notificar_mencionados(
+                                message_data.mentions,
+                                current_user,
+                                _conv_mencoes,
+                                message_data.message or "",
+                            )
+                    except Exception as _merr:  # noqa: BLE001
+                        logger.warning("[chat/stream] mentions skipped: %s", _merr)
                 except Exception as _perr:  # persistence must never break the stream
                     logger.warning("[chat/stream] persist failed: %s", _perr)
                 yield sse(meta_event({"conversation_id": str(conv_id)}))

@@ -331,6 +331,18 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class LogoutRequest(BaseModel):
+    """Logout: revoga o refresh token e, se vier, desregista o push do aparelho.
+
+    ``push_token`` é opcional e só remove o token **do dono do refresh
+    token** — nunca o de outra pessoa. É o que evita que o próximo
+    utilizador do mesmo telemóvel receba os pushes do anterior.
+    """
+
+    refresh_token: str
+    push_token: Optional[str] = None
+
+
 class RefreshTokenResponse(BaseModel):
     """Refresh token response schema."""
 
@@ -439,6 +451,15 @@ class InviteGenerateResponse(BaseModel):
     # the operator knows the email did not go out. Defaults True for mock
     # mode and any caller that doesn't set it.
     email_sent: bool = True
+    # **O mesmo valor, com os nomes que os clientes lêem.**
+    #
+    # A app lia `access_email_sent` (o nome de `POST /users`) e esta resposta
+    # só tinha `email_sent`: o campo vinha sempre ausente e a app dizia
+    # sempre «enviámos-lhe um email», mesmo quando o SES o recusava
+    # (auditoria da app, 12/10/2026). `email_enviado` é o nome explícito do
+    # contrato; `access_email_sent` fica para a app actual acertar já.
+    email_enviado: bool = True
+    access_email_sent: bool = True
     message: str
 
 

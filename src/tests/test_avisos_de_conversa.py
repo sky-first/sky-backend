@@ -117,7 +117,7 @@ class TestQuemEAvisado:
         # segundo. O `ja_avisados` é o que garante isso, e a ordem importa:
         # os mencionados primeiro, os participantes depois e a saber quem eles
         # são.
-        assert "ja_avisados=set(payload.mentions or [])" in fonte
+        assert "ja_avisados=avisados" in fonte
         assert fonte.index("_notificar_mencionados") < fonte.index("_notificar_participantes")
 
     def test_nao_avisa_o_proprio_autor(self) -> None:

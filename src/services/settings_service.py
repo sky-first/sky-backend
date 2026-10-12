@@ -1,7 +1,7 @@
 """Settings service."""
 
 import secrets
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +50,31 @@ class SettingsService:
         self.api_key_repo = APIKeyRepository(db)
         self.integration_repo = IntegrationRepository(db)
 
+    async def _estado_das_notificacoes(self, user: User, guardado: Optional[dict]) -> dict:
+        """`notifications` com o estado REAL do «modo concentração».
+
+        O interruptor da app (`POST /notifications/preferences/pause`) grava
+        uma preferência global na tabela das preferências — e não aqui. A
+        linha «Notificaciones · Encendido» lia `notifications.enabled`, que
+        ninguém escrevia, e dizia «Encendido» com tudo em pausa.
+
+        ``enabled`` = não está em pausa. ``paused`` = o contrário, explícito.
+        Calculados a cada leitura; nunca gravados (a fonte de verdade é a
+        preferência global).
+        """
+        base = dict(guardado or {"email": True, "push": False})
+        try:
+            from src.repositories.notification_preference_repository import (
+                NotificationPreferenceRepository,
+            )
+
+            pausado = await NotificationPreferenceRepository(self.db).is_globally_paused(user.id)
+        except Exception:  # noqa: BLE001 — sem a tabela, fica o que estava
+            return base
+        base["enabled"] = not pausado
+        base["paused"] = pausado
+        return base
+
     async def get_settings(self, user: User) -> SettingsResponse:
         """
         Get user settings.
@@ -65,7 +90,9 @@ class SettingsService:
         return SettingsResponse(
             theme=preferences.get("theme", "light"),
             language=preferences.get("language", DEFAULT_LOCALE),
-            notifications=preferences.get("notifications", {"email": True, "push": False}),
+            notifications=await self._estado_das_notificacoes(
+                user, preferences.get("notifications")
+            ),
             preferences=preferences,
         )
 
@@ -118,7 +145,9 @@ class SettingsService:
         return SettingsResponse(
             theme=current_preferences.get("theme", "light"),
             language=current_preferences.get("language", DEFAULT_LOCALE),
-            notifications=current_preferences.get("notifications", {"email": True, "push": False}),
+            notifications=await self._estado_das_notificacoes(
+                user, current_preferences.get("notifications")
+            ),
             preferences=current_preferences,
         )
 

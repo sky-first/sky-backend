@@ -126,6 +126,9 @@ NOTIFICATION_CATEGORY: dict[str, str] = {
     "crew_member_removed": "collaboration",
     "role_changed": "collaboration",
     "invite_received": "collaboration",
+    # Convite para um projeto (e a resposta a ele). Sem categoria, silenciar
+    # «Colaboração» não o calava — e agora também gera push.
+    "space_invite": "collaboration",
 
     # Events/Signals + Strategy entries removed in the Knowledge refactor
     # (Phase 1a + 1b, 2026-04-25). Phase 2 will replace them with

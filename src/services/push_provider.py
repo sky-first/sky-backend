@@ -70,36 +70,70 @@ class ExpoPushProvider:
     Parses the response so tokens Expo reports as ``DeviceNotRegistered``
     are handed back for pruning (T-06.6). Imported lazily so the service
     boots without httpx configured.
+
+    ``EXPO_ACCESS_TOKEN`` é opcional: só é exigido quando o projeto Expo tem
+    «Enhanced Security for Push Notifications» ligado. Quando existe, vai no
+    ``Authorization: Bearer``; quando não, o envio é anónimo (o que a Expo
+    aceita por omissão).
     """
 
     ENDPOINT = "https://exp.host/--/api/v2/push/send"
+    #: A Expo aceita no máximo 100 mensagens por pedido.
+    CHUNK = 100
+
+    def __init__(self, access_token: str | None = None):
+        token = access_token if access_token is not None else (
+            os.getenv("EXPO_ACCESS_TOKEN") or ""
+        ).strip()
+        # Um template do ExternalSecret com a propriedade em falta escreve
+        # «<no value>»; mandar isso como Bearer fazia a Expo recusar tudo.
+        self.access_token = "" if token.startswith("<") else token
+
+    def _headers(self) -> Dict[str, str]:
+        h = {"Accept": "application/json", "Content-Type": "application/json"}
+        if self.access_token:
+            h["Authorization"] = f"Bearer {self.access_token}"
+        return h
 
     async def send(self, messages: List[PushMessage]) -> PushResult:
         import httpx
 
-        payload = [
-            {
-                "to": m.token,
-                "title": m.title,
-                "body": m.body,
-                "data": m.data,
-            }
-            for m in messages
-        ]
+        sent = 0
         invalid: List[str] = []
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(self.ENDPOINT, json=payload)
-                resp.raise_for_status()
-                receipts = (resp.json() or {}).get("data", [])
-            for msg, receipt in zip(messages, receipts):
-                err = (receipt or {}).get("details", {}).get("error")
-                if receipt.get("status") == "error" and err == "DeviceNotRegistered":
-                    invalid.append(msg.token)
-        except Exception as exc:  # a transport failure must not break notify
-            logger.warning("expo push failed: %s", exc)
-            return PushResult(sent=0, invalid_tokens=[])
-        return PushResult(sent=len(messages) - len(invalid), invalid_tokens=invalid)
+        for i in range(0, len(messages), self.CHUNK):
+            lote = messages[i : i + self.CHUNK]
+            payload = [
+                {
+                    "to": m.token,
+                    "title": m.title,
+                    "body": m.body,
+                    "data": m.data,
+                    # Sem `sound` o iOS entrega em silêncio; o canal Android
+                    # `default` é o que a app cria em `push.ts`.
+                    "sound": "default",
+                    "channelId": "default",
+                }
+                for m in lote
+            ]
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(self.ENDPOINT, json=payload, headers=self._headers())
+                    resp.raise_for_status()
+                    receipts = (resp.json() or {}).get("data", [])
+                lote_invalid: List[str] = []
+                for msg, receipt in zip(lote, receipts):
+                    receipt = receipt or {}
+                    err = (receipt.get("details") or {}).get("error")
+                    if receipt.get("status") == "error":
+                        if err == "DeviceNotRegistered":
+                            lote_invalid.append(msg.token)
+                        else:
+                            logger.warning("expo push rejected: %s", receipt.get("message"))
+                invalid.extend(lote_invalid)
+                sent += len(lote) - len(lote_invalid)
+            except Exception as exc:  # a transport failure must not break notify
+                logger.warning("expo push failed: %s", exc)
+        return PushResult(sent=sent, invalid_tokens=invalid)
 
 
 def build_push_provider() -> PushProvider:
