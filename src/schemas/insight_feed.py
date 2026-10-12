@@ -55,6 +55,11 @@ class InsightItem(BaseModel):
     # onde se pergunta "explica melhor" ou "e agora o Norte?". None quando o
     # achado nao veio de um agente com conversa (achados antigos, varreduras).
     conversation_id: Optional[str] = None
+    # O agente que produziu este achado. A app (sky-mobile #93) leva o toque
+    # ao agente por este id; sem ele adivinhava pelo fio ou pelo nome — e dois
+    # agentes com o mesmo nome, ou um sem conversa, levavam ao sitio errado.
+    # None nos achados de varredura (`source="scan"`), que nao tem agente.
+    agent_id: Optional[str] = None
 
 
 class AgenteNoFeed(BaseModel):

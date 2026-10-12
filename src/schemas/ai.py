@@ -71,6 +71,14 @@ class AIQueryRequest(BaseModel):
             "belongs to in the space."
         ),
     )
+    # A conversa onde a pergunta foi escrita. Quando é a de um agente, a
+    # pergunta leva o contexto do agente (o mesmo que a `/ai/chat/stream`
+    # injecta). Ausente, usa-se o `thread_id` — que é o id da conversa nas
+    # respostas escritas num fio.
+    conversation_id: Optional[UUID] = Field(
+        None,
+        description="Conversation the question was typed in (agent context when it is an agent's).",
+    )
     # Knowledge Library: file IDs the user explicitly @mentioned in the prompt.
     # The AI service boosts their chunks 10× during RAG retrieval.
     mentioned_file_ids: Optional[List[str]] = Field(

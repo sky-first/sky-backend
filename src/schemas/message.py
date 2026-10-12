@@ -141,6 +141,10 @@ class AskAIBundleRequest(BaseModel):
     duration_ms: Optional[int] = Field(None, ge=0)
     cost_tokens: Optional[int] = Field(None, ge=0)
     cost_usd: Optional[Decimal] = Field(None, ge=0)
+    # As pessoas mencionadas com @ na pergunta (por id, do selector), como no
+    # `MessageCreate`. A web faz a PRIMEIRA pergunta de um fio por aqui, e sem
+    # este campo um @ nessa mensagem não avisava ninguém.
+    mentions: List[UUID] = []
 
 
 class AskAIBundleResponse(BaseModel):
