@@ -244,6 +244,7 @@ class AIServiceHTTPClient:
         locale: Optional[str] = None,
         ai_tone: Optional[str] = None,
         ai_style: Optional[str] = None,
+        ui_locale: Optional[str] = None,
     ) -> AsyncIterator[str]:
         """
         Stream a query to the AI service via SSE.
@@ -304,6 +305,10 @@ class AIServiceHTTPClient:
             payload["ai_tone"] = ai_tone
         if ai_style:
             payload["ai_style"] = ai_style
+        # A língua da app, só para as frases de estado do motor. Um motor
+        # antigo ignora o campo; o backend traduz pela etapa na mesma.
+        if ui_locale:
+            payload["ui_locale"] = ui_locale
 
         from src.services import limites_do_plano
 

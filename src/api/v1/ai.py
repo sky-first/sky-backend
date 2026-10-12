@@ -13,7 +13,12 @@ from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session, require_service_principal
 from src.config.settings import settings
 from src.core.exceptions import BaseAPIException
-from src.core.locale import DEFAULT_LOCALE, get_message, lingua_da_resposta
+from src.core.locale import (
+    DEFAULT_LOCALE,
+    get_message,
+    lingua_da_interface,
+    lingua_da_resposta,
+)
 from src.middleware.request_limits import depth_guard_dependency
 from src.models.user import User
 from src.rate_limit.core import (
@@ -227,7 +232,7 @@ async def process_query(
         # A língua das RESPOSTAS, que pode diferir da da interface.
         # Ver `lingua_da_resposta` — o caso é dados em inglês e quem
         # lê a querer castelhano.
-        query_data.locale = lingua_da_resposta(prefs)
+        query_data.locale = lingua_da_resposta(prefs, permitir_auto=True)
 
     # **`"auto"` é uma escolha, e não uma ausência.**
     #
@@ -614,7 +619,7 @@ async def send_chat_message(
     if message_data.ai_style is None:
         message_data.ai_style = prefs.get("ai_style")
     if message_data.locale is None:
-        message_data.locale = lingua_da_resposta(prefs)
+        message_data.locale = lingua_da_resposta(prefs, permitir_auto=True)
 
     # **`"auto"` é uma escolha, e não uma ausência.**
     #
@@ -771,12 +776,20 @@ async def send_chat_message_stream(
 
     # Tone/style/locale fallback — same as /chat.
     prefs = current_user.preferences or {}
+    # A língua da APP, para todo o texto de interface do stream. Não é o
+    # `locale` (esse é a da resposta e, com «segue a sua pergunta», vira
+    # None). Lida ANTES de o `locale` ser mexido abaixo.
+    ui_lang = lingua_da_interface(
+        getattr(message_data, "ui_locale", None),
+        prefs,
+        locale_do_pedido=message_data.locale,
+    )
     if message_data.ai_tone is None:
         message_data.ai_tone = prefs.get("ai_tone")
     if message_data.ai_style is None:
         message_data.ai_style = prefs.get("ai_style")
     if message_data.locale is None:
-        message_data.locale = lingua_da_resposta(prefs)
+        message_data.locale = lingua_da_resposta(prefs, permitir_auto=True)
 
     # **`"auto"` é uma escolha, e não uma ausência.**
     #
@@ -979,13 +992,13 @@ async def send_chat_message_stream(
             if not resolved_connection_id:
                 yield sse(
                     error_event(
-                        get_message("no_data_source", message_data.locale),
+                        get_message("no_data_source", ui_lang),
                         code="no_data_source",
                     )
                 )
                 return
 
-            yield sse(progress_event("starting", get_message("thinking", message_data.locale)))
+            yield sse(progress_event("starting", ui_locale=ui_lang))
             started = True
 
             # Bring the team's unanswered comments into the question.
@@ -1031,8 +1044,9 @@ async def send_chat_message_stream(
                 locale=message_data.locale,
                 ai_tone=message_data.ai_tone,
                 ai_style=message_data.ai_style,
+                ui_locale=ui_lang,
             ):
-                event = normalize_event(parse_sse_data_line(line))
+                event = normalize_event(parse_sse_data_line(line), ui_locale=ui_lang)
                 if event is not None:
                     if persist_turn and event.get("type") == "chunk":
                         answer_parts.append(event.get("content") or "")
@@ -1150,7 +1164,7 @@ async def send_chat_message_stream(
             else:
                 yield sse(
                     error_event(
-                        get_message("unable_to_start_stream", message_data.locale),
+                        get_message("unable_to_start_stream", ui_lang),
                         code="unable_to_start",
                     )
                 )

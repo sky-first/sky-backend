@@ -78,6 +78,27 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "en": "Thinking...",
         "es": "Pensando…",
     },
+    # ── As etapas do stream ─────────────────────────────────────────
+    #
+    # O motor mandava-as em português do Brasil, cravadas («Analisando
+    # pergunta...») — e chegavam assim a uma app em castelhano (Android,
+    # 12/10/2026). São INTERFACE: seguem a língua da app, nunca a da
+    # resposta. A chave viaja no evento (`key`) para a app traduzir.
+    "progress_analyzing_question": {
+        "pt": "A analisar a pergunta…",
+        "en": "Analysing the question…",
+        "es": "Analizando la pregunta…",
+    },
+    "progress_running_query": {
+        "pt": "A consultar os dados…",
+        "en": "Querying the data…",
+        "es": "Consultando los datos…",
+    },
+    "progress_generating_answer": {
+        "pt": "A escrever a resposta…",
+        "en": "Writing the answer…",
+        "es": "Redactando la respuesta…",
+    },
     # Sem dados no projeto — a frase depende de **quem** pergunta.
     #
     # Havia uma só, em inglês, dentro do `ai_service`: "Connect a data source
@@ -442,7 +463,44 @@ def get_message(key: str, locale: str | None = None) -> str:
     return bucket.get(resolved) or bucket.get(DEFAULT_LOCALE) or key
 
 
-def lingua_da_resposta(preferences: dict | None) -> str:
+#: O valor que quer dizer «segue a língua da pergunta».
+LINGUA_AUTOMATICA = "auto"
+
+
+def lingua_da_interface(
+    pedida: str | None,
+    preferences: dict | None,
+    *,
+    locale_do_pedido: str | None = None,
+) -> str:
+    """A língua da APP de quem pergunta — para todo o texto de interface.
+
+    ── Duas línguas, não uma (Lucas, 12/10/2026) ──────────────────────
+
+    A língua da app («Idioma») manda em TODO o texto de interface, incluindo
+    as frases de estado enquanto a Sky trabalha («A analisar a pergunta…»),
+    os avisos e os erros. A língua da resposta («Sky responde en») é outra
+    coisa e vive no `locale` do pedido.
+
+    Usar o `locale` para as duas dava os dois defeitos vistos em produção:
+    com «Sigue su pregunta» o `locale` é `None` e o «A pensar…» caía no
+    português por omissão numa app em castelhano; e quem fixa a resposta em
+    inglês via a interface do stream em inglês.
+
+    Prioridade: o que o cliente diz (`ui_locale`) → o `locale` do pedido
+    quando é uma língua (clientes antigos mandavam nele a língua da app; a
+    web ainda manda) → `language` guardado → DEFAULT_LOCALE. `auto` não é
+    uma língua e não conta.
+    """
+    if pedida and str(pedida).strip():
+        return normalize_locale(str(pedida))
+    if locale_do_pedido and str(locale_do_pedido).strip().lower() != LINGUA_AUTOMATICA:
+        return normalize_locale(str(locale_do_pedido))
+    prefs = preferences or {}
+    return normalize_locale(prefs.get("language") or DEFAULT_LOCALE)
+
+
+def lingua_da_resposta(preferences: dict | None, *, permitir_auto: bool = False) -> str:
     """A língua em que a IA responde.
 
     ── Duas definições, não uma ────────────────────────────────────
@@ -467,6 +525,13 @@ def lingua_da_resposta(preferences: dict | None) -> str:
     """
     prefs = preferences or {}
     escolhida = (prefs.get("answer_language") or "").strip()
+    # «Segue a sua pergunta» guardado na conta (a web grava-o assim). Só
+    # quem sabe converter `auto` em «deixa o motor detectar» o pede; os
+    # outros recebem a língua da interface, como antes.
+    if escolhida.lower() == LINGUA_AUTOMATICA:
+        if permitir_auto:
+            return LINGUA_AUTOMATICA
+        escolhida = ""
     if escolhida:
         return normalize_locale(escolhida)
     return normalize_locale(prefs.get("language", DEFAULT_LOCALE))
