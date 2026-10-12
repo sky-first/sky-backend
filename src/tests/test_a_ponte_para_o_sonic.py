@@ -226,7 +226,7 @@ class TestAFerramentaChamaOMotorDeSempre:
     async def test_a_pergunta_e_o_contexto_chegam_ao_motor(self):
         vistos: List[Any] = []
 
-        async def responder(user, page_id, texto, ctx, locale, space_id=None):
+        async def responder(user, page_id, texto, ctx, locale, space_id=None, thread_id=None):
             vistos.append((texto, locale, space_id, getattr(ctx, "slug", None)))
             return "São duas rotas."
 
@@ -242,7 +242,7 @@ class TestAFerramentaChamaOMotorDeSempre:
         """
         vistos: List[Any] = []
 
-        async def responder(user, page_id, texto, ctx, locale, space_id=None):
+        async def responder(user, page_id, texto, ctx, locale, space_id=None, thread_id=None):
             vistos.append(space_id)
             return "x"
 

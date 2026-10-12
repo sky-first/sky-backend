@@ -315,6 +315,14 @@ async def servir(
         )
         return "Modo de ditado: não respondas, limita-te a ouvir."
 
+    # A memória da sessão — a da conversa onde foi aberta, ou uma só dela.
+    # Ver `services/fio_da_conversa.fio_da_voz`.
+    from uuid import uuid4 as _uuid4
+
+    from src.services.fio_da_conversa import fio_da_voz
+
+    fio = await fio_da_voz(ctx, user, conversation_id, _uuid4().hex)
+
     _consulta = ponte.ferramenta_do_cliente(
         responder,
         user=user,
@@ -322,6 +330,7 @@ async def servir(
         ctx=ctx,
         locale=locale,
         space_id=space_id,
+        thread_id=fio,
     )
 
     async def consulta(pergunta: str) -> str:

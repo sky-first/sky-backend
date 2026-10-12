@@ -212,6 +212,15 @@ class ChatMessageRequest(BaseModel):
     persist: Optional[bool] = Field(
         False, description="Persist the turn as a Conversation/Message thread (mobile)."
     )
+    # Memória multi-turno. A app manda-o (o id da conversa ou da superfície de
+    # chat) e até aqui era deitado fora pelo Pydantic — o `sky-ai` caía no fio
+    # pessoa+ligação e as conversas misturavam-se. O id que vai ao motor é
+    # derivado no servidor (`services/fio_da_conversa.py`), nunca este valor cru.
+    thread_id: Optional[str] = Field(
+        None,
+        max_length=200,
+        description="Stable conversation/session id for multi-turn memory.",
+    )
     # Pessoas mencionadas na pergunta (ids do selector do `@`). Avisadas
     # quando o turno é gravado — a mesma regra dos comentários. O `@nome` do
     # texto também é resolvido no servidor (sem acentos/maiúsculas).

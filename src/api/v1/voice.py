@@ -6,6 +6,7 @@ here becomes its on-close handler.
 """
 
 import logging
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
@@ -151,7 +152,13 @@ class _RespostaFalhou(Exception):
 
 
 async def _voice_answer(
-    user, page_id, text: str, ctx, locale: str = "en", space_id: str | None = None
+    user,
+    page_id,
+    text: str,
+    ctx,
+    locale: str = "en",
+    space_id: str | None = None,
+    thread_id: str | None = None,
 ) -> str | None:
     """The grounded answer for one voice turn — the same Bedrock engine as chat.
 
@@ -377,6 +384,9 @@ async def _voice_answer(
             # primeira versão disto rebentou com `AttributeError` e a
             # voz ficou muda — por causa de uma preferência.
             ai_tone=(getattr(user, "preferences", None) or {}).get("ai_tone"),
+            # A memória desta sessão (ou da conversa onde a voz foi aberta).
+            # Ver `services/fio_da_conversa.fio_da_voz`.
+            thread_id=thread_id,
         ):
             line = line.strip()
             if not line.startswith("data:"):
@@ -748,6 +758,8 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     #: ver `_voice_answer`. `None` é o modo pessoal, que é legítimo.
     space_id: str | None = None
     conversation_id = None  # set from `start` → thread voice into an open chat
+    #: O fio de memória desta sessão quando não há conversa. Um por sessão.
+    sessao_de_voz = uuid.uuid4().hex
     # The app language ('en'|'pt'|'es') drives STT language, the answer language,
     # and the Polly voice, so a PT app gets a PT-spoken answer. Set from `start`.
     locale = "en"
@@ -859,7 +871,12 @@ async def voice_session_ws(websocket: WebSocket) -> None:
             # antes de este parâmetro existir — e o efeito não era um erro
             # visível, era a sessão a ficar muda: o telemóvel com o microfone
             # aberto e nada a acontecer, para sempre. Ver o `except` abaixo.
-            resposta = await _voice_answer(user, page_id, user_text, ctx, locale, space_id=space_id)
+            from src.services.fio_da_conversa import fio_da_voz
+
+            fio = await fio_da_voz(ctx, user, conversation_id, sessao_de_voz)
+            resposta = await _voice_answer(
+                user, page_id, user_text, ctx, locale, space_id=space_id, thread_id=fio
+            )
             if resposta is FALHOU_A_RESPOSTA:
                 # **Avariou, e diz-se.**
                 #

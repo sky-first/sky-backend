@@ -136,6 +136,7 @@ def ferramenta_do_cliente(
     ctx: Any,
     locale: str,
     space_id: Optional[str],
+    thread_id: Optional[str] = None,
 ) -> falada.Ferramenta:
     """A ferramenta que o modelo chama: o nosso motor de SQL.
 
@@ -168,7 +169,9 @@ def ferramenta_do_cliente(
             # de «sem resposta» é melhor do que correr um SQL ao calhas.
             return SEM_RESPOSTA
         try:
-            resposta = await responder(user, page_id, pergunta, ctx, locale, space_id=space_id)
+            resposta = await responder(
+                user, page_id, pergunta, ctx, locale, space_id=space_id, thread_id=thread_id
+            )
         except Exception:
             # O `responder` já registra o que lhe acontece; aqui é a
             # última rede, para o modelo receber SEMPRE algo que possa

@@ -803,6 +803,28 @@ class AIService:
             )
             return False
 
+    async def _fio_da_ia(self, user_id: UUID, query_data: Any) -> Optional[str]:
+        """O ``thread_id`` da memória da IA para uma pergunta da ``/ai/query``.
+
+        ``None`` quando o pedido não traz conversa nem fio — quem chama cai no
+        id da própria pergunta, como antes (sem memória entre turnos).
+        """
+        conversation_id = getattr(query_data, "conversation_id", None)
+        thread_id = getattr(query_data, "thread_id", None)
+        if conversation_id is None and not thread_id:
+            return None
+        try:
+            from src.models.user import User as _FioUser
+            from src.services.fio_da_conversa import resolver_fio
+
+            quem = await self.db.get(_FioUser, user_id)
+            return await resolver_fio(
+                self.db, quem, conversation_id=conversation_id, thread_id=thread_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[process_query] fio da IA não resolvido: %s", exc)
+            return None
+
     async def _com_preferencias_de_resposta(self, user_id: UUID, instrucoes: Optional[str]) -> str:
         """Junta o apelido e as preferências de resposta do Perfil às
         ``instructions`` do motor. Nunca rebenta a pergunta."""
@@ -1447,7 +1469,13 @@ class AIService:
                             # AI loads chat_history across turns. Fall back to the
                             # per-query id only when the client sends nothing
                             # (one-shot calls) — that path has no cross-turn memory.
-                            thread_id=getattr(query_data, "thread_id", None) or str(query.id),
+                            #
+                            # O id que vai é derivado no servidor: a conversa
+                            # (se a pessoa a pode ver) ou o fio, sempre com o
+                            # cliente à frente. Ver `services/fio_da_conversa.py`.
+                            thread_id=(
+                                await self._fio_da_ia(user_id, query_data) or str(query.id)
+                            ),
                             is_personal=is_personal,
                             selected_datasets=selected_datasets,
                             authorized_tables=list(authorized_tables),
