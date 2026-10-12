@@ -33,6 +33,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from src.services import voz_fala_a_fala as falada
 from src.services import voz_legenda_ao_vivo as legenda_viva
+from src.services import voz_paciencia as paciencia
 from src.services import voz_ponte_sonic as ponte
 from src.services import voz_recado as recado
 from src.services.numeros_falados import em_algarismos
@@ -60,6 +61,15 @@ VOZ_DE_RECURSO = "matthew"
 #: silêncio não é facturado, também medido, por isso não há razão para
 #: ser avarento.
 BATIDA_DO_SILENCIO = 2.0
+
+#: A meio de uma frase, quanto tempo SEM o microfone chegar se tolera
+#: antes de alimentar silêncio.
+#:
+#: Com 2 s, um socket móvel que engasgasse dois segundos a meio de uma
+#: pergunta metia 2 s de silêncio no Sonic — exactamente o que ele precisa
+#: para fechar o turno, sem a pessoa ter parado de falar. Folgadamente
+#: abaixo dos 55 s do modelo.
+BATIDA_A_MEIO_DA_FALA = 6.0
 
 #: De quanto em quanto tempo o socket leva alguma coisa, mesmo calado.
 #: Abaixo dos 60 s de inactividade que os proxies costumam tolerar.
@@ -270,6 +280,25 @@ async def servir(
     # fica melhor servido: transcrição é o que ele espera do gesto.
     e_ditado = inicio.get("mode") == "push-to-talk"
 
+    # ── Quem decide que a pessoa acabou ─────────────────────────────
+    #
+    # > «¿Cuál es el precio del gasoil…» e a Sky respondeu a meio —
+    # > Lucas, 12/10. O fim de turno do Sonic é semântico e fecha uma frase
+    # > que soa completa em ~400 ms, com LOW ou sem ele. O portão retém as
+    # > pausas a meio da fala e só lhe deixa ouvir o silêncio que fecha o
+    # > turno quando a paciência escolhida acabar. Ver `voz_paciencia`.
+    #
+    # No ditado não: lá o Sonic só transcreve e a frase é da pessoa.
+    portao = (
+        None
+        if e_ditado
+        else paciencia.PortaoDaVez(paciencia=paciencia.paciencia_de(inicio.get("patience")))
+    )
+
+    async def para_o_sonic(pedacos: List[bytes]) -> None:
+        for p in pedacos:
+            await sessao.ouvir_microfone(p)
+
     async def nao_consultar(_pergunta: str) -> str:
         """A ditar, o nosso SQL não corre.
 
@@ -396,6 +425,11 @@ async def servir(
                         continue  # a app já tem a vez desde o `barge_in`
                 elif isinstance(ev, (falada.Audio, falada.Dito)):
                     continue
+            # O Sonic fechou o turno (ou já responde): o portão recomeça.
+            if portao is not None and isinstance(
+                ev, (falada.FalaAcabou, falada.APensar, falada.Dito)
+            ):
+                portao.fechou_se()
             # O que se lê — no ecrã de voz e no fio — arrumado aqui, uma vez:
             # a pergunta com «¿…?», e os números ditos em algarismos (o texto
             # do Sonic é o que ele DIZ, e vem sempre por extenso).
@@ -437,9 +471,17 @@ async def servir(
         """
         while not fim.is_set():
             await asyncio.sleep(BATIDA_DO_SILENCIO / 2)
-            if _time.monotonic() - ultimo_audio >= BATIDA_DO_SILENCIO:
+            a_meio = portao is not None and portao.a_meio_da_fala and not silenciado
+            limite = BATIDA_A_MEIO_DA_FALA if a_meio else BATIDA_DO_SILENCIO
+            if _time.monotonic() - ultimo_audio >= limite:
                 try:
-                    await sessao.silencio(BATIDA_DO_SILENCIO)
+                    if portao is None:
+                        await sessao.silencio(BATIDA_DO_SILENCIO)
+                    else:
+                        # Pelo portão: se a pessoa ia a meio de uma frase
+                        # e o microfone parou de vez (silenciou, perdeu a
+                        # rede), isto conta como pausa e o turno fecha.
+                        await para_o_sonic(portao.silencio(BATIDA_DO_SILENCIO))
                 except Exception:
                     return
             # ── E o SOCKET também tem de ver tráfego ─────────────────
@@ -483,6 +525,10 @@ async def servir(
             return
         try:
             async for texto in legenda.parciais():
+                # As palavras mais recentes decidem a paciência: um «de…»
+                # ou um «eh…» no fim pede mais tempo.
+                if portao is not None:
+                    portao.ouvi_texto(texto)
                 await mandar({"type": "partial_transcript", "text": texto, "final": False})
         except Exception:  # noqa: BLE001
             # A legenda nunca pode levar a conversa atras dela.
@@ -500,7 +546,10 @@ async def servir(
             if msg.get("bytes") is not None:
                 if not silenciado:
                     ultimo_audio = _time.monotonic()
-                    await sessao.ouvir_microfone(msg["bytes"])
+                    if portao is None:
+                        await sessao.ouvir_microfone(msg["bytes"])
+                    else:
+                        await para_o_sonic(portao.ouvir(msg["bytes"]))
                     # So o que vem do MICROFONE. A batida de silencio
                     # que mantem a sessao do Sonic viva nao passa por
                     # aqui: paga-la era pagar a sessao inteira em vez
