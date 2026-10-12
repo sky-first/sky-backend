@@ -323,6 +323,11 @@ class SessaoFalada:
                         # o tempo de quem pensa a meio de uma pergunta sobre
                         # números. Ver a doc da AWS «Turn-taking
                         # controllability».
+                        #
+                        # ⚠️ Não chega sozinho: o fim de turno dele é
+                        # SEMÂNTICO e fecha uma frase que soa acabada muito
+                        # antes dos 2 s (medido a 12/10, cortou com 0,7 s).
+                        # A paciência é do `voz_paciencia.PortaoDaVez`.
                         "turnDetectionConfiguration": {
                             "endpointingSensitivity": SENSIBILIDADE_DO_FIM_DE_TURNO,
                         },
