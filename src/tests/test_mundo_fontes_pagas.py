@@ -43,24 +43,24 @@ class _Rede:
 
     def __call__(self, s, url, timeout=60, **kw):
         self.pedidos.append((url, kw.get("params") or {}, kw.get("headers") or {}))
-        if self.falhar and self.falhar in url:
+        if self.falhar and url.startswith(self.falhar):
             raise ConnectionError(f"401 Client Error for url: {url}?key={kw['params'].get('key')}")
-        if "opendata.aemet.es" in url and "/datos/" not in url:
+        if url.startswith("https://opendata.aemet.es/opendata/api/"):
             cod = url.rsplit("/", 1)[-1]
             return _Resp(
                 json.dumps(
                     {"estado": 200, "datos": f"https://opendata.aemet.es/opendata/sh/datos/{cod}"}
                 ).encode()
             )
-        if "/sh/datos/" in url:
+        if url.startswith("https://opendata.aemet.es/opendata/sh/datos/"):
             # a AEMET devolve ISO-8859-15 sem o declarar
             txt = (FX / "aemet_diaria_SINTETICO.json").read_text(encoding="utf-8")
             return _Resp(txt.encode("iso-8859-15"))
-        if "customer-api.open-meteo.com" in url:
+        if url == C.OPENMETEO_CLIENTE:
             pedidas = (kw["params"]["latitude"]).count(",") + 1
             base = json.loads((FX / "openmeteo.json").read_text(encoding="utf-8"))
             return _Resp(json.dumps([base[0]] * pedidas).encode())
-        if "api.tomtom.com" in url:
+        if url.startswith("https://api.tomtom.com/routing/1/calculateRoute/"):
             return _Resp((FX / "tomtom_rota_SINTETICO.json").read_bytes())
         raise AssertionError(f"pedido inesperado: {url}")
 
@@ -163,7 +163,7 @@ def test_tempo_aemet_e_open_meteo_cliente(eng, monkeypatch):
     assert len(aemet) == len(T.AEMET_MUNICIPIOS)
     assert all(h.get("api_key") == "aemet-segredo" and "segredo" not in u for u, h in aemet)
     # Open-Meteo de cliente só para as cidades que a AEMET não cobre (PT)
-    om = [p for u, p, _ in rede.pedidos if "customer-api.open-meteo.com" in u]
+    om = [p for u, p, _ in rede.pedidos if u == C.OPENMETEO_CLIENTE]
     assert len(om) == 1 and om[0]["apikey"] == "om-segredo"
     assert om[0]["latitude"].count(",") + 1 == len(T.CIDADES) - len(T.AEMET_MUNICIPIOS)
     linhas = _linhas(eng, E.tempo_cidades)
@@ -182,7 +182,7 @@ def test_tempo_so_aemet_deixa_pt_por_actualizar(eng, monkeypatch):
     rede = _Rede()
     monkeypatch.setattr(C, "obter", rede)
     C.correr(eng, {"tempo"}, _args())
-    assert not any("open-meteo" in u for u in rede.urls())
+    assert not any(u in (C.OPENMETEO_CLIENTE, C.OPENMETEO_GRATIS) for u in rede.urls())
     cidades = {l["cidade"] for l in _linhas(eng, E.tempo_cidades)}
     assert cidades == set(T.AEMET_MUNICIPIOS)
 
@@ -206,8 +206,10 @@ def test_rotas_tomtom_perfil_camiao_substitui_osrm(eng, monkeypatch):
     _semear_osrm_antigo(eng)
     res = {r[0]: r for r in C.correr(eng, {"rotas"}, _args())}
     assert res["rotas"][5] == "ok" and res["rotas"][1] == len(T.ROTAS_DEMO)
-    assert all("api.tomtom.com/routing/1/calculateRoute/" in u for u in rede.urls())
-    assert not any("project-osrm" in u for u in rede.urls())
+    assert all(
+        u.startswith("https://api.tomtom.com/routing/1/calculateRoute/") for u in rede.urls()
+    )
+    assert not any(u.startswith("https://router.project-osrm.org/") for u in rede.urls())
     p = rede.pedidos[0][1]
     assert p["key"] == "tt" and p["travelMode"] == "truck" and p["vehicleCommercial"] == "true"
     assert p["vehicleWeight"] == 40000
@@ -218,7 +220,7 @@ def test_rotas_tomtom_perfil_camiao_substitui_osrm(eng, monkeypatch):
 
 def test_chave_nao_fica_gravada_no_erro(eng, monkeypatch):
     monkeypatch.setenv("TOMTOM_API_KEY", "super-segredo-123")
-    monkeypatch.setattr(C, "obter", _Rede(falhar="api.tomtom.com"))
+    monkeypatch.setattr(C, "obter", _Rede(falhar="https://api.tomtom.com/"))
     C.correr(eng, {"rotas"}, _args())
     f = _fontes(eng)["rotas"]
     assert f.estado == "erro" and "super-segredo-123" not in f.erro and "key=***" in f.erro
@@ -254,9 +256,9 @@ def test_flag_nao_comercial_marca_licenca(eng, monkeypatch):
 
     def falso(s, url, timeout=60, **kw):
         urls.append(url)
-        if "project-osrm" in url:
+        if url.startswith("https://router.project-osrm.org/"):
             return _Resp((FX / "osrm.json").read_bytes())
-        if "api.open-meteo.com" in url:
+        if url == C.OPENMETEO_GRATIS:
             n = kw["params"]["latitude"].count(",") + 1
             base = json.loads((FX / "openmeteo.json").read_text(encoding="utf-8"))
             return _Resp(json.dumps([base[0]] * n).encode())
