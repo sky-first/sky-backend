@@ -39,11 +39,12 @@ def _local_path(blob_path: str) -> Path:
         or any(parte in ("", ".", "..") for parte in caminho.split("/"))
     ):
         raise CaminhoInvalido(blob_path)
-    base = _LOCAL_BASE.resolve()
-    destino = (base / caminho).resolve()
-    if base != destino and base not in destino.parents:
+    # realpath + startswith: a forma que a CodeQL reconhece como contenção.
+    base = os.path.realpath(str(_LOCAL_BASE))
+    destino = os.path.realpath(os.path.join(base, caminho))
+    if not destino.startswith(base + os.sep):
         raise CaminhoInvalido(blob_path)
-    return destino
+    return Path(destino)
 
 
 # ── Assinatura dos endereços locais (o equivalente ao SAS do Azure) ──────────
