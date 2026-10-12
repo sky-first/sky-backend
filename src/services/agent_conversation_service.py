@@ -264,3 +264,46 @@ def agent_context_instructions(agent: Agent, discussion: str = "") -> str:
         "using the same data sources."
     )
     return "\n\n".join(parts)
+
+
+async def instrucoes_do_agente_da_conversa(
+    db: AsyncSession, conversation_id, quem=None
+) -> Optional[str]:
+    """O contexto do agente para uma pergunta escrita no fio dele — ou `None`.
+
+    **Uma regra só, para todos os caminhos que perguntam.** Vivia dentro da
+    `/ai/chat/stream` (a app), e a web responde no fio do agente por outro
+    caminho — `/ai/query` com o id da conversa — que não a tinha. A mesma
+    frase («e agora o Norte?») escrita no mesmo fio era uma pergunta ao agente
+    no telemóvel e uma pergunta solta no browser.
+
+    Aceita o id como `UUID` ou texto; um id que não é UUID (a sessão do chat
+    principal, por exemplo) não é conversa de agente nenhum e devolve `None`.
+
+    Com `quem`, só devolve o contexto se essa pessoa PODE VER a conversa (a
+    mesma regra da leitura do fio, `ConversationService._can_view`). O
+    contexto leva a discussão do fio; um id colado à mão não pode servir para
+    a ler.
+    """
+    if conversation_id is None:
+        return None
+    try:
+        conv_id = (
+            conversation_id
+            if isinstance(conversation_id, UUID)
+            else UUID(str(conversation_id))
+        )
+    except (ValueError, TypeError, AttributeError):
+        return None
+    agent = await agent_for_conversation(db, conv_id)
+    if agent is None:
+        return None
+    if quem is not None:
+        from src.services.conversation_service import ConversationService
+
+        conv = await ConversationRepository(db).get_by_id(conv_id)
+        if conv is None or not await ConversationService(db)._can_view(conv, quem):
+            return None
+    return agent_context_instructions(
+        agent, render_discussion(await recent_discussion(db, conv_id))
+    )

@@ -609,6 +609,7 @@ class InsightFeedService:
             conversation_id=(
                 str(agent.conversation_id) if agent is not None and agent.conversation_id else None
             ),
+            agent_id=str(f.agent_id) if getattr(f, "agent_id", None) else None,
         )
 
     @staticmethod

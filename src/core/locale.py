@@ -135,6 +135,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
     # que o ecrã não dá.
     # O agente correu e nao devolveu nada. Era «Run produced no output
     # (nome)», em ingles, e aparecia na lista de descobertas.
+    # «Executar agora» pela rota antiga `/run/stream`: a corrida vai para a
+    # fila do worker (o mesmo caminho do `/run`) e a resposta aparece no fio
+    # do agente — não neste painel.
+    "agent_run_queued": {
+        "pt": "O agente está a correr. A resposta aparece na conversa do agente.",
+        "en": "The agent is running. The answer will appear in the agent's conversation.",
+        "es": "El agente se está ejecutando. La respuesta aparecerá en la conversación del agente.",
+    },
     "agent_run_no_output": {
         "pt": "a corrida não devolveu nada",
         "en": "the run produced no output",

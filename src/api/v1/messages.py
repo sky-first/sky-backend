@@ -179,6 +179,7 @@ async def ask_ai_bundle(
             duration_ms=payload.duration_ms,
             cost_tokens=payload.cost_tokens,
             cost_usd=payload.cost_usd,
+            mentions=payload.mentions,
         )
     except NotFoundError as err:
         raise HTTPException(status_code=404, detail=str(err))

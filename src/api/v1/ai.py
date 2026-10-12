@@ -950,18 +950,12 @@ async def send_chat_message_stream(
     if conv_id is not None:
         try:
             from src.services.agent_conversation_service import (
-                agent_context_instructions,
-                agent_for_conversation,
-                recent_discussion,
-                render_discussion,
+                instrucoes_do_agente_da_conversa,
             )
 
-            _agent = await agent_for_conversation(db, conv_id)
-            if _agent is not None:
-                _lead = agent_context_instructions(
-                    _agent,
-                    render_discussion(await recent_discussion(db, conv_id)),
-                )
+            # A mesma função que a `/ai/query` (a web) usa — uma regra só.
+            _lead = await instrucoes_do_agente_da_conversa(db, conv_id, quem=current_user)
+            if _lead:
                 stream_instructions = (
                     f"{_lead}\n\n{stream_instructions}" if stream_instructions else _lead
                 )

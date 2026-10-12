@@ -344,6 +344,8 @@ async def _voice_answer(
             logger.warning("voice: glossário não carregado: %s", exc)
 
         answer = ""
+        fonte_meta: dict = {}
+        fonte_linhas: dict = {}
         async for line in AIServiceHTTPClient().stream_query_connection(
             connection_id=conn_id,
             question=text,
@@ -387,6 +389,12 @@ async def _voice_answer(
                 answer += ev.get("content", "")
             elif ev.get("type") == "answer":
                 answer = ev.get("text", answer)
+            elif ev.get("type") == "meta":
+                # A fonte (tabelas, SQL) — para o «ver a fonte» da resposta
+                # falada, como na escrita. Ver `registar_fonte`.
+                fonte_meta = ev.get("meta") or {}
+            elif ev.get("type") == "rows":
+                fonte_linhas = ev
             elif ev.get("type") == "error":
                 # O motor diz que falhou. Era lido como «não disse nada»,
                 # porque só os tipos `chunk` e `answer` eram olhados — e a
@@ -412,6 +420,14 @@ async def _voice_answer(
                 getattr(ctx, "slug", "?"),
             )
             return FALHOU_A_RESPOSTA
+        # A fonte desta resposta, para a gravação no fim da sessão — os dois
+        # motores de voz (cascata e Sonic) passam por aqui.
+        try:
+            from src.services.voice_session_service import registar_fonte
+
+            registar_fonte(text, fonte_meta, fonte_linhas)
+        except Exception as exc:  # noqa: BLE001 — reforço, nunca cala o turno
+            logger.warning("voice: fonte não registada: %s", exc)
         return limpa
     except Exception:
         # `exception` e não `pass`. Era aqui que a razão morria.
@@ -446,6 +462,7 @@ async def _guardar_a_conversa(
     # onde um erro significa a conversa perdida.
     from src.config.tenant_connection_manager import tenant_connection_manager
     from src.repositories.user import UserRepository
+    from src.services.voice_session_service import fontes_da_sessao
 
     async with tenant_connection_manager.session_for(ctx) as db:
         u = await UserRepository(db).get_by_id(str(user.id))
@@ -457,6 +474,8 @@ async def _guardar_a_conversa(
                 duration_ms=duracao_ms,
                 conversation_id=conversation_id,
             ),
+            # As fontes das consultas que a ferramenta do Sonic correu.
+            fontes=fontes_da_sessao(),
         )
         return str(conv_id)
 
@@ -641,6 +660,16 @@ async def voice_session_ws(websocket: WebSocket) -> None:
     tenant_reset = set_current_tenant(ctx)  # downstream services route to ctx
     await websocket.accept(subprotocol=VOICE_SUBPROTOCOL)
 
+    # As fontes das respostas desta sessão — juntam-se a meio, gravam-se no
+    # fim com a conversa. Ver `voice_session_service.registar_fonte`.
+    from src.services.voice_session_service import (
+        abrir_fontes_da_sessao,
+        contar_turnos_por,
+        fontes_da_sessao,
+    )
+
+    abrir_fontes_da_sessao()
+
     # ── A bifurcação ────────────────────────────────────────────────
     #
     # Com a bandeira ligada, a sessão é servida pelo Nova Sonic e **nada
@@ -712,6 +741,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
         return
     started = _time.monotonic()
     turns: list[VoiceTurn] = []
+    contar_turnos_por(lambda: len(turns))
     page_id = None
     #: O projeto onde a pessoa está a falar. Vem no `start`.
     #: Sem ele, a resposta saía da primeira ligação do utilizador —
@@ -802,6 +832,7 @@ async def voice_session_ws(websocket: WebSocket) -> None:
                             duration_ms=dur,
                             conversation_id=conversation_id,
                         ),
+                        fontes=fontes_da_sessao(),
                     )
                     message_id = str(conv_id)
             except Exception:

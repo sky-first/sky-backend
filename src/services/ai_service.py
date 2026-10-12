@@ -1366,6 +1366,42 @@ class AIService:
                         except Exception as _anexq_err:
                             logger.debug("[process_query] anexos ignorados: %s", _anexq_err)
 
+                        # **Uma resposta escrita no fio de um agente é uma
+                        # pergunta AO AGENTE** — também na web.
+                        #
+                        # A `/ai/chat/stream` (a app) já punha o foco do
+                        # agente e a discussão do fio à frente da pergunta. A
+                        # web responde no fio por aqui, com o id da conversa
+                        # no `thread_id`, e chegava ao modelo uma pergunta
+                        # solta. A regra é a mesma função nos dois caminhos.
+                        try:
+                            from src.models.user import User as _AgUser
+                            from src.services.agent_conversation_service import (
+                                instrucoes_do_agente_da_conversa,
+                            )
+
+                            _quem_ag = await self.db.get(_AgUser, user_id)
+                            _lead_ag = (
+                                await instrucoes_do_agente_da_conversa(
+                                    self.db,
+                                    getattr(query_data, "conversation_id", None)
+                                    or getattr(query_data, "thread_id", None),
+                                    quem=_quem_ag,
+                                )
+                                if _quem_ag is not None
+                                else None
+                            )
+                            if _lead_ag:
+                                merged_instructions = (
+                                    f"{_lead_ag}\n\n{merged_instructions}"
+                                    if merged_instructions
+                                    else _lead_ag
+                                )
+                        except Exception as _ag_err:  # noqa: BLE001
+                            logger.debug(
+                                "[process_query] contexto do agente ignorado: %s", _ag_err
+                            )
+
                         # Personal mode: forward the caller's full Space
                         # membership so the AI RAG can surface
                         # space-scoped rows from every Space the caller

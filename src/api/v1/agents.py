@@ -1,12 +1,8 @@
-"""Agent API endpoints — CRUD, pause/resume, findings, streaming execution."""
+"""Agent API endpoints — CRUD, pause/resume, findings, run (worker)."""
 
-import asyncio
 import json
 import logging
-import re
-from datetime import date, datetime, timezone
-from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -14,41 +10,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.http_client import AIServiceHTTPClient
 from src.api.deps import get_current_user, get_db_session
-from src.core.locale import (
-    DEFAULT_LOCALE,
-    get_message,
-    lingua_da_resposta,
-    normalize_locale,
-)
-from src.models.agent import Agent, AgentExecution, AgentFinding
+from src.core.locale import get_message, lingua_da_resposta
+from src.models.agent import Agent
 from src.models.user import User
 
 logger = logging.getLogger(__name__)
-
-
-def _extract_tables_from_sql(sql: str) -> List[str]:
-    """Extract table names from a SQL query to guide the orchestrator's table selection.
-
-    Returns both schema-qualified (schema.table) and bare (table) names so
-    the orchestrator can match against either physical or logical table names.
-    """
-    if not sql:
-        return []
-    matches = re.findall(
-        r"\b(?:FROM|JOIN)\s+((?:\w+\.)?\w+)",
-        sql,
-        re.IGNORECASE,
-    )
-    seen: dict = {}
-    for m in matches:
-        seen[m.lower()] = m.lower()
-        # Also add the bare table name for schema-qualified refs (schema.table → table)
-        bare = m.split(".")[-1].lower()
-        if bare not in seen:
-            seen[bare] = bare
-    return list(seen.values())
 
 
 from src.schemas.agent import (
@@ -66,19 +33,6 @@ from src.services.rbac_service import RBACService
 from src.core.permissions import TENANT_ADMIN_ROLES
 
 router = APIRouter()
-
-
-def _sanitize_json(obj: Any) -> Any:
-    """Recursively convert Decimal/date/datetime to JSON-safe types."""
-    if isinstance(obj, Decimal):
-        return float(obj)
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    if isinstance(obj, dict):
-        return {k: _sanitize_json(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_sanitize_json(v) for v in obj]
-    return obj
 
 
 async def get_agent_service(db: AsyncSession = Depends(get_db_session)) -> AgentService:
@@ -578,443 +532,55 @@ async def run_agent_stream(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ):
+    """«Executar agora» da web antiga — agora PELO MESMO CAMINHO do `/run`.
+
+    Esta rota corria o agente dentro da API, com um caminho próprio que tinha
+    ficado para trás de tudo o que o worker passou a fazer: não gastava
+    pergunta do plano (`verificar_saldo` / `reservar_pergunta`), não
+    reverificava o acesso do dono às fontes (#745), não aplicava o recorte por
+    equipa nem o modo «contexto» de análise do negócio (#746), não escrevia a
+    corrida como mensagem no fio do agente e não actualizava
+    `execution.answer` / `last_answer`. E dava 400 «Agent has no connections
+    to analyze» a todos os agentes criados na app (`connection_ids=[]`).
+
+    Agora faz exactamente o que o `/run` faz — as mesmas verificações, a mesma
+    tarefa na fila — e devolve o resultado em SSE para a web antiga não
+    rebentar enquanto não passa para o `/run`: um `progress`, um `chunk` com a
+    frase de onde vai aparecer a resposta, e um `done` com o
+    `conversation_id`. Recusas (402 sem perguntas, 403 sem permissão, 404,
+    503 sem worker) saem como HTTP, antes do stream, como no `/run`.
+
+    A app móvel nunca usou esta rota (só `/run`).
     """
-    Execute an agent with SSE streaming — shows live progress as AI analyzes data.
-    Returns Server-Sent Events with types: progress, datasets_selected, sql_generated, chunk, meta, done.
-    """
-    # RBAC: must have agents.run. The check was previously commented out
-    # inside the docstring, so the endpoint was effectively public.
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = result.scalar_one_or_none()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    corrida = await run_agent_now(agent_id=agent_id, current_user=current_user, db=db)
+    locale = lingua_da_resposta(getattr(current_user, "preferences", None))
+    frase = get_message("agent_run_queued", locale)
 
-    await _assert_can_act_on_agent_scope(
-        db,
-        current_user,
-        scope=getattr(agent, "scope", None),
-        scope_id=getattr(agent, "scope_id", None),
-        permission="agents.run",
-    )
-
-    if not agent.connection_ids:
-        raise HTTPException(status_code=400, detail="Agent has no connections to analyze")
-
-    # Create execution record
-    execution = AgentExecution(agent_id=agent.id, status="running")
-    db.add(execution)
-    await db.flush()
-    execution_id = execution.id
-    await db.commit()
-
-    ai_client = AIServiceHTTPClient()
-
-    async def event_generator():
-        """Stream SSE events from AI service, save findings on completion."""
-        collected_answer = ""
-        collected_meta = {}
-        collected_rows: Optional[Dict[str, Any]] = None  # {columns, data, truncated?}
-        all_conn_ids = [str(cid) for cid in (agent.connection_ids or [])]
-        conn_id = all_conn_ids[0] if all_conn_ids else None
-
-        # Phase 4.2: explicit handling of every monitor_type the schema
-        # validator accepts. `scan` is the preferred name for autonomous
-        # connection monitoring; `datasource` is a legacy alias. `context`
-        # is reserved for Phase 5 full-context mode and currently behaves
-        # like `scan` with an explicit label for audit logs.
-        # Resolved up-front so the conn_id-fallback branch below can
-        # reference it without tripping UnboundLocalError when the agent
-        # has neither a pinned connection nor a context-mode flag.
-        monitor_type = (agent.monitor_type or "question").lower()
-
-        if not conn_id:
-            # Fallback: resolve a connection based on the agent's scope.
-            # Space-scoped agents must look up connections via the Space link
-            # table — _get_first_active_connection only searches personal
-            # connections owned by the user and misses shared Space connections,
-            # returning None and producing a /connections/None/ 403 on the AI
-            # service. Use _get_first_active_connection_for_space (which also
-            # applies the colleague's keyword routing) for space/crew scopes.
-            from src.services.ai_service import AIService
-
-            _ai_svc = AIService(db)
-            _scope = (agent.scope or "").lower()
-            if _scope in ("space", "crew") and agent.scope_id:
-                conn_id = await _ai_svc._get_first_active_connection_for_space(
-                    current_user.id,
-                    str(agent.scope_id),
-                )
-            else:
-                conn_id = await _ai_svc._get_first_active_connection(current_user.id)
-
-        if not conn_id and monitor_type != "context":
-            _err_locale = lingua_da_resposta(current_user.preferences)
-            yield f"data: {json.dumps({'type': 'error', 'message': get_message('no_data_source_agent', _err_locale)})}\n\n"
-            return
-
-        # `focus` is the agent's objective/instructions, not a SQL question.
-        # For autonomous scan modes, derive a concrete question the SQL pipeline
-        # can act on and forward the focus as `instructions` so the AI applies
-        # the user's specific intent when interpreting results.
-        agent_instructions: Optional[str] = None
-        sql_instructions: Optional[str] = None
-        sql_table_hints: Optional[List[str]] = None
-
-        if monitor_type == "question":
-            # Direct question — focus IS the user's question.
-            question = (
-                agent.focus or "Analyze the data and surface insights, risks, and opportunities."
+    async def eventos():
+        yield f"data: {json.dumps({'type': 'progress', 'stage': 'starting', 'message': frase})}\n\n"
+        yield f"data: {json.dumps({'type': 'chunk', 'content': frase})}\n\n"
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "type": "done",
+                    "queued": True,
+                    "agent_id": corrida.get("agent_id"),
+                    "conversation_id": corrida.get("conversation_id"),
+                }
             )
-        elif monitor_type == "sql":
-            # The orchestrator gets a neutral analytical question so it can select
-            # the right table. The specialist receives the user's exact SQL and must
-            # execute it verbatim — only adding LIMIT if missing or replacing SELECT *
-            # with explicit columns. It must NOT rewrite filters, add date ranges, or
-            # otherwise deviate from the user's intent.
-            question = "Analyze the key metrics and recent patterns in this dataset."
-            agent_instructions = agent.focus or None
-            if agent.custom_sql:
-                sql_instructions = (
-                    "⚠️ SQL MODE — USER-PROVIDED BASE QUERY:\n"
-                    "Use the query below as the base. Apply ONLY these mandatory adaptations:\n"
-                    "  1. Replace SELECT * with explicit column names from the schema shown above.\n"
-                    "  2. Qualify bare table names with the schema prefix "
-                    "(e.g., INVOICES → finance.invoices, invoices → finance.invoices).\n"
-                    "  3. Add LIMIT 100 at the end if no LIMIT clause is present.\n"
-                    "  4. Prefix with the required -- TITLE: comment.\n"
-                    "DO NOT add date filters, change WHERE clauses, add JOINs, or rewrite any other logic.\n"
-                    "NEVER return IMPOSSIBLE for SQL mode — always apply the adaptations and return SQL.\n"
-                    "USER'S BASE QUERY:\n\n"
-                    f"{agent.custom_sql}"
-                )
-                # Extract the table names from the user's SQL so the orchestrator
-                # is guided to the same tables the SQL references. Without this
-                # the generic question above causes the orchestrator to pick
-                # unrelated tables and the specialist ignores the SQL template.
-                sql_table_hints = _extract_tables_from_sql(agent.custom_sql)
-        elif monitor_type in ("scan", "datasource"):
-            # Ask a concrete analytical question so the orchestrator can pick
-            # a specific table and generate SQL — not a structural "all tables"
-            # command which the LLM table-selector can't parse into a choice.
-            question = (
-                "What are the most recent records and key aggregate metrics in this dataset? "
-                "Highlight any notable changes, outliers, or patterns compared to typical values."
-            )
-            agent_instructions = agent.focus or None
-        elif monitor_type == "context":
-            question = (
-                "What are the latest trends and key metrics in the available data? "
-                "Show record counts, recent activity, and flag any anomalies or significant changes."
-            )
-            agent_instructions = agent.focus or None
-            # Force the specialist to use a single SELECT with scalar subqueries —
-            # one COUNT(*) per table. This avoids cross-schema JOINs that have no
-            # FK path and always returns exactly 1 row regardless of data volume.
-            # Scalar subqueries are a plain SELECT so they pass all validator rules.
-            sql_instructions = (
-                "Generate a single SELECT statement that returns exactly one row "
-                "with the record count of every available table as a separate column. "
-                "Use scalar subqueries, one per table. Example pattern:\n"
-                "SELECT\n"
-                "  (SELECT COUNT(*) FROM schema.table1) AS table1_count,\n"
-                "  (SELECT COUNT(*) FROM schema.table2) AS table2_count,\n"
-                "  ...\n"
-                "Replace schema.tableN with the actual physical table names from the schema. "
-                "Do NOT use UNION, JOIN, WHERE, or HAVING clauses. "
-                "This must return exactly one row."
-            )
-        else:
-            # Schema validator rejects unknown values before we get here,
-            # but keep a graceful fallback so a stale row can still run.
-            question = (
-                f"You are an autonomous {agent.archetype or 'custom'} intelligence agent. "
-                f"Analyze the data based on these instructions:\n\n"
-                f"{agent.focus or 'Look for anomalies, trends, risks, and opportunities.'}"
-            )
-
-        if agent.last_answer:
-            question += f'\n\nPrevious result: "{agent.last_answer[:500]}"\nHighlight any changes.'
-
-        # Send initial progress. We emit two stage events back-to-back so
-        # the UI moves immediately even if the AI service takes a few
-        # seconds to start streaming (the first AI cold-start can be
-        # well over a minute on GPU instances). Without the second
-        # nudge the spotlight sits on "Connecting…" with no signal that
-        # anything is happening, which Lucas's QA flagged as a bug.
-        yield f"data: {json.dumps({'type': 'progress', 'stage': 'starting', 'message': f'Connecting to {agent.name}...'})}\n\n"
-        yield f"data: {json.dumps({'type': 'progress', 'stage': 'orchestrator', 'message': 'Reaching the AI service…'})}\n\n"
-
-        # Forward the agent's full Universe-Intelligence selection to the
-        # AI service so the RAG can filter to the pinned subset across
-        # every entity kind (Business Rules incl. glossary, Events,
-        # Relationships, Outputs). Empty dict / missing kinds = no filter.
-        selected_ctx: Optional[Dict[str, List[str]]] = (
-            getattr(agent, "selected_context", None) or None
+            + "\n\n"
         )
-        is_personal = (agent.scope or "").lower() == "personal"
-
-        # Resolve crew_ids so the RAG scopes the retrieval correctly.
-        # - Personal agent: no crew filter (agent sees only user-scoped data)
-        # - Crew agent: the agent IS the crew; pass [scope_id]
-        # - Space agent: collaborative — use the member's own crews in
-        #   that space so the agent sees space-wide + crew-scoped data
-        #   the running user is authorised for.
-        resolved_crew_ids: List[str] = []
-        agent_scope = (agent.scope or "").lower()
-        if agent_scope == "crew" and agent.scope_id:
-            resolved_crew_ids = [str(agent.scope_id)]
-        elif agent_scope == "space" and agent.scope_id:
-            from src.services.ai_service import AIService as _AIService
-
-            resolved_crew_ids = await _AIService(db)._get_user_crew_ids(
-                current_user.id, str(agent.scope_id)
-            )
-
-        # Resolve the REAL owning space for the metadata lookup. The AI filters
-        # table_metadata by space_id; sending the raw scope_id is wrong for crew
-        # (scope_id is a crew id) and personal (scope_id is a user id), which
-        # caused a false "No metadata found" 404. See resolve_metadata_space_id.
-        from src.services.agent_service import resolve_metadata_space_id
-
-        effective_space_id = await resolve_metadata_space_id(db, agent, conn_id)
-
-        # Control-plane authorization: the backend resolves which tables this run
-        # may see and forwards the list, so the AI never receives tables outside
-        # the user's grant (same model as the chat). Personal mode expands to ALL
-        # the user's crews — mirroring the personal-mode chat — while space/crew
-        # use the already-resolved crews. Fail-closed on error.
-        authorized_tables: Optional[List[str]] = None
-        if conn_id:
-            try:
-                from src.services.permission_service import PermissionService
-
-                if is_personal:
-                    from src.services.ai_service import AIService as _AIServicePerms
-
-                    _perm_crew_ids = await _AIServicePerms(db)._get_user_crew_ids(
-                        current_user.id, None, all_spaces=True
-                    )
-                else:
-                    _perm_crew_ids = resolved_crew_ids
-                authorized_tables = await PermissionService(db).get_authorized_tables(
-                    current_user.id,
-                    UUID(conn_id),
-                    space_id=UUID(effective_space_id) if effective_space_id else None,
-                    crew_ids=[UUID(c) for c in _perm_crew_ids] if _perm_crew_ids else None,
-                    is_personal=is_personal,
-                )
-            except Exception as e:  # noqa: BLE001 — fail closed
-                logger.warning(f"Could not resolve authorized tables for agent {agent.id}: {e}")
-                authorized_tables = []
-
-        # ── Normal single-query path ───────────────────────────────────────────
-        try:
-            table_ids: Optional[List[str]] = [str(t) for t in (agent.table_ids or [])] or None
-
-            # table_ids are stored as "connectionId::schema.tableName" from the frontend.
-            # The orchestrator matches by logical/physical name only (e.g. "accounts"),
-            # so strip the "connId::" prefix and the "schema." prefix.
-            def _extract_table_name(tid: str) -> str:
-                name = tid.split("::", 1)[-1] if "::" in tid else tid
-                return name.rsplit(".", 1)[-1] if "." in name else name
-
-            table_names: Optional[List[str]] = (
-                [_extract_table_name(tid) for tid in table_ids] if table_ids else None
-            ) or None
-            effective_datasets = sql_table_hints or table_names
-            _agent_locale = lingua_da_resposta(current_user.preferences)
-            async for line in ai_client.stream_query_connection(
-                connection_id=conn_id,
-                question=question,
-                user_id=str(current_user.id),
-                space_id=effective_space_id or agent.scope_id or "default",
-                instructions=agent_instructions,
-                is_personal=is_personal,
-                selected_context=selected_ctx,
-                crew_ids=resolved_crew_ids or None,
-                authorized_tables=authorized_tables,
-                agent_mode=monitor_type,
-                connection_ids=all_conn_ids if len(all_conn_ids) > 1 else None,
-                selected_datasets=effective_datasets,
-                sql_instructions=sql_instructions,
-                locale=_agent_locale,
-            ):
-                # Forward SSE lines — they come as "data: {...}" from AI service
-                if line.startswith("data: "):
-                    raw = line[6:]
-                    try:
-                        event = json.loads(raw)
-                        event_type = event.get("type", "")
-
-                        if event_type == "chunk":
-                            collected_answer += event.get("content", "")
-
-                        if event_type == "meta":
-                            collected_meta = event.get("meta") or {}
-
-                        # Tabular data emitted by the AI after the SQL
-                        # step (or the datasource scan). Capture a copy
-                        # so we can persist it on the finding row; the
-                        # event itself is still forwarded to the UI so
-                        # the Cockpit can update the live preview.
-                        if event_type == "rows":
-                            raw_cols = event.get("columns")
-                            raw_data = event.get("rows")
-                            if isinstance(raw_cols, list) and isinstance(raw_data, list):
-                                # Defensive: drop rows whose arity doesn't
-                                # match columns. Matches the frontend
-                                # unpackRows guard.
-                                clean_data = [
-                                    r
-                                    for r in raw_data
-                                    if isinstance(r, list) and len(r) == len(raw_cols)
-                                ]
-                                collected_rows = {
-                                    "columns": raw_cols,
-                                    "data": clean_data[:200],  # R6: hard cap
-                                    "truncated": bool(event.get("truncated"))
-                                    or len(clean_data) > 200,
-                                }
-
-                        # Suppress the AI service's own "done" — the backend
-                        # emits its own after the finding is persisted, which
-                        # is the only "done" the frontend should act on.
-                        if event_type == "done":
-                            continue
-
-                        # Forward to frontend
-                        yield f"data: {raw}\n\n"
-
-                    except json.JSONDecodeError:
-                        yield f"data: {raw}\n\n"
-                elif line.strip():
-                    yield f"{line}\n\n"
-
-        except (Exception, asyncio.CancelledError) as e:
-            logger.error(f"Agent stream failed for {agent_id}: {e}")
-            if not isinstance(e, asyncio.CancelledError):
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-
-        # Save finding — always create one row, even when the AI produced
-        # no content, so the user sees a concrete result in the halo /
-        # findings tab instead of a silent "Run" that looks like nothing
-        # happened. The old behaviour only saved when collected_answer
-        # was non-empty, which is exactly when run_agent feedback matters
-        # least.
-        saved_finding_id: Optional[UUID] = None
-        try:
-            # ⚠️ A BASE DO CLIENTE, não a da plataforma.
-            #
-            # O `db` do pedido já fechou — isto corre dentro do gerador do
-            # SSE, depois da resposta — por isso é preciso abrir uma
-            # sessão nova. A que aqui estava era a GLOBAL.
-            #
-            # Resultado: carregar em «Run» num agente escrevia o achado na
-            # base da plataforma. O stream aparecia todo no ecrã e o
-            # separador de descobertas ficava vazio, sem erro nenhum. Na
-            # base da plataforma há 122 achados assim, de clientes.
-            #
-            # O `get_db_session_for_context` existe exactamente para isto:
-            # lê o `current_tenant()` e, no contexto por omissão, devolve
-            # a ligação global na mesma.
-            from src.config.tenant_connection_manager import (
-                tenant_connection_manager,
-            )
-            from src.core.tenant_context import current_tenant
-
-            async with tenant_connection_manager.session_for(current_tenant()) as save_db:
-                has_answer = bool(collected_answer and collected_answer.strip())
-                # Finding type is always a member of the FindingType enum
-                # ("insight", "opportunity", "risk"). A run that produced no
-                # content is still an observation about the agent's state —
-                # persist it as a low-severity "insight" with confidence=0
-                # and a title that reads as "no output". Previously we stored
-                # "error" here, which is NOT in FindingType, and that made
-                # GET /agents/ explode during response serialization
-                # (ResponseValidationError, 500 on the whole list).
-                finding = AgentFinding(
-                    agent_id=agent.id,
-                    execution_id=execution_id,
-                    type="insight",
-                    severity="medium" if has_answer else "low",
-                    # Sem inglês cravado — ver a nota em `agent_worker`.
-                    # O caso sem resposta mantém um texto, mas vai ao
-                    # catálogo: ali há de facto uma frase a dizer, e a
-                    # língua de quem lê vem no pedido.
-                    title=(
-                        (collected_meta.get("title") or agent.name)[:500]
-                        if has_answer
-                        else f"{agent.name} — {get_message('agent_run_no_output', _agent_locale)}"[
-                            :500
-                        ]
-                    ),
-                    description=(
-                        collected_answer[:3000]
-                        if has_answer
-                        # Inglês cravado, ao lado de um título que já vinha
-                        # traduzido duas linhas acima.
-                        else get_message("agent_run_no_output_body", _agent_locale)
-                    ),
-                    confidence=0.75 if has_answer else 0.0,
-                    query=question[:500],
-                    connection_id=UUID(conn_id) if conn_id else None,
-                    data_sources=[s for s in [collected_meta.get("chosen_table"), conn_id] if s],
-                    rows=_sanitize_json(collected_rows),
-                )
-                save_db.add(finding)
-                await save_db.flush()
-                saved_finding_id = finding.id
-
-                # Update execution
-                exec_result = await save_db.execute(
-                    select(AgentExecution).where(AgentExecution.id == execution_id)
-                )
-                exec_obj = exec_result.scalar_one_or_none()
-                if exec_obj:
-                    exec_obj.status = "completed" if has_answer else "failed"
-                    exec_obj.findings_count = 1
-                    exec_obj.cycles_consumed = 3 if has_answer else 1
-                    exec_obj.finished_at = datetime.now(timezone.utc)
-
-                # Update agent stats
-                agent_result = await save_db.execute(select(Agent).where(Agent.id == agent_id))
-                agent_obj = agent_result.scalar_one_or_none()
-                if agent_obj:
-                    agent_obj.last_execution_at = datetime.now(timezone.utc)
-                    agent_obj.executions_this_month += 1
-                    agent_obj.cycles_consumed += 3 if has_answer else 1
-
-                await save_db.commit()
-
-            payload = {
-                "type": "finding_saved",
-                "finding_id": str(saved_finding_id) if saved_finding_id else None,
-                "title": collected_meta.get("title", "Analysis complete"),
-                "has_answer": bool(collected_answer),
-            }
-            try:
-                yield f"data: {json.dumps(payload)}\n\n"
-            except (GeneratorExit, asyncio.CancelledError):
-                pass
-        except (Exception, asyncio.CancelledError) as e:
-            logger.exception("Failed to save agent finding")
-            try:
-                yield f"data: {json.dumps({'type': 'error', 'message': f'Could not persist finding: {e}'})}\n\n"
-            except (GeneratorExit, asyncio.CancelledError):
-                pass
-
-        try:
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
-        except (GeneratorExit, asyncio.CancelledError):
-            pass
 
     return StreamingResponse(
-        event_generator(),
+        eventos(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "Deprecation": "true",
+            "Link": f'</api/v1/agents/{agent_id}/run>; rel="successor-version"',
         },
     )
 
@@ -1461,8 +1027,49 @@ async def dismiss_finding(
     db: AsyncSession = Depends(get_db_session),
     service: AgentService = Depends(get_agent_service),
 ):
-    """Dismiss a finding."""
-    await RBACService(db).assert_permission(current_user, "agents.findings.dismiss")
+    """Dismiss a finding — só um achado DESTE agente, e só quem pode no âmbito dele.
+
+    Antes bastava a permissão genérica do cliente (`agents.findings.dismiss`)
+    e o `agent_id` do caminho era ignorado: qualquer membro com essa
+    permissão arquivava o achado de QUALQUER agente, de qualquer equipa,
+    sabendo o id — bastava pô-lo atrás do id de um agente seu. Ler um achado
+    exige ser membro da equipa/projeto do agente (`list_findings`); arquivar
+    não pode exigir menos.
+    """
+    agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    from src.models.agent import AgentFinding
+
+    achado = (
+        await db.execute(
+            select(AgentFinding.id).where(
+                AgentFinding.id == finding_id, AgentFinding.agent_id == agent_id
+            )
+        )
+    ).scalar_one_or_none()
+    if achado is None:
+        # O mesmo 404 de «não existe»: não se confirma que o id é de outro.
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    # A mesma porta da leitura (conteúdo: membro real da equipa/projeto, sem
+    # atalho de administrador) e a permissão no âmbito do agente.
+    ambito = (agent.scope or "").lower()
+    if ambito in ("crew", "space"):
+        if not await _is_content_member(db, current_user, ambito, agent.scope_id):
+            raise HTTPException(
+                status_code=403, detail="You cannot act on this agent's findings."
+            )
+    elif ambito == "personal" and agent.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="You cannot act on this agent's findings.")
+    await _assert_can_act_on_agent_scope(
+        db,
+        current_user,
+        scope=getattr(agent, "scope", None),
+        scope_id=getattr(agent, "scope_id", None),
+        permission="agents.findings.dismiss",
+    )
     return await service.dismiss_finding(finding_id)
 
 

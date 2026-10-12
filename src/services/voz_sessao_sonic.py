@@ -211,6 +211,12 @@ async def servir(
     turnos: List[Any] = []
     sessao: Optional[falada.SessaoFalada] = None
 
+    # A fonte de cada consulta da ferramenta vai para a resposta da Sky que
+    # vem a seguir — e o ponto da conversa conta-se nestes turnos.
+    from src.services.voice_session_service import contar_turnos_por
+
+    contar_turnos_por(lambda: len(turnos))
+
     # O modelo fala a 24 kHz; o protocolo leva 16 kHz, que é o que todas
     # as apps instaladas tocam. Sem isto a fala sai 1,5x mais lenta e
     # mais grave — ver `ParaORitmoDaApp`, na ponte. Um por sessão: ele

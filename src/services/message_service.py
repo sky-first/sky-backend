@@ -419,6 +419,7 @@ class MessageService:
         duration_ms: Optional[int] = None,
         cost_tokens: Optional[int] = None,
         cost_usd: Optional[Decimal] = None,
+        mentions: Optional[List[UUID]] = None,
     ) -> dict:
         """Owner-gated bundle flow.
 
@@ -486,6 +487,11 @@ class MessageService:
         await self.db.commit()
         await self.db.refresh(question)
         await self.db.refresh(ai_response)
+
+        # Avisar quem foi mencionado — o MESMO caminho do `create` (notificação
+        # na língua de cada um + push). Esta é a via da primeira pergunta de um
+        # fio na web, e um @ aqui não avisava ninguém.
+        await self._notificar_mencionados(mentions, user, conv, question_content)
 
         # Attribute the question to its author; the AI response stays
         # authorless (rendered as the assistant).
