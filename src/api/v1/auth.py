@@ -1257,7 +1257,9 @@ async def generate_invite(
         token=token,
         email=invite_data.email,
         expires_at=expires_at.isoformat(),
-        email_sent=email_sent,
+        email_sent=bool(email_sent),
+        email_enviado=bool(email_sent),
+        access_email_sent=bool(email_sent),
         message=f"Invite token generated successfully. Expires in {invite_data.expires_days} days.",
     )
 

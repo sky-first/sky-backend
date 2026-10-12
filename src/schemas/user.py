@@ -451,6 +451,15 @@ class InviteGenerateResponse(BaseModel):
     # the operator knows the email did not go out. Defaults True for mock
     # mode and any caller that doesn't set it.
     email_sent: bool = True
+    # **O mesmo valor, com os nomes que os clientes lêem.**
+    #
+    # A app lia `access_email_sent` (o nome de `POST /users`) e esta resposta
+    # só tinha `email_sent`: o campo vinha sempre ausente e a app dizia
+    # sempre «enviámos-lhe um email», mesmo quando o SES o recusava
+    # (auditoria da app, 12/10/2026). `email_enviado` é o nome explícito do
+    # contrato; `access_email_sent` fica para a app actual acertar já.
+    email_enviado: bool = True
+    access_email_sent: bool = True
     message: str
 
 
