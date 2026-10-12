@@ -84,9 +84,12 @@ def test_t08_5_error_code():
 
 # ─── T-08.1 · every engine event maps to the right locked shape ─────────────
 def test_t08_1_engine_events_normalize():
+    # A etapa conhecida ganha a `key` estável (a app traduz por ela). Sem
+    # língua da interface, a frase do motor fica como veio.
     assert normalize_event({"type": "progress", "stage": "specialist", "message": "x"}) == {
         "type": "progress",
         "stage": "specialist",
+        "key": "running_query",
         "message": "x",
     }
     assert normalize_event({"type": "chunk", "content": "hello"}) == {
