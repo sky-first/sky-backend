@@ -21,9 +21,18 @@ MUNDO_DSN=postgresql://USER:PASS@HOST:5432/BASE .venv/Scripts/python.exe scripts
 ... carregar_mundo.py --sqlite mundo.sqlite --dias-historico 30
 ```
 
-Opções: `--dias-historico N` (histórico MITECO, omissão 7; 1 pedido de ~4,4 MB por dia, ~5 s cada), `--semanas-ue N` (Weekly Oil Bulletin, omissão 52), `--festivos-nager` (completa feriados com Nager.Date — **licença não-comercial**, só para testes), `-v`.
+Opções: `--dias-historico N` (histórico MITECO, omissão 7; 1 pedido de ~4,4 MB por dia, ~5 s cada), `--semanas-ue N` (Weekly Oil Bulletin, omissão 52), `--permitir-nao-comercial` (sem chaves, usa o Open-Meteo grátis e o OSRM demo — **licenças não-comerciais**, só experiências locais; recusado dentro do Kubernetes), `-v`.
 
-Variáveis de ambiente: `MUNDO_DSN`, `AEMET_API_KEY` (se existir, a previsão AEMET substitui o Open-Meteo nas 5 cidades espanholas).
+Variáveis de ambiente:
+
+| Variável | Fonte | Sem ela |
+|---|---|---|
+| `MUNDO_DSN` | base de destino | — |
+| `AEMET_API_KEY` | `tempo`: AEMET OpenData, previsão municipal diária nas 5 cidades ES (chave no cabeçalho `api_key`) | sem AEMET |
+| `OPEN_METEO_API_KEY` | `tempo`: Open-Meteo **de cliente** (`customer-api.open-meteo.com`), cidades que a AEMET não cobre (PT) ou todas | sem Open-Meteo |
+| `TOMTOM_API_KEY` | `rotas`: TomTom Routing, perfil camião (40 t, 5 eixos, 16,5 × 2,55 × 4 m, 90 km/h) | rotas não se actualizam |
+
+Sem nenhuma chave de uma fonte paga, essa fonte **não chama nada**: `fontes.estado = sem_chave`, as linhas anteriores ficam (cada uma com a sua `licenca`) e `fontes.uso_comercial` diz se o que lá está pode ser usado comercialmente. Não conta como erro (o Job sai com 0). As chaves nunca ficam em `fontes.erro` (são mascaradas). Em produção chegam pelo Secret `sky-dados-externos` (ExternalSecret de `sky/production/dados-externos`, sky-infra).
 
 Saída: tabela-resumo com estado, linhas, duração e hora do dado por fonte. Código de saída 1 só se **todas** as fontes falharem.
 
@@ -33,16 +42,16 @@ Saída: tabela-resumo com estado, linhas, duração e hora do dado por fonte. C�
 |---|---|---|---|
 | `fontes` | nome | — | Licença, atribuição, uso comercial, última carga, hora do dado, linhas, erro |
 | `gasolineras_precio` | id_estacion | MITECO | Espanha inteira (~11.500 postos). `actualizado_em` = campo `Fecha`, que é a **hora do pedido** (o MITECO refresca de 30 em 30 min). Postos que saem da fotografia são apagados. `carretera`/`pk` por heurística sobre a morada |
-| `gasolineras_rota` | origem, destino, id_estacion | MITECO + traçado OSRM | Postos a ≤5 km de cada rota da demo, com `dist_km` e `km_desde_origem` (substitui o PostGIS na demo) |
+| `gasolineras_rota` | origem, destino, id_estacion | MITECO + traçado de `rotas_referencia` | Postos a ≤5 km de cada rota da demo, com `dist_km` e `km_desde_origem` (substitui o PostGIS na demo). `licenca` = a do traçado |
 | `gasoleo_historico_diario` | data, provincia | MITECO histórico | Mín/média/mediana/máx do Gasóleo A por província + `ESPAÑA`. `origem` = historico (00:00 do dia) ou actual (fotografia de hoje) |
 | `gasoleo_ue_semanal` | data, pais | Weekly Oil Bulletin | ES, PT e UE, €/l com impostos. Única fonte aberta com preço de Portugal |
 | `incidencias_trafico` | id | DGT DATEX II v3.7 | `activa=false` quando sai do feed; apagadas ao fim de 30 dias |
-| `festivos` | chave (`pais|regiao|data`) | BOE-A-2025-21667, Código do Trabalho art. 234.º | ES 2026 nacionais + Extremadura, Madrid, Andalucía (com trasladações 02/11 e 07/12); ES 2027 provisório (só nacionais não substituíveis); PT 2026–2027. `regiao` NULL = nacional |
+| `festivos` | chave (`pais|regiao|data`) | BOE-A-2025-21667, Código do Trabalho art. 234.º (DRE) | ES 2026: anexo completo do BOE (nacionais + 17 CCAA + Ceuta e Melilla, `regiao` ISO 3166-2, com trasladações). ES 2027 e seguintes: **provisório**, só nacionais da lei (resolução BOE 2027 por publicar a 12/10/2026). PT: 13 obrigatórios, móveis calculados da Páscoa, ano corrente e seguinte. `regiao` NULL = nacional. Sem Nager |
 | `cambio_eur` | data, moeda | BCE via Frankfurter | 90 dias, ~30 moedas |
-| `tempo_cidades` | cidade, data | Open-Meteo (ou AEMET) | 7 dias, 10 cidades da demo |
+| `tempo_cidades` | cidade, data | AEMET (ES) + Open-Meteo de cliente | 7 dias, 10 cidades da demo. `actualizado_em` = «elaborado» da AEMET. Só com chave |
 | `portagens` | corredor, origem, destino, classe, pais | Tabela manual | 2026. **NULL quando o preço não foi verificado** (ver `nota`). Rotas 100 % espanholas da demo = 0 € (A-5, A-66) |
 | `restricoes_pesados` | data, carretera, pk_inicio, pk_fim, sentido | Resolução DGT 2026, Anexo II | Corredor A-5 (Madrid–Talavera) nas pontes de Out./Nov./Dez. `confianca` = lido_no_pdf ou inferido_do_padrao |
-| `rotas_referencia` | origem, destino | OSRM demo | 20 pares da sementeira. Camião = km a 80 km/h + 45 min por cada 4h30 (Reg. 561/2006) |
+| `rotas_referencia` | origem, destino | TomTom Routing (camião) | 20 pares da sementeira. Tempo TomTom perfil camião + 45 min por cada 4h30 (Reg. 561/2006). Só com `TOMTOM_API_KEY`; linhas antigas do OSRM ficam marcadas `demo-nao-comercial` até a TomTom as substituir |
 
 Os nomes das cidades são **exactamente** os de `ops.routes.origin/destination` (Lisboa, Porto, Coimbra, Braga, Viseu, Badajoz, Mérida, Almendralejo, Sevilla, Madrid), para os JOIN funcionarem.
 
@@ -57,11 +66,12 @@ Os nomes das cidades são **exactamente** os de `ops.routes.origin/destination` 
 | BCE / Frankfurter | ✅ | «Fuente: BCE (tipos de referencia, gratuitos en ecb.europa.eu)» | Se o dado entra num produto vendido, o comprador deve saber que é gratuito no BCE; não usar para transacções |
 | Weekly Oil Bulletin | ✅ | «Fonte: Comissão Europeia, Weekly Oil Bulletin» | Reutilização com citação |
 | AEMET OpenData | ✅ | «Fuente: AEMET» / «Información elaborada utilizando, entre otras, la obtenida de la Agencia Estatal de Meteorología» | Chave grátis; só corre com `AEMET_API_KEY` |
-| Open-Meteo grátis | ❌ | «Weather data by Open-Meteo.com (CC BY 4.0)» | `licenca = nao-comercial (Open-Meteo Standard ~29€/mês para uso comercial)` |
-| OSRM demo | ❌ | «© OpenStreetMap contributors» | `licenca = demo-nao-comercial`; produção: TomTom Routing (perfil camião, 20.000 rotas/mês grátis) |
-| Nager.Date | ❌ sem patrocínio | — | Só com `--festivos-nager`; linhas marcadas `nao-comercial` |
+| Open-Meteo com subscrição | ✅ | «Weather data by Open-Meteo.com (CC BY 4.0)» | Só com `OPEN_METEO_API_KEY` (`customer-api.open-meteo.com`). O grátis só com `--permitir-nao-comercial`, marcado `nao-comercial` |
+| TomTom Routing | ✅ | «Routing © TomTom» | Só com `TOMTOM_API_KEY`. ⚠ Termos de armazenamento (caching) dos resultados por confirmar |
+| OSRM demo | ❌ | «© OpenStreetMap contributors» | Só com `--permitir-nao-comercial`; `licenca = demo-nao-comercial` |
+| Nager.Date | ❌ | — | **Removido** do carregador; as linhas antigas são apagadas na carga de `festivos` |
 
-O mesmo texto está em `mundo.fontes` (colunas `licenca`, `atribuicao`, `uso_comercial`), para a resposta do Sky citar fonte e hora.
+O mesmo texto está em `mundo.fontes` (colunas `licenca`, `atribuicao`, `uso_comercial`, `estado`), para a resposta do Sky citar fonte e hora. Cada linha de cada tabela tem `fonte` e `licenca`; a hora do dado é `fontes.dado_de` (e `actualizado_em` onde a fonte a publica). Colunas novas chegam às tabelas já existentes por `ALTER TABLE … ADD COLUMN` no arranque (só acrescenta).
 
 ## Cadência de refresco
 
@@ -75,7 +85,7 @@ O mesmo texto está em `mundo.fontes` (colunas `licenca`, `atribuicao`, `uso_com
 | gasoleo_ue | semanal (quinta) | Boletim semanal |
 | festivos | mensal | Muda 1×/ano; verificar a resolução BOE de Outubro |
 | portagens, restricoes | anual (Janeiro) + resoluções avulsas | Tabelas manuais |
-| rotas | mensal | Rede viária muda pouco; em produção trocar por TomTom |
+| rotas | mensal | Rede viária muda pouco; TomTom (perfil camião) |
 
 ## CronJob Kubernetes (proposta — não aplicado)
 
@@ -123,4 +133,4 @@ O utilizador do DSN precisa de `CREATE` no esquema `mundo` (só na 1.ª corrida)
 .venv/Scripts/python.exe -m pytest src/tests/test_mundo_miteco.py --no-cov -p no:cacheprovider
 ```
 
-Ficheiros `src/tests/test_mundo_*.py`, sem rede, com respostas gravadas em `fixtures/` (MITECO, DATEX II, Nager, Frankfurter, Open-Meteo, OSRM). `fixtures/aemet_diaria_SINTETICO.json` foi escrito à mão segundo o formato documentado (sem chave AEMET não houve resposta real para gravar).
+Ficheiros `src/tests/test_mundo_*.py`, sem rede, com respostas gravadas em `fixtures/` (MITECO, DATEX II, Frankfurter, Open-Meteo, OSRM). `fixtures/aemet_diaria_SINTETICO.json` e `fixtures/tomtom_rota_SINTETICO.json` foram escritos à mão segundo o formato documentado (sem chave não houve resposta real para gravar) — **substituir por respostas reais quando houver chaves**. `test_mundo_fontes_pagas.py` cobre o comportamento sem chave, os endpoints chamados com chave e o mascarar das chaves.

@@ -1,0 +1,174 @@
+{
+ "_nota": "SINTÉTICO: escrito segundo o formato documentado de TomTom Routing API v1 calculateRoute (travelMode=truck). Sem TOMTOM_API_KEY não houve resposta real para gravar; os pontos são o traçado OSRM Badajoz→Mérida de osrm.json e os números são plausíveis, não medidos.",
+ "formatVersion": "0.0.12",
+ "routes": [
+  {
+   "summary": {
+    "lengthInMeters": 62180,
+    "travelTimeInSeconds": 3240,
+    "trafficDelayInSeconds": 0,
+    "trafficLengthInMeters": 0,
+    "departureTime": "2026-10-12T10:00:00+02:00",
+    "arrivalTime": "2026-10-12T10:54:00+02:00"
+   },
+   "legs": [
+    {
+     "summary": {
+      "lengthInMeters": 62180,
+      "travelTimeInSeconds": 3240
+     },
+     "points": [
+      {
+       "latitude": 38.879919,
+       "longitude": -6.970169
+      },
+      {
+       "latitude": 38.879192,
+       "longitude": -6.966802
+      },
+      {
+       "latitude": 38.877776,
+       "longitude": -6.967542
+      },
+      {
+       "latitude": 38.878413,
+       "longitude": -6.944957
+      },
+      {
+       "latitude": 38.886808,
+       "longitude": -6.9267
+      },
+      {
+       "latitude": 38.888514,
+       "longitude": -6.914637
+      },
+      {
+       "latitude": 38.885832,
+       "longitude": -6.907851
+      },
+      {
+       "latitude": 38.885087,
+       "longitude": -6.893891
+      },
+      {
+       "latitude": 38.875977,
+       "longitude": -6.880448
+      },
+      {
+       "latitude": 38.872371,
+       "longitude": -6.869611
+      },
+      {
+       "latitude": 38.866046,
+       "longitude": -6.814161
+      },
+      {
+       "latitude": 38.866356,
+       "longitude": -6.798224
+      },
+      {
+       "latitude": 38.862706,
+       "longitude": -6.78657
+      },
+      {
+       "latitude": 38.865955,
+       "longitude": -6.760051
+      },
+      {
+       "latitude": 38.854374,
+       "longitude": -6.736289
+      },
+      {
+       "latitude": 38.849618,
+       "longitude": -6.707185
+      },
+      {
+       "latitude": 38.850692,
+       "longitude": -6.690006
+      },
+      {
+       "latitude": 38.841132,
+       "longitude": -6.667774
+      },
+      {
+       "latitude": 38.837905,
+       "longitude": -6.633786
+      },
+      {
+       "latitude": 38.841037,
+       "longitude": -6.623324
+      },
+      {
+       "latitude": 38.852377,
+       "longitude": -6.613379
+      },
+      {
+       "latitude": 38.856141,
+       "longitude": -6.602745
+      },
+      {
+       "latitude": 38.861287,
+       "longitude": -6.547125
+      },
+      {
+       "latitude": 38.860179,
+       "longitude": -6.533905
+      },
+      {
+       "latitude": 38.867947,
+       "longitude": -6.497768
+      },
+      {
+       "latitude": 38.873257,
+       "longitude": -6.483126
+      },
+      {
+       "latitude": 38.877897,
+       "longitude": -6.450988
+      },
+      {
+       "latitude": 38.902253,
+       "longitude": -6.406276
+      },
+      {
+       "latitude": 38.909186,
+       "longitude": -6.380036
+      },
+      {
+       "latitude": 38.921009,
+       "longitude": -6.369928
+      },
+      {
+       "latitude": 38.915277,
+       "longitude": -6.362743
+      },
+      {
+       "latitude": 38.917581,
+       "longitude": -6.350575
+      },
+      {
+       "latitude": 38.913637,
+       "longitude": -6.344685
+      },
+      {
+       "latitude": 38.9159,
+       "longitude": -6.340719
+      },
+      {
+       "latitude": 38.916209,
+       "longitude": -6.342906
+      }
+     ]
+    }
+   ],
+   "sections": [
+    {
+     "startPointIndex": 0,
+     "endPointIndex": 34,
+     "sectionType": "TRAVEL_MODE",
+     "travelMode": "truck"
+    }
+   ]
+  }
+ ]
+}

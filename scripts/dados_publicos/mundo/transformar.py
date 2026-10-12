@@ -380,41 +380,6 @@ def t_datex(xml_bytes, fonte="DGT NAP DATEX II v3.7"):
     return out, publicacao
 
 
-# ── Nager.Date ───────────────────────────────────────────────────────────────
-
-
-def t_nager(lista, pais, fonte="Nager.Date v3 (fallback)"):
-    """Fallback opcional: a API grátis do Nager.Date é só não-comercial."""
-    out = []
-    for h in lista or []:
-        try:
-            d = dt.date.fromisoformat(h["date"])
-        except (KeyError, ValueError):
-            continue
-        regioes = h.get("counties") or [None]
-        if h.get("global"):
-            regioes = [None]
-        for reg in regioes:
-            nota = None
-            if pais == "ES" and d.weekday() == 6:
-                nota = "Cai a domingo: as CCAA podem trasladar para segunda — confirmar no BOE"
-            out.append(
-                dict(
-                    chave=f"{pais}|{reg or 'NAC'}|{d.isoformat()}",
-                    data=d,
-                    pais=pais,
-                    regiao=reg,
-                    nome=h.get("localName"),
-                    nome_en=h.get("name"),
-                    dia_semana=DIAS[d.weekday()],
-                    nota=nota,
-                    fonte=fonte,
-                    licenca="nao-comercial",
-                )
-            )
-    return out
-
-
 # ── Frankfurter (BCE) ────────────────────────────────────────────────────────
 
 
@@ -433,11 +398,28 @@ def t_frankfurter(j, fonte="BCE via Frankfurter"):
 
 # ── Open-Meteo ───────────────────────────────────────────────────────────────
 
-LICENCA_OPENMETEO = "nao-comercial (Open-Meteo Standard ~29€/mês para uso comercial)"
+LICENCA_OPENMETEO = "nao-comercial (Open-Meteo grátis; Standard ~29€/mês para uso comercial)"
+LICENCA_OPENMETEO_CLIENTE = "comercial (Open-Meteo, subscrição API customer-api.open-meteo.com); dados CC BY 4.0, atribuição obrigatória"
 LICENCA_AEMET = "comercial-ok com atribuição (Lei 37/2007): «Fuente: AEMET»"
+LICENCA_TOMTOM = (
+    "comercial (TomTom Routing API, conta SkyFirst; pay-as-you-grow). "
+    "Armazenamento de resultados sujeito aos termos TomTom (secção caching por confirmar)"
+)
+LICENCA_OSRM = "demo-nao-comercial"
 
 
-def t_openmeteo(resp, cidades, actualizado_em, fonte="Open-Meteo /v1/forecast"):
+def licenca_comercial(licenca):
+    """True se a licença de uma linha permite uso comercial.
+
+    As licenças não-comerciais gravadas nas linhas dizem sempre «nao-comercial»
+    (``nao-comercial (…)``, ``demo-nao-comercial``); as outras não o dizem.
+    """
+    return bool(licenca) and "nao-comercial" not in licenca
+
+
+def t_openmeteo(
+    resp, cidades, actualizado_em, fonte="Open-Meteo /v1/forecast", licenca=LICENCA_OPENMETEO
+):
     """Resposta multi-local (lista, mesma ordem que `cidades`) → linhas por cidade×dia."""
     if isinstance(resp, dict):
         resp = [resp]
@@ -467,7 +449,7 @@ def t_openmeteo(resp, cidades, actualizado_em, fonte="Open-Meteo /v1/forecast"):
                     codigo=int(cod) if cod is not None else None,
                     descricao=WMO_PT.get(int(cod)) if cod is not None else None,
                     actualizado_em=actualizado_em,
-                    licenca=LICENCA_OPENMETEO,
+                    licenca=licenca,
                     fonte=fonte,
                 )
             )
@@ -509,6 +491,16 @@ def t_aemet_diaria(
     """
     if isinstance(resp, list):
         resp = resp[0] if resp else {}
+    # «elaborado» é a hora (Madrid) a que a AEMET fez a previsão: é essa a
+    # hora do dado, não a do nosso pedido.
+    elaborado = resp.get("elaborado")
+    if elaborado:
+        try:
+            actualizado_em = (
+                dt.datetime.fromisoformat(elaborado[:19]).replace(tzinfo=MADRID).astimezone(UTC)
+            )
+        except ValueError:
+            pass
     lat, lon, pais = CIDADES[cidade]
     out = []
     for dia in (resp.get("prediccion") or {}).get("dia") or []:
@@ -559,7 +551,11 @@ def estimar_camiao(km):
     continuar a conduzir. Acima de 9 h de condução soma o repouso diário de
     11 h (não acontece em nenhuma rota da demo).
     """
-    cond = km / VEL_CAMIAO_KMH * 60
+    return pausas_camiao(km / VEL_CAMIAO_KMH * 60)
+
+
+def pausas_camiao(cond):
+    """(conducao_min, pausas_45min, total_min) a partir de minutos de condução."""
     pausas = max(0, math.ceil(cond / CONDUCAO_ANTES_PAUSA_MIN) - 1)
     total = cond + pausas * PAUSA_MIN
     if cond > CONDUCAO_DIARIA_MAX_MIN:
@@ -606,9 +602,72 @@ def t_osrm(
         geometria_json=json.dumps(simplificar(coords)),
         actualizado_em=actualizado_em,
         fonte=fonte,
-        licenca="demo-nao-comercial",
+        licenca=LICENCA_OSRM,
         nota="OSRM público: uso não-comercial, perfil automóvel. Produção: TomTom Routing "
         "(perfil camião, 20.000 rotas/mês grátis, uso comercial) ou OSRM/ORS alojado por nós.",
+    )
+
+
+# ── TomTom Routing (perfil camião; produção) ────────────────────────────────
+
+# Articulado de 5 eixos, carga máxima legal em ES/PT. Os parâmetros vão no
+# pedido para a rota respeitar restrições de peso, altura e comprimento.
+CAMIAO_TOMTOM = dict(
+    travelMode="truck",
+    vehicleCommercial="true",
+    vehicleWeight=40000,  # kg
+    vehicleAxleWeight=11500,  # kg por eixo (eixo motor)
+    vehicleNumberOfAxles=5,
+    vehicleLength=16.5,  # m
+    vehicleWidth=2.55,  # m
+    vehicleHeight=4.0,  # m
+    vehicleMaxSpeed=90,  # km/h (limitador UE)
+    routeType="fastest",
+    traffic="false",  # referência estável, sem o trânsito do momento
+    routeRepresentation="polyline",
+)
+
+
+def t_tomtom(
+    j,
+    origem,
+    destino,
+    actualizado_em,
+    fonte="TomTom Routing API v1 calculateRoute, perfil camião 40 t",
+):
+    """Resposta de /routing/1/calculateRoute/…/json (travelMode=truck) → linha rotas_referencia.
+
+    O tempo é o da TomTom com perfil camião (não km a 80 km/h); as pausas do
+    Reg. 561/2006 somam-se a esse tempo. duracao_carro_min fica NULL: só se
+    pede o perfil camião.
+    """
+    rt = (j.get("routes") or [None])[0]
+    if not rt:
+        raise ValueError(
+            f"TomTom sem rota {origem}→{destino}: {j.get('detailedError') or j.get('error')}"
+        )
+    sm = rt.get("summary") or {}
+    km = sm["lengthInMeters"] / 1000
+    coords = [
+        (p["latitude"], p["longitude"])
+        for leg in rt.get("legs") or []
+        for p in leg.get("points") or []
+    ]
+    cond, pausas, total = pausas_camiao(sm["travelTimeInSeconds"] / 60)
+    return dict(
+        origem=origem,
+        destino=destino,
+        km=round(km, 1),
+        duracao_carro_min=None,
+        conducao_camiao_min=cond,
+        pausas_45min=pausas,
+        duracao_camiao_estimada_min=total,
+        geometria_json=json.dumps(simplificar(coords)),
+        actualizado_em=actualizado_em,
+        fonte=fonte,
+        licenca=LICENCA_TOMTOM,
+        nota="Perfil camião TomTom (40 t, 5 eixos, 16,5 m × 2,55 m × 4 m, 90 km/h), sem trânsito; "
+        "pausas de 45 min por cada 4h30 (Reg. 561/2006) somadas ao tempo TomTom.",
     )
 
 
@@ -665,6 +724,8 @@ def postos_perto_de_rotas(estacoes, rotas, raio_km=5.0, calculado_em=None):
                         dist_km=round(melhor[0], 2),
                         km_desde_origem=round(melhor[1], 1),
                         calculado_em=calculado_em,
+                        fonte="MITECO (postos) + traçado " + (r.get("fonte") or "?"),
+                        licenca=r.get("licenca"),
                     )
                 )
     return out

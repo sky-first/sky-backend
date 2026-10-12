@@ -462,7 +462,7 @@ Data: 10/10/2026, 22:27–22:35 (hora de Madrid). Passo 1 do §C.5 construído e
 
 | Ficheiro | Papel |
 |---|---|
-| `scripts/dados_publicos/carregar_mundo.py` | Ponto de entrada (`--dsn` / `MUNDO_DSN`, `--sqlite`, `--so`, `--dias-historico`, `--semanas-ue`, `--festivos-nager`) |
+| `scripts/dados_publicos/carregar_mundo.py` | Ponto de entrada (`--dsn` / `MUNDO_DSN`, `--sqlite`, `--so`, `--dias-historico`, `--semanas-ue`, `--permitir-nao-comercial`; até 10/10 havia `--festivos-nager`, removido) |
 | `scripts/dados_publicos/mundo/esquema.py` | 12 tabelas SQLAlchemy no esquema `mundo`, com `COMMENT` por coluna (o conector Postgres lê-os como descrições) |
 | `scripts/dados_publicos/mundo/transformar.py` | Transformações puras (JSON/XML/XLSX → linhas): MITECO, DATEX II (iterparse, independente de prefixos), Nager, Frankfurter, Open-Meteo, AEMET, OSRM, WOB (XLSX só com stdlib), regra 561/2006, postos perto da rota (grelha 0,05°, sem PostGIS) |
 | `scripts/dados_publicos/mundo/referencia.py` | Tabelas manuais: portagens 2026, restrições DGT 2026 (A-5), feriados oficiais BOE/Código do Trabalho |
@@ -474,6 +474,8 @@ Data: 10/10/2026, 22:27–22:35 (hora de Madrid). Passo 1 do §C.5 construído e
 Decisões de licença aplicadas (o vídeo de vendas é uso comercial):
 - **Feriados:** tabela própria a partir do BOE-A-2025-21667 (ES 2026: nacionais + Extremadura, Madrid, Andalucía, com as trasladações de 02/11 e 07/12) e do art. 234.º do Código do Trabalho (PT 2026–2027). ES 2027 só com as nacionais não substituíveis, marcado provisório: a resolução de 2027 ainda não saiu. Nager.Date só com `--festivos-nager`, linhas `licenca = nao-comercial`.
 - **OSRM:** `rotas_referencia.licenca = demo-nao-comercial`, nota a apontar TomTom (perfil camião, 20.000 rotas/mês grátis).
+
+**Actualização 12/10/2026 (só fontes comerciais em produção):** feriados ES com o anexo completo do BOE-A-2025-21667 (17 CCAA + Ceuta e Melilla) e PT calculados da Páscoa (art. 234.º CT, DRE); **Nager.Date removido**. Tempo: AEMET (`AEMET_API_KEY`) + Open-Meteo **de cliente** (`OPEN_METEO_API_KEY`, `customer-api.open-meteo.com`). Rotas: **TomTom** perfil camião (`TOMTOM_API_KEY`). Sem chave a fonte não corre (`fontes.estado = sem_chave`, linhas anteriores ficam com a licença); Open-Meteo grátis e OSRM demo só com `--permitir-nao-comercial`, recusado no Kubernetes. `fontes.uso_comercial` reflecte o que está na tabela; todas as tabelas têm `licenca` por linha. Ver `scripts/dados_publicos/mundo/README.md`. Os parágrafos abaixo descrevem o estado de 10/10.
 - **Open-Meteo:** `tempo_cidades.licenca = nao-comercial (Open-Meteo Standard ~29€/mês para uso comercial)`. Adaptador **AEMET** pronto: corre só com `AEMET_API_KEY` e substitui as 5 cidades espanholas. Não testado contra a API real (sem chave); testado com fixture sintética.
 - **BCE/Frankfurter, MITECO, DGT, WOB, BOE:** atribuição obrigatória escrita em `mundo.fontes.atribuicao`; DGT com nota «confirmar por email ao NAP».
 
@@ -662,6 +664,6 @@ ORDER BY f.data LIMIT 4;
 | L5 | Portagens: só A1 Lisboa–Porto (25,05 €) e Marateca–Caia (15,40 €) em classe 1 verificados; classes de pesados PT e autopistas ES 2026 ficam NULL | A pergunta «quanto pago com 5 eixos em Portugal» não tem resposta | Calculador Brisa/IP à mão (1×/ano) ou HERE/TollGuru |
 | L6 | Restrições DGT: só o corredor A-5 e as pontes Out.–Dez.; 5 das 12 linhas são `inferido_do_padrao` (a extracção do PDF desalinhou a coluna da estrada) | Informativo; pode falhar uma linha | Rever as 5 linhas no PDF original; alargar a A-66/A-2/A-4 |
 | L7 | Feriados ES 2027 sem regionais; sem municipais | «É feriado em Badajoz?» só para nacionais/regionais | Carregar a resolução BOE 2027 quando sair (fim de Outubro) |
-| L8 | `rotas_referencia` e `tempo_cidades` vêm de fontes **não-comerciais** | Não podem aparecer num vídeo de vendas | Open-Meteo Standard ou `AEMET_API_KEY`; TomTom para rotas |
+| L8 | `rotas_referencia` e `tempo_cidades` vinham de fontes **não-comerciais** | Não podem aparecer num vídeo de vendas | ✅ 12/10: só correm com `AEMET_API_KEY` / `OPEN_METEO_API_KEY` / `TOMTOM_API_KEY`; sem chave, `sem_chave` e linhas antigas marcadas |
 | L9 | Adaptador AEMET não provado contra a API real; a previsão municipal diária não dá mm de chuva | `precipitacao_mm` NULL nas cidades ES com AEMET | Pedir chave e gravar fixture real |
 | L10 | Histórico MITECO: 1 pedido de 4,4 MB por dia (~5 s) | 365 dias ≈ 30 min na 1.ª carga | Carga inicial única; depois só D-1 |
