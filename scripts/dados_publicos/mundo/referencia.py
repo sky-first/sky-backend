@@ -460,26 +460,153 @@ def restricoes_pesados():
     ]
 
 
-# ── Feriados oficiais (tabela própria; o Nager.Date grátis é não-comercial) ──
+# ── Feriados oficiais (BOE e Diário da República; sem APIs de terceiros) ────
+#
+# Espanha: a Dirección General de Trabajo publica no BOE, em Outubro, a
+# relação de fiestas laborales do ano seguinte (nacionais + 17 CCAA + Ceuta
+# e Melilla). A tabela de 2026 abaixo é o anexo de BOE-A-2025-21667,
+# transcrito do HTML oficial a 12/10/2026 (verificado: 12 dias por
+# território; Canarias 11 + 1 insular, ver nota). A resolução de 2027 ainda
+# não saiu a 12/10/2026: para 2027 e seguintes só se carregam as nacionais
+# que a lei fixa (art. 37.2 ET + art. 45 RD 2001/1983), marcadas
+# provisórias e sem regionais. Quando a resolução sair, transcrever o anexo
+# para ES_<ano>_* e ligá-lo em festivos_es().
+#
+# Portugal: art. 234.º do Código do Trabalho — 13 feriados obrigatórios,
+# iguais em todo o território; os móveis (Sexta-feira Santa, Páscoa, Corpo de
+# Deus) calculam-se da Páscoa. Carnaval e feriados municipais (art. 235.º)
+# são facultativos e não entram.
 
 F_BOE_2026 = (
     "BOE-A-2025-21667 — Resolución de 17/10/2025 de la Dirección General de Trabajo, fiestas laborales 2026 "
     "(BOE núm. 259, 28/10/2025): https://www.boe.es/diario_boe/txt.php?id=BOE-A-2025-21667"
 )
-F_RD_2001_1983 = (
-    "Art. 45 RD 2001/1983 + art. 37.2 Estatuto de los Trabajadores (fiestas nacionales no sustituibles); "
-    "resolución BOE 2027 ainda não publicada a 10/10/2026"
+F_ES_PROVISORIO = (
+    "Art. 37.2 Estatuto de los Trabajadores + art. 45 RD 2001/1983 (BOE-A-1983-20906): fiestas nacionales "
+    "fijadas por ley. Resolución BOE de fiestas laborales {ano} por publicar a 12/10/2026"
 )
 F_CT_PT = (
-    "Código do Trabalho, art. 234.º (Lei 7/2009, redacção da Lei 8/2016), Diário da República: "
+    "DRE — Código do Trabalho, art. 234.º (Lei 7/2009, redacção da Lei 8/2016): "
     "https://diariodarepublica.pt/dr/legislacao-consolidada/lei/2009-34546475"
 )
-LIC_OFICIAL = "oficial-reutilizavel (BOE: licencia tipo; DRE: legislação pública)"
+LIC_BOE = "BOE — Licencia tipo BOE (reutilización, también comercial, citando la fuente)"
+LIC_DRE = "DRE — legislação pública (Diário da República), reutilização livre"
 _DIAS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 
+# ISO 3166-2:ES, pela ordem das colunas do anexo do BOE.
+CCAA = {
+    "ES-AN": "Andalucía",
+    "ES-AR": "Aragón",
+    "ES-AS": "Asturias",
+    "ES-IB": "Illes Balears",
+    "ES-CN": "Canarias",
+    "ES-CB": "Cantabria",
+    "ES-CM": "Castilla-La Mancha",
+    "ES-CL": "Castilla y León",
+    "ES-CT": "Cataluña",
+    "ES-EX": "Extremadura",
+    "ES-GA": "Galicia",
+    "ES-MD": "Comunidad de Madrid",
+    "ES-MC": "Región de Murcia",
+    "ES-NC": "C. Foral de Navarra",
+    "ES-PV": "País Vasco",
+    "ES-RI": "La Rioja",
+    "ES-VC": "Comunitat Valenciana",
+    "ES-CE": "Ciudad de Ceuta",
+    "ES-ML": "Ciudad de Melilla",
+}
+_TODAS = tuple(CCAA)
 
-def _fer(pais, regiao, dia, nome, fonte, nota=None):
-    d = dt.date.fromisoformat(dia)
+# Anexo BOE-A-2025-21667. «*» = nacional não substituível (regiao NULL);
+# «**» (nacional que a CCAA manteve) e «***» (da CCAA) = uma linha por região.
+ES_2026_NACIONAIS = [
+    ("2026-01-01", "Año Nuevo"),
+    ("2026-04-03", "Viernes Santo"),
+    ("2026-05-01", "Fiesta del Trabajo"),
+    ("2026-08-15", "Asunción de la Virgen"),
+    ("2026-10-12", "Fiesta Nacional de España"),
+    ("2026-12-08", "Inmaculada Concepción"),
+    ("2026-12-25", "Natividad del Señor"),
+]
+_NOTA_CN = (
+    "Canarias tem ainda 1 festivo insular (Decreto 61/2025, BOC 05/05/2025): El Hierro 24/09, "
+    "Fuerteventura 18/09, Gran Canaria 08/09, La Gomera 05/10, La Palma 05/08, "
+    "Lanzarote e La Graciosa 15/09, Tenerife 02/02"
+)
+ES_2026_REGIONAIS = [
+    ("2026-01-06", "Epifanía del Señor", _TODAS, None),
+    ("2026-02-28", "Día de Andalucía", ("ES-AN",), None),
+    (
+        "2026-03-02",
+        "Lunes siguiente al Día de les Illes Balears",
+        ("ES-IB",),
+        "01/03 cai a domingo; trasladado",
+    ),
+    ("2026-03-19", "San José", ("ES-GA", "ES-MC", "ES-NC", "ES-PV", "ES-VC"), None),
+    ("2026-03-20", "Fiesta del Eid Fitr", ("ES-ML",), None),
+    ("2026-04-02", "Jueves Santo", tuple(r for r in _TODAS if r not in ("ES-CT", "ES-VC")), None),
+    (
+        "2026-04-06",
+        "Lunes de Pascua",
+        ("ES-IB", "ES-CM", "ES-CT", "ES-NC", "ES-PV", "ES-RI", "ES-VC"),
+        None,
+    ),
+    ("2026-04-23", "San Jorge / Día de Aragón", ("ES-AR",), None),
+    ("2026-04-23", "Fiesta de Castilla y León", ("ES-CL",), None),
+    ("2026-05-02", "Fiesta de la Comunidad de Madrid", ("ES-MD",), None),
+    ("2026-05-27", "Fiesta del Sacrificio (Eidul Adha)", ("ES-CE",), None),
+    ("2026-05-27", "Fiesta del Sacrificio (Aid al Adha)", ("ES-ML",), None),
+    ("2026-05-30", "Día de Canarias", ("ES-CN",), _NOTA_CN),
+    ("2026-06-04", "Corpus Christi", ("ES-CM",), None),
+    ("2026-06-09", "Día de la Región de Murcia", ("ES-MC",), None),
+    ("2026-06-09", "Día de La Rioja", ("ES-RI",), None),
+    ("2026-06-24", "San Juan", ("ES-CT", "ES-GA", "ES-VC"), None),
+    ("2026-07-25", "Santiago Apóstol / Día Nacional de Galicia", ("ES-GA", "ES-PV"), None),
+    ("2026-07-28", "Día de las Instituciones de Cantabria", ("ES-CB",), None),
+    ("2026-08-05", "Nuestra Señora de África", ("ES-CE",), None),
+    ("2026-09-02", "Día de Ceuta", ("ES-CE",), None),
+    ("2026-09-08", "Día de Asturias", ("ES-AS",), None),
+    ("2026-09-08", "Día de Extremadura", ("ES-EX",), None),
+    ("2026-09-11", "Fiesta Nacional de Cataluña", ("ES-CT",), None),
+    ("2026-09-15", "La Bien Aparecida", ("ES-CB",), None),
+    ("2026-10-09", "Día de la Comunitat Valenciana", ("ES-VC",), None),
+    (
+        "2026-11-02",
+        "Día siguiente a Todos los Santos",
+        ("ES-AN", "ES-AR", "ES-AS", "ES-CN", "ES-CM", "ES-CL", "ES-EX", "ES-MD", "ES-NC"),
+        "Todos los Santos (01/11) cai a domingo; trasladado",
+    ),
+    (
+        "2026-12-07",
+        "Lunes siguiente al Día de la Constitución Española",
+        ("ES-AN", "ES-AR", "ES-AS", "ES-CB", "ES-CL", "ES-EX", "ES-MD", "ES-MC", "ES-RI", "ES-ML"),
+        "06/12 cai a domingo; trasladado",
+    ),
+    (
+        "2026-12-26",
+        "San Esteban",
+        ("ES-IB", "ES-CT"),
+        "Em Arán (Cataluña) substituído por 17/06, Fiesta de Arán (Orden EMT/66/2025)",
+    ),
+]
+
+
+def pascoa(ano):
+    """Domingo de Páscoa, calendário gregoriano (algoritmo de Meeus/Jones/Butcher)."""
+    a, b, c = ano % 19, ano // 100, ano % 100
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7  # noqa: E741
+    m = (a + 11 * h + 22 * l) // 451
+    n = h + l - 7 * m + 114
+    return dt.date(ano, n // 31, n % 31 + 1)
+
+
+def _fer(pais, regiao, dia, nome, fonte, licenca, nota=None):
+    d = dia if isinstance(dia, dt.date) else dt.date.fromisoformat(dia)
     return dict(
         chave=f"{pais}|{regiao or 'NAC'}|{d.isoformat()}",
         data=d,
@@ -490,90 +617,65 @@ def _fer(pais, regiao, dia, nome, fonte, nota=None):
         dia_semana=_DIAS[d.weekday()],
         nota=nota,
         fonte=fonte,
-        licenca=LIC_OFICIAL,
+        licenca=licenca,
     )
 
 
-def festivos_oficiais():
-    """ES 2026 (BOE-A-2025-21667: nacionais + Extremadura, Madrid, Andalucía),
-    ES 2027 (só nacionais não substituíveis, provisório), PT 2026–2027 (art. 234.º CT).
-
-    regiao=None = nacional. As fiestas «**» do BOE (nacionais que cada CCAA
-    pode substituir) vão por região, porque nem todas as CCAA as têm.
-    """
+def festivos_es(ano):
+    """Espanha: anexo do BOE quando transcrito; senão só as nacionais da lei (provisório)."""
+    if ano == 2026:  # único ano com o anexo do BOE transcrito
+        L = [_fer("ES", None, d, n, F_BOE_2026, LIC_BOE) for d, n in ES_2026_NACIONAIS]
+        for d, n, regioes, nota in ES_2026_REGIONAIS:
+            L += [_fer("ES", r, d, n, F_BOE_2026, LIC_BOE, nota) for r in regioes]
+        return L
+    fonte = F_ES_PROVISORIO.format(ano=ano)
+    prov = f"Provisório: resolución BOE de fiestas laborales {ano} por publicar; regionais em falta"
     L = []
-    # Espanha 2026 — nacionais não substituíveis («*» no anexo)
-    for dia, nome in [
-        ("2026-01-01", "Año Nuevo"),
-        ("2026-04-03", "Viernes Santo"),
-        ("2026-05-01", "Fiesta del Trabajo"),
-        ("2026-08-15", "Asunción de la Virgen"),
-        ("2026-10-12", "Fiesta Nacional de España"),
-        ("2026-12-08", "Inmaculada Concepción"),
-        ("2026-12-25", "Natividad del Señor"),
+    for d, n in [
+        (dt.date(ano, 1, 1), "Año Nuevo"),
+        (pascoa(ano) - dt.timedelta(days=2), "Viernes Santo"),
+        (dt.date(ano, 5, 1), "Fiesta del Trabajo"),
+        (dt.date(ano, 8, 15), "Asunción de la Virgen"),
+        (dt.date(ano, 10, 12), "Fiesta Nacional de España"),
+        (dt.date(ano, 11, 1), "Todos los Santos"),
+        (dt.date(ano, 12, 6), "Día de la Constitución Española"),
+        (dt.date(ano, 12, 8), "Inmaculada Concepción"),
+        (dt.date(ano, 12, 25), "Natividad del Señor"),
     ]:
-        L.append(_fer("ES", None, dia, nome, F_BOE_2026))
-    # Espanha 2026 — por comunidade («**» e «***» no anexo)
-    comuns = [
-        ("2026-01-06", "Epifanía del Señor", None),
-        ("2026-04-02", "Jueves Santo", None),
-        (
-            "2026-11-02",
-            "Lunes siguiente a Todos los Santos",
-            "Todos los Santos (01/11) cai a domingo; trasladado",
-        ),
-        (
-            "2026-12-07",
-            "Lunes siguiente al Día de la Constitución",
-            "06/12 cai a domingo; trasladado",
-        ),
+        nota = prov
+        if d.weekday() == 6:
+            nota += " · cai a domingo: as CCAA podem trasladar para segunda (ver BOE)"
+        L.append(_fer("ES", None, d, n, fonte, LIC_BOE, nota))
+    return L
+
+
+def festivos_pt(ano):
+    """Portugal: os 13 feriados obrigatórios do art. 234.º CT; móveis a partir da Páscoa."""
+    p = pascoa(ano)
+    nota = "Em PT não há trasladação para segunda-feira"
+    return [
+        _fer("PT", None, d, n, F_CT_PT, LIC_DRE, nota)
+        for d, n in [
+            (dt.date(ano, 1, 1), "Ano Novo"),
+            (p - dt.timedelta(days=2), "Sexta-feira Santa"),
+            (p, "Domingo de Páscoa"),
+            (dt.date(ano, 4, 25), "Dia da Liberdade"),
+            (dt.date(ano, 5, 1), "Dia do Trabalhador"),
+            (p + dt.timedelta(days=60), "Corpo de Deus"),
+            (dt.date(ano, 6, 10), "Dia de Portugal, de Camões e das Comunidades Portuguesas"),
+            (dt.date(ano, 8, 15), "Assunção de Nossa Senhora"),
+            (dt.date(ano, 10, 5), "Implantação da República"),
+            (dt.date(ano, 11, 1), "Dia de Todos os Santos"),
+            (dt.date(ano, 12, 1), "Restauração da Independência"),
+            (dt.date(ano, 12, 8), "Imaculada Conceição"),
+            (dt.date(ano, 12, 25), "Natal"),
+        ]
     ]
-    proprias = {
-        "ES-AN": [("2026-02-28", "Día de Andalucía")],
-        "ES-EX": [("2026-09-08", "Día de Extremadura")],
-        "ES-MD": [("2026-05-02", "Fiesta de la Comunidad de Madrid")],
-    }
-    for reg, extra in proprias.items():
-        for dia, nome, nota in comuns:
-            L.append(_fer("ES", reg, dia, nome, F_BOE_2026, nota))
-        for dia, nome in extra:
-            L.append(_fer("ES", reg, dia, nome, F_BOE_2026))
-    # Espanha 2027 — provisório
-    prov = "Provisório: resolução de fiestas laborales 2027 por publicar; regionais 2027 em falta"
-    for dia, nome in [
-        ("2027-01-01", "Año Nuevo"),
-        ("2027-03-26", "Viernes Santo"),
-        ("2027-05-01", "Fiesta del Trabajo"),
-        ("2027-08-15", "Asunción de la Virgen"),
-        ("2027-10-12", "Fiesta Nacional de España"),
-        ("2027-11-01", "Todos los Santos"),
-        ("2027-12-06", "Día de la Constitución Española"),
-        ("2027-12-08", "Inmaculada Concepción"),
-        ("2027-12-25", "Natividad del Señor"),
-    ]:
-        nota = prov + (" · cai a domingo" if dt.date.fromisoformat(dia).weekday() == 6 else "")
-        L.append(_fer("ES", None, dia, nome, F_RD_2001_1983, nota))
-    # Portugal — feriados obrigatórios (art. 234.º CT). Páscoa 2026: 05/04; 2027: 28/03.
-    for ano, sexta, pascoa, corpo in [
-        (2026, "2026-04-03", "2026-04-05", "2026-06-04"),
-        (2027, "2027-03-26", "2027-03-28", "2027-05-27"),
-    ]:
-        for dia, nome in [
-            (f"{ano}-01-01", "Ano Novo"),
-            (sexta, "Sexta-feira Santa"),
-            (pascoa, "Domingo de Páscoa"),
-            (f"{ano}-04-25", "Dia da Liberdade"),
-            (f"{ano}-05-01", "Dia do Trabalhador"),
-            (corpo, "Corpo de Deus"),
-            (f"{ano}-06-10", "Dia de Portugal, de Camões e das Comunidades Portuguesas"),
-            (f"{ano}-08-15", "Assunção de Nossa Senhora"),
-            (f"{ano}-10-05", "Implantação da República"),
-            (f"{ano}-11-01", "Dia de Todos os Santos"),
-            (f"{ano}-12-01", "Restauração da Independência"),
-            (f"{ano}-12-08", "Imaculada Conceição"),
-            (f"{ano}-12-25", "Natal"),
-        ]:
-            L.append(
-                _fer("PT", None, dia, nome, F_CT_PT, "Em PT não há trasladação para segunda-feira")
-            )
+
+
+def festivos_oficiais(anos=(2026, 2027)):
+    """ES (BOE) e PT (Código do Trabalho / DRE) para os anos pedidos. regiao NULL = nacional."""
+    L = []
+    for ano in sorted(set(anos)):
+        L += festivos_es(ano) + festivos_pt(ano)
     return L

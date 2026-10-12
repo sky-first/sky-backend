@@ -3,19 +3,28 @@
 Orquestração: descarrega cada fonte, transforma, faz upsert por chave natural
 e regista o resultado em ``mundo.fontes``. Cada fonte corre isolada: se uma
 falhar, as outras continuam e o erro fica em ``mundo.fontes.erro``.
+
+Fontes pagas (tempo, rotas) só correm com chave em variável de ambiente
+(``AEMET_API_KEY``, ``OPEN_METEO_API_KEY``, ``TOMTOM_API_KEY``). Sem chave
+não chamam nada: ``fontes.estado = sem_chave`` e as linhas anteriores ficam,
+cada uma com a sua licença. Os servidores grátis não-comerciais (Open-Meteo
+grátis, OSRM demo) só com ``--permitir-nao-comercial``, recusado dentro do
+Kubernetes.
 """
 
 import argparse
 import datetime as dt
+import json
 import logging
 import os
+import re
 import sys
 import time
 import traceback
 
 import requests
 from requests.adapters import HTTPAdapter
-from sqlalchemy import create_engine, delete, select, text, update
+from sqlalchemy import create_engine, delete, inspect, or_, select, text, update
 from sqlalchemy.dialects import postgresql as pg_dialect
 from sqlalchemy.dialects import sqlite as sqlite_dialect
 from urllib3.util.retry import Retry
@@ -29,10 +38,14 @@ UA = {"User-Agent": "SkyFirst-mundo/1.0 (+https://skyfirstlabs.com)"}
 
 MITECO = "https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes"
 DGT = "https://nap.dgt.es/datex2/v3/dgt/SituationPublication/datex2_v37.xml"
-NAGER = "https://date.nager.at/api/v3/PublicHolidays/{ano}/{pais}"
 FRANKFURTER = ["https://api.frankfurter.dev/v1", "https://api.frankfurter.app"]
-OPENMETEO = "https://api.open-meteo.com/v1/forecast"
+# Open-Meteo: só o endpoint de cliente (subscrição) em produção. O grátis é
+# «only for non-commercial purposes» e só corre com --permitir-nao-comercial.
+OPENMETEO_CLIENTE = "https://customer-api.open-meteo.com/v1/forecast"
+OPENMETEO_GRATIS = "https://api.open-meteo.com/v1/forecast"
 AEMET = "https://opendata.aemet.es/opendata/api/prediccion/especifica/municipio/diaria/{cod}"
+TOMTOM = "https://api.tomtom.com/routing/1/calculateRoute/{lat1},{lon1}:{lat2},{lon2}/json"
+# OSRM demo: «reasonable, non-commercial use». Só com --permitir-nao-comercial.
 OSRM = "https://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}"
 WOB = (
     "https://energy.ec.europa.eu/document/download/906e60ca-8b6a-44e7-8589-652854d2fd3f_en"
@@ -42,12 +55,11 @@ WOB = (
 # nome → metadados para mundo.fontes (licença e atribuição: DADOS_EXTERNOS_COMERCIAL_2026-10.md)
 CATALOGO = {
     "rotas": dict(
-        descricao="Distância e duração origem–destino (rotas da demo) + estimativa camião Reg. 561/2006",
-        url="https://router.project-osrm.org",
-        licenca="demo-nao-comercial: OSRM demo «reasonable, non-commercial use», máx. 1 pedido/s; dados OSM ODbL. "
-        "Produção: TomTom Routing (perfil camião, 20.000 rotas/mês grátis, comercial) ou OSRM alojado",
-        uso_comercial=False,
-        atribuicao="© OpenStreetMap contributors (ODbL)",
+        descricao="Distância e tempo de camião origem–destino (rotas da demo) + pausas Reg. 561/2006",
+        url="https://developer.tomtom.com/routing-api/documentation",
+        licenca=T.LICENCA_TOMTOM + ". Só corre com TOMTOM_API_KEY",
+        uso_comercial=True,
+        atribuicao="Routing © TomTom",
         frequencia="mensal (rede viária muda pouco)",
     ),
     "gasolineras": dict(
@@ -84,13 +96,12 @@ CATALOGO = {
         frequencia="5 min",
     ),
     "festivos": dict(
-        descricao="Feriados nacionais e regionais ES (BOE) e nacionais PT (Código do Trabalho)",
+        descricao="Feriados nacionais e regionais ES (resolução anual do BOE) e nacionais PT (Código do Trabalho, art. 234.º)",
         url="https://www.boe.es/diario_boe/txt.php?id=BOE-A-2025-21667",
-        licenca="BOE: licencia tipo (uso comercial gratuito); DRE: legislação pública. "
-        "Nager.Date só como fallback opcional (--festivos-nager) e marcado nao-comercial",
+        licenca=R.LIC_BOE + "; " + R.LIC_DRE,
         uso_comercial=True,
-        atribuicao="Basado en datos de la Agencia Estatal Boletín Oficial del Estado (boe.es); Diário da República",
-        frequencia="mensal (verificar resolução anual em Outubro)",
+        atribuicao="Basado en datos de la Agencia Estatal Boletín Oficial del Estado (boe.es); Fonte: Diário da República",
+        frequencia="mensal (verificar a resolução BOE de fiestas laborales, publicada em Outubro)",
     ),
     "cambio": dict(
         descricao="Câmbios de referência BCE, últimos 90 dias",
@@ -102,12 +113,14 @@ CATALOGO = {
         frequencia="diária (16:30 CET)",
     ),
     "tempo": dict(
-        descricao="Previsão diária 7 dias nas cidades das rotas",
-        url=OPENMETEO,
-        licenca="Open-Meteo grátis: nao-comercial (Standard ~29€/mês para uso comercial); dados CC BY 4.0. "
-        "AEMET OpenData (comercial OK) substitui as cidades ES quando há AEMET_API_KEY",
-        uso_comercial=False,
-        atribuicao="Weather data by Open-Meteo.com (CC BY 4.0) · Fuente: AEMET (quando aplicável)",
+        descricao="Previsão diária 7 dias nas cidades das rotas: AEMET (cidades ES) e Open-Meteo com subscrição",
+        url="https://opendata.aemet.es · " + OPENMETEO_CLIENTE,
+        licenca=T.LICENCA_AEMET
+        + " · "
+        + T.LICENCA_OPENMETEO_CLIENTE
+        + ". Só corre com AEMET_API_KEY e/ou OPEN_METEO_API_KEY",
+        uso_comercial=True,
+        atribuicao="Fuente: AEMET · Weather data by Open-Meteo.com (CC BY 4.0)",
         frequencia="6 h",
     ),
     "portagens": dict(
@@ -128,6 +141,37 @@ CATALOGO = {
     ),
 }
 ORDEM = list(CATALOGO)
+
+# Licença gravada em cada linha das tabelas que não a trazem da transformação.
+LICENCA_POR_TABELA = {
+    "gasolineras_precio": "MITECO — reutilização (Lei 37/2007, RD 1495/2011)",
+    "gasoleo_historico_diario": "MITECO — reutilização (Lei 37/2007, RD 1495/2011)",
+    "gasoleo_ue_semanal": "Comissão Europeia — reutilização com citação (Decisão 2011/833/UE)",
+    "incidencias_trafico": "DGT NAP — CC BY (Reg. UE 886/2013)",
+    "cambio_eur": "BCE — reprodução com citação; Frankfurter «free for commercial use»",
+    "portagens": "Tarifas públicas (BOE / concessionárias); compilação própria",
+    "restricoes_pesados": R.LIC_BOE,
+}
+
+
+class SemChave(Exception):
+    """Fonte paga sem chave configurada: não corre, e as linhas anteriores ficam."""
+
+    def __init__(self, msg, **meta):
+        super().__init__(msg)
+        self.meta = meta
+
+
+def _chave(nome):
+    return (os.environ.get(nome) or "").strip()
+
+
+_RE_SEGREDO = re.compile(r"((?:api_?key|key|token)=)[^&\s'\"]+", re.I)
+
+
+def sem_segredos(texto):
+    """Tira chaves de API de mensagens (os erros do requests trazem o URL)."""
+    return _RE_SEGREDO.sub(r"\1***", texto or "")
 
 
 # ── HTTP ─────────────────────────────────────────────────────────────────────
@@ -209,6 +253,34 @@ def criar_esquema(eng):
             if not existe:
                 c.execute(text(f"CREATE SCHEMA {destino}"))
         E.meta.create_all(c)
+        _colunas_novas(c)
+
+
+def _colunas_novas(c):
+    """ALTER TABLE ADD COLUMN para colunas do esquema que a tabela ainda não tem.
+
+    O create_all não altera tabelas existentes; as colunas acrescentadas
+    depois da primeira carga (licenca, fonte…) chegam por aqui. Só acrescenta,
+    nunca apaga nem muda tipos.
+    """
+    destino = (c.get_execution_options().get("schema_translate_map") or {}).get(
+        E.ESQUEMA, E.ESQUEMA
+    )
+    insp = inspect(c)
+    for t in E.meta.sorted_tables:
+        existentes = {col["name"] for col in insp.get_columns(t.name, schema=destino)}
+        prefixo = f"{destino}." if destino else ""
+        for col in t.columns:
+            if col.name in existentes:
+                continue
+            tipo = col.type.compile(dialect=c.dialect)
+            c.execute(text(f'ALTER TABLE {prefixo}{t.name} ADD COLUMN "{col.name}" {tipo}'))
+            if col.comment and c.dialect.name == "postgresql":
+                c.execute(
+                    text(f'COMMENT ON COLUMN {prefixo}{t.name}."{col.name}" IS :c'),
+                    {"c": col.comment},
+                )
+            log.info("coluna nova %s%s.%s", prefixo, t.name, col.name)
 
 
 def upsert(conn, tabela, linhas, lote=500):
@@ -217,6 +289,9 @@ def upsert(conn, tabela, linhas, lote=500):
         return 0
     ins = pg_dialect.insert if conn.dialect.name == "postgresql" else sqlite_dialect.insert
     chave = [c.name for c in tabela.primary_key.columns]
+    lic = LICENCA_POR_TABELA.get(tabela.name)
+    if lic and "licenca" in tabela.c:
+        linhas = [r if r.get("licenca") else dict(r, licenca=lic) for r in linhas]
     # remove duplicados de chave dentro do mesmo lote (o último ganha)
     unicas = {tuple(r[k] for k in chave): r for r in linhas}
     linhas = list(unicas.values())
@@ -239,18 +314,54 @@ def agora():
 # ── Fontes ───────────────────────────────────────────────────────────────────
 
 
+def _comercial_na_tabela(eng, tabela):
+    """True/False se as linhas que lá estão são todas de licença comercial; None se vazia."""
+    with eng.connect() as c:
+        lics = c.execute(select(tabela.c.licenca).distinct()).scalars().all()
+    if not lics:
+        return None
+    return all(T.licenca_comercial(x) for x in lics)
+
+
+def _osrm(s, a, b):
+    url = OSRM.format(lat1=a[0], lon1=a[1], lat2=b[0], lon2=b[1])
+    j = obter(s, url, timeout=30, params=dict(overview="full", geometries="geojson")).json()
+    time.sleep(1.0)  # política do servidor demo: ≤1 pedido/s
+    return j
+
+
 def f_rotas(s, eng, args):
+    chave = _chave("TOMTOM_API_KEY")
     t0 = agora()
     linhas = []
-    for o, d in T.ROTAS_DEMO:
-        a, b = T.CIDADES[o], T.CIDADES[d]
-        url = OSRM.format(lat1=a[0], lon1=a[1], lat2=b[0], lon2=b[1])
-        j = obter(s, url, timeout=30, params=dict(overview="full", geometries="geojson")).json()
-        linhas.append(T.t_osrm(j, o, d, agora()))
-        time.sleep(1.0)  # política do servidor demo: ≤1 pedido/s
+    if chave:
+        for o, d in T.ROTAS_DEMO:
+            a, b = T.CIDADES[o], T.CIDADES[d]
+            url = TOMTOM.format(lat1=a[0], lon1=a[1], lat2=b[0], lon2=b[1])
+            j = obter(s, url, timeout=30, params=dict(T.CAMIAO_TOMTOM, key=chave)).json()
+            linhas.append(T.t_tomtom(j, o, d, agora()))
+            time.sleep(0.25)  # TomTom: ≤5 pedidos/s
+        meta = {}
+    elif getattr(args, "permitir_nao_comercial", False):
+        log.warning("rotas: OSRM demo (NÃO-COMERCIAL) por --permitir-nao-comercial")
+        for o, d in T.ROTAS_DEMO:
+            linhas.append(T.t_osrm(_osrm(s, T.CIDADES[o], T.CIDADES[d]), o, d, agora()))
+        meta = dict(
+            url="https://router.project-osrm.org",
+            licenca="demo-nao-comercial: OSRM demo «reasonable, non-commercial use»; dados OSM ODbL. "
+            "Carregado com --permitir-nao-comercial (só testes locais)",
+            atribuicao="© OpenStreetMap contributors (ODbL)",
+            uso_comercial=False,
+        )
+    else:
+        raise SemChave(
+            "sem TOMTOM_API_KEY: rotas não actualizadas (o OSRM público é não-comercial); "
+            "ficam as linhas anteriores com a sua licença",
+            uso_comercial=_comercial_na_tabela(eng, E.rotas_referencia),
+        )
     with eng.begin() as c:
         n = upsert(c, E.rotas_referencia, linhas)
-    return n, t0
+    return n, t0, meta
 
 
 def _rotas_guardadas(eng):
@@ -290,7 +401,10 @@ def f_gasolineras(s, eng, args):
         if not tem_hist:
             upsert(c, E.gasoleo_historico_diario, agreg)
     log.info("gasolineras: %d postos, %d ligações posto-rota (%d rotas)", n, len(perto), len(rotas))
-    return n, fecha
+    # Os preços são MITECO (comercial); a ligação posto-rota herda a licença
+    # do traçado, que pode ainda ser OSRM (não-comercial).
+    tracado_ok = all(T.licenca_comercial(r.get("licenca")) for r in rotas)
+    return n, fecha, ({} if tracado_ok else dict(uso_comercial=False))
 
 
 def f_gasoleo_historico(s, eng, args):
@@ -340,17 +454,15 @@ def f_incidencias(s, eng, args):
 
 
 def f_festivos(s, eng, args):
-    linhas = R.festivos_oficiais()
-    oficiais = {l["chave"] for l in linhas}
-    if args.festivos_nager:
-        ano = agora().year
-        for a in (ano, ano + 1):
-            for p in ("ES", "PT"):
-                lst = obter(s, NAGER.format(ano=a, pais=p), timeout=30).json()
-                linhas += [x for x in T.t_nager(lst, p) if x["chave"] not in oficiais]
+    ano = agora().year
+    linhas = R.festivos_oficiais(range(min(2026, ano), ano + 2))
     with eng.begin() as c:
-        if not args.festivos_nager:  # não deixar restos de uma corrida com fallback
-            c.execute(delete(E.festivos).where(E.festivos.c.licenca == "nao-comercial"))
+        # Restos de cargas antigas com o Nager.Date (não-comercial) saem sempre.
+        c.execute(
+            delete(E.festivos).where(
+                or_(E.festivos.c.licenca.like("%nao-comercial%"), E.festivos.c.fonte.like("Nager%"))
+            )
+        )
         n = upsert(c, E.festivos, linhas)
     return n, None
 
@@ -380,15 +492,24 @@ def f_cambio(s, eng, args):
     return n, dado
 
 
+def _json_aemet(r):
+    """Os «datos» da AEMET vêm em ISO-8859-15; aceitar também UTF-8."""
+    try:
+        txt = r.content.decode("utf-8")
+    except UnicodeDecodeError:
+        txt = r.content.decode("iso-8859-15")
+    return json.loads(txt)
+
+
 def _aemet(s, chave, cidade, cod):
-    passo1 = obter(s, AEMET.format(cod=cod), timeout=30, params={"api_key": chave}).json()
+    # Chave no cabeçalho (a AEMET aceita-o), para não ir parar a URLs nos logs.
+    passo1 = obter(s, AEMET.format(cod=cod), timeout=30, headers={"api_key": chave}).json()
     if not passo1.get("datos"):
         raise RuntimeError(f"AEMET {cidade}: {passo1.get('descripcion') or passo1}")
-    return obter(s, passo1["datos"], timeout=30).json()
+    return _json_aemet(obter(s, passo1["datos"], timeout=30))
 
 
-def f_tempo(s, eng, args):
-    cidades = list(T.CIDADES)
+def _openmeteo(s, cidades, chave):
     params = dict(
         latitude=",".join(f"{T.CIDADES[c][0]:.4f}" for c in cidades),
         longitude=",".join(f"{T.CIDADES[c][1]:.4f}" for c in cidades),
@@ -397,25 +518,55 @@ def f_tempo(s, eng, args):
         forecast_days=7,
         wind_speed_unit="kmh",
     )
+    if chave:
+        params["apikey"] = chave
+        return obter(s, OPENMETEO_CLIENTE, timeout=30, params=params).json()
+    return obter(s, OPENMETEO_GRATIS, timeout=30, params=params).json()
+
+
+def f_tempo(s, eng, args):
+    aemet, om = _chave("AEMET_API_KEY"), _chave("OPEN_METEO_API_KEY")
+    gratis = getattr(args, "permitir_nao_comercial", False) and not om
+    if not (aemet or om or gratis):
+        raise SemChave(
+            "sem AEMET_API_KEY nem OPEN_METEO_API_KEY: tempo não actualizado "
+            "(o Open-Meteo grátis é só não-comercial); ficam as linhas anteriores com a sua licença",
+            uso_comercial=_comercial_na_tabela(eng, E.tempo_cidades),
+        )
     pedido = agora()
-    resp = obter(s, OPENMETEO, timeout=30, params=params).json()
-    linhas = T.t_openmeteo(resp, cidades, pedido)
-    chave = os.environ.get("AEMET_API_KEY")
-    if chave:  # produção: AEMET (comercial) substitui as cidades espanholas
-        por_cidade = {}
+    por_cidade = {}
+    if aemet:  # AEMET (oficial, comercial) nas cidades espanholas
         for cidade, cod in T.AEMET_MUNICIPIOS.items():
             try:
-                por_cidade[cidade] = T.t_aemet_diaria(
-                    _aemet(s, chave, cidade, cod), cidade, agora()
-                )
+                por_cidade[cidade] = T.t_aemet_diaria(_aemet(s, aemet, cidade, cod), cidade, pedido)
             except Exception as e:
-                log.warning("AEMET %s falhou (fica Open-Meteo): %s", cidade, e)
-        linhas = [l for l in linhas if l["cidade"] not in por_cidade] + [
-            x for v in por_cidade.values() for x in v
-        ]
+                log.warning("AEMET %s falhou: %s", cidade, sem_segredos(str(e)))
+    faltam = [c for c in T.CIDADES if c not in por_cidade]
+    if faltam and (om or gratis):
+        if gratis:
+            log.warning("tempo: Open-Meteo GRÁTIS (NÃO-COMERCIAL) por --permitir-nao-comercial")
+        lic = T.LICENCA_OPENMETEO_CLIENTE if om else T.LICENCA_OPENMETEO
+        fonte = "Open-Meteo customer-api /v1/forecast" if om else "Open-Meteo /v1/forecast (grátis)"
+        resp = _openmeteo(s, faltam, om)
+        for l in T.t_openmeteo(resp, faltam, pedido, fonte=fonte, licenca=lic):
+            por_cidade.setdefault(l["cidade"], []).append(l)
+    elif faltam:
+        log.info("tempo: sem OPEN_METEO_API_KEY, ficam por actualizar: %s", ", ".join(faltam))
+    linhas = [l for v in por_cidade.values() for l in v]
+    if not linhas:
+        raise RuntimeError("nenhuma cidade com previsão (ver avisos AEMET)")
     with eng.begin() as c:
         n = upsert(c, E.tempo_cidades, linhas)
-    return n, pedido  # o Open-Meteo não publica a hora da corrida do modelo
+    dado = max((l["actualizado_em"] for l in linhas if l["actualizado_em"]), default=pedido)
+    meta = {}
+    if gratis:
+        meta = dict(
+            url=OPENMETEO_GRATIS,
+            licenca=T.LICENCA_OPENMETEO
+            + ". Carregado com --permitir-nao-comercial (só testes locais)",
+        )
+    meta["uso_comercial"] = _comercial_na_tabela(eng, E.tempo_cidades)
+    return n, dado, meta
 
 
 def f_portagens(s, eng, args):
@@ -446,20 +597,20 @@ FUNCOES = {
 }
 
 
-def registar(eng, nome, linhas, dado_de, erro, ms):
-    meta = CATALOGO[nome]
+def registar(eng, nome, linhas, dado_de, erro, ms, estado=None, meta=None):
+    estado = estado or ("erro" if erro else "ok")
     linha = dict(
         nome=nome,
-        **meta,
+        **dict(CATALOGO[nome], **(meta or {})),
         ultima_actualizacao=agora(),
         dado_de=dado_de,
         linhas=linhas,
-        estado="erro" if erro else "ok",
+        estado=estado,
         erro=erro,
         duracao_ms=ms,
     )
     with eng.begin() as c:
-        if erro:  # numa falha, manter as linhas/dado_de da última corrida boa
+        if estado != "ok":  # falha ou sem chave: manter linhas/dado_de da última corrida boa
             ant = c.execute(select(E.fontes).where(E.fontes.c.nome == nome)).first()
             if ant:
                 linha["linhas"], linha["dado_de"] = ant.linhas, ant.dado_de
@@ -473,28 +624,35 @@ def correr(eng, so=None, args=None):
         if so and nome not in so:
             continue
         t0 = time.perf_counter()
-        erro, n, dado = None, 0, None
+        erro, n, dado, estado, meta = None, 0, None, "ok", None
         try:
-            n, dado = FUNCOES[nome](s, eng, args)
+            r = FUNCOES[nome](s, eng, args)
+            n, dado = r[0], r[1]
+            meta = r[2] if len(r) > 2 else None
+        except SemChave as e:
+            estado, erro, meta = "sem_chave", str(e), e.meta
+            log.warning("fonte %s sem chave: %s", nome, erro)
         except Exception as e:
-            erro = f"{type(e).__name__}: {e}"[:1000]
+            estado = "erro"
+            erro = sem_segredos(f"{type(e).__name__}: {e}")[:1000]
             log.error("fonte %s falhou: %s", nome, erro)
-            log.debug(traceback.format_exc())
+            log.debug(sem_segredos(traceback.format_exc()))
         ms = int((time.perf_counter() - t0) * 1000)
         try:
-            registar(eng, nome, n, dado, erro, ms)
+            registar(eng, nome, n, dado, erro, ms, estado, meta)
         except Exception as e:  # nem o registo pode parar as outras fontes
             log.error("não consegui registar %s em mundo.fontes: %s", nome, e)
-        resultados.append((nome, n, dado, erro, ms))
+        resultados.append((nome, n, dado, erro, ms, estado))
     return resultados
 
 
 def imprimir(resultados):
-    print(f"\n{'fonte':18} {'estado':6} {'linhas':>7} {'ms':>7}  dado de (UTC)        erro")
+    print(f"\n{'fonte':18} {'estado':7} {'linhas':>7} {'ms':>7}  dado de (UTC)        erro")
     print("-" * 100)
-    for nome, n, dado, erro, ms in resultados:
+    for nome, n, dado, erro, ms, estado in resultados:
         d = dado.strftime("%Y-%m-%d %H:%M") if dado else "-"
-        print(f"{nome:18} {'ERRO' if erro else 'ok':6} {n:7d} {ms:7d}  {d:20} {(erro or '')[:60]}")
+        rot = {"erro": "ERRO", "sem_chave": "S/CHAVE"}.get(estado, estado)
+        print(f"{nome:18} {rot:7} {n:7d} {ms:7d}  {d:20} {(erro or '')[:60]}")
 
 
 def main(argv=None):
@@ -515,9 +673,10 @@ def main(argv=None):
         "--semanas-ue", type=int, default=52, help="Semanas do Weekly Oil Bulletin (omissão 52)"
     )
     ap.add_argument(
-        "--festivos-nager",
+        "--permitir-nao-comercial",
         action="store_true",
-        help="Completar feriados com Nager.Date (licença NÃO-COMERCIAL; só para testes)",
+        help="Sem chaves, usar o Open-Meteo grátis e o OSRM demo (licenças NÃO-COMERCIAIS; "
+        "só experiências locais, recusado dentro do Kubernetes)",
     )
     ap.add_argument(
         "--demo", action="store_true", help="Base da demonstração (DEMO_PG_*), dentro do pod"
@@ -527,6 +686,8 @@ def main(argv=None):
     )
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
+    if args.permitir_nao_comercial and os.environ.get("KUBERNETES_SERVICE_HOST"):
+        ap.error("--permitir-nao-comercial não é permitido em produção (Kubernetes)")
     if args.demo and not args.dsn:
         args.dsn = _dsn_da_demo()
     logging.basicConfig(
@@ -537,4 +698,4 @@ def main(argv=None):
     criar_esquema(eng)
     res = correr(eng, set(args.so) if args.so else None, args)
     imprimir(res)
-    return 1 if all(r[3] for r in res) else 0
+    return 1 if res and all(r[5] == "erro" for r in res) else 0

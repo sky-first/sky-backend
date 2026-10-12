@@ -67,7 +67,7 @@ def _falso_obter(s, url, timeout=60, **kw):
 
 
 def _args(**kw):
-    base = dict(dias_historico=0, semanas_ue=52, festivos_nager=False)
+    base = dict(dias_historico=0, semanas_ue=52, permitir_nao_comercial=False)
     base.update(kw)
     return argparse.Namespace(**base)
 
