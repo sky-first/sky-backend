@@ -83,25 +83,59 @@ def _assert_local_mode() -> None:
         raise HTTPException(status_code=404, detail="Not found")
 
 
+def _recusar(status: int = 403) -> None:
+    from fastapi import HTTPException
+
+    raise HTTPException(status_code=status, detail="Forbidden" if status == 403 else "Bad request")
+
+
 @router.put("/local-upload/{blob_path:path}")
 async def local_upload(
     blob_path: str,
     request: Request,
+    exp: Optional[str] = Query(None),
+    max: Optional[str] = Query(None),
+    sig: Optional[str] = Query(None),
 ) -> Response:
-    """Dev-only: receive raw bytes and store locally (mimics Azure SAS PUT)."""
+    """Modo local: recebe os bytes como o PUT do SAS do Azure.
+
+    Sem sessão (como o SAS), mas só com a assinatura do endereço que o
+    servidor gerou (`generate_upload_sas_url`): caminho, prazo e tamanho.
+    """
     _assert_local_mode()
+    from src.azure.blob_helper import CaminhoInvalido, _local_path, verificar_local
+
+    try:
+        _local_path(blob_path)
+    except CaminhoInvalido:
+        _recusar(400)
+    if not verificar_local("upload", blob_path, exp, max, sig):
+        _recusar(403)
     data = await request.body()
+    limite = int(max or 0)
+    if limite and len(data) > limite:
+        _recusar(400)
     save_local_blob(blob_path, data)
     return Response(status_code=201)
 
 
 @router.get("/local-download/{blob_path:path}")
-async def local_download(blob_path: str) -> Response:
-    """Dev-only: serve local blob for preview."""
+async def local_download(
+    blob_path: str,
+    exp: Optional[str] = Query(None),
+    max: Optional[str] = Query(None),
+    sig: Optional[str] = Query(None),
+) -> Response:
+    """Modo local: serve um ficheiro, só com o endereço assinado pelo servidor."""
     _assert_local_mode()
-    from src.azure.blob_helper import _local_path
+    from src.azure.blob_helper import CaminhoInvalido, _local_path, verificar_local
 
-    p = _local_path(blob_path)
+    try:
+        p = _local_path(blob_path)
+    except CaminhoInvalido:
+        _recusar(400)
+    if not verificar_local("download", blob_path, exp, max or 0, sig):
+        _recusar(403)
     if not p.exists():
         from src.core.exceptions import NotFoundError
 
