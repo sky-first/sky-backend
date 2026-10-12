@@ -6,7 +6,6 @@ upload flow works without any Azure credentials.
 """
 
 import os
-import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,11 +17,75 @@ _USE_LOCAL = getattr(settings, "AZURE_STORAGE_ACCOUNT_NAME", "") == ""
 _LOCAL_BASE = Path("uploads/knowledge")
 
 
+class CaminhoInvalido(ValueError):
+    """O caminho pedido sai da pasta dos ficheiros locais."""
+
+
 def _local_path(blob_path: str) -> Path:
-    return _LOCAL_BASE / blob_path
+    """O ficheiro local de um blob — sempre DENTRO da pasta base.
+
+    Era `_LOCAL_BASE / blob_path` sem mais nada, atrás de duas rotas sem
+    sessão. Em produção (12/10/2026) `AZURE_STORAGE_ACCOUNT_NAME` está vazia,
+    por isso o modo local estava activo: `local-download/../../proc/self/environ`
+    devolvia as variáveis de ambiente do pod (palavras-passe, chave das
+    sessões) a quem quer que pedisse.
+    """
+    caminho = str(blob_path or "")
+    if (
+        not caminho
+        or "\\" in caminho
+        or "\x00" in caminho
+        or caminho.startswith("/")
+        or any(parte in ("", ".", "..") for parte in caminho.split("/"))
+    ):
+        raise CaminhoInvalido(blob_path)
+    # realpath + startswith: a forma que a CodeQL reconhece como contenção.
+    base = os.path.realpath(str(_LOCAL_BASE))
+    destino = os.path.realpath(os.path.join(base, caminho))
+    if not destino.startswith(base + os.sep):
+        raise CaminhoInvalido(blob_path)
+    return Path(destino)
+
+
+# ── Assinatura dos endereços locais (o equivalente ao SAS do Azure) ──────────
+#
+# O token do upload era gerado e nunca verificado. Agora cada endereço leva
+# `exp` e `sig`: HMAC-SHA256 de «operação|caminho|exp|tamanho máximo» com a
+# chave do servidor. Sem assinatura válida e dentro do prazo, 403.
+
+
+def _assinatura(operacao: str, blob_path: str, exp: int, max_bytes: int) -> str:
+    import hashlib
+    import hmac
+
+    chave = str(getattr(settings, "JWT_SECRET_KEY", "") or "").encode()
+    mensagem = f"{operacao}|{blob_path}|{exp}|{max_bytes}".encode()
+    return hmac.new(chave, mensagem, hashlib.sha256).hexdigest()
+
+
+def assinar_local(operacao: str, blob_path: str, ttl_seconds: int, max_bytes: int = 0) -> str:
+    """A query string assinada de um endereço local (`exp=…&max=…&sig=…`)."""
+    exp = int((datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).timestamp())
+    sig = _assinatura(operacao, blob_path, exp, max_bytes)
+    return f"exp={exp}&max={max_bytes}&sig={sig}"
+
+
+def verificar_local(operacao: str, blob_path: str, exp, max_bytes, sig) -> bool:
+    import hmac
+
+    try:
+        exp_i = int(exp)
+        max_i = int(max_bytes)
+    except (TypeError, ValueError):
+        return False
+    if not sig or exp_i < int(datetime.now(timezone.utc).timestamp()):
+        return False
+    esperada = _assinatura(operacao, blob_path, exp_i, max_i)
+    return hmac.compare_digest(esperada, str(sig))
 
 
 # ── Public interface (contract with knowledge_service.py) ─────────────────────
+
 
 def generate_upload_sas_url(
     blob_path: str,
@@ -36,18 +99,15 @@ def generate_upload_sas_url(
         # Local dev: the frontend will POST to our own /api/v1/knowledge/local-upload
         # endpoint instead of PUT-ing to Azure directly.
         base_url = getattr(settings, "BACKEND_BASE_URL", "http://localhost:8000")
-        token = secrets.token_urlsafe(32)
-        url = f"{base_url}/api/v1/knowledge/local-upload/{blob_path}?token={token}"
+        _local_path(blob_path)  # recusa já um caminho fora da pasta
+        assinatura = assinar_local("upload", blob_path, ttl_seconds, int(max_size_bytes or 0))
+        url = f"{base_url}/api/v1/knowledge/local-upload/{blob_path}?{assinatura}"
         return {"url": url, "expires_at": expires_at, "blob_path": blob_path}
 
     # ── Azure path (active when AZURE_STORAGE_ACCOUNT_NAME is set) ────────────
     try:
         from azure.identity import DefaultAzureCredential
-        from azure.storage.blob import (
-            BlobSasPermissions,
-            BlobServiceClient,
-            generate_blob_sas,
-        )
+        from azure.storage.blob import BlobSasPermissions, BlobServiceClient, generate_blob_sas
 
         account_name = settings.AZURE_STORAGE_ACCOUNT_NAME
         container = settings.AZURE_STORAGE_CONTAINER_RAW
@@ -80,7 +140,9 @@ def generate_download_sas_url(blob_path: str, ttl_seconds: int = 300) -> str:
     """Return a read-only signed URL for file preview/download."""
     if _USE_LOCAL:
         base_url = getattr(settings, "BACKEND_BASE_URL", "http://localhost:8000")
-        return f"{base_url}/api/v1/knowledge/local-download/{blob_path}"
+        _local_path(blob_path)
+        assinatura = assinar_local("download", blob_path, ttl_seconds)
+        return f"{base_url}/api/v1/knowledge/local-download/{blob_path}?{assinatura}"
 
     try:
         from azure.identity import DefaultAzureCredential
