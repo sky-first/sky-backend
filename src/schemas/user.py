@@ -331,6 +331,18 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class LogoutRequest(BaseModel):
+    """Logout: revoga o refresh token e, se vier, desregista o push do aparelho.
+
+    ``push_token`` é opcional e só remove o token **do dono do refresh
+    token** — nunca o de outra pessoa. É o que evita que o próximo
+    utilizador do mesmo telemóvel receba os pushes do anterior.
+    """
+
+    refresh_token: str
+    push_token: Optional[str] = None
+
+
 class RefreshTokenResponse(BaseModel):
     """Refresh token response schema."""
 
