@@ -203,20 +203,98 @@ def broadcast_event_nowait(page_id: str, event_type: str, payload: Any) -> None:
 
 # ─── WebSocket endpoint ───────────────────────────────────────────────────────
 
+#: Close codes. 4001 = token inválido/expirado/revogado (a app volta a pedir
+#: login). 1008 = «policy violation»: o token é bom mas esta pessoa não pode
+#: ver esta página (não é dona, nem membro da página, da equipa ou do projeto)
+#: — ou a página não existe. A app NÃO deve reconectar num 1008.
+WS_CLOSE_UNAUTHENTICATED = 4001
+WS_CLOSE_POLICY = 1008
+
+
+def _open_session(ctx):
+    """Sessão na base do cliente ``ctx``. Costura para os testes."""
+    from src.config.tenant_connection_manager import tenant_connection_manager
+
+    return tenant_connection_manager.session_for(ctx)
+
+
+async def authorize_chat_ws(token: str, page_id: str) -> tuple:
+    """Decide se ``token`` pode ouvir a sala ``page_id``.
+
+    Devolve ``(user_id, None)`` quando pode e ``(None, close_code)`` quando
+    não. A regra é a MESMA do REST (``PageService.get_page``, usada por
+    ``GET /pages/{id}/conversations``): dono, membro da página, membro da
+    equipa (página de equipa) ou membro do projeto (página de projeto). Sem
+    isto, qualquer pessoa com um token válido de qualquer cliente ouvia as
+    mensagens, achados e widgets de qualquer página cujo id conhecesse.
+
+    O WebSocket não passa pelo middleware HTTP de tenant, por isso o cliente
+    resolve-se aqui a partir do ``tid`` assinado no token (mesmo portão da
+    voz: pertença verificada ao vivo). Um token sem ``tid`` fica no contexto
+    por omissão, como no REST.
+    """
+    from uuid import UUID
+
+    from src.api.v1.voice import _resolve_voice_tenant
+    from src.core.exceptions import ForbiddenError, NotFoundError
+    from src.core.tenant_context import reset_current_tenant, set_current_tenant
+    from src.core.token_blocklist import is_token_revoked
+    from src.repositories.user import UserRepository
+    from src.services.page_service import PageService
+
+    try:
+        payload = verify_token(token, token_type="access")
+    except Exception:
+        return None, WS_CLOSE_UNAUTHENTICATED
+    user_id = payload.get("sub") if isinstance(payload, dict) else None
+    if not user_id:
+        return None, WS_CLOSE_UNAUTHENTICATED
+    iat = payload.get("iat")
+    if iat is not None and await is_token_revoked(str(user_id), int(iat)):
+        return None, WS_CLOSE_UNAUTHENTICATED
+
+    try:
+        page_uuid = UUID(str(page_id))
+    except (ValueError, TypeError):
+        return None, WS_CLOSE_POLICY
+
+    try:
+        ctx = await _resolve_voice_tenant(payload)
+    except Exception:
+        ctx = None
+    if ctx is None:
+        # Token de aparelho cujo cliente já não existe ou a pessoa já não
+        # pertence — o REST dá 403 no mesmo caso.
+        return None, WS_CLOSE_POLICY
+
+    reset = set_current_tenant(ctx)
+    try:
+        async with _open_session(ctx) as db:
+            user = await UserRepository(db).get_by_id(UUID(str(user_id)))
+            if user is None or getattr(user, "deleted_at", None) is not None:
+                return None, WS_CLOSE_UNAUTHENTICATED
+            try:
+                await PageService(db).get_page(page_uuid, user)
+            except (NotFoundError, ForbiddenError):
+                return None, WS_CLOSE_POLICY
+    except Exception as exc:  # noqa: BLE001 — falha fechada
+        logger.warning("chat ws: access check failed for page %s: %s", page_id, exc)
+        return None, WS_CLOSE_POLICY
+    finally:
+        reset_current_tenant(reset)
+
+    return str(user_id), None
+
+
 @router.websocket("/ws/chat/{page_id}")
 async def chat_ws(
     websocket: WebSocket,
     page_id: str,
     token: str = Query(..., description="JWT access token"),
 ) -> None:
-    try:
-        payload = verify_token(token, token_type="access")
-        user_id = payload.get("sub")
-        if not user_id:
-            await websocket.close(code=4001)
-            return
-    except Exception:
-        await websocket.close(code=4001)
+    user_id, close_code = await authorize_chat_ws(token, page_id)
+    if close_code is not None:
+        await websocket.close(code=close_code)
         return
 
     await chat_relay.connect(page_id, user_id, websocket)

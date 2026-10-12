@@ -28,6 +28,21 @@ from src.models.widget import Widget
 from src.repositories.user import UserRepository
 
 
+@pytest.fixture(autouse=True)
+def _ws_usa_a_base_do_teste(db_session, monkeypatch):
+    """O WS abre a sua própria sessão (não passa por Depends); nos testes tem
+    de ser a mesma base em memória que os pedidos HTTP usam."""
+    from contextlib import asynccontextmanager
+
+    from src.api.v1 import chat_ws
+
+    @asynccontextmanager
+    async def _sessao(_ctx):
+        yield db_session
+
+    monkeypatch.setattr(chat_ws, "_open_session", _sessao)
+
+
 def auth_header(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
@@ -184,3 +199,94 @@ async def test_chat_ws_broadcasts_change_request_created(
         envelope = json.loads(raw)
         assert envelope["type"] == "change_request.created"
         assert envelope["payload"]["widget_id"] == str(widget.id)
+
+
+# ─── Acesso à sala (segurança) ───────────────────────────────────────────────
+#
+# O WS aceitava qualquer token válido para QUALQUER página: um membro de outra
+# equipa (ou de outro cliente) ouvia as mensagens, os achados e os widgets de
+# uma página cujo id conhecesse. A regra agora é a do REST
+# (`PageService.get_page`): dono, membro da página, da equipa ou do projeto.
+
+
+def _fecha_com(client, url):
+    from starlette.websockets import WebSocketDisconnect
+
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect(url) as ws:
+            ws.receive_text()
+    return exc.value.code
+
+
+@pytest.mark.asyncio
+async def test_chat_ws_recusa_quem_nao_tem_acesso_a_pagina(
+    client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    dono = test_user_with_tokens["user"]
+    page = Page(name="Privada", type="personal", color="#3b82f6", owner_id=dono.id)
+    db_session.add(page)
+    await db_session.commit()
+    await db_session.refresh(page)
+
+    intruso = await create_user(db_session, "intruso@example.com")
+    token_intruso = create_access_token({"sub": str(intruso.id)})
+
+    code = _fecha_com(client, f"/api/v1/ws/chat/{page.id}?token={token_intruso}")
+    assert code == 1008
+
+
+@pytest.mark.asyncio
+async def test_chat_ws_recusa_membro_de_outra_equipa(
+    client: TestClient, test_user_with_tokens: dict, db_session: AsyncSession
+):
+    from src.models.crew import Crew, CrewMember
+
+    dono = test_user_with_tokens["user"]
+    space = Space(name="S", created_by=dono.id)
+    db_session.add(space)
+    await db_session.commit()
+    await db_session.refresh(space)
+    crew = Crew(name="Financeiro", space_id=space.id, created_by=dono.id)
+    db_session.add(crew)
+    await db_session.commit()
+    await db_session.refresh(crew)
+    db_session.add(CrewMember(crew_id=crew.id, user_id=dono.id, role="owner"))
+    page = Page(
+        name="Sala", type="team", color="#3b82f6", owner_id=dono.id,
+        space_id=space.id, crew_id=crew.id,
+    )
+    db_session.add(page)
+    await db_session.commit()
+    await db_session.refresh(page)
+
+    # Membro do projeto, mas NÃO da equipa dona da página.
+    fora = await create_user(db_session, "fora@example.com")
+    db_session.add(SpaceMember(space_id=space.id, user_id=fora.id, role="viewer"))
+    await db_session.commit()
+    token_fora = create_access_token({"sub": str(fora.id)})
+    assert _fecha_com(client, f"/api/v1/ws/chat/{page.id}?token={token_fora}") == 1008
+
+    # Quem é da equipa entra.
+    dentro = await create_user(db_session, "dentro@example.com")
+    db_session.add(CrewMember(crew_id=crew.id, user_id=dentro.id, role="member"))
+    await db_session.commit()
+    token_dentro = create_access_token({"sub": str(dentro.id)})
+    with client.websocket_connect(f"/api/v1/ws/chat/{page.id}?token={token_dentro}"):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_chat_ws_recusa_pagina_inexistente_e_id_invalido(
+    client: TestClient, test_user_with_tokens: dict
+):
+    token = test_user_with_tokens["access_token"]
+    assert (
+        _fecha_com(client, f"/api/v1/ws/chat/00000000-0000-0000-0000-000000000000?token={token}")
+        == 1008
+    )
+    assert _fecha_com(client, f"/api/v1/ws/chat/nao-e-um-uuid?token={token}") == 1008
+
+
+@pytest.mark.asyncio
+async def test_chat_ws_token_invalido_fecha_4001(client: TestClient):
+    assert _fecha_com(client, "/api/v1/ws/chat/00000000-0000-0000-0000-000000000000?token=x") == 4001
