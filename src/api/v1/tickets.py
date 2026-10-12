@@ -109,7 +109,7 @@ async def comment_on_ticket(
     "/{ticket_id}/escalate",
     status_code=status.HTTP_200_OK,
     response_model=TicketResponse,
-    summary="Escalate a ticket to Sky team review (admin / owner only)",
+    summary="Escalate a ticket to Sky team review (its reporter, or admin / owner)",
 )
 async def escalate_ticket(
     ticket_id: UUID,

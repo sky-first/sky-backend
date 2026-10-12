@@ -390,7 +390,8 @@ class TestEscalate:
         assert out.escalated_at is not None
         assert out.escalated_by_user_id == admin.id
 
-    async def test_non_admin_cannot_escalate(self, db_session):
+    async def test_reporter_can_escalate_own_ticket(self, db_session):
+        """Quem abriu o pedido escala-o (antes levava 403)."""
         alice = _user(role="user")
         db_session.add(alice)
         await db_session.flush()
@@ -398,7 +399,42 @@ class TestEscalate:
         t = await TicketService(db_session).create(
             user=alice, payload=TicketCreateRequest(subject="A"),
         )
+        out = await TicketService(db_session).escalate(
+            user=alice, ticket_id=t.id, payload=TicketEscalateRequest(note="urgente"),
+        )
+        assert out.status == TicketStatus.ESCALATED.value
+        assert out.escalated_by_user_id == alice.id
+
+    async def test_non_admin_cannot_escalate_someone_elses_ticket(self, db_session):
+        alice = _user(role="user")
+        bob = _user(role="user")
+        db_session.add_all([alice, bob])
+        await db_session.flush()
+
+        t = await TicketService(db_session).create(
+            user=alice, payload=TicketCreateRequest(subject="A"),
+        )
         with pytest.raises(ForbiddenError):
+            await TicketService(db_session).escalate(
+                user=bob, ticket_id=t.id, payload=TicketEscalateRequest(),
+            )
+
+    async def test_reporter_must_reopen_a_resolved_ticket_first(self, db_session):
+        from src.core.exceptions import ValidationError
+        from src.schemas.ticket import TicketUpdateRequest
+
+        admin = _user(role="admin")
+        alice = _user(role="user")
+        db_session.add_all([admin, alice])
+        await db_session.flush()
+
+        t = await TicketService(db_session).create(
+            user=alice, payload=TicketCreateRequest(subject="A"),
+        )
+        await TicketService(db_session).update(
+            user=admin, ticket_id=t.id, payload=TicketUpdateRequest(status="resolved"),
+        )
+        with pytest.raises(ValidationError):
             await TicketService(db_session).escalate(
                 user=alice, ticket_id=t.id, payload=TicketEscalateRequest(),
             )
