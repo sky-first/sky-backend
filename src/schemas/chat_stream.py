@@ -9,7 +9,9 @@ to engine internals — and a future engine rename can't silently break mobile.
 
 Locked client event types (each is a ``data: {...}`` SSE frame with ``type``)
 ----------------------------------------------------------------------------
-- ``progress`` ``{stage: str, message: str}``     pipeline stage (spinner/label)
+- ``progress`` ``{stage: str, key: str, message: str}`` pipeline stage (spinner/label).
+  ``key`` is the stable id the client translates (UI language); ``message``
+  is already in the asker's UI language, as a fallback.
 - ``chunk``    ``{content: str}``                  a piece of the answer, streaming
 - ``meta``     ``{meta: dict, data_sample: list}`` post-answer metadata (charts, lang…)
 - ``rows``     ``{columns: list, rows: list, truncated: bool}`` the result set (<= 200 rows)
@@ -51,8 +53,46 @@ def sse(event: Dict[str, Any]) -> str:
     return f"data: {json.dumps(event)}\n\n"
 
 
-def progress_event(stage: str, message: str = "") -> Dict[str, Any]:
-    return {"type": EVENT_PROGRESS, "stage": stage, "message": message}
+#: A etapa do motor → a chave estável que a app traduz.
+PROGRESS_KEY_BY_STAGE: Dict[str, str] = {
+    "starting": "thinking",
+    "orchestrator": "analyzing_question",
+    "specialist": "running_query",
+    "formatter": "generating_answer",
+}
+
+#: A chave → a entrada no catálogo do servidor (`src/core/locale.py`).
+_CATALOG_KEY_BY_PROGRESS_KEY: Dict[str, str] = {
+    "thinking": "thinking",
+    "analyzing_question": "progress_analyzing_question",
+    "running_query": "progress_running_query",
+    "generating_answer": "progress_generating_answer",
+}
+
+
+def progress_event(
+    stage: str,
+    message: str = "",
+    *,
+    key: Optional[str] = None,
+    ui_locale: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Um evento de progresso, com a frase na língua da INTERFACE.
+
+    Quando a etapa é conhecida e há ``ui_locale``, a frase vem do catálogo
+    nessa língua — a do motor (que já foi português do Brasil cravado) é
+    descartada. Sem ``ui_locale`` fica a frase recebida.
+    """
+    k = key or PROGRESS_KEY_BY_STAGE.get(stage)
+    ev: Dict[str, Any] = {"type": EVENT_PROGRESS, "stage": stage, "message": message}
+    if k:
+        ev["key"] = k
+        catalogo = _CATALOG_KEY_BY_PROGRESS_KEY.get(k)
+        if catalogo and ui_locale:
+            from src.core.locale import get_message
+
+            ev["message"] = get_message(catalogo, ui_locale)
+    return ev
 
 
 def chunk_event(content: str) -> Dict[str, Any]:
@@ -144,7 +184,7 @@ def parse_sse_data_line(line: str) -> Optional[Dict[str, Any]]:
     return obj if isinstance(obj, dict) else None
 
 
-def normalize_event(raw: Any) -> Optional[Dict[str, Any]]:
+def normalize_event(raw: Any, ui_locale: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Map one raw AI-engine event onto the locked client contract.
 
     Returns the client-facing event dict, or ``None`` when the event must be
@@ -156,7 +196,12 @@ def normalize_event(raw: Any) -> Optional[Dict[str, Any]]:
         return None
     etype = raw.get("type")
     if etype == EVENT_PROGRESS:
-        return progress_event(str(raw.get("stage", "")), str(raw.get("message", "")))
+        return progress_event(
+            str(raw.get("stage", "")),
+            str(raw.get("message", "")),
+            key=(str(raw["key"]) if raw.get("key") else None),
+            ui_locale=ui_locale,
+        )
     if etype == EVENT_CHUNK:
         return chunk_event(str(raw.get("content", "")))
     if etype == "answer":  # engine's full-answer variant → fold into chunk
