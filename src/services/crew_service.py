@@ -1,7 +1,7 @@
 """Crew service."""
 
 import logging
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,6 +60,70 @@ class CrewService:
         if await self.member_repo.get_by_crew_and_user(crew_id, user.id):
             return
         raise ForbiddenError("Access denied to this crew")
+
+    async def _assert_can_manage_crew(self, crew, user: User) -> None:
+        """Quem pode mexer numa equipa (nome, membros, apagar).
+
+        Equipa de um projeto: a regra de sempre (`_assert_crew_write_access`).
+
+        Equipa DO CLIENTE (sem projeto): admin, quem a criou, ou um dono
+        dela. Antes caía na regra do projeto com `space_id=None`, não
+        encontrava projeto nenhum e recusava toda a gente menos o admin —
+        quem fez a lista não lhe podia acrescentar ninguém (auditoria da
+        app, 12/10/2026). Uma equipa do cliente é só uma lista de pessoas e
+        não dá acesso a nada (ver `create_crew`); o acesso nasce no projeto.
+        """
+        if crew.space_id is not None:
+            await self._assert_crew_write_access(crew.space_id, user)
+            return
+        if user.role in TENANT_ADMIN_ROLES or crew.created_by == user.id:
+            return
+        membro = await self.member_repo.get_by_crew_and_user(crew.id, user.id)
+        if membro is not None and (membro.role or "").lower() == "owner":
+            return
+        raise ForbiddenError("Access denied to this crew")
+
+    async def pessoas_para_acrescentar(
+        self, crew_id: UUID, user: User, procura: str = "", limite: int = 20
+    ) -> List[Dict[str, Any]]:
+        """Gente da empresa que se pode acrescentar a esta equipa.
+
+        O par de ``GET /spaces/{id}/pessoas-para-convidar`` para equipas. A
+        app só sabia procurar dentro de um projeto, e numa equipa do cliente
+        (sem projeto) a procura devolvia sempre vazio. Esconde quem já está
+        na equipa. Mesmo portão de quem pode acrescentar.
+        """
+        from sqlalchemy import or_, select
+
+        from src.models.crew import CrewMember
+
+        crew = await self.crew_repo.get_by_id(crew_id)
+        if not crew:
+            raise NotFoundError("Crew not found")
+        await self._assert_can_manage_crew(crew, user)
+
+        ja_la = {
+            r[0]
+            for r in (
+                await self.db.execute(
+                    select(CrewMember.user_id).where(CrewMember.crew_id == crew_id)
+                )
+            ).all()
+        }
+        q = select(User).where(User.deleted_at.is_(None))
+        procura = (procura or "").strip()
+        if procura:
+            like = f"%{procura}%"
+            q = q.where(or_(User.name.ilike(like), User.email.ilike(like)))
+        linhas = (
+            (await self.db.execute(q.order_by(User.name).limit(limite + len(ja_la) + 10)))
+            .scalars()
+            .all()
+        )
+        fora = [u for u in linhas if u.id not in ja_la][:limite]
+        return [
+            {"id": str(u.id), "name": u.name, "email": u.email, "avatar": u.avatar} for u in fora
+        ]
 
     async def _assert_crew_write_access(self, space_id: UUID, user: User) -> None:
         """Allow only admin/owner or space creator to mutate crew data."""
@@ -457,7 +521,7 @@ class CrewService:
             raise NotFoundError("Crew not found")
 
         # Check write access via current space
-        await self._assert_crew_write_access(crew.space_id, user)
+        await self._assert_can_manage_crew(crew, user)
 
         update_data = crew_data.model_dump(exclude_unset=True)
 
@@ -570,7 +634,7 @@ class CrewService:
             )
         else:
             # Production mode: only admin/owner or space creator can delete
-            await self._assert_crew_write_access(crew.space_id, user)
+            await self._assert_can_manage_crew(crew, user)
 
         # Check for running tasks if not forcing
         if not force:
@@ -681,7 +745,7 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        await self._assert_crew_write_access(crew.space_id, user)
+        await self._assert_can_manage_crew(crew, user)
 
         # Check if member already exists
         existing = await self.member_repo.get_by_crew_and_user(crew_id, member_data.user_id)
@@ -775,7 +839,7 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        await self._assert_crew_write_access(crew.space_id, current_user)
+        await self._assert_can_manage_crew(crew, current_user)
 
         member = await self.member_repo.get_by_crew_and_user(crew_id, user_id)
         if not member:
@@ -854,7 +918,7 @@ class CrewService:
         if not crew:
             raise NotFoundError("Crew not found")
 
-        await self._assert_crew_write_access(crew.space_id, current_user)
+        await self._assert_can_manage_crew(crew, current_user)
 
         member = await self.member_repo.get_by_crew_and_user(crew_id, user_id)
         if not member:
