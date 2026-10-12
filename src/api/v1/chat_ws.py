@@ -34,13 +34,13 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
-from src.core.security import verify_token
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 # ─── In-memory relay (single-process / dev fallback) ──────────────────────────
+
 
 class ChatRelay:
     """Tracks active WebSocket connections keyed by page_id → user_id → list[WebSocket]."""
@@ -105,6 +105,7 @@ class ChatRelay:
 
 
 # ─── Redis Pub/Sub relay (multi-process / production) ─────────────────────────
+
 
 class RedisChatRelay:
     """Pub/Sub relay backed by Redis — works across OS processes."""
@@ -186,6 +187,7 @@ async def init_chat_relay() -> None:
 
 # ─── Public fire-and-forget helper ────────────────────────────────────────────
 
+
 def broadcast_event_nowait(page_id: str, event_type: str, payload: Any) -> None:
     """Fire-and-forget broadcast used by sync HTTP service code.
 
@@ -233,57 +235,23 @@ async def authorize_chat_ws(token: str, page_id: str) -> tuple:
     voz: pertença verificada ao vivo). Um token sem ``tid`` fica no contexto
     por omissão, como no REST.
     """
-    from uuid import UUID
+    # A regra vive em `ws_access` — a mesma para o chat, a presença e os
+    # cursores. A sessão passa por `_open_session` DESTE módulo, resolvida à
+    # hora da chamada, para os testes a poderem trocar.
+    from src.api.v1.ws_access import autorizar_ws, pode_ver_pagina
 
-    from src.api.v1.voice import _resolve_voice_tenant
-    from src.core.exceptions import ForbiddenError, NotFoundError
-    from src.core.tenant_context import reset_current_tenant, set_current_tenant
-    from src.core.token_blocklist import is_token_revoked
-    from src.repositories.user import UserRepository
-    from src.services.page_service import PageService
+    async def _verificar(db, user) -> bool:
+        return await pode_ver_pagina(db, user, page_id)
 
-    try:
-        payload = verify_token(token, token_type="access")
-    except Exception:
-        return None, WS_CLOSE_UNAUTHENTICATED
-    user_id = payload.get("sub") if isinstance(payload, dict) else None
-    if not user_id:
-        return None, WS_CLOSE_UNAUTHENTICATED
-    iat = payload.get("iat")
-    if iat is not None and await is_token_revoked(str(user_id), int(iat)):
-        return None, WS_CLOSE_UNAUTHENTICATED
-
-    try:
-        page_uuid = UUID(str(page_id))
-    except (ValueError, TypeError):
-        return None, WS_CLOSE_POLICY
-
-    try:
-        ctx = await _resolve_voice_tenant(payload)
-    except Exception:
-        ctx = None
-    if ctx is None:
-        # Token de aparelho cujo cliente já não existe ou a pessoa já não
-        # pertence — o REST dá 403 no mesmo caso.
-        return None, WS_CLOSE_POLICY
-
-    reset = set_current_tenant(ctx)
-    try:
-        async with _open_session(ctx) as db:
-            user = await UserRepository(db).get_by_id(UUID(str(user_id)))
-            if user is None or getattr(user, "deleted_at", None) is not None:
-                return None, WS_CLOSE_UNAUTHENTICATED
-            try:
-                await PageService(db).get_page(page_uuid, user)
-            except (NotFoundError, ForbiddenError):
-                return None, WS_CLOSE_POLICY
-    except Exception as exc:  # noqa: BLE001 — falha fechada
-        logger.warning("chat ws: access check failed for page %s: %s", page_id, exc)
-        return None, WS_CLOSE_POLICY
-    finally:
-        reset_current_tenant(reset)
-
-    return str(user_id), None
+    admitido, close_code = await autorizar_ws(
+        token,
+        _verificar,
+        abrir_sessao=lambda ctx: _open_session(ctx),
+        rotulo=f"chat ws (page {page_id})",
+    )
+    if admitido is None:
+        return None, close_code
+    return admitido.user_id, None
 
 
 @router.websocket("/ws/chat/{page_id}")

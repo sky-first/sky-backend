@@ -13,16 +13,13 @@ Client messages:
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Optional, Set
+from typing import Dict, Set
 from uuid import UUID
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import update
 
-from src.config.database import AsyncSessionLocal
-from src.core.security import verify_token
 from src.models.user import User
-from src.repositories.user import UserRepository
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -76,27 +73,49 @@ presence_manager = PresenceManager()
 # ---------------------------------------------------------------------------
 
 
-async def _verify_token_get_user(token: str) -> Optional[User]:
-    """Verify an access JWT and return the corresponding User, or None."""
-    try:
-        payload = verify_token(token, token_type="access")
-        user_id = payload.get("sub")
-        if not user_id:
-            return None
-        async with AsyncSessionLocal() as db:
-            repo = UserRepository(db)
-            return await repo.get_by_id(UUID(user_id))
-    except Exception:
-        return None
+def _open_session(ctx):
+    """Sessão na base do cliente ``ctx``. Costura para os testes.
+
+    Era a ``AsyncSessionLocal`` — a base da PLATAFORMA. Num cliente, o
+    utilizador não estava lá, o socket fechava e ninguém aparecia online; e
+    o estado era gravado numa linha que não existe.
+    """
+    from src.config.tenant_connection_manager import tenant_connection_manager
+
+    return tenant_connection_manager.session_for(ctx)
 
 
-async def _set_user_status(user_id: UUID, status: str) -> None:
-    """Persist user online/offline status to the database."""
+async def authorize_presence_ws(token: str, crew_id: str):
+    """``(Admitido, None)`` quando pode ver a presença da equipa; senão
+    ``(None, close_code)``.
+
+    Só verificava o token: qualquer pessoa de qualquer cliente via quem está
+    online numa equipa cujo id conhecesse — e aparecia online lá. A regra é
+    ser MEMBRO da equipa (a linha que dá acesso a uma página de equipa).
+    Ver ``ws_access``.
+    """
+    from src.api.v1.ws_access import autorizar_ws, e_membro_da_equipa
+
+    async def _verificar(db, user) -> bool:
+        return await e_membro_da_equipa(db, user, crew_id)
+
+    return await autorizar_ws(
+        token,
+        _verificar,
+        abrir_sessao=lambda ctx: _open_session(ctx),
+        rotulo=f"presence ws (crew {crew_id})",
+    )
+
+
+async def _set_user_status(user_id: UUID, status: str, ctx=None) -> None:
+    """Persist user online/offline status to the caller's tenant database."""
+    from src.core.tenant_context import DEFAULT_TENANT_CONTEXT
+
     try:
         vals: dict = {"status": status}
         if status == "active":
             vals["last_active_at"] = datetime.now(timezone.utc)
-        async with AsyncSessionLocal() as db:
+        async with _open_session(ctx or DEFAULT_TENANT_CONTEXT) as db:
             await db.execute(update(User).where(User.id == user_id).values(**vals))
             await db.commit()
     except Exception as exc:
@@ -115,16 +134,18 @@ async def crew_presence_ws(
     token: str = Query(..., description="JWT access token"),
 ) -> None:
     """Real-time crew presence WebSocket endpoint."""
-    user = await _verify_token_get_user(token)
-    if not user:
-        await websocket.close(code=4001)
+    admitido, close_code = await authorize_presence_ws(token, crew_id)
+    if admitido is None:
+        await websocket.close(code=close_code)
         return
 
-    user_id = str(user.id)
+    user = admitido.user
+    ctx = admitido.ctx
+    user_id = admitido.user_id
 
     # Register connection and mark user active
     await presence_manager.connect(crew_id, user_id, websocket)
-    await _set_user_status(user.id, "active")
+    await _set_user_status(user.id, "active", ctx)
 
     # Notify all crew members that this user came online
     await presence_manager.broadcast(
@@ -148,7 +169,7 @@ async def crew_presence_ws(
         while True:
             data = await websocket.receive_json()
             if data.get("type") == "ping":
-                await _set_user_status(user.id, "active")
+                await _set_user_status(user.id, "active", ctx)
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:
         pass
@@ -156,7 +177,7 @@ async def crew_presence_ws(
         logger.debug("presence ws error for user %s: %s", user_id, exc)
     finally:
         presence_manager.disconnect(crew_id, user_id)
-        await _set_user_status(user.id, "offline")
+        await _set_user_status(user.id, "offline", ctx)
         await presence_manager.broadcast(
             crew_id,
             {

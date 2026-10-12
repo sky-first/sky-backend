@@ -489,14 +489,43 @@ async def test_redis_cursor_relay_listen_breaks_on_send_error():
 async def test_cursor_ws_connect_send_and_disconnect(
     client: TestClient,
     test_user_with_tokens: dict,
+    db_session: AsyncSession,
+    monkeypatch,
 ):
     """Valid client can connect, send a cursor position, then close.
 
     With a single client there are no peers to relay to, but all the
     endpoint code paths (connect → relay → disconnect) are exercised.
+
+    A sala tem de ser DELA: o WS passou a verificar a pertença (equipa,
+    projeto ou página) — ver `test_ws_presenca_e_cursor_acesso.py`.
     """
+    from contextlib import asynccontextmanager
+
+    from src.api.v1 import cursor
+    from src.models.crew import Crew, CrewMember
+    from src.models.space import Space
+
+    @asynccontextmanager
+    async def _sessao(_ctx):
+        yield db_session
+
+    monkeypatch.setattr(cursor, "_open_session", _sessao)
+
+    user = test_user_with_tokens["user"]
+    space = Space(name="S", created_by=user.id)
+    db_session.add(space)
+    await db_session.commit()
+    await db_session.refresh(space)
+    crew = Crew(name="C", space_id=space.id, created_by=user.id)
+    db_session.add(crew)
+    await db_session.commit()
+    await db_session.refresh(crew)
+    db_session.add(CrewMember(crew_id=crew.id, user_id=user.id, role="owner"))
+    await db_session.commit()
+
     token = test_user_with_tokens["access_token"]
-    context_id = "00000000-0000-0000-0000-000000000001"
+    context_id = str(crew.id)
 
     with client.websocket_connect(
         f"/api/v1/cursor/{context_id}?token={token}"
