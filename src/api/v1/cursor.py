@@ -26,7 +26,6 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
-from src.core.security import verify_token
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -309,20 +308,61 @@ async def init_cursor_relay() -> None:
 # ─── WebSocket endpoint ───────────────────────────────────────────────────────
 
 
+def _open_session(ctx):
+    """Sessão na base do cliente ``ctx``. Costura para os testes."""
+    from src.config.tenant_connection_manager import tenant_connection_manager
+
+    return tenant_connection_manager.session_for(ctx)
+
+
+async def authorize_cursor_ws(token: str, context_id: str) -> tuple:
+    """``(user_id, None)`` quando pode entrar na sala; senão ``(None, close_code)``.
+
+    Só verificava o token: qualquer pessoa de qualquer cliente seguia os
+    cursores (e o nome e a cor de quem os move) de qualquer sala cujo id
+    conhecesse. O ``context_id`` é o da sala colaborativa — uma equipa ou
+    um projeto (``useCollaborationStore.enterContext``) — e aceita-se
+    também uma página. Entra quem for membro da equipa, membro do projeto,
+    ou puder ver a página — as mesmas linhas que o REST usa. Ver ``ws_access``.
+    """
+    from src.api.v1.ws_access import (
+        autorizar_ws,
+        e_membro_da_equipa,
+        e_membro_do_projeto,
+        pode_ver_pagina,
+    )
+    from src.core.exceptions import ForbiddenError, NotFoundError
+
+    async def _verificar(db, user) -> bool:
+        if await e_membro_da_equipa(db, user, context_id):
+            return True
+        if await e_membro_do_projeto(db, user, context_id):
+            return True
+        try:
+            return await pode_ver_pagina(db, user, context_id)
+        except (NotFoundError, ForbiddenError):
+            return False
+
+    admitido, close_code = await autorizar_ws(
+        token,
+        _verificar,
+        abrir_sessao=lambda ctx: _open_session(ctx),
+        rotulo=f"cursor ws ({context_id})",
+    )
+    if admitido is None:
+        return None, close_code
+    return admitido.user_id, None
+
+
 @router.websocket("/cursor/{context_id}")
 async def cursor_ws(
     websocket: WebSocket,
     context_id: str,
     token: str = Query(..., description="JWT access token"),
 ) -> None:
-    try:
-        payload = verify_token(token, token_type="access")
-        user_id = payload.get("sub")
-        if not user_id:
-            await websocket.close(code=4001)
-            return
-    except Exception:
-        await websocket.close(code=4001)
+    user_id, close_code = await authorize_cursor_ws(token, context_id)
+    if close_code is not None:
+        await websocket.close(code=close_code)
         return
 
     await cursor_relay.connect(context_id, user_id, websocket)

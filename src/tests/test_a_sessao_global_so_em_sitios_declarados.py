@@ -80,11 +80,6 @@ DA_PLATAFORMA: dict[str, str] = {
     #
     # Entraram aqui para o teste poder passar hoje sem fingir que estão
     # bem. Cada linha é dívida escrita, não absolvição.
-    "api/v1/presence.py": (
-        "POR REVER — procura o utilizador e grava o estado de presença "
-        "na plataforma. Se o utilizador vive na base do cliente, o "
-        "socket fecha e ninguém aparece online."
-    ),
     "api/deps.py": (
         "POR REVER — `_track_activity` escreve `last_active_at`. Baixa " "gravidade, mesma raiz."
     ),

@@ -180,7 +180,6 @@ _ALLOWED_REFS = {
     # Legacy direct callers — slated for migration in later Projeto A PRs.
     str((_SRC_ROOT / "api" / "deps.py").resolve()),
     str((_SRC_ROOT / "api" / "v1" / "agents.py").resolve()),
-    str((_SRC_ROOT / "api" / "v1" / "presence.py").resolve()),
     str((_SRC_ROOT / "services" / "auth_service.py").resolve()),
     str((_SRC_ROOT / "workers" / "agent_revocation_worker.py").resolve()),
     str((_SRC_ROOT / "workers" / "agent_worker.py").resolve()),
