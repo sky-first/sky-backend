@@ -27,6 +27,7 @@ from src.schemas.agent import (
     AgentResponse,
     AgentUpdate,
 )
+from src.schemas.chat_stream import SSE_HEADERS
 from src.services import pricing_service
 from src.services.agent_service import AgentService
 from src.services.rbac_service import RBACService
@@ -593,9 +594,7 @@ async def run_agent_stream(
         eventos(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
+            **SSE_HEADERS,
             "Deprecation": "true",
             "Link": f'</api/v1/agents/{agent_id}/run>; rel="successor-version"',
         },

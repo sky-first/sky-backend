@@ -211,6 +211,8 @@ async def test_events_stream_replays_history(authed_client, existing_job, db_ses
     ) as resp:
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("text/event-stream")
+        assert "no-transform" in resp.headers["cache-control"]
+        assert resp.headers["x-accel-buffering"] == "no"
         collected = b""
         for chunk in resp.iter_bytes():
             collected += chunk
