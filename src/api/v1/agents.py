@@ -287,6 +287,11 @@ async def create_agent(
         from src.workers.agent_worker import execute_agent
 
         execute_agent.delay(str(agent.id))
+        # O `/run` que a app chama logo a seguir não a repete — ver
+        # `services/estreia_do_agente.py`.
+        from src.services import estreia_do_agente
+
+        await estreia_do_agente.marcar(agent.id)
     except Exception as e:
         logging.getLogger(__name__).error(
             f"Agent {agent.id} created but the first run could not be queued: {e}",
@@ -470,6 +475,14 @@ async def run_agent_now(
 
     await limites_do_plano.verificar_saldo()
 
+    # A estreia de um agente acabado de criar já está na fila (o `POST
+    # /agents/` pô-la lá). A app chamava `/run` a seguir e o agente corria
+    # DUAS vezes — duas perguntas do plano. O primeiro `/run` depois da
+    # criação consome a marca e não repete; os seguintes correm.
+    from src.services import estreia_do_agente
+
+    already_queued = await estreia_do_agente.ja_esta_na_fila(agent_id)
+
     # Uma falha a pôr na fila é uma FALHA, e diz-se.
     #
     # Isto engolia a excepção e respondia 200 na mesma. Com o worker em baixo,
@@ -484,7 +497,8 @@ async def run_agent_now(
         # `a_pedido`: alguem carregou no botao. Um agente em pausa obedece a
         # um pedido directo — «em pausa» quer dizer «nao vas ver por tua
         # conta», nao «recusa-te quando eu te pergunto».
-        execute_agent.delay(str(agent_id), a_pedido=True)
+        if not already_queued:
+            execute_agent.delay(str(agent_id), a_pedido=True)
     except Exception as e:
         logging.getLogger(__name__).error(f"Could not enqueue agent task: {e}", exc_info=True)
         from fastapi import HTTPException
@@ -523,6 +537,9 @@ async def run_agent_now(
         # Para onde a app deve levar quem carregou. `None` quando nao ha
         # pagina onde por a conversa — nesse caso a app fica onde esta.
         "conversation_id": str(conversa) if conversa else None,
+        # True quando esta chamada NÃO pôs nada na fila porque a estreia (da
+        # criação) já lá estava. Para a app é igual: o agente está a correr.
+        "already_queued": already_queued,
     }
 
 
