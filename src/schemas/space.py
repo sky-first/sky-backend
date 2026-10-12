@@ -75,6 +75,9 @@ class SpaceResponse(SpaceBase):
     updated_at: datetime
     member_count: int = 0
     connection_count: int = 0
+    # Quando foi arquivado; ``None`` = activo. A app usa-o para mostrar
+    # «Reabrir» em vez de «Arquivar».
+    archived_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

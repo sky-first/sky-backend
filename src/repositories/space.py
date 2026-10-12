@@ -55,7 +55,7 @@ class SpaceRepository(BaseRepository[Space]):
         return list(result.scalars().all())
 
     async def get_by_user_with_stats(
-        self, user_id: UUID, skip: int = 0, limit: int = 100
+        self, user_id: UUID, skip: int = 0, limit: int = 100, arquivados: bool = False
     ) -> List[dict]:
         """Get spaces (created or member, including via Crew) with stats."""
         member_space_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
@@ -89,6 +89,9 @@ class SpaceRepository(BaseRepository[Space]):
             .outerjoin(SpaceConnection, Space.id == SpaceConnection.space_id)
             .where(
                 Space.deleted_at.is_(None),
+                # Por omissão só os activos; `arquivados=True` lista SÓ os
+                # arquivados (o ecrã «Arquivados», onde se reabre).
+                Space.archived_at.is_not(None) if arquivados else Space.archived_at.is_(None),
                 or_(
                     Space.created_by == user_id,
                     Space.id.in_(member_space_ids),

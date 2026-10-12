@@ -42,6 +42,11 @@ class Space(Base):
         onupdate=datetime.utcnow,
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+    # Arquivado: sai das listas, os dados ficam. A coluna existe desde a
+    # migração `equipa_no_projeto_20260826`, mas o modelo nunca a mapeou —
+    # `SpaceService.arquivar` escrevia num atributo Python que não ia para a
+    # base, e arquivar não fazia nada (auditoria da app, 12/10/2026).
+    archived_at = Column(DateTime(timezone=True), nullable=True)
 
     # Public demo (Cenário B). When is_demo=true the cron at
     # cleanup_expired_demo_spaces uses demo_expires_at to decide whether
