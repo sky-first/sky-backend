@@ -85,6 +85,20 @@ async def update_preferences(
     return await service.update_preferences(current_user.id, body.preferences)
 
 
+@router.get("/preferences/pause", response_model=dict)
+async def get_pause(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Estado do modo concentração: ``{"paused": bool, "enabled": bool}``.
+
+    A mesma verdade que ``GET /settings`` devolve em ``notifications``.
+    """
+    service = NotificationPreferenceService(db)
+    paused = await service.is_paused(current_user.id)
+    return {"paused": paused, "enabled": not paused}
+
+
 @router.post("/preferences/pause", response_model=dict)
 async def toggle_pause(
     body: PauseRequest,

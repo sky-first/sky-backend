@@ -82,9 +82,12 @@ class ExpoPushProvider:
     CHUNK = 100
 
     def __init__(self, access_token: str | None = None):
-        self.access_token = access_token if access_token is not None else (
+        token = access_token if access_token is not None else (
             os.getenv("EXPO_ACCESS_TOKEN") or ""
         ).strip()
+        # Um template do ExternalSecret com a propriedade em falta escreve
+        # «<no value>»; mandar isso como Bearer fazia a Expo recusar tudo.
+        self.access_token = "" if token.startswith("<") else token
 
     def _headers(self) -> Dict[str, str]:
         h = {"Accept": "application/json", "Content-Type": "application/json"}
