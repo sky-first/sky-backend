@@ -147,8 +147,13 @@ async def export_widget(
     response_model=WidgetDataResponse,
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Get widget data",
-    description="Get widget data",
+    summary="Dados do widget (lidos agora)",
+    description=(
+        "Volta a correr o SQL guardado do widget com as tabelas de quem abre, no "
+        "contexto da página (cache curta por pessoa, até 5 min). As linhas nunca "
+        "se guardam (13/10/2026). 404 sem acesso à página; 403 sem acesso às "
+        "tabelas. Ver `docs/contrato-dados-ao-vivo-2026-10.md`."
+    ),
 )
 async def get_widget_data(
     widget_id: UUID,
@@ -177,8 +182,8 @@ async def get_widget_data(
     response_model=WidgetDataResponse,
     status_code=status.HTTP_200_OK,
     responses={404: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
-    summary="Refresh widget data",
-    description="Force refresh widget data",
+    summary="Dados do widget, sem cache",
+    description="Como o GET /data, mas salta a cache curta. Não grava nada.",
 )
 async def refresh_widget_data(
     widget_id: UUID,

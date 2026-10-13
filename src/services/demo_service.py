@@ -1270,7 +1270,9 @@ class DemoService:
                 # Sprint 1.17 round 3 — chart rows attached so the FE
                 # sparkline renders on the agent insight card. Without
                 # this the card falls back to a text layout.
-                rows=payload.get("rows"),
+                # Linhas inventadas para a demonstração: marcadas `demo`, ficam
+                # (o modelo tira as linhas de tudo o resto — 13/10/2026).
+                rows=({**payload["rows"], "demo": True} if payload.get("rows") else None),
                 # Sprint 1.17 round 5 — viz hint tells the Pulse FE
                 # which card variant + widget kind to render so the
                 # masonry has the variety Lucas asked for AND the

@@ -17,7 +17,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from sqlalchemy.types import JSON
 
 from src.config.database import Base
@@ -370,6 +370,23 @@ class AgentFinding(Base):
     agent = relationship("Agent", back_populates="findings")
     execution = relationship("AgentExecution", back_populates="findings")
 
+    @validates("rows")
+    def _rows_sem_linhas(self, _chave, valor):
+        """Só a definição: SQL, ligação, colunas e quantas linhas (13/10/2026).
+
+        As linhas e a série vêm do `GET /insights/{id}/dados`, que volta a
+        correr o SQL com as tabelas de quem abre. Ver `services/dados_ao_vivo`.
+        """
+        from src.services.dados_ao_vivo import achado_rows_sem_dados
+
+        return achado_rows_sem_dados(valor)
+
+    @validates("series")
+    def _series_sem_valores(self, _chave, valor):
+        from src.services.dados_ao_vivo import achado_series_sem_dados
+
+        return achado_series_sem_dados(valor)
+
     def __repr__(self):
         return f"<AgentFinding(id={self.id}, type={self.type}, title={self.title[:50]})>"
 
@@ -467,6 +484,17 @@ class AgentExecution(Base):
             postgresql_where=text("delta_kind = 'material'"),
         ),
     )
+
+    @validates("result_payload")
+    def _payload_sem_linhas(self, _chave, valor):
+        """Uma corrida guarda números sobre o resultado, nunca linhas (13/10/2026).
+
+        Eram 100 linhas por corrida, e o agendador corre de minuto a minuto.
+        O delta só precisa do `result_hash`; as métricas, do tamanho.
+        """
+        from src.services.dados_ao_vivo import execucao_sem_linhas
+
+        return execucao_sem_linhas(valor)
 
     def __repr__(self):
         return f"<AgentExecution(id={self.id}, agent_id={self.agent_id}, status={self.status})>"

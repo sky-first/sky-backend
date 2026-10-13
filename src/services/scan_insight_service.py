@@ -38,7 +38,6 @@ async def record_scan_finding(db: AsyncSession, payload: ScanInsightNotifyReques
     read time from the scan being active + recently executed (BE-02), so it
     never goes stale on the row.
     """
-    series = [point.model_dump() for point in payload.series]
     stat_tiles = [tile.model_dump() for tile in payload.stat_tiles]
 
     finding = AgentFinding(
@@ -50,9 +49,12 @@ async def record_scan_finding(db: AsyncSession, payload: ScanInsightNotifyReques
         severity=payload.severity_level,  # high | med | low
         title=payload.title[:500],
         description=payload.summary or payload.title,
-        series=series,
+        # A série são valores do cliente e não se guarda (13/10/2026). O scan
+        # não deixa SQL para a voltar a ler, por isso o cartão é o número
+        # grande com os `stat_tiles` (o resumo que o próprio motor escreveu).
+        series=[],
         stat_tiles=stat_tiles,
-        viz_kind=_viz_kind_for(len(series)),
+        viz_kind=_viz_kind_for(0),
     )
     db.add(finding)
     await db.flush()  # populate the PK without forcing the caller's commit

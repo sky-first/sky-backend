@@ -206,26 +206,102 @@ class WidgetService:
             "exported_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    async def get_widget_data(self, widget_id: UUID, user: User) -> dict:
+    async def get_widget_data(
+        self, widget_id: UUID, user: User, *, sem_cache: bool = False
+    ) -> dict:
+        """Os dados do widget — DE AGORA, a voltar a correr o SQL guardado.
+
+        Decisão de 13/10/2026: o widget guarda a definição (SQL, ligação,
+        visualização), nunca as linhas. Aqui o SQL volta a correr com as
+        tabelas de QUEM ABRE, no contexto da página (projeto, equipa, modo
+        pessoal), com a cache curta por pessoa. Sem acesso à página → 404;
+        sem acesso às tabelas → 403.
+
+        Widgets sem dados (texto, forma) e os de demonstração (dados
+        sintéticos nossos) devolvem o que têm, tal como está.
+        """
+        from src.services.dados_ao_vivo import (
+            TIPOS_COM_DADOS,
+            e_demo,
+            hidratar_widget,
+            reexecutar,
+        )
+        from src.services.page_service import PageService
+
         widget = await self.widget_repo.get_by_id(widget_id)
         if not widget:
             raise NotFoundError("Widget not found")
-        return {
-            "data": widget.data or {},
+        # A mesma porta da página: quem não vê a página não vê o widget.
+        page = await PageService(self.db).get_page(widget.page_id, user)
+
+        data = widget.data or {}
+        guardado = {
+            "data": data,
             "last_updated": widget.updated_at.isoformat() if widget.updated_at else None,
+            "ao_vivo": False,
+        }
+        if e_demo(data) or (widget.type or "").lower() not in TIPOS_COM_DADOS:
+            return guardado
+
+        consulta = await self._consulta_do_widget(widget, page)
+        if consulta is None:
+            return {**guardado, "reexecutavel": False, "motivo": "sem_sql"}
+
+        vivo = await reexecutar(self.db, user, consulta, sem_cache=sem_cache)
+        return {
+            "data": hidratar_widget(widget.type, data, vivo) if vivo.get("ao_vivo") else data,
+            "last_updated": vivo.get("consultado_em") or guardado["last_updated"],
+            "ao_vivo": bool(vivo.get("ao_vivo")),
+            "reexecutavel": bool(vivo.get("reexecutavel")),
+            "motivo": vivo.get("motivo"),
+            "consultado_em": vivo.get("consultado_em"),
+            "nota": vivo.get("nota"),
+            "truncado": bool(vivo.get("truncado")),
+            "em_cache": bool(vivo.get("em_cache")),
         }
 
+    async def _consulta_do_widget(self, widget, page):
+        """A consulta a voltar a correr: o SQL do widget, ou o da resposta de onde nasceu."""
+        from src.models.ai import AIQuery
+        from src.models.conversation import Message
+        from src.services.a_fonte_da_resposta import consulta_guardada
+        from src.services.dados_ao_vivo import ConsultaGuardada
+
+        data = widget.data or {}
+        rows = data.get("rows") if isinstance(data.get("rows"), dict) else {}
+        sql = data.get("sql") or rows.get("sql")
+        ligacao = widget.connection_id or rows.get("connection_id")
+        extras = list(rows.get("connection_ids") or [])
+
+        # O widget nasceu de uma resposta (Adicionar à página / fixar)?
+        query_id = widget.query_id
+        if query_id is None and getattr(widget, "pinned_message_id", None) is not None:
+            msg = await self.db.get(Message, widget.pinned_message_id)
+            query_id = getattr(msg, "query_id", None)
+        if query_id is not None:
+            q = await self.db.get(AIQuery, query_id)
+            da_resposta = consulta_guardada(q) if q is not None else None
+            if da_resposta is not None:
+                sql = sql or da_resposta.sql
+                ligacao = ligacao or da_resposta.connection_id
+                extras = extras or da_resposta.connection_ids
+
+        if not sql or not ligacao:
+            return None
+        # O contexto é o da PÁGINA: é ali que o widget vive, e é a página
+        # que decide quem o vê.
+        return ConsultaGuardada(
+            sql=sql,
+            connection_id=str(ligacao),
+            connection_ids=[str(x) for x in extras],
+            space_id=str(page.space_id) if getattr(page, "space_id", None) else None,
+            crew_id=str(page.crew_id) if getattr(page, "crew_id", None) else None,
+            is_personal=getattr(page, "type", None) == "personal",
+        )
+
     async def refresh_widget_data(self, widget_id: UUID, user: User) -> dict:
-        widget = await self.widget_repo.get_by_id(widget_id)
-        if not widget:
-            raise NotFoundError("Widget not found")
-        widget.updated_at = datetime.now(timezone.utc)
-        await self.db.commit()
-        await self.db.refresh(widget)
-        return {
-            "data": widget.data or {},
-            "last_updated": widget.updated_at.isoformat() if widget.updated_at else None,
-        }
+        """Força uma leitura nova (salta a cache curta). Não grava as linhas."""
+        return await self.get_widget_data(widget_id, user, sem_cache=True)
 
     # ─── Page-level operations that produce widget collections ─────────────
 

@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.schemas.page import PageResponse
 
@@ -41,6 +41,15 @@ class WidgetCreate(WidgetBase):
         default=None, pattern=_WIDGET_SOURCE_PATTERN
     )
 
+    @field_validator("data")
+    @classmethod
+    def _sem_marca_de_demo(cls, v):
+        """A marca «demo» é dos semeadores; vinda da API seria uma porta para
+        gravar linhas do cliente (ver `services/dados_ao_vivo`)."""
+        from src.services.dados_ao_vivo import sem_marca_de_demo
+
+        return sem_marca_de_demo(v)
+
 
 class WidgetUpdate(BaseModel):
     """Widget update schema."""
@@ -53,6 +62,13 @@ class WidgetUpdate(BaseModel):
     connection_id: Optional[UUID] = None
     query_id: Optional[UUID] = None
     z_index: Optional[int] = None
+
+    @field_validator("data")
+    @classmethod
+    def _sem_marca_de_demo(cls, v):
+        from src.services.dados_ao_vivo import sem_marca_de_demo
+
+        return sem_marca_de_demo(v)
 
 
 class WidgetResponse(WidgetBase):
@@ -98,10 +114,22 @@ class ConnectionResponse(ConnectionBase):
 
 
 class WidgetDataResponse(BaseModel):
-    """Widget data response schema."""
+    """Os dados de um widget, lidos AGORA (contrato de 13/10/2026).
+
+    `data` tem a forma de sempre (as linhas onde o cliente as lê), mas não
+    vem da base: o SQL voltou a correr. Ver
+    `docs/contrato-dados-ao-vivo-2026-10.md`.
+    """
 
     data: Dict[str, Any]
     last_updated: Optional[str] = None
+    ao_vivo: bool = False
+    reexecutavel: Optional[bool] = None
+    motivo: Optional[str] = None
+    consultado_em: Optional[str] = None
+    nota: Optional[str] = None
+    truncado: Optional[bool] = None
+    em_cache: Optional[bool] = None
 
 
 class WidgetExportResponse(BaseModel):

@@ -12,7 +12,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +32,7 @@ from src.schemas.message import (
     PinRequest,
     ReactionToggleRequest,
 )
-from src.services.a_fonte_da_resposta import fonte_em_csv, fonte_para_mostrar
+from src.services.a_fonte_da_resposta import csv_em_pedacos, fonte_ao_vivo
 from src.services.message_service import MessageService
 
 # ─── /conversations/{id}/messages and /fork ───────────────────────────────
@@ -254,48 +254,74 @@ async def apagar_mensagem(
 
 @router.get(
     "/{message_id}/fonte",
-    summary="De onde veio esta resposta",
+    summary="De onde veio esta resposta (dados de agora)",
     description=(
-        "As tabelas consultadas, o SQL e as linhas que o motor devolveu. "
-        "Para quem lê poder confirmar que os números batem. **Não reexecuta "
-        "nada**: é o resultado do momento em que a resposta foi dada."
+        "As tabelas consultadas, o SQL e as linhas **de agora**: o SQL guardado "
+        "volta a correr na fonte do cliente, só de leitura, com as tabelas de "
+        "quem abre (decisão de 13/10/2026 — as linhas nunca se guardam). "
+        "`nota` = «dados actuais, consultados agora»; `mudou_desde_a_resposta` "
+        "diz se a contagem mudou. 403 se quem abre já não tem acesso às tabelas; "
+        "`reexecutavel: false` quando o SQL não se pode voltar a correr. "
+        "Ver `docs/contrato-dados-ao-vivo-2026-10.md`."
     ),
-    responses={404: {"model": ErrorResponse}},
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
 )
 async def a_fonte(
     message_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
+    from src.config.settings import settings
+
     try:
         consulta = await MessageService(db).a_fonte_de(message_id, current_user)
     except NotFoundError as erro:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(erro))
-    return fonte_para_mostrar(consulta)
+    try:
+        return await fonte_ao_vivo(
+            db, current_user, consulta, limite=settings.DADOS_AO_VIVO_LIMITE_VER
+        )
+    except ForbiddenError as erro:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, erro.message)
 
 
 @router.get(
     "/{message_id}/fonte.csv",
-    summary="As linhas da fonte, em CSV",
+    summary="As linhas da fonte, em CSV (dados de agora)",
     description=(
-        "Separador `;` e com BOM, para abrir certo no Excel em Portugal e "
-        "Espanha — onde a vírgula é o separador decimal."
+        "O SQL guardado volta a correr (até `DADOS_AO_VIVO_LIMITE_CSV` linhas) e "
+        "o CSV sai aos pedaços. Separador `;` e com BOM, para abrir certo no "
+        "Excel em Portugal e Espanha — onde a vírgula é o separador decimal. "
+        "O cabeçalho `X-Sky-Consultado-Em` diz quando foi lido."
     ),
-    responses={404: {"model": ErrorResponse}},
+    responses={403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
 )
 async def a_fonte_em_csv(
     message_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> Response:
+    from src.config.settings import settings
+
     try:
         consulta = await MessageService(db).a_fonte_de(message_id, current_user)
     except NotFoundError as erro:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(erro))
-    return Response(
-        content=fonte_em_csv(consulta),
+    try:
+        f = await fonte_ao_vivo(
+            db, current_user, consulta, limite=settings.DADOS_AO_VIVO_LIMITE_CSV
+        )
+    except ForbiddenError as erro:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, erro.message)
+    cabecalhos = {"Content-Disposition": f'attachment; filename="fonte-{message_id}.csv"'}
+    if f.get("consultado_em"):
+        cabecalhos["X-Sky-Consultado-Em"] = str(f["consultado_em"])
+    if f.get("truncado"):
+        cabecalhos["X-Sky-Truncado"] = "1"
+    return StreamingResponse(
+        csv_em_pedacos(f),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="fonte-{message_id}.csv"'},
+        headers=cabecalhos,
     )
 
 

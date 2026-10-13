@@ -335,7 +335,11 @@ async def semear(
                 wid = _id(sector.chave, "widget", pagina.nome, w.titulo)
                 pos, tam = w.geometria()
                 linha = await db.get(WidgetRow, wid)
-                dados = w.dados(linhas)
+                # Dados SINTÉTICOS da nossa base de demonstração: são nossos e
+                # ficam no widget, marcados `demo` — o modelo `Widget` tira as
+                # linhas de tudo o que não tenha a marca (13/10/2026). O `sql`
+                # vai junto para o widget poder voltar a correr como os outros.
+                dados = {**w.dados(linhas), "demo": True, "sql": w.sql}
                 if linha is None:
                     linha = WidgetRow(
                         id=wid,

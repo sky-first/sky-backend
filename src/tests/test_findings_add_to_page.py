@@ -157,7 +157,10 @@ async def test_kpi_finding_creates_kpi_widget(
         await db_session.execute(select(Widget).where(Widget.id == result["widget_id"]))
     ).scalar_one()
     assert widget.type == "kpi"
-    assert widget.data["rows"]["data"] == [[123456]]
+    # A definição passa para o widget; as linhas não (13/10/2026) — o widget
+    # volta a correr o SQL quando abre (`GET /widgets/{id}/data`).
+    assert widget.data["rows"]["columns"] == ["total"]
+    assert "data" not in widget.data["rows"]
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,18 @@
-"""Idempotency middleware using Redis to prevent duplicate processing of mutations."""
+"""Idempotency middleware using Redis to prevent duplicate processing of mutations.
+
+── Guarda o estado e o id, nunca o corpo (13/10/2026) ──────────────
+
+Até aqui guardava-se o CORPO inteiro da resposta no Redis, durante o
+`IDEMPOTENCY_TTL_SECONDS`. Uma mutação que devolvesse dados — um widget
+com as linhas, uma resposta da IA — deixava uma cópia dos dados do
+cliente no Redis, fora de qualquer regra de acesso. Decisão do Lucas:
+nunca guardamos as linhas do cliente.
+
+Agora guarda-se só o que a idempotência precisa: o estado HTTP e o id do
+recurso criado. Uma repetição com a mesma chave recebe o mesmo estado e
+`{"id": ..., "idempotent_replay": true}` — e quem quiser o recurso pede-o
+pelo id, passando pelas regras de acesso de sempre.
+"""
 
 import json
 import logging
@@ -49,77 +63,40 @@ async def idempotency_middleware(request: Request, call_next: Callable) -> Respo
             logger.info(f"Idempotency HIT for key: {idempotency_key}, user: {user_id}")
             try:
                 data = json.loads(cached_data)
-
-                # Reconstruct headers without breaking Starlette's response logic
-                # We skip certain hop-by-hop headers if they were cached
-                skip_headers = {"content-length", "connection", "keep-alive"}
-                resp_headers = {
-                    k: v for k, v in data["headers"].items() if k.lower() not in skip_headers
-                }
-                resp_headers["X-Idempotency-Cache"] = "HIT"
-
-                return Response(
-                    content=data["body"],
-                    status_code=data["status_code"],
-                    headers=resp_headers,
-                    media_type=data.get("media_type", "application/json"),
-                )
+                return resposta_de_repeticao(data)
             except Exception as e:
                 logger.warning(
                     f"Failed to parse cached idempotency data for key {idempotency_key}: {e}"
                 )
 
         # 2. Process request normally if no cache hit
-        try:
-            response = cast(Response, await call_next(request))
-        except Exception:
-            # If the actual endpoint throws, let it bubble up to the exception handlers
-            raise
+        response = cast(Response, await call_next(request))
 
-        # 3. Cache successful (2xx) responses
+        # 3. Cache successful (2xx) responses — o estado e o id, nunca o corpo
         if 200 <= response.status_code < 300:
             try:
-                logger.debug(f"Caching successful response for idempotency key: {idempotency_key}")
-
-                # Safely read body from iterator
-                # We use Any cast because body_iterator is not in base Response
                 res_any = cast(Any, response)
-
-                if not hasattr(res_any, "body_iterator") or res_any.body_iterator is None:
-                    # If it has a .body property, use it directly (safer for some Response types)
-                    if hasattr(res_any, "body"):
-                        full_body_bytes = res_any.body
-                    else:
-                        return response
-                else:
-                    # Read body from iterator
+                full_body_bytes = b""
+                if getattr(res_any, "body_iterator", None) is not None:
                     try:
                         response_body = [section async for section in res_any.body_iterator]
-                        # Restore body iterator
                         res_any.body_iterator = iterate_in_threadpool(iter(response_body))
                         full_body_bytes = b"".join(response_body)
                     except Exception as body_err:
                         logger.warning(f"Could not iterate body for idempotency: {body_err}")
                         return response
-
-                # Try to store as string if possible
-                try:
-                    full_body = full_body_bytes.decode("utf-8")
-                except UnicodeDecodeError:
-                    return response
-
-                # Prepare metadata for caching
-                cache_payload = {
-                    "status_code": response.status_code,
-                    "body": full_body,
-                    "headers": dict(response.headers),
-                    "media_type": response.media_type,
-                }
+                elif hasattr(res_any, "body"):
+                    full_body_bytes = res_any.body or b""
 
                 await redis.setex(
                     redis_key,
                     settings.IDEMPOTENCY_TTL_SECONDS,
-                    json.dumps(cache_payload),
+                    json.dumps(
+                        {
+                            "status_code": response.status_code,
+                            "resource_id": id_do_recurso(full_body_bytes),
+                        }
+                    ),
                 )
             except Exception as cache_error:
                 logger.error(f"Idempotency cache persistence error: {str(cache_error)}")
@@ -130,3 +107,35 @@ async def idempotency_middleware(request: Request, call_next: Callable) -> Respo
         logger.error(f"Idempotency middleware error (continuing without idempotency): {str(e)}")
         # On middleware internal failure (before call_next), allow request to proceed
         return cast(Response, await call_next(request))
+
+
+def id_do_recurso(corpo: bytes) -> Any:
+    """O `id` do recurso na resposta (no topo, ou em `data.id`), se houver.
+
+    É a única coisa do corpo que se guarda: o resto pode ser dados do cliente.
+    """
+    try:
+        dados = json.loads(corpo.decode("utf-8")) if corpo else None
+    except Exception:
+        return None
+    if isinstance(dados, dict):
+        if isinstance(dados.get("id"), (str, int)):
+            return dados["id"]
+        interno = dados.get("data")
+        if isinstance(interno, dict) and isinstance(interno.get("id"), (str, int)):
+            return interno["id"]
+    return None
+
+
+def resposta_de_repeticao(guardado: dict) -> Response:
+    """A resposta a uma repetição: o mesmo estado, o id, e nada mais."""
+    from fastapi.responses import JSONResponse
+
+    corpo: dict = {"idempotent_replay": True}
+    if guardado.get("resource_id") is not None:
+        corpo["id"] = guardado["resource_id"]
+    return JSONResponse(
+        content=corpo,
+        status_code=int(guardado.get("status_code") or 200),
+        headers={"X-Idempotency-Cache": "HIT"},
+    )

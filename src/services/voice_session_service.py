@@ -66,6 +66,10 @@ class FonteFalada:
     pergunta: str
     meta: Dict[str, Any]
     linhas: Dict[str, Any]
+    #: Onde a pergunta foi feita (ligação, projeto, modo pessoal) — o que
+    #: permite voltar a correr o SQL ao abrir a fonte. As linhas NÃO se
+    #: gravam (13/10/2026); `linhas` só vive em memória até ao fim da sessão.
+    contexto: Dict[str, Any] = field(default_factory=dict)
 
 
 def _zero() -> int:
@@ -103,7 +107,12 @@ def contar_turnos_por(contar_turnos: Callable[[], int]) -> None:
         colector.contar_turnos = contar_turnos
 
 
-def registar_fonte(pergunta: str, meta: Dict[str, Any], linhas: Dict[str, Any]) -> None:
+def registar_fonte(
+    pergunta: str,
+    meta: Dict[str, Any],
+    linhas: Dict[str, Any],
+    contexto: Optional[Dict[str, Any]] = None,
+) -> None:
     """Uma consulta da voz terminou: guarda a fonte para a gravação final."""
     colector = _COLECTOR.get()
     if colector is None:
@@ -113,7 +122,18 @@ def registar_fonte(pergunta: str, meta: Dict[str, Any], linhas: Dict[str, Any]) 
     except Exception:  # noqa: BLE001 — a fonte é um reforço, nunca cala o turno
         turno = 0
     colector.fontes.append(
-        FonteFalada(turno=turno, pergunta=pergunta, meta=meta or {}, linhas=linhas or {})
+        FonteFalada(
+            turno=turno,
+            pergunta=pergunta,
+            meta=meta or {},
+            # Só o que descreve as linhas — colunas, quantas, se cortou.
+            linhas={
+                "columns": (linhas or {}).get("columns") or [],
+                "rows": [],
+                "truncated": bool((linhas or {}).get("truncated")),
+            },
+            contexto=dict(contexto or {}),
+        )
     )
 
 
@@ -234,6 +254,9 @@ class VoiceSessionService:
                             meta=fonte.meta,
                             linhas=fonte.linhas,
                             page_id=payload.page_id,
+                            # As equipas da voz são TODAS as da pessoa no
+                            # projeto (sem equipa fixa): o mesmo na reexecução.
+                            contexto=fonte.contexto or {},
                         )
                 except Exception as err:  # noqa: BLE001
                     msg.query_id = None  # a consulta voltou atrás com o savepoint

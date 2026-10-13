@@ -133,7 +133,8 @@ async def _warm_ai_response_cache_async() -> Dict[str, Any]:
 
                     payload: Dict[str, Any] = {
                         "answer": result.get("answer", ""),
-                        "data_sample": result.get("data_sample", []),
+                        # Sem as linhas do cliente (13/10/2026): o Redis não
+                        # guarda cópias de dados, nem por 10 minutos.
                         "sql": result.get("sql"),
                         "chosen_table": result.get("chosen_table"),
                         "chosen_datasets": result.get("chosen_datasets", []),

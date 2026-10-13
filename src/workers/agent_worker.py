@@ -1523,7 +1523,21 @@ async def _execute_agent_async(agent_id: str, a_pedido: bool = False):
                             else None
                         )
                         cols, data = _normalize_rows(raw_data)
-                        rows_payload = {"columns": cols, "data": data} if cols and data else None
+                        # A DEFINIÇÃO, não as linhas (decisão de 13/10/2026):
+                        # o SQL, a ligação, as colunas e quantas eram. Quem
+                        # abre o achado recebe as linhas de agora pelo
+                        # `GET /insights/{id}/dados`, que volta a correr isto.
+                        rows_payload = (
+                            {
+                                "columns": cols,
+                                "row_count": len(data),
+                                "sql": sql_used or None,
+                                "connection_id": str(conn_id),
+                                "connection_ids": [str(c) for c in extras] if extras else [],
+                            }
+                            if cols and data
+                            else None
+                        )
                         # Guarda-se o que esta ligação disse; o achado é um só
                         # e nasce depois do ciclo. Ver a nota lá em cima.
                         respostas_por_ligacao.append(
