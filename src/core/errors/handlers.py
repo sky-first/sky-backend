@@ -14,6 +14,7 @@ from src.core.exceptions import (
     ConflictError,
     ForbiddenError,
     InternalServerError,
+    LigacaoDoSistemaError,
     NotFoundError,
     PaymentRequiredError,
     ServiceUnavailableError,
@@ -133,6 +134,7 @@ def register_exception_handlers(app: FastAPI):
         code_map = {
             UnauthorizedError: "UNAUTHORIZED",
             ForbiddenError: "FORBIDDEN",
+            LigacaoDoSistemaError: "FORBIDDEN",
             NotFoundError: "NOT_FOUND",
             ValidationError: "VALIDATION_ERROR",
             BadRequestError: "BAD_REQUEST",
@@ -142,13 +144,17 @@ def register_exception_handlers(app: FastAPI):
             ServiceUnavailableError: "SERVICE_UNAVAILABLE",
         }
 
-        code = code_map.get(type(exc), "API_ERROR")
+        # Pela hierarquia: uma subclasse (p.ex. LigacaoDoSistemaError, que é
+        # um ForbiddenError) fica com o código da classe-mãe.
+        code = next((code_map[k] for k in type(exc).__mro__ if k in code_map), "API_ERROR")
 
         # PaymentRequiredError carries an upgrade_cta string so the FE
         # can render a button label in the toast/modal without
         # hardcoding it client-side. Keeping copy on the BE means
         # changing the marketing message doesn't ship a FE deploy.
         details = None
+        if isinstance(getattr(exc, "details", None), dict):
+            details = dict(exc.details)
         if isinstance(exc, PaymentRequiredError):
             details = {"upgrade_cta": exc.upgrade_cta}
             # Limites do plano (10/10/2026): a frase pronta nas três

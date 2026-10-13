@@ -347,9 +347,15 @@ class AIServiceHTTPClient:
         space_id: str,  # required: pass an actual space UUID, or SHARED_INDEX
         run_in_background: Optional[bool] = None,
         table_names: Optional[List[str]] = None,
+        tenant_slug: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Discover tables/metadata for a connection.
+
+        ``tenant_slug`` — quando vem, o ``X-Tenant-Slug`` é ESTE e não o do
+        contextvar. As tarefas de fundo (fontes do sistema) passam-no sempre:
+        três vezes já o discover/seed/migração correu contra a base da
+        plataforma porque o contextvar não estava posto (S1).
 
         ``space_id`` is REQUIRED to make the caller's intent explicit:
 
@@ -392,9 +398,8 @@ class AIServiceHTTPClient:
         if table_names:
             params["table_names"] = table_names
 
-        async with httpx.AsyncClient(
-            timeout=self.timeout, headers=self._tenant_headers()
-        ) as client:
+        cabecalhos = {"X-Tenant-Slug": tenant_slug} if tenant_slug else self._tenant_headers()
+        async with httpx.AsyncClient(timeout=self.timeout, headers=cabecalhos) as client:
             logger.info(
                 f"Discovering connection: {url} with connection_id={connection_id}, "
                 f"space_id={space_id if space_id != self.SHARED_INDEX else '(shared/global)'}"

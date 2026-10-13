@@ -93,6 +93,21 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Fontes do sistema: a fronteira comercial está nos papéis do
+      # Postgres (GRANT/REVOKE em sky_world). SQLite não tem papéis, por isso
+      # src/tests/test_fontes_sistema_postgres.py corre contra este — e
+      # salta sem WORLD_TEST_PG_DSN (máquinas de dev sem Postgres).
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       # REDIS_HOST REMOVED from here to avoid conflict with constructor tests
       TESTING: "True"
@@ -112,6 +127,7 @@ jobs:
       # scope. Production keeps the limiter on by default.
       RATE_LIMIT_ENABLED: "false"
       AI_RATE_LIMIT_ENABLED: "false"
+      WORLD_TEST_PG_DSN: "postgresql://postgres:postgres@localhost:5432/postgres"
     steps:
       - uses: actions/checkout@v4
 

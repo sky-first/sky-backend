@@ -194,6 +194,16 @@ PERMISSIONS: dict[str, Set[ConsoleRole]] = {
     # RBAC itself
     "rbac.read": {role for role in ConsoleRole},
     "rbac.write": {ConsoleRole.CEO, ConsoleRole.CTO},
+    # Fontes do sistema (docs/contrato-fontes-do-sistema.md). Marcar uma
+    # fonte num cliente dá-lhe acesso a dados pagos/licenciados: CSM e
+    # DevOps sim, Sales/Support não. Editar o catálogo é só CEO/CTO.
+    "system_sources.toggle": {
+        ConsoleRole.CEO,
+        ConsoleRole.CTO,
+        ConsoleRole.DEVOPS,
+        ConsoleRole.CSM,
+    },
+    "system_sources.manage": {ConsoleRole.CEO, ConsoleRole.CTO},
     # Incidents / alerts
     "alerts.ack": {
         ConsoleRole.CEO,

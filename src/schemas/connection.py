@@ -130,6 +130,8 @@ class ConnectionResponse(ConnectionBase):
     created_by: UUID
     created_at: datetime
     updated_at: datetime
+    #: Ligação gerida pela Sky («Dados públicos»): cadeado na web e na app.
+    sistema: bool = False
     connection_metadata: Optional[ConnectionMetadataResponse] = Field(
         None, serialization_alias="metadata"
     )

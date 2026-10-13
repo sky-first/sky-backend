@@ -202,6 +202,11 @@ async def _contar(db_cliente: AsyncSession, recurso: str) -> int:
         q = select(func.count()).select_from(DataConnection)
         if hasattr(DataConnection, "deleted_at"):
             q = q.where(DataConnection.deleted_at.is_(None))
+        # A ligação «Dados públicos» é da Sky, não do cliente: não conta
+        # como fonte do plano (decisão do Lucas, 13/10/2026). Sem isto, um
+        # Starter (1 fonte) que activasse dados públicos ficava sem poder
+        # ligar a sua própria base (S14).
+        q = q.where(DataConnection.sistema.is_(False))
         return int((await db_cliente.execute(q)).scalar() or 0)
     if recurso == "max_agents":
         from src.models.agent import Agent

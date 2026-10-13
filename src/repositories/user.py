@@ -164,6 +164,8 @@ class UserRepository(BaseRepository[User]):
         result = await self.db.execute(
             select(User)
             .where(User.deleted_at.is_(None))
+            # O utilizador de sistema (fontes do sistema) não é uma pessoa.
+            .where(User.status != "sistema")
             .order_by(User.created_at.desc())
             .offset(skip)
             .limit(limit)

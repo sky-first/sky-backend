@@ -35,6 +35,7 @@ from src.connectors.salesforce import SalesforceConnector
 from src.connectors.slack import SlackConnector
 from src.connectors.snowflake import SnowflakeConnector
 from src.connectors.sqlite import SQLiteConnector
+from src.connectors.sky_world import SkyWorldConnector
 from src.connectors.sqlserver import SQLServerConnector
 from src.connectors.stripe import StripeConnector
 from src.connectors.trello import TrelloConnector
@@ -115,6 +116,10 @@ class MockConnector(BaseConnector):
 # Registry of available connectors
 CONNECTORS: Dict[str, Type[BaseConnector]] = {
     "postgresql": PostgreSQLConnector,
+    # Ligação gerida «Dados públicos» (fontes do sistema). Sem definição
+    # no catálogo de conectores: não aparece para o cliente escolher, e
+    # criar uma por POST /connections é recusado no serviço.
+    "sky-world": SkyWorldConnector,
     "postgres": PostgreSQLConnector,
     "mysql": MySQLConnector,
     "mongodb": MongoDBConnector,

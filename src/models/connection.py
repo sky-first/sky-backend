@@ -57,6 +57,11 @@ class DataConnection(Base):
     #: com desempenho pode reidentificar pessoas, e quem concedeu o acesso
     #: concedeu-o para o projeto de RH, não para todos ao mesmo tempo.
     nao_cruzavel = Column(Boolean, nullable=False, default=False, server_default="false")
+    #: Ligação gerida pela Sky («Dados públicos», ``connector_id = sky-world``).
+    #: Ninguém do cliente a edita, apaga, testa ou vê a config; não conta como
+    #: fonte do plano. No máximo uma por cliente (índice parcial único).
+    #: Ver ``docs/contrato-fontes-do-sistema.md``.
+    sistema = Column(Boolean, nullable=False, default=False, server_default="false")
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships

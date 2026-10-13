@@ -418,6 +418,10 @@ class UserService:
                 "Cannot deactivate a SKY operator account. Clear "
                 "is_sky_operator first if this is intentional."
             )
+        # O utilizador de sistema é o dono da ligação «Dados públicos»
+        # (fontes do sistema). Apagá-lo levava a ligação atrás (S16).
+        if user and getattr(user, "status", None) == "sistema":
+            raise ForbiddenError("Cannot delete the system user.")
 
         # Tenant Owner guard. Tenant founders carry role="owner" and
         # cannot be deactivated by anyone except via an explicit

@@ -495,6 +495,22 @@ async def destroy_tenant(
         result=AuditResult.SUCCESS,
         actor_ip=_ip(request),
     )
+    # Fontes do sistema (S20): o papel `wt_<slug>` e o segredo dele não podem
+    # ficar vivos depois do cliente. Melhor esforço — a reconciliação de hora
+    # a hora avisa de papéis órfãos se isto falhar.
+    if settings.FONTES_SISTEMA_ENABLED:
+        try:
+            from src.workers.celery_app import celery_app as _celery
+
+            _celery.send_task(
+                "src.workers.fontes_sistema_worker.remover_cliente_do_mundo", args=[slug]
+            )
+        except Exception:  # noqa: BLE001
+            import logging as _logging
+
+            _logging.getLogger(__name__).warning(
+                "fontes_sistema: não enfileirei a remoção de %s", slug
+            )
     return ProvisioningJobRead.model_validate(job)
 
 

@@ -36,6 +36,7 @@ from src.models.device import Device
 from src.models.enterprise_api import EnterpriseAPI
 from src.models.enterprise_relationship import EnterpriseRelationship
 from src.models.file import FileUpload
+from src.models.fonte_sistema import FonteSistema, FonteSistemaCliente
 from src.models.glossary import GlossaryTerm
 from src.models.internal_console import (
     AuditAction,
@@ -98,6 +99,8 @@ __all__ = [
     "AgentFinding",
     "AgentExecution",
     "AuditEvent",
+    "FonteSistema",
+    "FonteSistemaCliente",
     "BeatConsumption",
     "ContextDocument",
     "ContextDocumentKind",

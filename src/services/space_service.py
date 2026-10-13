@@ -297,6 +297,25 @@ class SpaceService:
         except Exception as exc:
             logger.warning(f"Default crew creation failed for space {space.id}: {exc}")
 
+        # Fontes do sistema (S13): um projecto novo herda «Dados públicos» se o
+        # cliente a tiver. Liga já as tabelas; o discover do sky-ai vem da
+        # convergência enfileirada. Nunca trava a criação do projecto — a
+        # reconciliação de hora a hora repara uma falha aqui.
+        try:
+            from src.services.fontes_sistema.ligacao_gerida import ligar_projeto_novo
+
+            if await ligar_projeto_novo(self.db, space.id):
+                await self.db.commit()
+                from src.core.tenant_context import current_tenant
+
+                ctx = current_tenant()
+                if ctx is not None and not ctx.is_default:
+                    from src.workers.fontes_sistema_worker import provisionar_fontes_do_cliente
+
+                    provisionar_fontes_do_cliente.delay(ctx.slug)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Dados públicos não ligados ao projecto {space.id}: {exc}")
+
         return SpaceResponse.model_validate(space)
 
     async def ensure_default_crew(self, space_id: UUID, user: User) -> None:
@@ -620,6 +639,14 @@ class SpaceService:
         association = await self.space_repo.get_space_connection(space_id, connection_id)
         if not association:
             raise NotFoundError("Connection not linked to this space")
+
+        # «Dados públicos» está em todos os projectos por decisão (13/10/2026);
+        # tirá-la de um projecto é a fase 3 (exclusão por projecto). Até lá, a
+        # reconciliação voltaria a pô-la — melhor recusar já e dizer porquê.
+        from src.models.connection import DataConnection
+        from src.services.connection_service import recusar_se_for_do_sistema
+
+        recusar_se_for_do_sistema(await self.db.get(DataConnection, connection_id))
 
         await self.db.delete(association)
         await self.db.commit()
