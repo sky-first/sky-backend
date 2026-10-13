@@ -174,6 +174,9 @@ _ALLOWED_REFS = {
     # O plano de cada cliente vive na base da PLATAFORMA, onde só a Consola
     # escreve (10/10/2026). Ver services/limites_do_plano.py.
     str((_SRC_ROOT / "services" / "limites_do_plano.py").resolve()),
+    # Fontes do sistema: catálogo e activação vivem na PLATAFORMA; o lado do
+    # cliente usa session_for dentro de contexto_do_cliente(slug).
+    str((_SRC_ROOT / "services" / "fontes_sistema" / "provisionamento.py").resolve()),
     str((_SRC_ROOT / "config" / "database.py").resolve()),
     str((_SRC_ROOT / "config" / "tenant_connection_manager.py").resolve()),
     str((_SRC_ROOT / "api" / "middleware" / "tenant_resolver.py").resolve()),

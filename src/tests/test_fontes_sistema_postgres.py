@@ -22,6 +22,10 @@ import pytest
 import pytest_asyncio
 
 DSN = os.environ.get("WORLD_TEST_PG_DSN")
+if not DSN and os.environ.get("GITHUB_ACTIONS") == "true":
+    # Na CI estes testes TÊM de correr: um salto silencioso aqui é a fronteira
+    # comercial sem prova nenhuma, com a CI verde.
+    raise RuntimeError("WORLD_TEST_PG_DSN em falta na CI (serviço postgres do ci-pr-gate)")
 pytestmark = pytest.mark.skipif(not DSN, reason="sem WORLD_TEST_PG_DSN (Postgres real)")
 
 RAIZ = Path(__file__).resolve().parents[2]
