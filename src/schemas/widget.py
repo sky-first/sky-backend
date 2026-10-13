@@ -41,7 +41,7 @@ class WidgetCreate(WidgetBase):
         default=None, pattern=_WIDGET_SOURCE_PATTERN
     )
 
-    @field_validator("data")
+    @field_validator("data", "config")
     @classmethod
     def _sem_marca_de_demo(cls, v):
         """A marca «demo» é dos semeadores; vinda da API seria uma porta para
@@ -63,7 +63,7 @@ class WidgetUpdate(BaseModel):
     query_id: Optional[UUID] = None
     z_index: Optional[int] = None
 
-    @field_validator("data")
+    @field_validator("data", "config")
     @classmethod
     def _sem_marca_de_demo(cls, v):
         from src.services.dados_ao_vivo import sem_marca_de_demo

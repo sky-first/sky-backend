@@ -13,7 +13,7 @@ dos agentes gravados até hoje. Isto limpa o chão.
 ── O que faz, tabela a tabela ──────────────────────────────────────
 
 * `ai_queries.data_sample` → NULL (a fonte volta a correr o SQL);
-* `widgets.data` → sem as listas de linhas, o `value` do KPI e o
+* `widgets.data` e `widgets.config` → sem as listas de linhas, o `value` do KPI e o
   `chart_block.data`; **os de demonstração ficam** (marca `demo`, ou
   `source` = `demo_sectorial`): são dados sintéticos nossos;
 * `agent_findings.rows` → só a definição (colunas, SQL, ligação, quantas);
@@ -79,6 +79,17 @@ def _widget(linha) -> Optional[Any]:
     return novo if novo != data else None
 
 
+def _widget_config(linha) -> Optional[Any]:
+    """O `config` também: a web antiga guardava lá uma cópia completa do `data`."""
+    from src.services.dados_ao_vivo import e_demo, widget_sem_linhas
+
+    config = _ler_json(linha.config)
+    if (linha.source or "") in FONTES_DEMO or e_demo(config) or e_demo(_ler_json(linha.data)):
+        return None
+    novo = widget_sem_linhas(linha.type, config)
+    return novo if novo != config else None
+
+
 def _achado_rows(linha) -> Optional[Any]:
     from src.services.dados_ao_vivo import achado_rows_sem_dados
 
@@ -110,6 +121,13 @@ PASSOS: List[Tuple[str, str, str, str, Callable[[Any], Optional[Any]]]] = [
         _widget,
     ),
     (
+        "widgets.config",
+        "SELECT id, type, source, data, config FROM widgets WHERE config IS NOT NULL",
+        "config",
+        "json",
+        _widget_config,
+    ),
+    (
         "agent_findings.rows",
         "SELECT id, rows FROM agent_findings WHERE rows IS NOT NULL",
         "rows",
@@ -134,6 +152,7 @@ PASSOS: List[Tuple[str, str, str, str, Callable[[Any], Optional[Any]]]] = [
 
 _TABELA = {
     "widgets.data": "widgets",
+    "widgets.config": "widgets",
     "agent_findings.rows": "agent_findings",
     "agent_findings.series": "agent_findings",
     "agent_executions.result_payload": "agent_executions",

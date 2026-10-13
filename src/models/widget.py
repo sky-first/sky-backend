@@ -131,14 +131,16 @@ class Widget(Base):
         ),
     )
 
-    @validates("data")
+    @validates("data", "config")
     def _sem_linhas_do_cliente(self, _chave, valor):
         """Nunca se guardam linhas do cliente num widget (decisão de 13/10/2026).
 
         Guarda-se a definição (SQL, ligação, mapeamento) e o texto gerado; as
         linhas vêm do `GET /widgets/{id}/data`, que volta a correr o SQL. A
         guarda está AQUI, no modelo, para valer em todos os caminhos que
-        gravam — o FE, os workers, os scripts. Ver `services/dados_ao_vivo`.
+        gravam — o FE, os workers, os scripts. Vale também para o `config`:
+        a web antiga guardava lá uma cópia completa do `data`. Ver
+        `services/dados_ao_vivo`.
         """
         from src.services.dados_ao_vivo import widget_sem_linhas
 

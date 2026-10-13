@@ -424,10 +424,17 @@ async def test_limpeza_conta_sem_mexer_e_aplica_uma_vez(db_session, test_user):
     wid, demo, qid = uuid.uuid4().hex, uuid.uuid4().hex, uuid.uuid4().hex
     await conn.execute(
         text(
-            "INSERT INTO widgets (id, page_id, type, title, position, size, data, z_index, source)"
-            " VALUES (:id, :p, 'chart', 't', '{}', '{}', :d, 0, 'ai_synthesis')"
+            "INSERT INTO widgets (id, page_id, type, title, position, size, data, config,"
+            " z_index, source) VALUES (:id, :p, 'chart', 't', '{}', '{}', :d, :c, 0,"
+            " 'ai_synthesis')"
         ),
-        {"id": wid, "p": pid.hex, "d": json.dumps({"sql": "SELECT 1", "data": LINHAS})},
+        {
+            "id": wid,
+            "p": pid.hex,
+            "d": json.dumps({"sql": "SELECT 1", "data": LINHAS}),
+            # a web antiga guardava no config uma cópia do data
+            "c": json.dumps({"viz": {"kind": "bar"}, "data": LINHAS, "agent_rows": LINHAS}),
+        },
     )
     await conn.execute(
         text(
@@ -446,6 +453,7 @@ async def test_limpeza_conta_sem_mexer_e_aplica_uma_vez(db_session, test_user):
 
     contado = await mod.limpar_uma_base(conn, aplicar=False)
     assert contado["widgets.data"] == 1  # o de demonstração não conta
+    assert contado["widgets.config"] == 1
     assert contado["ai_queries.data_sample"] == 1
     ainda = (
         await conn.execute(text("SELECT data_sample FROM ai_queries WHERE id = :i"), {"i": qid})
@@ -458,6 +466,10 @@ async def test_limpeza_conta_sem_mexer_e_aplica_uma_vez(db_session, test_user):
         await conn.execute(text("SELECT data FROM widgets WHERE id = :i"), {"i": wid})
     ).scalar()
     assert not _tem_linhas(depois) and "SELECT 1" in depois
+    cfg = (
+        await conn.execute(text("SELECT config FROM widgets WHERE id = :i"), {"i": wid})
+    ).scalar()
+    assert not _tem_linhas(cfg) and "bar" in cfg
     d_demo = (
         await conn.execute(text("SELECT data FROM widgets WHERE id = :i"), {"i": demo})
     ).scalar()
@@ -465,3 +477,117 @@ async def test_limpeza_conta_sem_mexer_e_aplica_uma_vez(db_session, test_user):
 
     segunda = await mod.limpar_uma_base(conn, aplicar=True)
     assert all(n == 0 for n in segunda.values())
+
+
+# ── Lacunas apanhadas pela web (sky-frontend #696) ───────────────────
+
+
+class TestLacunasDaWeb:
+    def test_o_config_tambem_nao_guarda_linhas(self):
+        """A web antiga mandava no `config` uma cópia completa do `data`."""
+        w = Widget(
+            type="chart",
+            data={"sql": "SELECT 1"},
+            config={"viz": {"kind": "bar"}, "data": LINHAS, "series": [{"t": "Norte", "v": 10}]},
+        )
+        assert not _tem_linhas(w.config)
+        assert w.config["viz"] == {"kind": "bar"}
+
+    def test_agent_rows_e_copias_aninhadas_saem(self):
+        w = Widget(
+            type="chart",
+            data={
+                "agent_rows": LINHAS,
+                "agent": {"question": "q", "rows": {"columns": ["regiao"], "data": [["Norte"]]}},
+                "responseData": {"data_sample": LINHAS, "sql": "SELECT 1"},
+                "chartData": [{"x": "Norte", "y": 10}],
+                "values": ["Norte", "Sul"],
+            },
+        )
+        assert not _tem_linhas(w.data)
+        assert w.data["responseData"]["sql"] == "SELECT 1"
+        assert w.data["agent"]["rows"] == {"columns": ["regiao"], "row_count": 1}
+
+    def test_a_series_de_estilo_do_grafico_fica(self):
+        """`[{dataKey, color}]` é a definição do gráfico, não dados."""
+        estilo = [{"dataKey": "total", "color": "#FAB721"}]
+        w = Widget(type="chart", data={"sql": "SELECT 1"}, config={"series": estilo})
+        assert w.config["series"] == estilo
+
+    def test_o_infografico_gerado_fica(self):
+        info = {"blocks": [{"data": [{"label": "Total", "value": 17}]}]}
+        w = Widget(type="infographic", data={"infographic_data": info, "data": LINHAS})
+        assert w.data["infographic_data"] == info and "data" not in w.data
+
+    def test_a_api_tira_a_marca_demo_do_config(self):
+        from src.schemas.widget import WidgetUpdate
+
+        assert "demo" not in WidgetUpdate(config={"demo": True}).config
+
+
+@pytest.mark.asyncio
+async def test_cors_expoe_os_cabecalhos_da_fonte(monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+    from fastapi.responses import Response
+
+    from src.api.middleware.cors import setup_cors
+    from src.config.settings import settings
+
+    monkeypatch.setattr(
+        type(settings), "cors_origins_list", property(lambda self: ["https://web.exemplo"])
+    )
+    app = FastAPI()
+    setup_cors(app)
+
+    @app.get("/csv")
+    async def _csv():
+        return Response("a;b", headers={"X-Sky-Consultado-Em": "agora"})
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/csv", headers={"Origin": "https://web.exemplo"})
+    expostos = {h.strip().lower() for h in r.headers["access-control-expose-headers"].split(",")}
+    assert {"x-sky-consultado-em", "x-sky-truncado", "content-disposition"} <= expostos
+
+
+@pytest.mark.asyncio
+async def test_repetir_build_async_devolve_o_job_id_sem_guardar_o_corpo(monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+
+    from src.api.middleware.idempotency import idempotency_middleware
+
+    class _Redis:
+        def __init__(self):
+            self.guardado = {}
+
+        async def get(self, k):
+            return self.guardado.get(k)
+
+        async def setex(self, k, ttl, v):
+            self.guardado[k] = v
+
+    redis = _Redis()
+
+    async def _get_redis():
+        return redis
+
+    monkeypatch.setattr("src.api.middleware.idempotency.get_redis", _get_redis)
+    app = FastAPI()
+    app.middleware("http")(idempotency_middleware)
+    corridas = []
+
+    @app.post("/pages/ai/build-async")
+    async def _build():
+        corridas.append(1)
+        return {"job_id": "job-1", "status": "queued", "preview": {"data": LINHAS}}
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        h = {"Idempotency-Key": "k1"}
+        r1 = await c.post("/pages/ai/build-async", headers=h)
+        r2 = await c.post("/pages/ai/build-async", headers=h)
+    assert r1.json()["job_id"] == "job-1"
+    assert r2.status_code == r1.status_code
+    assert r2.json() == {"idempotent_replay": True, "job_id": "job-1"}
+    assert len(corridas) == 1
+    assert not any(_tem_linhas(v) for v in redis.guardado.values())

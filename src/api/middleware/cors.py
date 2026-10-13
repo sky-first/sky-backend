@@ -38,6 +38,11 @@ def setup_cors(app: FastAPI) -> None:
             "X-RateLimit-Remaining-Hour",
             "X-Correlation-ID",
             "X-Idempotency-Cache",
+            # Dados ao vivo (13/10/2026): a web lê-os no CSV da fonte, que vem
+            # de outra origem — sem expor, o browser esconde-os.
+            "X-Sky-Consultado-Em",
+            "X-Sky-Truncado",
+            "Content-Disposition",
         ],
         max_age=3600,  # Cache preflight requests for 1 hour
     )

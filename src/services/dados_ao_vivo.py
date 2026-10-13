@@ -60,7 +60,39 @@ logger = logging.getLogger(__name__)
 NOTA_AO_VIVO = "dados actuais, consultados agora"
 
 #: Chaves que, num widget, levam LINHAS (listas de valores do cliente).
-CHAVES_DE_LINHAS = ("data", "data_sample", "series", "chart_data", "points", "values")
+#:
+#: Procuram-se a QUALQUER profundidade (a web antiga guardava, por exemplo, o
+#: `responseData` inteiro dentro do widget, e uma cópia do `data` no
+#: `config`), menos dentro do texto gerado pela plataforma (`infographic_data`).
+CHAVES_DE_LINHAS = (
+    "data",
+    "data_sample",
+    "rows",
+    "agent_rows",
+    "series",
+    "chart_data",
+    "chartData",
+    "points",
+    "values",
+    "records",
+    "results",
+    "table_data",
+    "tableData",
+)
+
+#: Chaves de linhas que podem vir como `{columns, data}`: fica a definição.
+CHAVES_COM_DEFINICAO = ("rows", "agent_rows")
+
+#: Dentro destas não se mexe: é texto/estrutura gerada pela plataforma.
+CHAVES_GERADAS = ("infographic_data",)
+
+#: Uma `series` de configuração do gráfico (`[{dataKey, color}]`) é estilo,
+#: não dados. Só estas chaves numa entrada = estilo.
+_CHAVES_DE_ESTILO = {
+    "dataKey", "datakey", "key", "color", "colour", "stroke", "fill", "name",
+    "label", "type", "yAxisId", "axis", "format", "unit", "stack", "stackId",
+    "hidden", "strokeWidth", "dash", "icon", "column", "field",
+}
 
 #: O que um achado pode guardar no seu `rows`: a definição, nunca os dados.
 CHAVES_DA_DEFINICAO = (
@@ -103,29 +135,55 @@ def _rows_sem_dados(rows: Any) -> Any:
     return rows
 
 
-def widget_sem_linhas(tipo: Optional[str], data: Any) -> Any:
-    """O `widgets.data` sem as linhas do cliente.
+def _e_estilo(lista: list) -> bool:
+    """`[{dataKey: "total", color: "#f00"}]` — definição do gráfico, não linhas."""
+    return bool(lista) and all(
+        isinstance(x, dict) and x and set(x) <= _CHAVES_DE_ESTILO
+        and all(isinstance(v, (str, bool)) or v is None for v in x.values())
+        for x in lista
+    )
 
-    Fica a definição (pergunta, SQL, mapeamento, configuração) e o texto
-    gerado (`answer`, `infographic_data`). Saem as listas de linhas, o
-    `value` do KPI e o `chart_block.data` dos cartões de insight.
+
+def _sem_linhas(valor: Any, profundidade: int = 0) -> Any:
+    """Tira as chaves de linhas de um dicionário, a qualquer profundidade."""
+    if profundidade > 12:
+        return valor
+    if isinstance(valor, list):
+        return [_sem_linhas(x, profundidade + 1) for x in valor]
+    if not isinstance(valor, dict) or e_demo(valor):
+        return valor
+    saida: Dict[str, Any] = {}
+    for chave, v in valor.items():
+        if chave in CHAVES_GERADAS:
+            saida[chave] = v
+            continue
+        if chave in CHAVES_COM_DEFINICAO and isinstance(v, dict):
+            definicao = _rows_sem_dados(v)
+            if definicao:
+                saida[chave] = definicao
+            continue
+        if chave in CHAVES_DE_LINHAS and isinstance(v, list):
+            if chave in ("series", "values") and _e_estilo(v):
+                saida[chave] = v
+            continue
+        saida[chave] = _sem_linhas(v, profundidade + 1)
+    return saida
+
+
+def widget_sem_linhas(tipo: Optional[str], data: Any) -> Any:
+    """O `widgets.data` (ou `widgets.config`) sem as linhas do cliente.
+
+    Fica a definição (pergunta, SQL, mapeamento, configuração, as `series`
+    de estilo) e o texto gerado (`answer`, `infographic_data`). Saem, a
+    qualquer profundidade, as listas de linhas (`data`, `rows`,
+    `agent_rows`, `data_sample`, `series`, `values`, …), o
+    `chart_block.data` dos cartões de insight e o `value` do KPI.
     """
     if not isinstance(data, dict) or e_demo(data):
         return data
-    saida = dict(data)
-    for chave in CHAVES_DE_LINHAS:
-        if isinstance(saida.get(chave), list):
-            saida.pop(chave)
-    if "rows" in saida:
-        saida["rows"] = _rows_sem_dados(saida["rows"])
-        if saida["rows"] is None:
-            saida.pop("rows")
+    saida = _sem_linhas(data)
     if (tipo or "").lower() == "kpi":
         saida.pop("value", None)
-    conteudo = saida.get("content")
-    if isinstance(conteudo, dict) and isinstance(conteudo.get("chart_block"), dict):
-        bloco = {k: v for k, v in conteudo["chart_block"].items() if k != "data"}
-        saida["content"] = {**conteudo, "chart_block": bloco}
     return saida
 
 

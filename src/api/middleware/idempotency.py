@@ -11,7 +11,9 @@ nunca guardamos as linhas do cliente.
 Agora guarda-se só o que a idempotência precisa: o estado HTTP e o id do
 recurso criado. Uma repetição com a mesma chave recebe o mesmo estado e
 `{"id": ..., "idempotent_replay": true}` — e quem quiser o recurso pede-o
-pelo id, passando pelas regras de acesso de sempre.
+pelo id, passando pelas regras de acesso de sempre. Guardam-se todos os
+identificadores do topo da resposta (`id`, `job_id`, `widget_id`…), para
+uma repetição de `POST /pages/ai/build-async` continuar a trazer o `job_id`.
 """
 
 import json
@@ -94,7 +96,7 @@ async def idempotency_middleware(request: Request, call_next: Callable) -> Respo
                     json.dumps(
                         {
                             "status_code": response.status_code,
-                            "resource_id": id_do_recurso(full_body_bytes),
+                            "ids": ids_do_recurso(full_body_bytes),
                         }
                     ),
                 )
@@ -109,30 +111,51 @@ async def idempotency_middleware(request: Request, call_next: Callable) -> Respo
         return cast(Response, await call_next(request))
 
 
-def id_do_recurso(corpo: bytes) -> Any:
-    """O `id` do recurso na resposta (no topo, ou em `data.id`), se houver.
+def ids_do_recurso(corpo: bytes) -> dict:
+    """Os identificadores da resposta — `id` e qualquer `*_id` (`job_id`,
+    `widget_id`, `query_id`…) no topo ou em `data` — e nada mais.
 
-    É a única coisa do corpo que se guarda: o resto pode ser dados do cliente.
+    É a única coisa do corpo que se guarda: um id não é dado do cliente, e é
+    o que quem repete precisa (ex.: o `job_id` de uma construção assíncrona
+    para a seguir pelo estado). O resto pode ter linhas do cliente.
     """
     try:
         dados = json.loads(corpo.decode("utf-8")) if corpo else None
     except Exception:
-        return None
-    if isinstance(dados, dict):
-        if isinstance(dados.get("id"), (str, int)):
-            return dados["id"]
-        interno = dados.get("data")
-        if isinstance(interno, dict) and isinstance(interno.get("id"), (str, int)):
-            return interno["id"]
-    return None
+        return {}
+    if not isinstance(dados, dict):
+        return {}
+
+    def _ids(d: dict) -> dict:
+        return {
+            k: v
+            for k, v in d.items()
+            if (k == "id" or k.endswith("_id")) and isinstance(v, (str, int))
+            and not isinstance(v, bool)
+        }
+
+    saida = _ids(dados)
+    interno = dados.get("data")
+    if not saida and isinstance(interno, dict):
+        saida = _ids(interno)
+    return saida
+
+
+def id_do_recurso(corpo: bytes) -> Any:
+    """O `id` do recurso (compatibilidade: o primeiro identificador)."""
+    ids = ids_do_recurso(corpo)
+    return ids.get("id") if "id" in ids else next(iter(ids.values()), None)
 
 
 def resposta_de_repeticao(guardado: dict) -> Response:
-    """A resposta a uma repetição: o mesmo estado, o id, e nada mais."""
+    """A resposta a uma repetição: o mesmo estado, os ids, e nada mais."""
     from fastapi.responses import JSONResponse
 
     corpo: dict = {"idempotent_replay": True}
-    if guardado.get("resource_id") is not None:
+    ids = guardado.get("ids")
+    if isinstance(ids, dict):
+        corpo.update(ids)
+    elif guardado.get("resource_id") is not None:
         corpo["id"] = guardado["resource_id"]
     return JSONResponse(
         content=corpo,
