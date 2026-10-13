@@ -2918,7 +2918,15 @@ class AIService:
             logger.error(f"AI service timeout: {e}")
             raise HTTPException(status_code=504, detail=f"AI service timeout: {e.request.url}")
         except httpx.HTTPStatusError as e:
-            logger.error(f"AI service HTTP error: {e.response.status_code} - {e.response.text}")
+            # O corpo do sky-ai pode trazer o SQL e valores do cliente: nos
+            # registos só o estado e um excerto redigido e cortado.
+            from src.utils.log_redaction import texto_para_log
+
+            logger.error(
+                "AI service HTTP error: %s - %s",
+                e.response.status_code,
+                texto_para_log(e.response.text),
+            )
             raise HTTPException(
                 status_code=502,
                 detail=f"AI service error ({e.response.status_code}): {e.response.text}",
