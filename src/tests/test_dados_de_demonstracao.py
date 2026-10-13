@@ -23,6 +23,18 @@ import pytest
 from src.services import demo_data_service as demo
 
 
+@pytest.fixture(autouse=True)
+def _sem_chave_de_cifra(monkeypatch):
+    """Estes testes trocam o `decrypt_dict` por um falso que lê a config em
+    claro. O `encrypt_dict` passou a ler a `ENCRYPTION_KEY` a cada chamada, e
+    o `test_mfa` põe-na no `os.environ` ao ser importado — na suite completa
+    a config ia cifrada e o falso via sempre o esquema por omissão."""
+    monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
+    from src.config.settings import settings
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "test")
+
+
 class _Def:
     """As definições, com e sem base de demonstração configurada."""
 

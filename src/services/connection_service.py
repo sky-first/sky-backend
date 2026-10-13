@@ -18,6 +18,7 @@ from src.core.exceptions import (
     ForbiddenError,
     LigacaoDoSistemaError,
     NotFoundError,
+    ServiceUnavailableError,
 )
 from src.models.user import User
 from src.repositories.ai import AIQueryRepository
@@ -352,7 +353,17 @@ class ConnectionService:
                 update_data["sync_frequency"], connection.last_sync
             )
 
-        # TODO: Encrypt config if provided
+        # A config leva credenciais: nunca vai para a base em claro.
+        #
+        # Antes isto era um TODO e o PATCH gravava a config tal como vinha —
+        # passwords em texto simples, ao lado das ligações criadas cifradas.
+        # E substituía a config inteira: um PATCH só com `selected_tables`
+        # apagava a password e a ligação deixava de funcionar.
+        if "config" in update_data:
+            nova_config = update_data.pop("config")
+            if nova_config is not None:
+                update_data["config"] = self._config_para_gravar(connection.config, nova_config)
+
         await self.connection_repo.update(connection_id, **update_data)
         await self.db.commit()
 
@@ -360,6 +371,30 @@ class ConnectionService:
         connection = await self.connection_repo.get_by_id(connection_id)
 
         return ConnectionResponse.model_validate(connection)
+
+    @staticmethod
+    def _config_para_gravar(config_atual: Optional[dict], parcial: dict) -> dict:
+        """Junta a actualização parcial à config existente e cifra o resultado.
+
+        As chaves que o PATCH não traz (tipicamente a password) mantêm-se.
+        Se a config guardada estiver cifrada e não der para a decifrar (chave
+        errada), recusa: juntar por cima do blob perdia as credenciais em
+        silêncio.
+        """
+        from src.utils.encryption import encrypt_dict, is_encrypted
+
+        atual = _decrypt_config(config_atual)
+        if is_encrypted(atual):
+            raise ServiceUnavailableError(
+                "Não foi possível decifrar a configuração guardada desta "
+                "ligação; a actualização foi recusada para não perder as "
+                "credenciais."
+            )
+        # `__encrypted` é a marca interna do blob: vinda de fora, permitia
+        # gravar um blob arbitrário no lugar das credenciais.
+        parcial = {k: v for k, v in parcial.items() if k != "__encrypted"}
+        juntada = {**atual, **parcial}
+        return encrypt_dict(juntada)
 
     async def _apagar_se_a_tabela_existir(self, tabela: str, sql: str, params: dict) -> None:
         """Corre ``sql`` só se ``tabela`` existir nesta base de dados.
@@ -614,7 +649,10 @@ class ConnectionService:
             # Merge fresh connector tables with preserved user data
             fresh_tables = metadata.get("tables", [])
             merged_tables = []
-            selected_tables = connection.config.get("selected_tables")
+            # A config guardada está cifrada ({"__encrypted": ...}): ler a
+            # chave directamente no blob dava sempre None e o filtro de
+            # tabelas escolhidas nunca se aplicava.
+            selected_tables = _decrypt_config(connection.config).get("selected_tables")
 
             for fresh_table in fresh_tables:
                 if isinstance(fresh_table, dict):
