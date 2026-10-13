@@ -527,6 +527,22 @@ class Settings(BaseSettings):
         description="TTL (seconds) for cached AI responses. 0 disables caching.",
     )
 
+    # Dados ao vivo (decisão de 13/10/2026): nunca se guardam linhas do
+    # cliente. A fonte, os widgets e os achados voltam a correr o SQL.
+    DADOS_AO_VIVO_TTL_SECONDS: int = Field(
+        default=120,
+        description=(
+            "Cache curta, por pessoa, do resultado de uma reexecução (Redis, ou "
+            "memória do processo sem Redis). Nunca mais de 300 s; 0 desliga."
+        ),
+    )
+    DADOS_AO_VIVO_LIMITE_VER: int = Field(
+        default=200, description="Linhas pedidas para ver a fonte / desenhar um widget."
+    )
+    DADOS_AO_VIVO_LIMITE_CSV: int = Field(
+        default=5000, description="Linhas pedidas para o CSV da fonte."
+    )
+
     # Cache warming (background scheduler)
     CACHE_WARMING_ENABLED: bool = Field(
         default=True,

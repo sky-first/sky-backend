@@ -128,7 +128,9 @@ async def test_a_resposta_falada_guarda_a_fonte_na_mensagem_certa(test_user, db_
     assert [m.query_id is not None for m in msgs] == [False, False, False, True]
     consulta = await db_session.get(AIQuery, msgs[3].query_id)
     assert consulta.sql == _META["sql"]
-    assert consulta.data_sample == [[46]]
+    # As linhas não se guardam (13/10/2026): a fonte volta a correr o SQL.
+    assert consulta.data_sample is None
+    assert consulta.configure_data["fonte"]["total_linhas"] == 1
     assert consulta.configure_data["fonte"]["tabelas"] == ["clientes"]
     assert consulta.question == "Quantos clientes temos?"
     assert (await db_session.get(Conversation, conv_id)).title == "Olá Sky"
@@ -222,5 +224,7 @@ async def test_a_consulta_da_voz_regista_a_fonte_que_o_motor_mandou(monkeypatch)
     assert len(fontes) == 1
     assert fontes[0].pergunta == "Quantos clientes temos?"
     assert fontes[0].meta == _META
-    assert fontes[0].linhas["rows"] == [[46]]
+    # Só o que descreve as linhas fica, nem em memória até ao fim da sessão.
+    assert fontes[0].linhas["rows"] == []
+    assert fontes[0].contexto["space_id"] == "projeto-1"
     assert fontes[0].turno == 1

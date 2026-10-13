@@ -1092,7 +1092,19 @@ async def send_chat_message_stream(
                     elif event.get("type") == "meta":
                         fonte_meta = event.get("meta") or {}
                     elif event.get("type") == "rows":
-                        fonte_linhas = event
+                        # Só o que DESCREVE as linhas fica para a fonte —
+                        # colunas, quantas, se cortou. As linhas seguem para
+                        # o cliente e não se guardam (13/10/2026).
+                        fonte_linhas = {
+                            "columns": event.get("columns") or [],
+                            "rows": [],
+                            "truncated": bool(event.get("truncated")),
+                        }
+                        if fonte_meta.get("num_rows") is None:
+                            fonte_meta = {
+                                **fonte_meta,
+                                "num_rows": len(event.get("rows") or []),
+                            }
                     elif event.get("type") == "error":
                         motor_falhou = True
                     yield sse(event)
@@ -1181,6 +1193,17 @@ async def send_chat_message_stream(
                                 meta=fonte_meta,
                                 linhas=fonte_linhas,
                                 page_id=message_data.page_id,
+                                # Onde a pergunta foi feita: é o que permite
+                                # voltar a correr o SQL ao abrir a fonte.
+                                contexto={
+                                    "connection_id": resolved_connection_id,
+                                    "connection_ids": resolved_all_connection_ids,
+                                    "space_id": None
+                                    if scope_space_id == "default"
+                                    else str(scope_space_id),
+                                    "crew_id": getattr(message_data, "crew_id", None),
+                                    "is_personal": scope_is_personal,
+                                },
                             )
                         except Exception as _ferr:  # noqa: BLE001
                             logger.warning("[chat/stream] fonte não guardada: %s", _ferr)

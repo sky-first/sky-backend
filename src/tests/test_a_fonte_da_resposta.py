@@ -4,7 +4,12 @@
 > «Toda resposta é preciso a gente ter ali um botão para a gente
 >  entender de onde veio os dados… A pessoa cruzar a informação e ver se
 >  isso bate realmente. Isso é importantíssimo.» — Lucas, 09/10/2026
+
+Desde 13/10/2026 a fonte guarda a DEFINIÇÃO (SQL, tabelas, contexto) e
+nunca as linhas: ao abrir, o SQL volta a correr com as tabelas de quem
+abre. Ver `test_dados_ao_vivo.py` para as regras da reexecução.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -13,15 +18,23 @@ import pytest
 
 from src.models.page import Page
 from src.schemas.chat_stream import CLIENT_EVENT_TYPES, normalize_event
-from src.services.a_fonte_da_resposta import fonte_em_csv, fonte_para_mostrar, tem_fonte
+from src.services import dados_ao_vivo
+from src.services.a_fonte_da_resposta import (
+    consulta_guardada,
+    definicao_da_fonte,
+    fonte_em_csv,
+    tem_fonte,
+)
 from src.tests.acceptance_helpers import bearer
+
+LIGACAO = "11111111-2222-3333-4444-555555555555"
 
 # ── O contrato do stream ─────────────────────────────────────────────
 
 
 class TestOContrato:
     def test_as_linhas_passam_o_portao(self):
-        """O motor já as mandava; o portão é que as deitava fora."""
+        """As linhas seguem para quem perguntou — só não se guardam."""
         assert "rows" in CLIENT_EVENT_TYPES
         ev = normalize_event(
             {
@@ -39,76 +52,76 @@ class TestOContrato:
         }
 
     def test_uma_forma_estranha_nao_rebenta_o_cliente(self):
-        """A forma fecha-se aqui: listas sempre listas, truncado sempre bool."""
         ev = normalize_event({"type": "rows", "columns": None, "rows": "lixo", "truncated": 1})
         assert ev == {"type": "rows", "columns": [], "rows": [], "truncated": True}
 
 
-# ── O que se guarda, e o que se mostra ───────────────────────────────
+# ── O que se guarda ──────────────────────────────────────────────────
 
 
 class _Consulta:
-    def __init__(self, sql, linhas, fonte):
+    def __init__(self, sql, config):
         self.sql = sql
-        self.data_sample = linhas
-        self.configure_data = {"fonte": fonte}
+        self.data_sample = None
+        self.configure_data = config
 
 
-class TestAFonte:
+class TestADefinicao:
     def test_uma_resposta_sem_consulta_nao_tem_fonte(self):
-        """Uma saudação não consultou nada. Mostrar um botão vazio era pior."""
         assert not tem_fonte({}, {})
         assert tem_fonte({"sql": "SELECT 1"}, {})
         assert tem_fonte({"chosen_table": "clientes"}, {})
 
-    def test_mostra_as_tabelas_o_sql_e_as_linhas(self):
+    def test_a_definicao_tem_tabelas_sql_e_colunas_mas_nao_linhas(self):
         c = _Consulta(
             "SELECT cliente, total FROM vendas",
-            [["Acme", 10], ["Delta", 7]],
+            {"fonte": {"tabelas": ["vendas"], "colunas": ["cliente", "total"], "total_linhas": 2}},
+        )
+        f = definicao_da_fonte(c)
+        assert f["tabelas"] == ["vendas"]
+        assert f["colunas"] == ["cliente", "total"]
+        assert "linhas" not in f
+
+    def test_o_contexto_da_pergunta_chega_a_reexecucao(self):
+        c = _Consulta(
+            "SELECT 1",
             {
-                "tabelas": ["vendas"],
-                "colunas": ["cliente", "total"],
-                "total_linhas": 2,
-                "truncado": False,
+                "fonte": {
+                    "connection_id": LIGACAO,
+                    "space_id": "s1",
+                    "crew_id": "c1",
+                    "is_personal": False,
+                    "total_linhas": 7,
+                }
             },
         )
-        f = fonte_para_mostrar(c)
-        assert f["tabelas"] == ["vendas"]
-        assert f["sql"].startswith("SELECT")
-        assert f["linhas"] == [["Acme", 10], ["Delta", 7]]
-        assert f["truncado"] is False
+        g = consulta_guardada(c)
+        assert g.connection_id == LIGACAO
+        assert (g.space_id, g.crew_id, g.is_personal) == ("s1", "c1", False)
+        assert g.total_na_resposta == 7
 
-    def test_quando_o_motor_cortou_a_fonte_diz_quanto_havia(self):
-        """Mostrar 200 linhas sem dizer que eram 5000 fazia a pessoa cruzar
-        um pedaço como se fosse o todo — o contrário do que isto quer."""
-        c = _Consulta(
-            "SELECT *",
-            [[i] for i in range(200)],
-            {"colunas": ["n"], "total_linhas": 5000, "truncado": True},
-        )
-        f = fonte_para_mostrar(c)
-        assert f["truncado"] is True
-        assert f["total_linhas"] == 5000
-        assert len(f["linhas"]) == 200
+    def test_uma_consulta_antiga_da_web_tira_a_ligacao_do_knowledge(self):
+        c = _Consulta("SELECT 1", {"knowledge": [LIGACAO], "chosen_datasets": ["t"]})
+        assert consulta_guardada(c).connection_id == LIGACAO
+
+    def test_sem_sql_nao_ha_o_que_voltar_a_correr(self):
+        assert consulta_guardada(_Consulta(None, {"fonte": {"connection_id": LIGACAO}})) is None
 
 
 class TestOCsv:
     def _csv(self):
-        c = _Consulta(
-            "SELECT 1",
-            [["Restauración", 1234.5], ["Sem valor", None]],
-            {"colunas": ["projecto", "total"]},
+        return fonte_em_csv(
+            {
+                "colunas": ["projecto", "total"],
+                "linhas": [["Restauración", 1234.5], ["Sem valor", None]],
+            }
         )
-        return fonte_em_csv(c)
 
     def test_abre_certo_no_excel_portugues(self):
-        """`;` e não `,`: em Portugal e Espanha a vírgula é decimal, e um
-        CSV com vírgulas abre tudo numa coluna só."""
-        primeira = self._csv().lstrip("﻿").splitlines()[0]
-        assert primeira == "projecto;total"
+        """`;` e não `,`: em Portugal e Espanha a vírgula é decimal."""
+        assert self._csv().lstrip("﻿").splitlines()[0] == "projecto;total"
 
     def test_os_acentos_sobrevivem(self):
-        """Sem BOM o Excel lê UTF-8 como Latin-1: «Restauración» vira lixo."""
         texto = self._csv()
         assert texto.startswith("﻿")
         assert "Restauración" in texto
@@ -117,7 +130,7 @@ class TestOCsv:
         assert "None" not in self._csv()
 
 
-# ── Quem pode ver ────────────────────────────────────────────────────
+# ── Pelo HTTP ────────────────────────────────────────────────────────
 
 
 async def _pagina(db, dono):
@@ -147,17 +160,53 @@ async def _resposta_com_fonte(db, user, page_id):
         meta={"sql": "SELECT count(*) FROM clientes", "chosen_table": "clientes", "num_rows": 1},
         linhas={"columns": ["count"], "rows": [[2]], "truncated": False},
         page_id=page_id,
+        contexto={"connection_id": LIGACAO, "is_personal": True},
     )
     await db.commit()
     return msg
 
 
+@pytest.fixture
+def motor_falso(monkeypatch):
+    """O sky-ai e as permissões, a fingir: devolve 3 linhas de agora."""
+    dados_ao_vivo.limpar_cache_em_memoria()
+    chamadas = []
+
+    async def _sem_redis():
+        return None
+
+    async def _tabelas(db, uid, consulta):
+        return {consulta.connection_id: ["clientes"]}
+
+    async def _rerun(self, connection_id, **kw):
+        chamadas.append(kw)
+        return {
+            "columns": ["count"],
+            "rows": [[3]],
+            "row_count": 1,
+            "truncated": False,
+            "executed_at": "2026-10-13T12:00:00+00:00",
+        }
+
+    monkeypatch.setattr("src.config.redis.get_redis", _sem_redis)
+    monkeypatch.setattr(dados_ao_vivo, "tabelas_de_quem_abre", _tabelas)
+    monkeypatch.setattr("src.ai.http_client.AIServiceHTTPClient.reexecutar_sql", _rerun)
+    return chamadas
+
+
 @pytest.mark.asyncio
-async def test_quem_pode_ler_a_conversa_ve_a_fonte(
-    async_client, test_user, valid_access_token, db_session
+async def test_quem_pode_ler_a_conversa_ve_a_fonte_de_agora(
+    async_client, test_user, valid_access_token, db_session, motor_falso
 ):
+    from src.models.ai import AIQuery
+
     user = test_user["user"]
     msg = await _resposta_com_fonte(db_session, user, await _pagina(db_session, user.id))
+
+    # Nada de linhas na base: só a definição.
+    q = await db_session.get(AIQuery, msg.query_id)
+    assert q.data_sample in (None, [])
+    assert "rows" not in str(q.configure_data)
 
     r = await async_client.get(
         f"/api/v1/messages/{msg.id}/fonte", headers=bearer(valid_access_token)
@@ -165,23 +214,25 @@ async def test_quem_pode_ler_a_conversa_ve_a_fonte(
     assert r.status_code == 200, r.text
     corpo = r.json()
     assert corpo["tabelas"] == ["clientes"]
-    assert "SELECT" in corpo["sql"]
-    assert corpo["linhas"] == [[2]]
+    assert corpo["linhas"] == [[3]]  # as de AGORA, não as da resposta ([[2]])
+    assert corpo["ao_vivo"] is True
+    assert corpo["nota"] == "dados actuais, consultados agora"
+    assert corpo["total_na_resposta"] == 1
+    assert motor_falso[0]["sql"].startswith("SELECT count")
 
     csv = await async_client.get(
         f"/api/v1/messages/{msg.id}/fonte.csv", headers=bearer(valid_access_token)
     )
     assert csv.status_code == 200
     assert csv.headers["content-type"].startswith("text/csv")
-    assert "count" in csv.text
+    assert "count" in csv.text and "3" in csv.text
 
 
 @pytest.mark.asyncio
 async def test_quem_nao_pode_ler_a_conversa_nao_ve_de_onde_ela_veio(
-    async_client, test_user, valid_access_token, db_session
+    async_client, test_user, valid_access_token, db_session, motor_falso
 ):
-    """A fonte é conteúdo da conversa. **404, não 403**: dizer «existe mas
-    não podes» já é dizer que existe."""
+    """A fonte é conteúdo da conversa. **404, não 403**."""
     from src.models.user import User
 
     outro = User(
@@ -194,56 +245,32 @@ async def test_quem_nao_pode_ler_a_conversa_nao_ve_de_onde_ela_veio(
     for rota in (f"/api/v1/messages/{msg.id}/fonte", f"/api/v1/messages/{msg.id}/fonte.csv"):
         r = await async_client.get(rota, headers=bearer(valid_access_token))
         assert r.status_code == 404, (rota, r.status_code)
+    assert motor_falso == []  # nem chegou a perguntar à fonte
 
 
-# ── O caminho da web (/ai/query) ─────────────────────────────────────
+@pytest.mark.asyncio
+async def test_quem_perdeu_o_acesso_as_tabelas_leva_403(
+    async_client, test_user, valid_access_token, db_session, motor_falso, monkeypatch
+):
+    async def _nada(db, uid, consulta):
+        return {consulta.connection_id: []}
 
-
-class _ConsultaDaWeb:
-    """Como o /ai/query deixa a consulta: linhas como objectos, tabelas em
-    configure_data.chosen_datasets, e nenhuma chave `fonte`."""
-
-    def __init__(self, sql, linhas, config):
-        self.sql = sql
-        self.data_sample = linhas
-        self.configure_data = config
-
-
-class TestOCaminhoDaWeb:
-    def test_linhas_em_objectos_viram_tabela(self):
-        """Sem isto a fonte de uma resposta da web nao tinha linhas — o que
-        a pessoa quer cruzar."""
-        c = _ConsultaDaWeb(
-            "SELECT region, ingresos FROM facturacion",
-            [{"region": "Sur", "ingresos": 214300}, {"region": "Norte", "ingresos": 79600}],
-            {"chosen_datasets": ["facturacion"]},
-        )
-        f = fonte_para_mostrar(c)
-        assert f["colunas"] == ["region", "ingresos"]
-        assert f["linhas"] == [["Sur", 214300], ["Norte", 79600]]
-        assert f["tabelas"] == ["facturacion"]
-        assert f["total_linhas"] == 2
-
-    def test_uma_coluna_que_falta_numa_linha_nao_encolhe_a_tabela(self):
-        c = _ConsultaDaWeb("SELECT 1", [{"a": 1}, {"a": 2, "b": 3}], {})
-        f = fonte_para_mostrar(c)
-        assert f["colunas"] == ["a", "b"]
-        assert f["linhas"] == [[1, None], [2, 3]]
-
-    def test_o_csv_de_uma_resposta_da_web_leva_as_linhas(self):
-        c = _ConsultaDaWeb("SELECT 1", [{"region": "Sur", "ingresos": 1}], {})
-        csv = fonte_em_csv(c)
-        assert "region;ingresos" in csv
-        assert "Sur;1" in csv
+    monkeypatch.setattr(dados_ao_vivo, "tabelas_de_quem_abre", _nada)
+    user = test_user["user"]
+    msg = await _resposta_com_fonte(db_session, user, await _pagina(db_session, user.id))
+    r = await async_client.get(
+        f"/api/v1/messages/{msg.id}/fonte", headers=bearer(valid_access_token)
+    )
+    assert r.status_code == 403
+    assert motor_falso == []
 
 
 @pytest.mark.asyncio
 async def test_uma_saudacao_nao_tem_fonte_mesmo_com_consulta(
     async_client, test_user, valid_access_token, db_session
 ):
-    """O /ai/query cria uma linha em ai_queries para TODAS as perguntas, e a
-    web liga-a a resposta. Sem tabelas, SQL nem linhas, a fonte e 404 — e o
-    painel diz que nao ha fonte, em vez de abrir vazio."""
+    """O /ai/query cria uma linha em ai_queries para TODAS as perguntas. Sem
+    tabelas nem SQL, a fonte é 404."""
     from src.models.ai import AIQuery
     from src.models.conversation import Conversation, Message
 
@@ -253,8 +280,12 @@ async def test_uma_saudacao_nao_tem_fonte_mesmo_com_consulta(
     db_session.add(conv)
     await db_session.flush()
     q = AIQuery(
-        user_id=user.id, page_id=page_id, question="ola", answer="Ola!",
-        configure_data={}, data_sample=[], status="completed",
+        user_id=user.id,
+        page_id=page_id,
+        question="ola",
+        answer="Ola!",
+        configure_data={},
+        status="completed",
     )
     db_session.add(q)
     await db_session.flush()
@@ -264,5 +295,7 @@ async def test_uma_saudacao_nao_tem_fonte_mesmo_com_consulta(
     db_session.add(msg)
     await db_session.commit()
 
-    r = await async_client.get(f"/api/v1/messages/{msg.id}/fonte", headers=bearer(valid_access_token))
+    r = await async_client.get(
+        f"/api/v1/messages/{msg.id}/fonte", headers=bearer(valid_access_token)
+    )
     assert r.status_code == 404

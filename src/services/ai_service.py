@@ -43,7 +43,6 @@ from src.schemas.ai import (
 )
 from src.schemas.ai_transparency import EvidenceChunkOut, ReasoningStepOut
 from src.services.permission_service import PermissionService
-from src.utils.cache import CacheService, ai_response_cache_key
 
 logger = logging.getLogger(__name__)
 
@@ -866,6 +865,8 @@ class AIService:
         # Evidence chunks extracted from the AI engine response (when
         # present). Flows through to the W7 transparency bundle.
         extracted_evidence: List[EvidenceChunkOut] = []
+        # As linhas do motor, só para a resposta a quem perguntou (nunca gravadas).
+        linhas_ao_vivo: List[Dict[str, Any]] = []
 
         # Create query record
         configure_data = query_data.configure_data or ConfigureData(
@@ -1135,22 +1136,11 @@ class AIService:
                             )
 
                     if space_id:
-                        # Cache: short-lived response cache to avoid repeated expensive calls (e.g., Databricks spin-up)
-                        cache_key: Optional[str] = None
-                        cached_payload: Optional[Dict[str, Any]] = None  # noqa: F841
-                        if settings.AI_RESPONSE_CACHE_TTL_SECONDS > 0:
-                            try:
-                                cache_key = ai_response_cache_key(
-                                    space_id=space_id,
-                                    connection_id=connection_id,
-                                    question=configure_data.question,
-                                )
-                                await CacheService.get_json(cache_key)
-                            except Exception:
-                                logger.warning(
-                                    "AI response cache check failed (ignored)",
-                                    exc_info=True,
-                                )
+                        # A «cache de respostas» que havia aqui era só de
+                        # escrita: lia-se a chave e deitava-se o valor fora,
+                        # e gravava-se a resposta COM as linhas do cliente
+                        # no Redis. Uma cópia de dados que ninguém lia — saiu
+                        # a 13/10/2026 (ver `services/dados_ao_vivo`).
 
                         # Get crew_ids for this user (Personal mode => all crews across spaces)
                         is_personal = bool(getattr(query_data, "is_personal", False))
@@ -1489,7 +1479,38 @@ class AIService:
 
                         # Update query with real AI results
                         query.answer = result.get("answer", "")
-                        query.data_sample = result.get("data_sample", [])
+                        # As linhas vão na RESPOSTA a quem perguntou e não
+                        # se guardam (13/10/2026). A fonte guarda a definição
+                        # — ligação, projeto, equipa — para voltar a correr.
+                        linhas_ao_vivo = result.get("data_sample") or []
+                        from src.services.a_fonte_da_resposta import contexto_limpo
+
+                        _cfg_fonte = dict(query.configure_data or {})
+                        _cfg_fonte["fonte"] = {
+                            **(_cfg_fonte.get("fonte") or {}),
+                            "colunas": list(linhas_ao_vivo[0].keys())
+                            if linhas_ao_vivo and isinstance(linhas_ao_vivo[0], dict)
+                            else [],
+                            "total_linhas": (result.get("meta") or {}).get("num_rows")
+                            if isinstance(result.get("meta"), dict)
+                            and (result.get("meta") or {}).get("num_rows") is not None
+                            else len(linhas_ao_vivo),
+                            **contexto_limpo(
+                                {
+                                    "connection_id": connection_id,
+                                    "connection_ids": extra_connection_ids,
+                                    "space_id": None
+                                    if space_id_is_personal_fallback
+                                    else space_id,
+                                    "crew_id": getattr(query_data, "crew_id", None),
+                                    "is_personal": is_personal,
+                                }
+                            ),
+                        }
+                        query.configure_data = _cfg_fonte
+                        from sqlalchemy.orm.attributes import flag_modified as _fm
+
+                        _fm(query, "configure_data")
                         query.sql = result.get("sql")
                         query.status = "completed"
 
@@ -1612,31 +1633,6 @@ class AIService:
                             f"chosen_table: {chosen_table}, chosen_datasets: {chosen_datasets})"
                         )
 
-                        # Cache write (best-effort)
-                        if settings.AI_RESPONSE_CACHE_TTL_SECONDS > 0 and cache_key:
-                            try:
-                                payload = {
-                                    "answer": query.answer,
-                                    "data_sample": query.data_sample,
-                                    "sql": query.sql,
-                                    "chosen_table": chosen_table,
-                                    "chosen_datasets": chosen_datasets,
-                                    "title": dynamic_title,
-                                    "detected_language": detected_language,
-                                }
-                                await CacheService.set_json(
-                                    cache_key,
-                                    payload,
-                                    ttl=settings.AI_RESPONSE_CACHE_TTL_SECONDS,
-                                )
-                                logger.info(
-                                    f"AI response cache SET key={cache_key} ttl={settings.AI_RESPONSE_CACHE_TTL_SECONDS}s"
-                                )
-                            except Exception:
-                                logger.warning(
-                                    "AI response cache set failed (ignored)",
-                                    exc_info=True,
-                                )
                     else:
                         # Fallback to mock if no space_id
                         logger.warning(
@@ -1836,6 +1832,9 @@ class AIService:
             authorized_evidence_ids=authorised_ids,
         )
         response_dict["answer"] = finalized.answer
+
+        # As linhas de agora, só para quem perguntou — nunca gravadas.
+        response_dict["data_sample"] = linhas_ao_vivo
 
         ai_response = AIQueryResponse.model_validate(response_dict)
         ai_response.transparency = finalized.transparency

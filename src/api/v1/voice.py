@@ -435,7 +435,17 @@ async def _voice_answer(
         try:
             from src.services.voice_session_service import registar_fonte
 
-            registar_fonte(text, fonte_meta, fonte_linhas)
+            registar_fonte(
+                text,
+                fonte_meta,
+                fonte_linhas,
+                contexto={
+                    "connection_id": conn_id,
+                    "connection_ids": todas or [],
+                    "space_id": space_id,
+                    "is_personal": not space_id,
+                },
+            )
         except Exception as exc:  # noqa: BLE001 — reforço, nunca cala o turno
             logger.warning("voice: fonte não registada: %s", exc)
         return limpa

@@ -19,7 +19,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 
 from src.config.database import Base
 
@@ -44,7 +44,9 @@ class AIQuery(Base):
     )
     question = Column(Text, nullable=False)
     answer = Column(Text, nullable=True)
-    data_sample = Column(JSON, nullable=True)  # Sample data from query (max 15 rows)
+    # Já NÃO guarda linhas (decisão de 13/10/2026): fica sempre vazio. A
+    # coluna sobra por compatibilidade; a fonte volta a correr o SQL.
+    data_sample = Column(JSON, nullable=True)
     sql = Column(Text, nullable=True)  # Generated SQL query
     status = Column(
         String(50), nullable=False, default="processing", server_default="processing"
@@ -82,6 +84,16 @@ class AIQuery(Base):
         Index("idx_ai_queries_created_at", "created_at"),
         Index("idx_ai_queries_page_created", "page_id", "created_at"),
     )
+
+    @validates("data_sample")
+    def _sem_linhas_do_cliente(self, _chave, _valor):
+        """As linhas da resposta não se guardam — nunca, por nenhum caminho.
+
+        «Ver a fonte» e o CSV voltam a correr o `sql` com as tabelas de quem
+        abre (`services/dados_ao_vivo`). Quem precisa das linhas no momento
+        (a resposta ao vivo) usa-as da resposta do motor, sem as gravar.
+        """
+        return None
 
     def __repr__(self) -> str:
         return f"<AIQuery(id={self.id}, user_id={self.user_id}, status={self.status})>"

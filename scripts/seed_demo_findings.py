@@ -256,6 +256,7 @@ async def _seed(db) -> None:
         connection_id=conn_id,
         connection_name=conn_name,
         rows={
+            "demo": True,
             "columns": ["period", "subscription_revenue"],
             "data": [
                 ["2025-09", 860000],
@@ -339,6 +340,7 @@ async def _seed(db) -> None:
         connection_id=conn_id,
         connection_name=conn_name,
         rows={
+            "demo": True,
             "columns": ["customer", "mrr", "health_score", "contract_end"],
             "data": [
                 ["Acme Corp", 45000, 92, "2026-01-15"],
@@ -417,6 +419,7 @@ async def _seed(db) -> None:
         connection_id=conn_id,
         connection_name=conn_name,
         rows={
+            "demo": True,
             "columns": ["customer", "mrr", "share_pct", "health_score"],
             "data": [
                 ["DeltaForce Defense", 60000, 5.6, 70],

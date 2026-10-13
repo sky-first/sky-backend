@@ -170,9 +170,9 @@ class MessageService:
         consulta = await self.db.get(AIQuery, msg.query_id)
         if consulta is None:
             raise NotFoundError("Esta resposta nao tem fonte")
-        from src.services.a_fonte_da_resposta import fonte_para_mostrar, tem_o_que_mostrar
+        from src.services.a_fonte_da_resposta import tem_o_que_mostrar
 
-        if not tem_o_que_mostrar(fonte_para_mostrar(consulta)):
+        if not tem_o_que_mostrar(consulta):
             raise NotFoundError("Esta resposta nao tem fonte")
         return consulta
 
@@ -691,6 +691,9 @@ class MessageService:
             data={},
             conversation_id=conv.id,
             pinned_message_id=msg.id,
+            # A consulta da resposta: é por ela que o widget volta a correr o
+            # SQL ao abrir — as linhas nunca se copiam para o widget.
+            query_id=msg.query_id,
             created_by=user.id,
         )
         self.db.add(widget)

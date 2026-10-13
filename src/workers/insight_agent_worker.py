@@ -238,6 +238,12 @@ async def _call_ai_run_agent(
     data_sample: list = (
         response.get("data_sample", []) if isinstance(response, dict) else []
     )
+    # O SQL e as colunas — a definição que o widget guarda. As linhas ficam
+    # só em memória, para o hash do delta, e não se gravam.
+    sql_da_corrida = response.get("sql") if isinstance(response, dict) else None
+    colunas_da_corrida = (
+        list(data_sample[0].keys()) if data_sample and isinstance(data_sample[0], dict) else []
+    )
 
     # ── 4. Delta detection — SHA-256 content hash ─────────────────────
     canonical = json.dumps(data_sample, sort_keys=True, default=str)
@@ -305,29 +311,28 @@ async def _call_ai_run_agent(
                     widget.id,
                 )
                 widget.data = {**base, "answer": answer}
-        elif widget.type == "kpi":
-            value = None
-            if data_sample and isinstance(data_sample[0], dict):
-                vals = list(data_sample[0].values())
-                value = vals[0] if vals else None
-            widget.data = {**base, "answer": answer, "value": value, "data": data_sample}
-        elif widget.type == "chart":
-            widget.data = {**base, "answer": answer, "data": data_sample}
-        elif widget.type == "table":
-            columns = (
-                list(data_sample[0].keys())
-                if data_sample and isinstance(data_sample[0], dict)
-                else []
-            )
-            widget.data = {**base, "answer": answer, "columns": columns, "rows": data_sample}
         else:
-            widget.data = {**base, "answer": answer, "data_sample": data_sample[:15]}
+            # Só a DEFINIÇÃO e o texto gerado — as linhas não se guardam
+            # (decisão de 13/10/2026). Quem abre o widget recebe as linhas de
+            # agora pelo `GET /widgets/{id}/data`, que volta a correr o SQL.
+            widget.data = {
+                **base,
+                "answer": answer,
+                "sql": sql_da_corrida or existing.get("sql"),
+                "columns": colunas_da_corrida or existing.get("columns") or [],
+            }
 
         widget.updated_at = now_ts
 
     return {
         "result_hash": result_hash,
-        "result_payload": {"rows": data_sample[:100], "schema": []},
+        # Números sobre o resultado, nunca as linhas: eram 100 por corrida, e o
+        # agendador corre de minuto a minuto. O delta usa o `result_hash`.
+        "result_payload": {
+            "row_count": len(data_sample),
+            "columns": colunas_da_corrida,
+            "data_bytes": len(canonical),
+        },
         "delta": {"kind": delta_kind, "summary": delta_summary},
         "tokens": {"in": 0, "out": 0},
         "cost_usd": 0.0,

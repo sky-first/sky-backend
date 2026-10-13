@@ -875,6 +875,9 @@ async def get_agent_metrics(
         payload = getattr(e, "result_payload", None)
         if payload is None:
             return 0
+        # Desde 13/10/2026 a corrida guarda o tamanho e não as linhas.
+        if isinstance(payload, dict) and isinstance(payload.get("data_bytes"), int):
+            return int(payload["data_bytes"])
         try:
             return len(json.dumps(payload, default=str))
         except Exception:
@@ -1015,6 +1018,9 @@ async def get_tenant_agent_metrics(
         payload = getattr(e, "result_payload", None)
         if payload is None:
             return 0
+        # Desde 13/10/2026 a corrida guarda o tamanho e não as linhas.
+        if isinstance(payload, dict) and isinstance(payload.get("data_bytes"), int):
+            return int(payload["data_bytes"])
         try:
             return len(json.dumps(payload, default=str))
         except Exception:

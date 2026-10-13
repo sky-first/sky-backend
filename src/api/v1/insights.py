@@ -2,6 +2,7 @@
 
     GET  /api/v1/insights?filter=&cursor=&limit=   — paginated, scoped feed
     GET  /api/v1/insights/{id}                      — detail (+ series, tiles)
+    GET  /api/v1/insights/{id}/dados                — as linhas de AGORA (reexecuta)
     POST /api/v1/insights/{id}/review { reviewed }  — per-user, idempotent
     POST /api/v1/insights/{id}/pin    { pinned }    — per-user, idempotent
 
@@ -96,6 +97,43 @@ async def get_insight(
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
     return detail
+
+
+@router.get(
+    "/{finding_id}/dados",
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+    summary="As linhas do achado, lidas agora",
+    description=(
+        "O achado guarda o SQL e a ligação, nunca as linhas (13/10/2026). Aqui o "
+        "SQL volta a correr com as tabelas de quem abre, no âmbito do agente "
+        "(equipa, projeto ou pessoal). Devolve `colunas`, `linhas`, `serie` "
+        "(`[{t, v}]`, quando há uma coluna de rótulo e uma numérica) e a nota "
+        "«dados actuais, consultados agora». 404 se o achado não é visível; 403 "
+        "se quem abre já não tem acesso às tabelas. Ver "
+        "`docs/contrato-dados-ao-vivo-2026-10.md`."
+    ),
+)
+async def insight_dados(
+    finding_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    from src.core.exceptions import ForbiddenError
+    from src.services.dados_ao_vivo import dados_do_achado
+
+    servico = InsightFeedService(db)
+    linha = await servico._scoped_row(current_user.id, finding_id)
+    if linha is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
+    achado, agente, _estado = linha
+    try:
+        return await dados_do_achado(db, current_user, achado, agente)
+    except ForbiddenError as erro:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=erro.message)
 
 
 @router.post(

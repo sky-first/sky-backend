@@ -488,11 +488,16 @@ class AgentService:
         # Build the widget payload. Frontend Cockpit picks columns/rows
         # from data.rows and the chart kind from data.viz_kind. The
         # description / reasoning surface as the card body.
+        # `rows` é a DEFINIÇÃO do achado (SQL, ligação, colunas) — as linhas
+        # não se guardam (13/10/2026). O widget volta a correr o SQL quando
+        # abre (`GET /widgets/{id}/data`).
+        definicao = finding.rows if isinstance(finding.rows, dict) else {}
         widget_data = {
             "title": finding.title,
             "description": finding.description,
             "viz_kind": finding.viz_kind,
             "rows": finding.rows or None,
+            "sql": definicao.get("sql"),
             "source": "agent_finding",
             "finding_id": str(finding.id),
             "agent_id": str(agent.id),

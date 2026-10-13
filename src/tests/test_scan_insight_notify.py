@@ -78,8 +78,10 @@ async def test_t03_1_records_structured_finding(db_session):
     assert finding.type == "risk"  # severity        → type
     assert finding.severity == "high"  # severity_level  → severity
     assert finding.title == "North sales down 18%"
-    assert finding.viz_kind == "line"  # has a series → line
-    assert len(finding.series) == 2
+    # A série são valores do cliente e não se guarda (13/10/2026); o scan não
+    # deixa SQL para a reler, por isso o cartão é o número grande + tiles.
+    assert finding.viz_kind == "big_number"
+    assert finding.series == []
     assert finding.stat_tiles[0]["label"] == "Change"
     assert str(finding.space_id) == payload.space_id
 

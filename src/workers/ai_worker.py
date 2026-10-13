@@ -578,6 +578,10 @@ async def _build_dashboard_job_async(job_id: str) -> None:
                     )
                     query_resp = await ai_service.process_query(user_id, ai_req)
 
+                    # As linhas (`data`, `chart_block.data`) servem só o título
+                    # e o infográfico, aqui em memória: o modelo `Widget` tira-as
+                    # antes de gravar (13/10/2026). O widget guarda o `sql` e o
+                    # `query_id`, e o `GET /widgets/{id}/data` volta a correr.
                     widget_data = {
                         "question": w.get("question"),
                         "answer": query_resp.answer,

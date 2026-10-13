@@ -656,6 +656,58 @@ class AIServiceHTTPClient:
             response.raise_for_status()
             return response.json()  # type: ignore
 
+    async def reexecutar_sql(
+        self,
+        connection_id: str,
+        *,
+        sql: str,
+        user_id: str,
+        space_id: Optional[str],
+        tabelas_autorizadas: Dict[str, List[str]],
+        connection_ids: Optional[List[str]] = None,
+        security_config: Optional[Dict[str, Any]] = None,
+        max_rows: int = 200,
+    ) -> Dict[str, Any]:
+        """Volta a correr um SQL guardado (só leitura) — `POST /connections/{id}/rerun`.
+
+        Não é uma pergunta: não passa pelo LLM e **não gasta o plano**. As
+        tabelas vão calculadas para quem ABRE (ver `services/dados_ao_vivo`).
+        Uma recusa do sky-ai (403 sem acesso, 422 não reexecutável, 404,
+        5xx) sai como `ReexecucaoRecusada`, com o estado e o código.
+        """
+        from src.services.dados_ao_vivo import ReexecucaoRecusada
+
+        url = f"{self.base_url}/connections/{connection_id}/rerun"
+        payload: Dict[str, Any] = {
+            "sql": sql,
+            "user_id": user_id,
+            "space_id": space_id,
+            "tabelas_autorizadas": tabelas_autorizadas,
+            "max_rows": int(max_rows),
+        }
+        if connection_ids:
+            payload["connection_ids"] = connection_ids
+        if security_config:
+            payload["security_config"] = security_config
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=self._tenant_headers()
+            ) as client:
+                response = await client.post(url, json=payload)
+        except httpx.HTTPError as exc:
+            logger.warning("rerun: sky-ai indisponível: %s", exc)
+            raise ReexecucaoRecusada(503, "fonte_indisponivel")
+        if response.status_code >= 400:
+            codigo = None
+            try:
+                detalhe = (response.json() or {}).get("detail")
+                if isinstance(detalhe, dict):
+                    codigo = detalhe.get("code")
+            except Exception:  # noqa: BLE001
+                codigo = None
+            raise ReexecucaoRecusada(response.status_code, codigo)
+        return response.json()  # type: ignore
+
     async def suggest_widget_title(
         self,
         question: str,

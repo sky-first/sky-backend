@@ -21,7 +21,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import backref, relationship
+from sqlalchemy.orm import backref, relationship, validates
 
 from src.config.database import Base
 
@@ -130,6 +130,21 @@ class Widget(Base):
             postgresql_where=text("created_by_agent_id IS NOT NULL"),
         ),
     )
+
+    @validates("data", "config")
+    def _sem_linhas_do_cliente(self, _chave, valor):
+        """Nunca se guardam linhas do cliente num widget (decisão de 13/10/2026).
+
+        Guarda-se a definição (SQL, ligação, mapeamento) e o texto gerado; as
+        linhas vêm do `GET /widgets/{id}/data`, que volta a correr o SQL. A
+        guarda está AQUI, no modelo, para valer em todos os caminhos que
+        gravam — o FE, os workers, os scripts. Vale também para o `config`:
+        a web antiga guardava lá uma cópia completa do `data`. Ver
+        `services/dados_ao_vivo`.
+        """
+        from src.services.dados_ao_vivo import widget_sem_linhas
+
+        return widget_sem_linhas(self.type, valor)
 
     def __repr__(self) -> str:
         return f"<Widget(id={self.id}, type={self.type}, title={self.title})>"
