@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserBase(BaseModel):
@@ -165,6 +165,16 @@ class UserResponse(UserBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("preferences", mode="before")
+    @classmethod
+    def _preferencias_como_os_clientes_as_leem(cls, valor):
+        """«auto» na língua das respostas quando a conta nunca escolheu, e
+        nenhum tema que a conta não guarda — ver `core/preferences.py`. Uma
+        regra só para o `/auth/me`, o `/users/me` e o resto."""
+        from src.core.preferences import preferencias_para_ler
+
+        return preferencias_para_ler(valor if isinstance(valor, dict) else None)
 
 
 class LoginRequest(BaseModel):

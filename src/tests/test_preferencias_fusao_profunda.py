@@ -104,11 +104,12 @@ async def test_lingua_resposta_e_tema_mudam_cada_um_sem_tocar_nos_outros(
     assert prefs["answer_language"] == "es"
     assert prefs["theme"] == "dark"
 
-    # Uma chave a null apaga só essa.
+    # Uma chave a null apaga só essa — e a conta volta à omissão, «Segue a
+    # sua pergunta» (`auto`), que é o que os dois clientes passam a ler.
     r = await async_client.put(
         "/api/v1/settings", headers=h, json={"preferences": {"answer_language": None}}
     )
     assert r.status_code == 200
     prefs = (await async_client.get("/api/v1/settings", headers=h)).json()["preferences"]
-    assert "answer_language" not in prefs
+    assert prefs["answer_language"] == "auto"
     assert prefs["language"] == "en" and prefs["theme"] == "dark"

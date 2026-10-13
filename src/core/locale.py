@@ -517,14 +517,18 @@ def lingua_da_resposta(preferences: dict | None, *, permitir_auto: bool = False)
     Até aqui havia uma só preferência, `language`, a servir as duas
     coisas. Agora `answer_language` sobrepõe-se quando existe.
 
-    ⚠️ Vazio **não** é «inglês»: é «como a interface». Um `or` simples
-    sobre a string vazia dá exactamente o comportamento certo, e é por
-    isso que o valor por omissão é `""` e não `None` — uma preferência
-    gravada como `""` lê-se igual a uma que nunca foi gravada, que é o
-    que queremos.
+    ⚠️ Vazio é **«Segue a sua pergunta»** (`auto`) desde 13/10/2026 —
+    a mesma omissão nos dois clientes (a app já marcava isto; a web
+    marcava a língua da interface, e a mesma conta respondia em línguas
+    diferentes conforme o aparelho). Uma preferência gravada como `""`
+    lê-se igual a uma que nunca foi gravada.
+
+    Quem não sabe tratar `auto` (`permitir_auto=False`: textos sem pergunta
+    a seguir, como o «agente na fila» ou o SQL gerado) recebe a língua da
+    interface — não há pergunta nenhuma de onde tirar a língua.
     """
     prefs = preferences or {}
-    escolhida = (prefs.get("answer_language") or "").strip()
+    escolhida = (prefs.get("answer_language") or "").strip() or LINGUA_AUTOMATICA
     # «Segue a sua pergunta» guardado na conta (a web grava-o assim). Só
     # quem sabe converter `auto` em «deixa o motor detectar» o pede; os
     # outros recebem a língua da interface, como antes.

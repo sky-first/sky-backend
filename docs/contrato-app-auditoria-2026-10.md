@@ -91,6 +91,29 @@ arquivados. `SpaceResponse.archived_at` (`null` = activo) decide «Arquivar» vs
 
 ## 11. Perfil
 
+### Língua das respostas e tema: uma regra para os dois clientes (13/10)
+
+- **`preferences.answer_language` vazio ou ausente = `"auto"`** («Segue a sua
+  pergunta»). `GET /auth/me`, `GET /users/me` e `GET /settings` devolvem
+  `"auto"` quando a conta nunca escolheu, por isso a web e a app marcam a
+  mesma opção. Sem `locale` no pedido, `/ai/chat/stream`, `/ai/query` e
+  `/ai/chat` deixam o motor detectar a língua da pergunta.
+  - Voz: a resposta vem na língua falada (`locale` do `start`), que é a da
+    pergunta.
+  - Agentes e textos sem pergunta (agente na fila, SQL gerado): língua da
+    interface, porque não há pergunta de onde a tirar.
+  - A web ainda manda a língua da interface no `locale` quando a conta está
+    vazia (`lib/api/ai.ts`): com o `"auto"` vindo do servidor, deixa de
+    acontecer sem mudar código.
+- **`preferences.theme` só guarda `light` ou `dark`.** «Sistema» (seguir o
+  aparelho) fica em cada aparelho. Um `"system"` (ou outro valor) em
+  `PUT /settings` (`theme` ou `preferences.theme`) ou `PUT /users/me` é
+  **ignorado**: fica o claro/escuro que lá estava. Um `"system"` antigo não
+  sai nas leituras e é limpo na próxima escrita. `theme: null` continua a
+  apagar a chave. A app deve deixar de gravar «Sistema» na conta e de o
+  aplicar vindo de lá.
+
+
 `preferences.nickname` e `preferences.response_preferences` (texto, até 60 e
 500 caracteres úteis) passam a ir para o motor nas `instructions` de
 `/ai/chat/stream`, `/ai/query` e `/ai/chat`. O `nickname` também serve para

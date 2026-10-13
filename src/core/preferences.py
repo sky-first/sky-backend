@@ -37,3 +37,62 @@ def deep_merge_preferences(
         else:
             resultado[chave] = copy.deepcopy(valor)
     return resultado
+
+
+# ─── Regras da conta (paridade web ↔ app, 13/10/2026) ───────────────────
+
+#: Os únicos temas que a conta guarda. «Sistema» (seguir o aparelho) é uma
+#: escolha de CADA aparelho: o telemóvel escuro à noite não pode pôr a web do
+#: escritório às escuras. A web já não o gravava; a app gravava-o e aplicava-o
+#: vindo da conta — a mesma conta via regras opostas.
+TEMAS_DA_CONTA = ("light", "dark")
+
+#: «Segue a sua pergunta». A omissão quando a conta nunca escolheu a língua
+#: das respostas — a app já marcava isto; a web marcava a língua da
+#: interface, e a mesma pergunta vinha em línguas diferentes conforme o
+#: aparelho.
+RESPOSTA_SEGUE_A_PERGUNTA = "auto"
+
+
+def tema_valido(valor: Any) -> bool:
+    return isinstance(valor, str) and valor.strip().lower() in TEMAS_DA_CONTA
+
+
+def sem_tema_do_aparelho(patch: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """O pedido de escrita, sem um ``theme`` que a conta não guarda.
+
+    ``"system"`` (ou outro valor qualquer) é **ignorado**: fica o claro/escuro
+    que lá estava, que é o que os outros aparelhos continuam a mostrar.
+    ``None`` continua a apagar a chave.
+    """
+    limpo: Dict[str, Any] = dict(patch or {})
+    if "theme" in limpo and limpo["theme"] is not None:
+        if tema_valido(limpo["theme"]):
+            limpo["theme"] = limpo["theme"].strip().lower()
+        else:
+            limpo.pop("theme")
+    return limpo
+
+
+def preferencias_para_ler(prefs: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """O que os clientes recebem em ``preferences`` (cópia; não toca na base).
+
+    - ``answer_language`` vazio ou ausente → ``"auto"``;
+    - um ``theme`` antigo que não é claro/escuro (``"system"`` gravado pela
+      app antes desta regra) não sai.
+    """
+    lidas: Dict[str, Any] = copy.deepcopy(dict(prefs or {}))
+    if not str(lidas.get("answer_language") or "").strip():
+        lidas["answer_language"] = RESPOSTA_SEGUE_A_PERGUNTA
+    if "theme" in lidas and not tema_valido(lidas["theme"]):
+        lidas.pop("theme")
+    return lidas
+
+
+def sanear_ao_gravar(prefs: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """O dicionário final a gravar: tira um ``theme`` inválido que já lá
+    estivesse (legado), para a base deixar de o ter."""
+    final: Dict[str, Any] = dict(prefs or {})
+    if "theme" in final and not tema_valido(final["theme"]):
+        final.pop("theme")
+    return final
