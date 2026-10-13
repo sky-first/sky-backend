@@ -227,6 +227,16 @@ class ChatMessageRequest(BaseModel):
     mentions: List[UUID] = Field(
         default_factory=list, description="User ids @-mentioned in this question."
     )
+    # Responder / citar: a mensagem do fio a que esta pergunta responde. Só
+    # conta quando o turno é gravado e a mensagem é da MESMA conversa (e não
+    # está apagada); doutra forma é ignorada — nunca liga duas conversas.
+    parent_message_id: Optional[UUID] = Field(
+        None,
+        description=(
+            "Reply/quote: id of a message in the same conversation this question "
+            "answers. Ignored unless the turn is persisted into that conversation."
+        ),
+    )
     # Explicit collaborative context fields (preferred over context dict)
     space_id: Optional[str] = Field(None, description="Space ID for context")
     crew_id: Optional[str] = Field(None, description="Active crew ID (collaborative mode)")

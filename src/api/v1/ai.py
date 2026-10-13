@@ -983,6 +983,25 @@ async def send_chat_message_stream(
         except Exception as _agent_err:  # noqa: BLE001
             logger.debug("[chat/stream] agent context skipped: %s", _agent_err)
 
+    # Responder / citar (`parent_message_id`). Só uma mensagem viva da MESMA
+    # conversa: um id doutra conversa (ou inventado) é ignorado, para uma
+    # resposta nunca apontar para um fio que quem lê não vê.
+    citada_id = None
+    _pedido_citada = getattr(message_data, "parent_message_id", None)
+    if _pedido_citada and conv_id is not None:
+        try:
+            from src.models.conversation import Message as _Msg
+
+            _citada = await db.get(_Msg, _pedido_citada)
+            if (
+                _citada is not None
+                and _citada.conversation_id == conv_id
+                and _citada.deleted_at is None
+            ):
+                citada_id = _citada.id
+        except Exception as _cit_err:  # noqa: BLE001
+            logger.debug("[chat/stream] parent_message_id skipped: %s", _cit_err)
+
     # A memória da conversa — uma conversa, uma memória. Sem fio, o `sky-ai`
     # guardava o histórico por pessoa + ligação e uma conversa nova herdava o
     # contexto de outra. Ver `services/fio_da_conversa.py`.
@@ -1093,6 +1112,7 @@ async def send_chat_message_stream(
                         kind="question",
                         content=message_data.message,
                         user_id=current_user.id,
+                        parent_message_id=citada_id,
                     )
                     resposta_texto = "".join(answer_parts)
                     tem_resposta = not motor_falhou and bool(resposta_texto.strip())
