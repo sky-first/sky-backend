@@ -65,6 +65,12 @@ class AuditAction(str, Enum):
     # writes — auth / RBAC
     GRANT_ROLE = "grant_role"
     REVOKE_ROLE = "revoke_role"
+    # writes — fontes do sistema (docs/contrato-fontes-do-sistema.md)
+    ENABLE_SYSTEM_SOURCE = "enable_system_source"
+    DISABLE_SYSTEM_SOURCE = "disable_system_source"
+    EDIT_SYSTEM_SOURCE = "edit_system_source"
+    RETIRE_SYSTEM_SOURCE = "retire_system_source"
+    RECONCILE_SYSTEM_SOURCES = "reconcile_system_sources"
 
 
 class AuditResult(str, Enum):
@@ -162,7 +168,9 @@ class InternalConsoleAudit(Base):
             "'create_tenant', 'update_tenant', 'suspend_tenant', "
             "'resume_tenant', 'destroy_tenant', 'change_tier', "
             "'update_capacity', 'update_db_config', 'test_db_config', "
-            "'grant_role', 'revoke_role')",
+            "'grant_role', 'revoke_role', 'enable_system_source', "
+            "'disable_system_source', 'edit_system_source', "
+            "'retire_system_source', 'reconcile_system_sources')",
             name="internal_console_audit_action_check",
         ),
         CheckConstraint(

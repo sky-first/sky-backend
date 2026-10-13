@@ -438,6 +438,27 @@ class Settings(BaseSettings):
     # using the registry row's ``db_host`` / ``db_name``.
     TENANT_DB_URL_TEMPLATE: str = ""
 
+    # ── Fontes do sistema (dados públicos geridos pela Sky) ───────────
+    # Ver docs/contrato-fontes-do-sistema.md. DESLIGADO por omissão: com
+    # isto a false, a Consola responde 404 às rotas novas, nenhuma tarefa
+    # mexe na base `sky_world` e nenhum projecto ganha a ligação «Dados
+    # públicos». Liga-se primeiro no sandbox, depois em produção.
+    FONTES_SISTEMA_ENABLED: bool = False
+    # DSN do papel `world_admin` (CREATEROLE, não é dono das tabelas).
+    # Vem de um ExternalSecret; nunca do repositório.
+    WORLD_ADMIN_DSN: str = ""
+    # Onde o papel de cada cliente (`wt_<slug>`) se liga. É o que fica na
+    # config da ligação gerida — sem password.
+    WORLD_DB_HOST: str = ""
+    WORLD_DB_PORT: int = 5432
+    WORLD_DB_NAME: str = "sky_world"
+    WORLD_SCHEMA: str = "mundo"
+    WORLD_SSL_MODE: str = "require"
+    # Onde fica a password de cada `wt_<slug>`: "aws" (Secrets Manager, em
+    # produção) ou "local" (derivada do ENCRYPTION_KEY — só dev e testes).
+    WORLD_CREDENTIAL_BACKEND: str = "aws"
+    WORLD_TENANT_SECRET_PREFIX: str = "sky/production/world/tenants/"
+
     # Hard-fail when business logic reaches the DB without a real
     # tenant context (Projeto A PR #14). Off by default — flip to True
     # only after every customer-facing route has been verified to

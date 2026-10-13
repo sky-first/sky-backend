@@ -166,6 +166,7 @@ celery_app.conf.update(
         "src.workers.pricing_worker",
         "src.workers.provisioning_worker",
         "src.workers.llm_metrics_worker",
+        "src.workers.fontes_sistema_worker",
     ],
 )
 
@@ -231,6 +232,13 @@ try:
         "snapshot-llm-metrics": {
             "task": "src.workers.llm_metrics_worker.snapshot_llm_metrics",
             "schedule": timedelta(hours=24),
+        },
+        # Fontes do sistema: GRANT/REVOKE, ligação gerida e space_tables de
+        # cada cliente com fontes, de hora a hora. Sem FONTES_SISTEMA_ENABLED
+        # a tarefa devolve logo, sem tocar em nada.
+        "reconciliar-fontes-sistema": {
+            "task": "src.workers.fontes_sistema_worker.reconciliar_fontes_sistema",
+            "schedule": timedelta(hours=1),
         },
     }
     interval = int(getattr(settings, "CACHE_WARMING_INTERVAL_SECONDS", 300) or 300)

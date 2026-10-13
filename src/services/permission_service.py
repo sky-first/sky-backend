@@ -109,6 +109,10 @@ class PermissionService:
         if not connection:
             raise NotFoundError("Connection not found")
 
+        from src.services.connection_service import recusar_se_for_do_sistema
+
+        recusar_se_for_do_sistema(connection)
+
         if connection.created_by != user.id:
             raise ForbiddenError("Access denied to this connection")
 

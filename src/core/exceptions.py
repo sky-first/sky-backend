@@ -31,6 +31,27 @@ class ForbiddenError(BaseAPIException):
         super().__init__(message, status_code=403)
 
 
+class LigacaoDoSistemaError(ForbiddenError):
+    """403 numa mutação da ligação gerida «Dados públicos» (fontes do sistema).
+
+    A web e a app leem ``details.reason == "ligacao_do_sistema"`` e mostram
+    o cadeado «Gerida pela Sky» em vez de um erro genérico.
+    """
+
+    REASON = "ligacao_do_sistema"
+
+    def __init__(self, message: str = "Esta ligação é gerida pela Sky e não pode ser alterada."):
+        super().__init__(message)
+        self.details = {
+            "reason": self.REASON,
+            "messages": {
+                "pt": "Esta ligação é gerida pela Sky e não pode ser alterada.",
+                "es": "Esta conexión la gestiona Sky y no se puede modificar.",
+                "en": "This connection is managed by Sky and cannot be changed.",
+            },
+        }
+
+
 class NotFoundError(BaseAPIException):
     """Not found error (404)."""
 

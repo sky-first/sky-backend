@@ -137,6 +137,16 @@ from src.api.v1.console_provisioning import (  # noqa: E402
 app.include_router(
     console_router, prefix="/api/console/v1", tags=["Internal Console"]
 )
+# Fontes do sistema (dados públicos por cliente) — 404 com a flag desligada.
+from src.api.v1.console_fontes_sistema import (  # noqa: E402
+    router as console_fontes_sistema_router,
+)
+
+app.include_router(
+    console_fontes_sistema_router,
+    prefix="/api/console/v1",
+    tags=["Internal Console / Fontes do sistema"],
+)
 # Provisioning workflow engine — webhook + SSE under the same prefix.
 # Kept as a sibling router so the workflow code stays out of
 # console.py and has its own audit footprint.

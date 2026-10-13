@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.ai.http_client import AIServiceHTTPClient
 from src.config.settings import get_settings
 from src.connectors.registry import get_connector
-from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
+from src.core.exceptions import (
+    BadRequestError,
+    ForbiddenError,
+    LigacaoDoSistemaError,
+    NotFoundError,
+)
 from src.models.user import User
 from src.repositories.ai import AIQueryRepository
 from src.repositories.connection import ConnectionMetadataRepository, ConnectionRepository
@@ -43,6 +48,17 @@ def _decrypt_config(config: Optional[dict]) -> dict:
     from src.utils.encryption import decrypt_dict
 
     return decrypt_dict(config)
+
+
+def recusar_se_for_do_sistema(connection) -> None:
+    """403 ``ligacao_do_sistema`` para mutações da ligação gerida «Dados públicos».
+
+    Ninguém do cliente edita, apaga, testa ou mexe nas permissões da ligação
+    do sistema (S15). O ``sync`` manual continua permitido: é inofensivo e
+    passa pelo mesmo conector, com a mesma credencial só-leitura.
+    """
+    if getattr(connection, "sistema", False):
+        raise LigacaoDoSistemaError()
 
 
 class ConnectionService:
@@ -220,6 +236,14 @@ class ConnectionService:
         except Exception:
             raise BadRequestError(f"Invalid connector_id: {connection_data.connector_id}")
 
+        # A ligação «Dados públicos» só nasce pelo provisionamento das fontes
+        # do sistema (S14/S15): um cliente não cria uma à mão, nem com a
+        # `credential_ref` de outro cliente.
+        from src.services.fontes_sistema.catalogo import CONECTOR as _CONECTOR_SISTEMA
+
+        if connection_data.connector_id == _CONECTOR_SISTEMA:
+            raise LigacaoDoSistemaError()
+
         # O plano do cliente: Starter 1 fonte, Core 2, Plus 5 (10/10/2026).
         # No serviço e não na rota — qualquer caminho que crie uma ligação
         # passa por aqui. Ver docs/PLANOS_E_LIMITES_2026-10.md.
@@ -305,6 +329,7 @@ class ConnectionService:
         connection = await self.connection_repo.get_by_id(connection_id)
         if not connection:
             raise NotFoundError("Connection not found")
+        recusar_se_for_do_sistema(connection)
 
         # Red-team HI-002: creator can always edit; non-creator needs
         # `connections.edit` in the connection's space (viewer/edit-
@@ -371,6 +396,7 @@ class ConnectionService:
         connection = await self.connection_repo.get_by_id(connection_id)
         if not connection:
             raise NotFoundError("Connection not found")
+        recusar_se_for_do_sistema(connection)
 
         settings = get_settings()
 
@@ -490,6 +516,7 @@ class ConnectionService:
         connection = await self.connection_repo.get_by_id(connection_id)
         if not connection:
             raise NotFoundError("Connection not found")
+        recusar_se_for_do_sistema(connection)
 
         await self._assert_user_can_access_connection(connection_id, user)
 
@@ -839,6 +866,7 @@ class ConnectionService:
         connection = await self.connection_repo.get_by_id(connection_id)
         if not connection:
             raise NotFoundError("Connection not found")
+        recusar_se_for_do_sistema(connection)
 
         await self._assert_user_can_access_connection(connection_id, user)
 

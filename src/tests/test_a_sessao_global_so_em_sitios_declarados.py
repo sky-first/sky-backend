@@ -48,6 +48,12 @@ DA_PLATAFORMA: dict[str, str] = {
         "defeito: lá nascia «enterprise sem tecto» e nenhum cliente tinha "
         "limites."
     ),
+    "services/fontes_sistema/provisionamento.py": (
+        "o catálogo e a activação das fontes do sistema vivem na base da "
+        "plataforma (só a Consola escreve). O que é do cliente (ligação, "
+        "projectos, space_tables) abre-se com session_for dentro de "
+        "contexto_do_cliente(slug) — nunca com a sessão global."
+    ),
     "config/database.py": ("a fábrica. É aqui que a sessão global é definida."),
     "config/tenant_connection_manager.py": (
         "o recurso do próprio gestor quando não há cliente. É o desenho."

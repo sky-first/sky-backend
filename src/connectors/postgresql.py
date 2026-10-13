@@ -133,6 +133,11 @@ class PostgreSQLConnector(BaseConnector):
 
         Note: row_count is an estimate based on reltuples from pg_class for performance.
 
+        Only tables the connected role can actually SELECT are returned
+        (``has_table_privilege``). A table the credential cannot read is not
+        part of what this connection can answer, and listing it leaks the
+        catalogue (fontes do sistema, S3).
+
         If config["schema"] is set to a valid identifier, only tables in
         that schema are returned. This is what makes the per-department
         Demo connections (e.g. `Demo — Sales` → schema crm) show only
@@ -153,6 +158,13 @@ class PostgreSQLConnector(BaseConnector):
                 JOIN pg_namespace n ON n.oid = c.relnamespace
                 WHERE n.nspname NOT IN ('information_schema', 'pg_catalog')
                 AND c.relkind = 'r'
+                -- Só o que este utilizador pode ler. Sem isto a descoberta
+                -- listava tabelas a que a credencial não tem acesso: as
+                -- perguntas falhavam com «permission denied» e, na ligação
+                -- «Dados públicos», os nomes e colunas das fontes que o
+                -- cliente NÃO activou apareciam no catálogo (S3).
+                AND has_schema_privilege(n.oid, 'USAGE')
+                AND has_table_privilege(c.oid, 'SELECT')
             """
             if schema:
                 tables = await conn.fetch(base_query + " AND n.nspname = $1", schema)

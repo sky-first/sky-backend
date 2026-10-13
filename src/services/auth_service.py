@@ -278,6 +278,10 @@ class AuthenticationService:
         user = await self.user_repo.get_by_email(email)
         if not user:
             raise UnauthorizedError("Invalid email or password")
+        # O utilizador de sistema (dono da ligação «Dados públicos») não
+        # tem login. A mesma mensagem que um email desconhecido.
+        if getattr(user, "status", None) == "sistema":
+            raise UnauthorizedError("Invalid email or password")
 
         # Check authentication type
         auth_type = self._detect_auth_type(user)
