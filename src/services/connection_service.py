@@ -38,6 +38,7 @@ from src.schemas.connection import (
     ConnectionValidateResponse,
     TableMetadataSchema,
 )
+from src.services.metadados_sem_valores import descricao_sem_valores
 
 logger = structlog.get_logger(__name__)
 
@@ -633,12 +634,18 @@ class ConnectionService:
                             existing_table.get("schema") or existing_table.get("schema_name") or ""
                         )
                         key = f"{t_schema}.{t_name}" if t_schema else t_name
+                        # As descrições guardadas preservam-se (edições do
+                        # utilizador) — mas SEM a pista «Possible values:»
+                        # que o conector antigo escrevia com valores reais do
+                        # cliente; senão ela ficava preservada para sempre.
                         existing_user_data[key] = {
-                            "description": existing_table.get("description") or "",
+                            "description": descricao_sem_valores(existing_table.get("description"))
+                            or "",
                             "tags": existing_table.get("tags") or [],
                             "columns_meta": {
                                 col.get("name", ""): {
-                                    "description": col.get("description") or "",
+                                    "description": descricao_sem_valores(col.get("description"))
+                                    or "",
                                     "tags": col.get("tags") or [],
                                 }
                                 for col in (existing_table.get("columns") or [])
@@ -671,8 +678,8 @@ class ConnectionService:
 
                     # Preserve description and tags from user edits.
                     # Use truthy check so an empty stored description does NOT
-                    # overwrite a freshly-computed hint (e.g. "Possible values: …")
-                    # from the connector.
+                    # overwrite the fresh description (the DB comment) from the
+                    # connector.
                     merged = dict(fresh_table)
                     if user_data.get("description"):
                         merged["description"] = user_data["description"]
