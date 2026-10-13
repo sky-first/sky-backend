@@ -134,3 +134,25 @@ O utilizador do DSN precisa de `CREATE` no esquema `mundo` (só na 1.ª corrida)
 ```
 
 Ficheiros `src/tests/test_mundo_*.py`, sem rede, com respostas gravadas em `fixtures/` (MITECO, DATEX II, Frankfurter, Open-Meteo, OSRM). `fixtures/aemet_diaria_SINTETICO.json` e `fixtures/tomtom_rota_SINTETICO.json` foram escritos à mão segundo o formato documentado (sem chave não houve resposta real para gravar) — **substituir por respostas reais quando houver chaves**. `test_mundo_fontes_pagas.py` cobre o comportamento sem chave, os endpoints chamados com chave e o mascarar das chaves.
+
+## Base partilhada `sky_world` (fontes do sistema)
+
+Desde 13/10/2026 o mesmo carregador alimenta a base `sky_world`, esquema `mundo`, que os **clientes** leem através da ligação gerida «Dados públicos» (ver `docs/contrato-fontes-do-sistema.md` e `scripts/fontes_sistema/bootstrap_sky_world.py`). Corre com o papel `world_loader` (dono das tabelas; não é a credencial da app) e com `--mundo-partilhado` (ou `MUNDO_PARTILHADO=true`):
+
+```bash
+MUNDO_DSN=postgresql://world_loader:…@host:5432/sky_world?sslmode=require \
+  python scripts/dados_publicos/carregar_mundo.py --mundo-partilhado --so gasolineras --so incidencias
+```
+
+O que muda com `--mundo-partilhado`:
+
+| Regra | Porquê |
+|---|---|
+| Só o esquema `mundo`; recusa `--esquema` diferente, `--demo` e `--permitir-nao-comercial` | É uma base servida a clientes pagantes |
+| Antes de carregar, apaga linhas com licença `…nao-comercial…` | Restos do OSRM demo / Open-Meteo grátis não podem chegar a um cliente |
+| `rotas` **não chama a TomTom nem grava nada** (`fontes.estado = termos_por_confirmar`) e `rotas_referencia`/`gasolineras_rota` ficam vazias | Os termos de cache/armazenamento da TomTom estão por confirmar (L2). Só com `--guardar-rotas-tomtom`, depois da confirmação por escrito |
+| No fim do arranque, `GRANT SELECT … WITH GRANT OPTION` ao `world_admin` (se existir; `WORLD_ADMIN_ROLE`) | O backend dá depois `SELECT` a cada `wsrc_<fonte>`; o bootstrap já o faz por omissão para as tabelas novas |
+
+Em todos os destinos (também na demo): uma fotografia do MITECO com menos de 80 % dos postos da carga anterior é recusada e **nada é apagado** — fica o dado anterior com o `dado_de` antigo, e a resposta diz «atrasado» (S12).
+
+A carga para `skydemo.ops` (`--esquema ops`, CronJobs `mundo-rapido`/`mundo-diario`) continua igual, em paralelo, até o inventário da demo estar feito.
