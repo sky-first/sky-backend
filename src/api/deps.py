@@ -232,6 +232,10 @@ async def get_current_user(
     user = await user_repo.get_by_id(UUID(user_id))
     if not user:
         raise UnauthorizedError("User not found")
+    # O utilizador de sistema (dono da ligação «Dados públicos») não é uma
+    # pessoa: nenhum token o representa, venha do login, do SSO ou de onde for.
+    if getattr(user, "status", None) == "sistema":
+        raise UnauthorizedError("User not found")
 
     # Atomic activity tracking — fire-and-forget, does NOT block the request.
     # The WHERE clause inside update_last_active_atomic() ensures only one

@@ -805,6 +805,18 @@ async def test_utilizador_de_sistema_nao_faz_login_nem_aparece_na_lista(db_sessi
     assert u.id not in {x.id for x in todos}
 
 
+@pytest.mark.asyncio
+async def test_token_do_utilizador_de_sistema_e_recusado(async_client, db_session):
+    """Mesmo que alguém consiga um token para ele (SSO, engano), não entra."""
+    from src.core.security import create_access_token
+
+    u = await ligacao_gerida.garantir_utilizador_de_sistema(db_session)
+    await db_session.commit()
+    token = create_access_token({"sub": str(u.id), "email": u.email})
+    r = await async_client.get("/api/v1/connections", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401, r.text
+
+
 # ── S13 — projecto novo herda «Dados públicos» ──────────────────────────
 
 
