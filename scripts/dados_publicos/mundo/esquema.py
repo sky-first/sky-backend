@@ -59,7 +59,8 @@ fontes = Table(
     Column(
         "estado",
         Text,
-        comment="ok | erro | sem_chave (fonte paga sem chave configurada: não correu, ficam as linhas anteriores)",
+        comment="ok | erro | sem_chave (fonte paga sem chave configurada: não correu, ficam as linhas anteriores) "
+        "| termos_por_confirmar (não se pode guardar na base partilhada sky_world)",
     ),
     Column("erro", Text, comment="Mensagem de erro da última corrida (NULL se ok)"),
     Column("duracao_ms", Integer, comment="Duração da última corrida em milissegundos"),

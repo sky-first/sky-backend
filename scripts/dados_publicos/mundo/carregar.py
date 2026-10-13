@@ -24,7 +24,7 @@ import traceback
 
 import requests
 from requests.adapters import HTTPAdapter
-from sqlalchemy import create_engine, delete, inspect, or_, select, text, update
+from sqlalchemy import create_engine, delete, func, inspect, or_, select, text, update
 from sqlalchemy.dialects import postgresql as pg_dialect
 from sqlalchemy.dialects import sqlite as sqlite_dialect
 from urllib3.util.retry import Retry
@@ -157,9 +157,22 @@ LICENCA_POR_TABELA = {
 class SemChave(Exception):
     """Fonte paga sem chave configurada: não corre, e as linhas anteriores ficam."""
 
+    estado = "sem_chave"
+
     def __init__(self, msg, **meta):
         super().__init__(msg)
         self.meta = meta
+
+
+class TermosPorConfirmar(SemChave):
+    """A fonte não pode ser guardada na base partilhada até os termos estarem confirmados.
+
+    Hoje: rotas TomTom em ``sky_world`` (os termos de cache/armazenamento da
+    TomTom estão por confirmar — L2 do desenho das fontes do sistema). Não
+    chama a API e não grava nada; não conta como erro.
+    """
+
+    estado = "termos_por_confirmar"
 
 
 def _chave(nome):
@@ -331,6 +344,17 @@ def _osrm(s, a, b):
 
 
 def f_rotas(s, eng, args):
+    if getattr(args, "mundo_partilhado", False) and not getattr(
+        args, "guardar_rotas_tomtom", False
+    ):
+        # Antes de qualquer pedido: na base que os clientes leem não se
+        # guardam resultados da TomTom até os termos estarem confirmados.
+        raise TermosPorConfirmar(
+            "rotas: termos de armazenamento da TomTom por confirmar — nada pedido, "
+            "nada gravado na base partilhada (usar --guardar-rotas-tomtom quando "
+            "estiverem confirmados por escrito)",
+            uso_comercial=None,
+        )
     chave = _chave("TOMTOM_API_KEY")
     t0 = agora()
     linhas = []
@@ -369,6 +393,10 @@ def _rotas_guardadas(eng):
         return [dict(r._mapping) for r in c.execute(select(E.rotas_referencia))]
 
 
+#: Uma fotografia do MITECO com menos de 80 % dos postos da anterior é parcial.
+LIMIAR_FOTOGRAFIA = 0.8
+
+
 def f_gasolineras(s, eng, args):
     j = obter(s, MITECO + "/EstacionesTerrestres/", timeout=120).json()
     linhas, fecha = T.t_miteco_actual(j)
@@ -383,6 +411,16 @@ def f_gasolineras(s, eng, args):
         "actual",
         "MITECO /EstacionesTerrestres/ (fotografia)",
     )
+    with eng.connect() as c:
+        anteriores = c.execute(select(func.count()).select_from(E.gasolineras_precio)).scalar()
+    novos = len({e["id_estacion"] for e in linhas})
+    if anteriores and novos < LIMIAR_FOTOGRAFIA * anteriores:
+        # Uma fotografia parcial do MITECO apagava os postos que faltam. Fica
+        # o dado anterior com o dado_de antigo (a resposta diz «atrasado»).
+        raise RuntimeError(
+            f"MITECO devolveu {novos} postos contra {anteriores} na carga anterior "
+            f"(< {int(LIMIAR_FOTOGRAFIA * 100)} %) — fotografia parcial recusada, nada apagado"
+        )
     with eng.begin() as c:
         n = upsert(c, E.gasolineras_precio, linhas)
         # postos que deixaram de constar na fotografia saem da tabela
@@ -630,7 +668,7 @@ def correr(eng, so=None, args=None):
             n, dado = r[0], r[1]
             meta = r[2] if len(r) > 2 else None
         except SemChave as e:
-            estado, erro, meta = "sem_chave", str(e), e.meta
+            estado, erro, meta = e.estado, str(e), e.meta
             log.warning("fonte %s sem chave: %s", nome, erro)
         except Exception as e:
             estado = "erro"
@@ -644,6 +682,49 @@ def correr(eng, so=None, args=None):
             log.error("não consegui registar %s em mundo.fontes: %s", nome, e)
         resultados.append((nome, n, dado, erro, ms, estado))
     return resultados
+
+
+# ── Base partilhada (sky_world) ──────────────────────────────────────────────
+
+_IDENT = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+
+
+def preparar_mundo_partilhado(eng, args):
+    """O que muda quando o destino é a base ``sky_world`` que os clientes leem.
+
+    1. Linhas com licença não-comercial não ficam lá (p.ex. OSRM antigo).
+    2. Sem ``--guardar-rotas-tomtom``, a ``rotas_referencia`` fica vazia: os
+       termos de armazenamento da TomTom estão por confirmar. A
+       ``gasolineras_rota`` herda esse traçado e fica vazia também.
+    3. O ``world_admin`` recebe SELECT com GRANT OPTION nas tabelas (o
+       bootstrap já o deixa por omissão para as novas; isto cobre as antigas).
+    """
+    apagadas = {}
+    with eng.begin() as c:
+        for t in E.meta.sorted_tables:
+            if t.name == "fontes" or "licenca" not in t.c:
+                continue
+            r = c.execute(delete(t).where(t.c.licenca.like("%nao-comercial%")))
+            if r.rowcount:
+                apagadas[t.name] = r.rowcount
+        if not getattr(args, "guardar_rotas_tomtom", False):
+            for t in (E.gasolineras_rota, E.rotas_referencia):
+                r = c.execute(delete(t))
+                if r.rowcount:
+                    apagadas[t.name] = apagadas.get(t.name, 0) + r.rowcount
+    if apagadas:
+        log.warning("base partilhada: linhas retiradas %s", apagadas)
+    papel = os.environ.get("WORLD_ADMIN_ROLE", "world_admin")
+    if eng.dialect.name == "postgresql" and _IDENT.match(papel):
+        with eng.begin() as c:
+            if c.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": papel}).first():
+                c.execute(
+                    text(
+                        f'GRANT SELECT ON ALL TABLES IN SCHEMA {E.ESQUEMA} TO "{papel}" '
+                        "WITH GRANT OPTION"
+                    )
+                )
+    return apagadas
 
 
 def imprimir(resultados):
@@ -684,10 +765,30 @@ def main(argv=None):
     ap.add_argument(
         "--esquema", help="Esquema de destino (por omissão «mundo»; p.ex. «ops» para a demo)"
     )
+    ap.add_argument(
+        "--mundo-partilhado",
+        action="store_true",
+        default=os.environ.get("MUNDO_PARTILHADO", "").lower() in ("1", "true", "sim"),
+        help="O destino é a base sky_world que os clientes leem (fontes do sistema): "
+        "esquema «mundo», só licenças comerciais, sem rotas TomTom guardadas",
+    )
+    ap.add_argument(
+        "--guardar-rotas-tomtom",
+        action="store_true",
+        help="Com --mundo-partilhado, guardar rotas TomTom (só depois de os termos de "
+        "armazenamento estarem confirmados por escrito)",
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     if args.permitir_nao_comercial and os.environ.get("KUBERNETES_SERVICE_HOST"):
         ap.error("--permitir-nao-comercial não é permitido em produção (Kubernetes)")
+    if args.mundo_partilhado:
+        if args.permitir_nao_comercial:
+            ap.error("--mundo-partilhado não aceita --permitir-nao-comercial")
+        if args.esquema not in (None, E.ESQUEMA):
+            ap.error(f"--mundo-partilhado escreve só no esquema «{E.ESQUEMA}»")
+        if args.demo:
+            ap.error("--mundo-partilhado não se mistura com --demo (a base é a sky_world)")
     if args.demo and not args.dsn:
         args.dsn = _dsn_da_demo()
     logging.basicConfig(
@@ -696,6 +797,8 @@ def main(argv=None):
     )
     eng = motor(args.dsn, args.sqlite, args.esquema)
     criar_esquema(eng)
+    if args.mundo_partilhado:
+        preparar_mundo_partilhado(eng, args)
     res = correr(eng, set(args.so) if args.so else None, args)
     imprimir(res)
     return 1 if res and all(r[5] == "erro" for r in res) else 0
