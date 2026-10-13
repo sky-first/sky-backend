@@ -8,9 +8,13 @@ import asyncpg
 
 from src.connectors.base import BaseConnector
 
-# Column sampling config — tune without touching logic
-_ENUM_DISTINCT_LIMIT = 20    # if ≤ N distinct values → treat as categorical
-_ENUM_MAX_TABLE_ROWS = 200_000  # skip expensive sampling on large tables
+# Os metadados NÃO levam valores do cliente. Até 13/10/2026 cada coluna de
+# texto com ≤ 20 valores distintos ganhava na descrição «Possible values:
+# 'a', 'b', …» — valores reais que ficavam para sempre em connection_metadata,
+# table_metadata e nos embeddings, visíveis a quem visse o catálogo. Os
+# valores para as perguntas vêm agora de uma cache efémera do sky-ai
+# (core/sql/valores_de_coluna.py, 30 min). Ver docs/dados-do-cliente.md e
+# scripts/limpar_valores_das_colunas.py.
 
 # Postgres identifier rule (unquoted): letter/_underscore + letters/digits/_
 # Strict on purpose — the value is interpolated into SET search_path,
@@ -26,29 +30,6 @@ def _safe_schema(config: Dict[str, Any]) -> Optional[str]:
     if raw and _SCHEMA_IDENT_RE.match(raw):
         return raw
     return None
-
-
-async def _sample_distinct_values(
-    conn, schema: str, table: str, column: str
-) -> Optional[List[str]]:
-    """Return up to _ENUM_DISTINCT_LIMIT+1 distinct non-null values for a column.
-
-    Identifiers are double-quoted (SQL standard) — schema/table/column come
-    from pg_catalog, not user input, so interpolation is safe here.
-    Returns None on any error so the caller can skip silently.
-    """
-    try:
-        esc = lambda s: s.replace('"', '""')  # noqa: E731
-        q = (
-            f'SELECT DISTINCT "{esc(column)}" '
-            f'FROM "{esc(schema)}"."{esc(table)}" '
-            f'WHERE "{esc(column)}" IS NOT NULL '
-            f"LIMIT {_ENUM_DISTINCT_LIMIT + 1}"
-        )
-        rows = await conn.fetch(q)
-        return [str(r[0]) for r in rows]
-    except Exception:
-        return None
 
 
 class PostgreSQLConnector(BaseConnector):
@@ -208,24 +189,6 @@ class PostgreSQLConnector(BaseConnector):
                             "description": col["description"],
                         }
                     )
-
-                # Enrich text/enum columns with sampled distinct values so
-                # the LLM generates correct filter literals (e.g. status IN ('sent','paid'))
-                if row_count < _ENUM_MAX_TABLE_ROWS:
-                    for col_info in column_data:
-                        type_lower = col_info["type"].lower()
-                        if not ("text" in type_lower or "char" in type_lower):
-                            continue
-                        vals = await _sample_distinct_values(conn, schema, name, col_info["name"])
-                        if vals is None or len(vals) > _ENUM_DISTINCT_LIMIT:
-                            continue
-                        if not vals:
-                            continue
-                        hint = "Possible values: " + ", ".join(
-                            f"'{v}'" for v in sorted(vals)
-                        )
-                        existing = (col_info["description"] or "").strip()
-                        col_info["description"] = f"{existing}. {hint}" if existing else hint
 
                 result_tables.append(
                     {

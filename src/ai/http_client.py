@@ -348,9 +348,14 @@ class AIServiceHTTPClient:
         run_in_background: Optional[bool] = None,
         table_names: Optional[List[str]] = None,
         tenant_slug: Optional[str] = None,
+        skip_if_recent_seconds: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Discover tables/metadata for a connection.
+
+        ``skip_if_recent_seconds`` — o sky-ai salta a descoberta quando os
+        metadados são recentes (5 min por omissão). ``0`` força: é o que a
+        limpeza dos valores das colunas usa, porque acabou de mexer neles.
 
         ``tenant_slug`` — quando vem, o ``X-Tenant-Slug`` é ESTE e não o do
         contextvar. As tarefas de fundo (fontes do sistema) passam-no sempre:
@@ -397,6 +402,8 @@ class AIServiceHTTPClient:
             params["run_in_background"] = bool(run_in_background)
         if table_names:
             params["table_names"] = table_names
+        if skip_if_recent_seconds is not None:
+            params["skip_if_recent_seconds"] = int(skip_if_recent_seconds)
 
         cabecalhos = {"X-Tenant-Slug": tenant_slug} if tenant_slug else self._tenant_headers()
         async with httpx.AsyncClient(timeout=self.timeout, headers=cabecalhos) as client:
