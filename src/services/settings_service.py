@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.exceptions import ForbiddenError, NotFoundError
 from src.core.locale import DEFAULT_LOCALE
 from src.core.permissions import check_permission
-from src.core.preferences import deep_merge_preferences
+from src.core.preferences import (
+    deep_merge_preferences,
+    preferencias_para_ler,
+    sanear_ao_gravar,
+    sem_tema_do_aparelho,
+)
 from src.core.security import get_password_hash
 from src.models.user import User
 from src.repositories.connection import ConnectionRepository
@@ -86,7 +91,10 @@ class SettingsService:
         Returns:
             SettingsResponse: User settings
         """
-        preferences = user.preferences or {}
+        # O que sai: «auto» quando a conta nunca escolheu a língua das
+        # respostas, e nunca um tema que a conta não guarda (ver
+        # `core/preferences.py`).
+        preferences = preferencias_para_ler(user.preferences)
 
         return SettingsResponse(
             theme=preferences.get("theme", "light"),
@@ -116,8 +124,11 @@ class SettingsService:
 
         # Merge dictionaries carefully
         # For top-level keys like 'theme' and 'language', direct replacement is fine
-        if "theme" in update_data:
-            current_preferences["theme"] = update_data["theme"]
+        # «Sistema» fica no aparelho: a conta só guarda claro/escuro, e um
+        # "system" que chegue é ignorado (fica o que lá estava).
+        tema = sem_tema_do_aparelho({"theme": update_data.get("theme")})
+        if "theme" in update_data and tema.get("theme") is not None:
+            current_preferences["theme"] = tema["theme"]
         if "language" in update_data:
             current_preferences["language"] = update_data["language"]
 
@@ -132,8 +143,9 @@ class SettingsService:
         # gravado pelo outro aparelho; uma chave a null apaga-a.
         if "preferences" in update_data and update_data["preferences"]:
             current_preferences = deep_merge_preferences(
-                current_preferences, update_data["preferences"]
+                current_preferences, sem_tema_do_aparelho(update_data["preferences"])
             )
+        current_preferences = sanear_ao_gravar(current_preferences)
 
         # Update user object
         user.preferences = current_preferences
@@ -146,13 +158,12 @@ class SettingsService:
         # Check permissions? (Usually user can update their own settings)
         await self.user_repo.update(user.id, preferences=current_preferences)
 
+        lidas = preferencias_para_ler(current_preferences)
         return SettingsResponse(
-            theme=current_preferences.get("theme", "light"),
-            language=current_preferences.get("language", DEFAULT_LOCALE),
-            notifications=await self._estado_das_notificacoes(
-                user, current_preferences.get("notifications")
-            ),
-            preferences=current_preferences,
+            theme=lidas.get("theme", "light"),
+            language=lidas.get("language", DEFAULT_LOCALE),
+            notifications=await self._estado_das_notificacoes(user, lidas.get("notifications")),
+            preferences=lidas,
         )
 
     async def get_data_catalog_settings(self, user: User) -> DataCatalogSettingsResponse:

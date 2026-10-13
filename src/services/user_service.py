@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config.settings import settings
 from src.core.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from src.core.permissions import validar_atribuicao_de_papel, check_permission, get_user_permissions, is_tenant_admin
-from src.core.preferences import deep_merge_preferences
+from src.core.preferences import (
+    deep_merge_preferences,
+    sanear_ao_gravar,
+    sem_tema_do_aparelho,
+)
 from src.core.security import get_password_hash
 from src.models.user import User
 from src.repositories.user import UserRepository
@@ -331,11 +335,13 @@ class UserService:
                 prefs_to_merge = update_data.pop("preferences")
                 if isinstance(prefs_to_merge, dict):
                     # Em profundidade: a web e a app gravam no mesmo campo.
+                    # «Sistema» fica no aparelho: um theme que não seja
+                    # claro/escuro é ignorado (ver `core/preferences.py`).
                     current_preferences = deep_merge_preferences(
-                        current_preferences, prefs_to_merge
+                        current_preferences, sem_tema_do_aparelho(prefs_to_merge)
                     )
 
-            user.preferences = current_preferences
+            user.preferences = sanear_ao_gravar(current_preferences)
             from sqlalchemy.orm.attributes import flag_modified
 
             flag_modified(user, "preferences")

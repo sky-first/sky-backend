@@ -23,6 +23,9 @@ class TestUserPreferences:
 
         assert response.status_code == 200
         data = response.json()
+        # A conta que nunca escolheu a língua das respostas lê «auto»
+        # (paridade 13/10/2026, ver core/preferences.py).
+        preferences = {**preferences, "answer_language": "auto"}
         assert data["preferences"] == preferences
 
         # Verify persistence
