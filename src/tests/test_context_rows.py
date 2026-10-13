@@ -26,6 +26,16 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _servico(user) -> dict:
+    """Token do serviço de AI: o mesmo utilizador, com o claim `svc`."""
+    from src.core.security import create_access_token
+
+    token = create_access_token(
+        {"sub": str(user.id), "email": user.email, "role": user.role, "svc": True}
+    )
+    return _auth(token)
+
+
 # ─── row_to_dict ──────────────────────────────────────────────────────────
 
 
@@ -121,7 +131,7 @@ async def test_endpoint_returns_row_for_known_table(
 
     resp = await async_client.get(
         f"/api/v1/context/rows/glossary_terms/{term.id}",
-        headers=_auth(test_user_with_tokens["access_token"]),
+        headers=_servico(test_user_with_tokens["user"]),
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -131,12 +141,10 @@ async def test_endpoint_returns_row_for_known_table(
 
 
 @pytest.mark.asyncio
-async def test_endpoint_404s_on_unknown_table(
-    test_user_with_tokens, async_client: AsyncClient
-):
+async def test_endpoint_404s_on_unknown_table(test_user_with_tokens, async_client: AsyncClient):
     resp = await async_client.get(
         f"/api/v1/context/rows/nonsense_table/{uuid.uuid4()}",
-        headers=_auth(test_user_with_tokens["access_token"]),
+        headers=_servico(test_user_with_tokens["user"]),
     )
     assert resp.status_code == 404
     body = resp.json()
@@ -148,22 +156,77 @@ async def test_endpoint_404s_on_unknown_table(
 
 
 @pytest.mark.asyncio
-async def test_endpoint_404s_on_missing_row(
-    test_user_with_tokens, async_client: AsyncClient
-):
+async def test_endpoint_404s_on_missing_row(test_user_with_tokens, async_client: AsyncClient):
     resp = await async_client.get(
         f"/api/v1/context/rows/glossary_terms/{uuid.uuid4()}",
-        headers=_auth(test_user_with_tokens["access_token"]),
+        headers=_servico(test_user_with_tokens["user"]),
     )
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_endpoint_400_on_bad_uuid(
-    test_user_with_tokens, async_client: AsyncClient
-):
+async def test_endpoint_400_on_bad_uuid(test_user_with_tokens, async_client: AsyncClient):
     resp = await async_client.get(
         "/api/v1/context/rows/glossary_terms/not-a-uuid",
-        headers=_auth(test_user_with_tokens["access_token"]),
+        headers=_servico(test_user_with_tokens["user"]),
     )
     assert resp.status_code == 400
+
+
+# ─── Só o serviço de AI, e nunca as colunas sensíveis ──────────────────────
+#
+# Auditoria 13/10/2026: a rota devolvia todas as colunas a quem tivesse
+# `connections.view` (members incluídos). Para `users` saía o
+# `password_reset_token`: um member pedia a reposição da palavra-passe do
+# admin, lia o token aqui e ficava com a conta.
+
+
+@pytest.mark.asyncio
+async def test_uma_pessoa_autenticada_leva_403(test_user_with_tokens, async_client: AsyncClient):
+    user = test_user_with_tokens["user"]
+    resp = await async_client.get(
+        f"/api/v1/context/rows/users/{user.id}",
+        headers=_auth(test_user_with_tokens["access_token"]),
+    )
+    assert resp.status_code == 403
+    assert "password" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_o_servico_nunca_recebe_token_de_reposicao_nem_hash(
+    test_user_with_tokens, async_client: AsyncClient, db_session: AsyncSession
+):
+    user = test_user_with_tokens["user"]
+    user.password_reset_token = "segredo-de-reposicao"
+    db_session.add(user)
+    await db_session.commit()
+
+    resp = await async_client.get(
+        f"/api/v1/context/rows/users/{user.id}",
+        headers=_servico(user),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    for coluna in (
+        "password_hash",
+        "password_reset_token",
+        "invite_token",
+        "mfa_secret_encrypted",
+        "mfa_recovery_codes_encrypted",
+    ):
+        assert coluna not in body
+    assert "segredo-de-reposicao" not in resp.text
+    assert body["email"] == user.email
+
+
+def test_row_to_dict_tira_as_credenciais_das_ligacoes():
+    from src.models.connection import DataConnection
+
+    row = DataConnection(
+        id=uuid.uuid4(),
+        name="c",
+        connector_id="postgresql",
+        config={"password": "x"},
+        created_by=uuid.uuid4(),
+    )
+    assert "config" not in row_to_dict(row)
