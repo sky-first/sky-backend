@@ -96,3 +96,31 @@ arquivados. `SpaceResponse.archived_at` (`null` = activo) decide «Arquivar» vs
 `/ai/chat/stream`, `/ai/query` e `/ai/chat`. O `nickname` também serve para
 resolver `@apelido`. A saudação da app pode ler `preferences.nickname` de
 `GET /auth/me`. A voz ainda não os usa.
+
+## 12. Sala ao vivo: mensagens corrigidas, apagadas e reacções (13/10)
+
+Na mesma sala `/ws/chat/{page_id}` (envelope `{type, payload}`):
+
+| `type` | Quando | `payload` |
+|---|---|---|
+| `message.created` | comentário, pergunta e resposta da Sky — **também** pelo `/ai/chat/stream` (#758) | `MessageResponse` |
+| `message.updated` | `PATCH /messages/{id}` | `MessageResponse` da mensagem corrigida (`content` novo; `edited_at` vem no `PATCH`) |
+| `message.deleted` | `DELETE /messages/{id}`, e a resposta da Sky que sai ao corrigir a pergunta | `{conversation_id, message_id, message_ids}` — `message_id` é a que se apagou; `message_ids` inclui as respostas que foram atrás |
+| `message.reaction` | `POST /conversations/{c}/messages/{m}/reactions` | `{conversation_id, message_id, reactions}` — o mapa completo, substitui o anterior |
+
+Não há `reaction.*`: o nome é `message.reaction`, que a web já trata desde o
+início. A app hoje só refresca a lista em qualquer evento; deve também
+recarregar o fio aberto (ou aplicar o evento) em `message.updated`,
+`message.deleted` e `message.reaction`. Ao corrigir, a ordem é
+`message.updated` e depois `message.deleted` da resposta antiga.
+
+Apagar ou corrigir uma mensagem leva atrás **só as respostas da Sky**
+(`role="assistant"`). Uma resposta/citação escrita por outra pessoa
+(`parent_message_id` a apontar para a mensagem) fica.
+
+## 13. `POST /ai/chat/stream` aceita `parent_message_id`
+
+Responder / citar uma mensagem do fio. Gravado na pergunta quando o turno é
+persistido (`persist` ou `conversation_id`) **e** a mensagem citada é da mesma
+conversa e não está apagada. Doutra forma é ignorado em silêncio (o turno
+segue sem citação). A resposta da Sky continua a apontar para a pergunta.

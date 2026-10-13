@@ -345,6 +345,31 @@ class MessageService:
         await self._load_viewable_conversation(msg.conversation_id, user)
         return msg
 
+    async def _anunciar_apagadas(self, conversation_id: UUID, ids: List[UUID]) -> None:
+        """`message.deleted` na sala da página, com todas as que saíram.
+
+        `{conversation_id, message_id, message_ids}` — `message_id` é a que a
+        pessoa apagou (a primeira), `message_ids` inclui as respostas que
+        foram atrás. Nunca rebenta: já está gravado.
+        """
+        if not ids:
+            return
+        try:
+            conv = await self.conv_repo.get_by_id(conversation_id)
+            if conv is None:
+                return
+            broadcast_event_nowait(
+                str(conv.page_id),
+                "message.deleted",
+                {
+                    "conversation_id": str(conversation_id),
+                    "message_id": str(ids[0]),
+                    "message_ids": [str(i) for i in ids],
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — o aviso é acessório
+            logger.warning("anunciar_apagadas_falhou: conv=%s erro=%s", conversation_id, exc)
+
     async def apagar(self, message_id: UUID, user: User) -> int:
         """Apaga a mensagem — **e a resposta que ela gerou**.
 
@@ -366,6 +391,11 @@ class MessageService:
                 await self.db.execute(
                     select(Message).where(
                         Message.parent_message_id == msg.id,
+                        # Só as RESPOSTAS da Sky. `parent_message_id` também
+                        # liga uma resposta/citação de uma pessoa à mensagem
+                        # que cita — apagar ou corrigir a citada não pode
+                        # levar as palavras de outra pessoa atrás.
+                        Message.role == "assistant",
                         Message.deleted_at.is_(None),
                     )
                 )
@@ -378,6 +408,10 @@ class MessageService:
             apagadas += 1
 
         await self.db.commit()
+
+        # A sala deixa de as mostrar já — na web e na app — e não só ao
+        # recarregar. Ver `_anunciar_apagadas`.
+        await self._anunciar_apagadas(msg.conversation_id, [msg.id] + [f.id for f in filhas])
         logger.info(
             "mensagem_apagada: id=%s por=%s levou_respostas=%d",
             message_id,
@@ -415,6 +449,11 @@ class MessageService:
                 await self.db.execute(
                     select(Message).where(
                         Message.parent_message_id == msg.id,
+                        # Só as RESPOSTAS da Sky. `parent_message_id` também
+                        # liga uma resposta/citação de uma pessoa à mensagem
+                        # que cita — apagar ou corrigir a citada não pode
+                        # levar as palavras de outra pessoa atrás.
+                        Message.role == "assistant",
                         Message.deleted_at.is_(None),
                     )
                 )
@@ -427,6 +466,22 @@ class MessageService:
 
         await self.db.commit()
         await self.db.refresh(msg)
+
+        # Ao vivo: o texto novo (`message.updated`) e a resposta antiga que
+        # saiu (`message.deleted`), pela mesma ordem em que aconteceu.
+        await self._attach_author_names([msg])
+        conv = await self.conv_repo.get_by_id(msg.conversation_id)
+        if conv is not None:
+            try:
+                broadcast_event_nowait(
+                    str(conv.page_id),
+                    "message.updated",
+                    MessageResponse.model_validate(msg).model_dump(mode="json"),
+                )
+            except Exception as exc:  # noqa: BLE001 — o aviso é acessório
+                logger.warning("anunciar_editada_falhou: id=%s erro=%s", msg.id, exc)
+        if filhas:
+            await self._anunciar_apagadas(msg.conversation_id, [f.id for f in filhas])
         logger.info("mensagem_editada: id=%s por=%s", message_id, user.id)
         return msg
 
