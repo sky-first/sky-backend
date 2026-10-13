@@ -55,7 +55,7 @@ Todas as leituras ao vivo trazem estas chaves:
 | Estado | Quando | O que mostrar |
 |---|---|---|
 | **404** | não pode ver a conversa / página / achado (ou não existe) | o mesmo de hoje |
-| **403** | vê a conversa, mas **já não tem acesso às tabelas** desta consulta (mudou de equipa, perdeu permissões, ou foi outra equipa que perguntou) | «Já não tens acesso aos dados desta resposta.» e a resposta em texto |
+| **403** | vê a conversa, mas **já não tem acesso às tabelas** desta consulta (mudou de equipa, perdeu permissões, ou foi outra equipa que perguntou) | «Já não tem acesso aos dados desta resposta.» e a resposta em texto |
 
 As tabelas autorizadas são sempre as de **quem abre**, no contexto da pergunta (projeto, equipa, modo pessoal), calculadas com a mesma regra do `/ai/query`.
 

@@ -203,8 +203,8 @@ def _erro_sem_acesso():
             self.details = {
                 "reason": self.REASON,
                 "messages": {
-                    "pt": "Já não tens acesso aos dados desta consulta.",
-                    "es": "Ya no tienes acceso a los datos de esta consulta.",
+                    "pt": "Já não tem acesso aos dados desta consulta.",
+                    "es": "Ya no tiene acceso a los datos de esta consulta.",
                     "en": "You no longer have access to the data behind this.",
                 },
             }
