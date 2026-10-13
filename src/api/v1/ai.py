@@ -1166,6 +1166,23 @@ async def send_chat_message_stream(
                             logger.warning("[chat/stream] fonte não guardada: %s", _ferr)
                     await conv_repo.update(conv_id, updated_at=_dt.utcnow())
                     await db.commit()
+                    # A sala vê o turno ao vivo — pergunta e resposta, como o
+                    # `ask-ai` sempre fez. Sem isto, desde o #692 (a web passou
+                    # a perguntar por aqui) ninguém via nada até recarregar.
+                    try:
+                        from src.services.message_service import (
+                            anunciar_mensagens_criadas,
+                        )
+
+                        _conv_sala = await conv_repo.get_by_id(conv_id)
+                        await anunciar_mensagens_criadas(
+                            db,
+                            getattr(_conv_sala, "page_id", None),
+                            [question_msg, answer_msg],
+                            current_user,
+                        )
+                    except Exception as _berr:  # noqa: BLE001
+                        logger.warning("[chat/stream] broadcast skipped: %s", _berr)
                     # Avisar quem foi mencionado na pergunta — o mesmo
                     # caminho dos comentários (ids do cliente + `@nome` do
                     # texto). Antes, uma pergunta à Sky com «@Ángela» não
