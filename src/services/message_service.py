@@ -95,6 +95,41 @@ def _display_name(user: Optional[User]) -> Optional[str]:
     return email.split("@")[0] if email else None
 
 
+async def anunciar_mensagens_criadas(
+    db: AsyncSession,
+    page_id,
+    mensagens: List[Optional[Message]],
+    autor: Optional[User],
+) -> None:
+    """Emite `message.created` para cada mensagem gravada, na sala da página.
+
+    O `/ai/chat/stream` grava a pergunta e a resposta fora deste serviço, e não
+    avisava a sala: desde que a web passou a perguntar por lá (#692), uma
+    pergunta feita na web ou na app só aparecia aos outros ao recarregar. O
+    `ask_ai_with_bundle` sempre emitiu estes dois eventos — o mesmo envelope
+    (`MessageResponse`) e a mesma ordem (pergunta, depois resposta).
+
+    A pergunta leva o nome de quem a escreveu; a resposta da Sky não tem autor.
+    Nunca rebenta: as mensagens já estão gravadas, e um aviso falhado não pode
+    custar o turno.
+    """
+    if page_id is None:
+        return
+    for msg in mensagens:
+        if msg is None:
+            continue
+        try:
+            await db.refresh(msg)
+            msg.author_name = _display_name(autor) if msg.role == _HUMAN_ROLE else None
+            broadcast_event_nowait(
+                str(page_id),
+                "message.created",
+                MessageResponse.model_validate(msg).model_dump(mode="json"),
+            )
+        except Exception as exc:  # noqa: BLE001 — o aviso é acessório
+            logger.warning("anunciar_mensagem_falhou: id=%s erro=%s", getattr(msg, "id", None), exc)
+
+
 class MessageService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -237,9 +272,7 @@ class MessageService:
         # Vem por id, do selector da app. Adivinhar a partir do texto era
         # arriscar mandar a notificação à pessoa errada — pior do que não
         # mandar nenhuma.
-        avisados = await self._notificar_mencionados(
-            payload.mentions, user, conv, payload.content
-        )
+        avisados = await self._notificar_mencionados(payload.mentions, user, conv, payload.content)
 
         # E avisar quem já participou na conversa.
         #
