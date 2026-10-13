@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import get_current_user, get_db_session
+from src.api.deps import get_db_session, require_service_principal
 from src.models.connection import DataConnection
 from src.models.conversation import Conversation, Message
 from src.models.crew import Crew, CrewMember
@@ -38,11 +38,35 @@ from src.models.glossary import GlossaryTerm
 from src.models.space import Space, SpaceMember
 from src.models.starred import StarredItem
 from src.models.user import User
+
 # Strategy entities removed in Knowledge refactor (2026-04-25). Phase 2
 # adds `metric` + `glossary_term` to MODEL_REGISTRY below.
-from src.services.rbac_service import RBACService
-
 router = APIRouter()
+
+
+# ─── Colunas que nunca saem ───────────────────────────────────────────────
+#
+# Esta rota devolvia TODAS as colunas da linha a qualquer pessoa com
+# `connections.view` (que os members têm). Para `users`, isso incluía o
+# `password_reset_token` em claro: um member pedia a reposição da
+# palavra-passe do admin, lia o token aqui e ficava com a conta
+# (auditoria de 13/10/2026). A rota passou a ser só do serviço de AI e,
+# mesmo para ele, estas colunas não saem — o ingest só precisa de nomes,
+# títulos e texto para renderizar o documento de contexto.
+COLUNAS_SENSIVEIS = frozenset(
+    {
+        "password_hash",
+        "password_reset_token",
+        "password_reset_expires_at",
+        "invite_token",
+        "mfa_secret_encrypted",
+        "mfa_recovery_codes_encrypted",
+        "token",
+        "refresh_token",
+        "config",  # credenciais (cifradas) das ligações
+        "credential_ref",
+    }
+)
 
 
 # ─── Registry ─────────────────────────────────────────────────────────────
@@ -84,6 +108,8 @@ def row_to_dict(row: Any) -> Dict[str, Any]:
         return {}
     result: Dict[str, Any] = {}
     for col in row.__table__.columns:
+        if col.name in COLUNAS_SENSIVEIS:
+            continue
         value = getattr(row, col.name, None)
         if value is None:
             result[col.name] = None
@@ -103,9 +129,11 @@ def row_to_dict(row: Any) -> Dict[str, Any]:
 # ─── Endpoint ─────────────────────────────────────────────────────────────
 @router.get("/rows/{source_table}/{source_id}")
 async def get_context_row(
-    source_table: str = Path(..., description="Table name as written to context_documents.source_table"),
+    source_table: str = Path(
+        ..., description="Table name as written to context_documents.source_table"
+    ),
     source_id: str = Path(..., description="Primary-key UUID of the row"),
-    current_user: User = Depends(get_current_user),
+    _service: User = Depends(require_service_principal),
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Return the row identified by (source_table, source_id) as a dict.
@@ -114,20 +142,23 @@ async def get_context_row(
     as "row was deleted, soft-delete the document" so it's the correct
     response in both cases.
 
-    Auth: requires the caller to hold `connections.view` so service
-    accounts / admins from the AI service can read but regular users
-    can't cherry-pick rows through this generic endpoint.
+    Auth: só o serviço de AI (token com o claim ``svc``). Uma pessoa
+    autenticada leva 403, seja qual for o papel: esta rota contorna as
+    permissões de conversas, widgets e pessoas por desenho.
     """
-    await RBACService(db).assert_permission(current_user, "connections.view")
 
     model = MODEL_REGISTRY.get(source_table)
     if model is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"unknown source_table: {source_table}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"unknown source_table: {source_table}"
+        )
 
     try:
         source_uuid = UUID(source_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_id must be a UUID")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="source_id must be a UUID"
+        )
 
     stmt = select(model).where(model.id == source_uuid)
     result = await db.execute(stmt)
