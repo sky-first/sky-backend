@@ -516,7 +516,7 @@ class TestGuardarAConversa:
 
 
 class TestAVozEALingua:
-    @pytest.mark.parametrize("locale,esperada", [("pt", "ines"), ("es", "lupe"), ("en", "matthew")])
+    @pytest.mark.parametrize("locale,esperada", [("pt", "ines"), ("es", "tiffany"), ("en", "matthew")])
     def test_cada_lingua_tem_a_sua_voz(self, locale, esperada):
         assert sonic.voz_do_locale(locale) == esperada
 
@@ -534,7 +534,7 @@ class TestAVozEALingua:
         assert sonic.voz_do_locale("pt", "Joanna") == "ines"
 
     def test_mas_uma_voz_do_catalogo_do_SONIC_vale(self):
-        assert sonic.voz_do_locale("pt", "lupe") == "lupe"
+        assert sonic.voz_do_locale("pt", "matthew") == "matthew"
 
     @pytest.mark.parametrize("locale", ["pt", "es", "en"])
     def test_a_instrucao_pede_a_lingua_e_proibe_listas(self, locale):

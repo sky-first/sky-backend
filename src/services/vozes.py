@@ -58,7 +58,7 @@ from typing import Dict, List, Optional
 #:
 #: `id` é o que viaja entre a app e o servidor.
 class Voz:
-    __slots__ = ("id", "nome", "gene", "sonic", "polly", "lingua", "sotaque")
+    __slots__ = ("id", "nome", "gene", "sonic", "polly", "lingua", "sotaque", "amostra")
 
     def __init__(
         self,
@@ -69,6 +69,7 @@ class Voz:
         polly: str,
         lingua: str,
         sotaque: str = "",
+        amostra: str = "",
     ):
         self.id = id
         self.nome = nome
@@ -81,6 +82,11 @@ class Voz:
         self.lingua = lingua
         #: Mostra-se quando o sotaque não é o óbvio para a língua.
         self.sotaque = sotaque
+        #: O ficheiro da pré-escuta, em `src/assets/vozes/<amostra>.wav`.
+        #: Normalmente é o `id`; não é quando a mesma voz do Sonic aparece em
+        #: duas línguas (a `tiffany` em inglês e em castelhano) — a frase e o
+        #: sotaque são outros, e a gravação também.
+        self.amostra = amostra or id
 
     def como_json(self) -> dict:
         d = {"id": self.id, "name": self.nome, "gender": self.gene}
@@ -95,16 +101,28 @@ class Voz:
 #: es-US lupe/carlos, pt-BR carolina/leo, en-US tiffany/matthew. A `ines`
 #: (pt-PT) não está na tabela, mas responde — verificada numa chamada real.
 #: Não há voz masculina de Portugal: o par português é Portugal + Brasil, e
-#: o sotaque diz-se. O castelhano do Sonic é latino-americano (as duas vozes,
-#: por isso não se mostra — só se diz onde muda dentro da língua).
+#: o sotaque diz-se.
+#:
+#: ── 14/10: o castelhano é de Espanha, com as poliglotas ──────────────────
+#:
+#: A `lupe` e o `carlos` são es-US: soam a América Latina, e os clientes são
+#: de Espanha. O Lucas ouviu gravações reais do Sonic com a instrução de
+#: sotaque (`SOTAQUE`, abaixo): `tiffany`/`matthew` com a instrução tiveram
+#: 8–9; `lupe`/`carlos` com a MESMA instrução, 5–6. Decisão dele: em
+#: castelhano oferecem-se as poliglotas, e a `lupe`/`carlos` saem do ecrã
+#: (quem as tinha escolhido passa à do mesmo género — `ANTIGAS`).
+#:
+#: O `lingua` do castelhano é es-ES porque é o que se ouve (com a instrução)
+#: e é o do Polly do recado — a Lucia e o Sergio, que são de Espanha. As duas
+#: vozes são da mesma variante, por isso o sotaque não se mostra.
 CATALOGO: Dict[str, List[Voz]] = {
     "Portuguese": [
         Voz("ines", "Inês", "f", "ines", "Ines", "pt-PT", "Portugal"),
         Voz("leo", "Leo", "m", "leo", "Thiago", "pt-BR", "Brasil"),
     ],
     "Español": [
-        Voz("lupe", "Lupe", "f", "lupe", "Lupe", "es-US"),
-        Voz("carlos", "Carlos", "m", "carlos", "Pedro", "es-US"),
+        Voz("tiffany", "Tiffany", "f", "tiffany", "Lucia", "es-ES", amostra="tiffany_es"),
+        Voz("matthew", "Matthew", "m", "matthew", "Sergio", "es-ES", amostra="matthew_es"),
     ],
     "English": [
         # Matthew primeiro: era a voz inglesa de omissão e continua a ser.
@@ -113,11 +131,19 @@ CATALOGO: Dict[str, List[Voz]] = {
     ],
 }
 
-#: Escolhas guardadas antes de 10/10 (vozes do Polly) → a voz do Sonic do
-#: mesmo género. Sem isto quem tinha escolhido «Sergio» ouvia uma mulher.
+#: Escolhas que já não se oferecem → a voz do mesmo género. Sem isto quem
+#: tinha escolhido «Sergio» ouvia uma mulher.
+#:
+#: * antes de 10/10, vozes do Polly (lucia, sergio, thiago, ruth);
+#: * antes de 14/10, as es-US do Sonic (lupe, carlos) — ver o catálogo.
+#:
+#: Faz-se na LEITURA, sem migração de base: a preferência guardada fica como
+#: está e é traduzida cada vez que se usa.
 ANTIGAS = {
-    "lucia": "lupe",
-    "sergio": "carlos",
+    "lupe": "tiffany",
+    "carlos": "matthew",
+    "lucia": "tiffany",
+    "sergio": "matthew",
     "thiago": "leo",
     "ruth": "tiffany",
     "clara": "",
@@ -129,9 +155,42 @@ ANTIGAS = {
 #: a avaliar é o timbre, e ninguém quer ouvir um parágrafo duas vezes seguidas.
 AMOSTRA: Dict[str, str] = {
     "Portuguese": "Olá, sou a Sky. É assim que soo.",
-    "Español": "Hola, soy Sky. Así es como sueno.",
+    # «Empezamos» leva um zeta: é onde se ouve se o sotaque é de Espanha.
+    "Español": "Hola, soy Sky. Así es como sueno. ¿Empezamos?",
     "English": "Hi, I'm Sky. This is how I sound.",
 }
+
+
+#: Como se fala, por língua — vai à cabeça da instrução de sistema do Sonic.
+#:
+#: Só o castelhano tem: as vozes são poliglotas (`tiffany`/`matthew`) e, sem
+#: isto, falam castelhano com sotaque americano. Texto aprovado pelo Lucas
+#: pelo som (14/10), em gravações reais. Noutras línguas NÃO se pede sotaque:
+#: a `matthew` em inglês é americana e está certa.
+#:
+#: «sin forzarlo»: com a lista seca, a 1.ª prova real acabava as frases com
+#: um «vale.» pendurado.
+SOTAQUE: Dict[str, str] = {
+    "Español": (
+        "Eres una voz de España. Habla español peninsular de Madrid: pronuncia "
+        "la z y la c ante e/i como en España (distinción, sonido zeta), la ll y "
+        "la y como en Madrid, entonación castellana. Nunca uses acento "
+        "latinoamericano. Usa vocabulario de España (vosotros, vale, coche, "
+        "ordenador, móvil, zumo) cuando venga a cuento, sin forzarlo."
+    ),
+}
+
+_LINGUA_DO_LOCALE = {"pt": "Portuguese", "es": "Español", "en": "English"}
+
+
+def lingua_do_locale(locale: Optional[str]) -> str:
+    """«es-ES» → «Español». Desconhecido → «English»."""
+    return _LINGUA_DO_LOCALE.get((locale or "")[:2].lower(), "English")
+
+
+def sotaque_de(lingua: str) -> str:
+    """A instrução de sotaque da língua, ou "" quando não há."""
+    return SOTAQUE.get(lingua, "")
 
 
 def vozes_de(lingua: str) -> List[Voz]:
@@ -162,8 +221,16 @@ def voz_sonic(lingua: str, voz_id: Optional[str]) -> str:
     return _escolhida(lingua, voz_id).sonic
 
 
-def polly_da_sonic(sonic_id: str) -> Optional[str]:
-    """O Polly mais parecido com uma voz do Sonic (para o recado)."""
+def polly_da_sonic(sonic_id: str, lingua: Optional[str] = None) -> Optional[str]:
+    """O Polly mais parecido com uma voz do Sonic (para o recado).
+
+    A LÍNGUA conta: a `tiffany` em castelhano tem de dar a Lucia (Espanha) e
+    em inglês a Ruth. Sem a língua, a primeira que aparecer.
+    """
+    if lingua in CATALOGO:
+        for v in CATALOGO[lingua]:
+            if v.sonic == sonic_id:
+                return v.polly
     for vozes in CATALOGO.values():
         for v in vozes:
             if v.sonic == sonic_id:

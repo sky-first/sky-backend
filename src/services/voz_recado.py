@@ -24,8 +24,9 @@ vai mesmo ser respondida, que se repete.
 
 ── A mesma pessoa a falar ──────────────────────────────────────────
 
-O Sonic fala com as vozes «ines», «lupe» e «matthew». O Polly tem vozes
-neurais com os mesmos nomes. Sai a 16 kHz, que é o que a app toca — não
+O Sonic fala com as vozes do catálogo (`vozes.py`); cada uma tem o Polly
+neural mais parecido, NA LÍNGUA da conversa — a `tiffany` em castelhano é
+a Lucia (Espanha), em inglês a Ruth. Sai a 16 kHz, que é o que a app toca — não
 passa pelo reamostrador do Sonic (que converte de 24 kHz).
 """
 
@@ -40,7 +41,7 @@ from typing import AsyncIterator, Optional
 logger = logging.getLogger(__name__)
 
 #: Voz do Sonic → voz do Polly com o mesmo nome.
-_POLLY = {"ines": "Ines", "lupe": "Lupe", "matthew": "Matthew"}
+_POLLY = {"ines": "Ines", "matthew": "Matthew"}
 
 #: Onde o Polly corre. A Irlanda: o mesmo sítio do pod e do Transcribe.
 REGIAO = os.getenv("VOICE_ACK_REGION", "eu-west-1")
@@ -95,16 +96,23 @@ def recado_de_espera(pergunta: str, locale: str) -> str:
     return com_pergunta.format(q=q)
 
 
-async def sintetizar(texto: str, voz: str) -> AsyncIterator[bytes]:
-    """PCM 16 kHz mono, em pedaços, com a voz do Polly que tem o nome da do Sonic."""
-    import boto3
+def voz_do_recado(voz: str, locale: Optional[str] = None) -> str:
+    """O Polly que diz o recado: o da voz do Sonic, na língua da conversa."""
+    from src.services.vozes import lingua_do_locale, polly_da_sonic
 
-    from src.services.vozes import polly_da_sonic
+    v = (voz or "").lower()
+    lingua = lingua_do_locale(locale) if locale else None
+    return polly_da_sonic(v, lingua) or _POLLY.get(v, "Matthew")
+
+
+async def sintetizar(texto: str, voz: str, locale: Optional[str] = None) -> AsyncIterator[bytes]:
+    """PCM 16 kHz mono, em pedaços, com o Polly mais parecido com a voz do Sonic."""
+    import boto3
 
     # A voz do Polly mais parecida com a do Sonic que vai responder: a
     # `carlos` não existe no Polly, e um recado de mulher antes de uma
     # resposta de homem soava a duas pessoas.
-    voice_id = polly_da_sonic((voz or "").lower()) or _POLLY.get((voz or "").lower(), "Matthew")
+    voice_id = voz_do_recado(voz, locale)
     cliente = boto3.client("polly", region_name=REGIAO)
 
     def _pedir():
@@ -125,7 +133,9 @@ async def sintetizar(texto: str, voz: str) -> AsyncIterator[bytes]:
         yield pedaco
 
 
-async def dizer(enviar_bytes, texto: str, voz: str, *, prazo: float = 4.0) -> bool:
+async def dizer(
+    enviar_bytes, texto: str, voz: str, *, prazo: float = 4.0, locale: Optional[str] = None
+) -> bool:
     """Diz o recado. Nunca levanta, e nunca demora mais do que `prazo`.
 
     Devolve se conseguiu. Um recado que falha é silêncio — exactamente o que
@@ -133,7 +143,7 @@ async def dizer(enviar_bytes, texto: str, voz: str, *, prazo: float = 4.0) -> bo
     """
 
     async def _tudo():
-        async for pedaco in sintetizar(texto, voz):
+        async for pedaco in sintetizar(texto, voz, locale=locale):
             await enviar_bytes(pedaco)
 
     try:

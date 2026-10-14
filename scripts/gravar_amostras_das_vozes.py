@@ -6,12 +6,17 @@
 
 A pré-escuta era o Polly; quem responde é o Sonic, que tem outro catálogo.
 Isto pede a cada voz do Sonic que diga a frase de amostra e grava o que
-sai, em `src/assets/vozes/<id>.wav`. Correr de novo quando o catálogo mudar:
+sai, em `src/assets/vozes/<amostra>.wav`. Correr de novo quando o catálogo mudar:
 
     AWS_PROFILE=sky-production python -I scripts/gravar_amostras_das_vozes.py
 
 Precisa de `bedrock:InvokeModelWithBidirectionalStream` (eu-north-1) e de
 `polly:SynthesizeSpeech` (só para dizer «olá» ao modelo).
+
+A instrução leva o SOTAQUE da língua (`vozes.SOTAQUE`), o mesmo que a sessão
+leva: a pré-escuta tem de soar ao que vai responder. Só uma língua:
+
+    ... gravar_amostras_das_vozes.py Español
 """
 from __future__ import annotations
 
@@ -25,7 +30,7 @@ import boto3
 sys.path.insert(0, ".")
 
 from src.services import voz_fala_a_fala as falada  # noqa: E402
-from src.services.vozes import AMOSTRA, CATALOGO  # noqa: E402
+from src.services.vozes import AMOSTRA, CATALOGO, sotaque_de  # noqa: E402
 
 DESTINO = os.path.join("src", "assets", "vozes")
 OLA = {
@@ -52,7 +57,8 @@ async def gravar(sonic_id: str, lingua: str) -> bytes:
         ctx=None,
         voz=sonic_id,
         instrucao=(
-            f"Responde a qualquer coisa que a pessoa diga com ESTA frase e mais "
+            (f"{sotaque_de(lingua)} " if sotaque_de(lingua) else "")
+            + f"Responde a qualquer coisa que a pessoa diga com ESTA frase e mais "
             f"nada, palavra por palavra: «{frase}»"
         ),
         ferramenta=nada,
@@ -88,12 +94,14 @@ async def gravar(sonic_id: str, lingua: str) -> bytes:
     return bytes(audio)
 
 
-async def principal() -> None:
+async def principal(so: str = "") -> None:
     os.makedirs(DESTINO, exist_ok=True)
     for lingua, vozes in CATALOGO.items():
+        if so and lingua != so:
+            continue
         for v in vozes:
             pcm = await gravar(v.sonic, lingua)
-            caminho = os.path.join(DESTINO, f"{v.id}.wav")
+            caminho = os.path.join(DESTINO, f"{v.amostra}.wav")
             with wave.open(caminho, "wb") as w:
                 w.setnchannels(1)
                 w.setsampwidth(2)
@@ -106,4 +114,4 @@ async def principal() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(principal())
+    asyncio.run(principal(sys.argv[1] if len(sys.argv) > 1 else ""))
