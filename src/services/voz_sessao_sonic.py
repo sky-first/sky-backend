@@ -44,12 +44,12 @@ logger = logging.getLogger(__name__)
 #: A voz do modelo, por língua.
 #:
 #: **Não são as vozes do Polly.** O catálogo é outro, e um id que ele não
-#: conheça faz a abertura falhar — não degrada, falha. Só estas duas
-#: foram verificadas numa chamada real (`lupe` em es-ES, `ines` em
-#: pt-PT); as outras ficam de fora até alguém as ouvir.
+#: conheça faz a abertura falhar — não degrada, falha. Todas verificadas
+#: em chamadas reais. Em castelhano é a `tiffany` desde 14/10, com a
+#: instrução de sotaque de Espanha (`vozes.SOTAQUE`).
 VOZES = {
     "pt": "ines",
-    "es": "lupe",
+    "es": "tiffany",
     "en": "matthew",
 }
 VOZ_DE_RECURSO = "matthew"
@@ -91,11 +91,9 @@ def voz_do_locale(locale: str, escolhida: Optional[str] = None) -> str:
     mesmo género; um id desconhecido cai na voz da língua — nunca num id que
     o Sonic recuse, porque isso faz a abertura falhar.
     """
-    from src.services.vozes import voz_sonic
+    from src.services.vozes import lingua_do_locale, voz_sonic
 
-    lingua = {"pt": "Portuguese", "es": "Español", "en": "English"}.get(
-        (locale or "")[:2], "English"
-    )
+    lingua = lingua_do_locale(locale)
     if escolhida and escolhida in VOZES.values():
         return escolhida
     return voz_sonic(lingua, escolhida)
@@ -148,13 +146,19 @@ def instrucao_de_sistema(locale: str, fuso: Optional[str] = None) -> str:
         «não há dados de clientes; o mais próximo são os pedidos» e o
         Sonic resumia-o em «não encontrei, reformula».
     """
+    from src.services.vozes import lingua_do_locale, sotaque_de
+
     lingua = {
         "pt": "português de Portugal",
-        "es": "español",
+        "es": "español de España",
         "en": "English",
     }.get((locale or "")[:2], "English")
+    # O sotaque vai à cabeça, como nas gravações que o Lucas aprovou (14/10).
+    # Só o castelhano tem — ver `vozes.SOTAQUE`.
+    sotaque = sotaque_de(lingua_do_locale(locale))
     return (
-        f"És a Sky, a analista de dados da empresa. Responde SEMPRE em "
+        (f"{sotaque} " if sotaque else "")
+        + f"És a Sky, a analista de dados da empresa. Responde SEMPRE em "
         f"{lingua}, em uma ou duas frases curtas, como numa conversa — "
         f"nunca em listas. Agora é {agora_em(locale, fuso)}; usa isto para "
         f"«hoje», «ontem», «este mês» e para dizer a data ou a hora. "
@@ -371,7 +375,7 @@ async def servir(
                 await mandar({"type": "sky_text", "text": texto})
             except Exception:  # noqa: BLE001
                 return
-            await recado.dizer(websocket.send_bytes, texto, voz)
+            await recado.dizer(websocket.send_bytes, texto, voz, locale=locale)
 
         tarefa = asyncio.create_task(_dizer())
         try:

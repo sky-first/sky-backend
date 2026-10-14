@@ -88,23 +88,25 @@ class TestPerguntaPontuada:
 
 class TestQuemFala:
     def test_a_voz_escolhida_e_a_que_responde(self):
-        assert sonic.voz_do_locale("es", "carlos") == "carlos"
-        assert sonic.voz_do_locale("es", "lupe") == "lupe"
+        assert sonic.voz_do_locale("es", "matthew") == "matthew"
+        assert sonic.voz_do_locale("es", "tiffany") == "tiffany"
         assert sonic.voz_do_locale("pt", "leo") == "leo"
 
     def test_as_escolhas_antigas_mantem_o_genero(self):
         # «Sergio» era um homem do Polly; quem o escolheu ouvia a `lupe`.
-        assert sonic.voz_do_locale("es", "sergio") == "carlos"
-        assert sonic.voz_do_locale("es", "lucia") == "lupe"
+        # Desde 14/10 o castelhano é tiffany/matthew (ver `vozes.ANTIGAS`).
+        assert sonic.voz_do_locale("es", "sergio") == "matthew"
+        assert sonic.voz_do_locale("es", "lucia") == "tiffany"
         assert sonic.voz_do_locale("pt", "thiago") == "leo"
 
     def test_um_id_desconhecido_cai_na_voz_da_lingua(self):
-        assert sonic.voz_do_locale("es", "nao-existe") == "lupe"
+        assert sonic.voz_do_locale("es", "nao-existe") == "tiffany"
         assert sonic.voz_do_locale("xx", None) == "matthew"
 
     def test_o_recado_soa_ao_mesmo_genero(self):
-        assert vozes.polly_da_sonic("carlos") == "Pedro"
-        assert vozes.polly_da_sonic("lupe") == "Lupe"
+        assert vozes.polly_da_sonic("matthew", "Español") == "Sergio"
+        assert vozes.polly_da_sonic("tiffany", "Español") == "Lucia"
+        assert vozes.polly_da_sonic("leo") == "Thiago"
 
     def test_cada_voz_tem_amostra_gravada_com_o_sonic(self):
         import os
@@ -112,7 +114,7 @@ class TestQuemFala:
         pasta = os.path.join(os.path.dirname(__file__), "..", "assets", "vozes")
         for lista in vozes.CATALOGO.values():
             for v in lista:
-                assert os.path.exists(os.path.join(pasta, f"{v.id}.wav")), v.id
+                assert os.path.exists(os.path.join(pasta, f"{v.amostra}.wav")), v.amostra
 
 
 class TestOQueASkySabe:

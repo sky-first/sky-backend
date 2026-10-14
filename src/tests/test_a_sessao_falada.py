@@ -103,7 +103,7 @@ async def _sessao(eventos=None, ferramenta=None) -> tuple:
         ctx=UM_CLIENTE,
         ferramenta=ferramenta or nada,
         instrucao="Eres Sky.",
-        voz="lupe",
+        voz="tiffany",
     )
     cliente = _Cliente(eventos)
     await s.abrir(cliente)

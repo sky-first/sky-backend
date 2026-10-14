@@ -122,7 +122,7 @@ async def test_o_recado_sai_antes_da_resposta_e_nao_a_atrasa(monkeypatch):
     linha: List[str] = []
     monkeypatch.setenv("VOICE_SPOKEN_ACK", "1")
 
-    async def sintetizar_falso(texto, voz):
+    async def sintetizar_falso(texto, voz, locale=None):
         linha.append(f"recado:{voz}")
         await asyncio.sleep(0.05)
         yield b"\x01\x02" * 100
@@ -154,7 +154,7 @@ async def test_o_recado_sai_antes_da_resposta_e_nao_a_atrasa(monkeypatch):
 async def test_um_recado_que_falha_nao_leva_a_consulta_atras(monkeypatch):
     monkeypatch.setenv("VOICE_SPOKEN_ACK", "1")
 
-    async def sintetizar_avariado(texto, voz):
+    async def sintetizar_avariado(texto, voz, locale=None):
         raise RuntimeError("Polly fora")
         yield b""  # pragma: no cover
 
@@ -172,7 +172,7 @@ async def test_desligado_e_so_a_consulta(monkeypatch):
     monkeypatch.setenv("VOICE_SPOKEN_ACK", "0")
     chamado = []
 
-    async def sintetizar_espiao(texto, voz):
+    async def sintetizar_espiao(texto, voz, locale=None):
         chamado.append(texto)
         yield b""
 

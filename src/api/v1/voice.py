@@ -574,7 +574,7 @@ async def ouvir_voz(
     # gravadas com o Sonic por `scripts/gravar_amostras_das_vozes.py`.
     escolhida = _escolhida(language, voice)
     gravada = _os.path.join(
-        _os.path.dirname(__file__), "..", "..", "assets", "vozes", f"{escolhida.id}.wav"
+        _os.path.dirname(__file__), "..", "..", "assets", "vozes", f"{escolhida.amostra}.wav"
     )
     if _os.path.exists(gravada):
         with open(gravada, "rb") as f:
