@@ -369,7 +369,7 @@ SELECT
     c.city,
     -- O rappel cresce com o volume dentro do canal: quem compra mais
     -- negociou mais. Varia por cliente, não é um número por canal.
-    ROUND(LEAST(0.095, GREATEST(0,
+    ROUND((LEAST(0.095, GREATEST(0,
         (ARRAY[0.022, 0.033, 0.004, 0.068])[c.ci]
         + (ARRAY[0.006, 0.007, 0.003, 0.012])[c.ci] * LN(GREATEST(c.tam, 0.05) /
               (ARRAY[1.0, 0.9, 0.55, 2.5])[c.ci])
@@ -420,7 +420,7 @@ SELECT setval('trade.orders_id_seq', (SELECT MAX(id) FROM trade.orders));
 -- 360 lotes, como antes — mas já não 5 por referência. O queijo fresco
 -- entra todos os meses e o tinto duas vezes por ano: 10 lotes para o
 -- que vive menos de 120 dias, 6 até um ano, 4 ou 5 para o resto (5 para
--- as doze que mais vendem). A soma dá 360.
+-- as dez que mais vendem). A soma dá 360 — 6×10 + 13×6 + 10×5 + 43×4.
 --
 -- O primeiro lote de cada referência entrou antes da primeira encomenda
 -- do período e o último há poucos dias: a linha da encomenda aponta
@@ -434,7 +434,7 @@ WITH n AS (
                WHEN r.vida < 365 THEN 6
                WHEN ROW_NUMBER() OVER (
                         PARTITION BY (r.vida >= 365)
-                        ORDER BY r.peso DESC, r.id) <= 12 THEN 5
+                        ORDER BY r.peso DESC, r.id) <= 10 THEN 5
                ELSE 4
            END AS nl
     FROM _ref r

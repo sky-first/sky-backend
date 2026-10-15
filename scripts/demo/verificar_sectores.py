@@ -369,8 +369,7 @@ INVARIANTES: list[tuple[str, str, Predicado]] = [
                   (SELECT ARRAY_AGG(vehicle_id ORDER BY d DESC) FROM (
                      SELECT vehicle_id, SUM(days_off_road) AS d FROM fleet.maintenance_jobs
                      GROUP BY vehicle_id) y) AS parados""",
-        lambda r: set(r[0]["parados"][:3]) == {3, 9, 14}
-        and {9, 14} <= set(r[0]["consumo"][:3]),
+        lambda r: set(r[0]["parados"][:3]) == {3, 9, 14} and {9, 14} <= set(r[0]["consumo"][:3]),
     ),
     (
         "as rotas 4 e 11 são as piores e falham em mais de metade dos portes",

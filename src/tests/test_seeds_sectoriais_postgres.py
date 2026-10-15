@@ -90,19 +90,27 @@ def _contagens(dsn: str) -> dict:
     import psycopg2
 
     tabelas = [
-        "assortment.products", "warehouse.lots", "warehouse.stock", "trade.customers",
-        "trade.orders", "trade.order_lines", "fleet.vehicles", "fleet.maintenance_jobs",
-        "ops.trips", "freight.shipments", "restaurant.staff_shifts", "service.orders",
-        "service.order_items", "kitchen.waste",
+        "assortment.products",
+        "warehouse.lots",
+        "warehouse.stock",
+        "trade.customers",
+        "trade.orders",
+        "trade.order_lines",
+        "fleet.vehicles",
+        "fleet.maintenance_jobs",
+        "ops.trips",
+        "freight.shipments",
+        "restaurant.staff_shifts",
+        "service.orders",
+        "service.order_items",
+        "kitchen.waste",
     ]
     with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
         out = {}
         for t in tabelas:
             cur.execute(f"SELECT COUNT(*) FROM {t}")
             out[t] = cur.fetchone()[0]
-        cur.execute(
-            "SELECT ROUND(SUM(quantity * unit_price), 2) FROM trade.order_lines"
-        )
+        cur.execute("SELECT ROUND(SUM(quantity * unit_price), 2) FROM trade.order_lines")
         out["facturado"] = cur.fetchone()[0]
         return out
 
