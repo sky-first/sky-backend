@@ -244,8 +244,10 @@ INVARIANTES: list[tuple[str, str, Predicado]] = [
             and max(m["hotel"], m["restaurante"]) < m["tienda"]
             and all(5 < v < 40 for v in m.values())
             # a tese da página "Margen real": o líquido diverge mais do que o bruto
+            # e a da demo pública: «a margem bruta é igual em todos os canais»
+            and (max(float(x["bruto"]) for x in r) - min(float(x["bruto"]) for x in r)) < 4
             and (max(m.values()) - min(m.values()))
-            > (max(float(x["bruto"]) for x in r) - min(float(x["bruto"]) for x in r))
+            > 2 * (max(float(x["bruto"]) for x in r) - min(float(x["bruto"]) for x in r))
         ),
     ),
     (

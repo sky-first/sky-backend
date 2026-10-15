@@ -312,7 +312,9 @@ SELECT setval('assortment.products_id_seq', 72);
 -- os canais e que o líquido não é — com o desconto todo no preço, o
 -- bruto do distribuidor caía dez pontos e a página desmentia-se. Assim
 -- fica: distribuidor < hotel < restaurante < tienda no líquido, com o
--- bruto a variar uns cinco pontos e o líquido o dobro disso.
+-- bruto a variar dois ou três pontos e o líquido três ou quatro vezes
+-- isso. A demo pública diz o mesmo («A margem bruta é igual em todos
+-- os canais. A líquida não é.»).
 --
 -- O nome: 30 lugares × 3 blocos. Dentro de um canal, cada bloco tem o
 -- seu tipo (Restaurante / Asador / Taberna…), por isso nenhum par
@@ -325,7 +327,7 @@ SELECT
     -- Tamanho relativo (cauda longa).
     exp(0.85 * pg_temp.z(g, 21)) * (ARRAY[1.0, 0.9, 0.55, 2.5])[canal.i] AS tam,
     -- Preço negociado, relativo à tarifa.
-    (ARRAY[0.985, 0.975, 1.00, 0.94])[canal.i] + 0.008 * pg_temp.z(g, 22) AS preco,
+    (ARRAY[0.99, 0.985, 1.00, 0.965])[canal.i] + 0.006 * pg_temp.z(g, 22) AS preco,
     -- 15 % entraram a meio do período; 8 % estão a ir-se embora.
     CASE WHEN pg_temp.u(g, 23) < 0.15 THEN (pg_temp.u(g, 24) * 420)::INT ELSE 0 END AS entra_dia,
     pg_temp.u(g, 25) < 0.08 AS sai,
