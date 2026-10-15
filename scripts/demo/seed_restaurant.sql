@@ -350,7 +350,10 @@ CROSS JOIN LATERAL (
     END AS c
 ) canal
 WHERE p.placed_at <= now()
-ORDER BY p.placed_at, p.store_id;
+-- A ordem completa, sem empates: o `id` do pedido é a chave do cesto
+-- mais abaixo, e dois pedidos no mesmo minuto trocados entre cargas
+-- davam cestos diferentes ao mesmo pedido.
+ORDER BY p.placed_at, p.store_id, p.day_part, p.n;
 
 -- ── O cesto ──────────────────────────────────────────────────────
 --

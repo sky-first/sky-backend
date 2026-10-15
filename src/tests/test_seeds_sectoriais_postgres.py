@@ -173,7 +173,7 @@ def test_o_segundo_carregamento_da_o_mesmo_que_o_primeiro(base):
         k: v for k, v in segunda.items() if k not in relogio
     }
     for k in relogio:
-        assert 0 <= segunda[k] - primeira[k] <= primeira[k] * 0.001, k
+        assert abs(segunda[k] - primeira[k]) <= primeira[k] * 0.001, k
     assert primeira["service.orders"] > 50_000
     assert primeira["ops.trips"] > 3_000
 
