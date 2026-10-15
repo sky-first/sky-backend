@@ -543,7 +543,11 @@ SELECT
       ORDER BY l.received_on DESC LIMIT 1),
     -- Unidades: a maior parte das linhas é pequena, algumas enchem a
     -- palete. O distribuidor leva mais por linha, a tienda menos.
+    -- O vinho e o espumante vão à caixa, mas uma caixa de 6 chega à
+    -- maior parte das casas: sem o 0,6 o tinto pesava metade da facturação.
     GREATEST(1, ROUND(r.uds * (ARRAY[0.55, 0.65, 0.35, 1.30])[li.ci]
+                      * CASE WHEN r.family IN ('Vino tinto', 'Vino blanco', 'Cava')
+                             THEN 0.6 ELSE 1 END
                       * power(pg_temp.u(li.order_id, li.ref_id::INT, 52), 1.6)
                       + pg_temp.u(li.order_id, li.ref_id::INT, 53)))::INT,
     -- O preço é o negociado com o cliente, não a tarifa.

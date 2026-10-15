@@ -430,8 +430,10 @@ SELECT
     -- maioria chega a horas e uma em cada dez apanha um imprevisto. No
     -- Inverno e à sexta-feira piora um pouco.
     (CASE
-        WHEN x.rid IN (4, 11) AND pg_temp.u(x.vid, x.d, x.n, 50) < 0.78
-            THEN 60 + pg_temp.u(x.vid, x.d, x.n, 51) * 170
+        -- (120 a 320 min: tem de passar também a tolerância de meio dia
+        -- dos clientes do Norte, senão a Porto–Madrid parecia boa)
+        WHEN x.rid IN (4, 11) AND pg_temp.u(x.vid, x.d, x.n, 50) < 0.82
+            THEN 120 + pg_temp.u(x.vid, x.d, x.n, 51) * 200
         WHEN pg_temp.u(x.vid, x.d, x.n, 50) < 0.10
             THEN 25 + pg_temp.u(x.vid, x.d, x.n, 51) * 110
         ELSE pg_temp.u(x.vid, x.d, x.n, 51) * 34 - 16
