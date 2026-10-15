@@ -438,6 +438,26 @@ class Settings(BaseSettings):
     # using the registry row's ``db_host`` / ``db_name``.
     TENANT_DB_URL_TEMPLATE: str = ""
 
+    # ── RGPD: anonimização após remoção e retenção (decisões 15/10/2026) ──
+    # Ver src/services/rgpd_service.py. A tarefa diária do beat corre em
+    # cada cliente e na plataforma.
+    #
+    # Dias entre a remoção de um utilizador pelo admin e a anonimização
+    # irreversível (nome, email, avatar, MFA, IP/UA). Dentro deste prazo o
+    # admin ainda pode restaurar a conta; depois já não.
+    ANONIMIZACAO_APOS_REMOCAO_DIAS: int = 30
+    # Retenção dos registos de auditoria (audit_events, internal_console_audit,
+    # console_impersonation_sessions; no sky-ai query_audit_log,
+    # prompt_security_audit e security_alerts). Mais velho do que isto apaga.
+    RETENCAO_AUDITORIA_DIAS: int = 365
+    # Refresh tokens expirados (guardam IP e user agent) apagam-se este
+    # número de dias depois de expirarem.
+    RETENCAO_SESSOES_EXPIRADAS_DIAS: int = 30
+    # LIGADO por omissão: a tarefa só CONTA e escreve as contagens no log.
+    # Para apagar/anonimizar a sério, pôr a false no ambiente — depois de ver
+    # as contagens da primeira passagem em produção.
+    RGPD_LIMPEZA_DRY_RUN: bool = True
+
     # ── Fontes do sistema (dados públicos geridos pela Sky) ───────────
     # Ver docs/contrato-fontes-do-sistema.md. DESLIGADO por omissão: com
     # isto a false, a Consola responde 404 às rotas novas, nenhuma tarefa

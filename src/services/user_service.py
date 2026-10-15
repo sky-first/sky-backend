@@ -447,6 +447,13 @@ class UserService:
 
         await self.user_repo.delete(user_id)
 
+        # RGPD (15/10/2026): a conta deixa de poder entrar JÁ — sessões
+        # revogadas e aparelhos/push tokens apagados na mesma transacção.
+        # A anonimização vem 30 dias depois (src/services/rgpd_service.py).
+        from src.services.rgpd_service import bloquear_access_tokens, revogar_acessos
+
+        await revogar_acessos(self.db, user_id)
+
         # W12 wire-in — pause every active agent the deactivated user
         # created, regardless of scope (Personal / Space / Crew / Org).
         # Best-effort: failures here are logged but do NOT roll back
@@ -468,6 +475,9 @@ class UserService:
             )
 
         await self.db.commit()
+        # Access tokens já emitidos: bloqueados no Redis (o get_current_user
+        # recusa-os de qualquer forma, porque o utilizador tem deleted_at).
+        await bloquear_access_tokens(user_id)
 
     async def restore_user(self, user_id: UUID, current_user: User) -> UserResponse:
         """
@@ -504,6 +514,12 @@ class UserService:
         if user.deleted_at is None:
             # Idempotent — already active, nothing to do
             return UserResponse.model_validate(user_to_response_dict(user))
+        # RGPD: passados os 30 dias a conta foi anonimizada de forma
+        # irreversível — já não há pessoa para restaurar.
+        if getattr(user, "anonymized_at", None) is not None:
+            raise BadRequestError(
+                "This account was anonymized after removal and can no longer be restored"
+            )
 
         user.deleted_at = None
         await self.db.commit()

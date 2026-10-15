@@ -115,7 +115,14 @@ class DSARService:
         except Exception:
             pass
 
-        # 3. Delete refresh tokens
+        # 3. Kill sessions and push devices (RGPD 15/10/2026), then delete
+        #    refresh tokens outright (they carry IP + user agent).
+        try:
+            from src.services.rgpd_service import revogar_acessos
+
+            await revogar_acessos(self.db, user_id)
+        except Exception:
+            pass
         try:
             await self.db.execute(text(
                 "DELETE FROM refresh_tokens WHERE user_id = :uid"
@@ -143,7 +150,11 @@ class DSARService:
             "status": "erased",
             "user_id": str(user_id),
             "anonymized_email": anonymized_email,
-            "note": "PII fields hard-purged after 30 days per retention policy",
+            "note": (
+                "Remaining personal fields (MFA, SSO ids, audit IP/UA) are "
+                "anonymized by the daily RGPD task after "
+                "ANONIMIZACAO_APOS_REMOCAO_DIAS days"
+            ),
         }
 
     @staticmethod

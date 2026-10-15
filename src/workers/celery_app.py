@@ -167,6 +167,7 @@ celery_app.conf.update(
         "src.workers.provisioning_worker",
         "src.workers.llm_metrics_worker",
         "src.workers.fontes_sistema_worker",
+        "src.workers.rgpd_worker",
     ],
 )
 
@@ -240,6 +241,15 @@ try:
             "task": "src.workers.fontes_sistema_worker.reconciliar_fontes_sistema",
             "schedule": timedelta(hours=1),
         },
+    }
+    # RGPD (15/10/2026): anonimização 30 dias após a remoção + retenção de
+    # 12 meses da auditoria, em cada cliente e na plataforma. Às 03:17 UTC,
+    # fora das horas de uso. Com RGPD_LIMPEZA_DRY_RUN (omissão) só conta.
+    from celery.schedules import crontab as _crontab
+
+    _base_schedule["rgpd-manutencao-diaria"] = {
+        "task": "src.workers.rgpd_worker.manutencao_rgpd_diaria",
+        "schedule": _crontab(hour=3, minute=17),
     }
     interval = int(getattr(settings, "CACHE_WARMING_INTERVAL_SECONDS", 300) or 300)
     if getattr(settings, "CACHE_WARMING_ENABLED", True) and interval > 0:
