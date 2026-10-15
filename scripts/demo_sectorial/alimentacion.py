@@ -70,8 +70,22 @@ JOIN trade.customers c ON c.id = o.customer_id
 JOIN warehouse.lots l ON l.id = ol.lot_id
 JOIN assortment.products p ON p.id = l.product_id"""
 
-_NETO = "ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - p.unit_cost)"
-_BRUTO = "ol.quantity * (ol.unit_price * (1 - ol.discount) - p.unit_cost)"
+# A mesma margem só com o comercial. A linha leva o custo da mercadoria
+# (`ol.unit_cost`, o custo da referência no dia da venda), por isso tudo
+# o que se corta por cliente, canal, praça ou mês não precisa do
+# armazém nem do catálogo — e responde-se dentro de UMA ligação, que é
+# o que o motor consegue fazer ao vivo.
+#
+# ⚠️ Antes de 15/10/2026 a linha não tinha custo. Perguntado «¿qué
+# clientes facturan mucho y dejan poco?», o motor só via o comercial e
+# respondeu «margen efectivo de 88,51 %» — preço sobre preço. O número
+# é o mesmo das duas maneiras: `ol.unit_cost` é igual a `p.unit_cost`.
+_COMERCIAL = """FROM trade.order_lines ol
+JOIN trade.orders o ON o.id = ol.order_id
+JOIN trade.customers c ON c.id = o.customer_id"""
+
+_NETO = "ol.quantity * (ol.unit_price * (1 - ol.discount) * (1 - c.rebate_pct) - ol.unit_cost)"
+_BRUTO = "ol.quantity * (ol.unit_price * (1 - ol.discount) - ol.unit_cost)"
 _VENDA = "ol.quantity * ol.unit_price * (1 - ol.discount)"
 
 
@@ -297,16 +311,16 @@ SECTOR = Sector(
                     "Facturado en el periodo",
                     "kpi1",
                     "comercial",
-                    f"SELECT COALESCE(ROUND(SUM({_VENDA})), 0) AS v {_MARGEM}",
+                    f"SELECT COALESCE(ROUND(SUM({_VENDA})), 0) AS v {_COMERCIAL}",
                     legenda="18 meses de pedidos servidos",
                     formato="currency",
                 ),
                 kpi(
                     "Margen bruto",
                     "kpi2",
-                    "catalogo",
+                    "comercial",
                     f"SELECT ROUND(100.0 * SUM({_BRUTO}) / NULLIF(SUM({_VENDA}), 0), 1) AS v "
-                    f"{_MARGEM}",
+                    f"{_COMERCIAL}",
                     legenda="El que se celebra en enero",
                     formato="percent",
                 ),
@@ -315,7 +329,7 @@ SECTOR = Sector(
                     "kpi3",
                     "comercial",
                     f"SELECT ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS v "
-                    f"{_MARGEM}",
+                    f"{_COMERCIAL}",
                     legenda="El que queda en diciembre",
                     formato="percent",
                 ),
@@ -323,7 +337,7 @@ SECTOR = Sector(
                     "Lo que cuesta el rappel",
                     "kpi4",
                     "comercial",
-                    f"SELECT COALESCE(ROUND(SUM({_BRUTO}) - SUM({_NETO})), 0) AS v {_MARGEM}",
+                    f"SELECT COALESCE(ROUND(SUM({_BRUTO}) - SUM({_NETO})), 0) AS v {_COMERCIAL}",
                     legenda="Acordado en contrato, invisible en la factura",
                     formato="currency",
                 ),
@@ -333,7 +347,7 @@ SECTOR = Sector(
                     "comercial",
                     f"""SELECT c.channel AS canal,
                                ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS neto
-                        {_MARGEM} GROUP BY c.channel ORDER BY neto""",
+                        {_COMERCIAL} GROUP BY c.channel ORDER BY neto""",
                     variante="bar",
                     x="canal",
                     y="neto",
@@ -348,7 +362,7 @@ SECTOR = Sector(
                                ROUND(100.0 * SUM({_BRUTO}) / NULLIF(SUM({_VENDA}), 0), 1) AS "Bruto (%)",
                                ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS "Neto (%)",
                                ROUND(SUM({_BRUTO}) - SUM({_NETO})) AS "Rappel (€)"
-                        {_MARGEM} GROUP BY c.channel ORDER BY 5""",
+                        {_COMERCIAL} GROUP BY c.channel ORDER BY 5""",
                 ),
                 texto(
                     "Lo que el rappel se lleva",
@@ -359,7 +373,7 @@ SECTOR = Sector(
                                ROUND(100.0 * SUM({_NETO})
                                      / NULLIF(SUM({_VENDA}), 0), 1) AS neto,
                                ROUND(SUM({_BRUTO}) - SUM({_NETO})) AS rappel
-                        {_MARGEM}""",
+                        {_COMERCIAL}""",
                     corpo=lambda r: paragrafos(
                         "EL MARGEN QUE NO ES EL SUYO",
                         f"Bruto {pct(r[0]['bruto'])}. Después del rappel, "
@@ -381,7 +395,7 @@ SECTOR = Sector(
                                      / NULLIF(SUM({_VENDA}), 0) AS bruto,
                                    100.0 * SUM({_NETO})
                                      / NULLIF(SUM({_VENDA}), 0) AS neto
-                            {_MARGEM} GROUP BY c.channel
+                            {_COMERCIAL} GROUP BY c.channel
                         )
                         SELECT ROUND(MAX(bruto) - MIN(bruto), 1) AS rango_bruto,
                                ROUND(MAX(neto) - MIN(neto), 1) AS rango_neto,
@@ -405,7 +419,7 @@ SECTOR = Sector(
                                ROUND(SUM({_BRUTO}) - SUM({_NETO})) AS rappel,
                                ROUND(100.0 * SUM({_NETO})
                                      / NULLIF(SUM({_VENDA}), 0), 1) AS neto
-                        {_MARGEM} GROUP BY c.id, c.name
+                        {_COMERCIAL} GROUP BY c.id, c.name
                         ORDER BY SUM({_BRUTO}) - SUM({_NETO}) DESC LIMIT 1""",
                     corpo=lambda r: paragrafos(
                         "EL CONTRATO QUE MÁS PESA",
@@ -423,7 +437,7 @@ SECTOR = Sector(
                     f"""SELECT TO_CHAR(DATE_TRUNC('month', o.ordered_at), 'YYYY-MM') AS mes,
                                ROUND(100.0 * SUM({_NETO})
                                      / NULLIF(SUM({_VENDA}), 0), 1) AS neto
-                        {_MARGEM} GROUP BY 1 ORDER BY 1""",
+                        {_COMERCIAL} GROUP BY 1 ORDER BY 1""",
                     variante="line",
                     x="mes",
                     y="neto",
@@ -452,7 +466,7 @@ SECTOR = Sector(
                                ROUND(SUM({_BRUTO}) - SUM({_NETO})) AS "Rappel (€)",
                                ROUND(100.0 * SUM({_NETO})
                                      / NULLIF(SUM({_VENDA}), 0), 1) AS "Neto (%)"
-                        {_MARGEM} GROUP BY c.id, c.name, c.channel, c.rebate_pct
+                        {_COMERCIAL} GROUP BY c.id, c.name, c.channel, c.rebate_pct
                         ORDER BY 6 DESC""",
                 ),
             ],
@@ -697,7 +711,7 @@ SECTOR = Sector(
                     "La plaza que más factura",
                     "kpi1",
                     "comercial",
-                    f"""SELECT c.city AS v {_MARGEM}
+                    f"""SELECT c.city AS v {_COMERCIAL}
                         GROUP BY c.city ORDER BY SUM({_VENDA}) DESC LIMIT 1""",
                     legenda="Por importe servido",
                 ),
@@ -705,7 +719,7 @@ SECTOR = Sector(
                     "El canal que más deja",
                     "kpi2",
                     "comercial",
-                    f"""SELECT c.channel AS v {_MARGEM}
+                    f"""SELECT c.channel AS v {_COMERCIAL}
                         GROUP BY c.channel
                         ORDER BY SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0) DESC LIMIT 1""",
                     legenda="Por margen neto, no por facturación",
@@ -722,7 +736,7 @@ SECTOR = Sector(
                     "kpi4",
                     "comercial",
                     f"""SELECT ROUND(SUM({_VENDA}) / NULLIF(COUNT(DISTINCT o.id), 0)) AS v
-                        {_MARGEM}""",
+                        {_COMERCIAL}""",
                     legenda="Importe medio por pedido servido",
                     formato="currency",
                 ),
@@ -731,7 +745,7 @@ SECTOR = Sector(
                     "esq1",
                     "comercial",
                     f"""SELECT c.city AS plaza, ROUND(SUM({_VENDA})) AS facturado
-                        {_MARGEM} GROUP BY c.city ORDER BY facturado DESC""",
+                        {_COMERCIAL} GROUP BY c.city ORDER BY facturado DESC""",
                     variante="bar",
                     x="plaza",
                     y="facturado",
@@ -747,7 +761,7 @@ SECTOR = Sector(
                                ROUND(SUM({_VENDA})) AS "Facturado (€)",
                                ROUND(100.0 * c.rebate_pct, 2) AS "Rappel (%)",
                                ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS "Neto (%)"
-                        {_MARGEM}
+                        {_COMERCIAL}
                         GROUP BY c.id, c.name, c.channel, c.city, c.rebate_pct
                         ORDER BY 5 DESC LIMIT 40""",
                 ),
@@ -760,7 +774,7 @@ SECTOR = Sector(
                                    SUM({_VENDA}) AS factura,
                                    100.0 * SUM({_NETO})
                                      / NULLIF(SUM({_VENDA}), 0) AS neto
-                            {_MARGEM} GROUP BY c.id, c.name
+                            {_COMERCIAL} GROUP BY c.id, c.name
                         )
                         SELECT (SELECT name FROM cliente ORDER BY factura DESC LIMIT 1)
                                  AS top_factura,
@@ -788,7 +802,7 @@ SECTOR = Sector(
                     f"""SELECT COUNT(DISTINCT c.city) AS plazas,
                                COUNT(DISTINCT c.channel) AS canales,
                                COUNT(DISTINCT c.id) AS clientes
-                        {_MARGEM}""",
+                        {_COMERCIAL}""",
                     corpo=lambda r: paragrafos(
                         "DOS FORMAS DE CORTAR LO MISMO",
                         f"{r[0]['clientes']} clientes en {r[0]['plazas']} plazas y "
@@ -807,7 +821,7 @@ SECTOR = Sector(
                                ROUND(100.0 * SUM({_NETO})
                                      / NULLIF(SUM({_VENDA}), 0), 1) AS neto,
                                ROUND(SUM({_VENDA})) AS facturado
-                        {_MARGEM} GROUP BY c.city
+                        {_COMERCIAL} GROUP BY c.city
                         ORDER BY SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0) DESC
                         LIMIT 1""",
                     corpo=lambda r: paragrafos(
@@ -826,7 +840,7 @@ SECTOR = Sector(
                     f"""SELECT c.city AS plaza,
                                ROUND(100.0 * SUM({_NETO})
                                      / NULLIF(SUM({_VENDA}), 0), 1) AS neto
-                        {_MARGEM} GROUP BY c.city ORDER BY neto DESC""",
+                        {_COMERCIAL} GROUP BY c.city ORDER BY neto DESC""",
                     variante="column",
                     x="plaza",
                     y="neto",
@@ -836,7 +850,7 @@ SECTOR = Sector(
                     "dir2",
                     "comercial",
                     f"""SELECT c.channel AS canal, ROUND(SUM({_VENDA})) AS facturado
-                        {_MARGEM} GROUP BY c.channel ORDER BY facturado DESC""",
+                        {_COMERCIAL} GROUP BY c.channel ORDER BY facturado DESC""",
                     variante="pie",
                     x="canal",
                     y="facturado",
@@ -853,7 +867,7 @@ SECTOR = Sector(
                                      / NULLIF(COUNT(DISTINCT o.id), 0)) AS "Ticket (€)",
                                ROUND(100.0 * SUM({_NETO})
                                      / NULLIF(SUM({_VENDA}), 0), 1) AS "Neto (%)"
-                        {_MARGEM} GROUP BY c.city ORDER BY 4 DESC""",
+                        {_COMERCIAL} GROUP BY c.city ORDER BY 4 DESC""",
                 ),
             ],
         ),
@@ -983,14 +997,14 @@ P_RAPPEL = f"""SELECT c.channel AS canal,
        ROUND(100.0 * SUM({_BRUTO}) / NULLIF(SUM({_VENDA}), 0), 1) AS bruto_pct,
        ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS neto_pct,
        ROUND(SUM({_BRUTO}) - SUM({_NETO})) AS rappel
-{_MARGEM} GROUP BY c.channel ORDER BY neto_pct"""
+{_COMERCIAL} GROUP BY c.channel ORDER BY neto_pct"""
 
 P_CLIENTES = f"""SELECT c.name AS cliente, c.channel AS canal, c.city AS plaza,
        COUNT(DISTINCT o.id) AS pedidos,
        ROUND(SUM({_VENDA})) AS facturado,
        ROUND(100.0 * c.rebate_pct, 2) AS rappel_pct,
        ROUND(100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0), 1) AS neto_pct
-{_MARGEM}
+{_COMERCIAL}
 GROUP BY c.id, c.name, c.channel, c.city, c.rebate_pct
 ORDER BY facturado DESC LIMIT 12"""
 
@@ -1105,7 +1119,7 @@ METRICAS = [
         "Margen bruto",
         "Precio de venta menos coste de la mercancía, antes del rappel. "
         "Es el margen que se celebra en enero.",
-        f"SELECT 100.0 * SUM({_BRUTO}) / NULLIF(SUM({_VENDA}), 0) {_MARGEM}",
+        f"SELECT 100.0 * SUM({_BRUTO}) / NULLIF(SUM({_VENDA}), 0) {_COMERCIAL}",
         unidade="%",
         agregacao="ratio",
     ),
@@ -1113,7 +1127,7 @@ METRICAS = [
         "Margen neto tras rappel",
         "El mismo margen después de descontar el rappel acordado en "
         "contrato. Es el que queda en diciembre.",
-        f"SELECT 100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0) {_MARGEM}",
+        f"SELECT 100.0 * SUM({_NETO}) / NULLIF(SUM({_VENDA}), 0) {_COMERCIAL}",
         unidade="%",
         agregacao="ratio",
     ),
@@ -1130,6 +1144,19 @@ METRICAS = [
         agregacao="sum",
     ),
     Metrica(
+        "Capital de guarda",
+        "Coste del vino de guarda en almacén: parado a propósito, porque "
+        "envejece y no caduca. Se resta del capital parado antes de "
+        "discutir nada — el resto es lo que no se vendió.",
+        """SELECT SUM(s.quantity * p.unit_cost)
+           FROM warehouse.stock s
+           JOIN warehouse.lots l ON l.id = s.lot_id
+           JOIN assortment.products p ON p.id = l.product_id
+           WHERE s.quantity > 0 AND p.is_vintage""",
+        unidade="EUR",
+        agregacao="sum",
+    ),
+    Metrica(
         "Valor en riesgo por caducidad",
         "Coste de los lotes que caducan en los próximos 60 días, sin "
         "contar el vino de guarda. Todavía es una campaña, no una pérdida.",
@@ -1142,7 +1169,7 @@ METRICAS = [
         "Coste del rappel",
         "Lo que el rappel se lleva del margen en el periodo. Se liquida a "
         "final de año y no aparece en ninguna línea de factura.",
-        f"SELECT SUM({_BRUTO}) - SUM({_NETO}) {_MARGEM}",
+        f"SELECT SUM({_BRUTO}) - SUM({_NETO}) {_COMERCIAL}",
         unidade="EUR",
         agregacao="sum",
     ),
@@ -1161,8 +1188,10 @@ GLOSSARIO = [
         "Vino de guarda",
         "Referencia que mejora con el tiempo y está en almacén a "
         "propósito. No caduca: envejece. Meterla en un informe de "
-        "caducidades inventa un problema que no existe.",
-        ["vintage", "de guarda", "crianza"],
+        "caducidades inventa un problema que no existe. En el catálogo "
+        "es `is_vintage`; en el almacén vive en la zona «bodega de "
+        "guarda».",
+        ["vintage", "de guarda", "crianza", "bodega de guarda"],
     ),
     Termo(
         "Capital parado",
@@ -1207,14 +1236,14 @@ SECTOR.perguntas = [
     ),
     Pergunta(
         texto="¿Cuánto me come el rappel, y en qué canal?",
-        esquemas=["comercial", "almacen", "catalogo"],
+        esquemas=["comercial"],
         sql=P_RAPPEL,
         pagina="Margen real",
         resposta=_r_rappel,
     ),
     Pergunta(
         texto="¿Qué clientes facturan mucho y dejan poco?",
-        esquemas=["comercial", "almacen", "catalogo"],
+        esquemas=["comercial"],
         sql=P_CLIENTES,
         pagina="Clientes y plaza",
         resposta=_r_clientes,
