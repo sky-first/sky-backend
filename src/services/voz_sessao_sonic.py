@@ -468,6 +468,25 @@ async def servir(
                     ev = falada.Ouvido(texto=pontuar_pergunta(ev.texto, locale))
                 elif isinstance(ev, falada.Dito):
                     ev = falada.Dito(texto=em_algarismos(ev.texto, locale))
+            # ── O registo de cada turno (16/10) ─────────────────────────
+            #
+            # > «¿Qué tienda tuvo más?» — o turno cortado de 16/10 não
+            # > deixou rasto nenhum: não se sabia o que o Sonic ouviu, nem o
+            # > nível do microfone. Agora fica, sem conteúdo: palavras que o
+            # > Sonic transcreveu contra as da legenda ao vivo (que ouve o
+            # > microfone SEM o portão), e o que o portão mediu. Sonic com
+            # > menos palavras do que a legenda = o fim da frase perdeu-se.
+            if portao is not None and isinstance(ev, falada.Ouvido) and ev.texto.strip():
+                logger.info(
+                    "voz/sonic: turno ouvido (cliente=%s, palavras sonic=%d legenda=%d, "
+                    "entregas=%d, portao=%s)",
+                    getattr(ctx, "slug", "?"),
+                    len(ev.texto.split()),
+                    len(portao.ultimas_palavras.split()),
+                    portao.entregas,
+                    portao.medidas(),
+                )
+                portao.recomecar_medidas()
             # Os turnos guardam-se aqui porque é aqui que passam os dois
             # lados da conversa.
             if isinstance(ev, falada.Ouvido) and ev.texto.strip():

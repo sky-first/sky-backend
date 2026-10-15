@@ -106,10 +106,36 @@ JANELAS_PARA_VOLTAR = 2
 
 #: O limiar de voz. Absoluto em baixo (um microfone em silêncio digital
 #: não pode fazer do ruído voz) e relativo ao ruído de fundo medido.
-LIMIAR_MINIMO = 350.0
+#:
+#: ── Porque desceu de 350 para 200, e porque há dois (16/10) ─────────
+#:
+#: > «¿Qué tienda tuvo más?» — e ele tinha dito «¿Qué tienda tuvo más
+#: >  pedidos el último mes?». — Lucas, 16/10, Android.
+#:
+#: O microfone do Android chega BAIXO (a app multiplica o nível por 8 só
+#: para a onda se ver). Com a fala a ~360–730 de RMS, um limiar fixo de
+#: 350 — e 3× o ruído a meio da frase — fazia das sílabas fracas e do fim
+#: das palavras «silêncio». Esse «silêncio» era RETIDO e deitado fora, e
+#: ao fim da paciência o portão entregava a descarga: o Sonic ouvia meia
+#: pergunta e fechava o turno. Medido com o Polly a 0,15× (fala ~360,
+#: ruído 60): 52 % da fala perdida e o turno entregue antes do fim.
+#:
+#: Agora: para COMEÇAR a frase, 200 ou 3× o ruído; DENTRO da frase basta
+#: 100 ou 2× o ruído (histerese — uma vez a falar, uma sílaba fraca
+#: continua a ser fala).
+LIMIAR_MINIMO = 200.0
 FACTOR_SOBRE_O_RUIDO = 3.0
+LIMIAR_A_MEIO_DA_FALA = 100.0
+FACTOR_A_MEIO_DA_FALA = 2.0
 RUIDO_INICIAL = 150.0
 RUIDO_MAXIMO = 2500.0
+
+#: Quando a voz volta depois de uma pausa retida, o fim do que se reteve
+#: que JÁ era som (acima de 1,5× o ruído — o arranque fraco de «pedidos»)
+#: segue à frente dela. Silêncio de sala não segue: o Sonic continua a
+#: ouvir só a pausa de respiração.
+FACTOR_DO_ARRANQUE = 1.5
+ARRANQUE_MAXIMO_S = 0.3
 
 
 @dataclass(frozen=True)
@@ -343,6 +369,17 @@ class PortaoDaVez:
     _resto_enviado: int = 0
     #: Janelas com voz a seguir, enquanto se espera para confirmar que voltou.
     _a_voltar: List[bytes] = field(default_factory=list)
+    #: O fim do que está retido (até `ARRANQUE_MAXIMO_S`), com o nível de
+    #: cada janela: se a voz voltar, o arranque fraco segue à frente dela.
+    _retido: List[tuple] = field(default_factory=list)
+
+    # ── O que se mede, para o registo do turno (16/10) ──────────────
+    #: Segundos de áudio com voz que seguiram para o Sonic neste turno.
+    fala_s: float = 0.0
+    #: Segundos retidos e NUNCA entregues (pausas — ou fala que se perdeu).
+    retido_s: float = 0.0
+    #: O nível mais alto de voz ouvido neste turno (RMS de 20 ms).
+    pico_da_fala: float = 0.0
 
     # ── O que se lê de fora ─────────────────────────────────────────
 
@@ -367,6 +404,19 @@ class PortaoDaVez:
         self.a_meio_da_fala = False
         self.silencio_s = 0.0
         self._a_voltar.clear()
+        self._retido.clear()
+
+    def medidas(self) -> Dict[str, float]:
+        """O que o turno teve, para o registo — sem conteúdo nenhum."""
+        return {
+            "fala_s": round(self.fala_s, 2),
+            "retido_s": round(self.retido_s, 2),
+            "pico": round(self.pico_da_fala),
+            "ruido": round(self._ruido),
+        }
+
+    def recomecar_medidas(self) -> None:
+        self.fala_s = self.retido_s = self.pico_da_fala = 0.0
 
     # ── O áudio ─────────────────────────────────────────────────────
 
@@ -411,17 +461,45 @@ class PortaoDaVez:
             self._resto_enviado = min(len(resto), ja_foi)
         return _juntar(saida)
 
-    def _e_voz(self, janela: bytes) -> bool:
-        nivel = _rms(janela)
-        limiar = max(LIMIAR_MINIMO, self._ruido * FACTOR_SOBRE_O_RUIDO)
+    def _e_voz(self, nivel: float) -> bool:
+        if self.a_meio_da_fala:
+            # Histerese: a meio da frase uma sílaba fraca continua a ser fala.
+            limiar = max(LIMIAR_A_MEIO_DA_FALA, self._ruido * FACTOR_A_MEIO_DA_FALA)
+        else:
+            limiar = max(LIMIAR_MINIMO, self._ruido * FACTOR_SOBRE_O_RUIDO)
         voz = nivel > limiar
-        if not voz:
-            # O ruído de fundo segue devagar o que NÃO é voz.
-            self._ruido = min(RUIDO_MAXIMO, 0.95 * self._ruido + 0.05 * nivel)
+        # O ruído de fundo DESCE depressa e SOBE devagar. Antes subia 5 %
+        # por janela com tudo o que não passava o limiar — e com o
+        # microfone baixo isso incluía sílabas fracas: o ruído subia para o
+        # nível da fala, o limiar (3×) subia acima dela, e o resto da frase
+        # passava a «silêncio». Agora só a parte de baixo o puxa para cima.
+        if nivel < self._ruido:
+            self._ruido = 0.8 * self._ruido + 0.2 * nivel
+        elif not voz and nivel < self._ruido * FACTOR_A_MEIO_DA_FALA:
+            self._ruido = min(RUIDO_MAXIMO, 0.99 * self._ruido + 0.01 * nivel)
         return voz
 
+    def _reter(self, janela: bytes, nivel: float) -> None:
+        self._retido.append((janela, nivel))
+        if len(self._retido) * JANELA_S > ARRANQUE_MAXIMO_S + 1e-9:
+            self._retido.pop(0)
+
+    def _arranque(self) -> List[bytes]:
+        """O fim do retido que já era som: o arranque fraco da palavra."""
+        limiar = max(LIMIAR_A_MEIO_DA_FALA / 2, self._ruido * FACTOR_DO_ARRANQUE)
+        k = len(self._retido)
+        while k > 0 and self._retido[k - 1][1] > limiar:
+            k -= 1
+        arranque = [j for j, _n in self._retido[k:]]
+        self.retido_s = max(0.0, self.retido_s - JANELA_S * len(arranque))
+        self._retido.clear()
+        return arranque
+
     def _janela(self, janela: bytes) -> List[bytes]:
-        voz = self._e_voz(janela)
+        nivel = _rms(janela)
+        voz = self._e_voz(nivel)
+        if voz:
+            self.pico_da_fala = max(self.pico_da_fala, nivel)
 
         if not self.a_meio_da_fala:
             # Antes de a pessoa falar (ou depois de o turno ser entregue),
@@ -431,6 +509,8 @@ class PortaoDaVez:
                 self.a_meio_da_fala = True
                 self.silencio_s = 0.0
                 self.ultimas_palavras = ""
+                self._retido.clear()
+                self.fala_s += JANELA_S
             return [janela]
 
         if voz:
@@ -438,25 +518,33 @@ class PortaoDaVez:
                 # Pausa curta, já toda entregue: a frase continua.
                 self.silencio_s = 0.0
                 self._a_voltar.clear()
+                self._retido.clear()
+                self.fala_s += JANELA_S
                 return [janela]
             # A meio de uma pausa retida: confirma que é voz a sério.
             self._a_voltar.append(janela)
             if len(self._a_voltar) >= JANELAS_PARA_VOLTAR:
                 voltou, self._a_voltar = self._a_voltar, []
                 self.silencio_s = 0.0
-                return voltou
+                self.fala_s += JANELA_S * len(voltou)
+                return self._arranque() + voltou
             return []
 
         # Silêncio a meio da fala.
         if self._a_voltar:
             # Era um clique, não a voz a voltar: conta como silêncio.
             self.silencio_s += JANELA_S * len(self._a_voltar)
+            for j in self._a_voltar:
+                self._reter(j, _rms(j))
+                self.retido_s += JANELA_S
             self._a_voltar.clear()
         self.silencio_s += JANELA_S
         if self.silencio_s >= self.espera_s():
             return self._entregar()
         if self.silencio_s <= PASSAGEM_S:
             return [janela]
+        self._reter(janela, nivel)
+        self.retido_s += JANELA_S
         return []  # retido
 
     def _entregar(self) -> List[bytes]:
@@ -464,6 +552,7 @@ class PortaoDaVez:
         self.a_meio_da_fala = False
         self.silencio_s = 0.0
         self._a_voltar.clear()
+        self._retido.clear()
         self.entregas += 1
         pedaco = bytes(int(HZ * PEDACO_DA_DESCARGA_S) * 2)
         total = int(HZ * DESCARGA_S) * 2

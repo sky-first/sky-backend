@@ -178,10 +178,12 @@ _ESCALAS = {
 }
 _LIGA = {"es": {"y"}, "pt": {"e"}, "en": {"and"}}
 _VIRGULA = {"es": {"coma"}, "pt": {"vírgula", "virgula"}, "en": {"point"}}
+#: As palavras de «%», por língua. Só valem DEPOIS de um número — ver
+#: `_porcento_em`.
 _PORCENTO = {
-    "es": ("por ciento",),
-    "pt": ("por cento",),
-    "en": ("percent", "per cent"),
+    "es": (("por", "ciento"), ("por", "cien")),
+    "pt": (("por", "cento"),),
+    "en": (("percent",), ("per", "cent")),
 }
 _PALAVRA = re.compile(r"[^\W\d_]+|\d+|[^\w\s]|\s+", re.UNICODE)
 
@@ -311,6 +313,46 @@ _MESES_DITOS = {
 }
 
 
+def _porcento_em(tokens: List[str], k: int) -> Optional[int]:
+    """`tokens[k:]` começa por «%», «por ciento», «por cento», «percent»? Devolve o fim.
+
+    ── O «por» que virava «%» (16/10) ──────────────────────────────
+
+    > «Tienda 01 registró ventas % 82.304,18 euros.» — legenda vista pelo
+    >  Lucas a 16/10, logo depois do #773.
+
+    O Sonic disse «registró ventas por ciento ochenta y dos mil trescientos
+    cuatro coma dieciocho euros»: «por» preposição, e 182.304,18 €. Aqui
+    trocava-se QUALQUER «por ciento» por «%» antes de ler os números — o
+    «por» desaparecia e o «ciento» do número também (182 → 82: a legenda
+    mentia no montante, não só na pontuação). Com os números por extenso
+    (#773) passou a acontecer sempre que um montante entre 100 e 199 (mil,
+    milhões) vem depois de «por».
+
+    Agora «por ciento» só é «%» DEPOIS de um número — é quem chama que o
+    garante. Sem número antes, o «ciento» é o princípio do número a seguir:
+    «por ciento veinte euros» → «por 120 euros». Fica ambíguo de propósito
+    um caso que o Sonic não diz: «ochenta por ciento veinte…» lê-se
+    «80 % 20…» (um número antes manda).
+    """
+    if k >= len(tokens):
+        return None
+    if tokens[k] == "%":
+        return k + 1
+    for frases in _PORCENTO.values():
+        for frase in frases:
+            j, igual = k, True
+            for palavra in frase:
+                j = _saltar_espacos(tokens, j)
+                if j >= len(tokens) or tokens[j].lower() != palavra:
+                    igual = False
+                    break
+                j += 1
+            if igual:
+                return j
+    return None
+
+
 def _antes_de_mes(tokens: List[str], k: int) -> bool:
     """`tokens[k:]` começa por «de <mês>»?"""
     if k >= len(tokens) or tokens[k].lower() != "de":
@@ -342,14 +384,22 @@ def em_algarismos(texto: str, lingua: str = "es") -> str:
         return texto
     linguas = [lingua] + [x for x in _UNIDADES if x != lingua]
     try:
-        # «por cento» antes de tudo: senão o «cento» lia-se como 100.
-        for lg in linguas:
-            for p in _PORCENTO[lg]:
-                texto = re.sub(r"\s+" + p + r"\b", " %", texto, flags=re.I)
         tokens = _PALAVRA.findall(texto)
         out: List[str] = []
         i = 0
         while i < len(tokens):
+            # «por ciento» DEPOIS de um número (já em algarismos) → « %».
+            # Antes de um número, ou sem número, fica como está: o «por» é
+            # preposição — ver `_porcento_em`.
+            if not tokens[i].isspace() and tokens[i] != "%":
+                fim_pct = _porcento_em(tokens, i)
+                anterior = next((t for t in reversed(out) if not t.isspace()), "")
+                if fim_pct is not None and anterior[-1:].isdigit():
+                    while out and out[-1].isspace():
+                        out.pop()
+                    out.append(" %")
+                    i = fim_pct
+                    continue
             # Um código dito dígito a dígito a começar por zero («cero uno»,
             # «zero um») volta a «01» — é como `por_extenso` diz a «Tienda 01».
             if tokens[i].lower() in ("cero", "zero"):
@@ -397,7 +447,7 @@ def em_algarismos(texto: str, lingua: str = "es") -> str:
             # pronome. Só mudam os de duas ou mais palavras, ≥ 10, com
             # decimais, ou seguidos de «%».
             k = _saltar_espacos(tokens, fim)
-            percentagem = k < len(tokens) and tokens[k] == "%"
+            percentagem = _porcento_em(tokens, k) is not None
             # «uno de agosto» → «1 de agosto»: antes de um mês é um dia.
             dia = _antes_de_mes(tokens, k)
             if palavras == 1 and valor < 10 and decimal is None and not (percentagem or dia):
