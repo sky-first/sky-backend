@@ -16,6 +16,10 @@ e depois verifica três coisas:
   3. **a resposta das cinco perguntas** monta-se sem rebentar com os
      dados novos.
 
+⚠️ A CI corre com `--testmon`, que só re-selecciona testes cujo código
+PYTHON mudou. Uma alteração só ao SQL pode passar sem este teste correr:
+ao mexer nos seeds, correr este ficheiro à mão (ou tocar-lhe).
+
 Precisa de ``WORLD_TEST_PG_DSN`` (o mesmo Postgres que
 `test_fontes_sistema_postgres.py` usa). Sem ela, salta — na CI tem de
 existir.
@@ -161,7 +165,15 @@ def _consultas():
 
 def test_o_segundo_carregamento_da_o_mesmo_que_o_primeiro(base):
     _, primeira, segunda = base
-    assert primeira == segunda
+    # Os pedidos de hoje da restauração vão até `now()`, por isso o
+    # segundo carregamento, segundos depois, pode trazer mais um ou dois.
+    # Tudo o resto tem de ser igual ao número.
+    relogio = {"service.orders", "service.order_items"}
+    assert {k: v for k, v in primeira.items() if k not in relogio} == {
+        k: v for k, v in segunda.items() if k not in relogio
+    }
+    for k in relogio:
+        assert 0 <= segunda[k] - primeira[k] <= primeira[k] * 0.001, k
     assert primeira["service.orders"] > 50_000
     assert primeira["ops.trips"] > 3_000
 
