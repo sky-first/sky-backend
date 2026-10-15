@@ -191,3 +191,31 @@ def test_dois_sectores_nao_colidem_no_mesmo_slug():
                     f"«{m.nome}» existe em {vistos[slug]} e em {s.chave}"
                 )
             vistos[slug] = s.chave
+
+
+# ── «fuera de plazo» é com a tolerância do cliente (15/10/2026) ─────
+
+
+def test_fuera_de_plazo_e_um_termo_com_a_tolerancia_do_cliente():
+    """«¿Qué rutas tienen el mayor porcentaje de portes fuera de plazo?»
+    saiu com Porto→Madrid a 94 % e 18 rotas acima de 55 %: a IA contou
+    «chegou depois da hora prometida», sem a tolerância. Na base, 66 % dos
+    portes chegam depois da hora prometida e só 7,7 % passam a tolerância.
+
+    O cliente escreve «fuera de plazo», «incumple el plazo», «retraso» —
+    nenhuma destas palavras estava no glossário."""
+    por_sinonimo = {s.lower(): t for t in transportes.SECTOR.glossario for s in t.sinonimos}
+    for palavra in ("fuera de plazo", "incumple el plazo", "retraso"):
+        assert palavra in por_sinonimo, palavra
+        definicao = por_sinonimo[palavra].definicao.lower()
+        assert "tolerancia" in definicao and "sla_minutes" in definicao
+
+
+def test_ha_metrica_da_percentagem_com_o_denominador_todo():
+    m = next(
+        m for m in transportes.SECTOR.metricas if m.nome == "Porcentaje de portes fuera de plazo"
+    )
+    assert m.unidade == "%" and m.agregacao == "ratio"
+    f = _normaliza(m.formula)
+    assert "sla_minutes" in f and "filter (where" in f and "/ nullif(count(*), 0)" in f
+    assert "todos los portes" in m.descricao.lower()
