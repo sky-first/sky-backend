@@ -841,6 +841,31 @@ class AIService:
             logger.debug("preferencias de resposta ignoradas: %s", exc)
             return instrucoes or ""
 
+    async def _lingua_da_frase_de_erro(self, user_id: UUID, query_data: Any) -> str:
+        """A língua da frase que ocupa o lugar da resposta quando a IA falha.
+
+        Produção 14/10/2026: «¿Cuál es el ticket medio por canal?» →
+        «Não foi possível contactar a Sky.» Com «Segue a sua pergunta» o
+        `locale` chega `None` e a frase caía no português por omissão. A
+        ordem: a língua pedida → a língua da PERGUNTA → a da interface de
+        quem pergunta → `DEFAULT_LOCALE`. Nunca levanta.
+        """
+        from src.core.locale import lingua_da_interface, lingua_da_pergunta
+
+        pedida = getattr(query_data, "locale", None)
+        if pedida and str(pedida).strip().lower() != "auto":
+            return str(pedida)
+        da_pergunta = lingua_da_pergunta(getattr(query_data, "question", None))
+        if da_pergunta:
+            return da_pergunta
+        try:
+            from src.models.user import User as _UserLingua
+
+            quem = await self.db.get(_UserLingua, user_id)
+            return lingua_da_interface(None, getattr(quem, "preferences", None))
+        except Exception:  # noqa: BLE001 — uma frase de erro nunca parte
+            return lingua_da_interface(None, None)
+
     async def process_query(self, user_id: UUID, query_data: AIQueryRequest) -> AIQueryResponse:
         """
         Process AI query.
@@ -1699,7 +1724,7 @@ class AIService:
             # Please retry or open a ticket.» — e não há nenhum botão
             # para abrir esse pedido, por isso a frase mandava fazer uma
             # coisa que o ecrã não deixa.
-            idioma = getattr(query_data, "locale", None)
+            idioma = await self._lingua_da_frase_de_erro(user_id, query_data)
             error_key = "chat.server"
             friendly = get_message("chat_error_generic", idioma)
             if isinstance(e, _httpx.TimeoutException):

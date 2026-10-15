@@ -51,6 +51,32 @@ def cabecalhos_do_cliente() -> Dict[str, str]:
     return {}
 
 
+#: Avarias de LIGAÇÃO ao `sky-ai` que valem uma segunda tentativa.
+#:
+#: Produção, 14/10/2026 16:02 UTC: «¿Cuál es el ticket medio por canal?» →
+#: 2/2 «Não foi possível contactar a Sky». A pergunta não tinha nada: o
+#: `sky-ai` estava a ser substituído pelo deploy de #294 nesse minuto. O pod
+#: antigo recebe SIGTERM, fecha as ligações que tem abertas, e o Kubernetes
+#: ainda lhe manda pedidos durante uns segundos — `ConnectError`,
+#: `ReadError` («connection reset») ou `RemoteProtocolError` («Server
+#: disconnected»). Dez minutos depois a mesma pergunta respondia em 5 s.
+#:
+#: Uma segunda tentativa, uns segundos depois, chega ao pod novo. O tempo
+#: esgotado NÃO entra: aí o `sky-ai` está a trabalhar, e repetir duplicava a
+#: espera (90 s + 90 s) para a mesma falha.
+ERROS_DE_LIGACAO_A_REPETIR = (httpx.NetworkError, httpx.RemoteProtocolError)
+
+#: Quanto se espera antes da segunda tentativa (o pod novo já está pronto
+#: quando o antigo começa a fechar — `maxUnavailable: 0`).
+ESPERA_ANTES_DE_REPETIR_S = 2.0
+
+
+def _e_avaria_de_ligacao(exc: BaseException) -> bool:
+    return isinstance(exc, ERROS_DE_LIGACAO_A_REPETIR) and not isinstance(
+        exc, httpx.TimeoutException
+    )
+
+
 class AIServiceHTTPClient:
     """HTTP client for AI service (ia-do-projeto)."""
 
@@ -211,16 +237,32 @@ class AIServiceHTTPClient:
 
         reservada = await limites_do_plano.reservar_pergunta_se_conta()
         try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout, headers=self._tenant_headers()
-            ) as client:
-                logger.info(
-                    f"Calling AI service: {url} with connection_id={connection_id}, "
-                    f"space_id={space_id}, extra_connection_ids={connection_ids}"
-                )
-                response = await client.post(url, json=payload)
-                response.raise_for_status()
-                return response.json()  # type: ignore
+            for tentativa in (1, 2):
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=self.timeout, headers=self._tenant_headers()
+                    ) as client:
+                        logger.info(
+                            f"Calling AI service: {url} with connection_id={connection_id}, "
+                            f"space_id={space_id}, extra_connection_ids={connection_ids}"
+                        )
+                        response = await client.post(url, json=payload)
+                        response.raise_for_status()
+                        return response.json()  # type: ignore
+                except Exception as exc:
+                    # Uma só vez, e só se a LIGAÇÃO caiu (ver
+                    # ERROS_DE_LIGACAO_A_REPETIR). A pergunta conta uma vez.
+                    if tentativa == 2 or not _e_avaria_de_ligacao(exc):
+                        raise
+                    logger.warning(
+                        "sky-ai: ligação perdida (%s) — nova tentativa em %.0f s",
+                        type(exc).__name__,
+                        ESPERA_ANTES_DE_REPETIR_S,
+                    )
+                    import asyncio
+
+                    await asyncio.sleep(ESPERA_ANTES_DE_REPETIR_S)
+            raise RuntimeError("inalcançável")  # pragma: no cover
         except Exception:
             if reservada:
                 await limites_do_plano.devolver_pergunta()
@@ -321,14 +363,33 @@ class AIServiceHTTPClient:
         reservada = await limites_do_plano.reservar_pergunta_se_conta()
         recebeu_algo = False
         try:
-            async with httpx.AsyncClient(timeout=120.0, headers=self._tenant_headers()) as client:
-                logger.info(f"Streaming AI service: {url} for connection {connection_id}")
-                async with client.stream("POST", url, json=payload) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if line.strip():
-                            recebeu_algo = True
-                            yield line
+            for tentativa in (1, 2):
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=120.0, headers=self._tenant_headers()
+                    ) as client:
+                        logger.info(
+                            f"Streaming AI service: {url} for connection {connection_id}"
+                        )
+                        async with client.stream("POST", url, json=payload) as response:
+                            response.raise_for_status()
+                            async for line in response.aiter_lines():
+                                if line.strip():
+                                    recebeu_algo = True
+                                    yield line
+                    return
+                except Exception as exc:
+                    # Só antes da primeira linha: uma resposta a meio não se
+                    # repete (já saiu texto para o ecrã e para a voz).
+                    if tentativa == 2 or recebeu_algo or not _e_avaria_de_ligacao(exc):
+                        raise
+                    logger.warning(
+                        "sky-ai (stream): ligação perdida (%s) — nova tentativa",
+                        type(exc).__name__,
+                    )
+                    import asyncio
+
+                    await asyncio.sleep(ESPERA_ANTES_DE_REPETIR_S)
         except Exception:
             # Só se devolve se nada chegou: uma resposta interrompida a meio
             # já custou o modelo.
