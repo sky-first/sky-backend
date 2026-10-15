@@ -52,6 +52,29 @@ class LigacaoDoSistemaError(ForbiddenError):
         }
 
 
+class ContaGeridaPelaOrganizacaoError(ForbiddenError):
+    """403 na autoeliminação: a conta é da organização (15/10/2026).
+
+    A app e a web leem ``details.reason == "conta_gerida_pela_organizacao"``;
+    ``details.messages`` traz a frase nas três línguas e ``message`` vem já na
+    língua de quem pediu.
+    """
+
+    REASON = "conta_gerida_pela_organizacao"
+
+    def __init__(self, locale: str | None = None):
+        from src.core.locale import get_message
+
+        super().__init__(get_message("account_managed_by_org", locale))
+        self.details = {
+            "reason": self.REASON,
+            "messages": {
+                lingua: get_message("account_managed_by_org", lingua)
+                for lingua in ("pt", "es", "en")
+            },
+        }
+
+
 class NotFoundError(BaseAPIException):
     """Not found error (404)."""
 
