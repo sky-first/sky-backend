@@ -146,7 +146,7 @@ def instrucao_de_sistema(locale: str, fuso: Optional[str] = None) -> str:
         «não há dados de clientes; o mais próximo são os pedidos» e o
         Sonic resumia-o em «não encontrei, reformula».
     """
-    from src.services.vozes import lingua_do_locale, sotaque_de
+    from src.services.vozes import lingua_do_locale, numeros_por_extenso, sotaque_de
 
     lingua = {
         "pt": "português de Portugal",
@@ -156,15 +156,30 @@ def instrucao_de_sistema(locale: str, fuso: Optional[str] = None) -> str:
     # O sotaque vai à cabeça, como nas gravações que o Lucas aprovou (14/10).
     # Só o castelhano tem — ver `vozes.SOTAQUE`.
     sotaque = sotaque_de(lingua_do_locale(locale))
+    # ── Números (16/10) ─────────────────────────────────────────────
+    #
+    # Em castelhano a regra dos algarismos ERA a causa: as vozes poliglotas
+    # leem «27.000» em inglês («twenty seven point zero…»). Lá pede-se o
+    # contrário, logo a seguir ao sotaque, à cabeça do resto. A legenda
+    # não perde nada: o servidor volta a pôr algarismos (`em_algarismos`).
+    extenso = numeros_por_extenso(lingua_do_locale(locale))
+    if extenso:
+        numeros = ""
+    else:
+        numeros = (
+            f"Escreve SEMPRE os números com algarismos (27.000, 4,5 %, 1.250 €), "
+            f"nunca por extenso, e di-los em voz alta em {lingua}, nunca noutra "
+            f"língua. "
+        )
     return (
         (f"{sotaque} " if sotaque else "")
+        + (f"{extenso} " if extenso else "")
         + f"És a Sky, a analista de dados da empresa. Responde SEMPRE em "
         f"{lingua}, em uma ou duas frases curtas, como numa conversa — "
         f"nunca em listas. Agora é {agora_em(locale, fuso)}; usa isto para "
         f"«hoje», «ontem», «este mês» e para dizer a data ou a hora. "
-        f"Escreve SEMPRE os números com algarismos (27.000, 4,5 %, 1.250 €), "
-        f"nunca por extenso, e di-los em voz alta em {lingua}, nunca noutra "
-        f"língua. Os montantes são em euros: diz sempre a moeda. Para qualquer pergunta sobre números, clientes, "
+        + numeros
+        + f"Os montantes são em euros: diz sempre a moeda. Para qualquer pergunta sobre números, clientes, "
         f"vendas, custos, pessoas ou prazos usa SEMPRE a ferramenta "
         f"consultar_dados. Quando ela devolver um resultado, diz o campo "
         f"«resultado» TAL E QUAL, palavra por palavra, traduzido só se vier "
