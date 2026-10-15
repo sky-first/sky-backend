@@ -411,3 +411,88 @@ def test_sem_patience_no_start_vale_a_gravada_na_conta():
     assert vp.paciencia_pedida({}, object()) is None
     assert vp.paciencia_pedida({}, type("U", (), {"preferences": {"voice": "x"}})()) is None
     assert vp.paciencia_de(vp.paciencia_pedida({}, object())) == vp.PACIENCIAS["patient"]
+
+
+# ── Microfone baixo (Android): a fala fraca não é silêncio (16/10) ──
+#
+# > «¿Qué tienda tuvo más?» — e ele tinha dito «¿Qué tienda tuvo más
+# >  pedidos el último mes?». — Lucas, 16/10, Android.
+#
+# O Android entrega a fala a ~360–730 de RMS. Com o limiar fixo de 350 (e
+# 3× o ruído) as sílabas fracas eram «silêncio», ficavam retidas e iam
+# para o lixo; e a paciência acabava a meio da frase. Contra o Sonic
+# verdadeiro (Polly a 0,15×): ele ouviu «qué tienda tuvo más pedidos» e
+# respondeu — sem «el último mes».
+
+
+def _fala_baixa(segundos: float, forte: int = 650, fraca: int = 160) -> bytes:
+    """Fala a nível de Android: sílabas fortes e, a cada 0,5 s, 0,3 s fraca.
+
+    O troço fraco (o fim de «pedidos», «el último…») fica abaixo dos 350
+    antigos mas bem acima do ruído de sala.
+    """
+    n = int(HZ * segundos)
+    out = bytearray()
+    for i in range(n):
+        t = i / HZ
+        amp = forte if (t % 0.5) < 0.2 else fraca
+        out += int(amp * math.sqrt(2) * math.sin(2 * math.pi * 180 * t)).to_bytes(
+            2, "little", signed=True
+        )
+    return bytes(out)
+
+
+def _passar(portao: vp.PortaoDaVez, pcm: bytes) -> List[bytes]:
+    return [s for p in _pedacos(pcm) for s in portao.ouvir(p)]
+
+
+def test_fala_baixa_nao_e_retida_nem_corta_o_turno():
+    portao = vp.PortaoDaVez()
+    antes, fala = _silencio(0.5, 40), _fala_baixa(2.5)
+    saiu = _passar(portao, antes + fala)
+    # A frase inteira passou — nenhuma sílaba ficou retida.
+    assert sum(len(s) for s in saiu) >= len(antes) + len(fala) - 640
+    assert portao.entregas == 0
+    assert portao.retido_s == 0
+    # E o turno fecha quando ela se cala, depois da paciência.
+    _passar(portao, _silencio(1.6, 40))
+    assert portao.entregas == 1
+
+
+def test_o_ruido_de_fundo_nao_sobe_ate_a_fala():
+    """O ruído subia com as sílabas fracas, e o limiar (3×) passava a fala."""
+    portao = vp.PortaoDaVez()
+    _passar(portao, _silencio(0.5, 40) + _fala_baixa(4.0))
+    assert portao._ruido < 100
+
+
+def test_o_arranque_fraco_depois_de_uma_pausa_segue_com_a_voz():
+    """Pausa de 0,6 s e a palavra seguinte começa fraca: o arranque não se perde."""
+    portao = vp.PortaoDaVez()
+    _passar(portao, _silencio(0.5, 40) + _fala(1.0) + _silencio(0.6, 40))
+    # ~120 de RMS: abaixo do limiar de voz, acima de 1,5× o ruído (40).
+    arranque = _fala_baixa(0.12, forte=120, fraca=120)
+    voz = _fala(0.3)
+    saiu = b"".join(_passar(portao, arranque + voz))
+    assert len(saiu) >= len(arranque) + len(voz) - 640
+    assert portao.entregas == 0
+
+
+def test_o_silencio_de_sala_da_pausa_nao_segue_com_a_voz():
+    """Só o arranque com som segue: o Sonic continua a ouvir só a pausa curta."""
+    portao = vp.PortaoDaVez()
+    sonic = _SonicFalso(0.4)
+    for s in _passar(portao, _fala(1.0) + _silencio(1.0) + _fala(0.6)):
+        sonic.ouvir(s)
+    assert not sonic.fechou
+    assert sonic.maior_pausa <= vp.PASSAGEM_S + 0.05
+
+
+def test_as_medidas_do_turno_nao_levam_conteudo():
+    portao = vp.PortaoDaVez()
+    _passar(portao, _fala(1.0) + _silencio(1.6))
+    m = portao.medidas()
+    assert set(m) == {"fala_s", "retido_s", "pico", "ruido"}
+    assert m["fala_s"] == pytest.approx(1.0, abs=0.05)
+    portao.recomecar_medidas()
+    assert portao.medidas()["fala_s"] == 0

@@ -763,3 +763,51 @@ desenho:
 A paciência escolhe-se nas definições de voz da app («Esperar antes de
 responder»: Normal / Más paciente) e viaja no `start` como `patience`;
 sem ela, vale a paciente. O ditado não passa pelo portão.
+
+### 16/10/2026 — o portão comia a fala de um microfone baixo
+
+> «¿Qué tienda tuvo más?» — e ele tinha dito «¿Qué tienda tuvo más
+> pedidos el último mes?». Android 1.0.1 (15). — Lucas, 16/10/2026
+
+Em produção o Sonic mandou à ferramenta «¿Qué tienda tuvo más ventas?»
+(registo do sky-ai): ouviu só até «más» e inventou o resto. A causa não
+é o `endpointingSensitivity` — é o portão. O microfone do Android chega
+baixo (fala a ~360–730 de RMS, a app multiplica o nível por 8 só para a
+onda se ver), e o portão media voz com um limiar fixo de 350 / 3× o
+ruído: sílabas fracas e fins de palavra eram «silêncio», ficavam RETIDAS
+e iam para o lixo, o ruído de fundo subia com elas e o limiar subia acima
+da fala, e a paciência acabava a meio da frase. Abaixo de ~350 de pico no
+arranque o portão nem chegava a ligar-se, e o Sonic via as pausas cruas.
+
+Medido contra o Sonic verdadeiro (Polly «Lucía», `scripts/sonda_o_turno_cortado.py`,
+2 repetições; «Android» = 0,15× com ruído 60, «muito baixo» = 0,1× com
+ruído 40):
+
+| cenário | o que o Sonic ouviu (portão antigo) | portão novo |
+|---|---|---|
+| sem portão, pausa 0,9 s depois de «más», LOW/MEDIUM/HIGH | «qué tienda tuvo más» (6/6) | — |
+| Android, frase seguida | «qué tienda tuvo más pedidos» / «…más pérdidas» | inteira (2/2) |
+| Android, pausa 0,9 s | «…pedidos el lunes» / «…pedidos el último» | inteira (2/2) |
+| muito baixo, frase seguida | «qué tiendas» | inteira |
+| muito baixo, pausa 0,9 s | «qué tienda tuvo pedidos» | inteira |
+| estúdio (1,0×), seguida e com pausa | inteira | inteira |
+
+Nenhuma sensibilidade do Sonic salva a pausa de 0,9 s (fecha-a em ~0,4 s
+nas três). Fica LOW.
+
+A correcção (`voz_paciencia`): limiar de arranque 200 / 3× o ruído;
+**histerese** a meio da frase (100 / 2× o ruído); o ruído desce depressa e
+sobe devagar, só com o que está perto dele; e quando a voz volta depois de
+uma pausa retida, o fim retido que já tinha som (> 1,5× o ruído, até
+0,3 s) segue à frente dela. Silêncio de sala continua retido.
+
+Latência — fim da fala → o Sonic fecha o turno / primeiro som, a nível de
+estúdio, portão antigo vs novo: 2,44–2,49 s / 3,18–3,28 s contra
+2,41–2,60 s / 3,15–3,32 s. Igual: é a paciência (1,4 s) + ~1,1 s do
+Sonic, como antes. O portão antigo só «respondia mais depressa» no
+Android porque cortava a pergunta.
+
+Cada turno passa a deixar no registo `voz/sonic: turno ouvido` com as
+palavras do Sonic contra as da legenda ao vivo (que ouve o microfone sem
+o portão) e o que o portão mediu (fala, retido, pico, ruído) — sem
+conteúdo. Sonic com menos palavras do que a legenda = perdeu-se o fim.
