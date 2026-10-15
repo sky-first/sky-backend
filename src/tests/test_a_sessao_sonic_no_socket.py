@@ -67,7 +67,9 @@ class _Socket:
     async def receive(self) -> Dict[str, Any]:
         if self._entrada:
             return self._entrada.pop(0)
-        # Sem mais nada: a pessoa desligou.
+        # Sem mais nada: a pessoa ouve a resposta e desliga. A espera conta
+        # desde 16/10 — depois de ela desligar já não sai som nenhum.
+        await asyncio.sleep(0.05)
         return {"type": "websocket.disconnect"}
 
     async def send_text(self, s: str) -> None:
@@ -516,7 +518,9 @@ class TestGuardarAConversa:
 
 
 class TestAVozEALingua:
-    @pytest.mark.parametrize("locale,esperada", [("pt", "ines"), ("es", "tiffany"), ("en", "matthew")])
+    @pytest.mark.parametrize(
+        "locale,esperada", [("pt", "ines"), ("es", "tiffany"), ("en", "matthew")]
+    )
     def test_cada_lingua_tem_a_sua_voz(self, locale, esperada):
         assert sonic.voz_do_locale(locale) == esperada
 
