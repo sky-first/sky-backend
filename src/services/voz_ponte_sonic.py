@@ -28,7 +28,8 @@ from array import array
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from src.services import voz_fala_a_fala as falada
-from src.services.numeros_falados import numeros_no_formato
+from src.services.numeros_falados import numeros_no_formato, por_extenso
+from src.services.vozes import lingua_do_locale, numeros_por_extenso
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +190,16 @@ def ferramenta_do_cliente(
         # Os números no formato da conversa: «6.153.185,72 €», não
         # «6153185.72». Um número cru, o Sonic lia-o em inglês numa conversa
         # em castelhano («six million one hundred…», Lucas, 10/10).
-        return numeros_no_formato(resposta, locale)
+        #
+        # E depois por extenso (16/10): com as vozes poliglotas do castelhano
+        # (tiffany/matthew, de base inglesa) nem o formato chegava — o modelo
+        # lia «563.919,19 €» em inglês. Com palavras não há algarismos para
+        # ler noutra língua. Só onde as vozes o pedem (`vozes.NUMEROS_POR_EXTENSO`
+        # — hoje o castelhano); o português e o inglês ficam em algarismos.
+        formatado = numeros_no_formato(resposta, locale)
+        if numeros_por_extenso(lingua_do_locale(locale)):
+            return por_extenso(formatado, locale)
+        return formatado
 
     return consultar
 

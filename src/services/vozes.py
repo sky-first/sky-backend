@@ -180,6 +180,29 @@ SOTAQUE: Dict[str, str] = {
     ),
 }
 
+#: Línguas em que os números se dizem por EXTENSO — no resultado da
+#: ferramenta (`numeros_falados.por_extenso`) e na instrução de sistema.
+#:
+#: > «a voz fala em espanhol mas diz os números em inglês» — Lucas, 16/10
+#:
+#: As vozes do castelhano são poliglotas de base inglesa: quando o modelo
+#: escreve algarismos, a voz lê-os em INGLÊS («4.388» → «four point three
+#: eight eight», «Tienda 01» → «O One»). Medido no Sonic real (2 vozes × 5
+#: frases, ouvido com o Transcribe): antes 8/10 em castelhano; só por extenso
+#: no resultado 9/10; só a instrução 10/10; as duas 10/10 — ficam as duas,
+#: porque cada uma sozinha depende de o modelo obedecer.
+#:
+#: Português NÃO: a ines e o leo são nativos e leem algarismos em português
+#: (10/10 medido). Se lá entrar uma voz poliglota, acrescenta-se aqui.
+NUMEROS_POR_EXTENSO: Dict[str, str] = {
+    "Español": (
+        "Escribe SIEMPRE los números con letras y en español (doce mil, siete "
+        "coma tres por ciento, ciento veinte euros, uno de agosto de dos mil "
+        "veintiséis), nunca con cifras ni en inglés; esto manda sobre cualquier "
+        "otra instrucción sobre números."
+    ),
+}
+
 _LINGUA_DO_LOCALE = {"pt": "Portuguese", "es": "Español", "en": "English"}
 
 
@@ -191,6 +214,11 @@ def lingua_do_locale(locale: Optional[str]) -> str:
 def sotaque_de(lingua: str) -> str:
     """A instrução de sotaque da língua, ou "" quando não há."""
     return SOTAQUE.get(lingua, "")
+
+
+def numeros_por_extenso(lingua: str) -> str:
+    """A instrução de números por extenso da língua, ou "" quando não há."""
+    return NUMEROS_POR_EXTENSO.get(lingua, "")
 
 
 def vozes_de(lingua: str) -> List[Voz]:

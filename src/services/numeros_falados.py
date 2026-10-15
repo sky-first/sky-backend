@@ -284,6 +284,41 @@ def _ler_decimais(tokens: List[str], k: int, lingua: str) -> Tuple[Optional[str]
     return digitos, fim
 
 
+_MESES_DITOS = {
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "setiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+    "janeiro",
+    "fevereiro",
+    "março",
+    "maio",
+    "junho",
+    "julho",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+}
+
+
+def _antes_de_mes(tokens: List[str], k: int) -> bool:
+    """`tokens[k:]` começa por «de <mês>»?"""
+    if k >= len(tokens) or tokens[k].lower() != "de":
+        return False
+    j = _saltar_espacos(tokens, k + 1)
+    return j < len(tokens) and tokens[j].lower() in _MESES_DITOS
+
+
 def em_algarismos(texto: str, lingua: str = "es") -> str:
     """«veintisiete mil personas» → «27.000 personas». Nunca rebenta.
 
@@ -315,6 +350,23 @@ def em_algarismos(texto: str, lingua: str = "es") -> str:
         out: List[str] = []
         i = 0
         while i < len(tokens):
+            # Um código dito dígito a dígito a começar por zero («cero uno»,
+            # «zero um») volta a «01» — é como `por_extenso` diz a «Tienda 01».
+            if tokens[i].lower() in ("cero", "zero"):
+                digitos, j = "0", i + 1
+                while True:
+                    k = _saltar_espacos(tokens, j)
+                    if k >= len(tokens) or tokens[k].isspace():
+                        break
+                    v = _UNIDADES[lingua].get(tokens[k].lower())
+                    if v is None or v >= 10 or tokens[k].lower() in ("un", "una", "uma"):
+                        break
+                    digitos += str(v)
+                    j = k + 1
+                if len(digitos) > 1:
+                    out.append(digitos)
+                    i = j
+                    continue
             # A leitura que apanha mais palavras; num empate, a da conversa.
             valor, fim, palavras, lg = None, i, 0, lingua
             for cand in linguas:
@@ -346,7 +398,9 @@ def em_algarismos(texto: str, lingua: str = "es") -> str:
             # decimais, ou seguidos de «%».
             k = _saltar_espacos(tokens, fim)
             percentagem = k < len(tokens) and tokens[k] == "%"
-            if palavras == 1 and valor < 10 and decimal is None and not percentagem:
+            # «uno de agosto» → «1 de agosto»: antes de um mês é um dia.
+            dia = _antes_de_mes(tokens, k)
+            if palavras == 1 and valor < 10 and decimal is None and not (percentagem or dia):
                 out.extend(tokens[i:fim])
                 i = fim
                 continue
@@ -449,5 +503,304 @@ def numeros_no_formato(texto: str, lingua: str = "es") -> str:
                 pos = m.end()
         out.append(texto[pos:])
         return "".join(out)
+    except Exception:  # noqa: BLE001 — o resultado chega ao modelo de qualquer maneira
+        return texto
+
+
+# ── Os números que vão para o modelo, JÁ POR EXTENSO (16/10) ────────────
+#
+# > «a voz fala em espanhol mas diz os números em inglês» — Lucas, 16/10
+#
+# Com a lupe/carlos (es-US nativas) um «563.919,19 €» lia-se em castelhano.
+# A tiffany e o matthew são poliglotas de base inglesa: o modelo, ao gerar a
+# fala, passava os algarismos a palavras em INGLÊS («five hundred sixty three
+# thousand…») a meio de uma frase em castelhano. A instrução de sistema já o
+# proibia e não chegava. O que chega é não lhe dar algarismos para ler: o
+# resultado da ferramenta vai com os números já escritos com letras, na
+# língua da conversa, e ele lê palavras.
+#
+# A legenda não muda: o que o Sonic diz volta a algarismos em `em_algarismos`
+# (o mesmo «coma»/«vírgula», «por ciento»/«por cento», «euros»).
+#
+# Só es e pt. Em inglês o modelo lê os algarismos em inglês, que é o certo.
+
+_ES_0_29 = (
+    "cero uno dos tres cuatro cinco seis siete ocho nueve diez once doce trece "
+    "catorce quince dieciséis diecisiete dieciocho diecinueve veinte veintiuno "
+    "veintidós veintitrés veinticuatro veinticinco veintiséis veintisiete "
+    "veintiocho veintinueve"
+).split()
+_ES_DEZ = {
+    3: "treinta",
+    4: "cuarenta",
+    5: "cincuenta",
+    6: "sesenta",
+    7: "setenta",
+    8: "ochenta",
+    9: "noventa",
+}
+_ES_CEM = {
+    1: "ciento",
+    2: "doscientos",
+    3: "trescientos",
+    4: "cuatrocientos",
+    5: "quinientos",
+    6: "seiscientos",
+    7: "setecientos",
+    8: "ochocientos",
+    9: "novecientos",
+}
+
+_PT_0_19 = (
+    "zero um dois três quatro cinco seis sete oito nove dez onze doze treze "
+    "catorze quinze dezasseis dezassete dezoito dezanove"
+).split()
+_PT_DEZ = {
+    2: "vinte",
+    3: "trinta",
+    4: "quarenta",
+    5: "cinquenta",
+    6: "sessenta",
+    7: "setenta",
+    8: "oitenta",
+    9: "noventa",
+}
+_PT_CEM = {
+    1: "cento",
+    2: "duzentos",
+    3: "trezentos",
+    4: "quatrocentos",
+    5: "quinhentos",
+    6: "seiscentos",
+    7: "setecentos",
+    8: "oitocentos",
+    9: "novecentos",
+}
+
+
+def _es_ate_mil(n: int, fem: bool, apocope: bool) -> str:
+    """0 < n < 1000. `apocope`: «un»/«veintiún» (antes de «mil» ou de um nome)."""
+    c, r = divmod(n, 100)
+    partes = []
+    if c:
+        if c == 1 and r == 0:
+            partes.append("cien")
+        else:
+            cem = _ES_CEM[c]
+            partes.append(cem[:-2] + "as" if fem and c > 1 else cem)
+    if r:
+        if r < 30:
+            p = _ES_0_29[r]
+        else:
+            d, u = divmod(r, 10)
+            p = _ES_DEZ[d] + (f" y {_ES_0_29[u]}" if u else "")
+        if p.endswith("uno"):
+            if fem:
+                p = p[:-1] + "a"
+            elif apocope:
+                p = p[:-3] + "ún" if p.endswith("tiuno") else p[:-1]
+        partes.append(p)
+    return " ".join(partes)
+
+
+def _es_inteiro(n: int, fem: bool = False, apocope: bool = False) -> str:
+    if n == 0:
+        return "cero"
+    mi, resto = divmod(n, 10**6)
+    k, u = divmod(resto, 1000)
+    partes = []
+    if mi:
+        # «mil quinientos millones»: os milhões são um número como outro.
+        partes.append("un millón" if mi == 1 else _es_inteiro(mi, False, True) + " millones")
+    if k:
+        # «veintiún mil», mas «doscientas mil personas»: o milhar concorda.
+        partes.append("mil" if k == 1 else _es_ate_mil(k, fem, True) + " mil")
+    if u:
+        partes.append(_es_ate_mil(u, fem, apocope))
+    return " ".join(partes)
+
+
+def _pt_ate_mil(n: int, fem: bool) -> str:
+    c, r = divmod(n, 100)
+    partes = []
+    if c:
+        if c == 1 and r == 0:
+            partes.append("cem")
+        else:
+            cem = _PT_CEM[c]
+            partes.append(cem[:-2] + "as" if fem and c > 1 else cem)
+    if r:
+        if r < 20:
+            p = _PT_0_19[r]
+        else:
+            d, u = divmod(r, 10)
+            p = _PT_DEZ[d] + (f" e {_PT_0_19[u]}" if u else "")
+        if fem:
+            p = re.sub(r"\bum$", "uma", p)
+            p = re.sub(r"\bdois$", "duas", p)
+        partes.append(p)
+    return " e ".join(partes)
+
+
+def _pt_inteiro(n: int, fem: bool = False) -> str:
+    if n == 0:
+        return "zero"
+    mi, resto = divmod(n, 10**6)
+    k, u = divmod(resto, 1000)
+    # (texto, valor do grupo) — o valor decide o «e» de ligação.
+    grupos = []
+    if mi:
+        grupos.append(("um milhão" if mi == 1 else _pt_inteiro(mi) + " milhões", mi))
+    if k:
+        grupos.append(("mil" if k == 1 else _pt_ate_mil(k, fem) + " mil", k * 1000))
+    if u:
+        grupos.append((_pt_ate_mil(u, fem), u))
+    # «mil e duzentos», «mil e trinta», mas «mil duzentos e trinta».
+    saida = grupos[0][0]
+    for texto, valor in grupos[1:]:
+        # o valor do grupo dentro do seu milhar (u < 1000; k*1000 → k)
+        base = valor if valor < 1000 else valor // 1000
+        saida += (" e " if base < 100 or base % 100 == 0 else " ") + texto
+    return saida
+
+
+def _inteiro(n: int, lingua: str, fem: bool = False, apocope: bool = False) -> str:
+    return _es_inteiro(n, fem, apocope) if lingua == "es" else _pt_inteiro(n, fem)
+
+
+def _decimais_por_extenso(d: str, lingua: str) -> str:
+    # «0,05» → «cero coma cero cinco»: com zero à esquerda, dígito a dígito
+    # (é assim que se diz, e é o que `_ler_decimais` sabe juntar outra vez).
+    if d.startswith("0") or len(d) > 3:
+        return " ".join(_inteiro(int(c), lingua) for c in d)
+    return _inteiro(int(d), lingua)
+
+
+#: Um número já no formato es/pt («563.919,19», «7,3», «12»), com «€» ou
+#: «%» opcionais a seguir. As datas e as horas tratam-se antes, à parte.
+_NUMERO_FORMATADO = re.compile(
+    r"(?<![\w.,:/-])(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d+))?(?![\w]|[.,:/-]\d)" r"(\s*(?:€|%|EUR\b))?",
+    re.I,
+)
+
+_DATA_DMY = re.compile(r"(?<![\w/.-])(\d{1,2})/(\d{1,2})/(\d{4})(?![\w/])")
+_DATA_ISO = re.compile(r"(?<![\w/.-])(\d{4})-(\d{2})-(\d{2})(?![\w-])")
+_HORA = re.compile(r"(?<![\w:.,])([01]?\d|2[0-3]):([0-5]\d)(?![\w:])")
+_MESES = {
+    "es": "enero febrero marzo abril mayo junio julio agosto septiembre octubre "
+    "noviembre diciembre".split(),
+    "pt": "janeiro fevereiro março abril maio junho julho agosto setembro outubro "
+    "novembro dezembro".split(),
+}
+
+#: Nomes que acabam em -a/-as e são masculinos — sem isto «200 días» virava
+#: «doscientas días». Lista curta de propósito: o que aparece em dados.
+_MASCULINOS_EM_A = {
+    "día",
+    "días",
+    "dia",
+    "dias",
+    "problema",
+    "problemas",
+    "sistema",
+    "sistemas",
+    "programa",
+    "programas",
+    "mapa",
+    "mapas",
+    "tema",
+    "temas",
+    "idioma",
+    "idiomas",
+    "planeta",
+    "planetas",
+    "esquema",
+    "esquemas",
+}
+_PALAVRA_SEGUINTE = re.compile(r"\s+([^\W\d_]+)", re.UNICODE)
+
+
+def _feminino(seguinte: str) -> bool:
+    s = seguinte.lower()
+    return s not in _MASCULINOS_EM_A and (s.endswith("a") or s.endswith("as"))
+
+
+def por_extenso(texto: str, lingua: str = "es") -> str:
+    """«facturó 563.919,19 €» → «facturó quinientos sesenta y tres mil
+    novecientos diecinueve coma diecinueve euros». Só es e pt; o resto
+    (incluindo inglês) volta tal e qual. Nunca rebenta.
+
+    Também as datas («01/08/2026» → «uno de agosto de dos mil veintiséis»),
+    as horas e os códigos com zero à esquerda: qualquer algarismo que chegue
+    ao modelo pode sair dito em inglês.
+
+    Recebe o texto JÁ passado por `numeros_no_formato`.
+    """
+    lingua = (lingua or "")[:2].lower()
+    if not texto or lingua not in ("es", "pt"):
+        return texto
+    virgula = "coma" if lingua == "es" else "vírgula"
+    pct = "por ciento" if lingua == "es" else "por cento"
+
+    def trocar(m: "re.Match[str]") -> str:
+        inteiro, decimais, unidade = m.group(1), m.group(2), (m.group(3) or "")
+        # Códigos («Tienda 01», «007»): dígito a dígito. Em algarismos o
+        # Sonic dizia «O One» (medido a 16/10).
+        if len(inteiro) > 1 and inteiro.startswith("0") and decimais is None and not unidade:
+            return " ".join(_inteiro(int(c), lingua) for c in inteiro)
+        n = int(inteiro.replace(".", ""))
+        if n >= 10**12:
+            return m.group(0)
+        u = unidade.strip().lower()
+        seg = None if (u or decimais is not None) else _PALAVRA_SEGUINTE.match(texto, m.end())
+        fem = seg is not None and _feminino(seg.group(1))
+        # «un pedido», «veintiún pedidos», «un euro»; sozinho, «uno».
+        apocope = decimais is None and (u in ("€", "eur") or seg is not None)
+        palavras = _inteiro(n, lingua, fem=fem, apocope=apocope)
+        if decimais is not None:
+            palavras += f" {virgula} " + _decimais_por_extenso(decimais, lingua)
+        if u in ("€", "eur"):
+            if decimais is None and n >= 10**6 and n % 10**6 == 0:
+                palavras += " de"  # «un millón de euros»
+            palavras += " euro" if (n == 1 and decimais is None) else " euros"
+        elif u == "%":
+            palavras += f" {pct}"
+        elif seg is not None and n >= 10**6 and n % 10**6 == 0:
+            palavras += " de"  # «dos millones de pedidos»
+        return palavras
+
+    def data(dia: str, mes: str, ano: str) -> Optional[str]:
+        d, mm, a = int(dia), int(mes), int(ano)
+        if not (1 <= d <= 31 and 1 <= mm <= 12 and 1000 <= a <= 2999):
+            return None
+        de = " de "
+        dia_dito = _inteiro(d, lingua)
+        return dia_dito + de + _MESES[lingua][mm - 1] + de + _inteiro(a, lingua)
+
+    def data_dmy(m: "re.Match[str]") -> str:
+        return data(m.group(1), m.group(2), m.group(3)) or m.group(0)
+
+    def data_iso(m: "re.Match[str]") -> str:
+        return data(m.group(3), m.group(2), m.group(1)) or m.group(0)
+
+    def hora(m: "re.Match[str]") -> str:
+        h, mi = int(m.group(1)), int(m.group(2))
+        if h > 23 or mi > 59:
+            return m.group(0)
+        if mi == 0:
+            return _inteiro(h, lingua, fem=True) + (" en punto" if lingua == "es" else " horas")
+        return (
+            _inteiro(h, lingua, fem=True)
+            + (" y " if lingua == "es" else " e ")
+            + _inteiro(mi, lingua)
+        )
+
+    try:
+        # Datas e horas primeiro: depois de passar pelo de baixo, um
+        # «01/08/2026» já não se reconhecia.
+        texto = _DATA_DMY.sub(data_dmy, texto)
+        texto = _DATA_ISO.sub(data_iso, texto)
+        texto = _HORA.sub(hora, texto)
+        return _NUMERO_FORMATADO.sub(trocar, texto)
     except Exception:  # noqa: BLE001 — o resultado chega ao modelo de qualquer maneira
         return texto

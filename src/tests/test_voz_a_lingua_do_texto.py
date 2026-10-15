@@ -152,10 +152,30 @@ class TestNumerosParaOModelo:
         f = ponte.ferramenta_do_cliente(
             responder, user=None, page_id="p", ctx=None, locale="es", space_id="s"
         )
-        assert await f("¿cuánto he facturado?") == "Has facturado un total de 6.153.185,72 €."
+        # Desde 16/10 vai por extenso (ver `test_voz_numeros_por_extenso`):
+        # formatado, as vozes poliglotas ainda o liam em inglês.
+        assert await f("¿cuánto he facturado?") == (
+            "Has facturado un total de seis millones ciento cincuenta y tres mil "
+            "ciento ochenta y cinco coma setenta y dos euros."
+        )
+
+    @pytest.mark.asyncio
+    async def test_em_ingles_continua_formatado_em_algarismos(self):
+        async def responder(*_a, **_k):
+            return "Total revenue was 6153185.72."
+
+        f = ponte.ferramenta_do_cliente(
+            responder, user=None, page_id="p", ctx=None, locale="en", space_id="s"
+        )
+        assert await f("revenue?") == "Total revenue was €6,153,185.72."
 
     def test_o_modelo_e_mandado_ler_na_lingua_da_conversa(self):
+        # Em castelhano, por extenso (16/10 — ver `test_voz_numeros_por_extenso`).
         texto = sonic.instrucao_de_sistema("es")
+        assert "euros" in texto
+        assert "nunca con cifras ni en inglés" in texto
+        # Em português continua em algarismos, lidos em português.
+        texto = sonic.instrucao_de_sistema("pt")
         assert "euros" in texto
         assert "nunca noutra língua" in texto
 
