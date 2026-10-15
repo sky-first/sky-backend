@@ -8,6 +8,8 @@ Single source of truth for:
 
 from __future__ import annotations
 
+import re
+
 DEFAULT_LOCALE = "pt"
 
 # ⚠️ O espanhol faltava aqui, e o que acontecia era pior do que ficar em
@@ -465,6 +467,57 @@ def get_message(key: str, locale: str | None = None) -> str:
 
 #: O valor que quer dizer «segue a língua da pergunta».
 LINGUA_AUTOMATICA = "auto"
+
+
+# ── A língua de uma pergunta, sem modelo (14/10/2026) ──────────────────
+#
+# Produção: «¿Cuál es el ticket medio por canal?» → «Não foi possível
+# contactar a Sky.» — em português, numa conversa em castelhano. Quem
+# escolheu «Segue a sua pergunta» chega ao `/ai/query` com `locale=None`,
+# e a frase de erro caía no `DEFAULT_LOCALE`. A frase de erro ocupa o lugar
+# da RESPOSTA; tem de vir na língua da pergunta, como a resposta viria.
+#
+# Sem modelo e sem dependências: só tem de distinguir pt, es e en o
+# suficiente para uma frase de erro, e devolve None quando não sabe.
+
+_MARCAS_ES = re.compile(r"[¿¡ñ]", re.IGNORECASE)
+_MARCAS_PT = re.compile(r"[ãõç]|\b(?:não|nós|você|vocês|são)\b", re.IGNORECASE)
+_PALAVRAS = {
+    "es": {
+        "qué", "cuál", "cuáles", "cuánto", "cuántos", "cuántas", "cómo", "dónde",
+        "el", "los", "las", "del", "hay", "nos", "han", "este", "esta", "año",
+        "mes", "por", "una", "más", "ventas", "clientes", "tenemos", "hemos",
+    },
+    "pt": {
+        "qual", "quais", "quanto", "quantos", "quantas", "onde", "os", "as",
+        "do", "da", "dos", "das", "ano", "mês", "uma", "mais", "vendas",
+        "temos", "tivemos", "foi", "foram", "pelo", "pela", "este", "esta",
+    },
+    "en": {
+        "what", "which", "how", "the", "is", "are", "was", "were", "of", "in",
+        "this", "year", "month", "sales", "customers", "did", "do", "does",
+        "many", "much", "top", "per",
+    },
+}  # fmt: skip
+
+
+def lingua_da_pergunta(texto: str | None) -> str | None:
+    """«es», «pt» ou «en» quando a pergunta o diz com clareza; senão None."""
+    t = (texto or "").strip()
+    if not t:
+        return None
+    if _MARCAS_ES.search(t):
+        return "es"
+    if _MARCAS_PT.search(t):
+        return "pt"
+    palavras = re.findall(r"[^\W\d_]+", t.lower())
+    pontos = {k: sum(1 for w in palavras if w in v) for k, v in _PALAVRAS.items()}
+    melhor = max(pontos, key=pontos.get)
+    if pontos[melhor] == 0:
+        return None
+    if sorted(pontos.values())[-2] == pontos[melhor]:
+        return None  # empate: não se adivinha
+    return melhor
 
 
 def lingua_da_interface(
