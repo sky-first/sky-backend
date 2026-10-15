@@ -476,6 +476,25 @@ class AIServiceHTTPClient:
             response.raise_for_status()
             return response.json()  # type: ignore
 
+    async def aplicar_retencao_auditoria(
+        self, *, dry_run: bool, tenant_slug: Optional[str]
+    ) -> Dict[str, Any]:
+        """Retenção dos registos de auditoria do sky-ai NUMA base (RGPD).
+
+        ``tenant_slug`` é explícito (``None``/``default`` = plataforma): a
+        tarefa diária corre fora de um pedido e não pode depender do
+        contextvar. Os dias vêm do ``RETENCAO_AUDITORIA_DIAS`` do próprio
+        sky-ai — nunca deste pedido. Devolve só contagens.
+        """
+        cabecalhos: Dict[str, str] = {}
+        if tenant_slug and tenant_slug != "default":
+            cabecalhos["X-Tenant-Slug"] = tenant_slug
+        url = f"{self.base_url}/privacidade/retencao"
+        async with httpx.AsyncClient(timeout=self.timeout, headers=cabecalhos) as client:
+            response = await client.post(url, params={"dry_run": bool(dry_run)})
+            response.raise_for_status()
+            return response.json()  # type: ignore
+
     async def list_tables(
         self,
         connection_id: str,

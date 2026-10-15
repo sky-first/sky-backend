@@ -125,6 +125,10 @@ class User(Base):
         onupdate=func.now(),
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+    # RGPD (15/10/2026): quando a conta removida foi anonimizada de forma
+    # irreversível (ANONIMIZACAO_APOS_REMOCAO_DIAS depois de deleted_at).
+    # Com isto preenchido a conta já não se restaura.
+    anonymized_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     refresh_tokens = relationship(
